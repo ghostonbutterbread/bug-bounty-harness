@@ -2,7 +2,7 @@
   "campaign_id": "superdrug_20260326",
   "target": "https://api.superdrug.com",
   "created": "2026-03-26T21:00:32.935528+00:00",
-  "last_session": "2026-03-26T21:02:47.243923+00:00",
+  "last_session": "2026-03-26T21:03:37.262642+00:00",
   "scope": {
     "domains": [
       "superdrug.com",
@@ -14,8 +14,8 @@
     "account_b": null
   },
   "stats": {
-    "total_requests": 3,
-    "requests_this_session": 3,
+    "total_requests": 4,
+    "requests_this_session": 4,
     "max_requests_per_session": 500,
     "rate_limit_rpm": 30,
     "rate_limit_cooldown_s": 30
@@ -30,8 +30,8 @@
   "initializer_complete": false,
   "_rate_tracker": {
     "GET api.superdrug.com": {
-      "count": 2,
-      "window_start": 1774558918.577436
+      "count": 1,
+      "window_start": 1774559016.7094543
     }
   },
   "fuzz_state": {
@@ -41,15 +41,77 @@
       "/home/ryushe/wordlists/SecLists/Discovery/Web-Content/raft-small-words.txt",
       "/home/ryushe/wordlists/SecLists/Discovery/Web-Content/raft-medium-words.txt"
     ],
-    "paths_tested": [],
+    "paths_tested": [
+      "/.bash_history",
+      "/.bashrc",
+      "/.cache",
+      "/.config",
+      "/.cvs",
+      "/.cvsignore",
+      "/.env",
+      "/.forward",
+      "/.git",
+      "/.git-rewrite",
+      "/.git/HEAD",
+      "/.git/config",
+      "/.git/index",
+      "/.git/logs/",
+      "/.git_release",
+      "/.gitattributes",
+      "/.gitconfig",
+      "/.gitignore",
+      "/.gitk",
+      "/.gitkeep",
+      "/.gitmodules",
+      "/.gitreview",
+      "/.history",
+      "/.hta",
+      "/.htaccess",
+      "/.htpasswd",
+      "/.listing",
+      "/.listings",
+      "/.mysql_history",
+      "/.passwd"
+    ],
     "targets_tested": [
       "https://api.superdrug.com"
     ],
     "findings_interesting": 0,
     "rate_limit_events": 1,
-    "backoff_until": 1774559027.2437916,
-    "session_start": "2026-03-26T21:02:47.243910+00:00",
+    "backoff_until": 1774559077.2624915,
+    "session_start": "2026-03-26T21:03:37.262628+00:00",
     "last_wordlist": "/home/ryushe/wordlists/SecLists/Discovery/Web-Content/common.txt",
-    "tested_pairs": []
+    "tested_pairs": [
+      "api.superdrug.com::/.bash_history",
+      "api.superdrug.com::/.bashrc",
+      "api.superdrug.com::/.cache",
+      "api.superdrug.com::/.config",
+      "api.superdrug.com::/.cvs",
+      "api.superdrug.com::/.cvsignore",
+      "api.superdrug.com::/.env",
+      "api.superdrug.com::/.forward",
+      "api.superdrug.com::/.git",
+      "api.superdrug.com::/.git-rewrite",
+      "api.superdrug.com::/.git/HEAD",
+      "api.superdrug.com::/.git/config",
+      "api.superdrug.com::/.git/index",
+      "api.superdrug.com::/.git/logs/",
+      "api.superdrug.com::/.git_release",
+      "api.superdrug.com::/.gitattributes",
+      "api.superdrug.com::/.gitconfig",
+      "api.superdrug.com::/.gitignore",
+      "api.superdrug.com::/.gitk",
+      "api.superdrug.com::/.gitkeep",
+      "api.superdrug.com::/.gitmodules",
+      "api.superdrug.com::/.gitreview",
+      "api.superdrug.com::/.history",
+      "api.superdrug.com::/.hta",
+      "api.superdrug.com::/.htaccess",
+      "api.superdrug.com::/.htpasswd",
+      "api.superdrug.com::/.listing",
+      "api.superdrug.com::/.listings",
+      "api.superdrug.com::/.mysql_history",
+      "api.superdrug.com::/.passwd"
+    ]
   }
 }

@@ -1,0 +1,55 @@
+{
+  "campaign_id": "superdrug_20260326",
+  "target": "https://api.superdrug.com",
+  "created": "2026-03-26T21:00:32.935528+00:00",
+  "last_session": "2026-03-26T21:00:33.667194+00:00",
+  "scope": {
+    "domains": [
+      "superdrug.com",
+      "api.superdrug.com"
+    ],
+    "require_auth": true,
+    "auth_type": "session_cookie",
+    "account_a": null,
+    "account_b": null
+  },
+  "stats": {
+    "total_requests": 1,
+    "requests_this_session": 1,
+    "max_requests_per_session": 500,
+    "rate_limit_rpm": 30,
+    "rate_limit_cooldown_s": 30
+  },
+  "test_catalog": [],
+  "findings": {
+    "confirmed": [],
+    "potential": [],
+    "false_positive": []
+  },
+  "baselines": {},
+  "initializer_complete": false,
+  "_rate_tracker": {
+    "GET api.superdrug.com": {
+      "count": 1,
+      "window_start": 1774558833.132688
+    }
+  },
+  "fuzz_state": {
+    "wordlist_idx": 0,
+    "wordlist_paths": [
+      "/home/ryushe/wordlists/SecLists/Discovery/Web-Content/common.txt",
+      "/home/ryushe/wordlists/SecLists/Discovery/Web-Content/raft-small-words.txt",
+      "/home/ryushe/wordlists/SecLists/Discovery/Web-Content/raft-medium-words.txt"
+    ],
+    "paths_tested": [],
+    "targets_tested": [
+      "https://api.superdrug.com"
+    ],
+    "findings_interesting": 0,
+    "rate_limit_events": 1,
+    "backoff_until": 1774558893.6670403,
+    "session_start": "2026-03-26T21:00:33.667180+00:00",
+    "last_wordlist": "/home/ryushe/wordlists/SecLists/Discovery/Web-Content/common.txt",
+    "tested_pairs": []
+  }
+}

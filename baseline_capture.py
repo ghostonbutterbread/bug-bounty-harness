@@ -47,6 +47,21 @@ class BaselineStore:
     def _path(self, endpoint: str, account: str) -> Path:
         return self.baselines_dir / f"{self._key(endpoint, account)}.json"
 
+    def _extract_csrf(self, headers: dict) -> Optional[dict]:
+        """Extract a CSRF token from response headers if present."""
+        for header_name in ("X-CSRF-Token", "csrf-token"):
+            token = headers.get(header_name)
+            if token:
+                return {"header": header_name, "token": token}
+        return None
+
+    def _set_header(self, headers: dict, header_name: str, value: str) -> None:
+        """Set a header case-insensitively, replacing any existing variant."""
+        for existing_name in list(headers):
+            if existing_name.lower() == header_name.lower():
+                del headers[existing_name]
+        headers[header_name] = value
+
     def capture(
         self,
         endpoint: str,
@@ -74,6 +89,16 @@ class BaselineStore:
         Returns:
             The captured baseline dict
         """
+        request_headers = dict(headers)
+        existing_baseline = self.get(endpoint, account)
+        stored_csrf = existing_baseline.get("csrf") if existing_baseline else None
+        if stored_csrf:
+            self._set_header(
+                request_headers,
+                stored_csrf["header"],
+                stored_csrf["token"],
+            )
+
         captured = {
             "endpoint": endpoint,
             "account": account,
@@ -82,19 +107,20 @@ class BaselineStore:
             "request": {
                 "method": method.upper(),
                 "url": url,
-                "headers": dict(headers),  # copy to avoid mutation
+                "headers": dict(request_headers),
                 "params": params or {},
                 "body": body,
             },
             "response": None,
             "error": None,
+            "csrf": stored_csrf,
         }
 
         try:
             client_kwargs = {
                 "method": method.upper(),
                 "url": url,
-                "headers": headers,
+                "headers": request_headers,
                 "timeout": timeout,
             }
             if params:
@@ -104,7 +130,8 @@ class BaselineStore:
                     json.dumps(body) if isinstance(body, dict) else body
                 )
                 if isinstance(body, dict):
-                    captured["request"]["headers"]["Content-Type"] = "application/json"
+                    self._set_header(request_headers, "Content-Type", "application/json")
+                    captured["request"]["headers"] = dict(request_headers)
 
             response = httpx.request(**client_kwargs)
 
@@ -122,6 +149,7 @@ class BaselineStore:
                 "body_length": len(resp_body_str),
                 "elapsed_ms": response.elapsed.total_seconds() * 1000,
             }
+            captured["csrf"] = self._extract_csrf(response.headers) or stored_csrf
 
         except httpx.TimeoutException:
             captured["error"] = "TIMEOUT"

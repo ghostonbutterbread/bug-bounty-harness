@@ -217,6 +217,7 @@ class HarnessConstraints:
         self.scope_domains = self.state["scope"]["domains"]
         self.max_requests_session = self.state["stats"]["max_requests_per_session"]
         self.rate_limit_rpm = self.state["stats"]["rate_limit_rpm"]
+        self.rate_limit_rps = self.state["stats"].get("rate_limit_rps", self.rate_limit_rpm / 60.0)
         self.cooldown_s = self.state["stats"].get("rate_limit_cooldown_s", 30)
         self._rate_tracker = self.state.setdefault("_rate_tracker", {})
 

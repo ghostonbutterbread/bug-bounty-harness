@@ -3,6 +3,7 @@ import sys
 sys.path.insert(0, "/home/ryushe/workspace/bug_bounty_harness")
 
 import fcntl
+import time
 import json
 import os
 import re
@@ -237,6 +238,7 @@ class FuzzAgent:
             for path in batch:
                 self._mark_path_tested(target, path, fuzz_state)
 
+            batch_start_time = time.time()
             run_result = self._execute_ffuf(
                 target=target,
                 wordlist=wordlist,
@@ -257,6 +259,15 @@ class FuzzAgent:
                 break
 
             self._record_attempts(constraints, target, batch_size)
+
+            # Pace at the program's allowed rate: sleep if we completed faster than the rate limit
+            if constraints.rate_limit_rps > 0:
+                expected_duration = batch_size / constraints.rate_limit_rps
+                elapsed = time.time() - batch_start_time
+                sleep_time = expected_duration - elapsed
+                if sleep_time > 0.05:  # only sleep if more than 50ms
+                    time.sleep(sleep_time)
+            batch_start_time = time.time()
 
             if result["requests_used"] >= max_requests:
                 break

@@ -1,0 +1,40 @@
+{
+  "campaign_id": "superdrug_test2",
+  "target": "https://api.superdrug.com",
+  "created": "2026-03-26T21:14:59.373848+00:00",
+  "last_session": "2026-03-26T21:14:59.373857+00:00",
+  "scope": {
+    "domains": [
+      ".savers.co.uk",
+      ".superdrug.com"
+    ],
+    "require_auth": true,
+    "auth_type": "session_cookie",
+    "account_a": null,
+    "account_b": null
+  },
+  "stats": {
+    "total_requests": 0,
+    "requests_this_session": 0,
+    "max_requests_per_session": 500,
+    "rate_limit_rpm": 300,
+    "rate_limit_cooldown_s": 30,
+    "rate_limit_rps": 5.0
+  },
+  "test_catalog": [],
+  "findings": {
+    "confirmed": [],
+    "potential": [],
+    "false_positive": []
+  },
+  "baselines": {},
+  "initializer_complete": false,
+  "_rate_tracker": {},
+  "program_config": {
+    "program": "superdrug",
+    "rate_limit_rpm": 300,
+    "rate_limit_rps": 5.0,
+    "is_rate_limit_bypass_in_scope": false,
+    "credentials_path": "/home/ryushe/Shared/bounty_recon/superdrug/credentials"
+  }
+}

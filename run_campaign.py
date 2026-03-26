@@ -30,6 +30,7 @@ from harness_core import CampaignState, is_valid_campaign_id
 from test_catalog import build_test_catalog, get_pending_by_priority
 from baseline_capture import BaselineStore
 from verifier import FindingVerifier, VulnType
+from agents.fuzz_runner import FuzzAgent
 
 
 # ─── Init Command ─────────────────────────────────────────────────────────────
@@ -136,8 +137,10 @@ def cmd_run(args):
         return run_bac_tester(args, campaign, state)
     elif args.agent == "analyzer":
         return run_analyzer(args, campaign, state)
+    elif args.agent == "fuzz":
+        return run_fuzz(args, campaign, state)
     else:
-        print(f"Unknown agent: {args.agent}. Available: initializer, bac_tester, analyzer")
+        print(f"Unknown agent: {args.agent}. Available: initializer, bac_tester, analyzer, fuzz")
         return 1
 
 
@@ -225,6 +228,37 @@ def run_analyzer(args, campaign, state):
     print(f"   Analyzer complete — {len(confirmed)} confirmed, {len(potential)} potential still need review")
     state.git_commit(args.campaign, "Analyzer: findings reviewed")
     return 0
+
+
+def run_fuzz(args, campaign, state):
+    """Run the fuzz agent — adaptive web fuzzing with ffuf."""
+    print(f"🎯 Fuzz Agent: {args.campaign}")
+    max_requests = args.max_requests or 5000
+    print(f"   Max requests this session: {max_requests}")
+
+    fuzz_state = campaign.get("fuzz_state", {})
+    last_wordlist = fuzz_state.get("last_wordlist", "none")
+    paths_tested = len(fuzz_state.get("paths_tested", []))
+    print(f"   Last wordlist: {last_wordlist}")
+    print(f"   Paths already tested: {paths_tested}")
+
+    try:
+        agent = FuzzAgent(args.campaign)
+        result = agent.run(max_requests=max_requests)
+
+        print(f"\n   Fuzz session complete:")
+        print(f"   - Requests made: {result.get('requests_planned', '?')}")
+        print(f"   - Interesting findings: {result.get('interesting_findings', 0)}")
+        print(f"   - Rate limited: {result.get('rate_limited', False)}")
+        print(f"   - Deferred (backoff): {result.get('deferred', False)}")
+        if result.get("findings_output"):
+            print(f"   - Raw output: {result.get('raw_output', '')}")
+            print(f"   - Findings: {result.get('findings_output', '')}")
+
+        return 0
+    except Exception as e:
+        print(f"   ❌ Fuzz failed: {e}")
+        return 1
 
 
 # ─── Report Command ────────────────────────────────────────────────────────────
@@ -355,7 +389,7 @@ def main():
     p_run = sub.add_parser("run", help="Run a campaign agent")
     p_run.add_argument("--campaign", required=True, help="Campaign ID")
     p_run.add_argument("--agent", required=True, help="Agent: initializer, bac_tester, analyzer")
-    p_run.add_argument("--max-tests", type=int, help="Max tests to run in this session")
+    p_run.add_argument("--max-requests", type=int, default=5000, help="Max requests per session (default: 5000)")
 
     # report
     p_report = sub.add_parser("report", help="Generate campaign report")

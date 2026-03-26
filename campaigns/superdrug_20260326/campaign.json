@@ -2,7 +2,7 @@
   "campaign_id": "superdrug_20260326",
   "target": "https://api.superdrug.com",
   "created": "2026-03-26T21:00:32.935528+00:00",
-  "last_session": "2026-03-26T21:01:59.168228+00:00",
+  "last_session": "2026-03-26T21:02:47.243923+00:00",
   "scope": {
     "domains": [
       "superdrug.com",
@@ -14,8 +14,8 @@
     "account_b": null
   },
   "stats": {
-    "total_requests": 2,
-    "requests_this_session": 2,
+    "total_requests": 3,
+    "requests_this_session": 3,
     "max_requests_per_session": 500,
     "rate_limit_rpm": 30,
     "rate_limit_cooldown_s": 30
@@ -30,7 +30,7 @@
   "initializer_complete": false,
   "_rate_tracker": {
     "GET api.superdrug.com": {
-      "count": 1,
+      "count": 2,
       "window_start": 1774558918.577436
     }
   },
@@ -47,8 +47,8 @@
     ],
     "findings_interesting": 0,
     "rate_limit_events": 1,
-    "backoff_until": 1774558979.168051,
-    "session_start": "2026-03-26T21:01:59.168214+00:00",
+    "backoff_until": 1774559027.2437916,
+    "session_start": "2026-03-26T21:02:47.243910+00:00",
     "last_wordlist": "/home/ryushe/wordlists/SecLists/Discovery/Web-Content/common.txt",
     "tested_pairs": []
   }

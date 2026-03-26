@@ -1,0 +1,8 @@
+campaign_id: superdrug_20260326
+generated_at: 2026-03-26T21:02:47.313719+00:00
+wordlist_idx: 0
+rate_limit_events: 1
+backoff_until: 1774559027.2437916
+last_wordlist: /home/ryushe/wordlists/SecLists/Discovery/Web-Content/common.txt
+
+No interesting findings.

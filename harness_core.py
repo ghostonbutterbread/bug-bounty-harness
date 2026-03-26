@@ -11,15 +11,21 @@ Usage:
     constraints.enforce("https://api.target.com/orders/123", "/api/v2/orders/{id}")
 """
 
+import copy
+import fcntl
 import json
 import hashlib
+import logging
 import subprocess
 import os
 import re
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # ─── Custom Exception ──────────────────────────────────────────────────────────
 
@@ -42,17 +48,39 @@ class CampaignState:
         if campaigns_dir:
             self.CAMPAIGNS_DIR = Path(campaigns_dir)
         self.CAMPAIGNS_DIR.mkdir(parents=True, exist_ok=True)
+        self._lock_path = self.CAMPAIGNS_DIR / ".lock"
+        self._lock_path.touch(exist_ok=True)
 
     def _campaign_path(self, campaign_id: str) -> Path:
         return self.CAMPAIGNS_DIR / f"{campaign_id}.json"
+
+    @contextmanager
+    def _campaign_lock(self):
+        with open(self._lock_path, "a+") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+    def _load_unlocked(self, path: Path) -> dict:
+        with open(path) as f:
+            return json.load(f)
+
+    def _save_unlocked(self, path: Path, state: dict) -> None:
+        tmp = path.with_name(f"{path.name}.tmp")
+        with open(tmp, "w") as f:
+            json.dump(state, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp.rename(path)
 
     def load(self, campaign_id: str) -> dict:
         """Load campaign state. Raises if not found."""
         path = self._campaign_path(campaign_id)
         if not path.exists():
             raise FileNotFoundError(f"Campaign not found: {campaign_id}")
-        with open(path) as f:
-            return json.load(f)
+        return self._load_unlocked(path)
 
     def exists(self, campaign_id: str) -> bool:
         return self._campaign_path(campaign_id).exists()
@@ -60,10 +88,8 @@ class CampaignState:
     def save(self, campaign_id: str, state: dict) -> None:
         """Save campaign state atomically."""
         path = self._campaign_path(campaign_id)
-        tmp = path.with_suffix(".tmp")
-        with open(tmp, "w") as f:
-            json.dump(state, f, indent=2)
-        tmp.rename(path)
+        with self._campaign_lock():
+            self._save_unlocked(path, state)
 
     def create(self, campaign_id: str, target: str, scope_domains: list) -> dict:
         """Create a new campaign with default structure."""
@@ -103,27 +129,31 @@ class CampaignState:
         """
         Update a test's status: 'pending' -> 'in_progress' -> 'confirmed'/'potential'/'false_positive'
         """
-        state = self.load(campaign_id)
-        for test in state["test_catalog"]:
-            if test["id"] == test_id:
-                test["status"] = status
-                test["attempts"] = test.get("attempts", 0) + 1
-                test["last_attempt"] = datetime.now(timezone.utc).isoformat()
-                if notes:
-                    test["notes"] = notes
-                break
-        state["last_session"] = datetime.now(timezone.utc).isoformat()
-        self.save(campaign_id, state)
+        path = self._campaign_path(campaign_id)
+        with self._campaign_lock():
+            state = self._load_unlocked(path)
+            for test in state["test_catalog"]:
+                if test["id"] == test_id:
+                    test["status"] = status
+                    test["attempts"] = test.get("attempts", 0) + 1
+                    test["last_attempt"] = datetime.now(timezone.utc).isoformat()
+                    if notes:
+                        test["notes"] = notes
+                    break
+            state["last_session"] = datetime.now(timezone.utc).isoformat()
+            self._save_unlocked(path, state)
 
     def add_finding(self, campaign_id: str, finding: dict, category: str = "potential") -> None:
         """Add a finding to the campaign."""
         if category not in ("confirmed", "potential", "false_positive"):
             category = "potential"
-        state = self.load(campaign_id)
-        finding["_added"] = datetime.now(timezone.utc).isoformat()
-        state["findings"][category].append(finding)
-        state["last_session"] = datetime.now(timezone.utc).isoformat()
-        self.save(campaign_id, state)
+        path = self._campaign_path(campaign_id)
+        with self._campaign_lock():
+            state = self._load_unlocked(path)
+            finding["_added"] = datetime.now(timezone.utc).isoformat()
+            state["findings"][category].append(finding)
+            state["last_session"] = datetime.now(timezone.utc).isoformat()
+            self._save_unlocked(path, state)
 
     def get_pending_tests(self, campaign_id: str) -> list[dict]:
         """Return all tests with status 'pending'."""
@@ -147,22 +177,31 @@ class CampaignState:
 
     def git_commit(self, campaign_id: str, message: str) -> None:
         """Git add + commit for clean exit protocol."""
-        harness_dir = Path(__file__).parent.parent
+        harness_dir = Path(__file__).resolve().parent
         try:
             subprocess.run(
                 ["git", "add", "."],
                 cwd=harness_dir,
                 check=True,
                 capture_output=True,
+                text=True,
             )
             subprocess.run(
                 ["git", "commit", "-m", message],
                 cwd=harness_dir,
                 check=True,
                 capture_output=True,
+                text=True,
             )
-        except subprocess.CalledProcessError:
-            pass  # Git not available or nothing to commit — non-fatal
+        except FileNotFoundError as exc:
+            logger.warning("git is unavailable for campaign %s: %s", campaign_id, exc)
+        except subprocess.CalledProcessError as exc:
+            error_output = (exc.stderr or exc.stdout or str(exc)).strip()
+            logger.warning(
+                "git commit failed for campaign %s: %s",
+                campaign_id,
+                error_output,
+            )
 
 
 # ─── Harness Constraints ───────────────────────────────────────────────────────
@@ -174,12 +213,12 @@ class HarnessConstraints:
     """
 
     def __init__(self, campaign_state: dict):
-        self.state = campaign_state
-        self.scope_domains = campaign_state["scope"]["domains"]
-        self.max_requests_session = campaign_state["stats"]["max_requests_per_session"]
-        self.rate_limit_rpm = campaign_state["stats"]["rate_limit_rpm"]
-        self.cooldown_s = campaign_state["stats"].get("rate_limit_cooldown_s", 30)
-        self._rate_tracker = campaign_state.get("_rate_tracker", {})
+        self.state = copy.deepcopy(campaign_state)
+        self.scope_domains = self.state["scope"]["domains"]
+        self.max_requests_session = self.state["stats"]["max_requests_per_session"]
+        self.rate_limit_rpm = self.state["stats"]["rate_limit_rpm"]
+        self.cooldown_s = self.state["stats"].get("rate_limit_cooldown_s", 30)
+        self._rate_tracker = self.state.setdefault("_rate_tracker", {})
 
     def is_in_scope(self, url: str) -> bool:
         """Check if URL is within scope domains. Returns True/False."""
@@ -247,6 +286,12 @@ class HarnessConstraints:
         """Record a request for rate and budget tracking."""
         key = self._get_endpoint_key(url, method)
         now = time.time()
+        stale_after_s = 120.0
+
+        for existing_key, tracker in list(self._rate_tracker.items()):
+            window_start = tracker.get("window_start", now)
+            if now - window_start > stale_after_s:
+                self._rate_tracker.pop(existing_key, None)
 
         if key not in self._rate_tracker:
             self._rate_tracker[key] = {"count": 0, "window_start": now}

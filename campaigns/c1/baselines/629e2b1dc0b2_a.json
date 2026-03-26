@@ -1,0 +1,17 @@
+{
+  "endpoint": "/x",
+  "account": "a",
+  "captured_at": "2026-03-26T17:57:59.212194+00:00",
+  "campaign_id": "c1",
+  "request": {
+    "method": "GET",
+    "url": "https://api.example.com/x",
+    "headers": {
+      "Cookie": "sess=1"
+    },
+    "params": {},
+    "body": null
+  },
+  "response": null,
+  "error": "CONNECT_ERROR: [Errno -5] No address associated with hostname"
+}

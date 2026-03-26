@@ -232,6 +232,11 @@ class FuzzAgent:
                 break
 
             batch = remaining[:batch_size]
+            # Mark ALL batch paths as tested BEFORE ffuf runs — even if ffuf crashes
+            # or exits early due to rate limit, we don't retry these paths
+            for path in batch:
+                self._mark_path_tested(target, path, fuzz_state)
+
             run_result = self._execute_ffuf(
                 target=target,
                 wordlist=wordlist,
@@ -251,10 +256,6 @@ class FuzzAgent:
                 self._record_attempts(constraints, target, min(len(run_result["findings"]) or 1, batch_size))
                 break
 
-            # Mark ALL batch paths as tested BEFORE ffuf runs — if ffuf exits early
-            # (rate limit, crash, etc.) the paths are still recorded so we don't retry them
-            for path in batch:
-                self._mark_path_tested(target, path, fuzz_state)
             self._record_attempts(constraints, target, batch_size)
 
             if result["requests_used"] >= max_requests:

@@ -248,11 +248,11 @@ class FuzzAgent:
                 fuzz_state["backoff_until"] = time.time() + 60
                 fuzz_state["wordlist_idx"] = max(0, wordlist_idx - 1)
                 result["rate_limited"] = True
-                for finding in run_result["findings"]:
-                    self._mark_path_tested(target, finding["path"], fuzz_state)
                 self._record_attempts(constraints, target, min(len(run_result["findings"]) or 1, batch_size))
                 break
 
+            # Mark ALL batch paths as tested BEFORE ffuf runs — if ffuf exits early
+            # (rate limit, crash, etc.) the paths are still recorded so we don't retry them
             for path in batch:
                 self._mark_path_tested(target, path, fuzz_state)
             self._record_attempts(constraints, target, batch_size)

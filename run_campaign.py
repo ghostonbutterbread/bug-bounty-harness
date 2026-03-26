@@ -31,6 +31,28 @@ from test_catalog import build_test_catalog, get_pending_by_priority
 from baseline_capture import BaselineStore
 from verifier import FindingVerifier, VulnType
 from agents.fuzz_runner import FuzzAgent
+from program_config import ProgramConfig
+
+
+# ─── Helpers ───────────────────────────────────────────────────────────────────
+
+def _infer_program(target: str, domains: list) -> str:
+    """Try to match a target URL/domain to a known program name."""
+    from urllib.parse import urlparse
+    try:
+        host = urlparse(target).netloc.lower()
+    except Exception:
+        host = ""
+    # Match against known program directories
+    import os
+    for domain in [host] + domains:
+        domain = domain.lower().replace(".com", "").replace(".co.uk", "")
+        if domain.startswith("www."):
+            domain = domain[4:]
+        safe = "".join(c if c.isalnum() else "_" for c in domain).strip("_")
+        if safe and os.path.isdir(f"/home/ryushe/Shared/bounty_recon/{safe}"):
+            return safe
+    return ""
 
 
 # ─── Init Command ─────────────────────────────────────────────────────────────
@@ -47,6 +69,24 @@ def cmd_init(args):
     scope_domains = args.domains.split() if args.domains else [args.target]
     campaign = state.create(args.campaign, args.target, scope_domains)
 
+    # Load program-specific config (rate limits from rate_limit.conf, etc.)
+    program_name = args.program or _infer_program(args.target, scope_domains)
+    if program_name:
+        cfg = ProgramConfig.load(program_name)
+        campaign["stats"]["rate_limit_rpm"] = cfg.rate_limit_rpm
+        campaign["stats"]["rate_limit_rps"] = cfg.rate_limit_rps
+        campaign["stats"]["max_requests_per_session"] = cfg.rate_limit_rpm * 5  # ~5 min of full-rate requests
+        campaign["program_config"] = {
+            "program": cfg.program,
+            "rate_limit_rpm": cfg.rate_limit_rpm,
+            "rate_limit_rps": cfg.rate_limit_rps,
+            "is_rate_limit_bypass_in_scope": cfg.is_rate_limit_bypass_in_scope,
+            "credentials_path": str(cfg.credentials_path) if cfg.credentials_path else None,
+        }
+        if cfg.scope_domains and not args.domains:
+            campaign["scope"]["domains"] = cfg.scope_domains
+        print(f"   Program config: {cfg.rate_limit_rpm} RPM ({cfg.rate_limit_rps} rps)")
+
     # Add credentials reference
     if args.creds:
         campaign["scope"]["credential_ref"] = args.creds
@@ -58,7 +98,7 @@ def cmd_init(args):
     state.save(args.campaign, campaign)
     print(f"✅ Campaign '{args.campaign}' created")
     print(f"   Target: {args.target}")
-    print(f"   Scope: {', '.join(scope_domains)}")
+    print(f"   Scope: {', '.join(campaign['scope']['domains'])}")
     print(f"   Next: python run_campaign.py run --campaign {args.campaign} --agent initializer")
     return 0
 
@@ -376,6 +416,7 @@ def main():
     p_init.add_argument("--campaign", required=True, help="Campaign ID (alphanumeric)")
     p_init.add_argument("--target", required=True, help="Target base URL")
     p_init.add_argument("--domains", help="Space-separated scope domains")
+    p_init.add_argument("--program", help="Program name for rate limit config (e.g. superdrug)")
     p_init.add_argument("--creds", help="Credential store reference (e.g. superdrug:default)")
     p_init.add_argument("--account-a", help="Account A credential key")
     p_init.add_argument("--account-b", help="Account B credential key")

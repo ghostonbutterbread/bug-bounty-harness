@@ -1,0 +1,54 @@
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.so
+.venv/
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local config
+config.local.py
+*.local.py
+
+# Campaign data (large)
+campaigns/*.json
+!.gitkeep
+
+# Secrets (never commit)
+*.pem
+*.key
+credentials/
+
+# Evidence / large files
+evidence/
+output/
+tmp/
+
+# Shared recon data (large, external)
+/home/ryushe/Shared/
+~/Shared/
+
+# Secrets Finder output
+secrets_scan*/
+
+# Nuclei
+nuclei-config.yaml
+
+# Wordlists
+wordlists/
+~/wordlists/
+

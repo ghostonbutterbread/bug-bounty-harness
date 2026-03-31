@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Pull scope from bug bounty platforms."""
 
-import sys
+import argparse
 import re
-import json
+from textwrap import dedent
 from pathlib import Path
-from urllib.parse import urlparse
 
 PLATFORMS = {
     "hackerone": "https://hackerone.com/{program}",
@@ -112,12 +111,36 @@ def pull_scope(program: str, platform: str = None):
     return scope_data
 
 
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Pull bug bounty scope")
-    parser.add_argument("program", help="Program name or URL")
-    parser.add_argument("--platform", "-p", choices=["hackerone", "bugcrowd", "intigriti"],
-                        help="Platform (auto-detect if not specified)")
+def build_arg_parser() -> argparse.ArgumentParser:
+    return argparse.ArgumentParser(
+        description="Pull published bug bounty scope from a platform page.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=dedent(
+            """\
+            Example:
+              python3 agents/scope_puller.py adobe --platform hackerone
+
+            Output:
+              ~/Shared/bounty_recon/<program>/scope/in-scope.txt
+            """
+        ),
+    )
+
+
+def main() -> int:
+    parser = build_arg_parser()
+    parser.add_argument("program", help="Program handle or full scope page URL")
+    parser.add_argument(
+        "--platform",
+        "-p",
+        choices=["hackerone", "bugcrowd", "intigriti"],
+        help="Platform slug. Auto-detected when omitted.",
+    )
     args = parser.parse_args()
-    
+
     pull_scope(args.program, args.platform)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

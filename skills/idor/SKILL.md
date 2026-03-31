@@ -1,18 +1,14 @@
-# IDOR Skill
+# IDOR Testing
 
-## Description
 Test for Insecure Direct Object Reference vulnerabilities.
 
-## Playbook
-`../prompts/idor-playbook.md`
+**Playbook:** `~/projects/bug_bounty_harness/prompts/idor-playbook.md`
 
-## Findings
-`~/Shared/bounty_recon/{program}/ghost/skills/idor/findings.md`
+**Findings:** `~/Shared/bounty_recon/{program}/ghost/skills/idor/findings.md`
 
-## Usage
-```markdown
-Read prompts/idor-playbook.md for methodology.
-Test target: {program}
-Read findings from: ~/Shared/bounty_recon/{program}/ghost/skills/idor/findings.md
-Update knowledge: ~/Shared/bounty_recon/{program}/ghost/knowledge.md
-```
+**Knowledge:** `~/Shared/bounty_recon/{program}/ghost/knowledge.md`
+
+1. Read the playbook
+2. Read knowledge.md for what's already tested
+3. Execute tests
+4. Update findings and knowledge

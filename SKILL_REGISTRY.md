@@ -19,7 +19,7 @@ Skills use paths from `config.env` or environment variables.
 | `HARNESS_WORDLISTS` | Wordlists directory | `~/wordlists` |
 | `CLAUDE_SKILLS_DIR` | Claude Code skills directory | `~/.claude/skills` |
 | `CODEX_SKILLS_DIR` | Codex skills directory | `~/.codex/skills` |
-| `KAIDO_MCP_PROXY_URL` | Kaido MCP proxy URL for traffic capture and replay | `http://127.0.0.1:8080` |
+| `KAIDO_MCP_PROXY_URL` | Caido MCP proxy URL for traffic capture and replay | `http://127.0.0.1:3333/mcp` |
 
 ### Config File
 
@@ -34,7 +34,7 @@ HARNESS_SHARED_BASE="${HOME}/Shared/bounty_recon"
 HARNESS_ROOT="${HOME}/projects/bug_bounty_harness"
 CLAUDE_SKILLS_DIR="${HOME}/.claude/skills"
 CODEX_SKILLS_DIR="${HOME}/.codex/skills"
-KAIDO_MCP_PROXY_URL="http://127.0.0.1:8080"
+KAIDO_MCP_PROXY_URL="http://127.0.0.1:3333/mcp"
 ```
 
 ### Setup Commands

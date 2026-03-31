@@ -2,12 +2,14 @@
 
 Test for Cross-Site Scripting vulnerabilities.
 
-**Playbook:** `~/projects/bug_bounty_harness/prompts/xss-playbook.md`
+**Run:** `/xss {program}`
 
-**Findings:** `~/Shared/bounty_recon/{program}/ghost/skills/xss/findings.md`
+**Files (from config.env or env vars):**
+- Playbook: `$HARNESS_ROOT/prompts/xss-playbook.md`
+- Findings: `$HARNESS_SHARED_BASE/{program}/ghost/skills/xss/findings.md`
+- Knowledge: `$HARNESS_SHARED_BASE/{program}/ghost/knowledge.md`
 
-**Knowledge:** `~/Shared/bounty_recon/{program}/ghost/knowledge.md`
-
+**Workflow:**
 1. Read the playbook
 2. Read knowledge.md for what's already tested
 3. Execute tests

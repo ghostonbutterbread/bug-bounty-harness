@@ -2,12 +2,14 @@
 
 Test for Insecure Direct Object Reference vulnerabilities.
 
-**Playbook:** `~/projects/bug_bounty_harness/prompts/idor-playbook.md`
+**Run:** `/idor {program}`
 
-**Findings:** `~/Shared/bounty_recon/{program}/ghost/skills/idor/findings.md`
+**Files (from config.env or env vars):**
+- Playbook: `$HARNESS_ROOT/prompts/idor-playbook.md`
+- Findings: `$HARNESS_SHARED_BASE/{program}/ghost/skills/idor/findings.md`
+- Knowledge: `$HARNESS_SHARED_BASE/{program}/ghost/knowledge.md`
 
-**Knowledge:** `~/Shared/bounty_recon/{program}/ghost/knowledge.md`
-
+**Workflow:**
 1. Read the playbook
 2. Read knowledge.md for what's already tested
 3. Execute tests

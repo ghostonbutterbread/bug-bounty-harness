@@ -2,14 +2,16 @@
 
 Discover hidden endpoints, parameters, and files through enumeration.
 
-**Playbook:** `~/projects/bug_bounty_harness/prompts/fuzz-playbook.md`
+**Run:** `/fuzz {program}`
 
-**Findings:** `~/Shared/bounty_recon/{program}/ghost/skills/fuzz/findings.md`
+**Files (from config.env or env vars):**
+- Playbook: `$HARNESS_ROOT/prompts/fuzz-playbook.md`
+- Findings: `$HARNESS_SHARED_BASE/{program}/ghost/skills/fuzz/findings.md`
+- Knowledge: `$HARNESS_SHARED_BASE/{program}/ghost/knowledge.md`
 
-**Knowledge:** `~/Shared/bounty_recon/{program}/ghost/knowledge.md`
+**Tools:** ffuf, wordlists at `$HARNESS_WORDLISTS`
 
-**Tools:** ffuf, wordlists in ~/wordlists/
-
+**Workflow:**
 1. Read the playbook
 2. Read knowledge.md for what's already fuzzed
 3. Execute fuzzing

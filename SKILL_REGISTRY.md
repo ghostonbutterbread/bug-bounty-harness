@@ -1,25 +1,67 @@
 # Skill Registry
 
-Universal index of all available bug bounty skills. Used by the orchestrator (Ghost) to route tasks to the correct skill module.
+Universal index of all available bug bounty skills.
+
+---
+
+## Configuration
+
+Skills use paths from `config.env` or environment variables.
+
+### Environment Variables (override config.env)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `HARNESS_ROOT` | Bug bounty harness repo root | `~/projects/bug-bounty-harness` |
+| `HARNESS_SHARED_BASE` | Base for bounty recon data | `~/Shared/bounty_recon` |
+| `HARNESS_WORDLISTS` | Wordlists directory | `~/wordlists` |
+| `CLAUDE_SKILLS_DIR` | Claude Code skills directory | `~/.claude/skills` |
+| `CODEX_SKILLS_DIR` | Codex skills directory | `~/.codex/skills` |
+
+### Config File
+
+Edit `config.env` in the repo root:
+```bash
+HARNESS_SHARED_BASE="${HOME}/Shared/bounty_recon"
+HARNESS_ROOT="${HOME}/projects/bug-bounty-harness"
+CLAUDE_SKILLS_DIR="${HOME}/.claude/skills"
+CODEX_SKILLS_DIR="${HOME}/.codex/skills"
+```
+
+### Setup Commands
+
+```bash
+# First time setup
+./setup.sh --init
+
+# Sync skills after updating
+./setup.sh --sync
+
+# Show current config
+./setup.sh --config
+
+# Override with env vars
+HARNESS_ROOT=/custom/path ./setup.sh --sync
+```
 
 ---
 
 ## Available Skills
 
-| Skill | Playbook | Findings File | Status |
-|-------|----------|---------------|--------|
-| **xss** | `prompts/xss-playbook.md` | `~/Shared/bounty_recon/{program}/ghost/skills/xss/findings.md` | Ready |
-| **idor** | `prompts/idor-playbook.md` | `~/Shared/bounty_recon/{program}/ghost/skills/idor/findings.md` | Ready |
-| **sqli** | `prompts/sqli-playbook.md` | `~/Shared/bounty_recon/{program}/ghost/skills/sqli/findings.md` | Ready |
-| **ssrf** | `prompts/ssrf-playbook.md` | `~/Shared/bounty_recon/{program}/ghost/skills/ssrf/findings.md` | Ready |
-| **fuzz** | `prompts/fuzz-playbook.md` | `~/Shared/bounty_recon/{program}/ghost/skills/fuzz/findings.md` | Ready |
-| **recon** | `prompts/recon-playbook.md` | `~/Shared/bounty_recon/{program}/ghost/skills/recon/findings.md` | Ready |
+| Skill | Command | Playbook |
+|-------|---------|----------|
+| **xss** | `/xss {program}` | `prompts/xss-playbook.md` |
+| **idor** | `/idor {program}` | `prompts/idor-playbook.md` |
+| **sqli** | `/sqli {program}` | `prompts/sqli-playbook.md` |
+| **ssrf** | `/ssrf {program}` | `prompts/ssrf-playbook.md` |
+| **fuzz** | `/fuzz {program}` | `prompts/fuzz-playbook.md` |
+| **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
 
 ---
 
 ## How to Invoke
 
-### Slash Commands (Claude Code / Ghost)
+### Slash Commands
 ```
 /xss superdrug
 /idor superdrug
@@ -29,56 +71,41 @@ Universal index of all available bug bounty skills. Used by the orchestrator (Gh
 /recon superdrug
 ```
 
-### Agent Spawn (for Codex)
+### Agent Spawn
 ```python
 spawn_codex(
-    task=f"Hunt for {skill} on {program}",
+    task="Hunt for xss on superdrug",
     context={
-        "skill": "{skill}",
-        "program": "{program}",
-        "playbook": f"prompts/{skill}-playbook.md",
-        "findings": f"~/Shared/bounty_recon/{program}/ghost/skills/{skill}/findings.md",
-        "knowledge": f"~/Shared/bounty_recon/{program}/ghost/knowledge.md"
+        "program": "superdrug",
+        "playbook": "$HARNESS_ROOT/prompts/xss-playbook.md",
+        "findings": "$HARNESS_SHARED_BASE/superdrug/ghost/skills/xss/findings.md",
+        "knowledge": "$HARNESS_SHARED_BASE/superdrug/ghost/knowledge.md"
     }
 )
-```
-
-### Direct Execution (Python harness)
-```python
-from agents.{skill}_hunter import {Skill}Hunter
-hunter = {Skill}Hunter(program="{program}")
-hunter.run()
 ```
 
 ---
 
 ## Provider Skill Locations
 
-Skills are synced to provider-specific directories:
+| Provider | Directory |
+|----------|-----------|
+| Claude Code | `~/.claude/skills/` (or `$CLAUDE_SKILLS_DIR`) |
+| Codex | `~/.codex/skills/` (or `$CODEX_SKILLS_DIR`) |
+| Repo-specific | `{HARNESS_ROOT}/.agents/skills/` |
 
-| Provider | Location |
-|----------|----------|
-| Claude Code | `.claude/skills/{skill}/SKILL.md` |
-| Codex | `.agents/skills/{skill}/SKILL.md` |
-| Ghost | `skills/{skill}/SKILL.md` |
-
-**Sync command** (run after updating skills):
-```bash
-./sync_skills.sh
-```
+Sync with: `./sync_skills.sh` or `./setup.sh --sync`
 
 ---
 
 ## Program Knowledge
 
-The orchestrator maintains a per-program knowledge file:
+Per-program knowledge file:
 ```
-~/Shared/bounty_recon/{program}/ghost/knowledge.md
+{HARNESS_SHARED_BASE}/{program}/ghost/knowledge.md
 ```
 
-**Must read before starting any work.**
-
-Contains:
+**Read before starting any work.** Contains:
 - What's been tested
 - What's been found
 - What's next
@@ -93,22 +120,26 @@ Contains:
 2. Create skill wrapper: `skills/{name}/SKILL.md`
 3. Create harness: `agents/{name}_hunter.py`
 4. Add to this registry
-5. Sync to provider directories: `.claude/skills/` and `.agents/skills/`
-
-See `SKILL_TEMPLATE.md` for anatomy of a skill file.
+5. Run `./setup.sh --sync`
 
 ---
 
-## Sync Script
+## File Structure
 
-To sync skills to provider directories:
-```bash
-#!/bin/bash
-# sync_skills.sh
-for skill in xss idor sqli ssrf fuzz recon; do
-    cp skills/$skill/SKILL.md .claude/skills/$skill/SKILL.md
-    cp skills/$skill/SKILL.md .agents/skills/$skill/SKILL.md
-done
+```
+bug_bounty_harness/
+├── config.env              # Config (edit for your paths)
+├── setup.sh               # Setup script (--init, --sync, --config)
+├── sync_skills.sh         # Sync skills to providers
+├── prompts/               # Playbooks
+│   ├── xss-playbook.md
+│   └── ...
+├── skills/                # Skill wrappers (source)
+│   ├── xss/SKILL.md
+│   └── ...
+├── .claude/skills/        # Synced for Claude Code
+├── .agents/skills/        # Synced for Codex (repo-specific)
+└── SKILL_REGISTRY.md      # This file
 ```
 
 ---

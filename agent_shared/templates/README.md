@@ -15,6 +15,7 @@ Welcome, hunting agent! This is the shared knowledge base for the **{program}** 
 2. Add findings to `findings/{vuln-type}/`
 3. Update `todo.md` — what should be tested next
 4. Update `notes/summary.md` — refresh the overview
+5. Store reusable workflow maps under `application-structure/` when proxy analysis reveals durable user flows
 
 ## Directory Structure
 
@@ -26,6 +27,11 @@ Welcome, hunting agent! This is the shared knowledge base for the **{program}** 
 │   └── observations.md    # WAF, auth, interesting quirks
 ├── checklist.md           # Testing checklist (mark as you go)
 ├── todo.md               # Priority queue
+├── application-structure/
+│   ├── auth/
+│   ├── cart/
+│   ├── checkout/
+│   └── ...               # One markdown file per mapped flow
 └── findings/
     ├── xss/
     │   └── findings.md   # XSS findings
@@ -53,6 +59,7 @@ mkdir -p ~/Shared/bounty/{program}/agent_shared/findings/xxe
 |------|----------------|
 | `checklist.md` | After testing each vulnerability type |
 | `findings/{vuln}/findings.md` | After finding anything (confirmed or potential) |
+| `application-structure/{flow-type}/{flow}.md` | After mapping a reusable application flow |
 | `todo.md` | When priorities change or new tasks are identified |
 | `notes/summary.md` | After completing a testing session |
 | `notes/observations.md` | When discovering WAF behavior, auth patterns, etc. |

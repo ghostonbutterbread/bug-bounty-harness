@@ -19,6 +19,7 @@ Skills use paths from `config.env` or environment variables.
 | `HARNESS_WORDLISTS` | Wordlists directory | `~/wordlists` |
 | `CLAUDE_SKILLS_DIR` | Claude Code skills directory | `~/.claude/skills` |
 | `CODEX_SKILLS_DIR` | Codex skills directory | `~/.codex/skills` |
+| `KAIDO_MCP_PROXY_URL` | Kaido MCP proxy URL for traffic capture and replay | `http://127.0.0.1:8080` |
 
 ### Config File
 
@@ -33,6 +34,7 @@ HARNESS_SHARED_BASE="${HOME}/Shared/bounty_recon"
 HARNESS_ROOT="${HOME}/projects/bug_bounty_harness"
 CLAUDE_SKILLS_DIR="${HOME}/.claude/skills"
 CODEX_SKILLS_DIR="${HOME}/.codex/skills"
+KAIDO_MCP_PROXY_URL="http://127.0.0.1:8080"
 ```
 
 ### Setup Commands
@@ -64,6 +66,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **fuzz** | `/fuzz {program}` | `prompts/fuzz-playbook.md` |
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
 | **csrf** | `/csrf {program}` | `skills/csrff/SKILL.md` |
+| **mental-map** | `/mental-map {program}` | `prompts/mental-map-playbook.md` |
 
 ---
 
@@ -78,6 +81,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /fuzz superdrug
 /recon superdrug
 /csrf superdrug
+/mental-map superdrug
 ```
 
 ### Agent Spawn

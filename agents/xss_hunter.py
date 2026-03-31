@@ -371,7 +371,16 @@ class XSSHunter:
 
     def _save_outputs(self, findings: list[XSSFinding], mode: str) -> None:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        output_dir = Path.home() / "Shared" / "bounty_recon" / self.program / "ghost" / "xss_scan"
+        output_dir = (
+            Path.home()
+            / "Shared"
+            / "bounty_recon"
+            / self.program
+            / "agent_shared"
+            / "findings"
+            / "xss"
+            / "hunter"
+        )
         output_dir.mkdir(parents=True, exist_ok=True)
 
         report_path = output_dir / f"xss_scan_{mode}_{timestamp}.json"
@@ -386,9 +395,7 @@ class XSSHunter:
         }
         report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
-        notes_dir = Path.home() / "notes" / self.program / "findings" / "xss"
-        notes_dir.mkdir(parents=True, exist_ok=True)
-        note_path = notes_dir / f"xss_scan_{timestamp}.md"
+        note_path = output_dir / f"xss_scan_{timestamp}.md"
         note_lines = [
             f"# XSS Scan - {self.target_url}",
             "",
@@ -468,7 +475,7 @@ def main():
             scan_depth=args.depth
         )
         
-        findings = harness.scan()
+        findings = harness.scan(mode="deep" if args.depth == "deep" else "standard")
         
         print(f"\n[+] Scan complete! Found {len(findings)} XSS candidates")
         

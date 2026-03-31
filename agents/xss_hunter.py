@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import html
 import json
+import sys
 from pathlib import Path
 import re
 from typing import Iterable
@@ -69,10 +70,12 @@ class XSSFinding:
 class XSSHunter:
     """Main XSS testing harness."""
 
-    def __init__(self, target_url: str, params: dict | None = None, program: str | None = None):
+    def __init__(self, target_url: str, params: dict | None = None, program: str | None = None, rate_limit: float = 5.0, scan_depth: str = "shallow"):
         self.target_url = target_url
         self.params = self._normalize_params(params)
         self.program = program or "adhoc"
+        self.rate_limit = rate_limit
+        self.scan_depth = scan_depth
         self.session = httpx.Client(
             timeout=30,
             follow_redirects=True,
@@ -430,3 +433,74 @@ class XSSHunter:
             seen.add(key)
             deduped.append(sink)
         return deduped
+
+
+def main():
+    """CLI entry point for XSS harness."""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="XSS Hunter - Find XSS vulnerabilities")
+    parser.add_argument("--target", required=True, help="Target URL")
+    parser.add_argument("--program", default="test", help="Bug bounty program name")
+    parser.add_argument("--rate-limit", type=float, default=5, help="Requests per second")
+    parser.add_argument("--depth", choices=["shallow", "deep"], default="shallow", help="Scan depth")
+    parser.add_argument("--output", help="Output file for findings (JSON)")
+    parser.add_argument("--verbose", action="store_true", help="Verbose output")
+    
+    args = parser.parse_args()
+    
+    # Handle URL format
+    target = args.target
+    if not target.startswith(("http://", "https://")):
+        target = "https://" + target
+    
+    print(f"[*] Starting XSS scan against: {target}")
+    print(f"[*] Program: {args.program}")
+    print(f"[*] Rate limit: {args.rate_limit}/sec")
+    print(f"[*] Depth: {args.depth}")
+    print()
+    
+    try:
+        harness = XSSHunter(
+            target_url=target,
+            program=args.program,
+            rate_limit=args.rate_limit,
+            scan_depth=args.depth
+        )
+        
+        findings = harness.scan()
+        
+        print(f"\n[+] Scan complete! Found {len(findings)} XSS candidates")
+        
+        for f in findings:
+            print(f"  - {f.url} | {f.param} | {f.context}")
+        
+        if args.output:
+            output_data = [
+                {
+                    "url": f.url,
+                    "param": f.param,
+                    "context": f.context,
+                    "payload": f.payload,
+                    "poc": f.poc,
+                    "sink": f.sink,
+                    "evidence": f.response_evidence[:500]
+                }
+                for f in findings
+            ]
+            with open(args.output, "w") as out:
+                json.dump(output_data, out, indent=2)
+            print(f"[+] Results saved to: {args.output}")
+        
+        return 0 if findings else 1
+        
+    except Exception as e:
+        print(f"[!] Error: {e}", file=sys.stderr)
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -64,6 +64,11 @@ load_config() {
         source "$CONFIG_FILE"
         set +a
     fi
+    
+    # Default HARNESS_ROOT to where this script actually lives (the repo root)
+    if [ -z "$HARNESS_ROOT" ] || [ "$HARNESS_ROOT" = "detected_from_script" ]; then
+        HARNESS_ROOT="$SCRIPT_DIR"
+    fi
 }
 
 # =============================================================================

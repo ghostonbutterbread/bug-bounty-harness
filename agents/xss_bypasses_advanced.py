@@ -4,7 +4,10 @@ Advanced XSS Bypass Techniques
 Modern WAF bypass methods: HPP, mXSS, encoding, alternative vectors
 """
 
+import argparse
+import json
 import re
+from textwrap import dedent
 from urllib.parse import quote
 
 
@@ -331,11 +334,72 @@ def get_all_bypass_payloads(base_payload: str = "<script>alert(1)</script>") -> 
     }
 
 
-if __name__ == "__main__":
-    # Test
-    all_payloads = get_all_bypass_payloads()
+def build_arg_parser() -> argparse.ArgumentParser:
+    return argparse.ArgumentParser(
+        description="Generate advanced XSS bypass payload families for manual testing.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=dedent(
+            """\
+            Example:
+              python3 agents/xss_bypasses_advanced.py --category waf_specific --limit 5
+
+            Output:
+              Prints payloads to stdout only.
+            """
+        ),
+    )
+
+
+def main() -> int:
+    parser = build_arg_parser()
+    parser.add_argument(
+        "--base-payload",
+        default="<script>alert(1)</script>",
+        help="Base payload used for HPP and encoding variants",
+    )
+    parser.add_argument(
+        "--category",
+        choices=[
+            "hpp",
+            "mutation_xss",
+            "encoding",
+            "alternative_vectors",
+            "malformed",
+            "dompurify",
+            "waf_specific",
+        ],
+        help="Only print one payload category",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=3,
+        help="Max payloads to print per category (default: 3)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print payloads as JSON instead of human-readable text",
+    )
+    args = parser.parse_args()
+
+    all_payloads = get_all_bypass_payloads(args.base_payload)
+    if args.category:
+        all_payloads = {args.category: all_payloads[args.category]}
+
+    if args.json:
+        print(json.dumps(all_payloads, indent=2))
+        return 0
+
     print("XSS Bypass Payloads Generated:")
     for category, payloads in all_payloads.items():
+        limited = payloads[: max(args.limit, 0)]
         print(f"\n{category.upper()} ({len(payloads)} payloads):")
-        for p in payloads[:3]:
-            print(f"  - {p[:60]}{'...' if len(p) > 60 else ''}")
+        for payload in limited:
+            suffix = "..." if len(payload) > 60 else ""
+            print(f"  - {payload[:60]}{suffix}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

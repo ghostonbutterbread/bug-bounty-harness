@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Scope manager for bug bounty programs."""
 
+import argparse
 from pathlib import Path
+from textwrap import dedent
 from urllib.parse import urlparse
-import re
 
 
 class ScopeManager:
@@ -86,13 +87,28 @@ class ScopeManager:
         print(f"[+] Saved {len(domains)} domains and {len(urls)} URLs to {self.scope_dir}")
 
 
-if __name__ == "__main__":
-    import sys
-    if len(sys.argv) < 2:
-        print("Usage: scope_manager.py <program>")
-        sys.exit(1)
-    
-    mgr = ScopeManager(sys.argv[1])
+def build_arg_parser() -> argparse.ArgumentParser:
+    return argparse.ArgumentParser(
+        description="Inspect saved in-scope domains and URLs for a program.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=dedent(
+            """\
+            Example:
+              python3 agents/scope_manager.py adobe
+
+            Output:
+              Reads from ~/Shared/bounty_recon/<program>/scope/
+            """
+        ),
+    )
+
+
+def main() -> int:
+    parser = build_arg_parser()
+    parser.add_argument("program", help="Bug bounty program slug")
+    args = parser.parse_args()
+
+    mgr = ScopeManager(args.program)
     print(f"Program: {mgr.program}")
     print(f"Domains: {len(mgr.domains)}")
     print(f"URLs: {len(mgr.urls)}")
@@ -100,3 +116,8 @@ if __name__ == "__main__":
         print("In-scope domains:")
         for d in mgr.get_in_scope_domains()[:10]:
             print(f"  - {d}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

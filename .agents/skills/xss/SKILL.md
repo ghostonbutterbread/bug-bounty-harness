@@ -1,3 +1,7 @@
+---
+name: xss
+description: Test for Cross-Site Scripting vulnerabilities
+---
 # XSS Testing
 
 Test for Cross-Site Scripting vulnerabilities.

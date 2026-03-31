@@ -1,18 +1,24 @@
+---
+name: fuzz
+description: Discover hidden endpoints, parameters, and files
+---
 # Web Fuzzing
 
 Discover hidden endpoints, parameters, and files through enumeration.
 
-**Run:** `/fuzz {program}`
+## Usage
 
-**Files (from config.env or env vars):**
-- Playbook: `$HARNESS_ROOT/prompts/fuzz-playbook.md`
-- Findings: `$HARNESS_SHARED_BASE/{program}/ghost/skills/fuzz/findings.md`
-- Knowledge: `$HARNESS_SHARED_BASE/{program}/ghost/knowledge.md`
+```bash
+python agents/fuzz_runner.py --target https://target.com --program target
+```
 
-**Tools:** ffuf, wordlists at `$HARNESS_WORDLISTS`
+## Tools
 
-**Workflow:**
-1. Read the playbook
-2. Read knowledge.md for what's already fuzzed
-3. Execute fuzzing
-4. Update findings and knowledge
+- ffuf: `ffuf -u TARGET/FUZZ -w WORDLIST -mc 200,204,301,302,307,401,403 -fc 404 -c -v`
+- Wordlists: `~/wordlists/SecLists/Discovery/Web-Content/common.txt`
+
+## Files
+
+- **Playbook:** `$HARNESS_ROOT/prompts/fuzz-playbook.md`
+- **Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/fuzz/`
+- **Knowledge:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`

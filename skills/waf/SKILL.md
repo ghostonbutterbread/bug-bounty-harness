@@ -1,3 +1,7 @@
+---
+name: waf
+description: Auto-detect and bypass WAF blocks
+---
 # WAF Interceptor Skill
 
 Auto-detect and bypass WAF blocks in any harness.

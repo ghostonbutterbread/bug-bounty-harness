@@ -1,18 +1,25 @@
+---
+name: recon
+description: Reconnaissance - enumerate targets, discover endpoints, map attack surface
+---
 # Reconnaissance
 
 Enumerate targets, discover endpoints, map attack surface.
 
-**Run:** `/recon {program}`
+## Usage
 
-**Files (from config.env or env vars):**
-- Playbook: `$HARNESS_ROOT/prompts/recon-playbook.md`
-- Findings: `$HARNESS_SHARED_BASE/{program}/ghost/skills/recon/findings.md`
-- Knowledge: `$HARNESS_SHARED_BASE/{program}/ghost/knowledge.md`
+```bash
+python agents/autonomous_recon.py --target https://target.com --program target
+```
 
-**Tools:** url_probe.py, screenshot_tool.py, subdomain_agent.py
+## Tools
 
-**Workflow:**
-1. Read the playbook
-2. Read knowledge.md for what's already discovered
-3. Execute recon
-4. Update findings and knowledge
+- Crawler: `~/workspace/scripts/url_probe.py`
+- Screenshot: `agents/screenshot_tool.py`
+- Subdomain: `agents/subdomain_agent.py`
+
+## Files
+
+- **Playbook:** `$HARNESS_ROOT/prompts/recon-playbook.md`
+- **Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/recon/`
+- **Knowledge:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`

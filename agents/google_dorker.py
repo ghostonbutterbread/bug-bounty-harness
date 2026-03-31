@@ -15,6 +15,15 @@ sys.path.insert(0, "/home/ryushe/workspace/bug_bounty_harness")
 
 import json
 import time
+
+try:
+    from scope_validator import ScopeValidator
+except ImportError:
+    ScopeValidator = None
+try:
+    from rate_limiter import RateLimiter
+except ImportError:
+    RateLimiter = None
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -187,6 +196,21 @@ class GoogleDorker:
             self.results_dir = Path.home() / "Shared" / "bounty_recon" / program / "ghost" / "dorks"
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
+        # Load scope
+        if program and ScopeValidator is not None:
+            self.scope = ScopeValidator(program)
+        else:
+            self.scope = None
+
+        # Setup rate limiter
+        self.limiter = RateLimiter(requests_per_second=5) if RateLimiter else None
+
+    def is_in_scope(self, url: str) -> bool:
+        """Check if URL is in scope. Skip if no scope loaded."""
+        if not self.scope:
+            return True
+        return self.scope.is_in_scope(url)
+
     def run(self, max_dorks: int = 50, delay: float = 3.0) -> dict:
         """
         Run dorks against all domains. Returns summary dict.
@@ -284,6 +308,8 @@ class GoogleDorker:
             # Use Brave Search API — best for this use case
             try:
                 import httpx
+                if self.limiter:
+                    self.limiter.wait()
                 headers = {"Accept": "application/json", "X-Subscription-Token": api_key}
                 params = {"q": query, "count": 10}
                 resp = httpx.get(
@@ -306,6 +332,8 @@ class GoogleDorker:
         # Fallback: direct HTTP with Brave SERP or Google
         try:
             import httpx
+            if self.limiter:
+                self.limiter.wait()
             headers = {
                 "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                 "Accept-Language": "en-US,en;q=0.9",
@@ -410,6 +438,8 @@ class GoogleDorker:
 
             # Must actually be from the target domain
             if not any(d in url for d in self.domains):
+                continue
+            if not self.is_in_scope(url):
                 continue
 
             # Filter out Google cache, translate, etc.

@@ -2,6 +2,15 @@ import sys
 
 sys.path.insert(0, "/home/ryushe/workspace/bug_bounty_harness")
 
+try:
+    from scope_validator import ScopeValidator
+except ImportError:
+    ScopeValidator = None
+try:
+    from rate_limiter import RateLimiter
+except ImportError:
+    RateLimiter = None
+
 import fcntl
 import time
 import json
@@ -53,7 +62,7 @@ RESULT_LINE_RE = re.compile(
 
 
 class FuzzAgent:
-    def __init__(self, campaign_id: str):
+    def __init__(self, campaign_id: str, program: str = ""):
         self.campaign_id = campaign_id
         self.state = CampaignState()
         self.campaigns_root = self.state.CAMPAIGNS_DIR
@@ -61,6 +70,21 @@ class FuzzAgent:
         self.campaign_dir.mkdir(parents=True, exist_ok=True)
         self._lock_path = self.campaign_dir / ".ffuf.lock"
         self._lock_path.touch(exist_ok=True)
+
+        # Load scope
+        if program and ScopeValidator is not None:
+            self.scope = ScopeValidator(program)
+        else:
+            self.scope = None
+
+        # Setup rate limiter (ffuf handles its own rate; this covers pre-checks)
+        self.limiter = RateLimiter(requests_per_second=5) if RateLimiter else None
+
+    def is_in_scope(self, url: str) -> bool:
+        """Check if URL is in scope. Skip if no scope loaded."""
+        if not self.scope:
+            return True
+        return self.scope.is_in_scope(url)
 
     def run(self, max_requests: int = 500) -> dict:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -203,6 +227,9 @@ class FuzzAgent:
         if max_requests <= 0:
             return result
 
+        if not self.is_in_scope(target):
+            print(f"[SKIP] Out of scope: {target}")
+            return result
         if not constraints.check_scope(target):
             raise HarnessViolation(f"SCOPE VIOLATION: {target} is not in scope")
         if not constraints.check_budget():

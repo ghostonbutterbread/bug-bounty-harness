@@ -34,6 +34,15 @@ sys.path.insert(0, "/home/ryushe/workspace/bug_bounty_harness")
 sys.path.insert(0, "/home/ryushe/projects/bounty-tools")
 
 try:
+    from scope_validator import ScopeValidator
+except ImportError:
+    ScopeValidator = None
+try:
+    from rate_limiter import RateLimiter
+except ImportError:
+    RateLimiter = None
+
+try:
     from harness_core import CampaignState
 except ImportError:  # pragma: no cover - optional integration
     CampaignState = None
@@ -196,6 +205,21 @@ class SecretsFinder:
                 if name in self.patterns
             }
         self._compile_patterns()
+
+        # Load scope
+        if program and ScopeValidator is not None:
+            self.scope = ScopeValidator(program)
+        else:
+            self.scope = None
+
+        # Setup rate limiter
+        self.limiter = RateLimiter(requests_per_second=5) if RateLimiter else None
+
+    def is_in_scope(self, url: str) -> bool:
+        """Check if URL is in scope. Skip if no scope loaded."""
+        if not self.scope:
+            return True
+        return self.scope.is_in_scope(url)
 
     @staticmethod
     def _normalize_pattern_filter(pattern_filter: str | Iterable[str] | None) -> set[str]:
@@ -1034,6 +1058,8 @@ class SecretsFinder:
             "&filter=statuscode:200&collapse=urlkey"
             f"&limit={int(limit)}"
         )
+        if self.limiter:
+            self.limiter.wait()
         request = urllib.request.Request(
             cdx_url,
             headers={"User-Agent": "bug-bounty-harness/1.0"},
@@ -1067,6 +1093,8 @@ class SecretsFinder:
             timestamp = record.get("timestamp", "")
             archived_url = f"https://web.archive.org/web/{timestamp}id_/{original}"
             self._register_source(archived_url)
+            if self.limiter:
+                self.limiter.wait()
             request = urllib.request.Request(
                 archived_url,
                 headers={"User-Agent": "bug-bounty-harness/1.0"},

@@ -29,6 +29,15 @@ from pathlib import Path
 from dataclasses import dataclass, field
 
 
+try:
+    from scope_validator import ScopeValidator
+except ImportError:
+    ScopeValidator = None
+try:
+    from rate_limiter import RateLimiter
+except ImportError:
+    RateLimiter = None
+
 TAVILY_API_KEY = os.getenv("TAVILY_KEY", "")
 
 # Perplexity API (sonar model — cheap and fast)
@@ -102,6 +111,21 @@ class AIReconAgent:
         else:
             self.results_dir = Path.home() / "Shared" / "bounty_recon" / program / "ghost" / "ai_recon"
         self.results_dir.mkdir(parents=True, exist_ok=True)
+
+        # Load scope
+        if program and ScopeValidator is not None:
+            self.scope = ScopeValidator(program)
+        else:
+            self.scope = None
+
+        # Setup rate limiter
+        self.limiter = RateLimiter(requests_per_second=5) if RateLimiter else None
+
+    def is_in_scope(self, url: str) -> bool:
+        """Check if URL is in scope. Skip if no scope loaded."""
+        if not self.scope:
+            return True
+        return self.scope.is_in_scope(url)
 
     def run(self, max_dorks: int = 20) -> ReconReport:
         """Run the full AI recon workflow."""
@@ -255,6 +279,8 @@ Try running with PERPLEXITY_API_KEY set for full AI-powered recon.
                 continue
 
             try:
+                if self.limiter:
+                    self.limiter.wait()
                 resp = httpx.post(
                     "https://api.tavily.com/search",
                     headers=headers,
@@ -269,6 +295,9 @@ Try running with PERPLEXITY_API_KEY set for full AI-powered recon.
                     url = result.get("url", "")
                     # Verify it's from our domains
                     if not any(d in url.lower() for d in self.domains):
+                        continue
+                    if not self.is_in_scope(url):
+                        print(f"  [SKIP] Out of scope: {url}")
                         continue
 
                     # Classify the finding

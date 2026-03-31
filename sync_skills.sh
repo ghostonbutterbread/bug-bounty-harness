@@ -6,11 +6,11 @@
 #
 # Paths are loaded from:
 #   1. Environment variables (highest priority)
-#   2. config.env file
-#   3. Defaults (lowest priority)
+#   2. config.env file (created from example if missing)
+#   3. Auto-detected defaults
 #
 # Environment variables:
-#   HARNESS_ROOT           - Bug bounty harness repo root
+#   HARNESS_ROOT           - Bug bounty harness repo root (auto-detected)
 #   CLAUDE_SKILLS_DIR      - Claude Code skills directory
 #   CODEX_SKILLS_DIR       - Codex skills directory
 #
@@ -34,81 +34,32 @@ DRY_RUN=false
 ensure_config() {
     if [ ! -f "$CONFIG_FILE" ]; then
         if [ -f "$CONFIG_EXAMPLE" ]; then
+            echo "Creating config.env from config.env.example..."
             cp "$CONFIG_EXAMPLE" "$CONFIG_FILE"
         fi
     fi
 }
 
 # =============================================================================
-# Load config (env vars override config file)
+# Load config
 # =============================================================================
 
 load_config() {
     ensure_config
     
-    # If config file exists, source it (env vars already win due to : syntax in config)
+    # Source config (sets defaults if vars not already set via env)
     if [ -f "$CONFIG_FILE" ]; then
         set -a
         source "$CONFIG_FILE"
         set +a
     fi
     
-    # Apply defaults if still not set or if using placeholder
-    # Default HARNESS_ROOT to where this script actually lives (the repo root)
-    if [ -z "$HARNESS_ROOT" ] || [ "$HARNESS_ROOT" = "detected_from_script" ]; then
-        HARNESS_ROOT="$SCRIPT_DIR"
-    fi
+    # ALWAYS use script location as HARNESS_ROOT (this is the repo root)
+    # This ensures scripts work no matter where user clones the repo
+    HARNESS_ROOT="$SCRIPT_DIR"
+    
     : "${CLAUDE_SKILLS_DIR:=${HOME}/.claude/skills}"
     : "${CODEX_SKILLS_DIR:=${HOME}/.codex/skills}"
-}
-
-# =============================================================================
-# Parse arguments
-# =============================================================================
-
-parse_args() {
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --claude)
-                SYNC_CLAUDE=true
-                SYNC_CODEX=false
-                shift
-                ;;
-            --codex)
-                SYNC_CODEX=true
-                SYNC_CLAUDE=false
-                shift
-                ;;
-            --all)
-                SYNC_CLAUDE=true
-                SYNC_CODEX=true
-                shift
-                ;;
-            --dry-run)
-                DRY_RUN=true
-                shift
-                ;;
-            --help|-h)
-                echo "Usage: $0 [--claude] [--codex] [--all] [--dry-run]"
-                echo ""
-                echo "Options:"
-                echo "  --claude    Sync only to Claude Code"
-                echo "  --codex     Sync only to Codex"
-                echo "  --all       Sync to both (default)"
-                echo "  --dry-run   Show what would be copied"
-                echo ""
-                echo "Paths (from env or config.env):"
-                echo "  HARNESS_ROOT:       $HARNESS_ROOT"
-                echo "  CLAUDE_SKILLS_DIR:  $CLAUDE_SKILLS_DIR"
-                echo "  CODEX_SKILLS_DIR:   $CODEX_SKILLS_DIR"
-                exit 0
-                ;;
-            *)
-                echo "Unknown option: $1"
-                exit 1
-                ;;
-        esac
-    done
 }
 
 # =============================================================================
@@ -159,6 +110,55 @@ sync_skill() {
 }
 
 # =============================================================================
+# Parse arguments
+# =============================================================================
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --claude)
+                SYNC_CLAUDE=true
+                SYNC_CODEX=false
+                shift
+                ;;
+            --codex)
+                SYNC_CODEX=true
+                SYNC_CLAUDE=false
+                shift
+                ;;
+            --all)
+                SYNC_CLAUDE=true
+                SYNC_CODEX=true
+                shift
+                ;;
+            --dry-run)
+                DRY_RUN=true
+                shift
+                ;;
+            --help|-h)
+                echo "Usage: $0 [--claude] [--codex] [--all] [--dry-run]"
+                echo ""
+                echo "Options:"
+                echo "  --claude    Sync only to Claude Code"
+                echo "  --codex     Sync only to Codex"
+                echo "  --all       Sync to both (default)"
+                echo "  --dry-run   Show what would be copied"
+                echo ""
+                echo "Paths:"
+                echo "  HARNESS_ROOT:       $SCRIPT_DIR"
+                echo "  CLAUDE_SKILLS_DIR:  ${CLAUDE_SKILLS_DIR}"
+                echo "  CODEX_SKILLS_DIR:   ${CODEX_SKILLS_DIR}"
+                exit 0
+                ;;
+            *)
+                echo "Unknown option: $1"
+                exit 1
+                ;;
+        esac
+    done
+}
+
+# =============================================================================
 # Main
 # =============================================================================
 
@@ -172,8 +172,7 @@ main() {
     echo "Bug Bounty Harness - Skill Sync"
     echo "========================================"
     echo "OS detected: $OS"
-    echo "Config file: $CONFIG_FILE"
-    [ -f "$CONFIG_FILE" ] && echo "  (loaded)" || echo "  (not found)"
+    echo "HARNESS_ROOT: $HARNESS_ROOT"
     echo ""
     
     # Skills source directory
@@ -182,7 +181,6 @@ main() {
     # Check if skills directory exists
     if [ ! -d "$SKILLS_DIR" ]; then
         echo "Error: skills directory not found at $SKILLS_DIR"
-        echo "Hint: Set HARNESS_ROOT env var if your repo is elsewhere"
         exit 1
     fi
     

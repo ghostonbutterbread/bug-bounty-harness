@@ -7,15 +7,15 @@
 # Options:
 #   --init          Initialize directories and sync skills
 #   --sync          Sync skills to Claude Code and Codex
-#   --config        Show current config (from env or config.env)
+#   --config        Show current config
 #   --help          Show this help message
 #
 # Environment variables (override config.env):
-#   HARNESS_SHARED_BASE    Base for bounty recon data
-#   HARNESS_ROOT           Bug bounty harness repo root
-#   HARNESS_WORDLISTS      Wordlists directory
-#   CLAUDE_SKILLS_DIR      Claude Code skills directory
-#   CODEX_SKILLS_DIR       Codex skills directory
+#   HARNESS_ROOT           - Bug bounty harness repo root (auto-detected)
+#   HARNESS_SHARED_BASE    - Base for bounty recon data
+#   HARNESS_WORDLISTS      - Wordlists directory
+#   CLAUDE_SKILLS_DIR      - Claude Code skills directory
+#   CODEX_SKILLS_DIR       - Codex skills directory
 #
 # Examples:
 #   ./setup.sh --init                    # Full setup
@@ -31,44 +31,33 @@ CONFIG_FILE="$SCRIPT_DIR/config.env"
 CONFIG_EXAMPLE="$SCRIPT_DIR/config.env.example"
 
 # =============================================================================
-# Ensure config exists (create from example if missing)
+# Load config
 # =============================================================================
 
-ensure_config() {
+load_config() {
+    # Create config from example if missing
     if [ ! -f "$CONFIG_FILE" ]; then
         if [ -f "$CONFIG_EXAMPLE" ]; then
             echo "Creating config.env from config.env.example..."
             cp "$CONFIG_EXAMPLE" "$CONFIG_FILE"
-            echo "✓ Created $CONFIG_FILE"
-            echo ""
-            echo "Edit $CONFIG_FILE to customize your paths."
-            echo ""
-        else
-            echo "Error: config.env not found and config.env.example missing"
-            exit 1
         fi
     fi
-}
-
-# =============================================================================
-# Load config (env vars always win, config file provides defaults)
-# =============================================================================
-
-load_config() {
-    # Ensure config exists first
-    ensure_config
     
-    # If config file exists, source it (env vars already win due to : syntax in config)
+    # Source config (sets defaults if vars not already set via env)
     if [ -f "$CONFIG_FILE" ]; then
         set -a
         source "$CONFIG_FILE"
         set +a
     fi
     
-    # Default HARNESS_ROOT to where this script actually lives (the repo root)
-    if [ -z "$HARNESS_ROOT" ] || [ "$HARNESS_ROOT" = "detected_from_script" ]; then
-        HARNESS_ROOT="$SCRIPT_DIR"
-    fi
+    # ALWAYS use script location as HARNESS_ROOT (this is the repo root)
+    # This ensures scripts work no matter where user clones the repo
+    HARNESS_ROOT="$SCRIPT_DIR"
+    
+    : "${HARNESS_SHARED_BASE:=${HOME}/Shared/bounty_recon}"
+    : "${HARNESS_WORDLISTS:=${HOME}/wordlists}"
+    : "${CLAUDE_SKILLS_DIR:=${HOME}/.claude/skills}"
+    : "${CODEX_SKILLS_DIR:=${HOME}/.codex/skills}"
 }
 
 # =============================================================================
@@ -117,7 +106,6 @@ create_directories() {
 sync_skills() {
     echo "Syncing skills..."
     
-    # Run the sync script with current config
     if [ -x "$SCRIPT_DIR/sync_skills.sh" ]; then
         "$SCRIPT_DIR/sync_skills.sh"
     else
@@ -140,9 +128,9 @@ show_config() {
     echo "Config file: $CONFIG_FILE"
     [ -f "$CONFIG_FILE" ] && echo "  (exists)" || echo "  (not found)"
     echo ""
-    echo "Paths (from env or config):"
+    echo "Paths:"
+    echo "  HARNESS_ROOT:        $HARNESS_ROOT (auto-detected)"
     echo "  HARNESS_SHARED_BASE: $HARNESS_SHARED_BASE"
-    echo "  HARNESS_ROOT:        $HARNESS_ROOT"
     echo "  HARNESS_WORDLISTS:   $HARNESS_WORDLISTS"
     echo "  CLAUDE_SKILLS_DIR:   $CLAUDE_SKILLS_DIR"
     echo "  CODEX_SKILLS_DIR:    $CODEX_SKILLS_DIR"
@@ -174,10 +162,6 @@ init() {
 # Main
 # =============================================================================
 
-show_help() {
-    head -25 "${BASH_SOURCE[0]}" | grep "^#" | grep -v "^#!/bin/bash" | sed 's/^# //'
-}
-
 main() {
     load_config
     
@@ -192,10 +176,10 @@ main() {
             show_config
             ;;
         --help|-h)
-            show_help
+            head -30 "${BASH_SOURCE[0]}" | grep "^#" | grep -v "^#!/bin/bash" | sed 's/^# //'
             ;;
         "")
-            show_help
+            head -30 "${BASH_SOURCE[0]}" | grep "^#" | grep -v "^#!/bin/bash" | sed 's/^# //'
             ;;
         *)
             echo "Unknown option: $1"

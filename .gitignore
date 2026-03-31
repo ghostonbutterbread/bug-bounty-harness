@@ -52,3 +52,4 @@ nuclei-config.yaml
 wordlists/
 ~/wordlists/
 
+config.env

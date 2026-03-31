@@ -7,6 +7,7 @@
 # Options:
 #   --init          Initialize directories and sync skills
 #   --sync          Sync skills to Claude Code and Codex
+#   --prompt        Display agent prompt (use --prompt --program NAME for custom)
 #   --config        Show current config
 #   --help          Show this help message
 #
@@ -19,7 +20,8 @@
 #
 # Examples:
 #   ./setup.sh --init                    # Full setup
-#   ./setup.sh --sync                    # Just sync skills
+#   ./setup.sh --sync                   # Just sync skills
+#   ./setup.sh --prompt --program xss-lab # Show agent prompt for program
 #   HARNESS_ROOT=/custom/path ./setup.sh --sync  # Override with env var
 #
 # =============================================================================
@@ -104,6 +106,14 @@ create_directories() {
 # =============================================================================
 
 sync_skills() {
+    # Auto-pull latest changes from git
+    echo "Pulling latest changes from origin..."
+    if git pull --ff-only 2>/dev/null; then
+        echo "  ✓ Updated from origin/master"
+    else
+        echo "  - Up to date or local changes (git pull skipped)"
+    fi
+    echo ""
     echo "Syncing skills..."
     
     if [ -x "$SCRIPT_DIR/sync_skills.sh" ]; then
@@ -140,6 +150,35 @@ show_config() {
 }
 
 # =============================================================================
+# Show agent prompt
+# =============================================================================
+
+show_prompt() {
+    local program="${1:-}"
+    local placeholder="{program}"
+    
+    if [ -f "$SCRIPT_DIR/agent_shared/AGENT_PROMPT.md" ]; then
+        echo ""
+        echo "========================================"
+        echo "Agent Prompt — Bug Bounty Hunting"
+        echo "========================================"
+        echo ""
+        if [ -n "$program" ]; then
+            # Replace placeholder with actual program name
+            sed "s|$placeholder|$program|g" "$SCRIPT_DIR/agent_shared/AGENT_PROMPT.md"
+        else
+            sed "s|$placeholder|PROGRAM_NAME|g" "$SCRIPT_DIR/agent_shared/AGENT_PROMPT.md"
+            echo ""
+            echo "Tip: Run with --program NAME to customize for a specific program"
+        fi
+        echo ""
+    else
+        echo "Error: AGENT_PROMPT.md not found at $SCRIPT_DIR/agent_shared/"
+        return 1
+    fi
+}
+
+# =============================================================================
 # Initialize (create dirs + sync)
 # =============================================================================
 
@@ -154,7 +193,8 @@ init() {
     echo "Next steps:"
     echo "  1. Edit $CONFIG_FILE for your paths (optional)"
     echo "  2. Run: ./setup.sh --sync  (after updating skills)"
-    echo "  3. Start hunting!"
+    echo "  3. Run: ./setup.sh --prompt  (to get agent prompt)"
+    echo "  4. Start hunting!"
     echo ""
 }
 
@@ -164,6 +204,19 @@ init() {
 
 main() {
     load_config
+    
+    # Handle --prompt specially since it takes an argument
+    if [ "${1:-}" = "--prompt" ] || [ "${1:-}" = "--show-prompt" ]; then
+        # Format: --prompt [--program NAME] or --prompt NAME
+        local prompt_arg=""
+        if [ "${2:-}" = "--program" ] || [ "${2:-}" = "-p" ]; then
+            prompt_arg="${3:-}"
+        else
+            prompt_arg="${2:-}"
+        fi
+        show_prompt "$prompt_arg"
+        exit 0
+    fi
     
     case "${1:-}" in
         --init|-i)

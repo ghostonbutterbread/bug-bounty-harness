@@ -38,7 +38,7 @@ Usage:
   python3 bypass_harness.py --target "https://target.com/api" --type cors
 
 Output:
-  ~/Shared/bounty_recon/{program}/ghost/bypass/
+  ~/Shared/bounty_recon/{program}/agent_shared/findings/bypass/
     full_sweep_{timestamp}.json
     {type}_{timestamp}.json
     summary.json
@@ -789,7 +789,15 @@ def _output_dir(program: Optional[str], custom_dir: Optional[str]) -> Path:
     if custom_dir:
         d = Path(custom_dir).expanduser()
     elif program:
-        d = Path.home() / "Shared" / "bounty_recon" / program / "ghost" / "bypass"
+        d = (
+            Path.home()
+            / "Shared"
+            / "bounty_recon"
+            / program
+            / "agent_shared"
+            / "findings"
+            / "bypass"
+        )
     else:
         d = Path.cwd() / "bypass_results"
     d.mkdir(parents=True, exist_ok=True)

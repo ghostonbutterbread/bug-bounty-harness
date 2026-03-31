@@ -6,9 +6,67 @@ description: Auto-detect and bypass WAF blocks
 
 Auto-detect and bypass WAF blocks in any harness.
 
+## Required Preflight
+
+Read shared state in this order before testing:
+
+1. `notes/summary.md`
+2. `notes/observations.md`
+3. `checklist.md` (WAF items only)
+4. `todo.md` (WAF items only)
+
+## Primary Harness
+
+Use `agents/bypass_harness.py` when you need a CLI entrypoint and want `agents/waf_interceptor.py` engaged automatically. Use `agents/waf_interceptor.py` directly only when embedding the interceptor into a custom harness or a narrow manual repro.
+
+```bash
+python agents/bypass_harness.py --target https://target.com/admin --type 403 \
+  --program target --concurrency 5 --rps 1
+```
+
 ## Module
 
 `agents/waf_interceptor.py`
+
+## Mode Matrix
+
+| Mode | Use When | What It Does |
+|------|----------|--------------|
+| `fingerprint` | You need to identify the blocking layer first | Detects likely WAF family from responses |
+| `tier1` | Plain requests are blocked but payloads are simple | Retries with delays, header rotation, cookies, and path tricks |
+| `tier2` | Payload-carrying requests are blocked after Tier 1 | Obfuscates query values in addition to Tier 1 bypasses |
+| `wrap` | Another harness already made the request | Reuses the existing response and only retries if blocked |
+
+## Primary Commands
+
+```bash
+# WAF-aware 403 probing
+python agents/bypass_harness.py --target https://target.com/admin --type 403 \
+  --program target --concurrency 5 --rps 1
+
+# WAF-aware SSRF probing
+python agents/bypass_harness.py --target https://target.com/fetch?url=x --type ssrf \
+  --param url --program target --concurrency 5 --rps 1
+```
+
+## CLI Notes
+
+### `agents/bypass_harness.py`
+
+| Option | Description |
+|--------|-------------|
+| `--target`, `-t` | Target URL (required) |
+| `--type`, `-T` | Bypass type such as `403`, `ssrf`, `idor`, or `race` |
+| `--param`, `-p` | Parameter name for injection-driven types |
+| `--program` | Program name for shared storage |
+| `--output-dir`, `-o` | Override raw artifact directory |
+| `--timeout` | Request timeout in seconds |
+| `--concurrency`, `-c` | Max parallel requests |
+| `--rps` | Requests per second |
+| `--verbose`, `-v` | Verbose debug output |
+| `--quiet`, `-q` | Show hits only |
+
+## Direct Interface
 
 ## Quick Start
 
@@ -59,7 +117,7 @@ Each WAF has a tailored bypass list, followed by generic fallbacks:
 ## Output Files
 
 ```
-~/Shared/bounty_recon/{program}/ghost/waf/
+~/Shared/bounty_recon/{program}/agent_shared/findings/waf/
 ├── blocks_log.txt    # Every WAF block: WAF name, method, path, status, evidence
 ├── bypasses_log.txt  # Every successful bypass: technique + result status
 └── summary.json      # Running stats: total_requests, waf_blocks, bypass_success, bypass_fail
@@ -96,3 +154,19 @@ waf.print_summary()
 #   Bypasses OK    : 9 (75.0%)
 #   Bypasses fail  : 3
 ```
+
+## Files
+
+- **Playbook:** `$HARNESS_ROOT/prompts/waf-playbook.md`
+- **Shared Root:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`
+- **WAF Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/waf/findings.md`
+- **WAF Artifacts:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/waf/`
+
+## Workflow
+
+1. Complete the required preflight reads in shared state order.
+2. Read `prompts/waf-playbook.md`.
+3. Use `agents/bypass_harness.py` for CLI-driven testing or `agents/waf_interceptor.py` directly inside a custom flow.
+4. Record raw blocks and bypasses in the WAF artifact directory.
+5. Write findings to `agent_shared/findings/waf/findings.md`.
+6. Update WAF entries in `checklist.md`, `todo.md`, and relevant notes.

@@ -1,107 +1,118 @@
 # IDOR Testing Playbook
 
 ## Overview
-Insecure Direct Object Reference (IDOR) — accessing other users' resources by manipulating object identifiers.
 
-## Testing Approach
+Use this as a decision tree: capture the baseline, map object references and ownership boundaries, choose the matching authorization lane, verify access with the correct account context, then report the exact object transition and impact.
 
-### 1. Identify Object References
-- User IDs, document IDs, order IDs, etc.
-- Look for sequential, predictable, or guessable patterns
-- Find UUIDs, base64-encoded IDs, JWTs
+## Decision Tree
 
-### 2. Horizontal Privilege Escalation
-Access resources at the SAME privilege level but belonging to another user:
-```
-GET /api/v1/user/123/profile
-  → Change to GET /api/v1/user/124/profile
-  → If 200 OK, IDOR found
-```
+1. Capture the legitimate baseline first.
+2. Identify every object reference and ownership marker in the workflow.
+3. If the object belongs to another peer user, go down the horizontal lane.
+4. If the object is privileged or admin-scoped, go down the vertical lane.
+5. If the workflow spans create, approve, redeem, or delete steps, go down the workflow lane.
+6. Verify with the minimum cross-account access needed, then report the boundary failure.
 
-### 3. Vertical Privilege Escalation
-Access resources at a HIGHER privilege level:
-```
-GET /api/v1/user/123/profile (regular user)
-  → Try accessing /api/v1/admin/users (admin endpoint)
-```
+## 1. Capture Baseline
 
-## Testing Workflow
+Baseline quality determines whether an apparent access control gap is real.
 
-### Step 1: Capture Baseline
-1. Login as User A
-2. Perform action to get a resource (view profile, order, etc.)
-3. Capture the full request (URL, headers, cookies)
+1. Record the full authenticated request for User A.
+2. If possible, capture the same object shape for User B.
+3. Note:
+   - HTTP method
+   - endpoint path
+   - query and JSON identifiers
+   - hidden ownership fields
+   - any role or tenant headers
 
-### Step 2: Extract Object Identifiers
-- Look for IDs in URL: `/users/123`
-- Look for IDs in JSON responses
-- Look for references in cookies/tokens
+If the request mutates state, capture before and after values so you can prove the change later.
 
-### Step 3: Test Manipulation
-1. Replace User A's ID with User B's ID
-2. Change the resource path
-3. Remove authentication entirely
-4. Use User A's session to access User B's resource
+## 2. Map Object References
 
-### Step 4: Verify Impact
-- Can you read private data?
-- Can you modify other users' data?
-- Can you delete other users' resources?
+Do not focus only on obvious numeric IDs.
 
-## Common IDOR Endpoints
+### Coverage Checklist
 
-| Resource | Example Endpoints |
-|----------|------------------|
-| User Profile | `/api/v1/user/{id}`, `/profile/{id}` |
-| Orders | `/api/orders/{id}`, `/checkout/order/{id}` |
-| Documents | `/api/docs/{id}`, `/files/{id}/download` |
-| Payments | `/api/payments/{id}`, `/billing/{id}` |
-| Messages | `/api/messages/{id}`, `/inbox/{id}` |
+- Path IDs and slugs
+- Query parameters such as `id`, `user_id`, `account`, `order`, `tenant`
+- JSON body fields that name users, resources, or assignees
+- Export, download, and attachment handles
+- Indirect references surfaced in responses, links, or web sockets
 
-## Bypass Techniques
+### Ownership Questions
 
-### Mass Assignment
-```json
-POST /api/v1/user/profile
-{"name": "John", "role": "admin"}
-```
+- Who owns the object right now?
+- Which account should be allowed to read it?
+- Which account should be allowed to update or delete it?
+- Does the server derive ownership from the session, or trust a client-supplied field?
 
-### HTTP Method Tampering
-```
-GET /api/v1/resource/123  (should be POST to create)
-DELETE /api/v1/resource/123 (unauthorized)
-PUT /api/v1/resource/123 (update others)
-```
+## 3. Choose Lane
 
-### Parameter Pollution
-```
-GET /api/v1/user?id=123&id=124
-```
+### Horizontal Lane
 
-### JSON Parameter Injection
-```json
-{"user_id": 123, "admin": true}
-```
+Use when the target object belongs to another user at the same privilege level.
 
-## Findings Format
+1. Swap the object reference from User A to User B.
+2. Compare the response to both baselines.
+3. Check whether the server returns User B's data, not just a generic `200`.
 
-When finding IDOR, document:
-```
-## IDOR Finding
-- **Type**: Horizontal / Vertical / Mass Assignment
-- **URL**: https://target.com/api/v1/resource
-- **Method**: GET/POST/PUT/DELETE
-- **Object ID Parameter**: id
-- **User A Resource**: 123
-- **User B Resource**: 124
-- **Impact**: Read/Modify/Delete other users' data
-- **PoC**: curl -X GET "https://target.com/api/v1/resource/124" -H "Cookie: ..."
-```
+### Vertical Lane
 
-## Files to Update
-After finding IDOR, write to:
-```
-~/Shared/bounty_recon/{program}/ghost/skills/idor/findings.md
-```
+Use when the object or endpoint belongs to an admin or higher-trust role.
 
-Include: endpoint, parameter, IDs tested, what was accessed, impact assessment.
+1. Identify the privileged resource or role-bound object.
+2. Attempt access with the lower-privileged account.
+3. Confirm whether the failure is only UI-level or whether the server actually enforces it.
+
+### Write Lane
+
+Use when the request changes state.
+
+1. Replay the write against another user's object.
+2. Confirm the server accepted the mutation.
+3. Verify the change by re-fetching the object or observing side effects.
+
+### Workflow Lane
+
+Use when authorization may fail between steps rather than on a single fetch.
+
+1. Map creation, approval, redemption, cancellation, sharing, and deletion steps.
+2. Replay later steps with another user's identifiers or tokens.
+3. Confirm whether ownership is rechecked at each transition.
+
+## 4. Verify
+
+Verification should prove broken authorization, not just identifier guessing.
+
+### Verification Standard
+
+1. Reproduce with the minimum identifier change needed.
+2. Show one of:
+   - another user's data returned
+   - another user's data modified
+   - privileged action accepted without the required role
+   - workflow step completed on an unauthorized object
+3. Compare the result to the legitimate baseline so a generic response is not mistaken for success.
+4. Record whether the access works by direct ID swap, hidden field tampering, or role/header trust.
+
+### Status Rules
+
+- `Confirmed`: unauthorized read, write, delete, or transition succeeded.
+- `Potential`: the server behavior differs, but ownership or impact is not yet proven.
+- `False Positive`: the response is generic, cached, or still bound to the caller's own data.
+
+## 5. Report
+
+Write the result to:
+
+`$HARNESS_SHARED_BASE/{program}/agent_shared/findings/idor/findings.md`
+
+Include:
+
+- IDOR type: horizontal, vertical, write, or workflow
+- Exact object reference that was changed
+- Caller account and unauthorized target account or role
+- Method and endpoint
+- Evidence of unauthorized access or state change
+- Any headers, hidden fields, or workflow tokens involved

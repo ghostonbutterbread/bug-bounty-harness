@@ -6,7 +6,7 @@ Usage:
     python3 autonomous_recon.py --target https://www.example.com
 
 Output:
-    ~/Shared/bounty_recon/{program}/ghost/recon/
+    ~/Shared/bounty_recon/{program}/agent_shared/findings/recon/
     ├── urls.txt
     ├── params.txt
     ├── js_files.txt
@@ -558,7 +558,15 @@ def phase_analyze(result: ReconResult) -> None:
 def phase_organize(result: ReconResult) -> Path:
     _log("=== Phase 4: ORGANIZE ===", "INFO")
 
-    out_dir = Path.home() / "Shared" / "bounty_recon" / result.program / "ghost" / "recon"
+    out_dir = (
+        Path.home()
+        / "Shared"
+        / "bounty_recon"
+        / result.program
+        / "agent_shared"
+        / "findings"
+        / "recon"
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Deduplicate and write urls.txt

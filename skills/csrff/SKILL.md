@@ -6,54 +6,40 @@ description: Test for Cross-Site Request Forgery vulnerabilities, including miss
 
 Test for Cross-Site Request Forgery vulnerabilities on authenticated, state-changing functionality.
 
-## Usage
+## Required Preflight
 
-Use this skill when the target exposes actions that change account, billing, profile, admin, or workflow state and you need to verify whether those actions can be triggered cross-site from an attacker-controlled page.
+Read shared state in this order before testing:
 
-There is no dedicated `agents/csrf_hunter.py` in this repo yet. Run this workflow manually with a browser, proxy, and reproducible PoC HTML.
+1. `notes/summary.md`
+2. `notes/observations.md`
+3. `checklist.md` (CSRF items only)
+4. `todo.md` (CSRF items only)
+
+## Primary Harness
+
+There is no dedicated `agents/csrf_hunter.py` in this repo yet. Run CSRF work manually with a browser, proxy, and reproducible PoC HTML. Use `baseline_capture.py` when you need to snapshot authenticated before-and-after state or inspect reflected anti-CSRF headers during a controlled replay.
+
+## Mode Matrix
+
+| Mode | Use When | What It Tests |
+|------|----------|---------------|
+| `no-token` | State-changing request succeeds without a token | Missing anti-CSRF protection |
+| `weak-token` | Token exists but validation may be weak | Omission, replay, cross-session reuse, or cookie duplication |
+| `samesite` | Cookies appear to be the main defense | Cross-site navigation and `SameSite` edge cases |
+| `origin` | Headers appear to enforce cross-site policy | Weak, absent, or inconsistent `Origin` and `Referer` validation |
 
 ## Files
 
-- **Knowledge:** `$HARNESS_SHARED_BASE/{program}/ghost/knowledge.md`
-- **Notes template:** `agent_shared/templates/notes/observations.md`
-- **Checklist:** `agent_shared/templates/checklist.md`
+- **Playbook:** `$HARNESS_ROOT/prompts/csrf-playbook.md`
+- **Shared Root:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`
+- **CSRF Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/csrf/findings.md`
+- **CSRF Artifacts:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/csrf/`
 
 ## Workflow
 
-1. Read program knowledge first to avoid re-testing endpoints that were already covered.
-2. Capture authenticated requests that change state. Prioritize `POST`, `PUT`, `PATCH`, `DELETE`, and any `GET` request that performs an action.
-3. Record the protection model for each endpoint:
-   - CSRF token in form field or header
-   - Token rotation and session binding
-   - `SameSite` cookie behavior
-   - `Origin` and `Referer` validation
-   - Content-Type restrictions and custom-header requirements
-4. Build the simplest cross-site PoC that matches the original request:
-   - Plain HTML form for form-encoded or multipart requests
-   - Auto-submit form for one-click reproduction
-   - Method override or alternate encodings if the endpoint accepts them
-   - Cross-site navigation or top-level GET if `SameSite=Lax` may still send cookies
-5. Test common failure modes:
-   - No CSRF token required
-   - Token accepted when omitted, stale, replayed, or copied from another session
-   - Token duplicated in a cookie without server-side binding
-   - Validation trusts only `Referer` or only a weak `Origin` check
-   - State-changing endpoint is reachable with a simpler method or content type
-   - JSON endpoint becomes reachable through content-type confusion or alternate parsers
-6. Confirm impact with a safe state change in a controlled account. Capture the before/after state and the exact victim prerequisites.
-
-## Validation Notes
-
-- Distinguish CSRF from CORS. A blocked cross-origin read does not prevent a forged write if the browser still sends the victim's cookies.
-- Treat `SameSite=Lax` as partial protection, not a blanket defense. Top-level navigations and some GET-driven workflows can still be exploitable.
-- If the application requires a custom header that a normal cross-site form cannot send, document that as a mitigating control unless you find an alternate request shape that bypasses it.
-- If a token is present, verify whether it is actually enforced and bound to the victim session.
-
-## Evidence To Save
-
-- Vulnerable endpoint and HTTP method
-- Raw request and response summary
-- Cookie attributes relevant to the exploit
-- PoC HTML used for reproduction
-- Exact victim conditions needed for exploitation
-- Observed state change proving impact
+1. Complete the required preflight reads in shared state order.
+2. Read `prompts/csrf-playbook.md`.
+3. Capture authenticated state-changing requests and build the simplest matching cross-site PoC.
+4. Use `baseline_capture.py` when you need before-and-after evidence or to inspect anti-CSRF headers during controlled replay.
+5. Write findings to `agent_shared/findings/csrf/findings.md`.
+6. Update CSRF entries in `checklist.md`, `todo.md`, and relevant notes.

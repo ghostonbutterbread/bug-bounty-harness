@@ -32,7 +32,7 @@ In bypass_harness.py:
     resp = await waf.aget_payload(url, client=client)
 
 Output:
-    ~/Shared/bounty_recon/{program}/ghost/waf/
+    ~/Shared/bounty_recon/{program}/agent_shared/findings/waf/
     ├── blocks_log.txt       WAF blocks encountered
     ├── bypasses_log.txt     Successful bypasses
     └── summary.json         Stats: total requests, blocks, bypasses
@@ -313,7 +313,7 @@ class WAFInterceptor:
     block is detected in the response, automatically retries the request with
     WAF-specific bypass techniques before returning.
 
-    Tracks stats and writes logs to ~/Shared/bounty_recon/{program}/ghost/waf/
+    Tracks stats and writes logs to ~/Shared/bounty_recon/{program}/agent_shared/findings/waf/
     """
 
     DEFAULT_HEADERS = {
@@ -348,7 +348,15 @@ class WAFInterceptor:
         # Output directory
         self._out_dir: Optional[Path] = None
         if program:
-            self._out_dir = Path.home() / "Shared" / "bounty_recon" / program / "ghost" / "waf"
+            self._out_dir = (
+                Path.home()
+                / "Shared"
+                / "bounty_recon"
+                / program
+                / "agent_shared"
+                / "findings"
+                / "waf"
+            )
             self._out_dir.mkdir(parents=True, exist_ok=True)
 
         # Sync session (lazy init)

@@ -1,136 +1,78 @@
 # Web Fuzzing Playbook
 
 ## Overview
-Web fuzzing — discovering hidden endpoints, parameters, and files through brute-force enumeration.
 
-## Testing Approach
+Use this as a decision tree: seed the target space from recon, choose the narrowest fuzz lane, classify hits by response signal, pivot only where the response suggests a real surface, then report the endpoints that deserve follow-up.
 
-### 1. Directory/Endpoint Fuzzing
-Discover hidden paths:
-```
-/admin
-/api
-/backup
-/config
-/debug
-/.git
-/.env
-/internal
-/test
-/v1, /v2, /v3
-```
+## Decision Tree
 
-### 2. Parameter Fuzzing
-Discover hidden parameters:
-```
-?debug=1
-?test=1
-?id=1
-?page=1
-?redirect=
-```
+1. Start from known hosts, paths, and technologies.
+2. If you still need breadth, run path discovery first.
+3. If a path is confirmed interesting, move to parameter or extension fuzzing for that surface.
+4. If auth boundaries or redirects appear, classify them as follow-up leads rather than final findings.
+5. Report only endpoints, files, or parameters with meaningful signal.
 
-### 3. Subdomain Enumeration
-```
-api.target.com
-staging.target.com
-dev.target.com
-internal.target.com
-test.target.com
-```
+## 1. Seed The Space
 
-## Tools
+Do not fuzz blind when recon has already narrowed the attack surface.
 
-### ffuf (Recommended)
-```bash
-ffuf -u https://target.com/FUZZ \
-     -w wordlists/common.txt \
-     -mc 200,204,301,302,307,401,403 \
-     -fc 404 \
-     -c -v
-```
+### Good Seeds
 
-### Param Miner (for parameters)
-```bash
-python3 paramspider.py --target target.com
-ffuf -u https://target.com/endpoint?FUZZ=test \
-     -w wordlists/burp-parameter-names.txt \
-     -fw 1
-```
+- Paths from recon output
+- JavaScript bundle references
+- Technology-specific conventions
+- Admin, API, debug, and export names already seen in the app
+- Historical URLs or archived endpoints
 
-## Wordlists
+## 2. Choose Lane
 
-| Purpose | Wordlist Location |
-|---------|-----------------|
-| Directories | `~/wordlists/SecLists/Discovery/Web-Content/common.txt` |
-| Parameters | `~/wordlists/SecLists/Discovery/Web-Content/burp-parameter-names.txt` |
-| Subdomains | `~/wordlists/commonspeak2/subdomains.txt` |
-| APIs | `~/wordlists/SecLists/Discovery/Web-Content/api-endpoints.txt` |
-| Sensitive Files | `~/wordlists/SecLists/Discovery/Web-Content/quick-fixes.txt` |
+| Lane | Use When | Goal |
+|------|----------|------|
+| Path discovery | Host coverage is incomplete | Find hidden directories, APIs, and panels |
+| Extension discovery | Backups or source leaks are plausible | Find `.bak`, `.old`, `.zip`, `.env`, and similar assets |
+| Parameter discovery | A specific endpoint already exists | Find hidden toggles, filters, and debug flags |
+| Vhost discovery | Shared hosting or internal hostnames are suspected | Find alternate applications on the same IP or domain |
 
-## Interesting Status Codes
+## 3. Classify Hits
 
-| Code | Meaning |
-|------|---------|
-| 200 | Found! Analyze content |
-| 204 | Empty response |
-| 301/302/307 | Redirect — check where it goes |
-| 401 | Auth required — could be IDOR vector |
-| 403 | Forbidden — often interesting |
-| 405 | Method Not Allowed — valid endpoint |
+Not every `200` matters, and not every `403` is noise.
 
-## Testing Workflow
+### Signals To Keep
 
-1. **Run directory fuzz** — find interesting paths
-2. **Follow redirects** — see where 301s go
-3. **Fuzz parameters** — on interesting endpoints
-4. **Analyze responses** — look for leaks, debug info
-5. **Check for WAF** — slow down if blocked
+- `200` with admin, API, debug, config, backup, or documentation content
+- `301`, `302`, `307` that redirect into a real feature path
+- `401` or `403` on sensitive paths that imply a real endpoint exists
+- `405` that proves a valid route is present
+- Response-size outliers that break the normal error template
 
-## Fuzzing Categories
+### Signals To Deprioritize
 
-### Quick Wins (High Value)
-```
-/admin
-/api/v1
-/backup
-/config
-/debug
-/.git/HEAD
-/.env
-/robots.txt
-/sitemap.xml
-/swagger
-/graphql
-```
+- Generic wildcard responses
+- Empty `204` without a meaningful route name
+- CDN or router catch-all pages that normalize every request
 
-### Sensitive Files
-```
-/wp-admin
-/phpinfo.php
-/info.php
-/test.php
-/debug.php
-/backup.sql
-/database.sql
-/config.php.bak
-```
+## 4. Pivot
 
-## Findings Format
+Escalate only where the hit meaningfully changes your map.
 
-```
-## Fuzz Finding
-- **URL**: https://target.com/admin
-- **Status**: 200 OK
-- **Content Length**: 1234
-- **Interesting**: Contains "Admin Panel"
-- **Follow-up**: Test for auth bypass
-```
+### Common Pivots
 
-## Files to Update
-After finding interesting endpoints, write to:
-```
-~/Shared/bounty_recon/{program}/ghost/skills/fuzz/findings.md
-```
+- Hidden admin path -> authz, IDOR, or WAF follow-up
+- Debug or docs endpoint -> secrets, SSRF, or recon follow-up
+- Backup or config file -> high-priority exposure review
+- New API route -> parameter fuzzing and auth analysis
+- Protected endpoint -> note as an auth boundary instead of forcing a bypass immediately
 
-Include: endpoint, status, content analysis, follow-up tests needed.
+## 5. Report
+
+Write the result to:
+
+`$HARNESS_SHARED_BASE/{program}/agent_shared/findings/fuzz/findings.md`
+
+Include:
+
+- URL or endpoint discovered
+- Fuzz lane that found it
+- Status code and response-size signal
+- Why it is interesting
+- Recommended next test, if any

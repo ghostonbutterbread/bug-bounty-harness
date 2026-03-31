@@ -1,18 +1,14 @@
-# SSRF Skill
+# SSRF Testing
 
-## Description
 Test for Server-Side Request Forgery vulnerabilities.
 
-## Playbook
-`../prompts/ssrf-playbook.md`
+**Playbook:** `~/projects/bug_bounty_harness/prompts/ssrf-playbook.md`
 
-## Findings
-`~/Shared/bounty_recon/{program}/ghost/skills/ssrf/findings.md`
+**Findings:** `~/Shared/bounty_recon/{program}/ghost/skills/ssrf/findings.md`
 
-## Usage
-```markdown
-Read prompts/ssrf-playbook.md for methodology.
-Test target: {program}
-Read findings from: ~/Shared/bounty_recon/{program}/ghost/skills/ssrf/findings.md
-Update knowledge: ~/Shared/bounty_recon/{program}/ghost/knowledge.md
-```
+**Knowledge:** `~/Shared/bounty_recon/{program}/ghost/knowledge.md`
+
+1. Read the playbook
+2. Read knowledge.md for what's already tested
+3. Execute tests
+4. Update findings and knowledge

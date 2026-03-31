@@ -1,22 +1,16 @@
-# Fuzz Skill
+# Web Fuzzing
 
-## Description
 Discover hidden endpoints, parameters, and files through enumeration.
 
-## Playbook
-`../prompts/fuzz-playbook.md`
+**Playbook:** `~/projects/bug_bounty_harness/prompts/fuzz-playbook.md`
 
-## Findings
-`~/Shared/bounty_recon/{program}/ghost/skills/fuzz/findings.md`
+**Findings:** `~/Shared/bounty_recon/{program}/ghost/skills/fuzz/findings.md`
 
-## Tools
-- ffuf: `ffuf -u TARGET/FUZZ -w WORDLIST -mc 200,204,301,302,307,401,403 -fc 404 -c -v`
-- Wordlists: `~/wordlists/SecLists/Discovery/Web-Content/common.txt`
+**Knowledge:** `~/Shared/bounty_recon/{program}/ghost/knowledge.md`
 
-## Usage
-```markdown
-Read prompts/fuzz-playbook.md for methodology.
-Test target: {program}
-Read findings from: ~/Shared/bounty_recon/{program}/ghost/skills/fuzz/findings.md
-Update knowledge: ~/Shared/bounty_recon/{program}/ghost/knowledge.md
-```
+**Tools:** ffuf, wordlists in ~/wordlists/
+
+1. Read the playbook
+2. Read knowledge.md for what's already fuzzed
+3. Execute fuzzing
+4. Update findings and knowledge

@@ -1,23 +1,16 @@
-# Recon Skill
+# Reconnaissance
 
-## Description
-Reconnaissance — enumerate targets, discover endpoints, map attack surface.
+Enumerate targets, discover endpoints, map attack surface.
 
-## Playbook
-`../prompts/recon-playbook.md`
+**Playbook:** `~/projects/bug_bounty_harness/prompts/recon-playbook.md`
 
-## Findings
-`~/Shared/bounty_recon/{program}/ghost/skills/recon/findings.md`
+**Findings:** `~/Shared/bounty_recon/{program}/ghost/skills/recon/findings.md`
 
-## Tools
-- Crawler: `~/workspace/scripts/url_probe.py`
-- Screenshot: `~/projects/bug_bounty_harness/agents/screenshot_tool.py`
-- Subdomain: `~/projects/bug_bounty_harness/agents/subdomain_agent.py`
+**Knowledge:** `~/Shared/bounty_recon/{program}/ghost/knowledge.md`
 
-## Usage
-```markdown
-Read prompts/recon-playbook.md for methodology.
-Test target: {program}
-Read findings from: ~/Shared/bounty_recon/{program}/ghost/skills/recon/findings.md
-Update knowledge: ~/Shared/bounty_recon/{program}/ghost/knowledge.md
-```
+**Tools:** url_probe.py, screenshot_tool.py, subdomain_agent.py
+
+1. Read the playbook
+2. Read knowledge.md for what's already discovered
+3. Execute recon
+4. Update findings and knowledge

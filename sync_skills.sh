@@ -53,8 +53,11 @@ load_config() {
         set +a
     fi
     
-    # Apply defaults if still not set
-    : "${HARNESS_ROOT:=$SCRIPT_DIR}"
+    # Apply defaults if still not set or if using placeholder
+    # Default HARNESS_ROOT to where this script actually lives (the repo root)
+    if [ -z "$HARNESS_ROOT" ] || [ "$HARNESS_ROOT" = "detected_from_script" ]; then
+        HARNESS_ROOT="$SCRIPT_DIR"
+    fi
     : "${CLAUDE_SKILLS_DIR:=${HOME}/.claude/skills}"
     : "${CODEX_SKILLS_DIR:=${HOME}/.codex/skills}"
 }

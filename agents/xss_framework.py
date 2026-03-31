@@ -12,7 +12,7 @@ Phases:
 Usage:
   python3 xss_framework.py --target "https://target.com/search?q=test" --program myprog
   python3 xss_framework.py --target "https://target.com" --mode dom --program myprog
-  python3 xss_framework.py --target "https://target.com/search?q=test" --phase discover
+  python3 xss_framework.py --target "https://target.com/search?q=test" --mode discover
   python3 xss_framework.py --target "https://target.com" --stored-url "https://target.com/comments"
 """
 
@@ -1249,7 +1249,16 @@ class XSSFramework:
 
     def _save_report(self) -> None:
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        out_dir = Path.home() / "Shared" / "bounty_recon" / self.program / "ghost" / "xss_framework"
+        out_dir = (
+            Path.home()
+            / "Shared"
+            / "bounty_recon"
+            / self.program
+            / "agent_shared"
+            / "findings"
+            / "xss"
+            / "framework"
+        )
         out_dir.mkdir(parents=True, exist_ok=True)
 
         # JSON
@@ -1415,7 +1424,7 @@ Examples:
   python3 xss_framework.py --target "https://target.com/post" --mode stored \\
       --stored-url "https://target.com/forum/thread/1" --program myprog
   python3 xss_framework.py --target "https://target.com" --mode full \\
-      --browser-verify --rate 1 --verbose
+      --browser-verify --rate-limit 1 --verbose
         """,
     )
     parser.add_argument("--target", required=True, help="Target URL")
@@ -1433,7 +1442,14 @@ Examples:
         metavar="URL",
         help="URLs where stored XSS would render (for stored mode)",
     )
-    parser.add_argument("--rate", type=float, default=2.0, help="Requests per second (default: 2.0)")
+    parser.add_argument(
+        "--rate-limit",
+        "--rate",
+        dest="rate_limit",
+        type=float,
+        default=2.0,
+        help="Requests per second (default: 2.0)",
+    )
     parser.add_argument("--browser-verify", action="store_true", help="Browser-verify findings with Playwright")
     parser.add_argument(
         "--browser-bypass",
@@ -1449,7 +1465,7 @@ Examples:
     framework = XSSFramework(
         target=args.target,
         program=args.program,
-        rate_limit=args.rate,
+        rate_limit=args.rate_limit,
         mode=args.mode,
         stored_urls=args.stored_urls or [],
         browser_verify=args.browser_verify,

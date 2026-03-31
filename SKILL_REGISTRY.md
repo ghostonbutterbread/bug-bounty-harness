@@ -63,6 +63,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **ssrf** | `/ssrf {program}` | `prompts/ssrf-playbook.md` |
 | **fuzz** | `/fuzz {program}` | `prompts/fuzz-playbook.md` |
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
+| **csrf** | `/csrf {program}` | `skills/csrff/SKILL.md` |
 
 ---
 
@@ -76,6 +77,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /ssrf superdrug
 /fuzz superdrug
 /recon superdrug
+/csrf superdrug
 ```
 
 ### Agent Spawn
@@ -123,9 +125,9 @@ Per-program knowledge file:
 
 ## Creating New Skills
 
-1. Create playbook: `prompts/{name}-playbook.md`
-2. Create skill wrapper: `skills/{name}/SKILL.md`
-3. Create harness: `agents/{name}_hunter.py`
+1. Create skill wrapper: `skills/{name}/SKILL.md`
+2. Create playbook if needed: `prompts/{name}-playbook.md`
+3. Create harness if needed: `agents/{name}_hunter.py`
 4. Add to this registry
 5. Run `./setup.sh --sync`
 

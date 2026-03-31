@@ -1,16 +1,19 @@
+---
+name: ssrf
+description: Test for Server-Side Request Forgery vulnerabilities
+---
 # SSRF Testing
 
 Test for Server-Side Request Forgery vulnerabilities.
 
-**Run:** `/ssrf {program}`
+## Usage
 
-**Files (from config.env or env vars):**
-- Playbook: `$HARNESS_ROOT/prompts/ssrf-playbook.md`
-- Findings: `$HARNESS_SHARED_BASE/{program}/ghost/skills/ssrf/findings.md`
-- Knowledge: `$HARNESS_SHARED_BASE/{program}/ghost/knowledge.md`
+```bash
+python agents/ssrf_hunter.py --target https://target.com/fetch --program target
+```
 
-**Workflow:**
-1. Read the playbook
-2. Read knowledge.md for what's already tested
-3. Execute tests
-4. Update findings and knowledge
+## Files
+
+- **Playbook:** `$HARNESS_ROOT/prompts/ssrf-playbook.md`
+- **Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/ssrf/`
+- **Knowledge:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Use this as a decision tree: connect to Kaido MCP, capture a real user journey through the proxy, cluster the requests into one business flow, identify the state transitions and dependencies, then write a markdown sequence diagram another agent can replay without rediscovering the workflow.
+Use this as a decision tree: connect to Caido MCP, capture a real user journey through the proxy, cluster the requests into one business flow, identify the state transitions and dependencies, then write a markdown sequence diagram another agent can replay without rediscovering the workflow.
 
 ## Decision Tree
 
@@ -13,7 +13,7 @@ Use this as a decision tree: connect to Kaido MCP, capture a real user journey t
 5. Record the sequence, auth requirements, tokens, and data objects.
 6. Save the flow map under `application-structure/{flow-type}/`.
 
-## 1. Connect To Kaido MCP
+## 1. Connect To Caido MCP
 
 Goal: make sure the traffic you analyze reflects a real browser session and complete request chain.
 

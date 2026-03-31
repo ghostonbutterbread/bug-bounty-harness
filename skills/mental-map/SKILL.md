@@ -1,10 +1,10 @@
 ---
 name: mental-map
-description: Build mental maps of application architecture by analyzing Kaido MCP proxy traffic, grouping requests into flows like auth, cart, checkout, signup, login, forgot-password, and user-profile, then documenting sequence diagrams and replication notes
+description: Build mental maps of application architecture by analyzing Caido MCP proxy traffic, grouping requests into flows like auth, cart, checkout, signup, login, forgot-password, and user-profile, then documenting sequence diagrams and replication notes
 ---
 # Mental Map Analysis
 
-Build mental maps of application architecture from Kaido MCP proxy traffic.
+Build mental maps of application architecture from Caido MCP proxy traffic.
 
 ## Required Preflight
 
@@ -17,7 +17,7 @@ Read shared state in this order before mapping flows:
 
 ## Primary Analysis Surface
 
-There is no dedicated `agents/mental_map.py` harness in this repo. Use Kaido MCP proxy traffic as the source of truth, set the browser or replay client proxy to `KAIDO_MCP_PROXY_URL`, then classify captured requests into application flows.
+There is no dedicated `agents/mental_map.py` harness in this repo. Use Caido MCP proxy traffic as the source of truth, set the browser or replay client proxy to `KAIDO_MCP_PROXY_URL`, then classify captured requests into application flows.
 
 ## What To Map
 

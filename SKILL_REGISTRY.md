@@ -8,11 +8,13 @@ Universal index of all available bug bounty skills.
 
 Skills use paths from `config.env` or environment variables.
 
+**Note:** `config.env` is gitignored. Run `./setup.sh --init` to create it from `config.env.example`.
+
 ### Environment Variables (override config.env)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `HARNESS_ROOT` | Bug bounty harness repo root | `~/projects/bug-bounty-harness` |
+| `HARNESS_ROOT` | Bug bounty harness repo root | `~/projects/bug_bounty_harness` |
 | `HARNESS_SHARED_BASE` | Base for bounty recon data | `~/Shared/bounty_recon` |
 | `HARNESS_WORDLISTS` | Wordlists directory | `~/wordlists` |
 | `CLAUDE_SKILLS_DIR` | Claude Code skills directory | `~/.claude/skills` |
@@ -20,10 +22,15 @@ Skills use paths from `config.env` or environment variables.
 
 ### Config File
 
+First time setup:
+```bash
+./setup.sh --init  # Creates config.env from config.env.example
+```
+
 Edit `config.env` in the repo root:
 ```bash
 HARNESS_SHARED_BASE="${HOME}/Shared/bounty_recon"
-HARNESS_ROOT="${HOME}/projects/bug-bounty-harness"
+HARNESS_ROOT="${HOME}/projects/bug_bounty_harness"
 CLAUDE_SKILLS_DIR="${HOME}/.claude/skills"
 CODEX_SKILLS_DIR="${HOME}/.codex/skills"
 ```

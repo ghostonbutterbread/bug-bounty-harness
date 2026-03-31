@@ -28,12 +28,36 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config.env"
+CONFIG_EXAMPLE="$SCRIPT_DIR/config.env.example"
+
+# =============================================================================
+# Ensure config exists (create from example if missing)
+# =============================================================================
+
+ensure_config() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        if [ -f "$CONFIG_EXAMPLE" ]; then
+            echo "Creating config.env from config.env.example..."
+            cp "$CONFIG_EXAMPLE" "$CONFIG_FILE"
+            echo "✓ Created $CONFIG_FILE"
+            echo ""
+            echo "Edit $CONFIG_FILE to customize your paths."
+            echo ""
+        else
+            echo "Error: config.env not found and config.env.example missing"
+            exit 1
+        fi
+    fi
+}
 
 # =============================================================================
 # Load config (env vars always win, config file provides defaults)
 # =============================================================================
 
 load_config() {
+    # Ensure config exists first
+    ensure_config
+    
     # If config file exists, source it (env vars already win due to : syntax in config)
     if [ -f "$CONFIG_FILE" ]; then
         set -a

@@ -20,6 +20,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config.env"
+CONFIG_EXAMPLE="$SCRIPT_DIR/config.env.example"
 
 # Default: sync all
 SYNC_CLAUDE=true
@@ -27,10 +28,24 @@ SYNC_CODEX=true
 DRY_RUN=false
 
 # =============================================================================
+# Ensure config exists (create from example if missing)
+# =============================================================================
+
+ensure_config() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        if [ -f "$CONFIG_EXAMPLE" ]; then
+            cp "$CONFIG_EXAMPLE" "$CONFIG_FILE"
+        fi
+    fi
+}
+
+# =============================================================================
 # Load config (env vars override config file)
 # =============================================================================
 
 load_config() {
+    ensure_config
+    
     # If config file exists, source it (env vars already win due to : syntax in config)
     if [ -f "$CONFIG_FILE" ]; then
         set -a

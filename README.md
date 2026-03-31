@@ -23,23 +23,24 @@ Multi-agent bug bounty hunting framework. Supports XSS, IDOR, SQLi, SSRF, fuzzin
 
 Paths are configured via `config.env` or environment variables.
 
+**Note:** `config.env` is gitignored. Copy `config.env.example` to create your own.
+
 ### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `HARNESS_ROOT` | Bug bounty harness repo | `~/projects/bug-bounty-harness` |
+| `HARNESS_ROOT` | Bug bounty harness repo | `~/projects/bug_bounty_harness` |
 | `HARNESS_SHARED_BASE` | Bounty recon data | `~/Shared/bounty_recon` |
 | `HARNESS_WORDLISTS` | Wordlists | `~/wordlists` |
 | `CLAUDE_SKILLS_DIR` | Claude Code skills | `~/.claude/skills` |
 | `CODEX_SKILLS_DIR` | Codex skills | `~/.codex/skills` |
 
-### Edit config.env
+### Setup (First Time)
 
 ```bash
-HARNESS_SHARED_BASE="${HOME}/Shared/bounty_recon"
-HARNESS_ROOT="${HOME}/projects/bug-bounty-harness"
-CLAUDE_SKILLS_DIR="${HOME}/.claude/skills"
-CODEX_SKILLS_DIR="${HOME}/.codex/skills"
+./setup.sh --init
+# This creates config.env from config.env.example
+# Then edit config.env with your paths
 ```
 
 ### Override with Environment

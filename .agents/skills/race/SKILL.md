@@ -6,65 +6,75 @@ description: Test for race conditions and concurrent workflow flaws
 
 Test for race conditions, state desynchronization, and concurrent workflow flaws.
 
-## Common Targets
+## Required Preflight
 
-- Coupon redemption, gift card claims, referral credits
-- Balance transfers, withdrawals, refunds, checkout flows
-- Inventory reservation, seat booking, stock decrement
-- Password reset or email/phone verification flows
-- Invite acceptance, one-time links, single-use tokens
-- Admin approval queues, role changes, feature unlocks
+Read shared state in this order before testing:
 
-## Testing Patterns
+1. `notes/summary.md`
+2. `notes/observations.md`
+3. `checklist.md` (race items only)
+4. `todo.md` (race items only)
 
-### Single-use token reuse
-Send the same redeem/confirm/claim request concurrently. Check whether the token is accepted more than once before invalidation propagates.
+## Primary Harness
 
-### Limit bypass
-Fire concurrent requests against an action with a per-user or per-resource limit. Check whether each worker passes the pre-check before any write commits.
-
-### TOCTOU (Time-of-Check-Time-of-Use)
-Trigger a check and a state-changing request at the same time. Look for stale authorization or stale balance/inventory decisions.
-
-### Multi-endpoint workflow races
-Overlap steps like `create`, `confirm`, `cancel`, `refund`, or `approve`. Test conflicting transitions in both orders.
-
-## Workflow
-
-1. **Map the stateful action** — Find the exact request that consumes a token, spends a balance, reserves an item
-2. **Establish baseline** — Send request once, capture normal response
-3. **Identify race windows** — Look for client-side gating, delayed polling, multi-request workflows
-4. **Reproduce with concurrency** — Replay same request in parallel (2-5 concurrent first)
-5. **Confirm impact** — Check whether state changed more than once or became inconsistent
-6. **Document** — Record exact prerequisites, request count, timing, and observable impact
-
-## Tools
+Use `agents/bypass_harness.py` in `--type race` mode for first-pass concurrent replay. Set `--concurrency` above the module burst size so the harness does not artificially serialize the race.
 
 ```bash
-# Parallel curl for race testing
-for i in {1..5}; do curl -X POST "https://target.com/api/claim" & done; wait
-
-# Or use Python
-python3 -c "import concurrent.futures; [print(i) for i in range(5)]"
+python agents/bypass_harness.py --target https://target.com/api/redeem \
+  --type race --program target --concurrency 20 --rps 20
 ```
 
-## Evidence Checklist
+## Mode Matrix
 
-- Target endpoint(s) and full stateful action being tested
-- Preconditions required for the race
-- Number of concurrent requests and timing approach
-- Expected result versus actual result
-- Proof of duplicated or inconsistent state change
+| Mode | Use When | What It Tests |
+|------|----------|---------------|
+| `single-use` | Token, coupon, or invite should be consumed once | Duplicate acceptance before invalidation |
+| `limit` | Quotas or redemption limits should gate actions | Pre-check bypass under concurrency |
+| `toctou` | Read-then-write checks gate value changes | Stale authorization, balance, or inventory windows |
+| `workflow` | Multiple endpoints change the same object state | Conflicting transitions and ordering bugs |
+
+## Primary Commands
+
+```bash
+# Default race pass
+python agents/bypass_harness.py --target https://target.com/api/redeem \
+  --type race --program target --concurrency 20 --rps 20
+```
+
+## CLI Notes
+
+### `agents/bypass_harness.py`
+
+| Option | Description |
+|--------|-------------|
+| `--target`, `-t` | Target URL (required) |
+| `--type`, `-T` | Use `race` |
+| `--program` | Program name for shared storage |
+| `--output-dir`, `-o` | Override raw artifact directory |
+| `--timeout` | Request timeout in seconds |
+| `--concurrency`, `-c` | Max parallel requests; keep above the race burst |
+| `--rps` | Requests per second |
+| `--verbose`, `-v` | Verbose debug output |
+| `--quiet`, `-q` | Show hits only |
 
 ## Stop Conditions
 
-- Stop if behavior risks irreversible financial impact or harms real user data
-- Stop if the only effect is duplicate responses with no duplicated state change
-- Stop if target becomes unstable
-
----
+- Stop if behavior risks irreversible financial impact or harms real user data.
+- Stop if the only effect is duplicate responses with no duplicated state change.
+- Stop if the target becomes unstable.
 
 ## Files
 
-- **Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/race/`
-- **Knowledge:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`
+- **Playbook:** `$HARNESS_ROOT/prompts/race-playbook.md`
+- **Shared Root:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`
+- **Race Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/race/findings.md`
+- **Bypass Artifacts:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/bypass/`
+
+## Workflow
+
+1. Complete the required preflight reads in shared state order.
+2. Read `prompts/race-playbook.md`.
+3. Run `agents/bypass_harness.py` in `--type race` mode for duplicate-request testing.
+4. Confirm any promising result by proving duplicated or inconsistent state, not just varied responses.
+5. Write findings to `agent_shared/findings/race/findings.md`.
+6. Update race entries in `checklist.md`, `todo.md`, and relevant notes.

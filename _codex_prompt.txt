@@ -1,0 +1,15 @@
+Fix two remaining issues in agents/zero_day_team.py:
+
+1. REPLACE the has_explicit_chain_req word-count heuristic with a proper requirement-verb check.
+   Current (weak): has_explicit_chain_req = bool(chain_requirements and len(chain_requirements.split()) >= 3)
+   Replace with: Check that chain_requirements contains a requirement VERB (needs, requires, must, after, once, with, depend) PLUS a concrete noun phrase. Reject if it contains hedge words (maybe, possible, might, could, perhaps).
+   Logic: if chain_requirements has requirement verbs AND no hedge words AND a concrete noun (3+ chars), then has_explicit_chain_req = True.
+
+2. FIX _inconclusive_review() to return DORMANT_HYPOTHETICAL instead of plain DORMANT.
+   Line ~921: reviewed["review_tier"] = "DORMANT" → "DORMANT_HYPOTHETICAL"
+   Line ~922: reviewed["tier"] = "DORMANT" → "DORMANT_HYPOTHETICAL"
+   This ensures error/inconclusive findings are classified as hypothetical, not active.
+
+Read zero_day_team.py lines 912-930 (_inconclusive_review) and lines ~1007-1015 (the has_explicit_chain_req logic near the end of _normalize_claude_review). Make the targeted fixes.
+
+Test: python3 -m py_compile agents/zero_day_team.py && echo OK

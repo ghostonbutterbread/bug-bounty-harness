@@ -930,6 +930,263 @@ def _looks_non_literal(expr: str) -> bool:
     return not (expr.startswith('"') and expr.endswith('"')) and not (expr.startswith("'") and expr.endswith("'"))
 
 
+def _claude_gate(prompt: str, timeout: int = 120) -> str | None:
+    """Run a prompt through Claude (OpenClaw default model) for gating."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["claude", "--print", prompt],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def _codex_gate(prompt: str, timeout: int = 120) -> str | None:
+    """Run a prompt through Codex CLI for validation (fallback/gatekeeper)."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["codex", "-q", prompt],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def _run_ai_gate(
+    findings: list[Finding],
+    gate_model: str,
+    task: str,
+) -> tuple[list[Finding], list[str], str]:
+    """
+    Use an AI model as a gate to filter false positives and rank findings.
+    Returns (filtered_findings, ai_comments, model_used).
+    """
+    if not findings:
+        return [], [], "none"
+
+    findings_json = json.dumps([f.to_dict() for f in findings], indent=2)
+
+    prompt = (
+        f"You are a security research gatekeeper. Review the following static analysis findings.\n"
+        f"Task: {task}\n\n"
+        f"Findings (JSON):\n{findings_json}\n\n"
+        "For each finding, respond with:\n"
+        "  [VALID] Rule={rule_id} File={file} Line={line} — brief validation comment\n"
+        "  [REJECT] Rule={rule_id} — brief reason for rejection as false positive\n\n"
+        "After reviewing all findings, output a prioritized summary:\n"
+        "  TOP FINDINGS:\n"
+        "  1. [file]:[line] — {rule_id}: {why exploitable}\n"
+        "  2. ...\n\n"
+        "End with: MODEL=claude OR MODEL=codex depending on which model you are.\n"
+        "Also include a VERDICT line: VERDICT={HIGH_PRIORITY_COUNT} HIGH, {MEDIUM_PRIORITY_COUNT} MEDIUM"
+    )
+
+    model_used = "none"
+    response = None
+
+    if gate_model in ("claude", "auto"):
+        response = _claude_gate(prompt)
+        if response:
+            model_used = "claude"
+
+    if not response and gate_model in ("codex", "auto"):
+        response = _codex_gate(prompt)
+        if response:
+            model_used = "codex"
+
+    if not response:
+        return findings, [f"AI gate unavailable ({gate_model}), returning all findings as-is."], "none"
+
+    comments: list[str] = []
+    valid_rule_ids: set[str] = set()
+    lines = response.splitlines()
+
+    for line in lines:
+        line = line.strip()
+        if line.startswith("[VALID]"):
+            match = re.search(r"Rule=(\S+)", line)
+            if match:
+                valid_rule_ids.add(match.group(1))
+        elif line.startswith("[REJECT]"):
+            pass
+        elif line.startswith("MODEL="):
+            model_candidate = line.split("=", 1)[1].strip().lower()
+            if model_candidate in ("claude", "codex"):
+                model_used = model_candidate
+
+    if valid_rule_ids:
+        filtered = [f for f in findings if f.rule_id in valid_rule_ids]
+    else:
+        filtered = findings
+
+    for line in lines:
+        if line.startswith("[VALID]") or line.startswith("[REJECT]"):
+            if line.strip():
+                comments.append(line.strip())
+
+    return filtered, comments, model_used
+
+
+def _generate_poc(
+    findings: list[Finding],
+    poc_model: str,
+    program: str,
+) -> dict[str, dict]:
+    """
+    For each validated finding, have the AI model assess real impact and generate a PoC.
+    Returns dict mapping rule_id -> poc_result.
+    """
+    poc_results: dict[str, dict] = {}
+
+    for finding in findings:
+        prompt = (
+            f"You are analyzing a confirmed vulnerability in {program}.\n\n"
+            f"Finding:\n"
+            f"  Rule: {finding.rule_id}\n"
+            f"  Type: {finding.vuln_type}\n"
+            f"  Severity: {finding.severity}\n"
+            f"  File: {finding.file}:{finding.line}\n"
+            f"  Sink: {finding.sink}\n"
+            f"  Description: {finding.description}\n"
+            f"  Exploit scenario: {finding.exploit_scenario}\n"
+            f"  Code snippet:\n{finding.snippet}\n\n"
+            "Assess this vulnerability:\n"
+            "1. Can an attacker actually reach and exploit this in a running application?\n"
+            "2. What can the attacker actually do (impact)?\n"
+            "3. Generate a concrete PoC snippet or attack scenario.\n"
+            "4. Should the severity be escalated or de-escalated based on real-world exploitability?\n\n"
+            "Respond with:\n"
+            "  CONFIRMED: yes/no\n"
+            "  IMPACT: [one line description of real attacker impact]\n"
+            "  POC: [code snippet or attack scenario]\n"
+            "  SEVERITY_OVERRIDE: CRITICAL|HIGH|MEDIUM|LOW|none\n\n"
+            "End with MODEL=claude or MODEL=codex depending on which model you are."
+        )
+
+        response = None
+        model_used = "none"
+
+        if poc_model in ("claude", "auto"):
+            response = _claude_gate(prompt, timeout=180)
+            if response:
+                model_used = "claude"
+
+        if not response and poc_model in ("codex", "auto"):
+            response = _codex_gate(prompt, timeout=180)
+            if response:
+                model_used = "codex"
+
+        result = {
+            "confirmed": False,
+            "impact_statement": "Unable to confirm real-world exploitability.",
+            "poc_snippet": "",
+            "severity_override": None,
+            "model_used": model_used,
+        }
+
+        if response:
+            confirmed = False
+            impact = ""
+            poc = ""
+            override = None
+
+            for line in response.splitlines():
+                line = line.strip()
+                if line.startswith("CONFIRMED:"):
+                    confirmed = "yes" in line.lower()
+                elif line.startswith("IMPACT:"):
+                    impact = line[len("IMPACT:"):].strip()
+                elif line.startswith("POC:"):
+                    poc = line[len("POC:"):].strip()
+                elif line.startswith("SEVERITY_OVERRIDE:"):
+                    val = line[len("SEVERITY_OVERRIDE:"):].strip().lower()
+                    if val in ("critical", "high", "medium", "low"):
+                        override = val.upper()
+                    else:
+                        override = None
+
+            result = {
+                "confirmed": confirmed,
+                "impact_statement": impact or result["impact_statement"],
+                "poc_snippet": poc,
+                "severity_override": override,
+                "model_used": model_used,
+            }
+
+        poc_results[finding.rule_id] = result
+
+    return poc_results
+
+
+def _write_report(
+    findings: list[Finding],
+    output_path: Path,
+    program: str,
+    gate_model: str,
+    poc_results: dict[str, dict] | None = None,
+) -> None:
+    """Write a human-readable markdown report, optionally including PoC details."""
+    lines = [
+        f"# Zero-Day Hunter Report — {program}",
+        "",
+        f"**Scanner:** zero_day_hunter",
+        f"**AI Gate:** {gate_model}",
+        f"**Findings:** {len(findings)}",
+        "",
+    ]
+
+    by_severity = {"CRITICAL": [], "HIGH": [], "MEDIUM": []}
+    for f in findings:
+        if f.severity in by_severity:
+            by_severity[f.severity].append(f)
+
+    finding_counter = 0
+    for severity in ("CRITICAL", "HIGH", "MEDIUM"):
+        if not by_severity[severity]:
+            continue
+        lines.append(f"## {severity} — {len(by_severity[severity])} findings")
+        lines.append("")
+        for finding in by_severity[severity]:
+            finding_counter += 1
+            fid = f"F{finding_counter:02d}"
+            poc = poc_results.get(finding.rule_id) if poc_results else None
+            confirmed_tag = " **[CONFIRMED]**" if (poc and poc.get("confirmed")) else ""
+            lines.append(f"### {fid} — {finding.file}:{finding.line}{confirmed_tag}")
+            lines.append(f"**Rule:** `{finding.rule_id}`")
+            lines.append(f"**Type:** {finding.vuln_type}")
+            lines.append(f"**Sink:** `{finding.sink}`")
+            lines.append(f"**Description:** {finding.description}")
+            lines.append(f"**Exploit scenario:** {finding.exploit_scenario}")
+            if finding.snippet:
+                lines.append(f"```\n{finding.snippet}\n```")
+            if poc:
+                if poc.get("confirmed"):
+                    lines.append(f"**Impact:** {poc.get('impact_statement', 'Confirmed')}")
+                if poc.get("poc_snippet"):
+                    lines.append("")
+                    lines.append("**PoC:**")
+                    lines.append(f"```\n{poc['poc_snippet']}\n```")
+                if poc.get("severity_override"):
+                    lines.append(f"**Severity adjusted:** {poc['severity_override']} (from {finding.severity})")
+            lines.append("")
+
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=textwrap.dedent(
@@ -940,6 +1197,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
               - Command and code injection primitives
               - Unsafe deserialization and template execution
               - Native memory-safety patterns that commonly lead to RCE
+
+            AI GATE (default: auto-enabled):
+              The AI gate runs automatically by default -- it validates each finding
+              through Claude (primary) or Codex (fallback), generates PoCs for confirmed
+              vulnerabilities, and adjusts severity based on real-world exploitability.
+              Use --no-validate to disable the gate entirely.
             """
         ),
         epilog=textwrap.dedent(
@@ -948,6 +1211,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
               python3 agents/zero_day_hunter.py --file app.py
               python3 agents/zero_day_hunter.py --dir src --severity HIGH --lang python
               python3 agents/zero_day_hunter.py --dir . --output findings.json
+              python3 agents/zero_day_hunter.py --dir . --gate-model auto --report report.md
+              python3 agents/zero_day_hunter.py --dir . --no-validate  # disable AI gate
             """
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -968,6 +1233,39 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Restrict analysis to a language family",
     )
     parser.add_argument("--output", help="Write JSON results to a file")
+    parser.add_argument(
+        "--gate-model",
+        choices=("claude", "codex", "auto"),
+        default="auto",
+        help="AI model for gating/validation: claude (primary), codex (fallback), auto (try claude then fall back to codex). Default: auto",
+    )
+    parser.add_argument(
+        "--no-validate",
+        action="store_true",
+        help="Disable AI gate — skip validation, PoC generation, and severity adjustment",
+    )
+    parser.add_argument(
+        "--poc-model",
+        choices=("claude", "codex", "auto"),
+        default="auto",
+        help="AI model for PoC generation and impact confirmation. Default: same as gate-model",
+    )
+    parser.add_argument(
+        "--min-poc-severity",
+        choices=("CRITICAL", "HIGH", "MEDIUM", "LOW"),
+        default="HIGH",
+        help="Minimum severity to run PoC generation on. Default: HIGH",
+    )
+    parser.add_argument(
+        "--report",
+        metavar="PATH",
+        help="Write a human-readable markdown report",
+    )
+    parser.add_argument(
+        "--program",
+        default="unknown",
+        help="Bug bounty program name for report header",
+    )
     return parser.parse_args(argv)
 
 
@@ -991,13 +1289,61 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     report = hunter.build_report(target=target, files_scanned=files_scanned, findings=findings)
-    payload = json.dumps(report, indent=2)
+    poc_results: dict[str, dict] = {}
 
+    # AI gate: auto-enabled unless --no-validate is set
+    if not args.no_validate and findings:
+        gate_task = (
+            f"Validate zero-day RCE findings from {target.name} for program {args.program or 'unknown'}. "
+            "Mark each as [VALID] if exploitable in a real attack scenario, [REJECT] if likely false positive. "
+            "Focus on whether user-controlled input can reach the sink in a running application."
+        )
+        filtered, comments, model_used = _run_ai_gate(findings, args.gate_model, gate_task)
+        report["ai_gate"] = {
+            "model": model_used,
+            "filter_applied": True,
+            "original_count": len(findings),
+            "filtered_count": len(filtered),
+            "comments": comments,
+        }
+        findings = filtered
+
+        # PoC generation for HIGH+ findings that passed the gate
+        if findings and args.gate_model != "none":
+            poc_threshold = SEVERITY_ORDER.get(args.min_poc_severity, SEVERITY_ORDER["HIGH"])
+            poc_eligible = [
+                f for f in findings if SEVERITY_ORDER.get(f.severity, 0) >= poc_threshold
+            ]
+            if poc_eligible:
+                poc_model = args.poc_model or args.gate_model
+                poc_results = _generate_poc(poc_eligible, poc_model, args.program or "unknown")
+
+                # Apply severity overrides
+                for finding in findings:
+                    poc = poc_results.get(finding.rule_id)
+                    if poc and poc.get("severity_override"):
+                        finding.severity = poc["severity_override"]
+
+                report["poc_generation"] = {
+                    "model": poc_model,
+                    "findings_generated": len(poc_results),
+                    "confirmed_count": sum(1 for r in poc_results.values() if r.get("confirmed")),
+                }
+    else:
+        report["ai_gate"] = {"model": "none", "filter_applied": False}
+
+    # Write human-readable report
+    if args.report and findings:
+        report_path = Path(args.report).expanduser().resolve()
+        _write_report(findings, report_path, args.program or "unknown", args.gate_model, poc_results or None)
+        report["report_path"] = str(report_path)
+
+    # Write JSON output
     if args.output:
         output_path = Path(args.output).expanduser().resolve()
-        output_path.write_text(f"{payload}\n", encoding="utf-8")
+        output_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
-    print(payload)
+    print(json.dumps(report, indent=2))
     return 1 if findings else 0
 
 

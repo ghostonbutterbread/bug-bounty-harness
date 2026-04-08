@@ -159,6 +159,8 @@ class CoverageStore:
         method: str,
         status: str = "done",
         run_id: str | None = None,
+        snapshot_id: str | None = None,
+        version_label: str | None = None,
         finding_fids: list[str] | None = None,
         notes: str | None = None,
     ) -> None:
@@ -166,6 +168,8 @@ class CoverageStore:
         normalized_method = str(method or "").strip()
         normalized_status = str(status or "").strip()
         normalized_run_id = str(run_id or "").strip() or _default_run_id()
+        normalized_snapshot_id = self._resolve_snapshot_id(snapshot_id)
+        normalized_version_label = str(version_label or "").strip()
         normalized_notes = str(notes or "").strip()
         normalized_fids = _normalize_finding_fids(finding_fids)
 
@@ -181,8 +185,12 @@ class CoverageStore:
 
         with FileLock(self.lock_path):
             payload = self._load_locked()
-            changed = self._ensure_snapshot_locked(payload)
-            snapshot = payload["snapshots"][self.snapshot_id]
+            changed = self._ensure_snapshot_locked(
+                payload,
+                snapshot_id=normalized_snapshot_id,
+                version_label=normalized_version_label,
+            )
+            snapshot = payload["snapshots"][normalized_snapshot_id]
             classes = snapshot.setdefault("classes", {})
             class_bucket = classes.setdefault(normalized_class, {"files": {}})
             class_files = class_bucket.setdefault("files", {})
@@ -217,10 +225,14 @@ class CoverageStore:
                 entry: dict[str, Any] = {
                     "sha1": sha1,
                     "checked_at": checked_at,
+                    "updated_at": checked_at,
                     "run_id": normalized_run_id,
                     "method": normalized_method,
                     "status": normalized_status,
+                    "snapshot_id": normalized_snapshot_id,
                 }
+                if normalized_version_label:
+                    entry["version_label"] = normalized_version_label
                 if normalized_fids:
                     entry["finding_fids"] = list(normalized_fids)
                 if normalized_notes:
@@ -328,11 +340,13 @@ class CoverageStore:
             "snapshots": {},
         }
 
-    def _default_snapshot(self) -> dict[str, Any]:
+    def _default_snapshot(self, snapshot_id: str | None = None, version_label: str | None = None) -> dict[str, Any]:
+        target_snapshot = self._resolve_snapshot_id(snapshot_id)
         return {
             "created_at": _timestamp_iso(),
-            "git_head": self.shared_brain.git_head,
-            "manifest_hash": self.shared_brain.manifest_hash,
+            "git_head": self.shared_brain.git_head if target_snapshot == self.snapshot_id else None,
+            "manifest_hash": self.shared_brain.manifest_hash if target_snapshot == self.snapshot_id else None,
+            "version_label": str(version_label or "").strip(),
             "classes": {},
         }
 
@@ -347,7 +361,14 @@ class CoverageStore:
         normalized = str(snapshot_id or "").strip()
         return normalized or self.snapshot_id
 
-    def _ensure_snapshot_locked(self, payload: dict[str, Any]) -> bool:
+    def _ensure_snapshot_locked(
+        self,
+        payload: dict[str, Any],
+        *,
+        snapshot_id: str | None = None,
+        version_label: str | None = None,
+    ) -> bool:
+        target_snapshot = self._resolve_snapshot_id(snapshot_id)
         changed = False
         if payload.get("version") != COVERAGE_VERSION:
             payload["version"] = COVERAGE_VERSION
@@ -365,19 +386,32 @@ class CoverageStore:
             payload["snapshots"] = snapshots
             changed = True
 
-        snapshot = snapshots.get(self.snapshot_id)
+        snapshot = snapshots.get(target_snapshot)
         if not isinstance(snapshot, dict):
-            snapshots[self.snapshot_id] = self._default_snapshot()
+            snapshots[target_snapshot] = self._default_snapshot(
+                snapshot_id=target_snapshot,
+                version_label=version_label,
+            )
             return True
 
+        snapshot_version_label = str(version_label or "").strip()
         if not str(snapshot.get("created_at", "")).strip():
             snapshot["created_at"] = _timestamp_iso()
             changed = True
-        if snapshot.get("git_head") != self.shared_brain.git_head:
-            snapshot["git_head"] = self.shared_brain.git_head
+        expected_git_head = self.shared_brain.git_head if target_snapshot == self.snapshot_id else snapshot.get("git_head")
+        if snapshot.get("git_head") != expected_git_head:
+            snapshot["git_head"] = expected_git_head
             changed = True
-        if str(snapshot.get("manifest_hash", "")).strip() != str(self.shared_brain.manifest_hash).strip():
-            snapshot["manifest_hash"] = self.shared_brain.manifest_hash
+        expected_manifest_hash = (
+            self.shared_brain.manifest_hash
+            if target_snapshot == self.snapshot_id
+            else snapshot.get("manifest_hash")
+        )
+        if str(snapshot.get("manifest_hash", "")).strip() != str(expected_manifest_hash or "").strip():
+            snapshot["manifest_hash"] = expected_manifest_hash
+            changed = True
+        if snapshot_version_label and str(snapshot.get("version_label", "")).strip() != snapshot_version_label:
+            snapshot["version_label"] = snapshot_version_label
             changed = True
         classes = snapshot.get("classes")
         if not isinstance(classes, dict):
@@ -489,10 +523,17 @@ class CoverageStore:
         normalized = {
             "sha1": str(entry.get("sha1", "")).strip(),
             "checked_at": str(entry.get("checked_at", "")).strip(),
+            "updated_at": str(entry.get("updated_at", "")).strip()
+            or str(entry.get("checked_at", "")).strip(),
             "run_id": str(entry.get("run_id", "")).strip(),
             "method": str(entry.get("method", "")).strip(),
             "status": status,
+            "snapshot_id": str(entry.get("snapshot_id", "")).strip() or self.snapshot_id,
         }
+
+        version_label = str(entry.get("version_label", "")).strip()
+        if version_label:
+            normalized["version_label"] = version_label
 
         finding_fids = _normalize_finding_fids(entry.get("finding_fids"))
         if finding_fids:

@@ -15,8 +15,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from agents.coverage_store import CoverageStore
+from agents.ledger_v2 import ledger_add, ledger_check, ledger_get, ledger_list, ledger_path
+from agents.snapshot_identity import get_snapshot_identity
 
-LEDGER_VERSION = 1
 DEFAULT_AGENT = os.environ.get("ME_AGENT") or "codex"
 
 
@@ -60,10 +62,6 @@ def _ghost_root(program: str) -> Path:
     return Path.home() / "Shared" / "bounty_recon" / _normalize_program(program) / "ghost"
 
 
-def ledger_path(program: str) -> Path:
-    return _ghost_root(program) / "ledger.json"
-
-
 def _ledger_lock_path(program: str) -> Path:
     return _ghost_root(program) / "ledger.lock"
 
@@ -82,14 +80,6 @@ def _coverage_lock_path(program: str, class_name: str) -> Path:
 
 def _shared_brain_index_path(program: str) -> Path:
     return _ghost_root(program) / "shared_brain" / "index.json"
-
-
-def _default_ledger(program: str) -> dict[str, Any]:
-    return {
-        "version": LEDGER_VERSION,
-        "program": _normalize_program(program),
-        "findings": [],
-    }
 
 
 def _default_coverage(program: str, class_name: str) -> dict[str, Any]:
@@ -153,20 +143,6 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
         handle.write("\n")
         temp_path = Path(handle.name)
     temp_path.replace(path)
-
-
-def _finding_key(file_ref: str, class_name: str) -> tuple[str, str]:
-    return (_normalize_relpath(file_ref), _normalize_class_name(class_name))
-
-
-def _find_existing_finding(findings: list[dict[str, Any]], file_ref: str, class_name: str) -> dict[str, Any] | None:
-    target_file, target_class = _finding_key(file_ref, class_name)
-    for finding in findings:
-        finding_file = _normalize_relpath(str(finding.get("file", "")))
-        finding_class = _normalize_class_name(str(finding.get("class_name", "")) or "unknown")
-        if (finding_file, finding_class) == (target_file, target_class):
-            return finding
-    return None
 
 
 def next_fid(findings: list[dict[str, Any]], prefix: str = "D") -> str:
@@ -244,25 +220,53 @@ def _refresh_unexplored(payload: dict[str, Any], candidates: list[str]) -> None:
     payload["unexplored"] = [candidate for candidate in candidates if candidate not in examined]
 
 
-def cmd_check(args: argparse.Namespace) -> int:
-    with _locked_json(
-        ledger_path(args.program),
-        _ledger_lock_path(args.program),
-        lambda: _default_ledger(args.program),
-        exclusive=False,
-    ) as ledger:
-        existing = _find_existing_finding(ledger.get("findings", []), args.file, args.class_name)
+def _resolve_target_root(program: str) -> Path:
+    index_path = _shared_brain_index_path(program)
+    payload = _read_json(index_path, {})
+    target_root = Path(str(payload.get("target_root") or "")).expanduser()
+    if str(target_root).strip():
+        return target_root.resolve(strict=False)
 
-    if existing is None:
+    explicit = str(os.environ.get("SNAPSHOT_TARGET_ROOT") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser().resolve(strict=False)
+
+    return Path.cwd().resolve(strict=False)
+
+
+def _resolve_snapshot(program: str, version_label: str | None) -> dict[str, Any]:
+    return get_snapshot_identity(_resolve_target_root(program), version_label=version_label)
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    exists, fid = ledger_check(
+        args.program,
+        _normalize_relpath(args.file),
+        _normalize_class_name(args.class_name),
+    )
+    if not exists or not fid:
         print(json.dumps({"exists": False}))
         return 0
+
+    finding = ledger_get(args.program, fid)
+    if args.snapshot:
+        sightings = []
+        if isinstance(finding, dict):
+            sightings = finding.get("sightings", [])
+        if not any(
+            str(item.get("snapshot_id") or "") == str(args.snapshot)
+            for item in sightings
+            if isinstance(item, dict)
+        ):
+            print(json.dumps({"exists": False}))
+            return 0
 
     print(
         json.dumps(
             {
                 "exists": True,
-                "fid": str(existing.get("fid") or ""),
-                "finding": existing,
+                "fid": fid,
+                "finding": finding,
             },
             indent=2,
         )
@@ -271,70 +275,57 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def cmd_add(args: argparse.Namespace) -> int:
-    with _locked_json(
-        ledger_path(args.program),
-        _ledger_lock_path(args.program),
-        lambda: _default_ledger(args.program),
-        exclusive=True,
-    ) as ledger:
-        findings = ledger.setdefault("findings", [])
-        if not isinstance(findings, list):
-            findings = []
-            ledger["findings"] = findings
-
-        existing = _find_existing_finding(findings, args.file, args.class_name)
-        if existing is not None:
-            print(json.dumps({"added": False, "duplicate": True, "finding": existing}, indent=2))
-            return 0
-
-        finding = {
-            "fid": next_fid(findings, prefix=args.fid_prefix),
-            "type": args.type,
-            "class_name": _normalize_class_name(args.class_name),
-            "file": _normalize_relpath(args.file),
-            "severity": str(args.severity).strip().upper(),
-            "review_tier": "PENDING_REVIEW",
-            "added_at": _utc_now(),
-            "agent": args.agent,
-        }
-        findings.append(finding)
-        print(json.dumps({"added": True, "finding": finding}, indent=2))
+    snapshot = _resolve_snapshot(args.program, args.version_label)
+    finding = {
+        "type": args.type,
+        "class_name": _normalize_class_name(args.class_name),
+        "file": _normalize_relpath(args.file),
+        "severity": str(args.severity).strip().upper(),
+        "review_tier": "PENDING_REVIEW",
+        "status": "active",
+        "agent": args.agent,
+        "fid_prefix": args.fid_prefix,
+    }
+    is_new_fid, fid = ledger_add(
+        args.program,
+        finding,
+        str(snapshot.get("snapshot_id") or ""),
+        str(snapshot.get("version_label") or ""),
+        _default_run_id(),
+        args.agent,
+    )
+    entry = ledger_get(args.program, str(fid or ""))
+    print(
+        json.dumps(
+            {
+                "added": bool(is_new_fid),
+                "duplicate": not bool(is_new_fid),
+                "snapshot_id": snapshot.get("snapshot_id"),
+                "version_label": snapshot.get("version_label"),
+                "finding": entry,
+            },
+            indent=2,
+        )
+    )
     return 0
 
 
 def cmd_cover(args: argparse.Namespace) -> int:
     class_name = _normalize_class_name(args.class_name)
+    snapshot = _resolve_snapshot(args.program, args.version_label)
+    target_root = _resolve_target_root(args.program)
+    store = CoverageStore(args.program, target_root)
+    store.mark_examined(
+        vuln_class=class_name,
+        files=[_normalize_relpath(args.file)],
+        method=args.agent,
+        status="done",
+        run_id=_default_run_id(),
+        snapshot_id=str(snapshot.get("snapshot_id") or ""),
+        version_label=str(snapshot.get("version_label") or ""),
+    )
     candidates = _load_shared_brain_candidates(args.program).get(class_name, [])
-    coverage_file = _coverage_path(args.program, class_name)
-    coverage_lock = _coverage_lock_path(args.program, class_name)
-    timestamp = _utc_now()
-
-    with _locked_json(
-        coverage_file,
-        coverage_lock,
-        lambda: _default_coverage(args.program, class_name),
-        exclusive=True,
-    ) as payload:
-        payload["program"] = _normalize_program(args.program)
-        payload["vuln_class"] = class_name
-        payload["target_type"] = "source"
-        payload["last_run"] = timestamp
-        payload["runs"] = _safe_int(payload.get("runs")) + 1
-
-        examined = payload.setdefault("examined", {})
-        if not isinstance(examined, dict):
-            examined = {}
-            payload["examined"] = examined
-
-        relpath = _normalize_relpath(args.file)
-        examined[relpath] = {
-            "checked_at": timestamp,
-            "method": args.agent,
-            "sinks_found": [],
-            "notes": "",
-        }
-        _refresh_unexplored(payload, candidates)
-        uncovered = len(payload.get("unexplored", []))
+    uncovered = len(store.get_unexplored(class_name, candidates))
 
     print(
         json.dumps(
@@ -344,7 +335,7 @@ def cmd_cover(args: argparse.Namespace) -> int:
                 "class_name": class_name,
                 "file": _normalize_relpath(args.file),
                 "remaining_unexplored": uncovered,
-                "coverage_path": str(coverage_file),
+                "coverage_path": str(store.path),
             },
             indent=2,
         )
@@ -353,15 +344,11 @@ def cmd_cover(args: argparse.Namespace) -> int:
 
 
 def cmd_list(args: argparse.Namespace) -> int:
-    with _locked_json(
-        ledger_path(args.program),
-        _ledger_lock_path(args.program),
-        lambda: _default_ledger(args.program),
-        exclusive=False,
-    ) as ledger:
-        findings = ledger.get("findings", [])
-        if not isinstance(findings, list):
-            findings = []
+    findings = ledger_list(
+        args.program,
+        snapshot_id=args.snapshot,
+        version_label=args.version_label,
+    )
 
     print(
         json.dumps(
@@ -424,6 +411,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     check_parser = subparsers.add_parser("check", help="Check if a finding already exists")
     _add_common_arguments(check_parser)
+    check_parser.add_argument("--snapshot")
     check_parser.set_defaults(func=cmd_check)
 
     add_parser = subparsers.add_parser("add", help="Add a finding to the ledger")
@@ -432,15 +420,19 @@ def build_parser() -> argparse.ArgumentParser:
     add_parser.add_argument("--severity", required=True)
     add_parser.add_argument("--agent", default=DEFAULT_AGENT)
     add_parser.add_argument("--fid-prefix", default="D")
+    add_parser.add_argument("--version", dest="version_label")
     add_parser.set_defaults(func=cmd_add)
 
     cover_parser = subparsers.add_parser("cover", help="Mark a file/class surface as explored")
     _add_common_arguments(cover_parser)
     cover_parser.add_argument("--agent", default=DEFAULT_AGENT)
+    cover_parser.add_argument("--version", dest="version_label")
     cover_parser.set_defaults(func=cmd_cover)
 
     list_parser = subparsers.add_parser("list", help="List current findings")
     _add_common_arguments(list_parser, include_file=False, include_class=False)
+    list_parser.add_argument("--snapshot")
+    list_parser.add_argument("--version", dest="version_label")
     list_parser.set_defaults(func=cmd_list)
 
     unexplored_parser = subparsers.add_parser("unexplored", help="List unexplored surfaces by class")

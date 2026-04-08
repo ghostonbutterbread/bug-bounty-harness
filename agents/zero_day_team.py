@@ -22,8 +22,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from agents.chain_matrix import build_chain_graph, get_chainable_findings  # type: ignore[attr-defined]
-from agents.findings_ledger import FindingsLedger  # type: ignore[attr-defined]
 from agents.hybrid_preflight import run_preflight  # type: ignore[attr-defined]
+from agents.ledger_v2 import VersionedFindingsLedger  # type: ignore[attr-defined]
 from agents.shared_brain import (  # type: ignore[attr-defined]
     build_index,
     get_class_context as get_shared_brain_class_context,
@@ -33,6 +33,7 @@ from agents.shared_brain import (  # type: ignore[attr-defined]
     update_index,
 )
 from agents.coverage_store import CoverageStore
+from agents.snapshot_identity import get_snapshot_identity
 
 FINDINGS_FILENAME = "findings.jsonl"
 AGENT_TIMEOUT_SECONDS = 1800
@@ -1453,7 +1454,7 @@ def _append_unique_findings(findings_path: Path, findings: Sequence[Dict[str, An
 def _run_agent_session(
     session: AgentSession,
     findings_path: Path,
-    ledger: FindingsLedger,
+    ledger: VersionedFindingsLedger,
 ) -> int:
     if session.process is None:
         return -1
@@ -1572,7 +1573,7 @@ def _run_single_agent(
     target: Path,
     findings_path: Path,
     agents_root: Path,
-    ledger: FindingsLedger,
+    ledger: VersionedFindingsLedger,
     class_context: str = "",
     repo_context: str = "",
     starting_entry: dict[str, Any] | None = None,
@@ -1652,6 +1653,7 @@ def orchestrate_zero_day_team(
     force_preflight_llm: bool = False,
     no_shared_brain: bool = False,
     hunt_type: str = "source",
+    version_label: str | None = None,
 ) -> Dict[str, Any]:
     """Run one clean static-analysis agent per vulnerability class."""
 
@@ -1666,9 +1668,20 @@ def orchestrate_zero_day_team(
     _ensure_directory(team_root)
     _ensure_directory(agents_root)
     _reset_findings_store(findings_path)
-    ledger = FindingsLedger(program_slug)
-
     target = _resolve_analysis_target(target_path, team_root=team_root, target_type=target_type)
+    snapshot_identity = get_snapshot_identity(target, version_label=version_label)
+    ledger = VersionedFindingsLedger(
+        program_slug,
+        target_root=target,
+        version_label=str(snapshot_identity.get("version_label") or ""),
+        snapshot_identity=snapshot_identity,
+        agent="zero-day-team",
+    )
+    print(
+        f"[snapshot] id={snapshot_identity.get('snapshot_id')} "
+        f"version={snapshot_identity.get('version_label') or '(unspecified)'} "
+        f"channel={snapshot_identity.get('channel') or 'stable'}"
+    )
     profiles = _select_profiles(selected_class)
     shared_brain_index = None
 
@@ -1858,6 +1871,11 @@ def orchestrate_zero_day_team(
         "dormant": str(dormant_report_path),
         "novel_findings": str(novel_report_path),
     }
+    summary["snapshot"] = {
+        "snapshot_id": snapshot_identity.get("snapshot_id"),
+        "version_label": snapshot_identity.get("version_label"),
+        "channel": snapshot_identity.get("channel"),
+    }
     _pretty_print_findings(reviewed_findings)
 
     # Run chainer if --chain was requested
@@ -1954,6 +1972,11 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
         help="Type of target: source (exe/apk/desktop app) or web. "
              "Determines output directory: reports_source vs reports_web. Default: source.",
     )
+    parser.add_argument(
+        "--version",
+        dest="version_label",
+        help="Override the snapshot version label for this hunt.",
+    )
     return parser.parse_args(list(argv))
 
 
@@ -1980,5 +2003,6 @@ if __name__ == "__main__":
         force_preflight_llm=args.force_preflight_llm,
         no_shared_brain=args.no_shared_brain,
         hunt_type=args.hunt_type,
+        version_label=args.version_label,
     )
     print(json.dumps(result, indent=2, sort_keys=True))

@@ -23,13 +23,14 @@ if str(REPO_ROOT) not in sys.path:
 
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.coverage_store import CoverageStore
-from agents.findings_ledger import FindingsLedger
+from agents.ledger_v2 import VersionedFindingsLedger
 from agents.report_checker import (
     _load_ledger_findings,
     _load_markdown_findings,
     _merge_findings,
 )
 from agents.shared_brain import load_index
+from agents.snapshot_identity import get_snapshot_identity
 
 
 SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "UNKNOWN"}
@@ -206,6 +207,7 @@ def _build_hunt_context(
     source_root: str | Path | None = None,
     *,
     fresh: bool = False,
+    version_label: str | None = None,
 ) -> str:
     """Build the context prompt for Codex hunting."""
     program_slug = _sanitize_program_name(program)
@@ -215,7 +217,14 @@ def _build_hunt_context(
         else _default_source_root(program_slug)
     )
     reports_dir = (target_root / "reports").resolve(strict=False)
-    ledger = FindingsLedger(program_slug, base_dir=target_root)
+    snapshot_identity = get_snapshot_identity(target_root, version_label=version_label)
+    ledger = VersionedFindingsLedger(
+        program_slug,
+        target_root=target_root,
+        version_label=str(snapshot_identity.get("version_label") or ""),
+        snapshot_identity=snapshot_identity,
+        agent="manual-hunter",
+    )
     findings = ledger.list_all()
 
     examined_rows: list[dict[str, Any]] = []
@@ -239,6 +248,8 @@ def _build_hunt_context(
         f"Program: {program_slug}",
         f"Target: {_display_path(target_root)}",
         f"Output: {_display_path(reports_dir)}",
+        f"Snapshot: {snapshot_identity.get('snapshot_id')}",
+        f"Version: {snapshot_identity.get('version_label') or '(unspecified)'}",
         "",
     ]
 
@@ -741,12 +752,24 @@ class ManualHunter:
         *,
         hunt_type: str = "source",
         source_root: str | Path | None = None,
+        version_label: str | None = None,
     ) -> None:
         self.program = _sanitize_program_name(program)
         self.hunt_type = hunt_type
+        self.version_label = _normalize_text(version_label)
         self.shared_brain = load_index(self.program)
         self.source_root = self._resolve_source_root(source_root)
-        self.ledger = FindingsLedger(self.program, base_dir=self.source_root or Path.cwd())
+        target_root = self.source_root or Path.cwd()
+        self.snapshot_identity = get_snapshot_identity(target_root, version_label=self.version_label or None)
+        self.snapshot_id = _normalize_text(self.snapshot_identity.get("snapshot_id"))
+        self.version_label = _normalize_text(self.snapshot_identity.get("version_label"))
+        self.ledger = VersionedFindingsLedger(
+            self.program,
+            target_root=target_root,
+            version_label=self.version_label or None,
+            snapshot_identity=self.snapshot_identity,
+            agent="manual-hunter",
+        )
         self.comment_store = DuplicateCommentStore(self.program)
         self.state_store = ManualStateStore(self.program)
 
@@ -974,6 +997,8 @@ class ManualHunter:
                 method="manual-hunter",
                 status="done",
                 run_id=_normalize_text(finding.get("run_id")) or _default_run_id(),
+                snapshot_id=self.snapshot_id,
+                version_label=self.version_label,
                 finding_fids=[_normalize_text(finding.get("fid"))],
                 notes=f"Manual finding imported from {parsed.source_label}",
             )
@@ -1073,12 +1098,24 @@ class ManualHunter:
         target_root = self.source_root or _default_source_root(self.program)
         reports_dir = (target_root / "reports").resolve(strict=False)
         reports_dir.mkdir(parents=True, exist_ok=True)
+        self.snapshot_identity = get_snapshot_identity(target_root, version_label=self.version_label or None)
+        self.snapshot_id = _normalize_text(self.snapshot_identity.get("snapshot_id"))
+        self.version_label = _normalize_text(self.snapshot_identity.get("version_label"))
 
-        context = _build_hunt_context(self.program, source_root=target_root, fresh=fresh)
+        context = _build_hunt_context(
+            self.program,
+            source_root=target_root,
+            fresh=fresh,
+            version_label=self.version_label or None,
+        )
         if fresh:
             print(f"[/me] Fresh mode enabled for {self.program}; skipping ledger and coverage context...")
         else:
             print(f"[/me] Loading Ghost state for {self.program}...")
+        print(
+            f"[/me] Snapshot {self.snapshot_id} version={self.version_label or '(unspecified)'} "
+            f"channel={_normalize_text(self.snapshot_identity.get('channel')) or 'stable'}"
+        )
         print("[/me] Spawning Codex with context:")
         print(context)
         print("---")
@@ -1136,6 +1173,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--hunt-type", choices=("source", "web"), default="source", help="Report bucket root to update.")
     parser.add_argument("--source-root", help="Override the source root used for file resolution and coverage.")
+    parser.add_argument("--version", dest="version_label", help="Override the snapshot version label.")
     parser.add_argument("--poll-interval", type=float, default=2.0, help="Watch mode polling interval in seconds.")
     parser.add_argument(
         "--link-duplicate-comment",
@@ -1151,6 +1189,7 @@ def main(argv: list[str] | None = None) -> int:
         args.program,
         hunt_type=args.hunt_type,
         source_root=args.source_root,
+        version_label=args.version_label,
     )
 
     if args.watch:

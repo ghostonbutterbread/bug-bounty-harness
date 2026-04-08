@@ -345,6 +345,8 @@ def _mark_coverage(hunter: ManualHunter, finding: dict[str, Any], parsed: Parsed
         method="sync-reports",
         status="done",
         run_id=_normalize_text(finding.get("run_id")) or _default_run_id(),
+        snapshot_id=hunter.snapshot_id,
+        version_label=hunter.version_label,
         finding_fids=[_normalize_text(finding.get("fid"))],
         notes=f"Imported report from {parsed.source_label}",
     )

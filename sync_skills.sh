@@ -2,7 +2,7 @@
 # =============================================================================
 # Sync skills to provider-specific directories
 # =============================================================================
-# Usage: ./sync_skills.sh [--claude] [--codex] [--all] [--dry-run]
+# Usage: ./sync_skills.sh [--claude] [--codex] [--ghost] [--all] [--dry-run]
 #
 # Paths are loaded from:
 #   1. Environment variables (highest priority)
@@ -13,6 +13,7 @@
 #   HARNESS_ROOT           - Bug bounty harness repo root (auto-detected)
 #   CLAUDE_SKILLS_DIR      - Claude Code skills directory
 #   CODEX_SKILLS_DIR       - Codex skills directory
+#   GHOST_SKILLS_DIR       - Ghost (OpenClaw) workspace skills directory
 #
 # =============================================================================
 
@@ -25,6 +26,7 @@ CONFIG_EXAMPLE="$SCRIPT_DIR/config.env.example"
 # Default: sync all
 SYNC_CLAUDE=true
 SYNC_CODEX=true
+SYNC_GHOST=true
 DRY_RUN=false
 
 # =============================================================================
@@ -46,20 +48,21 @@ ensure_config() {
 
 load_config() {
     ensure_config
-    
+
     # Source config (sets defaults if vars not already set via env)
     if [ -f "$CONFIG_FILE" ]; then
         set -a
         source "$CONFIG_FILE"
         set +a
     fi
-    
+
     # ALWAYS use script location as HARNESS_ROOT (this is the repo root)
     # This ensures scripts work no matter where user clones the repo
     HARNESS_ROOT="$SCRIPT_DIR"
-    
+
     : "${CLAUDE_SKILLS_DIR:=${HOME}/.claude/skills}"
     : "${CODEX_SKILLS_DIR:=${HOME}/.codex/skills}"
+    : "${GHOST_SKILLS_DIR:=${HOME}/.openclaw/workspace/skills}"
 }
 
 # =============================================================================
@@ -82,7 +85,7 @@ detect_os() {
 do_copy() {
     local src="$1"
     local dest="$2"
-    
+
     if [ "$DRY_RUN" = true ]; then
         echo "  [DRY-RUN] Would copy: $src -> $dest"
     else
@@ -93,19 +96,20 @@ do_copy() {
 }
 
 # =============================================================================
-# Sync a skill to a directory
+# Sync a skill (SKILL.md + _meta.json if present)
 # =============================================================================
 
 sync_skill() {
     local skill="$1"
     local dest_dir="$2"
-    
-    local src_file="$HARNESS_ROOT/skills/$skill/SKILL.md"
-    
-    if [ -f "$src_file" ]; then
-        do_copy "$src_file" "$dest_dir/$skill/SKILL.md"
+
+    local src_dir="$HARNESS_ROOT/skills/$skill"
+
+    if [ -d "$src_dir" ]; then
+        do_copy "$src_dir/SKILL.md" "$dest_dir/$skill/SKILL.md"
+        [ -f "$src_dir/_meta.json" ] && do_copy "$src_dir/_meta.json" "$dest_dir/$skill/_meta.json" || true
     else
-        echo "  ✗ $skill (not found: $src_file)"
+        echo "  ✗ $skill (not found: $src_dir)"
     fi
 }
 
@@ -119,16 +123,25 @@ parse_args() {
             --claude)
                 SYNC_CLAUDE=true
                 SYNC_CODEX=false
+                SYNC_GHOST=false
                 shift
                 ;;
             --codex)
                 SYNC_CODEX=true
                 SYNC_CLAUDE=false
+                SYNC_GHOST=false
+                shift
+                ;;
+            --ghost)
+                SYNC_GHOST=true
+                SYNC_CLAUDE=false
+                SYNC_CODEX=false
                 shift
                 ;;
             --all)
                 SYNC_CLAUDE=true
                 SYNC_CODEX=true
+                SYNC_GHOST=true
                 shift
                 ;;
             --dry-run)
@@ -136,18 +149,20 @@ parse_args() {
                 shift
                 ;;
             --help|-h)
-                echo "Usage: $0 [--claude] [--codex] [--all] [--dry-run]"
+                echo "Usage: $0 [--claude] [--codex] [--ghost] [--all] [--dry-run]"
                 echo ""
                 echo "Options:"
                 echo "  --claude    Sync only to Claude Code"
                 echo "  --codex     Sync only to Codex"
-                echo "  --all       Sync to both (default)"
+                echo "  --ghost     Sync only to Ghost workspace"
+                echo "  --all       Sync to all (default)"
                 echo "  --dry-run   Show what would be copied"
                 echo ""
                 echo "Paths:"
                 echo "  HARNESS_ROOT:       $SCRIPT_DIR"
                 echo "  CLAUDE_SKILLS_DIR:  ${CLAUDE_SKILLS_DIR}"
                 echo "  CODEX_SKILLS_DIR:   ${CODEX_SKILLS_DIR}"
+                echo "  GHOST_SKILLS_DIR:   ${GHOST_SKILLS_DIR}"
                 exit 0
                 ;;
             *)
@@ -165,9 +180,9 @@ parse_args() {
 main() {
     load_config
     parse_args "$@"
-    
+
     local OS="$(detect_os)"
-    
+
     echo "========================================"
     echo "Bug Bounty Harness - Skill Sync"
     echo "========================================"
@@ -182,24 +197,24 @@ main() {
         echo "  - Up to date or local changes (git pull skipped)"
     fi
     echo ""
-    
+
     # Skills source directory
     local SKILLS_DIR="$HARNESS_ROOT/skills"
-    
+
     # Check if skills directory exists
     if [ ! -d "$SKILLS_DIR" ]; then
         echo "Error: skills directory not found at $SKILLS_DIR"
         exit 1
     fi
-    
+
     # Get list of skills
     local SKILLS=$(ls -d "$SKILLS_DIR"/*/ 2>/dev/null | xargs -n1 basename || echo "")
-    
+
     if [ -z "$SKILLS" ]; then
         echo "Error: No skills found in $SKILLS_DIR"
         exit 1
     fi
-    
+
     # Sync Claude Code skills
     if [ "$SYNC_CLAUDE" = true ]; then
         echo "Syncing to Claude Code..."
@@ -209,7 +224,7 @@ main() {
         done
         echo ""
     fi
-    
+
     # Sync Codex skills
     if [ "$SYNC_CODEX" = true ]; then
         echo "Syncing to Codex..."
@@ -219,14 +234,24 @@ main() {
         done
         echo ""
     fi
-    
+
+    # Sync to Ghost workspace (OpenClaw)
+    if [ "$SYNC_GHOST" = true ]; then
+        echo "Syncing to Ghost workspace..."
+        echo "  Target: $GHOST_SKILLS_DIR"
+        for skill in $SKILLS; do
+            sync_skill "$skill" "$GHOST_SKILLS_DIR"
+        done
+        echo ""
+    fi
+
     # Also sync to local .agents/skills for repo-specific Codex
     echo "Syncing to local .agents/skills (repo-specific)..."
     for skill in $SKILLS; do
         sync_skill "$skill" "$HARNESS_ROOT/.agents/skills"
     done
     echo ""
-    
+
     if [ "$DRY_RUN" = true ]; then
         echo "========================================"
         echo "Dry run complete - no files copied"

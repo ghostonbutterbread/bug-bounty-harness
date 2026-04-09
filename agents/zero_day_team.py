@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
+import math
 import os
 import re
 import subprocess
@@ -16,6 +17,9 @@ _agent_dir = Path(__file__).resolve().parent
 _project_root = _agent_dir.parent
 if _project_root.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
     sys.path.insert(0, _project_root.as_posix())
+_bounty_tools_root = Path.home() / "projects" / "bounty-tools"
+if _bounty_tools_root.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
+    sys.path.insert(0, _bounty_tools_root.as_posix())
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -35,10 +39,23 @@ from agents.shared_brain import (  # type: ignore[attr-defined]
 from agents.coverage_store import CoverageStore
 from agents.snapshot_identity import get_snapshot_identity
 
+try:
+    from subagent_logger import SubagentLogger, compute_pte_lite
+except ImportError:  # pragma: no cover
+    SubagentLogger = None
+
+    def compute_pte_lite(**kwargs) -> int:
+        return (
+            int(kwargs.get("prompt_tokens") or 0)
+            + int(kwargs.get("completion_tokens") or 0)
+            + int(kwargs.get("tool_output_tokens") or 0)
+        )
+
 FINDINGS_FILENAME = "findings.jsonl"
 AGENT_TIMEOUT_SECONDS = 1800
 CLAUDE_REVIEW_TIMEOUT_SECONDS = 600
 CLAUDE_REVIEW_MAX_WORKERS = 4
+_ZERO_DAY_TEAM_LOGGER = None
 
 SOURCE_TRUST_CONTEXT_PROMPT = (
     "Treat sources conceptually as data originating outside the current trust "
@@ -56,6 +73,25 @@ FIVE_STEP_REASONING_FLOW = (
     "4. SINK    -> What dangerous operation category does it reach?\n"
     "5. EXPLOIT -> Can an attacker actually trigger the full path in practice?"
 )
+
+
+def _estimate_tokens_from_text(text: str | bytes | None) -> int:
+    if text is None:
+        return 0
+    if isinstance(text, bytes):
+        size = len(text)
+    else:
+        size = len(str(text).encode("utf-8", errors="replace"))
+    return max(0, math.ceil(size / 4))
+
+
+def _safe_log_span(**fields: Any) -> None:
+    if _ZERO_DAY_TEAM_LOGGER is None:
+        return
+    try:
+        _ZERO_DAY_TEAM_LOGGER.log_span(**fields)
+    except Exception:
+        pass
 
 
 @dataclass(frozen=True)
@@ -575,6 +611,9 @@ def _spawn_agent(
     env["ZERO_DAY_TARGET_PATH"] = str(target_path)
     env["ZERO_DAY_AGENT_WORKDIR"] = str(workspace)
     env["ZERO_DAY_AGENTS_DIR"] = str(agents_root)
+    spawn_start = time.time()
+    prompt_base = env.get("ZERO_DAY_AGENT_PROMPT_BASE", "")
+    input_bytes = len(prompt_base.encode("utf-8", errors="replace"))
 
     try:
         process = subprocess.Popen(
@@ -590,6 +629,17 @@ def _spawn_agent(
         fallback_log = agents_root / f"agent_{profile.key}_spawn_error.log"
         with fallback_log.open("a", encoding="utf-8") as handle:
             handle.write(f"Failed to spawn codex: {exc}\n")
+        _safe_log_span(
+            span_type="tool",
+            level="STEP",
+            message=f"Tool: spawn {profile.key}",
+            tool_name="codex_exec_spawn",
+            tool_category="subprocess",
+            input_bytes=input_bytes,
+            output_bytes=0,
+            latency_ms=int((time.time() - spawn_start) * 1000),
+            success=False,
+        )
         return AgentSession(
             profile=profile,
             workspace=workspace,
@@ -599,6 +649,17 @@ def _spawn_agent(
         )
 
     log_path = agents_root / f"agent_{profile.key}_{process.pid}.log"
+    _safe_log_span(
+        span_type="tool",
+        level="STEP",
+        message=f"Tool: spawn {profile.key}",
+        tool_name="codex_exec_spawn",
+        tool_category="subprocess",
+        input_bytes=input_bytes,
+        output_bytes=0,
+        latency_ms=int((time.time() - spawn_start) * 1000),
+        success=True,
+    )
     return AgentSession(
         profile=profile,
         workspace=workspace,
@@ -1084,6 +1145,8 @@ def _review_single_finding(
 
     def _call_claude(prompt: str, target_path: Path) -> tuple[str, str, str, int]:
         """Try claude CLI first."""
+        _context_tokens_before = _estimate_tokens_from_text(prompt)
+        _start = time.time()
         try:
             process = subprocess.Popen(
                 ["claude", "--print", "--permission-mode", "bypassPermissions"],
@@ -1109,12 +1172,39 @@ def _review_single_finding(
                 pass
             return "", "", "claude timeout", -1
 
+        response_text = stdout_text or stderr_text or ""
+        output_bytes = len(response_text.encode("utf-8", errors="replace"))
+        completion_tokens = _estimate_tokens_from_text(response_text)
+        context_tokens_after = _context_tokens_before + completion_tokens
+        tool_output_tokens = max(0, math.ceil(output_bytes / 4))
+        _safe_log_span(
+            span_type="model",
+            level="STEP",
+            message="Model call: claude",
+            model_name="claude",
+            prompt_tokens=_context_tokens_before,
+            completion_tokens=completion_tokens,
+            context_tokens_before=_context_tokens_before,
+            context_tokens_after=context_tokens_after,
+            tool_output_tokens=tool_output_tokens,
+            pte_lite=compute_pte_lite(
+                prompt_tokens=_context_tokens_before,
+                completion_tokens=completion_tokens,
+                tool_output_tokens=tool_output_tokens,
+                context_tokens_after=context_tokens_after,
+            ),
+            latency_ms=int((time.time() - _start) * 1000),
+            output_bytes=output_bytes,
+            success=process.returncode == 0,
+        )
         return stdout_text, stderr_text, "", process.returncode
 
     def _call_codex(prompt: str, target_path: Path) -> tuple[str, str, str, int]:
         """Fail over to codex CLI with full source access (prompt as CLI arg)."""
         import shlex
         cmd = ["codex", "exec", "-s", "danger-full-access", "--skip-git-repo-check", prompt]
+        _context_tokens_before = _estimate_tokens_from_text(prompt)
+        _start = time.time()
         try:
             process = subprocess.Popen(
                 cmd,
@@ -1139,6 +1229,31 @@ def _review_single_finding(
                 pass
             return "", "", "codex timeout", -1
 
+        response_text = stdout_text or stderr_text or ""
+        output_bytes = len(response_text.encode("utf-8", errors="replace"))
+        completion_tokens = _estimate_tokens_from_text(response_text)
+        context_tokens_after = _context_tokens_before + completion_tokens
+        tool_output_tokens = max(0, math.ceil(output_bytes / 4))
+        _safe_log_span(
+            span_type="model",
+            level="STEP",
+            message="Model call: codex",
+            model_name="codex",
+            prompt_tokens=_context_tokens_before,
+            completion_tokens=completion_tokens,
+            context_tokens_before=_context_tokens_before,
+            context_tokens_after=context_tokens_after,
+            tool_output_tokens=tool_output_tokens,
+            pte_lite=compute_pte_lite(
+                prompt_tokens=_context_tokens_before,
+                completion_tokens=completion_tokens,
+                tool_output_tokens=tool_output_tokens,
+                context_tokens_after=context_tokens_after,
+            ),
+            latency_ms=int((time.time() - _start) * 1000),
+            output_bytes=output_bytes,
+            success=process.returncode == 0,
+        )
         return stdout_text, stderr_text, "", process.returncode
 
     # Try Claude first, then Codex on failure or rate-limit error
@@ -1502,6 +1617,18 @@ def _run_agent_session(
                     )
             salvaged = deduped
         _append_unique_findings(findings_path, salvaged)
+        for finding in salvaged:
+            fid = str(finding.get("fid") or f"{session.profile.key}:{finding.get('file')}:{finding.get('line')}")
+            _safe_log_span(
+                span_type="finding",
+                level="RESULT",
+                message=f"Finding: {fid}",
+                finding_fid=fid,
+                review_tier=str(finding.get("severity", "UNKNOWN")),
+                duplicate=False,
+                finding_reward=0,
+                allocated_pte_lite=0,
+            )
     except OSError:
         pass
 
@@ -1656,6 +1783,7 @@ def orchestrate_zero_day_team(
     version_label: str | None = None,
 ) -> Dict[str, Any]:
     """Run one clean static-analysis agent per vulnerability class."""
+    global _ZERO_DAY_TEAM_LOGGER
 
     if num_agents is not None:
         print("[orchestrator] Ignoring legacy num_agents argument; class-based mode runs one agent per class.")
@@ -1667,6 +1795,12 @@ def orchestrate_zero_day_team(
 
     _ensure_directory(team_root)
     _ensure_directory(agents_root)
+    if SubagentLogger is not None:
+        try:
+            _ZERO_DAY_TEAM_LOGGER = SubagentLogger("zero_day_team", program_slug, f"zdt_{int(time.time())}")
+            _ZERO_DAY_TEAM_LOGGER.start(target=str(target_path))
+        except Exception:
+            _ZERO_DAY_TEAM_LOGGER = None
     _reset_findings_store(findings_path)
     target = _resolve_analysis_target(target_path, team_root=team_root, target_type=target_type)
     snapshot_identity = get_snapshot_identity(target, version_label=version_label)
@@ -1737,6 +1871,16 @@ def orchestrate_zero_day_team(
                 active_profiles = [profile for profile in profiles if profile.key in active_keys]
                 print(f"[preflight] active={len(active_profiles)} skipped={len(skipped_profile_keys)}")
                 for decision in preflight_decisions:
+                    _safe_log_span(
+                        span_type="spawn_decision",
+                        level="STEP",
+                        message=f"Spawn decision: {decision.vuln_class}",
+                        agent_name=decision.vuln_class,
+                        preflight_regex_score=decision.regex_score,
+                        expected_worth=float(decision.regex_score),
+                        redundancy_penalty=0.0,
+                        spawned=decision.run_agent,
+                    )
                     if not decision.run_agent:
                         print(f"  skip {decision.vuln_class}: {decision.decision_reason}")
             except Exception as exc:
@@ -1833,6 +1977,16 @@ def orchestrate_zero_day_team(
                 ledger_updates += 1
             except Exception as exc:
                 print(f"[ledger] FAILED update {fid}: {exc}", flush=True)
+        _safe_log_span(
+            span_type="finding",
+            level="RESULT",
+            message=f"Finding: {fid or title}",
+            finding_fid=fid or title,
+            review_tier=str(finding.get("review_tier") or finding.get("severity") or "UNKNOWN"),
+            duplicate=False,
+            finding_reward=0,
+            allocated_pte_lite=0,
+        )
     print(f"[ledger] Updated {ledger_updates} findings in ledger", flush=True)
     rejected_count = max(0, len(raw_findings) - len(reviewed_findings))
 

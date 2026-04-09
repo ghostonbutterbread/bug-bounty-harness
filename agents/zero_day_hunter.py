@@ -6,14 +6,31 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import math
 import re
 import sys
 import textwrap
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
+
+sys.path.insert(0, str(Path.home() / "projects" / "bounty-tools"))
+try:
+    from subagent_logger import SubagentLogger, compute_pte_lite
+except ImportError:  # pragma: no cover
+    SubagentLogger = None
+
+    def compute_pte_lite(**kwargs) -> int:
+        return (
+            int(kwargs.get("prompt_tokens") or 0)
+            + int(kwargs.get("completion_tokens") or 0)
+            + int(kwargs.get("tool_output_tokens") or 0)
+        )
+
+_ZERO_DAY_HUNTER_LOGGER = None
 
 
 SEVERITY_ORDER = {
@@ -930,16 +947,64 @@ def _looks_non_literal(expr: str) -> bool:
     return not (expr.startswith('"') and expr.endswith('"')) and not (expr.startswith("'") and expr.endswith("'"))
 
 
+def _estimate_tokens_from_text(text: str | bytes | None) -> int:
+    if text is None:
+        return 0
+    if isinstance(text, bytes):
+        size = len(text)
+    else:
+        size = len(str(text).encode("utf-8", errors="replace"))
+    return max(0, math.ceil(size / 4))
+
+
+def _safe_log_span(**fields) -> None:
+    if _ZERO_DAY_HUNTER_LOGGER is None:
+        return
+    try:
+        _ZERO_DAY_HUNTER_LOGGER.log_span(**fields)
+    except Exception:
+        pass
+
+
 def _claude_gate(prompt: str, timeout: int = 120) -> str | None:
     """Run a prompt through Claude (OpenClaw default model) for gating."""
     import subprocess
 
+    _context_tokens_before = _estimate_tokens_from_text(prompt)
+    _start = time.time()
     try:
         result = subprocess.run(
             ["claude", "--print", prompt],
             capture_output=True,
             text=True,
             timeout=timeout,
+        )
+        response_text = result.stdout or result.stderr or ""
+        _duration = int((time.time() - _start) * 1000)
+        _prompt_tokens = _context_tokens_before
+        _completion_tokens = _estimate_tokens_from_text(response_text)
+        _context_tokens_after = _context_tokens_before + _completion_tokens
+        _output_bytes = len(response_text.encode("utf-8", errors="replace"))
+        _tool_output_tokens = max(0, math.ceil(_output_bytes / 4))
+        _safe_log_span(
+            span_type="model",
+            level="STEP",
+            message="Model call: claude",
+            model_name="claude",
+            prompt_tokens=_prompt_tokens,
+            completion_tokens=_completion_tokens,
+            context_tokens_before=_context_tokens_before,
+            context_tokens_after=_context_tokens_after,
+            tool_output_tokens=_tool_output_tokens,
+            pte_lite=compute_pte_lite(
+                prompt_tokens=_prompt_tokens,
+                completion_tokens=_completion_tokens,
+                tool_output_tokens=_tool_output_tokens,
+                context_tokens_after=_context_tokens_after,
+            ),
+            latency_ms=_duration,
+            output_bytes=_output_bytes,
+            success=result.returncode == 0,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
@@ -952,12 +1017,41 @@ def _codex_gate(prompt: str, timeout: int = 120) -> str | None:
     """Run a prompt through Codex CLI for validation (fallback/gatekeeper)."""
     import subprocess
 
+    _context_tokens_before = _estimate_tokens_from_text(prompt)
+    _start = time.time()
     try:
         result = subprocess.run(
             ["codex", "-q", prompt],
             capture_output=True,
             text=True,
             timeout=timeout,
+        )
+        response_text = result.stdout or result.stderr or ""
+        _duration = int((time.time() - _start) * 1000)
+        _prompt_tokens = _context_tokens_before
+        _completion_tokens = _estimate_tokens_from_text(response_text)
+        _context_tokens_after = _context_tokens_before + _completion_tokens
+        _output_bytes = len(response_text.encode("utf-8", errors="replace"))
+        _tool_output_tokens = max(0, math.ceil(_output_bytes / 4))
+        _safe_log_span(
+            span_type="model",
+            level="STEP",
+            message="Model call: codex",
+            model_name="codex",
+            prompt_tokens=_prompt_tokens,
+            completion_tokens=_completion_tokens,
+            context_tokens_before=_context_tokens_before,
+            context_tokens_after=_context_tokens_after,
+            tool_output_tokens=_tool_output_tokens,
+            pte_lite=compute_pte_lite(
+                prompt_tokens=_prompt_tokens,
+                completion_tokens=_completion_tokens,
+                tool_output_tokens=_tool_output_tokens,
+                context_tokens_after=_context_tokens_after,
+            ),
+            latency_ms=_duration,
+            output_bytes=_output_bytes,
+            success=result.returncode == 0,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
@@ -1270,7 +1364,18 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global _ZERO_DAY_HUNTER_LOGGER
     args = _parse_args(argv or sys.argv[1:])
+    if SubagentLogger is not None:
+        try:
+            _ZERO_DAY_HUNTER_LOGGER = SubagentLogger(
+                "zero_day_hunter",
+                args.program or "unknown",
+                f"zdh_{int(time.time())}",
+            )
+            _ZERO_DAY_HUNTER_LOGGER.start(target=args.file or args.dir or "unknown")
+        except Exception:
+            _ZERO_DAY_HUNTER_LOGGER = None
     hunter = ZeroDayHunter(severity=args.severity, lang=args.lang)
 
     try:
@@ -1342,6 +1447,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.output:
         output_path = Path(args.output).expanduser().resolve()
         output_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+    for finding in findings:
+        _safe_log_span(
+            span_type="finding",
+            level="RESULT",
+            message=f"Finding: {finding.rule_id}",
+            finding_fid=f"zero-day-hunter:{finding.rule_id}:{finding.file}:{finding.line}",
+            review_tier=finding.severity,
+            duplicate=False,
+            finding_reward=0,
+            allocated_pte_lite=0,
+        )
 
     print(json.dumps(report, indent=2))
     return 1 if findings else 0

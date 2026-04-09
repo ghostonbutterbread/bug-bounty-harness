@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 from dataclasses import dataclass, field
@@ -50,6 +51,15 @@ BASE_OUTPUT = Path.home() / "Shared" / "bounty_recon"
 
 # ── Timeout defaults ──────────────────────────────────────────────────────────
 REQUEST_TIMEOUT = 25.0  # seconds per request
+
+
+def _safe_log_span(log: Optional[SubagentLogger], **fields) -> None:
+    if log is None:
+        return
+    try:
+        log.log_span(**fields)
+    except Exception:
+        pass
 
 
 # =============================================================================
@@ -614,7 +624,22 @@ def run_escalation(
     if log:
         log.step("Phase 1: Environment detection...")
 
+    env_start = time.time()
     detected = detect_environment(config.ssrf_url, config.ssrf_param)
+    env_bytes = len(json.dumps(detected).encode("utf-8", errors="replace"))
+    _safe_log_span(
+        log,
+        span_type="tool",
+        level="STEP",
+        message="Tool: detect_environment",
+        tool_name="detect_environment",
+        tool_category="http_request",
+        input_bytes=len(config.ssrf_url.encode("utf-8", errors="replace")),
+        output_bytes=env_bytes,
+        latency_ms=int((time.time() - env_start) * 1000),
+        output_tokens_est=max(0, math.ceil(env_bytes / 4)),
+        success=True,
+    )
 
     if log:
         log.step(f"Environment detected: {', '.join(detected) if detected else 'none'}")
@@ -640,12 +665,48 @@ def run_escalation(
             if log:
                 log.step(f"Attempting: {env_name}...")
             path_func = escalation_functions[env_name]
+            path_start = time.time()
             result = path_func(config)
+            result_bytes = len(
+                json.dumps(
+                    {
+                        "success": result.success,
+                        "evidence": result.evidence,
+                        "steps": result.escalation_steps,
+                        "impact": result.impact,
+                    },
+                    sort_keys=True,
+                ).encode("utf-8", errors="replace")
+            )
+            _safe_log_span(
+                log,
+                span_type="tool",
+                level="STEP",
+                message=f"Tool: {env_name}",
+                tool_name=env_name,
+                tool_category="http_request",
+                input_bytes=len(config.ssrf_url.encode("utf-8", errors="replace")),
+                output_bytes=result_bytes,
+                latency_ms=int((time.time() - path_start) * 1000),
+                output_tokens_est=max(0, math.ceil(result_bytes / 4)),
+                success=result.success,
+            )
             all_paths.append(result)
             if result.success:
                 confirmed.append(result)
                 if log:
                     log.result(f"CONFIRMED escalation: {env_name}")
+                _safe_log_span(
+                    log,
+                    span_type="finding",
+                    level="RESULT",
+                    message=f"Finding: ssrf-escalation:{env_name}",
+                    finding_fid=f"ssrf-escalation:{env_name}",
+                    review_tier=result.severity,
+                    duplicate=False,
+                    finding_reward=0,
+                    allocated_pte_lite=0,
+                )
             time.sleep(config.rate_limit)
         else:
             if log:

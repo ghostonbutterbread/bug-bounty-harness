@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import subprocess
 import sys
 import time
@@ -35,15 +36,41 @@ from typing import Optional
 # ── Logger ────────────────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path.home() / "projects/bounty-tools"))
 try:
-    from subagent_logger import SubagentLogger
+    from subagent_logger import SubagentLogger, compute_pte_lite
     _HAS_LOGGER = True
 except ImportError:
     _HAS_LOGGER = False
+
+    def compute_pte_lite(**kwargs) -> int:
+        return (
+            int(kwargs.get("prompt_tokens") or 0)
+            + int(kwargs.get("completion_tokens") or 0)
+            + int(kwargs.get("tool_output_tokens") or 0)
+        )
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 AGENT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = AGENT_DIR.parent
 FINDINGS_FILENAME = "findings.jsonl"
+
+
+def _estimate_tokens_from_text(text: str | bytes | None) -> int:
+    if text is None:
+        return 0
+    if isinstance(text, bytes):
+        size = len(text)
+    else:
+        size = len(str(text).encode("utf-8", errors="replace"))
+    return max(0, math.ceil(size / 4))
+
+
+def _safe_log_span(logger: Optional[SubagentLogger], **fields) -> None:
+    if logger is None:
+        return
+    try:
+        logger.log_span(**fields)
+    except Exception:
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -219,7 +246,13 @@ When done, write `DONE` to `synthesizer/done.txt`
 # HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _call_codex(prompt: str, workdir: Path, model: str = "gpt-5.4", timeout: int = 600) -> tuple[str, int]:
+def _call_codex(
+    prompt: str,
+    workdir: Path,
+    model: str = "gpt-5.4",
+    timeout: int = 600,
+    logger: Optional[SubagentLogger] = None,
+) -> tuple[str, int]:
     """Run a codex exec call and return (stdout, returncode).
     
     Writes prompt to a temp task file to avoid CLI argument length limits.
@@ -241,6 +274,8 @@ def _call_codex(prompt: str, workdir: Path, model: str = "gpt-5.4", timeout: int
     if model != "gpt-5.4":
         cmd[2] = cmd[2].replace("codex exec", f"codex exec -m {model}")
 
+    _context_tokens_before = _estimate_tokens_from_text(prompt)
+    _start = time.time()
     try:
         result = subprocess.run(
             cmd,
@@ -254,6 +289,34 @@ def _call_codex(prompt: str, workdir: Path, model: str = "gpt-5.4", timeout: int
             task_file.unlink(missing_ok=True)
         except Exception:
             pass
+        response_text = result.stdout or result.stderr or ""
+        _duration = int((time.time() - _start) * 1000)
+        _prompt_tokens = _context_tokens_before
+        _completion_tokens = _estimate_tokens_from_text(response_text)
+        _context_tokens_after = _context_tokens_before + _completion_tokens
+        _output_bytes = len(response_text.encode("utf-8", errors="replace"))
+        _tool_output_tokens = max(0, math.ceil(_output_bytes / 4))
+        _safe_log_span(
+            logger,
+            span_type="model",
+            level="STEP",
+            message=f"Model call: {model}",
+            model_name=model,
+            prompt_tokens=_prompt_tokens,
+            completion_tokens=_completion_tokens,
+            context_tokens_before=_context_tokens_before,
+            context_tokens_after=_context_tokens_after,
+            tool_output_tokens=_tool_output_tokens,
+            pte_lite=compute_pte_lite(
+                prompt_tokens=_prompt_tokens,
+                completion_tokens=_completion_tokens,
+                tool_output_tokens=_tool_output_tokens,
+                context_tokens_after=_context_tokens_after,
+            ),
+            latency_ms=_duration,
+            output_bytes=_output_bytes,
+            success=result.returncode == 0,
+        )
         return result.stdout or "", result.returncode
     except subprocess.TimeoutExpired:
         return "TIMEOUT", -1
@@ -590,7 +653,7 @@ IMPORTANT: Use the write tool to write your ideas to {findings_file}"""
     if logger:
         logger.step("Spawning Creative Chaos Agent (gpt-4.1)...")
 
-    stdout, code = _call_codex(prompt, workdir, model="gpt-4.1", timeout=600)
+    stdout, code = _call_codex(prompt, workdir, model="gpt-4.1", timeout=600, logger=logger)
     if logger:
         logger.step(f"Creative agent done (exit={code})")
 
@@ -651,7 +714,7 @@ IMPORTANT: Use the write tool to write your filtered ideas to {filtered_file}"""
     if logger:
         logger.step("Spawning Analyst Agent (gpt-5.4)...")
 
-    stdout, code = _call_codex(prompt, workdir, model="gpt-5.4", timeout=600)
+    stdout, code = _call_codex(prompt, workdir, model="gpt-5.4", timeout=600, logger=logger)
     if logger:
         logger.step(f"Analyst agent done (exit={code})")
 
@@ -711,7 +774,7 @@ IMPORTANT: Use the write tool to write your chains to {chains_file}"""
     if logger:
         logger.step("Spawning Synthesizer Agent (gpt-5.4)...")
 
-    stdout, code = _call_codex(prompt, workdir, model="gpt-5.4", timeout=600)
+    stdout, code = _call_codex(prompt, workdir, model="gpt-5.4", timeout=600, logger=logger)
     if logger:
         logger.step(f"Synthesizer agent done (exit={code})")
 

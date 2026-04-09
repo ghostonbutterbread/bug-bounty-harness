@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -44,8 +45,14 @@ try:
 except ImportError:
     RateLimiter = None
 
+try:
+    from subagent_logger import SubagentLogger
+except ImportError:  # pragma: no cover
+    SubagentLogger = None
+
 # Module-level rate limiter (initialized in run_recon)
 _g_limiter = None
+_RECON_LOGGER = None
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Regex helpers
@@ -145,6 +152,15 @@ def _log(msg: str, level: str = "INFO") -> None:
     print(f"{ts} {tag} {msg}", flush=True)
 
 
+def _safe_log_span(**fields) -> None:
+    if _RECON_LOGGER is None:
+        return
+    try:
+        _RECON_LOGGER.log_span(**fields)
+    except Exception:
+        pass
+
+
 def _http_get(url: str, timeout: int = 15) -> tuple[bytes, dict]:
     """Simple HTTP GET, returns (body_bytes, headers_dict)."""
     if _g_limiter is not None:
@@ -157,12 +173,48 @@ def _http_get(url: str, timeout: int = 15) -> tuple[bytes, dict]:
             "Accept-Language": "en-US,en;q=0.5",
         },
     )
+    start = time.time()
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read(), dict(resp.headers)
+            body = resp.read()
+            _safe_log_span(
+                span_type="tool",
+                level="STEP",
+                message=f"Tool: GET {url}",
+                tool_name="urllib_request",
+                tool_category="http_request",
+                input_bytes=len(url.encode("utf-8", errors="replace")),
+                output_bytes=len(body),
+                latency_ms=int((time.time() - start) * 1000),
+                output_tokens_est=max(0, math.ceil(len(body) / 4)),
+                success=True,
+            )
+            return body, dict(resp.headers)
     except urllib.error.HTTPError as e:
+        _safe_log_span(
+            span_type="tool",
+            level="STEP",
+            message=f"Tool: GET {url}",
+            tool_name="urllib_request",
+            tool_category="http_request",
+            input_bytes=len(url.encode("utf-8", errors="replace")),
+            output_bytes=0,
+            latency_ms=int((time.time() - start) * 1000),
+            success=False,
+        )
         return b"", dict(e.headers) if e.headers else {}
     except Exception:
+        _safe_log_span(
+            span_type="tool",
+            level="STEP",
+            message=f"Tool: GET {url}",
+            tool_name="urllib_request",
+            tool_category="http_request",
+            input_bytes=len(url.encode("utf-8", errors="replace")),
+            output_bytes=0,
+            latency_ms=int((time.time() - start) * 1000),
+            success=False,
+        )
         return b"", {}
 
 
@@ -172,12 +224,37 @@ def _tool_available(name: str) -> bool:
 
 def _run_cmd(cmd: list[str], timeout: int = 120) -> str:
     """Run a subprocess, return stdout as string."""
+    start = time.time()
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout
         )
+        stdout = result.stdout or ""
+        _safe_log_span(
+            span_type="tool",
+            level="STEP",
+            message=f"Tool: {cmd[0]}",
+            tool_name=cmd[0],
+            tool_category="subprocess",
+            input_bytes=len(" ".join(cmd).encode("utf-8", errors="replace")),
+            output_bytes=len(stdout.encode("utf-8", errors="replace")),
+            latency_ms=int((time.time() - start) * 1000),
+            output_tokens_est=max(0, math.ceil(len(stdout.encode("utf-8", errors="replace")) / 4)),
+            success=result.returncode == 0,
+        )
         return result.stdout
     except subprocess.TimeoutExpired:
+        _safe_log_span(
+            span_type="tool",
+            level="STEP",
+            message=f"Tool: {cmd[0]}",
+            tool_name=cmd[0],
+            tool_category="subprocess",
+            input_bytes=len(" ".join(cmd).encode("utf-8", errors="replace")),
+            output_bytes=0,
+            latency_ms=int((time.time() - start) * 1000),
+            success=False,
+        )
         return ""
     except FileNotFoundError:
         return ""
@@ -527,16 +604,41 @@ def phase_analyze(result: ReconResult) -> None:
     _log("Probing interesting paths …")
     for path in INTERESTING_PATHS:
         url = urllib.parse.urljoin(result.target, path)
+        probe_start = time.time()
         try:
             req = urllib.request.Request(
                 url,
                 headers={"User-Agent": "Mozilla/5.0 (compatible; BountyRecon/1.0)"},
             )
             with urllib.request.urlopen(req, timeout=6) as resp:
+                body = resp.read()
+                _safe_log_span(
+                    span_type="tool",
+                    level="STEP",
+                    message=f"Tool: probe {url}",
+                    tool_name="urllib_request",
+                    tool_category="http_request",
+                    input_bytes=len(url.encode("utf-8", errors="replace")),
+                    output_bytes=len(body),
+                    latency_ms=int((time.time() - probe_start) * 1000),
+                    output_tokens_est=max(0, math.ceil(len(body) / 4)),
+                    success=True,
+                )
                 if resp.status in (200, 301, 302, 403, 401):
                     result.interesting_paths_found.append(f"{url} [{resp.status}]")
                     _log(f"  Found: {url} [{resp.status}]", "OK")
         except urllib.error.HTTPError as e:
+            _safe_log_span(
+                span_type="tool",
+                level="STEP",
+                message=f"Tool: probe {url}",
+                tool_name="urllib_request",
+                tool_category="http_request",
+                input_bytes=len(url.encode("utf-8", errors="replace")),
+                output_bytes=0,
+                latency_ms=int((time.time() - probe_start) * 1000),
+                success=False,
+            )
             if e.code in (401, 403):
                 result.interesting_paths_found.append(f"{url} [{e.code}]")
                 _log(f"  Found (restricted): {url} [{e.code}]", "OK")
@@ -624,7 +726,7 @@ def is_in_scope(url: str, scope) -> bool:
 
 
 def run_recon(program: str, target: str) -> ReconResult:
-    global _g_limiter
+    global _g_limiter, _RECON_LOGGER
 
     # Normalise target
     if not target.startswith("http"):
@@ -635,6 +737,12 @@ def run_recon(program: str, target: str) -> ReconResult:
 
     _log(f"Starting autonomous recon: program={program}  target={target}", "INFO")
     _log(f"Host: {host}", "INFO")
+    if SubagentLogger is not None:
+        try:
+            _RECON_LOGGER = SubagentLogger("autonomous_recon", program, f"recon_{int(time.time())}")
+            _RECON_LOGGER.start(target=target)
+        except Exception:
+            _RECON_LOGGER = None
 
     # Initialize scope validator
     scope = None

@@ -7,14 +7,29 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import html
 import json
+import math
 import sys
 from pathlib import Path
 import re
+import time
 from typing import Iterable
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
 from uuid import uuid4
 
 import httpx
+
+sys.path.insert(0, str(Path.home() / "projects" / "bounty-tools"))
+try:
+    from subagent_logger import SubagentLogger, compute_pte_lite
+except ImportError:  # pragma: no cover
+    SubagentLogger = None
+
+    def compute_pte_lite(**kwargs) -> int:
+        return (
+            int(kwargs.get("prompt_tokens") or 0)
+            + int(kwargs.get("completion_tokens") or 0)
+            + int(kwargs.get("tool_output_tokens") or 0)
+        )
 
 try:
     from bs4 import BeautifulSoup
@@ -91,6 +106,13 @@ class XSSHunter:
         self.sink_detector = SinkDetector()
         self.bypass_generator = BypassGenerator()
         self.deep_mode_agent = DeepModeAgent()
+        self.log = None
+        if SubagentLogger is not None:
+            try:
+                self.log = SubagentLogger("xss_hunter", self.program, f"xss_{uuid4().hex[:8]}")
+                self.log.start(target=self.target_url)
+            except Exception:
+                self.log = None
 
         self._baseline_response: httpx.Response | None = None
         self._base_params = self._extract_url_params()
@@ -145,6 +167,7 @@ class XSSHunter:
                 if self._is_finding(result):
                     findings.append(self._build_finding(result))
 
+            _model_start = time.time()
             bypass_payload = asyncio.run(
                 self.deep_mode_agent.analyze(
                     target=self.target_url,
@@ -154,6 +177,46 @@ class XSSHunter:
                     attempt_history=attempts,
                 )
             )
+            try:
+                response_text = json.dumps(getattr(bypass_payload, "payloads", []), sort_keys=True)
+                prompt_basis = json.dumps(
+                    {
+                        "target": self.target_url,
+                        "framework": getattr(self.framework, "name", "unknown"),
+                        "context": getattr(context, "type", ""),
+                        "sinks": [getattr(sink, "name", "") for sink in self.sinks],
+                        "attempts": [asdict(attempt) for attempt in attempts],
+                    },
+                    sort_keys=True,
+                    default=str,
+                )
+                prompt_tokens = max(0, math.ceil(len(prompt_basis.encode("utf-8", errors="replace")) / 4))
+                completion_tokens = max(0, math.ceil(len(response_text.encode("utf-8", errors="replace")) / 4))
+                output_bytes = len(response_text.encode("utf-8", errors="replace"))
+                tool_output_tokens = max(0, math.ceil(output_bytes / 4))
+                if self.log is not None:
+                    self.log.log_span(
+                        span_type="model",
+                        level="STEP",
+                        message="Model call: deep_mode_agent",
+                        model_name="deep_mode_agent",
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        context_tokens_before=prompt_tokens,
+                        context_tokens_after=prompt_tokens + completion_tokens,
+                        tool_output_tokens=tool_output_tokens,
+                        pte_lite=compute_pte_lite(
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                            tool_output_tokens=tool_output_tokens,
+                            context_tokens_after=prompt_tokens + completion_tokens,
+                        ),
+                        output_bytes=output_bytes,
+                        latency_ms=int((time.time() - _model_start) * 1000),
+                        success=True,
+                    )
+            except Exception:
+                pass
 
             for payload in bypass_payload.payloads:
                 result = self._submit_payload_for_param(param, payload, baseline)
@@ -213,8 +276,26 @@ class XSSHunter:
         )
 
     def _make_request(self, params: dict[str, str]) -> httpx.Response:
+        start = time.time()
         response = self.session.get(self._base_url(), params=params)
         response.raise_for_status()
+        try:
+            output_bytes = len(response.text.encode("utf-8", errors="replace"))
+            if self.log is not None:
+                self.log.log_span(
+                    span_type="tool",
+                    level="STEP",
+                    message=f"Tool: GET {response.url}",
+                    tool_name="httpx.get",
+                    tool_category="http_request",
+                    input_bytes=len(json.dumps(params, sort_keys=True).encode("utf-8", errors="replace")),
+                    output_bytes=output_bytes,
+                    latency_ms=int((time.time() - start) * 1000),
+                    output_tokens_est=max(0, math.ceil(output_bytes / 4)),
+                    success=True,
+                )
+        except Exception:
+            pass
         return response
 
     def _collect_sinks(self, response: httpx.Response) -> list[Sink]:
@@ -227,6 +308,22 @@ class XSSHunter:
                 js_response.raise_for_status()
             except Exception:
                 continue
+            try:
+                output_bytes = len(js_response.text.encode("utf-8", errors="replace"))
+                if self.log is not None:
+                    self.log.log_span(
+                        span_type="tool",
+                        level="STEP",
+                        message=f"Tool: GET {script_url}",
+                        tool_name="httpx.get",
+                        tool_category="http_request",
+                        input_bytes=len(script_url.encode("utf-8", errors="replace")),
+                        output_bytes=output_bytes,
+                        output_tokens_est=max(0, math.ceil(output_bytes / 4)),
+                        success=True,
+                    )
+            except Exception:
+                pass
             sinks.extend(self.sink_detector.find_sinks(js_response.text))
         return self._dedupe_sinks(sinks)
 
@@ -306,7 +403,7 @@ class XSSHunter:
 
     def _build_finding(self, result: ScanResult, finding_type: str = "reflected") -> XSSFinding:
         severity = self._severity_for(result, finding_type)
-        return XSSFinding(
+        finding = XSSFinding(
             type=finding_type,
             url=result.url,
             param=result.param,
@@ -317,6 +414,21 @@ class XSSHunter:
             severity=severity,
             response_evidence=result.response_evidence,
         )
+        try:
+            if self.log is not None:
+                self.log.log_span(
+                    span_type="finding",
+                    level="RESULT",
+                    message=f"Finding: xss:{result.param}:{finding_type}",
+                    finding_fid=f"xss:{result.param}:{finding_type}:{result.url}",
+                    review_tier=severity,
+                    duplicate=False,
+                    finding_reward=0,
+                    allocated_pte_lite=0,
+                )
+        except Exception:
+            pass
+        return finding
 
     def _severity_for(self, result: ScanResult, finding_type: str) -> str:
         if finding_type == "stored":

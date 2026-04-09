@@ -20,6 +20,7 @@ import sys
 sys.path.insert(0, "/home/ryushe/workspace/bug_bounty_harness")
 
 import json
+import math
 import os
 import time
 import re
@@ -27,6 +28,19 @@ import httpx
 from datetime import datetime, timezone
 from pathlib import Path
 from dataclasses import dataclass, field
+
+sys.path.insert(0, "/home/ryushe/projects/bounty-tools")
+try:
+    from subagent_logger import SubagentLogger, compute_pte_lite
+except ImportError:  # pragma: no cover
+    SubagentLogger = None
+
+    def compute_pte_lite(**kwargs) -> int:
+        return (
+            int(kwargs.get("prompt_tokens") or 0)
+            + int(kwargs.get("completion_tokens") or 0)
+            + int(kwargs.get("tool_output_tokens") or 0)
+        )
 
 
 try:
@@ -43,6 +57,25 @@ TAVILY_API_KEY = os.getenv("TAVILY_KEY", "")
 # Perplexity API (sonar model — cheap and fast)
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "")
 PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions"
+
+
+def _estimate_tokens_from_text(text: str | bytes | None) -> int:
+    if text is None:
+        return 0
+    if isinstance(text, bytes):
+        size = len(text)
+    else:
+        size = len(str(text).encode("utf-8", errors="replace"))
+    return max(0, math.ceil(size / 4))
+
+
+def _safe_log_span(logger, **fields) -> None:
+    if logger is None:
+        return
+    try:
+        logger.log_span(**fields)
+    except Exception:
+        pass
 
 
 @dataclass
@@ -120,6 +153,13 @@ class AIReconAgent:
 
         # Setup rate limiter
         self.limiter = RateLimiter(requests_per_second=5) if RateLimiter else None
+        self.log = None
+        if SubagentLogger is not None:
+            try:
+                self.log = SubagentLogger("ai_recon", program, f"ai_recon_{int(time.time())}")
+                self.log.start(target=self.primary_domain or program)
+            except Exception:
+                self.log = None
 
     def is_in_scope(self, url: str) -> bool:
         """Check if URL is in scope. Skip if no scope loaded."""
@@ -184,6 +224,8 @@ Format your dork suggestions as a simple list, one dork per line, starting with 
 
         try:
             import httpx
+            _context_tokens_before = _estimate_tokens_from_text(prompt)
+            _start = time.time()
             resp = httpx.post(
                 PERPLEXITY_API_URL,
                 headers={
@@ -200,6 +242,34 @@ Format your dork suggestions as a simple list, one dork per line, starting with 
                     "temperature": 0.3,
                 },
                 timeout=30,
+            )
+            response_text = resp.text
+            _duration = int((time.time() - _start) * 1000)
+            _prompt_tokens = _context_tokens_before
+            _completion_tokens = _estimate_tokens_from_text(response_text)
+            _context_tokens_after = _context_tokens_before + _completion_tokens
+            _output_bytes = len(response_text.encode("utf-8", errors="replace"))
+            _tool_output_tokens = max(0, math.ceil(_output_bytes / 4))
+            _safe_log_span(
+                self.log,
+                span_type="model",
+                level="STEP",
+                message="Model call: perplexity sonar",
+                model_name="perplexity:sonar",
+                prompt_tokens=_prompt_tokens,
+                completion_tokens=_completion_tokens,
+                context_tokens_before=_context_tokens_before,
+                context_tokens_after=_context_tokens_after,
+                tool_output_tokens=_tool_output_tokens,
+                pte_lite=compute_pte_lite(
+                    prompt_tokens=_prompt_tokens,
+                    completion_tokens=_completion_tokens,
+                    tool_output_tokens=_tool_output_tokens,
+                    context_tokens_after=_context_tokens_after,
+                ),
+                latency_ms=_duration,
+                output_bytes=_output_bytes,
+                success=resp.status_code == 200,
             )
             if resp.status_code == 200:
                 data = resp.json()
@@ -281,11 +351,26 @@ Try running with PERPLEXITY_API_KEY set for full AI-powered recon.
             try:
                 if self.limiter:
                     self.limiter.wait()
+                _start = time.time()
                 resp = httpx.post(
                     "https://api.tavily.com/search",
                     headers=headers,
                     json={"query": dork, "max_results": 5, "include_answer": False},
                     timeout=15,
+                )
+                _output_bytes = len(resp.text.encode("utf-8", errors="replace"))
+                _safe_log_span(
+                    self.log,
+                    span_type="tool",
+                    level="STEP",
+                    message="Tool: tavily_search",
+                    tool_name="tavily_search",
+                    tool_category="http_request",
+                    input_bytes=len(dork.encode("utf-8", errors="replace")),
+                    output_bytes=_output_bytes,
+                    latency_ms=int((time.time() - _start) * 1000),
+                    output_tokens_est=max(0, math.ceil(_output_bytes / 4)),
+                    success=resp.status_code == 200,
                 )
                 if resp.status_code != 200:
                     continue
@@ -350,6 +435,8 @@ If no results, say NONE."""
 
         try:
             import httpx
+            _context_tokens_before = _estimate_tokens_from_text(prompt)
+            _start = time.time()
             resp = httpx.post(
                 PERPLEXITY_API_URL,
                 headers={"Authorization": f"Bearer {PERPLEXITY_API_KEY}", "Content-Type": "application/json"},
@@ -363,6 +450,34 @@ If no results, say NONE."""
                     "temperature": 0.2,
                 },
                 timeout=30,
+            )
+            response_text = resp.text
+            _duration = int((time.time() - _start) * 1000)
+            _prompt_tokens = _context_tokens_before
+            _completion_tokens = _estimate_tokens_from_text(response_text)
+            _context_tokens_after = _context_tokens_before + _completion_tokens
+            _output_bytes = len(response_text.encode("utf-8", errors="replace"))
+            _tool_output_tokens = max(0, math.ceil(_output_bytes / 4))
+            _safe_log_span(
+                self.log,
+                span_type="model",
+                level="STEP",
+                message="Model call: perplexity sonar fallback",
+                model_name="perplexity:sonar",
+                prompt_tokens=_prompt_tokens,
+                completion_tokens=_completion_tokens,
+                context_tokens_before=_context_tokens_before,
+                context_tokens_after=_context_tokens_after,
+                tool_output_tokens=_tool_output_tokens,
+                pte_lite=compute_pte_lite(
+                    prompt_tokens=_prompt_tokens,
+                    completion_tokens=_completion_tokens,
+                    tool_output_tokens=_tool_output_tokens,
+                    context_tokens_after=_context_tokens_after,
+                ),
+                latency_ms=_duration,
+                output_bytes=_output_bytes,
+                success=resp.status_code == 200,
             )
             if resp.status_code == 200:
                 content = resp.json()["choices"][0]["message"]["content"]

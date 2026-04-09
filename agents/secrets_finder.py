@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import os
 import re
 import sys
@@ -151,6 +152,14 @@ class _LoggerAdapter:
 
     def error(self, message: str) -> None:
         self._emit("error", message)
+
+    def log_span(self, **fields: Any) -> None:
+        log_span = getattr(self._logger, "log_span", None)
+        if callable(log_span):
+            try:
+                log_span(**fields)
+            except Exception:
+                pass
 
 
 class SecretsFinder:
@@ -585,6 +594,16 @@ class SecretsFinder:
                 return
             self._seen_findings.add(dedupe_key)
             self.findings.append(finding)
+        self.logger.log_span(
+            span_type="finding",
+            level="RESULT",
+            message=f"Finding: secrets:{finding.type}:{finding.source_path}:{finding.line_number}",
+            finding_fid=f"secrets:{finding.type}:{finding.source_path}:{finding.line_number}",
+            review_tier=finding.severity,
+            duplicate=False,
+            finding_reward=0,
+            allocated_pte_lite=0,
+        )
 
     @staticmethod
     def _read_text(path: Path) -> str:
@@ -1064,8 +1083,22 @@ class SecretsFinder:
             cdx_url,
             headers={"User-Agent": "bug-bounty-harness/1.0"},
         )
+        start = time.time()
         with urllib.request.urlopen(request, timeout=self.request_timeout) as response:
             payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+        payload_bytes = len(json.dumps(payload).encode("utf-8", errors="replace"))
+        self.logger.log_span(
+            span_type="tool",
+            level="STEP",
+            message="Tool: wayback_cdx",
+            tool_name="wayback_cdx",
+            tool_category="http_request",
+            input_bytes=len(cdx_url.encode("utf-8", errors="replace")),
+            output_bytes=payload_bytes,
+            latency_ms=int((time.time() - start) * 1000),
+            output_tokens_est=max(0, math.ceil(payload_bytes / 4)),
+            success=True,
+        )
         if not payload or len(payload) == 1:
             return []
         headers = payload[0]
@@ -1100,8 +1133,22 @@ class SecretsFinder:
                 headers={"User-Agent": "bug-bounty-harness/1.0"},
             )
             try:
+                start = time.time()
                 with urllib.request.urlopen(request, timeout=self.request_timeout) as response:
                     body = response.read().decode("utf-8", errors="ignore")
+                body_bytes = len(body.encode("utf-8", errors="replace"))
+                self.logger.log_span(
+                    span_type="tool",
+                    level="STEP",
+                    message="Tool: wayback_fetch",
+                    tool_name="wayback_fetch",
+                    tool_category="http_request",
+                    input_bytes=len(archived_url.encode("utf-8", errors="replace")),
+                    output_bytes=body_bytes,
+                    latency_ms=int((time.time() - start) * 1000),
+                    output_tokens_est=max(0, math.ceil(body_bytes / 4)),
+                    success=True,
+                )
             except (urllib.error.URLError, urllib.error.HTTPError) as exc:
                 self.logger.warning(f"Wayback fetch failed for {archived_url}: {exc}")
                 continue
@@ -1141,6 +1188,7 @@ class SecretsFinder:
             return []
 
         findings: list[dict] = []
+        start = time.time()
         try:
             if scan_type == "filesystem":
                 cmd = [binary, "filesystem", path, "--json", "--no-update"]
@@ -1179,6 +1227,19 @@ class SecretsFinder:
             self.logger.warning("trufflehog timed out")
         except Exception as e:
             self.logger.warning(f"trufflehog error: {e}")
+        output_bytes = len(json.dumps(findings).encode("utf-8", errors="replace"))
+        self.logger.log_span(
+            span_type="tool",
+            level="STEP",
+            message="Tool: trufflehog",
+            tool_name="trufflehog",
+            tool_category="subprocess",
+            input_bytes=len(path.encode("utf-8", errors="replace")),
+            output_bytes=output_bytes,
+            latency_ms=int((time.time() - start) * 1000),
+            output_tokens_est=max(0, math.ceil(output_bytes / 4)),
+            success=bool(findings),
+        )
 
         return findings
 
@@ -1203,6 +1264,7 @@ class SecretsFinder:
             return []
 
         findings: list[dict] = []
+        start = time.time()
         try:
             cmd = [str(gitleaks), "scan", "--report-format", "json", "--no-color", "-p", path]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -1229,6 +1291,19 @@ class SecretsFinder:
                     pass
         except Exception as e:
             self.logger.warning(f"gitleaks error: {e}")
+        output_bytes = len(json.dumps(findings).encode("utf-8", errors="replace"))
+        self.logger.log_span(
+            span_type="tool",
+            level="STEP",
+            message="Tool: gitleaks",
+            tool_name="gitleaks",
+            tool_category="subprocess",
+            input_bytes=len(path.encode("utf-8", errors="replace")),
+            output_bytes=output_bytes,
+            latency_ms=int((time.time() - start) * 1000),
+            output_tokens_est=max(0, math.ceil(output_bytes / 4)),
+            success=bool(findings),
+        )
 
         return findings
 
@@ -1260,6 +1335,7 @@ class SecretsFinder:
             return []
 
         findings: list[dict] = []
+        start = time.time()
         try:
             cmd = [str(nuclei), "-u", target, "-t", "exposed-tokens,exposed-api-keys",
                    "-json", "-silent"]
@@ -1290,6 +1366,19 @@ class SecretsFinder:
                     continue
         except Exception as e:
             self.logger.warning(f"nuclei error: {e}")
+        output_bytes = len(json.dumps(findings).encode("utf-8", errors="replace"))
+        self.logger.log_span(
+            span_type="tool",
+            level="STEP",
+            message="Tool: nuclei",
+            tool_name="nuclei",
+            tool_category="subprocess",
+            input_bytes=len(target.encode("utf-8", errors="replace")),
+            output_bytes=output_bytes,
+            latency_ms=int((time.time() - start) * 1000),
+            output_tokens_est=max(0, math.ceil(output_bytes / 4)),
+            success=bool(findings),
+        )
 
         return findings
 

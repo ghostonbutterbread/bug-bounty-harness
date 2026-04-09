@@ -1,6 +1,7 @@
 import sys
 
 sys.path.insert(0, "/home/ryushe/workspace/bug_bounty_harness")
+sys.path.insert(0, "/home/ryushe/projects/bounty-tools")
 
 try:
     from scope_validator import ScopeValidator
@@ -12,8 +13,8 @@ except ImportError:
     RateLimiter = None
 
 import fcntl
-import time
 import json
+import math
 import os
 import re
 import subprocess
@@ -25,6 +26,11 @@ from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 from harness_core import CampaignState, HarnessConstraints, HarnessViolation
+
+try:
+    from subagent_logger import SubagentLogger
+except ImportError:  # pragma: no cover
+    SubagentLogger = None
 
 
 FFUF_PATH = "/home/linuxbrew/.linuxbrew/bin/ffuf"
@@ -61,6 +67,15 @@ RESULT_LINE_RE = re.compile(
 )
 
 
+def _safe_log_span(logger, **fields) -> None:
+    if logger is None:
+        return
+    try:
+        logger.log_span(**fields)
+    except Exception:
+        pass
+
+
 class FuzzAgent:
     def __init__(self, campaign_id: str, program: str = ""):
         self.campaign_id = campaign_id
@@ -79,6 +94,13 @@ class FuzzAgent:
 
         # Setup rate limiter (ffuf handles its own rate; this covers pre-checks)
         self.limiter = RateLimiter(requests_per_second=5) if RateLimiter else None
+        self.log = None
+        if SubagentLogger is not None:
+            try:
+                self.log = SubagentLogger("fuzz_runner", program or campaign_id, f"fuzz_{campaign_id}")
+                self.log.start(target=campaign_id, campaign_id=campaign_id)
+            except Exception:
+                self.log = None
 
     def is_in_scope(self, url: str) -> bool:
         """Check if URL is in scope. Skip if no scope loaded."""
@@ -338,6 +360,7 @@ class FuzzAgent:
         findings = []
         seen_paths = set()
         rate_limited = False
+        output_bytes = 0
         threads = "5" if rate_sensitive else "20"
         ffuf_args = [
             FFUF_PATH,
@@ -373,6 +396,11 @@ class FuzzAgent:
 
         ffuf_args[4] = temp_wordlist_path
 
+        _start = time.time()
+        _input_bytes = len(" ".join(ffuf_args).encode("utf-8", errors="replace")) + sum(
+            len(path.encode("utf-8", errors="replace")) for path in batch
+        )
+        return_code = -1
         try:
             process = subprocess.Popen(
                 ffuf_args,
@@ -385,6 +413,7 @@ class FuzzAgent:
             for line in process.stdout:
                 raw_file.write(line)
                 raw_file.flush()
+                output_bytes += len(line.encode("utf-8", errors="replace"))
                 finding = self._parse_ffuf_line(target, line)
                 if finding:
                     if finding["status"] == 429:
@@ -400,6 +429,19 @@ class FuzzAgent:
                 raw_file.flush()
         finally:
             os.unlink(temp_wordlist_path)
+            _safe_log_span(
+                self.log,
+                span_type="tool",
+                level="STEP",
+                message="Tool: ffuf",
+                tool_name="ffuf",
+                tool_category="subprocess",
+                input_bytes=_input_bytes,
+                output_bytes=output_bytes,
+                latency_ms=int((time.time() - _start) * 1000),
+                output_tokens_est=max(0, math.ceil(output_bytes / 4)),
+                success=return_code == 0,
+            )
 
         return {"findings": findings, "rate_limited": rate_limited}
 

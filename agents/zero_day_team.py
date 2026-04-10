@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from agents.chain_matrix import build_chain_graph, get_chainable_findings  # type: ignore[attr-defined]
 from agents.hybrid_preflight import run_preflight  # type: ignore[attr-defined]
+from agents.dynamic_agent_builder import DynamicAgentBuilder  # type: ignore[attr-defined]
 from agents.ledger_v2 import VersionedFindingsLedger  # type: ignore[attr-defined]
 from agents.shared_brain import (  # type: ignore[attr-defined]
     build_index,
@@ -55,6 +56,7 @@ FINDINGS_FILENAME = "findings.jsonl"
 AGENT_TIMEOUT_SECONDS = 1800
 CLAUDE_REVIEW_TIMEOUT_SECONDS = 600
 CLAUDE_REVIEW_MAX_WORKERS = 4
+MAX_PARALLEL_AGENTS = 10  # hard cap on concurrent sub-agents
 _ZERO_DAY_TEAM_LOGGER = None
 
 SOURCE_TRUST_CONTEXT_PROMPT = (
@@ -104,10 +106,14 @@ class VulnerabilityClassProfile:
     cross_questions: Tuple[str, ...]
     sink_categories: Tuple[str, ...]
     reasoning: str
+    display_name: str | None = None
+    prompt_addendum: str = ""
+    focus_globs: Tuple[str, ...] = ()
+    ignore_globs: Tuple[str, ...] = ()
 
     @property
     def title(self) -> str:
-        return self.key.replace("-", " ").title()
+        return str(self.display_name or self.key.replace("-", " ").title())
 
 
 CLASS_PROFILES: Dict[str, VulnerabilityClassProfile] = {
@@ -433,15 +439,57 @@ def _normalize_class_name(value: str) -> str:
     return value.strip().lower()
 
 
-def _select_profiles(selected_class: Optional[str]) -> List[VulnerabilityClassProfile]:
+def _profile_from_agent_spec(spec: Any) -> VulnerabilityClassProfile:
+    focus_globs = tuple(str(item).strip() for item in (getattr(spec, "focus_files_glob", []) or []) if str(item).strip())
+    ignore_globs = tuple(str(item).strip() for item in (getattr(spec, "ignore_files_glob", []) or []) if str(item).strip())
+    patterns = tuple(str(item).strip() for item in (getattr(spec, "patterns", []) or []) if str(item).strip())
+    surface = str(getattr(spec, "surface_type", "") or "custom surface").replace("-", " ")
+    vuln_class = str(getattr(spec, "vuln_class", "") or "custom vulnerability").replace("_", " ").replace("-", " ")
+    entry_questions = (
+        f"Which entry points expose the {surface} surface in this application?",
+        f"Which code paths under the brainstorm focus set make {vuln_class} reachable?",
+    )
+    cross_questions = (
+        f"How does attacker-controlled data from the {surface} surface cross into privileged code?",
+        "What validation, allowlists, auth checks, or boundary checks exist and where do they fail?",
+    )
+    sink_categories = patterns[:6] or (
+        f"Surface-specific flows related to {surface}",
+        f"Sinks that make {vuln_class} practically reachable",
+    )
+    reasoning = (
+        f"Use the brainstorm evidence for app version {getattr(spec, 'version', 'unknown')}. "
+        f"Prioritize {vuln_class} paths on the {surface} surface, stay inside the focus globs first, "
+        "and treat ignore globs as low-priority unless a strong cross-file flow forces expansion."
+    )
+    return VulnerabilityClassProfile(
+        key=str(getattr(spec, "key", "")).strip(),
+        description=str(getattr(spec, "description", "")).strip(),
+        entry_questions=entry_questions,
+        cross_questions=cross_questions,
+        sink_categories=sink_categories,
+        reasoning=reasoning,
+        display_name=str(getattr(spec, "name", "")).strip() or None,
+        prompt_addendum=str(getattr(spec, "agent_prompt_template", "")).rstrip(),
+        focus_globs=focus_globs,
+        ignore_globs=ignore_globs,
+    )
+
+
+def _select_profiles(
+    selected_class: Optional[str],
+    extra_profiles: Sequence[VulnerabilityClassProfile] = (),
+) -> List[VulnerabilityClassProfile]:
+    ordered_profiles = list(CLASS_PROFILES.values()) + list(extra_profiles)
+    all_profiles = {profile.key.lower(): profile for profile in ordered_profiles}
     if not selected_class:
-        return list(CLASS_PROFILES.values())
+        return ordered_profiles
 
     normalized = _normalize_class_name(selected_class)
-    if normalized not in CLASS_PROFILES:
-        known = ", ".join(sorted(CLASS_PROFILES))
+    if normalized not in all_profiles:
+        known = ", ".join(sorted(all_profiles))
         raise ValueError(f"Unknown class {selected_class!r}. Expected one of: {known}")
-    return [CLASS_PROFILES[normalized]]
+    return [all_profiles[normalized]]
 
 
 def _build_prompt_base(
@@ -456,6 +504,8 @@ def _build_prompt_base(
     entry_lines = "\n".join(f"- {question}" for question in profile.entry_questions)
     cross_lines = "\n".join(f"- {question}" for question in profile.cross_questions)
     sink_lines = "\n".join(f"- {category}" for category in profile.sink_categories)
+    focus_lines = "\n".join(f"- {pattern}" for pattern in profile.focus_globs)
+    ignore_lines = "\n".join(f"- {pattern}" for pattern in profile.ignore_globs)
     context_parts: List[str] = []
     if class_context.strip():
         context_parts.append(
@@ -527,6 +577,15 @@ Dangerous sink categories to reason about:
 
 Reasoning prompts:
 {profile.reasoning}
+
+Preferred focus globs:
+{focus_lines or "- None provided"}
+
+Low-priority ignore globs:
+{ignore_lines or "- None provided"}
+
+Custom agent instructions:
+{profile.prompt_addendum or "None."}
 
 Output rules:
 - A class finding should identify the source, the trust boundary crossing, the flow, the dangerous sink category, and why exploitation is or is not realistically reachable.
@@ -1781,6 +1840,7 @@ def orchestrate_zero_day_team(
     no_shared_brain: bool = False,
     hunt_type: str = "source",
     version_label: str | None = None,
+    force_refresh_dynamic_agents: bool = False,
 ) -> Dict[str, Any]:
     """Run one clean static-analysis agent per vulnerability class."""
     global _ZERO_DAY_TEAM_LOGGER
@@ -1816,7 +1876,104 @@ def orchestrate_zero_day_team(
         f"version={snapshot_identity.get('version_label') or '(unspecified)'} "
         f"channel={snapshot_identity.get('channel') or 'stable'}"
     )
-    profiles = _select_profiles(selected_class)
+    dynamic_specs = []
+    dynamic_profiles: List[VulnerabilityClassProfile] = []
+    dynamic_version = (
+        str(snapshot_identity.get("version_label") or "").strip()
+        or str(snapshot_identity.get("snapshot_id") or "").strip()
+        or "unversioned"
+    )
+    dynamic_builder_started = time.time()
+    try:
+        builder = DynamicAgentBuilder(program=program_slug, logger=_ZERO_DAY_TEAM_LOGGER)
+        dynamic_specs = builder.run(
+            target,
+            program_slug,
+            force_refresh=force_refresh_dynamic_agents,
+            app_version=dynamic_version,
+        )
+        dynamic_profiles = [_profile_from_agent_spec(spec) for spec in dynamic_specs if getattr(spec, "key", "")]
+        print(
+            f"[dynamic_agents] version={dynamic_version} "
+            f"loaded={len(dynamic_profiles)} registry={builder.registry.reg_dir}"
+        )
+        dynamic_output = "\n".join(profile.key for profile in dynamic_profiles)
+        dynamic_payload = json.dumps(
+            {
+                "target": str(target),
+                "version": dynamic_version,
+                "force_refresh": force_refresh_dynamic_agents,
+                "dynamic_agent_count": len(dynamic_profiles),
+            },
+            sort_keys=True,
+        )
+        dynamic_prompt_tokens = _estimate_tokens_from_text(dynamic_payload)
+        dynamic_completion_tokens = 0
+        dynamic_tool_output_tokens = _estimate_tokens_from_text(dynamic_output)
+        dynamic_context_after = dynamic_prompt_tokens + dynamic_completion_tokens
+        _safe_log_span(
+            span_type="tool",
+            phase="preflight",
+            level="RESULT",
+            message=f"Dynamic agent builder loaded {len(dynamic_profiles)} spec(s)",
+            tool_name="dynamic_agent_builder",
+            tool_category="dynamic_agents",
+            target=str(target),
+            params={"version": dynamic_version, "force_refresh": force_refresh_dynamic_agents},
+            prompt_tokens=dynamic_prompt_tokens,
+            completion_tokens=dynamic_completion_tokens,
+            context_tokens_before=dynamic_prompt_tokens,
+            context_tokens_after=dynamic_context_after,
+            tool_output_tokens=dynamic_tool_output_tokens,
+            pte_lite=compute_pte_lite(
+                prompt_tokens=dynamic_prompt_tokens,
+                completion_tokens=dynamic_completion_tokens,
+                tool_output_tokens=dynamic_tool_output_tokens,
+                context_tokens_after=dynamic_context_after,
+            ),
+            latency_ms=int((time.time() - dynamic_builder_started) * 1000),
+            input_bytes=len(dynamic_payload.encode("utf-8", errors="replace")),
+            output_bytes=len(dynamic_output.encode("utf-8", errors="replace")),
+            success=True,
+        )
+    except Exception as exc:
+        print(f"[dynamic_agents] warning: {exc}; continuing without custom agents")
+        failure_payload = json.dumps(
+            {
+                "target": str(target),
+                "version": dynamic_version,
+                "error": str(exc),
+            },
+            sort_keys=True,
+        )
+        failure_tokens = _estimate_tokens_from_text(failure_payload)
+        _safe_log_span(
+            span_type="tool",
+            phase="preflight",
+            level="ERROR",
+            message="Dynamic agent builder failed",
+            tool_name="dynamic_agent_builder",
+            tool_category="dynamic_agents",
+            target=str(target),
+            params={"version": dynamic_version},
+            prompt_tokens=failure_tokens,
+            completion_tokens=0,
+            context_tokens_before=failure_tokens,
+            context_tokens_after=failure_tokens,
+            tool_output_tokens=0,
+            pte_lite=compute_pte_lite(
+                prompt_tokens=failure_tokens,
+                completion_tokens=0,
+                tool_output_tokens=0,
+                context_tokens_after=failure_tokens,
+            ),
+            latency_ms=int((time.time() - dynamic_builder_started) * 1000),
+            input_bytes=len(failure_payload.encode("utf-8", errors="replace")),
+            output_bytes=0,
+            success=False,
+            error=str(exc),
+        )
+    profiles = _select_profiles(selected_class, extra_profiles=dynamic_profiles)
     shared_brain_index = None
 
     if no_shared_brain:
@@ -1837,7 +1994,9 @@ def orchestrate_zero_day_team(
             shared_brain_index = None
             print(f"[shared_brain] warning: {exc}; continuing without shared brain")
 
-    active_profiles = profiles
+    built_in_profiles = [profile for profile in profiles if profile.key in CLASS_PROFILES]
+    always_on_dynamic_profiles = [profile for profile in profiles if profile.key not in CLASS_PROFILES]
+    active_profiles = built_in_profiles + always_on_dynamic_profiles
     skipped_profile_keys: List[str] = []
     preflight_decisions = []
     if no_preflight:
@@ -1852,14 +2011,14 @@ def orchestrate_zero_day_team(
                 preflight_index = None
                 print(f"[preflight] warning: {exc}; running all selected classes")
 
-        if preflight_index is not None:
+        if preflight_index is not None and built_in_profiles:
             try:
                 preflight_decisions = run_preflight(
                     target,
                     preflight_index,
                     model=model,
-                    vuln_classes=[profile.key for profile in profiles],
-                    class_descriptions={profile.key: profile.description for profile in profiles},
+                    vuln_classes=[profile.key for profile in built_in_profiles],
+                    class_descriptions={profile.key: profile.description for profile in built_in_profiles},
                     force_llm=force_preflight_llm,
                 )
                 active_keys = {decision.vuln_class for decision in preflight_decisions if decision.run_agent}
@@ -1868,7 +2027,10 @@ def orchestrate_zero_day_team(
                     for decision in preflight_decisions
                     if not decision.run_agent
                 ]
-                active_profiles = [profile for profile in profiles if profile.key in active_keys]
+                active_profiles = (
+                    [profile for profile in built_in_profiles if profile.key in active_keys]
+                    + always_on_dynamic_profiles
+                )
                 print(f"[preflight] active={len(active_profiles)} skipped={len(skipped_profile_keys)}")
                 for decision in preflight_decisions:
                     _safe_log_span(
@@ -1884,8 +2046,33 @@ def orchestrate_zero_day_team(
                     if not decision.run_agent:
                         print(f"  skip {decision.vuln_class}: {decision.decision_reason}")
             except Exception as exc:
-                active_profiles = profiles
+                active_profiles = built_in_profiles + always_on_dynamic_profiles
                 print(f"[preflight] warning: {exc}; continuing with all selected classes")
+        elif always_on_dynamic_profiles:
+            print(f"[preflight] auto-enabling {len(always_on_dynamic_profiles)} dynamic agent(s)")
+
+    for profile in always_on_dynamic_profiles:
+        _safe_log_span(
+            span_type="spawn_decision",
+            phase="preflight",
+            level="STEP",
+            message=f"Spawn decision: {profile.key}",
+            agent_name=profile.key,
+            prompt_tokens=0,
+            completion_tokens=0,
+            context_tokens_before=0,
+            context_tokens_after=0,
+            tool_output_tokens=0,
+            pte_lite=compute_pte_lite(
+                prompt_tokens=0,
+                completion_tokens=0,
+                tool_output_tokens=0,
+                context_tokens_after=0,
+            ),
+            expected_worth=1.0,
+            redundancy_penalty=0.0,
+            spawned=profile in active_profiles,
+        )
 
     # Pre-assign DIVERSE entry points across all active profiles (no two profiles
     # get the same file if alternatives exist), so agents don't all start from
@@ -1910,9 +2097,9 @@ def orchestrate_zero_day_team(
             starting_entries_by_profile[profile.key] = chosen
 
     if parallel:
-        print(f"[orchestrator] Running {len(active_profiles)} class agents in PARALLEL mode")
+        print(f"[orchestrator] Running {len(active_profiles)} class agents in PARALLEL mode (cap: {MAX_PARALLEL_AGENTS})")
         if active_profiles:
-            with ThreadPoolExecutor(max_workers=len(active_profiles)) as pool:
+            with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL_AGENTS, len(active_profiles))) as pool:
                 futures = {
                     pool.submit(
                         _run_single_agent,
@@ -2030,6 +2217,11 @@ def orchestrate_zero_day_team(
         "version_label": snapshot_identity.get("version_label"),
         "channel": snapshot_identity.get("channel"),
     }
+    summary["dynamic_agents"] = {
+        "count": len(dynamic_profiles),
+        "keys": [profile.key for profile in dynamic_profiles],
+        "version": dynamic_version,
+    }
     _pretty_print_findings(reviewed_findings)
 
     # Run chainer if --chain was requested
@@ -2075,8 +2267,7 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument(
         "--class",
         dest="selected_class",
-        choices=sorted(CLASS_PROFILES),
-        help="Run only a single vulnerability class with clean context.",
+        help="Run only a single built-in vulnerability class or dynamic agent key with clean context.",
     )
     parser.add_argument(
         "--parallel",
@@ -2131,6 +2322,11 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
         dest="version_label",
         help="Override the snapshot version label for this hunt.",
     )
+    parser.add_argument(
+        "--force-refresh-dynamic-agents",
+        action="store_true",
+        help="Rebuild dynamic agent specs for the current app version even if cached specs exist.",
+    )
     return parser.parse_args(list(argv))
 
 
@@ -2158,5 +2354,6 @@ if __name__ == "__main__":
         no_shared_brain=args.no_shared_brain,
         hunt_type=args.hunt_type,
         version_label=args.version_label,
+        force_refresh_dynamic_agents=args.force_refresh_dynamic_agents,
     )
     print(json.dumps(result, indent=2, sort_keys=True))

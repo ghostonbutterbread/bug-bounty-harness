@@ -581,6 +581,7 @@ def _run_single_profile(
     ledger: VersionedFindingsLedger,
     fresh: bool,
     prepared_bundle: tuple[dict[str, Any], list[str], dict[str, str]],
+    registry: ApkSurfaceRegistry,
 ) -> tuple[ApkHuntProfile, int]:
     registry_context, targeted_files, pseudo_java = prepared_bundle
     session = _spawn_apk_agent(
@@ -748,6 +749,7 @@ def orchestrate_apk_team(
                     ledger=ledger,
                     fresh=fresh,
                     prepared_bundle=prepared_bundles[profile.key],
+                    registry=registry,
                 ): profile
                 for profile in profiles
             }
@@ -771,6 +773,7 @@ def orchestrate_apk_team(
                 ledger=ledger,
                 fresh=fresh,
                 prepared_bundle=prepared_bundles[profile.key],
+                registry=registry,
             )
             print(f"[apk_team] Finished {index}/{len(profiles)}: {profile.key}")
 

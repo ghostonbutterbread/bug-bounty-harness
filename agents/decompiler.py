@@ -1089,3 +1089,200 @@ def _is_url(value: str) -> bool:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+_PRIMITIVE_DESCRIPTOR_TYPES = {
+    "V": "void",
+    "Z": "boolean",
+    "B": "byte",
+    "S": "short",
+    "C": "char",
+    "I": "int",
+    "J": "long",
+    "F": "float",
+    "D": "double",
+}
+
+
+def _descriptor_to_type(descriptor: str) -> str:
+    text = str(descriptor or "").strip()
+    if not text:
+        return "Object"
+    array_depth = 0
+    while text.startswith("["):
+        array_depth += 1
+        text = text[1:]
+    if text in _PRIMITIVE_DESCRIPTOR_TYPES:
+        base = _PRIMITIVE_DESCRIPTOR_TYPES[text]
+    elif text.startswith("L") and text.endswith(";"):
+        base = text[1:-1].split("/")[-1].replace("$", ".")
+    else:
+        base = text.replace("/", ".")
+    return base + ("[]" * array_depth)
+
+
+def _parse_method_descriptor(descriptor: str) -> tuple[list[str], str]:
+    raw = str(descriptor or "").strip()
+    if not raw.startswith("(") or ")" not in raw:
+        return [], "void"
+    args_blob, return_blob = raw[1:].split(")", 1)
+    args: list[str] = []
+    index = 0
+    while index < len(args_blob):
+        start = index
+        while index < len(args_blob) and args_blob[index] == "[":
+            index += 1
+        if index >= len(args_blob):
+            break
+        if args_blob[index] == "L":
+            end = args_blob.find(";", index)
+            if end == -1:
+                break
+            index = end + 1
+        else:
+            index += 1
+        args.append(_descriptor_to_type(args_blob[start:index]))
+    return args, _descriptor_to_type(return_blob)
+
+
+def _smali_signature_to_pseudo(header: str) -> str:
+    normalized = " ".join(str(header or "").strip().split())
+    if not normalized.startswith(".method"):
+        return normalized
+    body = normalized[len(".method") :].strip()
+    if "(" not in body or ")" not in body:
+        return body
+    prefix, descriptor_part = body.split("(", 1)
+    descriptor = "(" + descriptor_part
+    prefix_tokens = prefix.split()
+    if not prefix_tokens:
+        return body
+    method_name = prefix_tokens[-1]
+    modifiers = " ".join(prefix_tokens[:-1])
+    args, return_type = _parse_method_descriptor(descriptor)
+    arg_list = ", ".join(f"{arg_type} arg{index}" for index, arg_type in enumerate(args))
+    signature = f"{return_type} {method_name}({arg_list})"
+    if modifiers:
+        signature = f"{modifiers} {signature}"
+    return signature.strip()
+
+
+def _pseudo_statement(smali_line: str) -> str:
+    line = str(smali_line or "").strip()
+    if not line or line.startswith((".", ":")):
+        return ""
+    if line.startswith("const-string"):
+        match = re.match(r"const-string(?:/jumbo)?\s+([vp]\d+),\s+\"(.*)\"", line)
+        if match:
+            return f"{match.group(1)} = \"{match.group(2)}\";"
+    if line.startswith("const/4") or line.startswith("const/16") or line.startswith("const "):
+        match = re.match(r"const(?:/\S+)?\s+([vp]\d+),\s+(.+)", line)
+        if match:
+            return f"{match.group(1)} = {match.group(2)};"
+    if line.startswith("new-instance"):
+        match = re.match(r"new-instance\s+([vp]\d+),\s+(L.+;)", line)
+        if match:
+            return f"{match.group(1)} = new {_descriptor_to_type(match.group(2))}();"
+    if line.startswith("invoke-"):
+        match = re.match(r"invoke-\S+\s+\{([^}]*)\},\s+([^\s]+)->([^(]+)(\(.*\).*)", line)
+        if match:
+            owner = _descriptor_to_type(match.group(2))
+            method_name = match.group(3)
+            args = ", ".join(part.strip() for part in match.group(1).split(",") if part.strip())
+            return f"{owner}.{method_name}({args});"
+    if line.startswith("move-result"):
+        match = re.match(r"move-result(?:-object|-wide)?\s+([vp]\d+)", line)
+        if match:
+            return f"{match.group(1)} = <result>;"
+    if line.startswith("return-void"):
+        return "return;"
+    if line.startswith("return"):
+        match = re.match(r"return(?:-object|-wide)?\s+([vp]\d+)", line)
+        if match:
+            return f"return {match.group(1)};"
+    if line.startswith("if-"):
+        return f"if ({line[3:]}) {{ ... }}"
+    if line.startswith("goto"):
+        return "goto <label>;"
+    if line.startswith("check-cast"):
+        match = re.match(r"check-cast\s+([vp]\d+),\s+(L.+;)", line)
+        if match:
+            return f"{match.group(1)} = ({_descriptor_to_type(match.group(2))}) {match.group(1)};"
+    if line.startswith("iget") or line.startswith("sget"):
+        return f"// {line}"
+    if line.startswith("iput") or line.startswith("sput"):
+        return f"// {line}"
+    return f"// {line[:160]}"
+
+
+def decompile_smali_text(
+    smali_text: str,
+    *,
+    max_methods: int = 12,
+    max_statements_per_method: int = 12,
+) -> str:
+    """Render a compact pseudo-Java summary for a single smali class."""
+    lines = smali_text.splitlines()
+    class_header = next((line for line in lines if line.startswith(".class")), "")
+    super_header = next((line for line in lines if line.startswith(".super")), "")
+    class_name_match = re.search(r"(L.+;)", class_header)
+    super_name_match = re.search(r"(L.+;)", super_header)
+    class_name = _descriptor_to_type(class_name_match.group(1)) if class_name_match else "UnknownClass"
+    super_name = _descriptor_to_type(super_name_match.group(1)) if super_name_match else "Object"
+    field_lines = [line.strip() for line in lines if line.strip().startswith(".field")][:12]
+
+    output: list[str] = [f"class {class_name} extends {super_name} {{"]
+    if field_lines:
+        output.append("  // fields")
+        for field in field_lines:
+            output.append(f"  {field[len('.field'):].strip()};")
+
+    method_indices = [index for index, line in enumerate(lines) if line.strip().startswith(".method")]
+    for method_index, start in enumerate(method_indices[: max(0, max_methods)]):
+        end = next((index for index in range(start + 1, len(lines)) if lines[index].strip() == ".end method"), len(lines))
+        header = lines[start].strip()
+        output.append(f"  {_smali_signature_to_pseudo(header)} {{")
+        emitted = 0
+        for raw_line in lines[start + 1 : end]:
+            statement = _pseudo_statement(raw_line)
+            if not statement:
+                continue
+            output.append(f"    {statement}")
+            emitted += 1
+            if emitted >= max(0, max_statements_per_method):
+                output.append("    // ...")
+                break
+        output.append("  }")
+        if method_index + 1 < min(len(method_indices), max_methods):
+            output.append("")
+    output.append("}")
+    return "\n".join(output)
+
+
+def decompile_smali_targets(
+    smali_paths: Iterable[str | Path],
+    *,
+    base_root: str | Path | None = None,
+    max_files: int = 8,
+    max_methods: int = 12,
+) -> dict[str, str]:
+    """Produce pseudo-Java summaries for a targeted list of smali files."""
+    root = Path(base_root).expanduser().resolve(strict=False) if base_root is not None else None
+    results: dict[str, str] = {}
+    for raw_path in list(smali_paths)[: max(0, max_files)]:
+        path = Path(raw_path).expanduser().resolve(strict=False)
+        if not path.exists() or not path.is_file():
+            continue
+        try:
+            smali_text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if root is not None:
+            try:
+                label = str(path.relative_to(root))
+            except ValueError:
+                label = str(path)
+        else:
+            label = str(path)
+        results[label] = decompile_smali_text(smali_text, max_methods=max_methods)
+    return results

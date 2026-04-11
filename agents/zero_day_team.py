@@ -25,6 +25,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from agents.base_team import AgentSpec as TeamAgentSpec
+from agents.base_team import BaseTeam
 from agents.chain_matrix import build_chain_graph, get_chainable_findings  # type: ignore[attr-defined]
 from agents.hybrid_preflight import run_preflight  # type: ignore[attr-defined]
 from agents.dynamic_agent_builder import DynamicAgentBuilder  # type: ignore[attr-defined]
@@ -408,6 +410,151 @@ CLASS_PROFILES: Dict[str, VulnerabilityClassProfile] = {
         ),
     ),
 }
+
+
+class ZeroDayTeam(BaseTeam):
+    """Class-based zero-day team built on the shared BaseTeam framework."""
+
+    def get_static_profiles(self) -> list[TeamAgentSpec]:
+        snapshot_id = self._snapshot_id() or "unspecified"
+        created_at = _timestamp_iso()
+        return [
+            self._spec_from_profile(profile, snapshot_id=snapshot_id, created_at=created_at)
+            for profile in CLASS_PROFILES.values()
+        ]
+
+    def generate_dynamic_from_surfaces(
+        self,
+        surfaces: Sequence[dict[str, Any]],
+        *,
+        snapshot_id: str,
+    ) -> list[TeamAgentSpec]:
+        created_at = _timestamp_iso()
+        specs: list[TeamAgentSpec] = []
+        for surface in surfaces:
+            surface_type = str(surface.get("surface_type") or "repo-surface").strip() or "repo-surface"
+            vuln_class = str(surface.get("vuln_class") or "custom-flow").strip() or "custom-flow"
+            key = str(surface.get("key") or f"{self.program}-{surface_type}-{vuln_class}").strip()
+            description = str(surface.get("description") or "").strip()
+            patterns = [str(item).strip() for item in (surface.get("patterns") or []) if str(item).strip()]
+            focus_globs = [
+                str(item).strip()
+                for item in (surface.get("focus_files_glob") or [])
+                if str(item).strip()
+            ]
+            prompt_template = self._dynamic_prompt(
+                key=key,
+                surface_type=surface_type,
+                vuln_class=vuln_class,
+                description=description,
+                patterns=patterns,
+                upstream_prompt=str(surface.get("agent_prompt_template") or "").rstrip(),
+            )
+            specs.append(
+                TeamAgentSpec(
+                    key=key,
+                    vuln_class=vuln_class,
+                    surface=surface_type,
+                    prompt_template=prompt_template,
+                    focus_globs=focus_globs,
+                    code_patterns=patterns,
+                    program=self.program,
+                    created_at=created_at,
+                    snapshot_id=snapshot_id,
+                )
+            )
+        return specs
+
+    def _spec_from_profile(
+        self,
+        profile: VulnerabilityClassProfile,
+        *,
+        snapshot_id: str,
+        created_at: str,
+    ) -> TeamAgentSpec:
+        return TeamAgentSpec(
+            key=profile.key,
+            vuln_class=profile.key,
+            surface=profile.key,
+            prompt_template=self._static_prompt(profile),
+            focus_globs=list(profile.focus_globs),
+            code_patterns=list(profile.sink_categories),
+            program=self.program,
+            created_at=created_at,
+            snapshot_id=snapshot_id,
+        )
+
+    def _static_prompt(self, profile: VulnerabilityClassProfile) -> str:
+        entry_questions = "\n".join(f"- {item}" for item in profile.entry_questions) or "- None"
+        cross_questions = "\n".join(f"- {item}" for item in profile.cross_questions) or "- None"
+        sink_categories = "\n".join(f"- {item}" for item in profile.sink_categories) or "- None"
+        return (
+            f"You are a zero-day static-analysis hunter focused on the vulnerability class "
+            f"'{profile.key}' ({profile.title}).\n\n"
+            "Program: {program}\n"
+            "Target root: {target_path}\n"
+            "Shared brain index: {shared_brain_index}\n"
+            "Append-only findings file: {findings_path}\n"
+            "Ledger path: {ledger_path}\n"
+            "Snapshot id: {snapshot_id}\n\n"
+            f"Class description:\n{profile.description}\n\n"
+            "Entry questions:\n"
+            f"{entry_questions}\n\n"
+            "Trust-boundary questions:\n"
+            f"{cross_questions}\n\n"
+            "Sink categories:\n"
+            f"{sink_categories}\n\n"
+            "Preferred focus globs:\n"
+            "{focus_globs}\n\n"
+            "Relevant code patterns:\n"
+            "{code_patterns}\n\n"
+            "Rules:\n"
+            "- Perform static review only.\n"
+            "- Prove the source, trust boundary, flow, sink, and practical exploitability.\n"
+            "- If a strong issue does not fit this class, mark it as category=novel instead of forcing it.\n"
+            "- If there is no real issue, print exactly {{}}.\n"
+            "- When you find an issue, append a single-line JSON object to {findings_path} and print the same JSON line to stdout.\n"
+            "- Use keys: agent, category, class_name, type, file, line, description, severity, context, source, trust_boundary, flow_path, sink, exploitability.\n"
+        )
+
+    def _dynamic_prompt(
+        self,
+        *,
+        key: str,
+        surface_type: str,
+        vuln_class: str,
+        description: str,
+        patterns: Sequence[str],
+        upstream_prompt: str,
+    ) -> str:
+        pattern_lines = "\n".join(f"- {item}" for item in patterns) or "- None"
+        upstream_section = upstream_prompt.strip()
+        if upstream_section:
+            upstream_section = f"\n\nExisting brainstorm context:\n{upstream_section}\n"
+        return (
+            f"You are a zero-day dynamic hunter for the '{surface_type}' surface with primary focus "
+            f"on '{vuln_class}'.\n\n"
+            "Program: {program}\n"
+            "Target root: {target_path}\n"
+            "Shared brain index: {shared_brain_index}\n"
+            "Append-only findings file: {findings_path}\n"
+            "Ledger path: {ledger_path}\n"
+            "Snapshot id: {snapshot_id}\n\n"
+            f"Dynamic agent key: {key}\n"
+            f"Surface summary: {description or surface_type}\n"
+            "Focus globs:\n"
+            "{focus_globs}\n\n"
+            "Relevant code patterns:\n"
+            f"{pattern_lines}"
+            f"{upstream_section}\n"
+            "Rules:\n"
+            "- Perform static review only.\n"
+            "- Stay anchored to this detected surface rather than rescanning the whole repository blindly.\n"
+            "- Prioritize concrete source-to-sink reachability that makes the target vulnerability class materially exploitable.\n"
+            "- If there is no real issue, print exactly {{}}.\n"
+            "- When you find an issue, append a single-line JSON object to {findings_path} and print the same JSON line to stdout.\n"
+            "- Use keys: agent, category, class_name, type, file, line, description, severity, context, source, trust_boundary, flow_path, sink, exploitability.\n"
+        )
 
 
 @dataclass

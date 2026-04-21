@@ -23,6 +23,15 @@ _BOUNTY_TOOLS_ROOT = Path.home() / "projects" / "bounty-tools"
 if _BOUNTY_TOOLS_ROOT.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
     sys.path.insert(0, _BOUNTY_TOOLS_ROOT.as_posix())
 
+# MGP / BountyMemory (lazy, best-effort — never blocks the scan)
+_MGP_ROOT = Path.home() / "projects" / "memory-graph-protocol"
+if _MGP_ROOT.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
+    sys.path.insert(0, _MGP_ROOT.as_posix())
+try:
+    from mgp.bounty_integration import BountyMemory
+except ImportError:
+    BountyMemory = None
+
 from agents.base_team import AgentSpec as TeamAgentSpec
 from agents.base_team import BaseTeam
 import agents.zero_day_team as zdt
@@ -32,8 +41,9 @@ from agents.apk_surface_registry import ApkSurfaceRegistry
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.decompiler import decompile_smali_targets
 from agents.dynamic_agent_builder import DynamicAgentBuilder
-from agents.ledger_v2 import VersionedFindingsLedger
+from agents.ledger import VersionedFindingsLedger, create_team_ledger_from_storage
 from agents.snapshot_identity import get_snapshot_identity
+from agents.storage_resolver import resolve_family_lane, resolve_storage, write_context_files
 
 try:
     from subagent_logger import SubagentLogger, compute_pte_lite
@@ -624,13 +634,18 @@ def orchestrate_apk_team(
     global _APK_TEAM_LOGGER
 
     program_slug = _sanitize_program_name(program)
-    team_root = (
-        Path(output_root).expanduser().resolve(strict=False)
-        if output_root is not None
-        else Path.home() / "Shared" / "bounty_recon" / program_slug / "apk_team"
+    family, lane = resolve_family_lane(hunt_type="apk")
+    storage = resolve_storage(
+        program_slug,
+        family=family,
+        lane=lane,
+        root_override=Path(output_root).expanduser().resolve(strict=False) if output_root is not None else None,
+        create=True,
     )
+    write_context_files(storage)
+    team_root = storage.lane_root
     agents_root = team_root / "agents"
-    findings_path = team_root / FINDINGS_FILENAME
+    findings_path = storage.ledgers_root / FINDINGS_FILENAME
     zdt._ensure_directory(team_root)
     zdt._ensure_directory(agents_root)
     zdt._reset_findings_store(findings_path)
@@ -652,13 +667,23 @@ def orchestrate_apk_team(
     registry = ApkSurfaceRegistry.load(prefingerprint["surface_registry_path"])
     extracted_root = registry.extracted_root
     snapshot_identity = get_snapshot_identity(extracted_root, version_label=version_label or str(registry.payload.get("version_name") or ""))
-    ledger = VersionedFindingsLedger(
+    ledger = create_team_ledger_from_storage(
         program_slug,
+        storage=storage,
         target_root=extracted_root,
         version_label=str(snapshot_identity.get("version_label") or registry.payload.get("version_name") or ""),
         snapshot_identity=snapshot_identity,
         agent="apk-team",
     )
+
+    # MGP — shared memory across agents; best-effort
+    mem = None
+    if BountyMemory:
+        try:
+            mem = BountyMemory(agent_id=f"apk_team.{program_slug}", program=program_slug)
+            print(f"[apk_team] 🌐 MGP initialized: apk_team.{program_slug}", flush=True)
+        except Exception:
+            mem = None
 
     dynamic_profiles: list[ApkHuntProfile] = []
     dynamic_version = (
@@ -734,6 +759,23 @@ def orchestrate_apk_team(
     prepared_bundles: dict[str, tuple[dict[str, Any], list[str], dict[str, str]]] = {}
     for profile in profiles:
         prepared_bundles[profile.key] = _prepare_profile_bundle(registry, profile)
+
+    # MGP: skip profiles already tested for this APK version
+    mgp_skipped: list[str] = []
+    mgp_scheduled: list[str] = []
+    if mem is not None:
+        filtered_profiles: list = []
+        for profile in profiles:
+            profile_key = f"profile:{dynamic_version}:{profile.key}"
+            if mem.is_tested(program_slug, profile_key):
+                mgp_skipped.append(profile.key)
+            else:
+                filtered_profiles.append(profile)
+                mgp_scheduled.append(profile.key)
+        profiles = filtered_profiles
+        if mgp_skipped:
+            print(f"[apk_team] 🌐 MGP skipping {len(mgp_skipped)} already-tested profiles: {mgp_skipped}", flush=True)
+
     worker_cap = min(MAX_PARALLEL_AGENTS, max(1, int(max_agents or DEFAULT_MAX_AGENTS)))
     if parallel:
         print(f"[apk_team] Running {len(profiles)} profiles in PARALLEL mode (cap: {worker_cap})")
@@ -758,6 +800,10 @@ def orchestrate_apk_team(
                 try:
                     completed_profile, exit_code = future.result()
                     print(f"[apk_team] {completed_profile.key} finished (exit={exit_code})")
+                    # MGP: record that this profile was tested (regardless of outcome)
+                    if mem is not None:
+                        profile_key = f"profile:{dynamic_version}:{completed_profile.key}"
+                        mem.claim_tested(program_slug, profile_key, result=f"exit={exit_code}")
                 except Exception as exc:
                     print(f"[apk_team] {profile.key} raised: {exc}")
     else:
@@ -775,6 +821,10 @@ def orchestrate_apk_team(
                 prepared_bundle=prepared_bundles[profile.key],
                 registry=registry,
             )
+            # MGP: record that this profile was tested
+            if mem is not None:
+                profile_key = f"profile:{dynamic_version}:{profile.key}"
+                mem.claim_tested(program_slug, profile_key, result="completed")
             print(f"[apk_team] Finished {index}/{len(profiles)}: {profile.key}")
 
     raw_findings = zdt._load_findings(findings_path)
@@ -799,6 +849,20 @@ def orchestrate_apk_team(
             except Exception as exc:
                 print(f"[ledger] FAILED update {fid}: {exc}", flush=True)
         registry.record_progressive_finding(finding, requested_by=str(finding.get("agent") or "apk-team"))
+        # MGP: claim this finding so other agents know it's confirmed
+        if mem is not None:
+            try:
+                severity = str(finding.get("severity") or finding.get("review_tier") or "UNKNOWN").strip()
+                mem.claim_finding(
+                    program=program_slug,
+                    fid=fid,
+                    severity=severity,
+                    description=title,
+                    evidence=[str(findings_path / "findings.jsonl")],
+                    confidence=0.85,
+                )
+            except Exception:
+                pass
         _safe_log_span(
             span_type="finding",
             level="RESULT",
@@ -810,7 +874,13 @@ def orchestrate_apk_team(
             allocated_pte_lite=0,
         )
 
-    confirmed_report_path, dormant_report_path, novel_report_path = zdt._ghost_report_paths(program_slug, "source")
+    apk_family, apk_lane = resolve_family_lane(hunt_type="apk")
+    apk_storage = resolve_storage(program_slug, family=apk_family, lane=apk_lane, create=True)
+    confirmed_report_path = apk_storage.reports_root / "confirmed" / "index.md"
+    dormant_report_path = apk_storage.reports_root / "dormant" / "index.md"
+    novel_report_path = apk_storage.reports_root / "novel" / "index.md"
+    for report_dir in (confirmed_report_path.parent, dormant_report_path.parent, novel_report_path.parent):
+        report_dir.mkdir(parents=True, exist_ok=True)
     rejected_count = max(0, len(raw_findings) - len(reviewed_findings))
     summary = zdt._summarize_findings(reviewed_findings)
     summary["raw_findings"] = len(raw_findings)
@@ -819,6 +889,11 @@ def orchestrate_apk_team(
         "confirmed": len(confirmed_findings),
         "dormant": len(dormant_findings),
         "rejected": rejected_count,
+    }
+    summary["storage"] = {
+        "lane_root": str(storage.lane_root),
+        "reports_root": str(storage.reports_root),
+        "ledgers_root": str(storage.ledgers_root),
     }
     summary["reports"] = {
         "confirmed": str(confirmed_report_path),

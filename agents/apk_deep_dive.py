@@ -28,11 +28,12 @@ from typing import Any, Optional
 # ── path bootstrap ──────────────────────────────────────────────────────────
 _AGENT_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _AGENT_DIR.parent
-for _p in (_PROJECT_ROOT, Path.home() / "projects" / "bounty-tools"):
+for _p in (_PROJECT_ROOT, Path.home() / "projects" / "bounty-tools",
+           Path.home() / "projects" / "memory-graph-protocol"):
     if _p.as_posix() not in (x.as_posix() for x in map(Path, sys.path)):
         sys.path.insert(0, _p.as_posix())
 
-# ── ledger imports (lazy so we don't break if not available) ─────────────────
+# ── ledger + MGP imports (lazy so we don't break if not available) ──────────
 try:
     from agents.ledger_v2 import VersionedFindingsLedger
     from agents.snapshot_identity import get_snapshot_identity
@@ -41,6 +42,18 @@ except ImportError:
     VersionedFindingsLedger = None
     get_snapshot_identity = None
     ApkSurfaceRegistry = None
+
+# MGP / BountyMemory (lazy, best-effort — never blocks the scan)
+MGP_ROOT = Path.home() / "projects" / "memory-graph-protocol"
+if MGP_ROOT.exists():
+    _sys_path_strs = [p.as_posix() for p in map(Path, sys.path)]
+    if MGP_ROOT.as_posix() not in _sys_path_strs:
+        sys.path.insert(0, MGP_ROOT.as_posix())
+
+try:
+    from mgp.bounty_integration import BountyMemory
+except ImportError:
+    BountyMemory = None
 
 # ── logging + PTE ─────────────────────────────────────────────────────────────
 def _now_iso() -> str:
@@ -233,6 +246,7 @@ def _pass2_deep_strike(
     findings_path: Path,
     program: str,
     logger: Any = None,
+    mem: Any = None,
 ) -> list[dict[str, Any]]:
     """Deep-dive on each surface using Codex with full PTE tracking."""
     _safe_log_span(logger, "phase", "START", f"Pass 2: Deep Strike on {len(top_surfaces)} surfaces")
@@ -245,6 +259,15 @@ def _pass2_deep_strike(
         surf_type = surface["type"]
         surf_name = surface["name"]
         file_path = surface.get("file", "")
+
+        # Build a stable surface key for MGP tracking
+        surface_key = f"surface:{surf_type}:{_slugify(surf_name)}"
+
+        # Skip if MGP says this surface was already tested in a previous run
+        if mem is not None and mem.is_tested(program, surface_key):
+            _safe_log_span(logger, "phase", "SKIP",
+                f"Surface already tested (MGP): {surface_key}", surface=surface_key)
+            continue
 
         prompt = f"""You are a senior Android security researcher doing DEEP ANALYSIS on a single app surface.
 
@@ -319,6 +342,14 @@ If no vulns: {{"surface_analysis": {{...}}, "findings": []}}"""
             _safe_log_span(logger, "phase", "STEP", f"[{label}] {len(surf_findings)} findings", surface=surf_name, finding_count=len(surf_findings))
         except json.JSONDecodeError:
             _safe_log_span(logger, "phase", "WARN", f"JSON parse error for {surf_name}", surface=surf_name, raw=stdout[:200])
+
+        # Record in MGP that this surface was tested (regardless of findings count)
+        if mem is not None:
+            try:
+                result_str = f"findings={len(surf_findings)}" if surf_findings else "no_findings"
+                mem.claim_tested(program, surface_key, result=result_str)
+            except Exception:
+                pass
 
     elapsed = int((time.time() - t0) * 1000)
     _safe_log_span(logger, "phase", "RESULT", f"Deep Strike: {len(findings)} raw findings", finding_count=len(findings), latency_ms=elapsed)
@@ -508,6 +539,19 @@ def main() -> None:
         except Exception as exc:
             _log(f"Surface registry init failed: {exc}", "⚠️")
 
+    # Init MGP — shared memory across all agents; best-effort (never blocks scan)
+    mem = None
+    if BountyMemory:
+        try:
+            mem = BountyMemory(
+                agent_id=f"apk_deep_dive.{program}",
+                program=program,
+            )
+            _log(f"🌐 MGP initialized: agent_id=apk_deep_dive.{program}", "🌐")
+        except Exception as exc:
+            _log(f"MGP init failed (will run without shared memory): {exc}", "⚠️")
+            mem = None
+
     _log(f"🎯 Deep Dive: {program} | Source: {extracted_root} | Registry: {registry_path}", "🚀")
 
     # ── Pass 1 ──
@@ -525,7 +569,7 @@ def main() -> None:
 
     # ── Pass 2 ──
     p2_start = time.time()
-    findings = _pass2_deep_strike(top_surfaces, extracted_root, findings_path, program, logger)
+    findings = _pass2_deep_strike(top_surfaces, extracted_root, findings_path, program, logger, mem=mem)
     p2_time = time.time() - p2_start
 
     # Feed findings through the shared ledger (deduplicates with apk_team findings)

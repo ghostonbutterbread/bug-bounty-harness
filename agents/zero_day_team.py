@@ -30,7 +30,7 @@ from agents.base_team import BaseTeam
 from agents.chain_matrix import build_chain_graph, get_chainable_findings  # type: ignore[attr-defined]
 from agents.hybrid_preflight import run_preflight  # type: ignore[attr-defined]
 from agents.dynamic_agent_builder import DynamicAgentBuilder  # type: ignore[attr-defined]
-from agents.ledger_v2 import VersionedFindingsLedger  # type: ignore[attr-defined]
+from agents.ledger import VersionedFindingsLedger, create_team_ledger_from_storage
 from agents.shared_brain import (  # type: ignore[attr-defined]
     build_index,
     get_class_context as get_shared_brain_class_context,
@@ -41,6 +41,7 @@ from agents.shared_brain import (  # type: ignore[attr-defined]
 )
 from agents.coverage_store import CoverageStore
 from agents.snapshot_identity import get_snapshot_identity
+from agents.storage_resolver import resolve_family_lane, resolve_storage, write_context_files
 
 try:
     from subagent_logger import SubagentLogger, compute_pte_lite
@@ -983,27 +984,31 @@ def _display_file_reference(finding: Dict[str, Any]) -> str:
     return file_path
 
 
-def _ghost_reports_dir(program: str, target_type: str = "source") -> Path:
-    date_folder = time.strftime("%d-%m-%Y")
-    reports_subdir = "reports_source" if target_type == "source" else "reports_web"
-    return (
-        Path.home()
-        / "Shared"
-        / "bounty_recon"
-        / _sanitize_program_name(program)
-        / "ghost"
-        / reports_subdir
-        / date_folder
+def _ghost_reports_root(program: str, target_type: str = "source", output_root: Path | None = None) -> Path:
+    family, lane = resolve_family_lane(hunt_type="web")
+    storage = resolve_storage(
+        _sanitize_program_name(program),
+        family=family,
+        lane=lane,
+        root_override=output_root,
+        create=True,
     )
+    write_context_files(storage)
+    return storage.reports_root
 
 
-def _ghost_report_paths(program: str, target_type: str = "source") -> Tuple[Path, Path, Path]:
-    reports_dir = _ghost_reports_dir(program, target_type)
-    reports_dir.mkdir(parents=True, exist_ok=True)
+def _ghost_report_paths(program: str, target_type: str = "source", output_root: Path | None = None) -> Tuple[Path, Path, Path]:
+    reports_root = _ghost_reports_root(program, target_type, output_root=output_root)
+    confirmed_dir = reports_root / "confirmed"
+    dormant_dir = reports_root / "dormant"
+    novel_dir = reports_root / "novel"
+    confirmed_dir.mkdir(parents=True, exist_ok=True)
+    dormant_dir.mkdir(parents=True, exist_ok=True)
+    novel_dir.mkdir(parents=True, exist_ok=True)
     return (
-        reports_dir / "confirmed.md",
-        reports_dir / "dormant.md",
-        reports_dir / "novel_findings.md",
+        confirmed_dir / "index.md",
+        dormant_dir / "index.md",
+        novel_dir / "index.md",
     )
 
 
@@ -1728,8 +1733,8 @@ def stage2_ghost_review(
             else:
                 dormant.append(reviewed)
 
-    reports_dir = _ghost_reports_dir(program, hunt_type)
-    _ensure_directory(reports_dir)
+    reports_root = _ghost_reports_root(program, hunt_type)
+    _ensure_directory(reports_root)
     confirmed_path, dormant_path, novel_path = _ghost_report_paths(program, hunt_type)
     confirmed_path.write_text(_render_confirmed_report(confirmed), encoding="utf-8")
     dormant_path.write_text(_render_dormant_report(dormant), encoding="utf-8")
@@ -1988,6 +1993,7 @@ def orchestrate_zero_day_team(
     hunt_type: str = "source",
     version_label: str | None = None,
     force_refresh_dynamic_agents: bool = False,
+    output_root: str | None = None,
 ) -> Dict[str, Any]:
     """Run one clean static-analysis agent per vulnerability class."""
     global _ZERO_DAY_TEAM_LOGGER
@@ -1996,9 +2002,18 @@ def orchestrate_zero_day_team(
         print("[orchestrator] Ignoring legacy num_agents argument; class-based mode runs one agent per class.")
 
     program_slug = _sanitize_program_name(program)
-    team_root = Path.home() / "Shared" / "bounty_recon" / program_slug / "0day_team"
+    family, lane = resolve_family_lane(hunt_type="web")
+    storage = resolve_storage(
+        program_slug,
+        family=family,
+        lane=lane,
+        root_override=Path(output_root).expanduser().resolve(strict=False) if output_root is not None else None,
+        create=True,
+    )
+    write_context_files(storage)
+    team_root = storage.lane_root
     agents_root = team_root / "agents"
-    findings_path = team_root / FINDINGS_FILENAME
+    findings_path = storage.ledgers_root / FINDINGS_FILENAME
 
     _ensure_directory(team_root)
     _ensure_directory(agents_root)
@@ -2011,8 +2026,9 @@ def orchestrate_zero_day_team(
     _reset_findings_store(findings_path)
     target = _resolve_analysis_target(target_path, team_root=team_root, target_type=target_type)
     snapshot_identity = get_snapshot_identity(target, version_label=version_label)
-    ledger = VersionedFindingsLedger(
+    ledger = create_team_ledger_from_storage(
         program_slug,
+        storage=storage,
         target_root=target,
         version_label=str(snapshot_identity.get("version_label") or ""),
         snapshot_identity=snapshot_identity,
@@ -2127,12 +2143,12 @@ def orchestrate_zero_day_team(
         print("[shared_brain] disabled via --no-shared-brain; continuing without repo index")
     else:
         try:
-            shared_brain_index = load_index(program_slug)
+            shared_brain_index = load_index(program_slug, family=family, lane=lane)
             if shared_brain_index is not None:
                 shared_brain_index = update_index(target, shared_brain_index)
             else:
                 shared_brain_index = build_index(target, program_slug)
-            save_index(shared_brain_index, program_slug)
+            save_index(shared_brain_index, program_slug, family=family, lane=lane)
             print(
                 f"[shared_brain] indexed {len(shared_brain_index.files)} files "
                 f"across {len(shared_brain_index.frameworks)} framework signal(s)"
@@ -2295,7 +2311,7 @@ def orchestrate_zero_day_team(
             print(f"[orchestrator] Finished {index}/{len(active_profiles)}: {profile.key}")
 
     raw_findings = _load_findings(findings_path)
-    confirmed_findings, dormant_findings, novel_findings = stage2_ghost_review(raw_findings, target, program_slug)
+    confirmed_findings, dormant_findings, novel_findings = stage2_ghost_review(raw_findings, target, program_slug, "web")
     reviewed_findings = confirmed_findings + dormant_findings + novel_findings
     # Update ledger with reviewer results
     ledger_updates = 0
@@ -2337,6 +2353,9 @@ def orchestrate_zero_day_team(
         f"novel={len(novel_findings)} "
         f"rejected={rejected_count}"
     )
+    print(f"[orchestrator] Storage lane root: {storage.lane_root}")
+    print(f"[orchestrator] Reports root: {storage.reports_root}")
+    print(f"[orchestrator] Ledgers root: {storage.ledgers_root}")
     print(f"[orchestrator] Confirmed report: {confirmed_report_path}")
     print(f"[orchestrator] Dormant report: {dormant_report_path}")
     print(f"[orchestrator] Novel report: {novel_report_path}")
@@ -2474,6 +2493,10 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
         action="store_true",
         help="Rebuild dynamic agent specs for the current app version even if cached specs exist.",
     )
+    parser.add_argument(
+        "--output-root",
+        help="Optional explicit local canonical root override. Defaults to Shared canonical storage.",
+    )
     return parser.parse_args(list(argv))
 
 
@@ -2502,5 +2525,6 @@ if __name__ == "__main__":
         hunt_type=args.hunt_type,
         version_label=args.version_label,
         force_refresh_dynamic_agents=args.force_refresh_dynamic_agents,
+        output_root=args.output_root,
     )
     print(json.dumps(result, indent=2, sort_keys=True))

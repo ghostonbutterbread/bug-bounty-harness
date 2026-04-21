@@ -15,9 +15,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from agents.coverage_store import CoverageStore
 from agents.ledger_v2 import ledger_add, ledger_check, ledger_get, ledger_list, ledger_path
 from agents.snapshot_identity import get_snapshot_identity
+from agents.storage_resolver import resolve_storage
 
 DEFAULT_AGENT = os.environ.get("ME_AGENT") or "codex"
 
@@ -58,43 +63,38 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
-def _ghost_root(program: str) -> Path:
-    return Path.home() / "Shared" / "bounty_recon" / _normalize_program(program) / "ghost"
+def _ghost_root(program: str, lane: str = "apk", family: str = "binaries") -> Path:
+    layout = resolve_storage(_normalize_program(program), family=family, lane=lane, create=True)
+    return layout.ledgers_root
 
 
-def _ledger_lock_path(program: str) -> Path:
-    return _ghost_root(program) / "ledger.lock"
+def _ledger_lock_path(program: str, lane: str = "apk", family: str = "binaries") -> Path:
+    return _ghost_root(program, lane=lane, family=family) / "ledger.lock"
 
 
-def _coverage_root(program: str) -> Path:
-    return _ghost_root(program) / "surface_registry_source"
+def _coverage_root(program: str, lane: str = "apk", family: str = "binaries") -> Path:
+    return _ghost_root(program, lane=lane, family=family)
 
 
-def _coverage_path(program: str, class_name: str) -> Path:
-    return _coverage_root(program) / f"{_slugify_filename(class_name)}.json"
+def _coverage_path(program: str, lane: str = "apk", family: str = "binaries") -> Path:
+    return _coverage_root(program, lane=lane, family=family) / "coverage.json"
 
 
-def _coverage_lock_path(program: str, class_name: str) -> Path:
-    return _coverage_root(program) / f"{_slugify_filename(class_name)}.lock"
+def _coverage_lock_path(program: str, lane: str = "apk", family: str = "binaries") -> Path:
+    return _coverage_root(program, lane=lane, family=family) / "coverage.lock"
 
 
-def _shared_brain_index_path(program: str) -> Path:
-    return _ghost_root(program) / "shared_brain" / "index.json"
+def _shared_brain_index_path(program: str, lane: str = "apk", family: str = "binaries") -> Path:
+    return _ghost_root(program, lane=lane, family=family) / "shared_brain" / "index.json"
 
 
-def _default_coverage(program: str, class_name: str) -> dict[str, Any]:
-    timestamp = _utc_now()
+def _default_coverage(program: str) -> dict[str, Any]:
     return {
+        "version": 1,
         "program": _normalize_program(program),
-        "vuln_class": _normalize_class_name(class_name),
-        "target_type": "source",
-        "created_at": timestamp,
-        "last_run": timestamp,
-        "runs": 0,
-        "examined": {},
-        "unexplored": [],
-        "findings": [],
-        "notes": "",
+        "created_at": _utc_now(),
+        "updated_at": _utc_now(),
+        "snapshots": {},
     }
 
 
@@ -158,8 +158,8 @@ def next_fid(findings: list[dict[str, Any]], prefix: str = "D") -> str:
     return f"{normalized_prefix}{max_value + 1:02d}"
 
 
-def _load_shared_brain_candidates(program: str) -> dict[str, list[str]]:
-    path = _shared_brain_index_path(program)
+def _load_shared_brain_candidates(program: str, lane: str = "apk", family: str = "binaries") -> dict[str, list[str]]:
+    path = _shared_brain_index_path(program, lane=lane, family=family)
     payload = _read_json(path, {})
     files = payload.get("files", {})
     if not isinstance(files, dict):
@@ -204,24 +204,43 @@ def _load_shared_brain_candidates(program: str) -> dict[str, list[str]]:
     return {class_name: sorted(paths) for class_name, paths in sorted(classes.items())}
 
 
-def _load_coverage_payload(program: str, class_name: str) -> dict[str, Any]:
-    return _read_json(_coverage_path(program, class_name), _default_coverage(program, class_name))
+def _load_coverage_payload(program: str, lane: str = "apk", family: str = "binaries") -> dict[str, Any]:
+    return _read_json(_coverage_path(program, lane=lane, family=family), _default_coverage(program))
 
 
-def _examined_files(payload: dict[str, Any]) -> set[str]:
-    examined = payload.get("examined", {})
-    if not isinstance(examined, dict):
+def _examined_files(payload: dict[str, Any], class_name: str, snapshot_id: str | None = None) -> set[str]:
+    snapshots = payload.get("snapshots", {})
+    if not isinstance(snapshots, dict):
         return set()
-    return {_normalize_relpath(str(relpath)) for relpath in examined if _normalize_relpath(str(relpath))}
+
+    if snapshot_id:
+        snapshot_items = [(snapshot_id, snapshots.get(snapshot_id))]
+    else:
+        snapshot_items = list(snapshots.items())
+
+    examined: set[str] = set()
+    normalized_class = _normalize_class_name(class_name)
+    for _, snapshot_payload in snapshot_items:
+        if not isinstance(snapshot_payload, dict):
+            continue
+        classes = snapshot_payload.get("classes", {})
+        if not isinstance(classes, dict):
+            continue
+        class_bucket = classes.get(normalized_class, {})
+        if not isinstance(class_bucket, dict):
+            continue
+        files = class_bucket.get("files", {})
+        if not isinstance(files, dict):
+            continue
+        for relpath in files:
+            normalized = _normalize_relpath(str(relpath))
+            if normalized:
+                examined.add(normalized)
+    return examined
 
 
-def _refresh_unexplored(payload: dict[str, Any], candidates: list[str]) -> None:
-    examined = _examined_files(payload)
-    payload["unexplored"] = [candidate for candidate in candidates if candidate not in examined]
-
-
-def _resolve_target_root(program: str) -> Path:
-    index_path = _shared_brain_index_path(program)
+def _resolve_target_root(program: str, lane: str = "apk", family: str = "binaries") -> Path:
+    index_path = _shared_brain_index_path(program, lane=lane, family=family)
     payload = _read_json(index_path, {})
     target_root = Path(str(payload.get("target_root") or "")).expanduser()
     if str(target_root).strip():
@@ -243,12 +262,14 @@ def cmd_check(args: argparse.Namespace) -> int:
         args.program,
         _normalize_relpath(args.file),
         _normalize_class_name(args.class_name),
+        lane=args.lane,
+        family=args.family,
     )
     if not exists or not fid:
         print(json.dumps({"exists": False}))
         return 0
 
-    finding = ledger_get(args.program, fid)
+    finding = ledger_get(args.program, fid, lane=args.lane, family=args.family)
     if args.snapshot:
         sightings = []
         if isinstance(finding, dict):
@@ -293,8 +314,10 @@ def cmd_add(args: argparse.Namespace) -> int:
         str(snapshot.get("version_label") or ""),
         _default_run_id(),
         args.agent,
+        lane=args.lane,
+        family=args.family,
     )
-    entry = ledger_get(args.program, str(fid or ""))
+    entry = ledger_get(args.program, str(fid or ""), lane=args.lane, family=args.family)
     print(
         json.dumps(
             {
@@ -313,8 +336,8 @@ def cmd_add(args: argparse.Namespace) -> int:
 def cmd_cover(args: argparse.Namespace) -> int:
     class_name = _normalize_class_name(args.class_name)
     snapshot = _resolve_snapshot(args.program, args.version_label)
-    target_root = _resolve_target_root(args.program)
-    store = CoverageStore(args.program, target_root)
+    target_root = _resolve_target_root(args.program, lane=args.lane, family=args.family)
+    store = CoverageStore(args.program, target_root, lane=args.lane, family=args.family)
     store.mark_examined(
         vuln_class=class_name,
         files=[_normalize_relpath(args.file)],
@@ -324,7 +347,7 @@ def cmd_cover(args: argparse.Namespace) -> int:
         snapshot_id=str(snapshot.get("snapshot_id") or ""),
         version_label=str(snapshot.get("version_label") or ""),
     )
-    candidates = _load_shared_brain_candidates(args.program).get(class_name, [])
+    candidates = _load_shared_brain_candidates(args.program, lane=args.lane, family=args.family).get(class_name, [])
     uncovered = len(store.get_unexplored(class_name, candidates))
 
     print(
@@ -348,13 +371,15 @@ def cmd_list(args: argparse.Namespace) -> int:
         args.program,
         snapshot_id=args.snapshot,
         version_label=args.version_label,
+        lane=args.lane,
+        family=args.family,
     )
 
     print(
         json.dumps(
             {
                 "program": _normalize_program(args.program),
-                "ledger_path": str(ledger_path(args.program)),
+                "ledger_path": str(ledger_path(args.program, lane=args.lane, family=args.family)),
                 "findings": findings,
             },
             indent=2,
@@ -364,7 +389,7 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_unexplored(args: argparse.Namespace) -> int:
-    all_candidates = _load_shared_brain_candidates(args.program)
+    all_candidates = _load_shared_brain_candidates(args.program, lane=args.lane, family=args.family)
     if args.class_name:
         requested = _normalize_class_name(args.class_name)
         class_names = [requested]
@@ -374,23 +399,24 @@ def cmd_unexplored(args: argparse.Namespace) -> int:
     classes: dict[str, dict[str, Any]] = {}
     for class_name in class_names:
         candidates = all_candidates.get(class_name, [])
-        coverage = _load_coverage_payload(args.program, class_name)
-        examined = sorted(_examined_files(coverage))
+        coverage = _load_coverage_payload(args.program, lane=args.lane, family=args.family)
+        snapshot = _resolve_snapshot(args.program, args.version_label)
+        examined = sorted(_examined_files(coverage, class_name, snapshot_id=str(snapshot.get("snapshot_id") or "")))
         unexplored = [candidate for candidate in candidates if candidate not in set(examined)]
         classes[class_name] = {
             "candidate_count": len(candidates),
             "examined_count": len(examined),
             "unexplored_count": len(unexplored),
             "unexplored": unexplored,
-            "coverage_path": str(_coverage_path(args.program, class_name)),
+            "coverage_path": str(_coverage_path(args.program, lane=args.lane, family=args.family)),
         }
 
     response: dict[str, Any] = {
         "program": _normalize_program(args.program),
-        "shared_brain_path": str(_shared_brain_index_path(args.program)),
+        "shared_brain_path": str(_shared_brain_index_path(args.program, lane=args.lane, family=args.family)),
         "classes": classes,
     }
-    if not _shared_brain_index_path(args.program).exists():
+    if not _shared_brain_index_path(args.program, lane=args.lane, family=args.family).exists():
         response["warning"] = "shared_brain index not found; no candidate surfaces available"
 
     print(json.dumps(response, indent=2))
@@ -399,6 +425,8 @@ def cmd_unexplored(args: argparse.Namespace) -> int:
 
 def _add_common_arguments(parser: argparse.ArgumentParser, *, include_file: bool = True, include_class: bool = True) -> None:
     parser.add_argument("--program", required=True)
+    parser.add_argument("--family", default="binaries", help="Storage family, e.g. binaries or web_bounty.")
+    parser.add_argument("--lane", default="apk", help="Storage lane, e.g. apk, exe, mac, web, api.")
     if include_file:
         parser.add_argument("--file", required=True)
     if include_class:

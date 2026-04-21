@@ -14,6 +14,7 @@ import subprocess
 from typing import Any, Iterable
 
 from agents.sink_detector import SinkDetector
+from agents.storage_resolver import resolve_storage
 
 
 LOGGER = logging.getLogger(__name__)
@@ -458,9 +459,9 @@ def update_index(target_path: str | Path, existing: RepoIndex) -> RepoIndex:
     return updated
 
 
-def load_index(program: str) -> RepoIndex | None:
+def load_index(program: str, *, family: str = "web_bounty", lane: str = "web") -> RepoIndex | None:
     """Load an existing index from disk if present and valid."""
-    path = _index_path(program)
+    path = _index_path(program, family=family, lane=lane)
     if not path.exists():
         return None
     try:
@@ -482,9 +483,9 @@ def load_index(program: str) -> RepoIndex | None:
     return index
 
 
-def save_index(index: RepoIndex, program: str) -> None:
+def save_index(index: RepoIndex, program: str, *, family: str = "web_bounty", lane: str = "web") -> None:
     """Persist an index under the program's shared brain directory."""
-    path = _index_path(program)
+    path = _index_path(program, family=family, lane=lane)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(index.to_dict(), indent=2, sort_keys=True)
     path.write_text(payload + "\n", encoding="utf-8")
@@ -621,16 +622,9 @@ def _target_id_for(target_root: Path) -> str:
     return hashlib.sha1(str(target_root).encode("utf-8")).hexdigest()
 
 
-def _index_path(program: str) -> Path:
-    return (
-        Path.home()
-        / "Shared"
-        / "bounty_recon"
-        / str(program).strip()
-        / "ghost"
-        / "shared_brain"
-        / INDEX_FILENAME
-    )
+def _index_path(program: str, family: str = "web_bounty", lane: str = "web") -> Path:
+    layout = resolve_storage(str(program).strip(), family=family, lane=lane, create=True)
+    return layout.ledgers_root / "shared_brain" / INDEX_FILENAME
 
 
 def _git_head_for(target_root: Path) -> str | None:

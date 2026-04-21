@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from agents.shared_brain import load_index
+from agents.storage_resolver import resolve_storage
 
 
 LOGGER = logging.getLogger(__name__)
@@ -36,16 +37,9 @@ def _sanitize_program_name(program: str) -> str:
     return cleaned or "default_program"
 
 
-def _shared_brain_index_path(program: str) -> Path:
-    return (
-        Path.home()
-        / "Shared"
-        / "bounty_recon"
-        / program
-        / "ghost"
-        / "shared_brain"
-        / "index.json"
-    )
+def _shared_brain_index_path(program: str, lane: str = "apk", family: str = "binaries") -> Path:
+    layout = resolve_storage(program, family=family, lane=lane, create=False)
+    return layout.ledgers_root / "shared_brain" / "index.json"
 
 
 def _normalize_relpath(value: str) -> str:
@@ -97,15 +91,18 @@ class FileLock:
 class CoverageStore:
     """Persistent per-snapshot file coverage for vulnerability-class passes."""
 
-    def __init__(self, program_slug: str, target_dir: Path):
+    def __init__(self, program_slug: str, target_dir: Path, lane: str = "apk", family: str = "binaries"):
         self.program = _sanitize_program_name(program_slug)
         self.target_dir = Path(target_dir).expanduser().resolve(strict=False)
-        self.coverage_dir = self.target_dir.parent / "ghost"
+        self.lane = str(lane or "apk").strip() or "apk"
+        self.family = str(family or "binaries").strip() or "binaries"
+        self.storage = resolve_storage(self.program, family=self.family, lane=self.lane, create=True)
+        self.coverage_dir = self.storage.ledgers_root
         self.path = self.coverage_dir / COVERAGE_FILENAME
         self.lock_path = Path(f"{self.path}.lock")
         self.backup_path = Path(f"{self.path}.bak")
 
-        self.shared_brain = load_index(self.program)
+        self.shared_brain = load_index(self.program, family=self.family, lane=self.lane)
         if self.shared_brain is None:
             shared_brain_path = _shared_brain_index_path(self.program)
             raise ValueError(

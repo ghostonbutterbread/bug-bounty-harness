@@ -24,7 +24,6 @@ from agents.manual_hunter import (
     _append_report_section,
     _default_run_id,
     _derive_title,
-    _ghost_report_paths,
     _infer_class,
     _infer_review_tier,
     _normalize_text,
@@ -315,14 +314,15 @@ def _candidates_for_file(
     return candidates
 
 
-def _append_ghost_report(program: str, hunt_type: str, finding: dict[str, Any]) -> Path:
-    confirmed_path, dormant_path, novel_path = _ghost_report_paths(program, hunt_type)
+def _append_canonical_report(hunter: ManualHunter, finding: dict[str, Any]) -> Path:
     bucket = _report_bucket(finding)
-    target_path = {
-        "confirmed": confirmed_path,
-        "dormant": dormant_path,
-        "novel": novel_path,
+    target_dir = {
+        "confirmed": hunter.storage.reports_root / "confirmed",
+        "dormant": hunter.storage.reports_root / "dormant",
+        "novel": hunter.storage.reports_root / "novel",
     }[bucket]
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / "index.md"
     _append_report_section(target_path, bucket, finding)
     return target_path
 
@@ -338,7 +338,7 @@ def _mark_coverage(hunter: ManualHunter, finding: dict[str, Any], parsed: Parsed
     if relpath is None:
         return None
 
-    store = CoverageStore(hunter.program, hunter.source_root)
+    store = CoverageStore(hunter.program, hunter.source_root, lane=hunter.lane, family=hunter.family)
     store.mark_examined(
         vuln_class=vuln_class,
         files=[relpath],
@@ -503,7 +503,7 @@ def main(argv: list[str] | None = None) -> int:
     program = args.program
     source_dir, source_mode = _find_reports_dir(program, args.source_dir)
     source_root = _program_root(program, source_dir)
-    hunt_type = "source"
+    hunt_type = "web" if source_mode == "web" else "source"
     hunter = ManualHunter(program, hunt_type=hunt_type, source_root=source_root)
 
     if source_dir is None:
@@ -569,7 +569,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
 
             finding = hunter.ledger.update(finding)
-            report_output = _append_ghost_report(hunter.program, hunter.hunt_type, finding)
+            report_output = _append_canonical_report(hunter, finding)
             coverage_relpath = None
             try:
                 coverage_relpath = _mark_coverage(hunter, finding, parsed)

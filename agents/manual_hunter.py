@@ -23,7 +23,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.coverage_store import CoverageStore
-from agents.ledger_v2 import VersionedFindingsLedger
+from agents.ledger import VersionedFindingsLedger, create_team_ledger, create_team_ledger_from_storage
 from agents.report_checker import (
     _load_ledger_findings,
     _load_markdown_findings,
@@ -31,6 +31,7 @@ from agents.report_checker import (
 )
 from agents.shared_brain import load_index
 from agents.snapshot_identity import get_snapshot_identity
+from agents.storage_resolver import resolve_family_lane, resolve_storage, write_context_files
 
 
 SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "UNKNOWN"}
@@ -218,12 +219,14 @@ def _build_hunt_context(
     )
     reports_dir = (target_root / "reports").resolve(strict=False)
     snapshot_identity = get_snapshot_identity(target_root, version_label=version_label)
-    ledger = VersionedFindingsLedger(
+    ledger = create_team_ledger(
         program_slug,
         target_root=target_root,
         version_label=str(snapshot_identity.get("version_label") or ""),
         snapshot_identity=snapshot_identity,
         agent="manual-hunter",
+        lane="apk",
+        family="binaries",
     )
     findings = ledger.list_all()
 
@@ -231,7 +234,7 @@ def _build_hunt_context(
     unexplored_rows: list[dict[str, Any]] = []
     coverage_note = ""
     try:
-        coverage = CoverageStore(program_slug, target_root)
+        coverage = CoverageStore(program_slug, target_root, lane="apk", family="binaries")
         examined = coverage.get_all_examined()
         candidates = coverage.get_candidates()
         unexplored = {
@@ -635,23 +638,14 @@ def _render_novel_section(finding: dict[str, Any]) -> str:
 
 
 def _ghost_report_paths(program: str, hunt_type: str) -> tuple[Path, Path, Path]:
-    date_folder = time.strftime("%d-%m-%Y")
-    reports_subdir = "reports_source" if hunt_type == "source" else "reports_web"
-    reports_dir = (
-        Path.home()
-        / "Shared"
-        / "bounty_recon"
-        / _sanitize_program_name(program)
-        / "ghost"
-        / reports_subdir
-        / date_folder
-    )
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    return (
-        reports_dir / "confirmed.md",
-        reports_dir / "dormant.md",
-        reports_dir / "novel_findings.md",
-    )
+    family, lane = resolve_family_lane(hunt_type=hunt_type)
+    storage = resolve_storage(_sanitize_program_name(program), family=family, lane=lane, create=True)
+    confirmed = storage.reports_root / "confirmed" / "index.md"
+    dormant = storage.reports_root / "dormant" / "index.md"
+    novel = storage.reports_root / "novel" / "index.md"
+    for path in (confirmed, dormant, novel):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    return (confirmed, dormant, novel)
 
 
 def _append_report_section(path: Path, bucket: str, finding: dict[str, Any]) -> None:
@@ -681,15 +675,9 @@ class ParsedFinding:
 
 
 class ManualStateStore:
-    def __init__(self, program: str) -> None:
-        self.path = (
-            Path.home()
-            / "Shared"
-            / "bounty_recon"
-            / _sanitize_program_name(program)
-            / "ghost"
-            / "manual_hunter_state.json"
-        )
+    def __init__(self, program: str, *, family: str, lane: str) -> None:
+        storage = resolve_storage(_sanitize_program_name(program), family=family, lane=lane, create=True)
+        self.path = storage.context_root / "manual_hunter_state.json"
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def load(self) -> dict[str, Any]:
@@ -709,16 +697,9 @@ class ManualStateStore:
 
 
 class DuplicateCommentStore:
-    def __init__(self, program: str) -> None:
-        self.path = (
-            Path.home()
-            / "Shared"
-            / "bounty_recon"
-            / _sanitize_program_name(program)
-            / "ghost"
-            / "ledger"
-            / "manual_comments.jsonl"
-        )
+    def __init__(self, program: str, *, family: str, lane: str) -> None:
+        storage = resolve_storage(_sanitize_program_name(program), family=family, lane=lane, create=True)
+        self.path = storage.ledgers_root / "manual_comments.jsonl"
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def append(
@@ -753,25 +734,47 @@ class ManualHunter:
         hunt_type: str = "source",
         source_root: str | Path | None = None,
         version_label: str | None = None,
+        lane: str | None = None,
+        storage_root: str | Path | None = None,
+        migrate: bool = False,
     ) -> None:
         self.program = _sanitize_program_name(program)
         self.hunt_type = hunt_type
         self.version_label = _normalize_text(version_label)
-        self.shared_brain = load_index(self.program)
+        self.storage_root = Path(storage_root).expanduser().resolve(strict=False) if storage_root else None
+        resolved_family, resolved_lane = resolve_family_lane(lane=_normalize_text(lane) or None, hunt_type=self.hunt_type)
+        self.lane = resolved_lane
+        self.family = resolved_family
+        self.shared_brain = load_index(self.program, family=self.family, lane=self.lane)
         self.source_root = self._resolve_source_root(source_root)
+        self.migrate = bool(migrate)
         target_root = self.source_root or Path.cwd()
         self.snapshot_identity = get_snapshot_identity(target_root, version_label=self.version_label or None)
         self.snapshot_id = _normalize_text(self.snapshot_identity.get("snapshot_id"))
         self.version_label = _normalize_text(self.snapshot_identity.get("version_label"))
-        self.ledger = VersionedFindingsLedger(
+        self.storage = resolve_storage(
             self.program,
+            family=self.family,
+            lane=self.lane,
+            root_override=self.storage_root,
+            create=True,
+        )
+        write_context_files(self.storage)
+        if self.migrate:
+            print(
+                f"[/me] Migration mode requested for {self.program} ({self.family}/{self.lane}). "
+                "Full migration helper is not implemented yet; current behavior only prepares canonical roots/context."
+            )
+        self.ledger = create_team_ledger_from_storage(
+            self.program,
+            storage=self.storage,
             target_root=target_root,
             version_label=self.version_label or None,
             snapshot_identity=self.snapshot_identity,
             agent="manual-hunter",
         )
-        self.comment_store = DuplicateCommentStore(self.program)
-        self.state_store = ManualStateStore(self.program)
+        self.comment_store = DuplicateCommentStore(self.program, family=self.family, lane=self.lane)
+        self.state_store = ManualStateStore(self.program, family=self.family, lane=self.lane)
 
     def _resolve_source_root(self, override: str | Path | None) -> Path | None:
         if override is not None:
@@ -780,9 +783,15 @@ class ManualHunter:
             return Path(self.shared_brain.target_root).expanduser().resolve(strict=False)
         return None
 
+    def _default_family(self) -> str:
+        return resolve_family_lane(hunt_type=self.hunt_type)[0]
+
+    def _default_lane(self) -> str:
+        return resolve_family_lane(hunt_type=self.hunt_type)[1]
+
     @property
     def drop_dir(self) -> Path:
-        path = Path.home() / "Shared" / "bounty_recon" / self.program / "manual"
+        path = self.storage.working_root / "manual_drop"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -941,7 +950,11 @@ class ManualHunter:
         return 0
 
     def _append_report(self, finding: dict[str, Any]) -> None:
-        confirmed_path, dormant_path, novel_path = _ghost_report_paths(self.program, self.hunt_type)
+        confirmed_path = self.storage.reports_root / "confirmed" / "index.md"
+        dormant_path = self.storage.reports_root / "dormant" / "index.md"
+        novel_path = self.storage.reports_root / "novel" / "index.md"
+        for path in (confirmed_path, dormant_path, novel_path):
+            path.parent.mkdir(parents=True, exist_ok=True)
         bucket = _report_bucket(finding)
         target_path = {
             "confirmed": confirmed_path,
@@ -990,7 +1003,7 @@ class ManualHunter:
             return
 
         try:
-            store = CoverageStore(self.program, self.source_root)
+            store = CoverageStore(self.program, self.source_root, lane=self.lane, family=self.family)
             store.mark_examined(
                 vuln_class=vuln_class,
                 files=[relpath],
@@ -1008,8 +1021,8 @@ class ManualHunter:
 
     def _print_chain_suggestions(self, new_finding: dict[str, Any]) -> None:
         existing = _merge_findings(
-            _load_markdown_findings(self.program, self.hunt_type),
-            _load_ledger_findings(self.program),
+            _load_markdown_findings(self.program, self.hunt_type, family=self.family, lane=self.lane),
+            _load_ledger_findings(self.program, self.hunt_type, family=self.family, lane=self.lane),
         )
         merged = [record.to_finding_dict() for record in existing]
         merged = [item for item in merged if item.get("fid") != new_finding.get("fid")] + [dict(new_finding)]
@@ -1096,17 +1109,28 @@ class ManualHunter:
 
     def hunt(self, *, timeout: int = 1800, fresh: bool = False) -> int:
         target_root = self.source_root or _default_source_root(self.program)
-        reports_dir = (target_root / "reports").resolve(strict=False)
+        reports_dir = (self.storage.reports_root / "raw").resolve(strict=False)
         reports_dir.mkdir(parents=True, exist_ok=True)
         self.snapshot_identity = get_snapshot_identity(target_root, version_label=self.version_label or None)
         self.snapshot_id = _normalize_text(self.snapshot_identity.get("snapshot_id"))
         self.version_label = _normalize_text(self.snapshot_identity.get("version_label"))
+        write_context_files(self.storage)
 
         context = _build_hunt_context(
             self.program,
             source_root=target_root,
             fresh=fresh,
             version_label=self.version_label or None,
+        )
+        context += (
+            "\n## Canonical Storage Contract\n"
+            f"- Family: {self.storage.family}\n"
+            f"- Lane: {self.storage.lane}\n"
+            f"- Canonical root: {self.storage.lane_root}\n"
+            f"- Write raw reports to: {self.storage.reports_root / 'raw'}\n"
+            f"- Use context files: {self.storage.context_root}\n"
+            f"- Use notes root: {self.storage.notes_root}\n"
+            "- Do not use cwd as canonical report storage unless explicit local mode was requested.\n"
         )
         if fresh:
             print(f"[/me] Fresh mode enabled for {self.program}; skipping ledger and coverage context...")
@@ -1172,6 +1196,9 @@ def build_parser() -> argparse.ArgumentParser:
         "and coverage is still coordinated through the shared ledger.",
     )
     parser.add_argument("--hunt-type", choices=("source", "web"), default="source", help="Report bucket root to update.")
+    parser.add_argument("--lane", help="Canonical storage lane override (e.g. web, api, apk, exe, mac).")
+    parser.add_argument("--root", dest="storage_root", help="Explicit local canonical root override. Defaults to Shared family roots.")
+    parser.add_argument("--migrate", action="store_true", help="Explicitly trigger migration-aware mode for legacy layouts.")
     parser.add_argument("--source-root", help="Override the source root used for file resolution and coverage.")
     parser.add_argument("--version", dest="version_label", help="Override the snapshot version label.")
     parser.add_argument("--poll-interval", type=float, default=2.0, help="Watch mode polling interval in seconds.")
@@ -1190,6 +1217,9 @@ def main(argv: list[str] | None = None) -> int:
         hunt_type=args.hunt_type,
         source_root=args.source_root,
         version_label=args.version_label,
+        lane=args.lane,
+        storage_root=args.storage_root,
+        migrate=args.migrate,
     )
 
     if args.watch:

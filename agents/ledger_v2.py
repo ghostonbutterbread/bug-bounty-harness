@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from agents.snapshot_identity import get_snapshot_identity
+from agents.storage_resolver import resolve_storage
 
 
 LEDGER_VERSION = 2
@@ -57,16 +58,22 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
-def _ghost_root(program: str) -> Path:
-    return Path.home() / "Shared" / "bounty_recon" / _normalize_program(program) / "ghost"
+def _ghost_root(program: str, lane: str = "apk", family: str | None = None) -> Path:
+    layout = resolve_storage(
+        _normalize_program(program),
+        family=family,
+        lane=lane,
+        create=False,
+    )
+    return layout.ledgers_root
 
 
-def ledger_path(program: str) -> Path:
-    return _ghost_root(program) / "ledger.json"
+def ledger_path(program: str, lane: str = "apk", family: str | None = None) -> Path:
+    return _ghost_root(program, lane=lane, family=family) / "ledger.json"
 
 
-def _lock_path(program: str) -> Path:
-    return _ghost_root(program) / "ledger.lock"
+def _lock_path(program: str, lane: str = "apk", family: str | None = None) -> Path:
+    return _ghost_root(program, lane=lane, family=family) / "ledger.lock"
 
 
 def _default_payload(program: str) -> dict[str, Any]:
@@ -95,10 +102,16 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
 
 
 @contextmanager
-def _locked_payload(program: str, *, exclusive: bool) -> Iterator[dict[str, Any]]:
+def _locked_payload(
+    program: str,
+    *,
+    exclusive: bool,
+    lane: str = "apk",
+    family: str | None = None,
+) -> Iterator[dict[str, Any]]:
     program_slug = _normalize_program(program)
-    path = ledger_path(program_slug)
-    lock = _lock_path(program_slug)
+    path = ledger_path(program_slug, lane=lane, family=family)
+    lock = _lock_path(program_slug, lane=lane, family=family)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     lock.parent.mkdir(parents=True, exist_ok=True)
@@ -430,8 +443,11 @@ def _reserve_candidate(
     version_label: str,
     run_id: str,
     agent: str,
+    *,
+    lane: str = "apk",
+    family: str | None = None,
 ) -> tuple[bool, str]:
-    with _locked_payload(program, exclusive=True) as payload:
+    with _locked_payload(program, exclusive=True, lane=lane, family=family) as payload:
         findings = payload.setdefault("findings", [])
         if not isinstance(findings, list):
             findings = []
@@ -470,9 +486,12 @@ def ledger_add(
     version_label: str,
     run_id: str,
     agent: str,
+    *,
+    lane: str = "apk",
+    family: str | None = None,
 ) -> tuple[bool, str | None]:
     """Add or update a finding. Returns (is_new_fid, fid). Dedup is global across snapshots."""
-    with _locked_payload(program, exclusive=True) as payload:
+    with _locked_payload(program, exclusive=True, lane=lane, family=family) as payload:
         findings = payload.setdefault("findings", [])
         if not isinstance(findings, list):
             findings = []
@@ -511,9 +530,12 @@ def ledger_check(
     file: str,
     class_name: str,
     snapshot_id: str | None = None,
+    *,
+    lane: str = "apk",
+    family: str | None = None,
 ) -> tuple[bool, str | None]:
     """Check if finding exists. Returns (exists, fid)."""
-    with _locked_payload(program, exclusive=False) as payload:
+    with _locked_payload(program, exclusive=False, lane=lane, family=family) as payload:
         findings = payload.get("findings", [])
         if not isinstance(findings, list):
             return False, None
@@ -557,9 +579,12 @@ def ledger_list(
     program: str,
     snapshot_id: str | None = None,
     version_label: str | None = None,
+    *,
+    lane: str = "apk",
+    family: str | None = None,
 ) -> list[dict[str, Any]]:
     """List findings. If snapshot_id given, prioritize that snapshot's sightings."""
-    with _locked_payload(program, exclusive=False) as payload:
+    with _locked_payload(program, exclusive=False, lane=lane, family=family) as payload:
         findings = payload.get("findings", [])
         if not isinstance(findings, list):
             return []
@@ -581,13 +606,19 @@ def ledger_list(
     return sorted(result, key=_key, reverse=False)
 
 
-def ledger_get(program: str, fid: str) -> dict[str, Any] | None:
+def ledger_get(
+    program: str,
+    fid: str,
+    *,
+    lane: str = "apk",
+    family: str | None = None,
+) -> dict[str, Any] | None:
     """Get a specific finding by FID."""
     target = str(fid or "").strip()
     if not target:
         return None
 
-    with _locked_payload(program, exclusive=False) as payload:
+    with _locked_payload(program, exclusive=False, lane=lane, family=family) as payload:
         findings = payload.get("findings", [])
         if not isinstance(findings, list):
             return None
@@ -598,9 +629,15 @@ def ledger_get(program: str, fid: str) -> dict[str, Any] | None:
     return None
 
 
-def ledger_sightings(program: str, fid: str) -> list[dict]:
+def ledger_sightings(
+    program: str,
+    fid: str,
+    *,
+    lane: str = "apk",
+    family: str | None = None,
+) -> list[dict]:
     """Get all sightings for a finding."""
-    finding = ledger_get(program, fid)
+    finding = ledger_get(program, fid, lane=lane, family=family)
     if finding is None:
         return []
     sightings = finding.get("sightings", [])
@@ -619,6 +656,8 @@ class VersionedFindingsLedger:
         snapshot_identity: dict[str, Any] | None = None,
         run_id: str | None = None,
         agent: str = "codex",
+        lane: str = "apk",
+        family: str | None = None,
     ) -> None:
         self.program = _normalize_program(program)
         self.target_root = Path(target_root).expanduser().resolve(strict=False)
@@ -630,16 +669,20 @@ class VersionedFindingsLedger:
         self.version_label = str(self.snapshot_identity.get("version_label") or "").strip()
         self.run_id = str(run_id or "").strip() or _default_run_id()
         self.agent = str(agent or "").strip() or "codex"
-        self.path = ledger_path(self.program)
+        self.lane = str(lane or "apk").strip() or "apk"
+        self.family = str(family or "").strip() or None
+        self.path = ledger_path(self.program, lane=self.lane, family=self.family)
 
     def check(self, finding_dict: dict[str, Any]) -> tuple[bool, str | None, dict[str, Any]]:
         exists, fid = ledger_check(
             self.program,
             _normalize_relpath(finding_dict.get("file")),
             _normalize_class_name(finding_dict.get("class_name") or finding_dict.get("vuln_class")),
+            lane=self.lane,
+            family=self.family,
         )
         if exists and fid:
-            current = ledger_get(self.program, fid) or {}
+            current = ledger_get(self.program, fid, lane=self.lane, family=self.family) or {}
             merged = dict(finding_dict)
             merged.update({"fid": fid, **current})
             return True, fid, merged
@@ -651,6 +694,8 @@ class VersionedFindingsLedger:
             self.version_label,
             str(finding_dict.get("run_id") or self.run_id),
             str(finding_dict.get("agent") or self.agent),
+            lane=self.lane,
+            family=self.family,
         )
         merged = dict(finding_dict)
         if fid:
@@ -668,8 +713,10 @@ class VersionedFindingsLedger:
             self.version_label,
             str(finding_with_fid.get("run_id") or self.run_id),
             str(finding_with_fid.get("agent") or self.agent),
+            lane=self.lane,
+            family=self.family,
         )
-        entry = ledger_get(self.program, str(fid or finding_with_fid.get("fid") or ""))
+        entry = ledger_get(self.program, str(fid or finding_with_fid.get("fid") or ""), lane=self.lane, family=self.family)
         merged = dict(finding_with_fid)
         if entry:
             merged.update(entry)
@@ -680,6 +727,8 @@ class VersionedFindingsLedger:
             self.program,
             snapshot_id=self.snapshot_id,
             version_label=self.version_label,
+            lane=self.lane,
+            family=self.family,
         )
 
     def get_class_context(self, vuln_class: str) -> str:

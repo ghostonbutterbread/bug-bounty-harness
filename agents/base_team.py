@@ -25,6 +25,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from agents.snapshot_identity import get_snapshot_identity
+from agents.storage_resolver import resolve_family_lane, resolve_storage, write_context_files
 
 
 LOGGER = logging.getLogger(__name__)
@@ -127,12 +128,16 @@ class AgentSpec:
 class BaseTeam(abc.ABC):
     """Common orchestration framework for team-based hunting pipelines."""
 
+    @staticmethod
+    def _storage_family_lane(team_type: str) -> tuple[str, str]:
+        return resolve_family_lane(hunt_type=team_type)
+
     def __init__(
         self,
         program: str,
         team_type: str,
         target_path: Path,
-        output_root: Path = Path("~/Shared/bounty_recon").expanduser(),
+        output_root: Path | None = None,
         max_agents: int = 10,
     ) -> None:
         normalized_program = re.sub(r"[^A-Za-z0-9._-]+", "_", str(program or "").strip())
@@ -148,18 +153,33 @@ class BaseTeam(abc.ABC):
         self.program = normalized_program
         self.team_type = team_type
         self.target_path = resolved_target
-        self.output_root = Path(output_root).expanduser().resolve(strict=False)
         self.max_agents = max(1, int(max_agents))
         self.workdir = Path(__file__).resolve().parent.parent
 
-        self.team_dir = self.output_root / self.program / self.team_type
+        self.family, self.lane = self._storage_family_lane(team_type)
+        override_root = None
+        if output_root is not None:
+            output_root_text = str(output_root).strip()
+            if output_root_text:
+                override_root = Path(output_root_text).expanduser().resolve(strict=False)
+        self.storage = resolve_storage(
+            self.program,
+            family=self.family,
+            lane=self.lane,
+            root_override=override_root,
+            create=True,
+        )
+        write_context_files(self.storage)
+        self.output_root = self.storage.program_root
+
+        self.team_dir = self.storage.lane_root
         self.agents_dir = self.team_dir / "agents"
-        self.findings_path = self.team_dir / FINDINGS_FILENAME
-        self.ledger_path = self.team_dir / "ledger.json"
-        self.ledger_lock_path = self.team_dir / "ledger.lock"
-        self.shared_brain_dir = self.team_dir / "shared_brain"
-        self.agent_registry_dir = self.team_dir / "agent_registry"
-        self.traces_dir = self.team_dir / "traces"
+        self.findings_path = self.storage.ledgers_root / FINDINGS_FILENAME
+        self.ledger_path = self.storage.ledgers_root / "ledger.json"
+        self.ledger_lock_path = self.storage.ledgers_root / "ledger.lock"
+        self.shared_brain_dir = self.storage.ledgers_root / "shared_brain"
+        self.agent_registry_dir = self.storage.working_root / "agent_registry"
+        self.traces_dir = self.storage.ledgers_root / "traces"
 
         self.agent_timeout = DEFAULT_AGENT_TIMEOUT_SECONDS
         self.review_timeout = DEFAULT_REVIEW_TIMEOUT_SECONDS
@@ -439,7 +459,7 @@ class BaseTeam(abc.ABC):
         """Load the shared brain index from team-local or legacy ghost storage."""
         candidates = [
             self.shared_brain_dir / "index.json",
-            self.output_root / self.program / "ghost" / "shared_brain" / "index.json",
+            self.storage.ledgers_root / "shared_brain" / "index.json",
         ]
         default = {
             "version": 1,
@@ -775,6 +795,23 @@ class BaseTeam(abc.ABC):
             "surface": spec.surface,
             "vuln_class": spec.vuln_class,
             "agent_key": spec.key,
+            "family": self.storage.family,
+            "lane": self.storage.lane,
+            "canonical_root": str(self.storage.lane_root),
+            "reports_root": str(self.storage.reports_root),
+            "reports_raw_root": str(self.storage.reports_root / "raw"),
+            "reports_confirmed_root": str(self.storage.reports_root / "confirmed"),
+            "reports_dormant_root": str(self.storage.reports_root / "dormant"),
+            "reports_novel_root": str(self.storage.reports_root / "novel"),
+            "reports_complete_root": str(self.storage.reports_root / "complete"),
+            "reports_archive_root": str(self.storage.reports_root / "archive"),
+            "context_root": str(self.storage.context_root),
+            "target_profile_path": str(self.storage.context_root / "target_profile.json"),
+            "me_context_path": str(self.storage.context_root / "me_context.md"),
+            "session_handoff_path": str(self.storage.context_root / "session_handoff.md"),
+            "notes_root": str(self.storage.notes_root),
+            "working_root": str(self.storage.working_root),
+            "shared_root": str(self.storage.shared_root),
         }
         return spec.prompt_template.format(**context).rstrip() + "\n"
 
@@ -1258,8 +1295,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--team-type", required=True, choices=TEAM_TYPES, help="Team family to run.")
     parser.add_argument(
         "--output-root",
-        default=str(Path("~/Shared/bounty_recon").expanduser()),
-        help="Output root. Default: ~/Shared/bounty_recon",
+        default=None,
+        help="Optional explicit local canonical root override. Defaults to Shared family roots via storage_resolver.",
     )
     parser.add_argument("--parallel", action=argparse.BooleanOptionalAction, default=True, help="Run agents in parallel.")
     parser.add_argument(

@@ -161,14 +161,22 @@ def generate_reports_for_program(
     return generated_reports, index_path
 
 
-def default_findings_path(program: str) -> Path:
+def default_findings_path(program: str, *, family: str | None = None, lane: str | None = None, hunt_type: str = "web") -> Path:
     """Return the expected findings.jsonl path for a program."""
-    return Path.home() / "Shared" / "bounty_recon" / program / "0day_team" / "findings.jsonl"
+    from agents.storage_resolver import resolve_family_lane, resolve_storage
+
+    resolved_family, resolved_lane = resolve_family_lane(family=family, lane=lane, hunt_type=hunt_type)
+    storage = resolve_storage(program, family=resolved_family, lane=resolved_lane, create=True)
+    return storage.ledgers_root / "findings.jsonl"
 
 
-def default_reports_dir(program: str) -> Path:
+def default_reports_dir(program: str, *, family: str | None = None, lane: str | None = None, hunt_type: str = "web") -> Path:
     """Return the default reports directory for a program."""
-    return Path.home() / "Shared" / "bounty_recon" / program / "0day_team" / "reports"
+    from agents.storage_resolver import resolve_family_lane, resolve_storage
+
+    resolved_family, resolved_lane = resolve_family_lane(family=family, lane=lane, hunt_type=hunt_type)
+    storage = resolve_storage(program, family=resolved_family, lane=resolved_lane, create=True)
+    return storage.reports_root / "raw"
 
 
 def load_findings(findings_path: Path) -> list[dict]:

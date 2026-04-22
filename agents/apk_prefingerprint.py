@@ -24,6 +24,7 @@ if _BOUNTY_TOOLS_ROOT.as_posix() not in (p.as_posix() for p in map(Path, sys.pat
     sys.path.insert(0, _BOUNTY_TOOLS_ROOT.as_posix())
 
 from agents.apk_surface_registry import ApkSurfaceRegistry
+from agents.verbosity import clamp_verbosity
 
 try:
     from subagent_logger import SubagentLogger, compute_pte_lite
@@ -746,11 +747,13 @@ def _parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("program")
     parser.add_argument("apk_path")
     parser.add_argument("--output-root")
+    parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     return parser.parse_args(list(argv))
 
 
 def main(argv: Iterable[str] | None = None) -> int:
     args = _parse_args(argv or sys.argv[1:])
+    verbosity = clamp_verbosity(args.verbose)
     logger = None
     if SubagentLogger is not None:
         try:
@@ -759,6 +762,13 @@ def main(argv: Iterable[str] | None = None) -> int:
         except Exception:
             logger = None
     result = build_surface_registry(args.program, args.apk_path, output_root=args.output_root, logger=logger)
+    if verbosity.verbose:
+        if result.get("requested_path"):
+            print(f"[apk_prefingerprint] requested_path={result['requested_path']}")
+        print(f"[apk_prefingerprint] selected_apk={result['apk_path']}")
+    if verbosity.very_verbose:
+        print(f"[apk_prefingerprint] extracted_root={result['extracted_root']}")
+        print(f"[apk_prefingerprint] surface_registry_path={result['surface_registry_path']}")
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

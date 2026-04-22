@@ -30,6 +30,7 @@ from agents.manual_hunter import (
     _report_bucket,
 )
 from agents.report_checker import FindingRecord, _load_ledger_findings, _load_markdown_findings, _merge_findings
+from agents.verbosity import clamp_verbosity
 
 
 FILE_HINT_RE = (
@@ -316,10 +317,11 @@ def _candidates_for_file(
 
 def _append_canonical_report(hunter: ManualHunter, finding: dict[str, Any]) -> Path:
     bucket = _report_bucket(finding)
+    report_date = datetime.now().strftime("%d-%m-%Y")
     target_dir = {
-        "confirmed": hunter.storage.reports_root / "confirmed",
-        "dormant": hunter.storage.reports_root / "dormant",
-        "novel": hunter.storage.reports_root / "novel",
+        "confirmed": hunter.storage.reports_root / "confirmed" / report_date,
+        "dormant": hunter.storage.reports_root / "dormant" / report_date,
+        "novel": hunter.storage.reports_root / "novel" / report_date,
     }[bucket]
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / "index.md"
@@ -476,15 +478,18 @@ def sync_reports_main(
     *,
     source_dir: str | None = None,
     write_reports_from_memory: bool = False,
-    verbose: bool = False,
+    verbose: bool | int = False,
 ) -> int:
     argv = [program]
     if source_dir:
         argv.extend(["--source-dir", source_dir])
     if write_reports_from_memory:
         argv.append("--write-reports-from-memory")
-    if verbose:
-        argv.append("--verbose")
+    if isinstance(verbose, bool):
+        if verbose:
+            argv.append("--verbose")
+    else:
+        argv.extend(["-v"] * max(0, int(verbose)))
     return main(argv)
 
 
@@ -500,6 +505,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     args = parser.parse_args(argv)
 
+    verbosity = clamp_verbosity(args.verbose)
     program = args.program
     source_dir, source_mode = _find_reports_dir(program, args.source_dir)
     source_root = _program_root(program, source_dir)
@@ -510,10 +516,10 @@ def main(argv: list[str] | None = None) -> int:
         source_dir = _default_reports_dir(program)
     report_files = _discover_report_files(source_dir) if source_dir.is_dir() else []
 
-    if args.verbose >= 1:
+    if verbosity.verbose:
         print(f"[sync_reports] source_dir={source_dir} mode={source_mode or 'missing'} files={len(report_files)}")
         print(f"[sync_reports] lane_root={hunter.storage.lane_root}")
-        if args.verbose >= 2:
+        if verbosity.very_verbose:
             print(f"[sync_reports] reports_root={hunter.storage.reports_root}")
             print(f"[sync_reports] ledgers_root={hunter.storage.ledgers_root}")
 
@@ -526,10 +532,10 @@ def main(argv: list[str] | None = None) -> int:
         ok, detail = _write_reports_from_memory(program, source_root, source_dir, hunter.ledger.path)
         memory_write_failed = not ok
         memory_write_detail = detail
-        if args.verbose >= 1 and detail:
+        if verbosity.verbose and detail:
             print(detail)
         report_files = _discover_report_files(source_dir)
-        if args.verbose >= 1:
+        if verbosity.verbose:
             print(f"[sync_reports] memory_write_ok={ok} files_after_write={len(report_files)}")
 
     if not report_files:
@@ -556,7 +562,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for report_path in report_files:
         candidates = _candidates_for_file(program, hunt_type, hunter, report_path)
-        if args.verbose >= 1:
+        if verbosity.verbose:
             print(f"[sync_reports] parsed {len(candidates)} findings from {report_path}")
 
         for candidate in candidates:
@@ -578,13 +584,13 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 coverage_relpath = _mark_coverage(hunter, finding, parsed)
             except Exception as exc:
-                if args.verbose >= 1:
+                if verbosity.verbose:
                     print(f"[sync_reports] coverage update failed for {report_path}: {exc}")
             related = _chain_suggestions(program, hunt_type, finding)
 
             imported_fids.append(_normalize_text(finding.get("fid")))
             print(f"ADDED {finding['fid']}")
-            if args.verbose >= 1:
+            if verbosity.verbose:
                 print(f"[sync_reports] report={report_output}")
                 if coverage_relpath:
                     print(f"[sync_reports] coverage={coverage_relpath}")

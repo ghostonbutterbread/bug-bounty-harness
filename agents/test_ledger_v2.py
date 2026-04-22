@@ -17,6 +17,7 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from agents.ledger_v2 import ledger_add, ledger_get, ledger_list, ledger_path
+from agents.apk_prefingerprint import _select_apk_candidate
 from agents.snapshot_identity import get_snapshot_identity, get_snapshot_id, is_same_snapshot
 
 
@@ -250,6 +251,33 @@ class LedgerV2Tests(unittest.TestCase):
         self.assertEqual(migrated["first_snapshot"], "legacy")
         self.assertEqual(migrated["sightings"][0]["review_tier"], "CONFIRMED")
 
+    def test_dedupe_normalizes_underscore_and_dash_class_names(self) -> None:
+        first = {
+            "type": "Websocket auth bypass",
+            "class_name": "canva-websocket-auth_bypass",
+            "file": "relative/path.smali",
+            "severity": "HIGH",
+        }
+        second = {
+            "type": "Websocket auth bypass",
+            "class_name": "canva-websocket-auth-bypass",
+            "file": "relative/path.smali",
+            "severity": "HIGH",
+        }
+
+        is_new, fid = ledger_add(self.program, first, "snap-a", "v1", "20260407T180000Z", "agent-a")
+        self.assertTrue(is_new)
+        self.assertEqual(fid, "D01")
+
+        is_new_again, fid_again = ledger_add(self.program, second, "snap-b", "v2", "20260408T180000Z", "agent-b")
+        self.assertFalse(is_new_again)
+        self.assertEqual(fid_again, "D01")
+
+        payload = self._read_payload()
+        self.assertEqual(len(payload["findings"]), 1)
+        self.assertEqual(payload["findings"][0]["class_name"], "canva-websocket-auth-bypass")
+        self.assertEqual(len(payload["findings"][0]["sightings"]), 2)
+
     def test_file_locking_under_concurrent_writes(self) -> None:
         processes: list[subprocess.Popen[str]] = []
         for index in range(8):
@@ -283,6 +311,37 @@ class LedgerV2Tests(unittest.TestCase):
         self.assertEqual(payload["version"], 2)
         self.assertEqual(len(payload["findings"]), 8)
         self.assertEqual({item["fid"] for item in payload["findings"]}, {f"D0{index + 1}" for index in range(8)})
+
+
+class ApkCandidateSelectionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        self.tmp = Path(self.tempdir.name)
+
+    def test_prefers_bundle_base_apk_when_no_top_level_apk_exists(self) -> None:
+        bundle = self.tmp / "Canva_2.356.0_apkcombo.com"
+        bundle.mkdir()
+        (bundle / "config.x86_64.apk").write_text("x", encoding="utf-8")
+        (bundle / "config.xxhdpi.apk").write_text("x", encoding="utf-8")
+        (bundle / "com.canva.editor.apk").write_text("x", encoding="utf-8")
+
+        selected, debug_rows, selected_bundle = _select_apk_candidate(self.tmp, "canva")
+        self.assertEqual(selected.name, "com.canva.editor.apk")
+        self.assertEqual(selected_bundle, bundle)
+        self.assertTrue(any(row.get("source") == "bundle_dir" for row in debug_rows))
+
+    def test_prefers_top_level_apk_when_present(self) -> None:
+        (self.tmp / "com.canva.editor.apk").write_text("x", encoding="utf-8")
+        bundle = self.tmp / "Canva_2.355.0_apkcombo.com"
+        bundle.mkdir()
+        (bundle / "config.x86_64.apk").write_text("x", encoding="utf-8")
+        (bundle / "com.canva.editor.apk").write_text("x", encoding="utf-8")
+
+        selected, debug_rows, selected_bundle = _select_apk_candidate(self.tmp, "canva")
+        self.assertEqual(selected, self.tmp / "com.canva.editor.apk")
+        self.assertIsNone(selected_bundle)
+        self.assertTrue(all(row.get("source") == "top_level" for row in debug_rows))
 
 
 if __name__ == "__main__":

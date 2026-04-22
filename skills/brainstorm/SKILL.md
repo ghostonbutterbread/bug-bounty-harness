@@ -1,3 +1,7 @@
+---
+name: brainstorm
+description: Collaboratively brainstorm bug bounty approaches, attack ideas, developer assumptions, auth bypass angles, and business-logic abuse paths. Use when starting a new target, exploring a new application area, mapping likely mistakes, or generating testing ideas before deeper recon or exploitation.
+---
 # Brainstorm — Multi-Agent Collaboration
 
 ## What It Does

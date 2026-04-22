@@ -1,6 +1,6 @@
 ---
 name: hunt
-description: Start a bug bounty hunt on a target. Use /hunt <program> [tasks] [--parallel].
+description: Use when starting or orchestrating a bug bounty hunt, running /hunt for a program, selecting testing tasks, or coordinating parallel security research work.
 ---
 # Hunt — Start a Bug Bounty Hunt
 

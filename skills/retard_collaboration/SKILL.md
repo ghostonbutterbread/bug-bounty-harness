@@ -1,6 +1,6 @@
 ---
 name: retard-collaboration
-description: Run a three-stage multi-agent brainstorming and chain-generation workflow on top of zero_day_team output to produce novel attack chains. Use when zero_day_team findings already exist and you want creative lateral ideas, filtered high-signal concepts, or synthesized exploit chains from existing findings.
+description: Use when the user asks for Retard mode, retard collaboration, creative multi-agent bug bounty brainstorming, or attack-chain generation from existing zero_day_team findings and wants lateral ideas, filtered concepts, or synthesized exploit chains.
 ---
 # Retard Collaboration — Creative Multi-Agent Brainstorming
 

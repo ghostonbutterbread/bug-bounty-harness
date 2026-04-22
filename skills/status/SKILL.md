@@ -1,6 +1,6 @@
 ---
 name: status
-description: Show orchestrator status including targets, findings, and active agents.
+description: Use when checking orchestrator status, active targets, current findings, running agents, Ghost pipeline state, or /status-style progress during a hunt.
 ---
 # Status — Orchestrator Status
 

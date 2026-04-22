@@ -1,6 +1,6 @@
 ---
 name: fuzz
-description: Discover hidden endpoints, parameters, and files
+description: Use when discovering hidden endpoints, parameters, files, routes, directories, request fields, or undocumented application surface through fuzzing.
 ---
 # Web Fuzzing
 

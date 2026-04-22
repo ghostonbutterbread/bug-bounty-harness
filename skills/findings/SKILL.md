@@ -1,6 +1,6 @@
 ---
 name: findings
-description: View bug bounty findings. Use /findings [program] [--severity P1|P2|P3].
+description: Use when viewing, listing, filtering, summarizing, or checking bug bounty findings, including /findings requests by program or severity.
 ---
 # Findings — View Bug Bounty Findings
 

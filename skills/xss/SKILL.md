@@ -1,6 +1,6 @@
 ---
 name: xss
-description: Test for Cross-Site Scripting vulnerabilities
+description: Use when testing for Cross-Site Scripting, XSS, reflected XSS, stored XSS, DOM XSS, browser sink injection, payload execution, WAF bypass for script injection, or unsafe HTML/JavaScript rendering.
 ---
 # XSS Testing
 

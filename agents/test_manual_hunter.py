@@ -17,7 +17,12 @@ _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from agents.manual_hunter import ManualHunter, _build_hunt_context, main
+from agents.manual_hunter import (
+    ManualHunter,
+    _build_hunt_context,
+    _build_subagent_handoff_bundle,
+    main,
+)
 from agents.shared_brain import build_index, save_index
 
 
@@ -186,6 +191,29 @@ class ManualHunterTests(unittest.TestCase):
         self.assertIn("renderer/view.js (dom-xss)", context)
         self.assertIn("updater.ts (exec-sink-reachability)", context)
 
+    def test_build_subagent_handoff_bundle_includes_context_files(self) -> None:
+        hunter = ManualHunter(self.program, source_root=self.target_root)
+        hunter.snapshot_identity = {"snapshot_id": "snap-1", "version_label": "v1"}
+        write_ctx = hunter.storage.context_root
+        write_ctx.mkdir(parents=True, exist_ok=True)
+        (write_ctx / "target_profile.json").write_text('{"program":"notion"}\n', encoding="utf-8")
+        (write_ctx / "me_context.md").write_text("Program: notion\n", encoding="utf-8")
+        (write_ctx / "session_handoff.md").write_text("# Session Handoff\n", encoding="utf-8")
+
+        bundle = _build_subagent_handoff_bundle(
+            hunter.storage,
+            program=hunter.program,
+            source_root=self.target_root,
+            hunt_prompt="hunt here",
+        )
+
+        self.assertIn('"program": "notion"', bundle)
+        self.assertIn('"hunt_prompt": "hunt here"', bundle)
+        self.assertIn("target_profile.json", bundle)
+        self.assertIn("me_context.md", bundle)
+        self.assertIn("session_handoff.md", bundle)
+        self.assertIn("Child-agent rules", bundle)
+
     @patch("agents.sync_reports.sync_reports_main", return_value=0)
     @patch("agents.manual_hunter._run_codex_hunt")
     def test_default_mode_runs_hunt_then_sync_reports(
@@ -207,6 +235,8 @@ class ManualHunterTests(unittest.TestCase):
         prompt, workdir = mock_run_codex_hunt.call_args.args
         self.assertIn("## Task:", prompt)
         self.assertEqual(workdir, self.target_root)
+        self.assertIn("extra_instructions", mock_run_codex_hunt.call_args.kwargs)
+        self.assertIn("/me context handoff bundle", mock_run_codex_hunt.call_args.kwargs["extra_instructions"])
         mock_sync_reports_main.assert_called_once_with(
             self.program,
             source_dir=str(self.target_root / "reports"),

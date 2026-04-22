@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import time
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
@@ -44,6 +45,7 @@ from agents.dynamic_agent_builder import DynamicAgentBuilder
 from agents.ledger import VersionedFindingsLedger, create_team_ledger_from_storage
 from agents.snapshot_identity import get_snapshot_identity
 from agents.storage_resolver import resolve_family_lane, resolve_storage, write_context_files
+from agents.verbosity import clamp_verbosity
 
 try:
     from subagent_logger import SubagentLogger, compute_pte_lite
@@ -623,6 +625,7 @@ def orchestrate_apk_team(
     version_label: str | None = None,
     force_refresh_dynamic_agents: bool = False,
     output_root: str | Path | None = None,
+    verbose: int = 0,
 ) -> dict[str, Any]:
     """
     1. Extract APK if not already (apktool)
@@ -666,6 +669,7 @@ def orchestrate_apk_team(
     )
     registry = ApkSurfaceRegistry.load(prefingerprint["surface_registry_path"])
     extracted_root = registry.extracted_root
+    verbosity = clamp_verbosity(locals().get("verbose", 0))
     snapshot_identity = get_snapshot_identity(extracted_root, version_label=version_label or str(registry.payload.get("version_name") or ""))
     ledger = create_team_ledger_from_storage(
         program_slug,
@@ -675,6 +679,17 @@ def orchestrate_apk_team(
         snapshot_identity=snapshot_identity,
         agent="apk-team",
     )
+
+    if verbosity.verbose:
+        print(f"[apk_team] storage lane root={storage.lane_root}")
+        print(f"[apk_team] reports root={storage.reports_root}")
+        print(f"[apk_team] ledgers root={storage.ledgers_root}")
+        print(f"[apk_team] snapshot id={snapshot_identity.get('snapshot_id')} version={snapshot_identity.get('version_label') or '(unspecified)'}")
+        print(f"[apk_team] ledger path={ledger.path}")
+    if verbosity.very_verbose:
+        print(f"[apk_team] context root={storage.context_root}")
+        print(f"[apk_team] working root={storage.working_root}")
+        print(f"[apk_team] extracted root={extracted_root}")
 
     # MGP — shared memory across agents; best-effort
     mem = None
@@ -828,8 +843,20 @@ def orchestrate_apk_team(
             print(f"[apk_team] Finished {index}/{len(profiles)}: {profile.key}")
 
     raw_findings = zdt._load_findings(findings_path)
+    prefiltered_findings: list[dict[str, Any]] = []
+    prefilter_rejected = 0
+    for finding in raw_findings:
+        if zdt.is_placeholder_finding(finding):
+            prefilter_rejected += 1
+            if verbosity.very_verbose:
+                title = str(finding.get("vulnerability_name") or finding.get("type") or "untitled").strip()
+                print(f"[prefilter] REJECTED placeholder before review: {title}")
+            continue
+        prefiltered_findings.append(finding)
+    if verbosity.verbose and prefilter_rejected:
+        print(f"[apk_team] prefilter rejected {prefilter_rejected} placeholder finding(s) before review")
     confirmed_findings, dormant_findings, novel_findings = zdt.stage2_ghost_review(
-        raw_findings,
+        prefiltered_findings,
         extracted_root,
         program_slug,
         "source",
@@ -846,6 +873,8 @@ def orchestrate_apk_team(
             try:
                 ledger.update(finding)
                 ledger_updates += 1
+                if verbosity.very_verbose:
+                    print(f"[ledger] UPDATED {fid} via {ledger.path}")
             except Exception as exc:
                 print(f"[ledger] FAILED update {fid}: {exc}", flush=True)
         registry.record_progressive_finding(finding, requested_by=str(finding.get("agent") or "apk-team"))
@@ -876,9 +905,11 @@ def orchestrate_apk_team(
 
     apk_family, apk_lane = resolve_family_lane(hunt_type="apk")
     apk_storage = resolve_storage(program_slug, family=apk_family, lane=apk_lane, create=True)
-    confirmed_report_path = apk_storage.reports_root / "confirmed" / "index.md"
-    dormant_report_path = apk_storage.reports_root / "dormant" / "index.md"
-    novel_report_path = apk_storage.reports_root / "novel" / "index.md"
+    report_date = datetime.now().strftime("%d-%m-%Y")
+    confirmed_report_path = apk_storage.reports_root / "confirmed" / report_date / "index.md"
+    dormant_report_path = apk_storage.reports_root / "dormant" / report_date / "index.md"
+    novel_report_path = apk_storage.reports_root / "novel" / report_date / "index.md"
+    report_root = confirmed_report_path.parent
     for report_dir in (confirmed_report_path.parent, dormant_report_path.parent, novel_report_path.parent):
         report_dir.mkdir(parents=True, exist_ok=True)
     rejected_count = max(0, len(raw_findings) - len(reviewed_findings))
@@ -896,6 +927,9 @@ def orchestrate_apk_team(
         "ledgers_root": str(storage.ledgers_root),
     }
     summary["reports"] = {
+        "confirmed_date_root": str(confirmed_report_path.parent),
+        "dormant_date_root": str(dormant_report_path.parent),
+        "novel_date_root": str(novel_report_path.parent),
         "confirmed": str(confirmed_report_path),
         "dormant": str(dormant_report_path),
         "novel_findings": str(novel_report_path),
@@ -913,6 +947,14 @@ def orchestrate_apk_team(
         "version": dynamic_version,
     }
     summary["ledger_updates"] = ledger_updates
+    if verbosity.verbose:
+        print(f"[apk_team] ledger_updates={ledger_updates} ledger_path={ledger.path}")
+        print(f"[apk_team] confirmed_date_root={confirmed_report_path.parent}")
+        print(f"[apk_team] dormant_date_root={dormant_report_path.parent}")
+        print(f"[apk_team] novel_date_root={novel_report_path.parent}")
+        print(f"[apk_team] confirmed_report={confirmed_report_path}")
+        print(f"[apk_team] dormant_report={dormant_report_path}")
+        print(f"[apk_team] novel_report={novel_report_path}")
     zdt._pretty_print_findings(reviewed_findings)
 
     if chain and reviewed_findings:
@@ -966,6 +1008,7 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
         help="Regenerate dynamic agent specs for the current APK version.",
     )
     parser.add_argument("--output-root", help="Override the apk_team output root.")
+    parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     args = parser.parse_args(list(argv))
     if not args.program and not args.program_override:
         parser.error("program is required either positionally or via --program")
@@ -986,6 +1029,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         version_label=args.version_label,
         force_refresh_dynamic_agents=args.force_refresh_dynamic_agents,
         output_root=args.output_root,
+        verbose=args.verbose,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

@@ -1253,6 +1253,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--hunt-type", default="source", choices=("source", "web", "api", "apk"), help="Report namespace. Default: source.")
     parser.add_argument("--family", help="Optional storage family override.")
     parser.add_argument("--lane", help="Optional storage lane override.")
+    parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     parser.add_argument("--findings-json", help="Optional findings.jsonl override.")
     parser.add_argument("--source-root", help="Optional application source root override.")
     parser.add_argument("--output-dir", help="Optional report output directory override.")

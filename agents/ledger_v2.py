@@ -48,7 +48,11 @@ def _normalize_relpath(value: Any) -> str:
 
 
 def _normalize_class_name(value: Any) -> str:
-    return str(value or "").strip().lower()
+    normalized = str(value or "").strip().lower()
+    normalized = normalized.replace("_", "-")
+    while "--" in normalized:
+        normalized = normalized.replace("--", "-")
+    return normalized
 
 
 def _safe_int(value: Any) -> int:

@@ -1,3 +1,7 @@
+---
+name: pullscope
+description: Fetch and parse bug bounty scope from platforms like HackerOne, Bugcrowd, and Intigriti, then save normalized in-scope targets for later validation. Use when a user asks to pull scope for a program, check what assets are in scope, or initialize scope data before recon or testing.
+---
 # Pullscope — Fetch Bug Bounty Scope
 
 ## What It Does

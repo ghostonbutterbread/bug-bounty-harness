@@ -20,6 +20,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from agents.ledger_v2 import ledger_add
 from agents.storage_resolver import resolve_family_lane, resolve_storage
+from agents.verbosity import clamp_verbosity
 
 
 DEFAULT_CODEX_TIMEOUT = 600
@@ -365,6 +366,18 @@ def _latest_report_path(reports_root: Path, filename: str) -> Path | None:
     return max(candidates, key=lambda item: item.stat().st_mtime)
 
 
+def _resolve_report_path(reports_root: Path, bucket: str, legacy_filename: str) -> Path | None:
+    dated_bucket_root = reports_root / bucket
+    canonical_flat = dated_bucket_root / "index.md"
+    if canonical_flat.is_file():
+        return canonical_flat
+    if dated_bucket_root.is_dir():
+        dated_candidates = [path for path in dated_bucket_root.glob("*/index.md") if path.is_file()]
+        if dated_candidates:
+            return max(dated_candidates, key=lambda item: item.stat().st_mtime)
+    return _latest_report_path(reports_root, legacy_filename)
+
+
 def _extract_markdown_field(block: str, label: str) -> str:
     match = re.search(re.escape(label) + r"\s*(.+?)(?:\n|$)", block)
     return match.group(1).strip() if match else ""
@@ -534,12 +547,12 @@ def _load_markdown_findings(
     if report_paths is None:
         reports_root = _reports_root(program, hunt_type, family=family, lane=lane)
         report_specs = [
-            (reports_root / "confirmed" / "index.md", "confirmed.md", "class", "confirmed"),
-            (reports_root / "dormant" / "index.md", "dormant.md", "class", "pending-review"),
-            (reports_root / "novel" / "index.md", "novel_findings.md", "novel", "novel"),
+            ("confirmed", "confirmed.md", "class", "confirmed"),
+            ("dormant", "dormant.md", "class", "pending-review"),
+            ("novel", "novel_findings.md", "novel", "novel"),
         ]
-        for canonical_path, legacy_filename, default_category, default_status in report_specs:
-            path = canonical_path if canonical_path.is_file() else _latest_report_path(reports_root, legacy_filename)
+        for bucket, legacy_filename, default_category, default_status in report_specs:
+            path = _resolve_report_path(reports_root, bucket, legacy_filename)
             if path is None:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
@@ -1266,6 +1279,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
+    verbosity = clamp_verbosity(args.verbose)
     program = _sanitize_program_name(args.program)
     findings_json_path = Path(args.findings_json).expanduser().resolve() if args.findings_json else _default_findings_json(program, args.hunt_type, family=args.family, lane=args.lane)
 
@@ -1301,12 +1315,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     results: list[dict[str, Any]] = []
     chain_candidates: list[dict[str, Any]] = []
 
-    print(f"[report_checker] program={program} findings={len(selected)} hunt_type={args.hunt_type}")
-    if source_root is not None:
+    if verbosity.verbose:
+        print(f"[report_checker] program={program} findings={len(selected)} hunt_type={args.hunt_type}")
+    if verbosity.very_verbose and source_root is not None:
         print(f"[report_checker] source_root={source_root}")
 
     for index, finding in enumerate(selected, start=1):
-        print(f"[report_checker] [{index}/{len(selected)}] {finding.fid} — {finding.title}")
+        if verbosity.verbose:
+            print(f"[report_checker] [{index}/{len(selected)}] {finding.fid} - {finding.title}")
         primary_source = _resolve_source_file(finding.file, source_roots)
         support_files: list[Path] = []
         for ref in _extract_support_file_refs(finding):
@@ -1453,17 +1469,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             chain_candidates,
         )
         chainer_exit = _run_chainer(program, source_root, chainer_input, args.hunt_type)
-        print(f"[report_checker] chainer exit={chainer_exit}")
+        if verbosity.verbose:
+            print(f"[report_checker] chainer exit={chainer_exit}")
 
-    print(f"[report_checker] markdown report: {markdown_path}")
-    print(f"[report_checker] json report: {json_path}")
-    print(
-        "[report_checker] summary: "
-        f"processed={summary['processed']} "
-        f"validated_confirmed={summary['validated_confirmed']} "
-        f"needs_work={summary['validated_needs_work']} "
-        f"chain_candidates={summary['chain_candidates']}"
-    )
+    if verbosity.verbose:
+        print(f"[report_checker] markdown report: {markdown_path}")
+        print(f"[report_checker] json report: {json_path}")
+        print(
+            "[report_checker] summary: "
+            f"processed={summary['processed']} "
+            f"validated_confirmed={summary['validated_confirmed']} "
+            f"needs_work={summary['validated_needs_work']} "
+            f"chain_candidates={summary['chain_candidates']}"
+        )
     return 0
 
 

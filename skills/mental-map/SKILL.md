@@ -1,6 +1,6 @@
 ---
 name: mental-map
-description: Build mental maps of application architecture by analyzing Caido MCP proxy traffic, grouping requests into flows like auth, cart, checkout, signup, login, forgot-password, and user-profile, then documenting sequence diagrams and replication notes
+description: Use when mapping application architecture, analyzing Caido MCP proxy traffic, grouping requests into auth, cart, checkout, signup, login, forgot-password, or user-profile flows, or documenting sequence diagrams and replication notes.
 ---
 # Mental Map Analysis
 

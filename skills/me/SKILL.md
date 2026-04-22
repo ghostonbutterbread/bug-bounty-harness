@@ -1,6 +1,6 @@
 ---
 name: me
-description: Briefing card for Codex or Claude during a Ghost hunt with default and fresh context modes.
+description: Use when the user asks for a personal briefing card, Ghost hunt context, Ryushe preferences, current operating mode, or a fresh/default context summary for Codex or Claude.
 ---
 ## Ghost Hunting — /me skill
 

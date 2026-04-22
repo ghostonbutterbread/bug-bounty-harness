@@ -1,6 +1,6 @@
 ---
 name: race
-description: Test for race conditions and concurrent workflow flaws
+description: Use when testing race conditions, concurrent workflow flaws, double-submit bugs, parallel requests, locking issues, time-of-check/time-of-use behavior, or state consistency under load.
 ---
 # Race Condition Testing
 

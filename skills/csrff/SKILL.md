@@ -1,6 +1,6 @@
 ---
 name: csrf
-description: Test for Cross-Site Request Forgery vulnerabilities, including missing anti-CSRF protections, weak token validation, SameSite bypass opportunities, and broken Origin or Referer enforcement
+description: Use when testing Cross-Site Request Forgery, CSRF, anti-CSRF token validation, SameSite bypasses, Origin or Referer enforcement, state-changing requests, or browser-driven unauthorized actions.
 ---
 # CSRF Testing
 

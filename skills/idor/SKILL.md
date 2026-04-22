@@ -1,6 +1,6 @@
 ---
 name: idor
-description: Test for Insecure Direct Object Reference vulnerabilities
+description: Use when testing Insecure Direct Object Reference, IDOR, broken object-level authorization, cross-account access, tenant isolation, user ID tampering, or resource ownership checks.
 ---
 # IDOR Testing
 

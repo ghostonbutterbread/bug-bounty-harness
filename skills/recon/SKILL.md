@@ -1,6 +1,6 @@
 ---
 name: recon
-description: Reconnaissance - enumerate targets, discover endpoints, map attack surface
+description: Use when doing reconnaissance, enumerating targets, discovering endpoints, mapping attack surface, collecting domains, probing services, or preparing targets for security testing.
 ---
 # Reconnaissance
 

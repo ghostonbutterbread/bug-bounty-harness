@@ -1,6 +1,6 @@
 ---
 name: sync-reports
-description: Import vulnerabilities from ~/source/{program}/reports into the Ghost pipeline. Use /sync-reports <program> [--source-dir ...] [--write-reports-from-memory] [--verbose].
+description: Use when syncing reports, importing vulnerabilities from source report directories into the Ghost pipeline, writing reports from memory, or running /sync-reports for a program.
 ---
 # /sync-reports skill
 

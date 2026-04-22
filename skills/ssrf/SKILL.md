@@ -1,6 +1,6 @@
 ---
 name: ssrf
-description: Test for Server-Side Request Forgery vulnerabilities
+description: Use when testing Server-Side Request Forgery, SSRF, URL fetchers, webhooks, importers, metadata service access, internal network reachability, redirect bypasses, or server-side URL validation.
 ---
 # SSRF Testing
 

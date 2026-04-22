@@ -1,6 +1,6 @@
 ---
 name: sqli
-description: Test for SQL Injection vulnerabilities
+description: Use when testing SQL injection, SQLi, database query injection, parameter tampering against SQL-backed endpoints, error-based injection, boolean/time-based injection, or stacked query behavior.
 ---
 # SQL Injection Testing
 

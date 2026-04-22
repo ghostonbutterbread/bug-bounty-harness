@@ -1,6 +1,6 @@
 ---
 name: manual_hunter
-description: Add your own manual security findings to the Ghost pipeline. Use /manual_hunter <program> --interactive, --add, --from-file, or --watch.
+description: Use when adding manual security findings to the Ghost pipeline, importing findings from files, watching report directories, or running /manual_hunter workflows.
 ---
 # manual_hunter skill
 

@@ -1,6 +1,6 @@
 ---
 name: waf
-description: Auto-detect and bypass WAF blocks
+description: Use when detecting, fingerprinting, or bypassing WAF blocks, rate limits, payload filtering, blocked probes, CDN security rules, or application firewall behavior during testing.
 ---
 # WAF Interceptor Skill
 

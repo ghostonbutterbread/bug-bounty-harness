@@ -33,7 +33,7 @@ Paths are configured via `config.env` or environment variables.
 | `HARNESS_SHARED_BASE` | Bounty recon data | `~/Shared/bounty_recon` |
 | `HARNESS_WORDLISTS` | Wordlists | `~/wordlists` |
 | `CLAUDE_SKILLS_DIR` | Claude Code skills | `~/.claude/skills` |
-| `CODEX_SKILLS_DIR` | Codex skills | `~/.codex/skills` |
+| `CODEX_SKILLS_DIR` | Codex skills | `~/.agents/skills` |
 
 ### Setup (First Time)
 
@@ -74,7 +74,6 @@ bug_bounty_harness/
 ├── prompts/               # Playbooks (shared source of truth)
 ├── skills/                # Skill wrappers (source)
 ├── .claude/skills/       # Claude Code (synced)
-├── .agents/skills/        # Codex (synced)
 └── shared/
     └── knowledge-template.md
 ```
@@ -117,8 +116,7 @@ See `SKILL_REGISTRY.md` for:
 
 Skills are synced to:
 - `~/.claude/skills/` (Claude Code)
-- `~/.codex/skills/` (Codex)
-- `.agents/skills/` (repo-specific)
+- `~/.agents/skills/` (Codex)
 
 ---
 

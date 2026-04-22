@@ -59,7 +59,7 @@ load_config() {
     : "${HARNESS_SHARED_BASE:=${HOME}/Shared/bounty_recon}"
     : "${HARNESS_WORDLISTS:=${HOME}/wordlists}"
     : "${CLAUDE_SKILLS_DIR:=${HOME}/.claude/skills}"
-    : "${CODEX_SKILLS_DIR:=${HOME}/.codex/skills}"
+    : "${CODEX_SKILLS_DIR:=${HOME}/.agents/skills}"
 }
 
 # =============================================================================

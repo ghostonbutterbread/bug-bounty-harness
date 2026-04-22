@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # Allow standalone execution from project root or agents/ subdirectory
@@ -999,9 +1000,10 @@ def _ghost_reports_root(program: str, target_type: str = "source", output_root: 
 
 def _ghost_report_paths(program: str, target_type: str = "source", output_root: Path | None = None) -> Tuple[Path, Path, Path]:
     reports_root = _ghost_reports_root(program, target_type, output_root=output_root)
-    confirmed_dir = reports_root / "confirmed"
-    dormant_dir = reports_root / "dormant"
-    novel_dir = reports_root / "novel"
+    report_date = datetime.now().strftime("%d-%m-%Y")
+    confirmed_dir = reports_root / "confirmed" / report_date
+    dormant_dir = reports_root / "dormant" / report_date
+    novel_dir = reports_root / "novel" / report_date
     confirmed_dir.mkdir(parents=True, exist_ok=True)
     dormant_dir.mkdir(parents=True, exist_ok=True)
     novel_dir.mkdir(parents=True, exist_ok=True)
@@ -1994,6 +1996,7 @@ def orchestrate_zero_day_team(
     version_label: str | None = None,
     force_refresh_dynamic_agents: bool = False,
     output_root: str | None = None,
+    verbose: int = 0,
 ) -> Dict[str, Any]:
     """Run one clean static-analysis agent per vulnerability class."""
     global _ZERO_DAY_TEAM_LOGGER
@@ -2034,11 +2037,19 @@ def orchestrate_zero_day_team(
         snapshot_identity=snapshot_identity,
         agent="zero-day-team",
     )
+    verbosity = clamp_verbosity(verbose)
     print(
         f"[snapshot] id={snapshot_identity.get('snapshot_id')} "
         f"version={snapshot_identity.get('version_label') or '(unspecified)'} "
         f"channel={snapshot_identity.get('channel') or 'stable'}"
     )
+    if verbosity.verbose:
+        print(f"[orchestrator] ledger path={ledger.path}")
+        print(f"[orchestrator] findings path={findings_path}")
+    if verbosity.very_verbose:
+        print(f"[orchestrator] target={target}")
+        print(f"[orchestrator] context root={storage.context_root}")
+        print(f"[orchestrator] working root={storage.working_root}")
     dynamic_specs = []
     dynamic_profiles: List[VulnerabilityClassProfile] = []
     dynamic_version = (
@@ -2325,6 +2336,8 @@ def orchestrate_zero_day_team(
             try:
                 ledger.update(finding)
                 ledger_updates += 1
+                if verbosity.very_verbose:
+                    print(f"[ledger] UPDATED {fid} via {ledger.path}")
             except Exception as exc:
                 print(f"[ledger] FAILED update {fid}: {exc}", flush=True)
         _safe_log_span(
@@ -2374,6 +2387,9 @@ def orchestrate_zero_day_team(
         "by_tier": novel_tier_summary,
     }
     summary["reports"] = {
+        "confirmed_date_root": str(confirmed_report_path.parent),
+        "dormant_date_root": str(dormant_report_path.parent),
+        "novel_date_root": str(novel_report_path.parent),
         "confirmed": str(confirmed_report_path),
         "dormant": str(dormant_report_path),
         "novel_findings": str(novel_report_path),
@@ -2497,6 +2513,7 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
         "--output-root",
         help="Optional explicit local canonical root override. Defaults to Shared canonical storage.",
     )
+    parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     return parser.parse_args(list(argv))
 
 
@@ -2526,5 +2543,6 @@ if __name__ == "__main__":
         version_label=args.version_label,
         force_refresh_dynamic_agents=args.force_refresh_dynamic_agents,
         output_root=args.output_root,
+        verbose=args.verbose,
     )
     print(json.dumps(result, indent=2, sort_keys=True))

@@ -179,24 +179,129 @@ def _find_manifest(extracted_root: Path) -> Path:
     raise FileNotFoundError(f"AndroidManifest.xml not found under {extracted_root}")
 
 
-def _extract_apk(apk_path: Path, extracted_root: Path, logger: SubagentLogger | None) -> tuple[Path, list[str]]:
+def _score_apk_candidate(path: Path, program_slug: str) -> tuple[int, list[str]]:
+    score = 0
+    reasons: list[str] = []
+    name = path.name.lower()
+    stem = path.stem.lower()
+    program_token = str(program_slug or "").strip().lower()
+
+    if program_token and program_token in name:
+        score += 5
+        reasons.append("matches program slug")
+    if stem.startswith("com."):
+        score += 4
+        reasons.append("package-like filename")
+    if any(token in name for token in ["config.", ".config", "split", "x86", "arm64", "armeabi", "dpi", "lang", "features"]):
+        score -= 4
+        reasons.append("looks like split/config APK")
+    if name.endswith('.apk'):
+        score += 1
+        reasons.append("apk extension")
+    return score, reasons
+
+
+def _extract_version_tuple(name: str) -> tuple[int, ...]:
+    parts = re.findall(r"\d+", name or "")
+    if not parts:
+        return (0,)
+    return tuple(int(part) for part in parts)
+
+
+def _score_and_debug_candidates(candidates: list[Path], program_slug: str) -> tuple[Path, list[dict[str, Any]]]:
+    scored: list[tuple[Path, int, list[str]]] = []
+    for candidate in candidates:
+        score, reasons = _score_apk_candidate(candidate, program_slug)
+        scored.append((candidate, score, reasons))
+    scored.sort(key=lambda item: (item[1], item[0].name), reverse=True)
+    chosen = scored[0][0]
+    debug_rows = [
+        {"path": str(path), "score": score, "reasons": reasons}
+        for path, score, reasons in scored
+    ]
+    return chosen, debug_rows
+
+
+def _select_apk_candidate(apk_dir: Path, program_slug: str) -> tuple[Path, list[dict[str, Any]], Path | None]:
+    top_level_apks = sorted(path for path in apk_dir.iterdir() if path.is_file() and path.suffix.lower() == '.apk')
+    if top_level_apks:
+        chosen, debug_rows = _score_and_debug_candidates(top_level_apks, program_slug)
+        for row in debug_rows:
+            row["source"] = "top_level"
+        return chosen, debug_rows, None
+
+    bundle_dirs = sorted(
+        [path for path in apk_dir.iterdir() if path.is_dir() and any(child.is_file() and child.suffix.lower() == '.apk' for child in path.iterdir())],
+        key=lambda path: (_extract_version_tuple(path.name), path.name),
+        reverse=True,
+    )
+    if not bundle_dirs:
+        raise FileNotFoundError(f"no APK candidates found under {apk_dir}")
+
+    selected_bundle = bundle_dirs[0]
+    bundle_apks = sorted(path for path in selected_bundle.iterdir() if path.is_file() and path.suffix.lower() == '.apk')
+    chosen, debug_rows = _score_and_debug_candidates(bundle_apks, program_slug)
+    bundle_debug = [
+        {
+            "path": str(bundle_dir),
+            "source": "bundle_dir",
+            "version": list(_extract_version_tuple(bundle_dir.name)),
+            "selected": str(bundle_dir == selected_bundle),
+        }
+        for bundle_dir in bundle_dirs
+    ]
+    for row in debug_rows:
+        row["source"] = f"bundle:{selected_bundle.name}"
+    return chosen, bundle_debug + debug_rows, selected_bundle
+
+
+def _extract_apk(apk_path: Path, extracted_root: Path, logger: SubagentLogger | None, *, program_slug: str = "") -> tuple[Path, list[str], Path]:
     warnings: list[str] = []
+    selected_apk = apk_path
     if apk_path.is_dir():
         manifest_candidate = apk_path / "AndroidManifest.xml"
         if manifest_candidate.exists():
-            return apk_path.resolve(strict=False), warnings
-        raise FileNotFoundError(f"directory target does not look extracted: {apk_path}")
+            return apk_path.resolve(strict=False), warnings, apk_path.resolve(strict=False)
+        selected_apk, debug_rows, selected_bundle = _select_apk_candidate(apk_path, program_slug)
+        if selected_bundle is not None:
+            warnings.append(f"selected bundle directory: {selected_bundle.name}")
+        warnings.append(f"selected APK candidate: {selected_apk.name}")
+        if selected_bundle is not None:
+            print(f"[apk_prefingerprint] selected bundle={selected_bundle}", flush=True)
+        print(f"[apk_prefingerprint] selected apk={selected_apk}", flush=True)
+        if logger is not None:
+            _safe_log_span(
+                logger,
+                span_type="tool",
+                phase="prefingerprint",
+                level="STEP",
+                message="APK candidate selection",
+                tool_name="apk_candidate_selector",
+                tool_category="apk",
+                target=str(apk_path),
+                params={"program": program_slug, "selected": str(selected_apk), "selected_bundle": str(selected_bundle) if selected_bundle is not None else None, "candidates": debug_rows},
+                prompt_tokens=0,
+                completion_tokens=0,
+                context_tokens_before=0,
+                context_tokens_after=0,
+                tool_output_tokens=0,
+                pte_lite=0,
+                latency_ms=0,
+                input_bytes=0,
+                output_bytes=0,
+                success=True,
+            )
 
     extracted_root.parent.mkdir(parents=True, exist_ok=True)
     manifest_marker = extracted_root / "AndroidManifest.xml"
     if manifest_marker.exists():
-        return extracted_root.resolve(strict=False), warnings
+        return extracted_root.resolve(strict=False), warnings, selected_apk.resolve(strict=False)
 
     started = time.time()
     apktool_path = shutil.which("apktool")
     command_text = ""
     if apktool_path:
-        cmd = [apktool_path, "d", "-f", "-o", str(extracted_root), str(apk_path)]
+        cmd = [apktool_path, "d", "-f", "-o", str(extracted_root), str(selected_apk)]
         command_text = " ".join(cmd)
         rc, stdout, stderr = _run(cmd, cwd=extracted_root.parent)
         response_text = "\n".join(part for part in (stdout, stderr) if part)
@@ -208,7 +313,7 @@ def _extract_apk(apk_path: Path, extracted_root: Path, logger: SubagentLogger | 
             message="apktool extraction",
             tool_name="apktool",
             tool_category="apk",
-            target=str(apk_path),
+            target=str(selected_apk),
             params={"output_dir": str(extracted_root)},
             prompt_tokens=_estimate_tokens(command_text),
             completion_tokens=0,
@@ -228,16 +333,16 @@ def _extract_apk(apk_path: Path, extracted_root: Path, logger: SubagentLogger | 
             error=None if rc == 0 else stderr[:400],
         )
         if rc == 0:
-            return extracted_root.resolve(strict=False), warnings
+            return extracted_root.resolve(strict=False), warnings, selected_apk.resolve(strict=False)
         warnings.append(f"apktool extraction failed: {stderr.strip() or stdout.strip() or f'rc={rc}'}")
 
     if extracted_root.exists():
         shutil.rmtree(extracted_root)
     extracted_root.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(apk_path) as archive:
+    with zipfile.ZipFile(selected_apk) as archive:
         archive.extractall(extracted_root)
     warnings.append("apktool unavailable or failed; fell back to raw ZIP extraction")
-    return extracted_root.resolve(strict=False), warnings
+    return extracted_root.resolve(strict=False), warnings, selected_apk.resolve(strict=False)
 
 
 def _find_smali_file(extracted_root: Path, class_name: str, cache: dict[str, str]) -> str:
@@ -539,7 +644,7 @@ def build_surface_registry(
     extracted_root = base_root / "extracted"
     registry_path = base_root / "surface_registry.json"
 
-    extracted_root, warnings = _extract_apk(resolved_apk_path, extracted_root, logger)
+    extracted_root, warnings, selected_apk_path = _extract_apk(resolved_apk_path, extracted_root, logger, program_slug=program_slug)
     manifest_path = _find_manifest(extracted_root)
     manifest_meta, components, url_schemes, permissions, providers = _parse_manifest(extracted_root, manifest_path)
     smali_hints, webview_classes, scan_stats = _scan_smali_hints(extracted_root, logger)
@@ -572,7 +677,7 @@ def build_surface_registry(
     }
     registry = ApkSurfaceRegistry.create(
         registry_path,
-        apk_path=resolved_apk_path,
+        apk_path=selected_apk_path,
         extracted_root=extracted_root,
         manifest_path=manifest_path,
         package_name=str(manifest_meta.get("package_name") or ""),
@@ -594,7 +699,8 @@ def build_surface_registry(
 
     result = {
         "program": program_slug,
-        "apk_path": str(resolved_apk_path),
+        "apk_path": str(selected_apk_path),
+        "requested_path": str(resolved_apk_path),
         "extracted_root": str(extracted_root),
         "manifest_path": str(manifest_path),
         "surface_registry_path": str(registry_path),

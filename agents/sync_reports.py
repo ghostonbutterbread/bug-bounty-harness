@@ -497,7 +497,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Ask Codex to write reports from memory and recent notes when no reports exist.",
     )
-    parser.add_argument("--verbose", action="store_true", help="Print detailed progress.")
+    parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     args = parser.parse_args(argv)
 
     program = args.program
@@ -510,8 +510,12 @@ def main(argv: list[str] | None = None) -> int:
         source_dir = _default_reports_dir(program)
     report_files = _discover_report_files(source_dir) if source_dir.is_dir() else []
 
-    if args.verbose:
+    if args.verbose >= 1:
         print(f"[sync_reports] source_dir={source_dir} mode={source_mode or 'missing'} files={len(report_files)}")
+        print(f"[sync_reports] lane_root={hunter.storage.lane_root}")
+        if args.verbose >= 2:
+            print(f"[sync_reports] reports_root={hunter.storage.reports_root}")
+            print(f"[sync_reports] ledgers_root={hunter.storage.ledgers_root}")
 
     memory_write_attempted = False
     memory_write_failed = False
@@ -522,10 +526,10 @@ def main(argv: list[str] | None = None) -> int:
         ok, detail = _write_reports_from_memory(program, source_root, source_dir, hunter.ledger.path)
         memory_write_failed = not ok
         memory_write_detail = detail
-        if args.verbose and detail:
+        if args.verbose >= 1 and detail:
             print(detail)
         report_files = _discover_report_files(source_dir)
-        if args.verbose:
+        if args.verbose >= 1:
             print(f"[sync_reports] memory_write_ok={ok} files_after_write={len(report_files)}")
 
     if not report_files:
@@ -552,7 +556,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for report_path in report_files:
         candidates = _candidates_for_file(program, hunt_type, hunter, report_path)
-        if args.verbose:
+        if args.verbose >= 1:
             print(f"[sync_reports] parsed {len(candidates)} findings from {report_path}")
 
         for candidate in candidates:
@@ -574,13 +578,13 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 coverage_relpath = _mark_coverage(hunter, finding, parsed)
             except Exception as exc:
-                if args.verbose:
+                if args.verbose >= 1:
                     print(f"[sync_reports] coverage update failed for {report_path}: {exc}")
             related = _chain_suggestions(program, hunt_type, finding)
 
             imported_fids.append(_normalize_text(finding.get("fid")))
             print(f"ADDED {finding['fid']}")
-            if args.verbose:
+            if args.verbose >= 1:
                 print(f"[sync_reports] report={report_output}")
                 if coverage_relpath:
                     print(f"[sync_reports] coverage={coverage_relpath}")

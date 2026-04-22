@@ -31,7 +31,8 @@ from agents.report_checker import (
 )
 from agents.shared_brain import load_index
 from agents.snapshot_identity import get_snapshot_identity
-from agents.storage_resolver import resolve_family_lane, resolve_storage, write_context_files
+from agents.storage_resolver import StorageLayout, resolve_family_lane, resolve_storage, write_context_files
+from agents.verbosity import clamp_verbosity
 
 
 SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "UNKNOWN"}
@@ -326,8 +327,82 @@ def _build_hunt_context(
     return "\n".join(context_parts)
 
 
-def _run_codex_hunt(context: str, workdir: Path, *, timeout: int = 1800) -> subprocess.CompletedProcess[str]:
+def _build_subagent_handoff_bundle(
+    layout: StorageLayout,
+    *,
+    program: str,
+    source_root: Path,
+    hunt_prompt: str,
+) -> str:
+    paths = {
+        "target_profile": layout.context_root / "target_profile.json",
+        "me_context": layout.context_root / "me_context.md",
+        "session_handoff": layout.context_root / "session_handoff.md",
+    }
+    existing_paths = {name: path for name, path in paths.items() if path.exists()}
+
+    bundle = {
+        "program": program,
+        "source_root": str(source_root),
+        "family": layout.family,
+        "lane": layout.lane,
+        "canonical_root": str(layout.lane_root),
+        "reports_raw": str(layout.reports_root / "raw"),
+        "ledger_root": str(layout.ledgers_root),
+        "context_root": str(layout.context_root),
+        "notes_root": str(layout.notes_root),
+        "working_root": str(layout.working_root),
+        "context_files": {name: str(path) for name, path in existing_paths.items()},
+        "hunt_prompt": hunt_prompt,
+    }
+
+    preview_parts = [
+        "# /me context handoff bundle",
+        "",
+        "This bundle should be forwarded to any spawned child agent so it inherits the exact resolved /me context.",
+        "Child agents should read the referenced context files first and use these resolved paths instead of guessing storage.",
+        "",
+        "```json",
+        json.dumps(bundle, indent=2),
+        "```",
+    ]
+
+    for name, path in existing_paths.items():
+        try:
+            contents = path.read_text(encoding="utf-8").rstrip()
+        except OSError as exc:
+            contents = f"[unreadable: {exc}]"
+        preview_parts.extend(
+            [
+                "",
+                f"## {name}: {path}",
+                "```",
+                contents,
+                "```",
+            ]
+        )
+
+    preview_parts.extend(
+        [
+            "",
+            "## Child-agent rules",
+            "- Treat this /me bundle as authoritative for storage and coordination.",
+            "- If you spawn another child, forward this same bundle unchanged unless you intentionally update the canonical context.",
+            "- Do not assume cwd is canonical storage.",
+        ]
+    )
+    return "\n".join(preview_parts) + "\n"
+
+
+def _run_codex_hunt(
+    context: str,
+    workdir: Path,
+    *,
+    timeout: int = 1800,
+    extra_instructions: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     workdir.mkdir(parents=True, exist_ok=True)
+    final_input = context if not extra_instructions else f"{context.rstrip()}\n\n{extra_instructions.rstrip()}\n"
     return subprocess.run(
         [
             "codex",
@@ -341,7 +416,7 @@ def _run_codex_hunt(context: str, workdir: Path, *, timeout: int = 1800) -> subp
             str(workdir),
         ],
         cwd=str(workdir),
-        input=context,
+        input=final_input,
         text=True,
         timeout=timeout,
         check=False,
@@ -640,9 +715,10 @@ def _render_novel_section(finding: dict[str, Any]) -> str:
 def _ghost_report_paths(program: str, hunt_type: str) -> tuple[Path, Path, Path]:
     family, lane = resolve_family_lane(hunt_type=hunt_type)
     storage = resolve_storage(_sanitize_program_name(program), family=family, lane=lane, create=True)
-    confirmed = storage.reports_root / "confirmed" / "index.md"
-    dormant = storage.reports_root / "dormant" / "index.md"
-    novel = storage.reports_root / "novel" / "index.md"
+    report_date = datetime.now().strftime("%d-%m-%Y")
+    confirmed = storage.reports_root / "confirmed" / report_date / "index.md"
+    dormant = storage.reports_root / "dormant" / report_date / "index.md"
+    novel = storage.reports_root / "novel" / report_date / "index.md"
     for path in (confirmed, dormant, novel):
         path.parent.mkdir(parents=True, exist_ok=True)
     return (confirmed, dormant, novel)
@@ -950,9 +1026,10 @@ class ManualHunter:
         return 0
 
     def _append_report(self, finding: dict[str, Any]) -> None:
-        confirmed_path = self.storage.reports_root / "confirmed" / "index.md"
-        dormant_path = self.storage.reports_root / "dormant" / "index.md"
-        novel_path = self.storage.reports_root / "novel" / "index.md"
+        report_date = datetime.now().strftime("%d-%m-%Y")
+        confirmed_path = self.storage.reports_root / "confirmed" / report_date / "index.md"
+        dormant_path = self.storage.reports_root / "dormant" / report_date / "index.md"
+        novel_path = self.storage.reports_root / "novel" / report_date / "index.md"
         for path in (confirmed_path, dormant_path, novel_path):
             path.parent.mkdir(parents=True, exist_ok=True)
         bucket = _report_bucket(finding)
@@ -1132,6 +1209,17 @@ class ManualHunter:
             f"- Use notes root: {self.storage.notes_root}\n"
             "- Do not use cwd as canonical report storage unless explicit local mode was requested.\n"
         )
+        subagent_handoff = _build_subagent_handoff_bundle(
+            self.storage,
+            program=self.program,
+            source_root=target_root,
+            hunt_prompt=context,
+        )
+        context += (
+            "\n## Sub-agent inheritance\n"
+            "- If you spawn a sub-agent, pass down the resolved /me context and canonical storage contract.\n"
+            "- Forward the exact handoff bundle below so children inherit the same family, lane, roots, and context files.\n"
+        )
         if fresh:
             print(f"[/me] Fresh mode enabled for {self.program}; skipping ledger and coverage context...")
         else:
@@ -1143,10 +1231,21 @@ class ManualHunter:
         print("[/me] Spawning Codex with context:")
         print(context)
         print("---")
+        print("[/me] Sub-agent handoff bundle prepared.")
+        print(subagent_handoff)
+        print("---")
 
         codex_rc = 1
         try:
-            result = _run_codex_hunt(context, target_root, timeout=timeout)
+            result = _run_codex_hunt(
+                context,
+                target_root,
+                timeout=timeout,
+                extra_instructions=(
+                    "If you decide to spawn a child agent, include the full /me handoff bundle below in that child prompt.\n\n"
+                    + subagent_handoff
+                ),
+            )
             codex_rc = int(result.returncode)
         except FileNotFoundError:
             print("[/me] Codex executable not found in PATH")
@@ -1177,7 +1276,6 @@ def build_parser() -> argparse.ArgumentParser:
         description="Ingest manual findings into the Ghost pipeline or launch a Ghost-aware hunt."
     )
     parser.add_argument("program", help="Program slug under ~/Shared/bounty_recon/")
-    parser.add_argument("--fresh", action="store_true", help="Run with a clean slate, ignoring prior findings.")
     mode = parser.add_mutually_exclusive_group(required=False)
     mode.add_argument("--watch", action="store_true", help="Watch the manual drop folder for notes to ingest.")
     mode.add_argument("--add", help="Paste a finding note directly.")
@@ -1207,11 +1305,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="When a duplicate is found, attach the raw note to the existing finding comment ledger.",
     )
+    parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    verbosity = clamp_verbosity(args.verbose)
     hunter = ManualHunter(
         args.program,
         hunt_type=args.hunt_type,
@@ -1235,6 +1335,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.interactive:
         return hunter.interactive(link_duplicate_comment=args.link_duplicate_comment)
     if args.hunt or not any((args.watch, args.add is not None, args.from_file, args.interactive)):
+        if verbosity.verbose:
+            print(f"[/me] verbosity={verbosity.level}")
+            print(f"[/me] storage_root={hunter.storage.lane_root}")
+            print(f"[/me] reports_root={hunter.storage.reports_root}")
+            print(f"[/me] ledgers_root={hunter.storage.ledgers_root}")
+        if verbosity.very_verbose:
+            print(f"[/me] context_root={hunter.storage.context_root}")
+            print(f"[/me] working_root={hunter.storage.working_root}")
+            print(f"[/me] notes_root={hunter.storage.notes_root}")
         return hunter.hunt(fresh=args.fresh)
     raise AssertionError("unreachable")
 

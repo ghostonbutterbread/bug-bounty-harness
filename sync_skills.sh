@@ -61,7 +61,7 @@ load_config() {
     HARNESS_ROOT="$SCRIPT_DIR"
 
     : "${CLAUDE_SKILLS_DIR:=${HOME}/.claude/skills}"
-    : "${CODEX_SKILLS_DIR:=${HOME}/.codex/skills}"
+    : "${CODEX_SKILLS_DIR:=${HOME}/.agents/skills}"
     : "${GHOST_SKILLS_DIR:=${HOME}/.openclaw/workspace/skills}"
 }
 
@@ -244,13 +244,6 @@ main() {
         done
         echo ""
     fi
-
-    # Also sync to local .agents/skills for repo-specific Codex
-    echo "Syncing to local .agents/skills (repo-specific)..."
-    for skill in $SKILLS; do
-        sync_skill "$skill" "$HARNESS_ROOT/.agents/skills"
-    done
-    echo ""
 
     if [ "$DRY_RUN" = true ]; then
         echo "========================================"

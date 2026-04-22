@@ -18,7 +18,7 @@ Skills use paths from `config.env` or environment variables.
 | `HARNESS_SHARED_BASE` | Base for bounty recon data | `~/Shared/bounty_recon` |
 | `HARNESS_WORDLISTS` | Wordlists directory | `~/wordlists` |
 | `CLAUDE_SKILLS_DIR` | Claude Code skills directory | `~/.claude/skills` |
-| `CODEX_SKILLS_DIR` | Codex skills directory | `~/.codex/skills` |
+| `CODEX_SKILLS_DIR` | Codex skills directory | `~/.agents/skills` |
 | `KAIDO_MCP_PROXY_URL` | Caido MCP proxy URL for traffic capture and replay | `http://127.0.0.1:3333/mcp` |
 
 ### Config File
@@ -33,7 +33,7 @@ Edit `config.env` in the repo root:
 HARNESS_SHARED_BASE="${HOME}/Shared/bounty_recon"
 HARNESS_ROOT="${HOME}/projects/bug_bounty_harness"
 CLAUDE_SKILLS_DIR="${HOME}/.claude/skills"
-CODEX_SKILLS_DIR="${HOME}/.codex/skills"
+CODEX_SKILLS_DIR="${HOME}/.agents/skills"
 KAIDO_MCP_PROXY_URL="http://127.0.0.1:3333/mcp"
 ```
 
@@ -104,8 +104,7 @@ spawn_codex(
 | Provider | Directory |
 |----------|-----------|
 | Claude Code | `~/.claude/skills/` (or `$CLAUDE_SKILLS_DIR`) |
-| Codex | `~/.codex/skills/` (or `$CODEX_SKILLS_DIR`) |
-| Repo-specific | `{HARNESS_ROOT}/.agents/skills/` |
+| Codex | `~/.agents/skills/` (or `$CODEX_SKILLS_DIR`) |
 
 Sync with: `./sync_skills.sh` or `./setup.sh --sync`
 
@@ -151,7 +150,6 @@ bug_bounty_harness/
 │   ├── xss/SKILL.md
 │   └── ...
 ├── .claude/skills/        # Synced for Claude Code
-├── .agents/skills/        # Synced for Codex (repo-specific)
 └── SKILL_REGISTRY.md      # This file
 ```
 

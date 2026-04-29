@@ -8,9 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
-from agents.ledger import create_team_ledger_from_storage, update_team_finding
-
-from .findings import safe_int
+from agents.ledger import create_team_ledger_from_storage, update_team_coverage_state, update_team_finding
 
 TimestampFn = Callable[[], str]
 NormalizeFindingFn = Callable[[Any], dict[str, Any] | None]
@@ -18,7 +16,6 @@ EnsureParentFn = Callable[[Path], None]
 ReadLedgerFn = Callable[[], dict[str, Any]]
 NormalizeLedgerFn = Callable[[dict[str, Any]], dict[str, Any]]
 MergeLedgerFn = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
-DefaultLedgerFn = Callable[[], dict[str, Any]]
 
 
 def load_ledger(
@@ -172,74 +169,19 @@ def update_reviewed_findings(
 
 def update_coverage_state(
     *,
-    ledger_path: Path,
-    ledger_lock_path: Path,
-    ensure_parent: EnsureParentFn,
-    read_default_ledger: DefaultLedgerFn,
-    timestamp_iso: TimestampFn,
+    program: str,
+    storage: Any,
     agent_name: str,
     surface: str,
     finding_count: int,
     set_last_loaded: Callable[[dict[str, Any]], None],
 ) -> None:
-    """Update BaseTeam coverage metadata while preserving canonical finding state."""
-    ensure_parent(ledger_path)
-    ensure_parent(ledger_lock_path)
-    ledger_lock_path.touch(exist_ok=True)
-
-    with ledger_lock_path.open("a+", encoding="utf-8") as lock_handle:
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-        try:
-            payload = read_default_ledger()
-            if ledger_path.exists():
-                try:
-                    loaded = json.loads(ledger_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    loaded = None
-                if isinstance(loaded, dict):
-                    payload = loaded
-
-            coverage = payload.setdefault("coverage", {})
-            if not isinstance(coverage, dict):
-                coverage = {}
-                payload["coverage"] = coverage
-
-            agents_run = coverage.setdefault("agents_run", {})
-            if not isinstance(agents_run, dict):
-                agents_run = {}
-                coverage["agents_run"] = agents_run
-            agents_run[str(agent_name)] = timestamp_iso()
-
-            surfaces_tested = coverage.setdefault("surfaces_tested", [])
-            if not isinstance(surfaces_tested, list):
-                surfaces_tested = []
-                coverage["surfaces_tested"] = surfaces_tested
-            normalized_surface = str(surface or "").strip()
-            if normalized_surface and normalized_surface not in surfaces_tested:
-                surfaces_tested.append(normalized_surface)
-            coverage["surfaces_tested"] = sorted(str(item).strip() for item in surfaces_tested if str(item).strip())
-
-            findings = payload.get("findings")
-            finding_total = len(findings) if isinstance(findings, list) else 0
-            coverage["total_findings"] = max(
-                safe_int(coverage.get("total_findings")),
-                finding_total,
-                max(0, int(finding_count)),
-            )
-            payload["updated_at"] = timestamp_iso()
-
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=ledger_path.parent,
-                prefix=f".{ledger_path.name}.",
-                suffix=".tmp",
-                delete=False,
-            ) as handle:
-                json.dump(payload, handle, indent=2, sort_keys=False)
-                handle.write("\n")
-                temp_path = Path(handle.name)
-            temp_path.replace(ledger_path)
-            set_last_loaded(payload)
-        finally:
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+    """Update BaseTeam coverage metadata through the canonical ledger adapter."""
+    coverage = update_team_coverage_state(
+        program,
+        storage=storage,
+        agent_name=agent_name,
+        surface=surface,
+        finding_count=finding_count,
+    )
+    set_last_loaded({"coverage": coverage})

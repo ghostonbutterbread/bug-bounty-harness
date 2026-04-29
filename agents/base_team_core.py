@@ -384,11 +384,8 @@ class BaseTeam(abc.ABC):
     def update_coverage(self, agent_name: str, surface: str, finding_count: int) -> None:
         """Update coverage metadata for a single agent execution."""
         shared_update_coverage_state(
-            ledger_path=self.ledger_path,
-            ledger_lock_path=self.ledger_lock_path,
-            ensure_parent=self._ensure_parent,
-            read_default_ledger=self._default_ledger,
-            timestamp_iso=_timestamp_iso,
+            program=self.program,
+            storage=self.storage,
             agent_name=agent_name,
             surface=surface,
             finding_count=finding_count,

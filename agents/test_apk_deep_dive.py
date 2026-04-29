@@ -49,7 +49,10 @@ class ApkDeepDiveLedgerPersistenceTests(unittest.TestCase):
         parent = Mock()
         parent.attach_mock(ledger.check, "check")
 
-        with patch.object(apk_deep_dive, "update_team_finding", return_value=reserved_finding) as update_mock:
+        with (
+            patch.object(apk_deep_dive, "update_team_finding", return_value=reserved_finding) as update_mock,
+            patch("bounty_core.ledger.add_finding") as add_finding_mock,
+        ):
             parent.attach_mock(update_mock, "update_team_finding")
             count = apk_deep_dive._persist_pass2_findings(
                 [raw_finding],
@@ -79,6 +82,7 @@ class ApkDeepDiveLedgerPersistenceTests(unittest.TestCase):
         ]
         self.assertEqual(parent.mock_calls[:2], expected_calls)
         ledger.update.assert_not_called()
+        add_finding_mock.assert_not_called()
         registry.record_progressive_finding.assert_called_once_with(raw_finding, requested_by="deep_dive")
         self.assertNotIn("fid", raw_finding)
 

@@ -10,8 +10,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from agents.ledger_v2 import VersionedFindingsLedger, ledger_add, ledger_check, ledger_get, ledger_list, ledger_path
+from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.storage_resolver import StorageLayout
+
+ensure_bounty_core_importable()
+
+from bounty_core.ledger import VersionedFindingsLedger, ledger_add, ledger_check, ledger_get, ledger_list, ledger_path  # noqa: E402
+
+
+def _explicit_root_from_storage(storage: StorageLayout) -> Path | None:
+    if getattr(storage, "root_mode", "") != "explicit-local":
+        return None
+    return Path(storage.base_root).expanduser().resolve(strict=False)
 
 
 def create_team_ledger(
@@ -24,6 +34,8 @@ def create_team_ledger(
     agent: str = "codex",
     lane: str,
     family: str,
+    root_override: str | Path | None = None,
+    storage_root: str | Path | None = None,
 ) -> VersionedFindingsLedger:
     """Create the canonical connected-team ledger wrapper.
 
@@ -40,6 +52,8 @@ def create_team_ledger(
         agent=agent,
         lane=lane,
         family=family,
+        root_override=root_override,
+        storage_root=storage_root,
     )
 
 
@@ -63,6 +77,7 @@ def create_team_ledger_from_storage(
         agent=agent,
         lane=storage.lane,
         family=storage.family,
+        root_override=_explicit_root_from_storage(storage),
     )
 
 
@@ -70,7 +85,12 @@ def team_ledger_path(*, storage: StorageLayout, program: str | None = None) -> P
     """Return the canonical ledger path for an already resolved storage context."""
     if program is None:
         return storage.ledgers_root / "ledger.json"
-    return ledger_path(program, lane=storage.lane, family=storage.family)
+    return ledger_path(
+        program,
+        lane=storage.lane,
+        family=storage.family,
+        root_override=_explicit_root_from_storage(storage),
+    )
 
 
 __all__ = [

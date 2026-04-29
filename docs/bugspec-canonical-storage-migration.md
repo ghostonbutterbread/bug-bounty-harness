@@ -16,7 +16,7 @@ This is a backlog/spec document, not an implementation patch. Each implementatio
 ## Goals
 
 - Make `bounty_core.storage` the single resolver for canonical `family/program/lane` layout.
-- Make `bounty_core.ledger` the long-term source of truth for findings and finding state.
+- Make the Ledger v2 contract the long-term source of truth for findings and finding state, with the implementation moved into `bounty_core.ledger`.
 - Keep recon/raw artifacts under `recon/` or `working/`; promote only high-confidence vulnerability candidates to the ledger.
 - Preserve read-only fallback from legacy `~/Shared/bounty_recon/...` during migration.
 - Ensure new writes use canonical `~/Shared/<family>/<program>/<lane>/...` paths, or an explicit local root override.
@@ -26,7 +26,7 @@ This is a backlog/spec document, not an implementation patch. Each implementatio
 
 - Do not rewrite all agents in one pass.
 - Do not remove legacy fallback reads until all active readers have canonical equivalents and migration tests.
-- Do not change finding identity or dedupe semantics without a ledger-specific review.
+- Do not change Ledger v2 finding identity, FID, or dedupe semantics without fixture compatibility tests and a ledger-specific review.
 - Do not move high-volume recon output into `ledger.json`.
 - Do not create parallel report path conventions while `bounty_core.reports` is the intended destination.
 - Do not treat seeded report index markdown as user-authored raw reports.
@@ -37,9 +37,9 @@ This is a backlog/spec document, not an implementation patch. Each implementatio
 | --- | --- | --- |
 | `agents/storage_resolver.py` | Compatibility facade over `bounty_core.storage`; exposes `resolve_storage`, `resolve_family_lane`, `StorageLayout`, context writers. | Keep as thin facade until callers import `bounty_core.storage` directly. No path policy should live here beyond compatibility glue. |
 | `bounty_core.storage` | Canonical family/program/lane resolver and layout object. | Single owner of roots like `reports_root`, `ledgers_root`, `recon_root`, `working_root`, `context_root`, `notes_root`. |
-| `agents/ledger.py` | Connected-team ledger wrapper; delegates to `agents.ledger_v2`. | Become thin adapter to `bounty_core.ledger`, preserving harness API while centralizing writes. |
-| `agents/ledger_v2.py` | Version-aware `ledger.json` implementation with snapshot sightings and locks. | Migrate or wrap through `bounty_core.ledger`; only one module should own `ledger.json` write semantics. |
-| `bounty_core.ledger` | Target source of truth for finding append/update/list/read. | Own `ledger.json`, locks, dedupe, sightings, status, provenance, and report refresh hooks. |
+| `agents/ledger.py` | Connected-team ledger wrapper; delegates to `agents.ledger_v2`. | Remain a harness adapter that exposes current team APIs while delegating all read/write behavior to the universal Ledger v2 implementation in `bounty_core.ledger`. |
+| `agents/ledger_v2.py` | Newest and richest ledger contract: version-aware `ledger.json`, FID assignment, snapshot sightings, legacy migration, unknown-field preservation, and locks. | This contract becomes the universal ledger. Move the implementation into `bounty_core.ledger`; keep this file only as compatibility imports/adapters until callers migrate. |
+| `bounty_core.ledger` | Current shared append/update ledger helper, but its schema is older/narrower than Ledger v2 and it also writes the same `ledger.json`. | Absorb Ledger v2 as the canonical owner of `ledger.json`, locks, dedupe, sightings, status/review metadata, provenance, report refresh hooks, and compatibility readback. |
 | `agents/report_paths.py` | Canonical and legacy report source selection; filters seeded indexes. | Collapse into `bounty_core.reports` path/index helpers, keeping legacy fallback read-only. |
 | `agents/report_checker.py` | Reads ledger and markdown reports; resolves source files; can run chainer. | Read findings from ledger first; report markdown should be derived/index data unless explicitly imported. |
 | `agents/report_generator.py` | Generates report output from findings. | Use `bounty_core.reports` for all canonical report paths and indexes. |
@@ -48,6 +48,7 @@ This is a backlog/spec document, not an implementation patch. Each implementatio
 | `agents/coverage_store.py` | Stores source coverage indexes using canonical storage with legacy fallback. | Keep storage-root propagation explicit; coverage is supporting state, not findings ledger state. |
 | `agents/shared_brain.py` | Builds and loads source indexes with canonical path plus legacy fallback. | Continue read fallback; new shared-brain writes go canonical only. |
 | `agents/base_team/storage.py` | BaseTeam storage compatibility with `output_root`. | Normalize root naming and delegate resolution to `bounty_core.storage`. |
+| `agents/base_team/ledger.py` | BaseTeam-specific load/save/dedupe helper with its own merge shape and `coverage` state. | Keep as a harness orchestration adapter only; route finding state writes through the universal ledger and keep coverage/supporting state outside the canonical finding contract. |
 | `agents/base_team/reports.py` | Dated report index writing helpers. | Replace duplicated path rules with `bounty_core.reports`; retain compatibility indexes only as derived views. |
 | `agents/base_team/review.py` | Review gate behavior. | Should consume ledger candidates and write final decisions through ledger APIs. |
 | `agents/chainer.py` | Reads reports and writes chained report output; still defaults to legacy paths. | Read canonical ledger/report indexes first; write chain outputs under canonical `reports/` or `working/`. |
@@ -60,11 +61,11 @@ Every future patch must preserve these:
 1. Explicit root propagation wins. Any caller given `--root`, `storage_root`, `root_override`, or equivalent must write only under that explicit root.
 2. Canonical default writes go under `~/Shared/<family>/<program>/<lane>/...`, not `~/Shared/bounty_recon/...`.
 3. Legacy `~/Shared/bounty_recon/...` may be read as fallback only when canonical data is absent or when a user explicitly selects a legacy source.
-4. `ledger.json` is the durable findings source of truth. Markdown reports and indexes are views, import sources, or human-readable artifacts.
+4. Ledger v2 `ledger.json` is the durable findings source of truth. Markdown reports and indexes are views, import sources, or human-readable artifacts.
 5. Raw recon/tool output stays in `recon/` or `working/`. The ledger receives only normalized, high-confidence candidates with provenance.
 6. Seeded canonical report index placeholders are not raw user reports. `discover_report_files()` must exclude generated `index.md` placeholders.
 7. Source-root resolution for sync/import is deterministic: explicit `source_root`, then shared-brain `target_root`, then source-dir/program fallback.
-8. Snapshot and coverage metadata must survive promotion: preserve `snapshot_id`, `version_label`, `run_id`, `agent`, and evidence references.
+8. Snapshot and coverage metadata must survive promotion: preserve `fid`, `snapshot_id`, `first_seen`, `last_seen`, `sightings`, `sighting_count`, `version_label`, `run_id`, `agent`, and evidence references.
 9. Family/lane inference must remain explicit for non-default lanes. Unknown custom lanes must not be silently routed.
 10. A migrated module must not duplicate canonical path composition once a `bounty_core` helper exists.
 11. `bounty_core.reports` may generate derived views, but it must not become a second source of truth for finding state.
@@ -93,35 +94,123 @@ Risk level: Medium. Root plumbing touches many call sites but should be behavior
 
 Suggested files: `agents/storage_resolver.py`, `agents/ledger.py`, `agents/ledger_v2.py`, `agents/manual_hunter.py`, `agents/sync_reports.py`, `agents/coverage_store.py`, `agents/base_team/storage.py`, `agents/test_*`.
 
-## BUGSPEC-2: Make One Ledger Owner
+## BUGSPEC-2: Make Ledger V2 the Universal Ledger
 
-Problem: `agents/ledger_v2.py` and `bounty_core.ledger` both touch `ledger.json` semantics. `agents/ledger.py` is a wrapper but still delegates to local `ledger_v2`, leaving two likely sources of truth.
+Problem: `agents/ledger_v2.py` is the newest and most complete ledger contract, but `bounty_core.ledger` also writes `ledger.json` with an older schema. `agents/ledger.py` is a wrapper over local Ledger v2, while `agents/base_team/ledger.py`, `report_checker`, `manual_hunter`, `sync_reports`, `zero_day_team`, and `apk_team` still use a mix of direct JSON reads, local helper APIs, and wrapper calls.
 
-Why it matters: Split ledger ownership risks incompatible locking, dedupe, sightings, migration, and report-refresh behavior.
+Why it matters: Split ledger ownership risks incompatible locking, dedupe, sightings, FID assignment, fixture migration, report refresh, and readback between harness and `bounty_core` callers.
 
-Acceptance criteria:
+Decision: Ledger v2 is the intended universal ledger owner and contract. The implementation should move into `bounty_core.ledger` so both Bug Bounty Harness and other repos share the same behavior. Harness files should become adapters around that contract, not second implementations.
 
-- Exactly one implementation owns `ledger.json` read/write/lock/update behavior.
-- Harness APIs can remain as adapters, but direct writes go through `bounty_core.ledger` or an explicitly documented temporary adapter.
-- Snapshot sightings preserve current fields: `first_snapshot`, `last_snapshot`, `sightings[]`, `snapshot_id`, `version_label`, `run_id`, and `agent`.
-- Existing tests for duplicate findings across snapshots still pass.
-- New tests assert a finding added through the harness wrapper is visible through `bounty_core.ledger.list_findings()` and vice versa.
-- Existing `ledger_v2` fixtures can be read by `bounty_core.ledger` without mutation unless an explicit migration or write occurs.
-- Round-trip read/write preserves unknown and legacy fields unless a reviewed migration intentionally normalizes them.
+Staged migration:
+
+- Stage 1A — fixture and adapter contract gate only:
+  - add or keep golden fixture coverage before moving implementation code;
+  - verify the intended universal identity policy: `(file, line, class_name, type)` for source/APK-style findings, with future web/API identities defined separately;
+  - document the adapter compatibility matrix before changing callers.
+- Stage 1B — core move plus adapters only:
+  - move the Ledger V2 implementation into `bounty_core.ledger`;
+  - keep `agents/ledger.py` and `agents/ledger_v2.py` as compatibility adapters that preserve current import paths, args, return shapes, exceptions, lock behavior, and side effects;
+  - do not migrate active BaseTeam/manual/sync/report-checker call sites in this stage except where required to keep adapters delegating cleanly;
+  - preserve current report/index side effects or gate them behind explicit compatibility flags; do not introduce new report taxonomy behavior.
+- Stage 2 — active harness caller migration:
+  - migrate BaseTeam, `zero_day_team`, `apk_team`, `manual_hunter`, `sync_reports`, `me_ledger`, and `report_checker` to the harness adapter/API that lands on `bounty_core.ledger`;
+  - BaseTeam owns orchestration, review sequencing, partial persistence, and coverage/support-state coordination, but not canonical ledger JSON mechanics.
+- Stage 3 — direct `agents.ledger_v2` deprecation:
+  - direct imports from `agents/ledger_v2.py` are deprecated and treated as temporary shim usage;
+  - remove `agents/ledger_v2.py` only after `rg "agents\.ledger_v2|from agents import ledger_v2|import agents\.ledger_v2" agents docs` and downstream checks show no direct callers.
+
+Stage 1 non-goals:
+
+- No active caller migration beyond adapter preservation.
+- No report/status taxonomy migration.
+- No raw-candidate promotion behavior changes.
+- No legacy fallback deletion.
+- No BaseTeam orchestration rewrite.
+- No conversion of high-volume recon output into ledger data.
+
+Contract to preserve:
+
+- Storage path resolution uses `bounty_core.storage`/`agents.storage_resolver` for `family/program/lane`, honors explicit `root_override`/`storage_root`, and writes exactly one `ledgers/ledger.json` plus `ledger.lock` per resolved storage layout.
+- BUGSPEC-1 root safety is a prerequisite for Stage 1B, or Stage 1B must include equivalent root-conflict tests proving conflicting `root_override`/`storage_root` raises and explicit roots do not leak writes into default `~/Shared`.
+- Public APIs cover add/update/check/list/get/sightings and preserve existing harness names where needed: `ledger_add`, `ledger_check`, `ledger_list`, `ledger_get`, `ledger_sightings`, and `VersionedFindingsLedger`.
+- Adapter compatibility matrix must cover import path, callable/class, args, return shape, exceptions, lock behavior, and side effects for `agents.ledger`, `agents.ledger_v2`, and `bounty_core.ledger`.
+- Finding records preserve Ledger V2 metadata: `fid`, `first_seen`, `first_snapshot`, `last_seen`, `last_snapshot`, `sightings[]`, `current`, `snapshot_id`, `version_label`, `run_id`, and `agent`.
+- Stage 1 is status-neutral: preserve and round-trip existing `status`, `review_tier`, `tier`, bucket, and provenance fields exactly. Do not normalize lifecycle taxonomy until BUGSPEC-4A.
+- `sightings[]` is authoritative for sighting history. `sighting_count` is compatibility-only: preserve and round-trip it when present, but never use it to override, truncate, synthesize, or otherwise become authoritative over `sightings[]`. Normalizing `sighting_count` to `len(sightings)` on writes is allowed only after review confirms downstream compatibility.
+- Unknown top-level ledger keys such as `coverage` or `custom_metadata` and unknown finding fields must survive read/write round trips unless a reviewed migration explicitly changes them.
+- Unknown fields inside `sightings[]` must also survive read/write/update round trips. Sighting normalization may fill missing known fields, but it must not discard extra evidence, source, or reviewer metadata.
+- Universal source/APK-style finding identity is `(file, line, class_name, type)` so BaseTeam-distinct findings sharing `file` and `class_name` do not collapse. Web/API identity remains a later reviewed policy under the shared finding schema.
+- Locking remains file-lock based with same-directory atomic JSON replacement, and concurrent append/update behavior is tested under the final owner.
+- Legacy v1 and current v2 fixtures are readable without mutation on read. Mutation happens only through explicit writes or a reviewed migration command.
+- `bounty_core.ledger` may refresh reports/indexes as derived views, but report generation must not rewrite canonical finding state outside ledger APIs.
+- Current `bounty_core.ledger` behavior is not Ledger V2-compatible yet and must be accounted for during the move: it uses `LEDGER_VERSION = 1`, JSONL event history, report/index refresh hooks, a different status taxonomy, and identity-hash dedupe. Stage 1B must either preserve JSONL/index side effects as compatibility behavior or explicitly replace them with reviewed fixtures proving Ledger V2 behavior remains authoritative.
+
+Stage 1A acceptance criteria:
+
+- Golden fixtures exist for legacy v1, current Ledger V2, BaseTeam-style `coverage`, unknown top-level fields, unknown finding fields, unknown `sightings[]` fields, `sighting_count`, and BaseTeam-distinct identity collisions.
+- Fixture tests prove reads do not mutate ledger JSON.
+- Fixture tests prove explicit writes preserve unknown top-level, finding-level, and sighting-level metadata.
+- Fixture tests prove `(file, line, class_name, type)` distinct records remain separate.
+- Adapter compatibility matrix is added to the spec or companion docs.
+- No implementation move happens until these tests pass.
+
+Stage 1B acceptance criteria:
+
+- Exactly one implementation owns `ledger.json` read/write/lock/update behavior: the Ledger V2 contract inside `bounty_core.ledger`.
+- `agents/ledger_v2.py` and `agents/ledger.py` are compatibility adapters only; they do not independently compose paths, lock, migrate, or write JSON.
+- Existing tests for duplicate findings across snapshots still pass unchanged or with only import-path updates.
+- New tests assert a finding added through the harness wrapper is visible through `bounty_core.ledger.list_findings()` and vice versa over the same explicit storage root.
+- Existing Ledger V2 fixtures can be read by `bounty_core.ledger` without mutation unless an explicit migration or write occurs.
+- Round-trip read/write preserves unknown top-level and finding fields unless a reviewed migration intentionally normalizes them.
+- Round-trip read/write preserves unknown fields inside each `sightings[]` item.
+- BaseTeam-style ledgers with top-level `coverage`, finding-level `team_type`, and compatibility `sighting_count` round-trip without losing those fields.
+- BaseTeam-distinct records sharing `file` and `class_name` but differing by `line` or `type` remain safely represented.
 - Historical ledger records retain existing fingerprints, statuses, review fields, sightings, and provenance.
 - Locking and concurrent append behavior are tested under the final ledger owner.
+- `~/projects/bounty-core` tests pass, then harness ledger tests pass against the editable/local `bounty-core` dependency.
+
+Stage 2 acceptance criteria:
+
+- BaseTeam ledger helpers stop owning finding-state writes. They may keep coverage/supporting orchestration state, but canonical finding append/update/list/read goes through the universal ledger.
+- `me_ledger`, `manual_hunter`, `sync_reports`, `report_checker`, `zero_day_team`, and `apk_team` use adapters that land on the same universal ledger path and schema.
+- BaseTeam pipeline order is preserved: raw agent JSONL → dedupe/reserve identity → Stage 2 review → reviewed ledger update → report/index refresh.
+- No raw agent candidate is promoted as a reviewed finding unless the API explicitly records raw intake without changing review semantics.
 
 Test strategy:
 
-- Port or mirror `agents/test_ledger_v2.py` against `bounty_core.ledger`.
-- Add fixture-based migration tests before replacing or wrapping `ledger_v2`.
+- Stage 1A first: create/keep fixture-based compatibility tests before replacing or wrapping `ledger_v2`; implementation is blocked until these tests pass.
+- Port or mirror `agents/test_ledger_v2.py` against `bounty_core.ledger`, keeping explicit assertions for FID assignment, duplicate handling across snapshots, legacy migration, underscore/dash class normalization, root overrides, unknown metadata preservation, and concurrent append.
+- Add fixture builders for Ledger V2 and BaseTeam-style payloads before changing implementation semantics.
 - Add a mixed API test using one explicit storage root:
   - add via harness wrapper;
   - read via bounty-core;
   - update via bounty-core;
   - read via harness wrapper;
   - assert one `ledger.json` path.
-- Add round-trip tests with legacy fixture fields and a concurrent append test against the final owner.
+- Add read-only fixture tests for v1 legacy payloads, current v2 payloads, BaseTeam-style `sighting_count` payloads, and ledgers with unknown top-level keys.
+- Add round-trip tests with legacy fixture fields, unknown `sightings[]` fields, `sighting_count` compatibility payloads, and a concurrent append test against the final owner.
+- Keep regression tests for resolved Ledger V2 compatibility gaps, especially BaseTeam-distinct `(file, line, class_name, type)` records and preservation of unknown `sightings[]` metadata.
+
+Move into `bounty_core.ledger` in Stage 1B:
+
+- Ledger V2 schema normalization and migration.
+- FID allocation and `(file, line, class_name, type)` source/APK-style dedupe semantics.
+- Snapshot sighting creation, upsert, sorting, and current-state derivation.
+- Shared storage resolution for ledger path and lock path.
+- File locking, atomic writes, read-only list/get/check helpers, and concurrent update behavior.
+- Optional report/index refresh hooks that operate only after ledger state is written and preserve existing side-effect expectations.
+
+Remain harness adapters after Stage 1B:
+
+- `agents/ledger.py`: connected-team factory and import-stable wrapper names.
+- `agents/ledger_v2.py`: temporary compatibility re-exports or thin wrapper class until call sites import `bounty_core.ledger` directly.
+- `agents/base_team/ledger.py`: BaseTeam orchestration glue and coverage/support-state merge only; finding writes move in Stage 2.
+- CLI-facing modules such as `me_ledger`, `manual_hunter`, `sync_reports`, and `report_checker`: argument parsing, source-root resolution, report import/validation workflow, and calls into the adapter.
+
+Rollback plan:
+
+- If Stage 1B exposes compatibility failures before active caller migration starts, adapters can temporarily point back to the current `agents.ledger_v2` implementation while `bounty_core.ledger` is corrected behind tests.
 
 Risk level: High. Ledger changes affect dedupe, review state, and historical findings.
 
@@ -345,8 +434,10 @@ Suggested files: `agents/report_checker.py`, `agents/report_generator.py`, `agen
    - Spawn a reviewer after implementation.
 
 2. Ledger ownership (BUGSPEC-2)
-   - Decide whether `ledger_v2` moves into `bounty_core.ledger` or becomes a strict adapter.
-   - Add fixture migration, mixed API, round-trip, and concurrent append tests over one `ledger.json`.
+   - Treat Ledger v2 as the universal contract and move that implementation into `bounty_core.ledger`.
+   - Keep `agents/ledger.py`, `agents/ledger_v2.py`, and BaseTeam helpers as harness adapters only.
+   - Add fixture migration, mixed API, round-trip, and concurrent append tests over one `ledger.json` before implementation.
+   - Do not implement ledger behavior changes until fixture compatibility tests pass.
    - Spawn a reviewer after implementation.
 
 3. Source-root/snapshot precedence (BUGSPEC-5)
@@ -364,7 +455,7 @@ Suggested files: `agents/report_checker.py`, `agents/report_generator.py`, `agen
 
 5. Source-root/snapshot or ledger ownership next pass
    - Prefer BUGSPEC-5 if the next change stays path/precedence-focused: reuse source-root and snapshot precedence across sync, manual, coverage, review, and shared-brain flows.
-   - Prefer BUGSPEC-2 if the next change touches finding state: consolidate ledger ownership behind one `ledger.json` implementation with migration fixtures.
+   - Prefer BUGSPEC-2 if the next change touches finding state: consolidate Ledger v2 into `bounty_core.ledger` behind one `ledger.json` implementation with migration fixtures.
    - Spawn a reviewer after implementation.
 
 6. Review/report derived views (BUGSPEC-8)
@@ -415,6 +506,7 @@ For every implementation pass, check:
 - Do not mass-edit all `bounty_recon` references in one patch; classify and migrate by writer/reader role.
 - Do not alter finding fingerprint semantics casually. Dedupe changes require historical ledger compatibility tests.
 - Do not replace `ledger_v2` behavior before fixture-based migration tests prove historical ledgers are preserved.
+- Do not implement the Ledger v2-to-`bounty_core.ledger` move until fixture compatibility tests are written and passing.
 - Do not remove dated report indexes until downstream scripts no longer depend on them; keep them as derived compatibility views first.
 - Do not let `bounty_core.reports` write or infer canonical finding state; it may only render derived views from the ledger.
 - Do not move source snapshots or coverage state into the findings ledger.

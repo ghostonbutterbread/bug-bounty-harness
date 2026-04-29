@@ -163,6 +163,78 @@ class ApkTeamOutputRootTests(unittest.TestCase):
             str(storage.reports_root / "chained"),
         )
 
+    def test_raw_jsonl_findings_are_review_input_only(self) -> None:
+        explicit_root = self.tmp / "explicit-root"
+        expected_root = explicit_root.expanduser().resolve(strict=False)
+        storage = SimpleNamespace(
+            family="binaries",
+            lane="apk",
+            lane_root=self.tmp / "storage" / "lane",
+            reports_root=self.tmp / "storage" / "reports",
+            ledgers_root=self.tmp / "storage" / "ledgers",
+            context_root=self.tmp / "storage" / "context",
+            working_root=self.tmp / "storage" / "work",
+        )
+        registry = SimpleNamespace(
+            extracted_root=self.tmp / "extracted-apk",
+            registry_path=self.tmp / "surface_registry.json",
+            payload={"package_name": "com.example.app", "version_name": "1.2.3", "stats": {}},
+            record_progressive_finding=Mock(),
+        )
+        ledger = SimpleNamespace(
+            path=storage.ledgers_root / "ledger.json",
+            get_class_context=Mock(return_value=""),
+            update=Mock(),
+            run_id="run-1",
+            root_override=expected_root,
+        )
+        raw_finding = {
+            "fid": "RAW01",
+            "type": "unreviewed-apk-jsonl-candidate",
+            "file": "smali/com/example/MainActivity.smali",
+            "description": "Loaded from raw findings.jsonl and rejected before persistence.",
+        }
+
+        with (
+            patch.object(apk_team, "SubagentLogger", None),
+            patch.object(apk_team, "BountyMemory", None),
+            patch.object(apk_team, "resolve_team_storage", return_value=storage),
+            patch.object(
+                apk_team,
+                "build_surface_registry",
+                return_value={"surface_registry_path": str(registry.registry_path)},
+            ),
+            patch.object(apk_team.ApkSurfaceRegistry, "load", return_value=registry),
+            patch.object(
+                apk_team,
+                "get_snapshot_identity",
+                return_value={"snapshot_id": "snap-1", "version_label": "1.2.3"},
+            ),
+            patch.object(apk_team, "create_team_ledger_from_storage", return_value=ledger),
+            patch.object(apk_team, "DynamicAgentBuilder") as builder_cls,
+            patch.object(apk_team, "_select_profiles", return_value=[]),
+            patch.object(apk_team, "load_findings", return_value=[raw_finding]) as load_mock,
+            patch.object(apk_team, "stage2_ghost_review", return_value=([], [], [])) as review_mock,
+            patch.object(apk_team, "update_team_finding") as update_mock,
+            patch.object(apk_team, "pretty_print_findings"),
+            patch("bounty_core.ledger.add_finding") as add_finding_mock,
+        ):
+            builder_cls.return_value.run.return_value = []
+
+            apk_team.orchestrate_apk_team(
+                "Example Program",
+                str(self.tmp / "example.apk"),
+                output_root=explicit_root,
+            )
+
+        load_mock.assert_called_once()
+        self.assertEqual(review_mock.call_args.args[0], [raw_finding])
+        self.assertEqual(review_mock.call_args.kwargs["output_root"], expected_root)
+        update_mock.assert_not_called()
+        ledger.update.assert_not_called()
+        add_finding_mock.assert_not_called()
+        registry.record_progressive_finding.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

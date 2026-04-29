@@ -92,6 +92,65 @@ class ZeroDayTeamOutputRootTests(unittest.TestCase):
         self.assertFalse(update_mock.call_args.kwargs["refresh"])
         ledger.update.assert_not_called()
 
+    def test_raw_jsonl_findings_are_review_input_only(self) -> None:
+        target = self.tmp / "target"
+        target.mkdir()
+        storage = SimpleNamespace(
+            family="web",
+            lane="0day_team",
+            lane_root=self.tmp / "storage" / "lane",
+            reports_root=self.tmp / "storage" / "reports",
+            ledgers_root=self.tmp / "storage" / "ledgers",
+            context_root=self.tmp / "storage" / "context",
+            working_root=self.tmp / "storage" / "work",
+        )
+        ledger = SimpleNamespace(
+            path=storage.ledgers_root / "ledger.json",
+            get_class_context=Mock(return_value=""),
+            update=Mock(),
+            run_id="run-1",
+            root_override=self.tmp / "storage-root",
+        )
+        raw_finding = {
+            "fid": "RAW01",
+            "type": "unreviewed-jsonl-candidate",
+            "file": "src/main.py",
+            "description": "Loaded from raw findings.jsonl and not approved by review.",
+        }
+
+        with (
+            patch.object(zero_day_team, "SubagentLogger", None),
+            patch.object(zero_day_team, "_resolve_zero_day_storage", return_value=storage),
+            patch.object(
+                zero_day_team,
+                "get_snapshot_identity",
+                return_value={"snapshot_id": "snap-1", "version_label": "1.2.3", "channel": "stable"},
+            ),
+            patch.object(zero_day_team, "create_team_ledger_from_storage", return_value=ledger),
+            patch.object(zero_day_team, "DynamicAgentBuilder") as builder_cls,
+            patch.object(zero_day_team, "_select_profiles", return_value=[]),
+            patch.object(zero_day_team, "_load_findings", return_value=[raw_finding]) as load_mock,
+            patch.object(zero_day_team, "stage2_ghost_review", return_value=([], [], [])) as review_mock,
+            patch.object(zero_day_team, "update_team_finding") as update_mock,
+            patch.object(zero_day_team, "_pretty_print_findings"),
+            patch("bounty_core.ledger.add_finding") as add_finding_mock,
+        ):
+            builder_cls.return_value.run.return_value = []
+
+            zero_day_team.orchestrate_zero_day_team(
+                "Example Program",
+                str(target),
+                chain=False,
+                no_preflight=True,
+                no_shared_brain=True,
+            )
+
+        load_mock.assert_called_once()
+        self.assertEqual(review_mock.call_args.args[0], [raw_finding])
+        update_mock.assert_not_called()
+        ledger.update.assert_not_called()
+        add_finding_mock.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

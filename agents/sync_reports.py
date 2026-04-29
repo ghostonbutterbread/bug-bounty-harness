@@ -9,6 +9,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,9 @@ from agents.manual_hunter import (
     _normalize_text,
     _report_bucket,
 )
+from agents.report_paths import canonical_raw_reports_dir, discover_report_files, select_report_source
 from agents.report_checker import FindingRecord, _load_ledger_findings, _load_markdown_findings, _merge_findings
+from agents.source_roots import resolve_source_root
 from agents.verbosity import clamp_verbosity
 
 
@@ -39,31 +42,18 @@ FILE_HINT_RE = (
 )
 
 
-def _find_reports_dir(program: str, override: str | None) -> tuple[Path | None, str | None]:
-    if override:
-        return Path(override).expanduser().resolve(strict=False), "override"
-
-    program_root = Path.home() / "source" / program
-    candidates = [
-        (program_root / "reports", "my_reports"),
-        (program_root / "report", "report"),
-    ]
-    for candidate, mode in candidates:
-        if candidate.is_dir():
-            return candidate.resolve(strict=False), mode
-
-    wildcard_matches = sorted(
-        path.resolve(strict=False)
-        for path in program_root.glob("*reports*")
-        if path.is_dir()
-    )
-    if wildcard_matches:
-        return wildcard_matches[0], "wildcard"
-    return None, None
+def _find_reports_dir(
+    program: str,
+    override: str | None,
+    *,
+    root_override: str | Path | None = None,
+) -> tuple[Path | None, str | None]:
+    source = select_report_source(program, hunt_type="source", source_dir=override, root_override=root_override)
+    return source.path, source.mode
 
 
-def _default_reports_dir(program: str) -> Path:
-    return (Path.home() / "source" / program / "reports").resolve(strict=False)
+def _default_reports_dir(program: str, *, root_override: str | Path | None = None) -> Path:
+    return canonical_raw_reports_dir(program, "source", root_override=root_override).resolve(strict=False)
 
 
 def _program_root(program: str, source_dir: Path | None) -> Path:
@@ -77,8 +67,25 @@ def _program_root(program: str, source_dir: Path | None) -> Path:
     return source_dir.resolve(strict=False)
 
 
+def _resolve_source_root(
+    program: str,
+    source_dir: Path | None,
+    hunt_type: str,
+    *,
+    root_override: str | Path | None = None,
+    source_root_override: str | Path | None = None,
+) -> Path:
+    return resolve_source_root(
+        program,
+        explicit=source_root_override,
+        hunt_type=hunt_type,
+        root_override=root_override,
+        fallback=lambda: _program_root(program, source_dir),
+    ) or _program_root(program, source_dir)
+
+
 def _discover_report_files(source_dir: Path) -> list[Path]:
-    return sorted(path for path in source_dir.rglob("*.md") if path.is_file())
+    return discover_report_files(source_dir)
 
 
 def _loose_markdown_fallback(text: str, source_path: Path) -> dict[str, Any] | None:
@@ -340,7 +347,13 @@ def _mark_coverage(hunter: ManualHunter, finding: dict[str, Any], parsed: Parsed
     if relpath is None:
         return None
 
-    store = CoverageStore(hunter.program, hunter.source_root, lane=hunter.lane, family=hunter.family)
+    store = CoverageStore(
+        hunter.program,
+        hunter.source_root,
+        lane=hunter.lane,
+        family=hunter.family,
+        root_override=getattr(hunter, "storage_root", None),
+    )
     store.mark_examined(
         vuln_class=vuln_class,
         files=[relpath],
@@ -355,11 +368,29 @@ def _mark_coverage(hunter: ManualHunter, finding: dict[str, Any], parsed: Parsed
     return relpath
 
 
-def _chain_suggestions(program: str, hunt_type: str, finding: dict[str, Any]) -> list[str]:
-    existing = _merge_findings(
-        _load_markdown_findings(program, hunt_type),
-        _load_ledger_findings(program),
-    )
+def _chain_suggestions(
+    program: str,
+    hunt_type: str,
+    finding: dict[str, Any],
+    *,
+    hunter: ManualHunter | None = None,
+) -> list[str]:
+    if hunter is None:
+        existing = _merge_findings(
+            _load_markdown_findings(program, hunt_type),
+            _load_ledger_findings(program),
+        )
+    else:
+        report_paths = sorted(
+            path
+            for bucket in ("confirmed", "dormant", "novel")
+            for path in (hunter.storage.reports_root / bucket).glob("**/*.md")
+            if path.is_file()
+        )
+        existing = _merge_findings(
+            _load_markdown_findings(program, hunt_type, report_paths=report_paths),
+            [FindingRecord.from_dict(item) for item in hunter.ledger.list_all()],
+        )
     merged = [record.to_finding_dict() for record in existing]
     new_fid = _normalize_text(finding.get("fid"))
     merged = [item for item in merged if _normalize_text(item.get("fid")) != new_fid] + [dict(finding)]
@@ -477,12 +508,18 @@ def sync_reports_main(
     program: str,
     *,
     source_dir: str | None = None,
+    source_root: str | Path | None = None,
+    storage_root: str | Path | None = None,
     write_reports_from_memory: bool = False,
     verbose: bool | int = False,
 ) -> int:
     argv = [program]
     if source_dir:
         argv.extend(["--source-dir", source_dir])
+    if source_root:
+        argv.extend(["--source-root", str(source_root)])
+    if storage_root:
+        argv.extend(["--root", str(storage_root)])
     if write_reports_from_memory:
         argv.append("--write-reports-from-memory")
     if isinstance(verbose, bool):
@@ -497,6 +534,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Import working report markdown into the Ghost pipeline.")
     parser.add_argument("program", help="Bug bounty program slug.")
     parser.add_argument("--source-dir", help="Optional reports directory override.")
+    parser.add_argument("--source-root", help="Optional source root override for coverage and snapshot identity.")
+    parser.add_argument("--root", dest="storage_root", help="Explicit local canonical root override.")
     parser.add_argument(
         "--write-reports-from-memory",
         action="store_true",
@@ -507,13 +546,19 @@ def main(argv: list[str] | None = None) -> int:
 
     verbosity = clamp_verbosity(args.verbose)
     program = args.program
-    source_dir, source_mode = _find_reports_dir(program, args.source_dir)
-    source_root = _program_root(program, source_dir)
-    hunt_type = "web" if source_mode == "web" else "source"
-    hunter = ManualHunter(program, hunt_type=hunt_type, source_root=source_root)
+    source_dir, source_mode = _find_reports_dir(program, args.source_dir, root_override=args.storage_root)
+    hunt_type = "web" if source_mode and "web" in source_mode else "source"
+    source_root = _resolve_source_root(
+        program,
+        source_dir,
+        hunt_type,
+        root_override=args.storage_root,
+        source_root_override=args.source_root,
+    )
+    hunter = ManualHunter(program, hunt_type=hunt_type, source_root=source_root, storage_root=args.storage_root)
 
     if source_dir is None:
-        source_dir = _default_reports_dir(program)
+        source_dir = _default_reports_dir(program, root_override=args.storage_root)
     report_files = _discover_report_files(source_dir) if source_dir.is_dir() else []
 
     if verbosity.verbose:
@@ -586,7 +631,7 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as exc:
                 if verbosity.verbose:
                     print(f"[sync_reports] coverage update failed for {report_path}: {exc}")
-            related = _chain_suggestions(program, hunt_type, finding)
+            related = _chain_suggestions(program, hunt_type, finding, hunter=hunter)
 
             imported_fids.append(_normalize_text(finding.get("fid")))
             print(f"ADDED {finding['fid']}")

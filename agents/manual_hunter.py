@@ -25,12 +25,14 @@ from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.coverage_store import CoverageStore
 from agents.ledger import VersionedFindingsLedger, create_team_ledger, create_team_ledger_from_storage
 from agents.report_checker import (
+    FindingRecord,
     _load_ledger_findings,
     _load_markdown_findings,
     _merge_findings,
 )
 from agents.shared_brain import load_index
 from agents.snapshot_identity import get_snapshot_identity
+from agents.source_roots import resolve_source_root
 from agents.storage_resolver import StorageLayout, resolve_family_lane, resolve_storage, write_context_files
 from agents.verbosity import clamp_verbosity
 
@@ -210,15 +212,35 @@ def _build_hunt_context(
     *,
     fresh: bool = False,
     version_label: str | None = None,
+    reports_dir: str | Path | None = None,
+    storage_root: str | Path | None = None,
 ) -> str:
     """Build the context prompt for Codex hunting."""
     program_slug = _sanitize_program_name(program)
-    target_root = (
-        Path(source_root).expanduser().resolve(strict=False)
-        if source_root is not None
-        else _default_source_root(program_slug)
+    resolved_storage_root = (
+        Path(storage_root).expanduser().resolve(strict=False) if storage_root else None
     )
-    reports_dir = (target_root / "reports").resolve(strict=False)
+    target_root = resolve_source_root(
+        program_slug,
+        explicit=source_root,
+        hunt_type="source",
+        family="binaries",
+        lane="apk",
+        root_override=resolved_storage_root,
+        fallback=lambda: _default_source_root(program_slug),
+    ) or _default_source_root(program_slug)
+    storage = resolve_storage(
+        program_slug,
+        family="binaries",
+        lane="apk",
+        root_override=resolved_storage_root,
+        create=True,
+    )
+    resolved_reports_dir = (
+        Path(reports_dir).expanduser().resolve(strict=False)
+        if reports_dir is not None
+        else (storage.reports_root / "raw").resolve(strict=False)
+    )
     snapshot_identity = get_snapshot_identity(target_root, version_label=version_label)
     ledger = create_team_ledger(
         program_slug,
@@ -228,6 +250,7 @@ def _build_hunt_context(
         agent="manual-hunter",
         lane="apk",
         family="binaries",
+        root_override=resolved_storage_root,
     )
     findings = ledger.list_all()
 
@@ -235,8 +258,16 @@ def _build_hunt_context(
     unexplored_rows: list[dict[str, Any]] = []
     coverage_note = ""
     try:
-        coverage = CoverageStore(program_slug, target_root, lane="apk", family="binaries")
-        examined = coverage.get_all_examined()
+        coverage = CoverageStore(
+            program_slug,
+            target_root,
+            lane="apk",
+            family="binaries",
+            root_override=resolved_storage_root,
+        )
+        examined = coverage.get_all_examined(
+            snapshot_id=_normalize_text(snapshot_identity.get("snapshot_id"))
+        )
         candidates = coverage.get_candidates()
         unexplored = {
             key: value
@@ -251,7 +282,7 @@ def _build_hunt_context(
     context_parts = [
         f"Program: {program_slug}",
         f"Target: {_display_path(target_root)}",
-        f"Output: {_display_path(reports_dir)}",
+        f"Output: {_display_path(resolved_reports_dir)}",
         f"Snapshot: {snapshot_identity.get('snapshot_id')}",
         f"Version: {snapshot_identity.get('version_label') or '(unspecified)'}",
         "",
@@ -264,7 +295,7 @@ def _build_hunt_context(
                 "",
             ]
         )
-        context_parts.extend(_coordination_briefing(program_slug, reports_dir))
+        context_parts.extend(_coordination_briefing(program_slug, resolved_reports_dir))
         return "\n".join(context_parts)
 
     context_parts.append("## Current findings (from ledger):")
@@ -304,7 +335,7 @@ def _build_hunt_context(
             _group_surface_entries(unexplored_rows),
         )
 
-    context_parts.extend(_coordination_briefing(program_slug, reports_dir))
+    context_parts.extend(_coordination_briefing(program_slug, resolved_reports_dir))
 
     context_parts.extend(
         [
@@ -312,7 +343,7 @@ def _build_hunt_context(
             "Hunt for vulnerabilities in this Electron desktop application.",
             "Focus on the unexplored surfaces above.",
             "Do NOT re-hunt surfaces already examined.",
-            f"When you find a vulnerability, write a markdown report to {_display_path(reports_dir)}.",
+            f"When you find a vulnerability, write a markdown report to {_display_path(resolved_reports_dir)}.",
             "Use this format for each report:",
             "  # [Vulnerability Title]",
             "  **Type:** [short type]",
@@ -751,8 +782,21 @@ class ParsedFinding:
 
 
 class ManualStateStore:
-    def __init__(self, program: str, *, family: str, lane: str) -> None:
-        storage = resolve_storage(_sanitize_program_name(program), family=family, lane=lane, create=True)
+    def __init__(
+        self,
+        program: str,
+        *,
+        family: str,
+        lane: str,
+        root_override: str | Path | None = None,
+    ) -> None:
+        storage = resolve_storage(
+            _sanitize_program_name(program),
+            family=family,
+            lane=lane,
+            root_override=root_override,
+            create=True,
+        )
         self.path = storage.context_root / "manual_hunter_state.json"
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -773,8 +817,21 @@ class ManualStateStore:
 
 
 class DuplicateCommentStore:
-    def __init__(self, program: str, *, family: str, lane: str) -> None:
-        storage = resolve_storage(_sanitize_program_name(program), family=family, lane=lane, create=True)
+    def __init__(
+        self,
+        program: str,
+        *,
+        family: str,
+        lane: str,
+        root_override: str | Path | None = None,
+    ) -> None:
+        storage = resolve_storage(
+            _sanitize_program_name(program),
+            family=family,
+            lane=lane,
+            root_override=root_override,
+            create=True,
+        )
         self.path = storage.ledgers_root / "manual_comments.jsonl"
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -821,7 +878,12 @@ class ManualHunter:
         resolved_family, resolved_lane = resolve_family_lane(lane=_normalize_text(lane) or None, hunt_type=self.hunt_type)
         self.lane = resolved_lane
         self.family = resolved_family
-        self.shared_brain = load_index(self.program, family=self.family, lane=self.lane)
+        self.shared_brain = load_index(
+            self.program,
+            family=self.family,
+            lane=self.lane,
+            root_override=self.storage_root,
+        )
         self.source_root = self._resolve_source_root(source_root)
         self.migrate = bool(migrate)
         target_root = self.source_root or Path.cwd()
@@ -849,15 +911,29 @@ class ManualHunter:
             snapshot_identity=self.snapshot_identity,
             agent="manual-hunter",
         )
-        self.comment_store = DuplicateCommentStore(self.program, family=self.family, lane=self.lane)
-        self.state_store = ManualStateStore(self.program, family=self.family, lane=self.lane)
+        self.comment_store = DuplicateCommentStore(
+            self.program,
+            family=self.family,
+            lane=self.lane,
+            root_override=self.storage_root,
+        )
+        self.state_store = ManualStateStore(
+            self.program,
+            family=self.family,
+            lane=self.lane,
+            root_override=self.storage_root,
+        )
 
     def _resolve_source_root(self, override: str | Path | None) -> Path | None:
-        if override is not None:
-            return Path(override).expanduser().resolve(strict=False)
-        if self.shared_brain is not None and self.shared_brain.target_root:
-            return Path(self.shared_brain.target_root).expanduser().resolve(strict=False)
-        return None
+        return resolve_source_root(
+            self.program,
+            explicit=override,
+            hunt_type=self.hunt_type,
+            family=self.family,
+            lane=self.lane,
+            root_override=self.storage_root,
+            shared_brain=self.shared_brain,
+        )
 
     def _default_family(self) -> str:
         return resolve_family_lane(hunt_type=self.hunt_type)[0]
@@ -1080,7 +1156,13 @@ class ManualHunter:
             return
 
         try:
-            store = CoverageStore(self.program, self.source_root, lane=self.lane, family=self.family)
+            store = CoverageStore(
+                self.program,
+                self.source_root,
+                lane=self.lane,
+                family=self.family,
+                root_override=self.storage_root,
+            )
             store.mark_examined(
                 vuln_class=vuln_class,
                 files=[relpath],
@@ -1097,9 +1179,21 @@ class ManualHunter:
             print(f"Coverage not updated: {exc}")
 
     def _print_chain_suggestions(self, new_finding: dict[str, Any]) -> None:
+        report_paths = sorted(
+            path
+            for bucket in ("confirmed", "dormant", "novel")
+            for path in (self.storage.reports_root / bucket).glob("**/*.md")
+            if path.is_file()
+        )
         existing = _merge_findings(
-            _load_markdown_findings(self.program, self.hunt_type, family=self.family, lane=self.lane),
-            _load_ledger_findings(self.program, self.hunt_type, family=self.family, lane=self.lane),
+            _load_markdown_findings(
+                self.program,
+                self.hunt_type,
+                report_paths=report_paths,
+                family=self.family,
+                lane=self.lane,
+            ),
+            [FindingRecord.from_dict(item) for item in self.ledger.list_all()],
         )
         merged = [record.to_finding_dict() for record in existing]
         merged = [item for item in merged if item.get("fid") != new_finding.get("fid")] + [dict(new_finding)]
@@ -1198,6 +1292,8 @@ class ManualHunter:
             source_root=target_root,
             fresh=fresh,
             version_label=self.version_label or None,
+            reports_dir=reports_dir,
+            storage_root=self.storage_root,
         )
         context += (
             "\n## Canonical Storage Contract\n"
@@ -1258,11 +1354,13 @@ class ManualHunter:
         print("[/me] Codex done. Running sync-reports to import findings...")
         from agents.sync_reports import sync_reports_main
 
-        sync_rc = sync_reports_main(
-            self.program,
-            source_dir=str(reports_dir),
-            verbose=True,
-        )
+        sync_kwargs: dict[str, Any] = {
+            "source_dir": str(reports_dir),
+            "verbose": True,
+        }
+        if self.storage_root is not None:
+            sync_kwargs["storage_root"] = str(self.storage_root)
+        sync_rc = sync_reports_main(self.program, **sync_kwargs)
         if sync_rc != 0:
             print(f"[/me] sync-reports exited with code {sync_rc}")
             return sync_rc
@@ -1275,7 +1373,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Ingest manual findings into the Ghost pipeline or launch a Ghost-aware hunt."
     )
-    parser.add_argument("program", help="Program slug under ~/Shared/bounty_recon/")
+    parser.add_argument("program", help="Bug bounty program slug.")
     mode = parser.add_mutually_exclusive_group(required=False)
     mode.add_argument("--watch", action="store_true", help="Watch the manual drop folder for notes to ingest.")
     mode.add_argument("--add", help="Paste a finding note directly.")

@@ -19,6 +19,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agents.ledger_v2 import ledger_add
+from agents.source_roots import source_root_candidates
 from agents.storage_resolver import resolve_family_lane, resolve_storage
 from agents.report_paths import (
     is_seeded_report_index,
@@ -711,33 +712,38 @@ def _select_findings(
     return [_sort_findings(real_findings)[-1]]
 
 
-def _source_root_candidates(program: str, override: str | None) -> list[Path]:
-    candidates: list[Path] = []
-    if override:
-        candidates.append(Path(override).expanduser().resolve(strict=False))
+def _source_root_candidates(
+    program: str,
+    override: str | None,
+    *,
+    hunt_type: str = "source",
+    family: str | None = None,
+    lane: str | None = None,
+    root_override: str | Path | None = None,
+) -> list[Path]:
+    fallback_candidates: list[Path] = []
     env_source = os.environ.get("REPORT_CHECKER_SOURCE_ROOT")
     if env_source:
-        candidates.append(Path(env_source).expanduser().resolve(strict=False))
+        fallback_candidates.append(Path(env_source))
 
     source_parent = Path.home() / "source"
     if source_parent.exists():
         for child in sorted(source_parent.iterdir()):
             if child.is_dir() and child.name.lower() == program.lower():
-                candidates.append(child.resolve(strict=False))
-        candidates.append(source_parent.resolve(strict=False))
+                fallback_candidates.append(child)
+        fallback_candidates.append(source_parent)
 
-    candidates.append((Path.home() / ".openclaw" / "workspace").resolve(strict=False))
-    candidates.append(Path.cwd().resolve(strict=False))
-
-    seen: set[str] = set()
-    deduped: list[Path] = []
-    for candidate in candidates:
-        key = str(candidate)
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(candidate)
-    return deduped
+    fallback_candidates.append(Path.home() / ".openclaw" / "workspace")
+    fallback_candidates.append(Path.cwd())
+    return source_root_candidates(
+        program,
+        explicit=override,
+        hunt_type=hunt_type,
+        family=family,
+        lane=lane,
+        root_override=root_override,
+        fallback_candidates=fallback_candidates,
+    )
 
 
 def _resolve_existing_path(candidates: Iterable[Path]) -> Path | None:
@@ -1392,7 +1398,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("[report_checker] no matching non-placeholder findings found", file=sys.stderr)
         return 1
 
-    source_roots = _source_root_candidates(program, args.source_root)
+    source_roots = _source_root_candidates(
+        program,
+        args.source_root,
+        hunt_type=args.hunt_type,
+        family=args.family,
+        lane=args.lane,
+        root_override=storage_root,
+    )
     source_root = source_roots[0] if source_roots else None
     template = _load_prompt_template()
     markdown_path, json_path, artifact_dir = _validation_report_paths(

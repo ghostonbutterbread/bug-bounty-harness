@@ -15,6 +15,7 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from agents import report_checker  # noqa: E402
+from agents.shared_brain import RepoIndex, save_index  # noqa: E402
 from agents.storage_resolver import resolve_storage  # noqa: E402
 
 
@@ -309,6 +310,79 @@ class ReportCheckerRootTests(unittest.TestCase):
         findings = report_checker._load_markdown_findings(self.program, "source")
 
         self.assertEqual([finding.title for finding in findings], ["Canonical non-date finding"])
+
+    def test_source_root_candidates_explicit_override_wins(self) -> None:
+        explicit_root = self.tmp / "explicit-source"
+        shared_root = self.tmp / "shared-source"
+        fallback_root = self.home / "source" / self.program
+        for path in (explicit_root, shared_root, fallback_root):
+            path.mkdir(parents=True, exist_ok=True)
+        save_index(
+            RepoIndex(
+                target_root=str(shared_root),
+                target_id="target-shared",
+                generated_at="2026-04-28T12:00:00Z",
+                git_head="shared-head",
+                manifest_hash="shared-manifest",
+                files={},
+            ),
+            self.program,
+            family="binaries",
+            lane="apk",
+        )
+
+        candidates = report_checker._source_root_candidates(
+            self.program,
+            str(explicit_root),
+            hunt_type="source",
+            family="binaries",
+            lane="apk",
+        )
+
+        self.assertEqual(candidates[0], explicit_root.resolve(strict=False))
+
+    def test_source_root_candidates_shared_brain_wins_over_home_source_fallback(self) -> None:
+        shared_root = self.tmp / "shared-source"
+        fallback_root = self.home / "source" / self.program
+        for path in (shared_root, fallback_root):
+            path.mkdir(parents=True, exist_ok=True)
+        save_index(
+            RepoIndex(
+                target_root=str(shared_root),
+                target_id="target-shared",
+                generated_at="2026-04-28T12:00:00Z",
+                git_head="shared-head",
+                manifest_hash="shared-manifest",
+                files={},
+            ),
+            self.program,
+            family="binaries",
+            lane="apk",
+        )
+
+        candidates = report_checker._source_root_candidates(
+            self.program,
+            None,
+            hunt_type="source",
+            family="binaries",
+            lane="apk",
+        )
+
+        self.assertEqual(candidates[0], shared_root.resolve(strict=False))
+
+    def test_source_root_candidates_fallback_still_works_without_shared_brain(self) -> None:
+        fallback_root = self.home / "source" / self.program
+        fallback_root.mkdir(parents=True, exist_ok=True)
+
+        candidates = report_checker._source_root_candidates(
+            self.program,
+            None,
+            hunt_type="source",
+            family="binaries",
+            lane="apk",
+        )
+
+        self.assertEqual(candidates[0], fallback_root.resolve(strict=False))
 
     def test_main_root_reads_explicit_findings_and_writes_validation_to_explicit_root(self) -> None:
         default_storage = self._storage()

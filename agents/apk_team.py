@@ -42,7 +42,7 @@ from agents.apk_surface_registry import ApkSurfaceRegistry
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.decompiler import decompile_smali_targets
 from agents.dynamic_agent_builder import DynamicAgentBuilder
-from agents.ledger import VersionedFindingsLedger, create_team_ledger_from_storage
+from agents.ledger import VersionedFindingsLedger, create_team_ledger_from_storage, update_team_finding
 from agents.base_team.reports import dated_report_index_paths
 from agents.base_team.storage import resolve_team_storage
 from agents.snapshot_identity import get_snapshot_identity
@@ -891,7 +891,21 @@ def orchestrate_apk_team(
         fid = str(finding.get("fid", "")).strip()
         if fid:
             try:
-                ledger.update(finding)
+                update_team_finding(
+                    program_slug,
+                    finding,
+                    snapshot_id=str(snapshot_identity.get("snapshot_id") or ""),
+                    version_label=str(snapshot_identity.get("version_label") or ""),
+                    run_id=getattr(ledger, "run_id", None),
+                    agent="apk-team",
+                    family=storage.family,
+                    lane=storage.lane,
+                    root_override=getattr(ledger, "root_override", storage_root_override),
+                    write_report=False,
+                    refresh=False,
+                    update_current=False,
+                    update_sighting=False,
+                )
                 ledger_updates += 1
                 if verbosity.very_verbose:
                     print(f"[ledger] UPDATED {fid} via {ledger.path}")

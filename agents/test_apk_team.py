@@ -44,7 +44,14 @@ class ApkTeamOutputRootTests(unittest.TestCase):
             path=storage.ledgers_root / "ledger.json",
             get_class_context=Mock(return_value=""),
             update=Mock(),
+            run_id="run-1",
         )
+        finding = {
+            "fid": "D01",
+            "type": "exec-sink-reachability",
+            "file": "src/Main.java",
+            "description": "Reviewed finding.",
+        }
 
         with (
             patch.object(apk_team, "SubagentLogger", None),
@@ -64,8 +71,9 @@ class ApkTeamOutputRootTests(unittest.TestCase):
             patch.object(apk_team, "create_team_ledger_from_storage", return_value=ledger),
             patch.object(apk_team, "DynamicAgentBuilder") as builder_cls,
             patch.object(apk_team, "_select_profiles", return_value=[]),
-            patch.object(apk_team, "load_findings", return_value=[]),
-            patch.object(apk_team, "stage2_ghost_review", return_value=([], [], [])) as review_mock,
+            patch.object(apk_team, "load_findings", return_value=[finding]),
+            patch.object(apk_team, "stage2_ghost_review", return_value=([finding], [], [])) as review_mock,
+            patch.object(apk_team, "update_team_finding", return_value=finding) as update_mock,
             patch.object(apk_team, "pretty_print_findings"),
         ):
             builder_cls.return_value.run.return_value = []
@@ -78,6 +86,14 @@ class ApkTeamOutputRootTests(unittest.TestCase):
 
         self.assertEqual(resolve_mock.call_args.kwargs["output_root"], expected_root)
         self.assertEqual(review_mock.call_args.kwargs["output_root"], expected_root)
+        update_mock.assert_called_once()
+        self.assertEqual(update_mock.call_args.args[:2], ("Example_Program", finding))
+        self.assertEqual(update_mock.call_args.kwargs["root_override"], expected_root)
+        self.assertEqual(update_mock.call_args.kwargs["family"], "binaries")
+        self.assertEqual(update_mock.call_args.kwargs["lane"], "apk")
+        self.assertFalse(update_mock.call_args.kwargs["write_report"])
+        self.assertFalse(update_mock.call_args.kwargs["refresh"])
+        ledger.update.assert_not_called()
 
     def test_chainer_invocation_uses_canonical_reports_output(self) -> None:
         storage = SimpleNamespace(
@@ -99,6 +115,7 @@ class ApkTeamOutputRootTests(unittest.TestCase):
             path=storage.ledgers_root / "ledger.json",
             get_class_context=Mock(return_value=""),
             update=Mock(),
+            run_id="run-1",
         )
         finding = {
             "fid": "D01",
@@ -129,6 +146,7 @@ class ApkTeamOutputRootTests(unittest.TestCase):
             patch.object(apk_team, "_select_profiles", return_value=[]),
             patch.object(apk_team, "load_findings", return_value=[finding]),
             patch.object(apk_team, "stage2_ghost_review", return_value=([finding], [], [])),
+            patch.object(apk_team, "update_team_finding", return_value=finding),
             patch.object(apk_team, "build_chain_graph", return_value={"nodes": [], "edges": []}),
             patch.object(apk_team, "get_chainable_findings", return_value=[finding]),
             patch.object(apk_team.importlib.util, "spec_from_file_location", return_value=spec),

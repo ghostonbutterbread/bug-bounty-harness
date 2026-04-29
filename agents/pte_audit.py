@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from agents.ledger_v2 import ledger_list
+from agents.ledger import read_team_findings
 
 
 REWARD_TABLE = {
@@ -243,9 +243,19 @@ class HarnessEfficiencyScorer:
         if self._ledger_cache is not None:
             return self._ledger_cache
         try:
-            self._ledger_cache = ledger_list(self.program)
+            findings = read_team_findings(self.program)
         except Exception:
-            self._ledger_cache = []
+            findings = []
+        if not findings:
+            legacy_path = self.ghost_dir / "ledger.json"
+            try:
+                legacy_payload = json.loads(legacy_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                legacy_payload = {}
+            legacy_findings = legacy_payload.get("findings", []) if isinstance(legacy_payload, dict) else []
+            if isinstance(legacy_findings, list):
+                findings = [item for item in legacy_findings if isinstance(item, dict)]
+        self._ledger_cache = findings
         return self._ledger_cache
 
     def _report_roots(self) -> list[Path]:

@@ -405,6 +405,8 @@ class PythonAnalyzer(ast.NodeVisitor):
         scenario: str,
         tags: Iterable[str],
     ) -> None:
+        # Scanner-local collector only. Canonical team ledger persistence is
+        # owned by zero_day_team/BaseTeam after review, not by this analyzer.
         line = getattr(node, "lineno", 1)
         key = (rule_id, line, sink)
         if key in self._dedupe:
@@ -643,6 +645,8 @@ class ZeroDayHunter:
             description: str,
             scenario: str,
         ) -> None:
+            # Scanner-local collector only; do not promote raw native-code
+            # indicators into the canonical team ledger from this nested helper.
             key = (rule_id, line_no, sink)
             if key in dedupe:
                 return

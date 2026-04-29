@@ -35,7 +35,6 @@ from agents.base_team.findings import (
 from agents.base_team.ledger import (
     load_ledger as shared_load_ledger,
     reserve_findings as shared_reserve_findings,
-    save_ledger as shared_save_ledger,
     update_coverage_state as shared_update_coverage_state,
     update_reviewed_findings as shared_update_reviewed_findings,
 )
@@ -259,19 +258,6 @@ class BaseTeam(abc.ABC):
             self.ledger_lock_path,
             ensure_parent=self._ensure_parent,
             read_ledger_unchecked=self._read_ledger_unchecked,
-            set_last_loaded=lambda payload: setattr(self, "_last_loaded_ledger", payload),
-        )
-
-    def save_ledger(self, ledger: dict[str, Any]) -> None:
-        """Compatibility-only whole-ledger save; active finding writes use canonical adapters."""
-        shared_save_ledger(
-            ledger,
-            ledger_path=self.ledger_path,
-            ledger_lock_path=self.ledger_lock_path,
-            ensure_parent=self._ensure_parent,
-            read_ledger_unchecked=self._read_ledger_unchecked,
-            normalize_ledger_payload=self._normalize_ledger_payload,
-            merge_ledger=self._merge_ledger,
             set_last_loaded=lambda payload: setattr(self, "_last_loaded_ledger", payload),
         )
 

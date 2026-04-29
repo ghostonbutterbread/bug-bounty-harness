@@ -25,7 +25,7 @@ SelectSpecsFn = Callable[[Sequence[Any], Sequence[Any]], list[Any]]
 GenerateDynamicFn = Callable[[Path, bool], list[Any]]
 LoadSharedBrainFn = Callable[[], dict[str, Any]]
 LoadLedgerFn = Callable[[], dict[str, Any]]
-SaveLedgerFn = Callable[[dict[str, Any]], None]
+UpdateReviewedFn = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
 RenderPromptFn = Callable[[Any], str]
 TimestampIsoFn = Callable[[], str]
 TraceTimestampFn = Callable[[], str]
@@ -231,7 +231,7 @@ def orchestrate(
     agent_timeout: int,
     deduplicate_findings: DedupFn,
     stage2_review: ReviewFn,
-    save_ledger: SaveLedgerFn,
+    update_reviewed_findings: UpdateReviewedFn,
     update_coverage: CoverageFn,
     get_last_review_error: Callable[[], str | None],
     active_handles: dict[str, subprocess.Popen[Any]],
@@ -387,9 +387,7 @@ def orchestrate(
         new_findings = deduplicate_findings(raw_findings, ledger)
         confirmed, dormant, novel = stage2_review(new_findings, target_path)
         reviewed_findings = confirmed + dormant + novel
-        ledger.setdefault("findings", []).extend(reviewed_findings)
-        ledger.setdefault("coverage", {})["total_findings"] = len(ledger.get("findings") or [])
-        save_ledger(ledger)
+        reviewed_findings = update_reviewed_findings(reviewed_findings)
 
         for spec in selected_specs:
             update_coverage(

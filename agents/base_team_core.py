@@ -35,7 +35,10 @@ from agents.base_team.findings import (
 from agents.base_team.ledger import (
     deduplicate_findings as shared_deduplicate_findings,
     load_ledger as shared_load_ledger,
+    reserve_findings as shared_reserve_findings,
     save_ledger as shared_save_ledger,
+    update_coverage_state as shared_update_coverage_state,
+    update_reviewed_findings as shared_update_reviewed_findings,
 )
 from agents.base_team.review import (
     build_review_prompt as shared_build_review_prompt,
@@ -189,6 +192,7 @@ class BaseTeam(abc.ABC):
 
         self.agent_timeout = DEFAULT_AGENT_TIMEOUT_SECONDS
         self.review_timeout = DEFAULT_REVIEW_TIMEOUT_SECONDS
+        self.run_id = _trace_timestamp()
         self.force_preflight = False
 
         self._sigterm_received = False
@@ -278,6 +282,20 @@ class BaseTeam(abc.ABC):
         ledger: dict[str, Any],
     ) -> list[dict[str, Any]]:
         """Return new findings while updating sighting counts on existing entries."""
+        if self._uses_canonical_ledger_writes():
+            return shared_reserve_findings(
+                raw_findings,
+                program=self.program,
+                storage=self.storage,
+                target_path=self.target_path,
+                snapshot_identity=self._snapshot_identity(),
+                run_id=self.run_id,
+                agent="base-team",
+                normalize_finding=self._normalize_finding,
+                timestamp_iso=_timestamp_iso,
+                team_type=self.team_type,
+            )
+
         return shared_deduplicate_findings(
             raw_findings,
             ledger,
@@ -285,6 +303,21 @@ class BaseTeam(abc.ABC):
             finding_identity=self._finding_identity,
             timestamp_iso=_timestamp_iso,
             snapshot_id=self._snapshot_id,
+            team_type=self.team_type,
+        )
+
+    def update_reviewed_findings(self, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Persist reviewed findings through the canonical ledger API."""
+        if not findings:
+            return []
+        return shared_update_reviewed_findings(
+            findings,
+            program=self.program,
+            storage=self.storage,
+            target_path=self.target_path,
+            snapshot_identity=self._snapshot_identity(),
+            run_id=self.run_id,
+            agent="base-team-review",
             team_type=self.team_type,
         )
 
@@ -362,6 +395,20 @@ class BaseTeam(abc.ABC):
 
     def update_coverage(self, agent_name: str, surface: str, finding_count: int) -> None:
         """Update coverage metadata for a single agent execution."""
+        if self._uses_canonical_ledger_writes():
+            shared_update_coverage_state(
+                ledger_path=self.ledger_path,
+                ledger_lock_path=self.ledger_lock_path,
+                ensure_parent=self._ensure_parent,
+                read_default_ledger=self._default_ledger,
+                timestamp_iso=_timestamp_iso,
+                agent_name=agent_name,
+                surface=surface,
+                finding_count=finding_count,
+                set_last_loaded=lambda payload: setattr(self, "_last_loaded_ledger", payload),
+            )
+            return
+
         ledger = self.load_ledger()
         coverage = ledger.setdefault("coverage", {})
         agents_run = coverage.setdefault("agents_run", {})
@@ -443,7 +490,7 @@ class BaseTeam(abc.ABC):
             agent_timeout=self.agent_timeout,
             deduplicate_findings=self.deduplicate_findings,
             stage2_review=self.stage2_review,
-            save_ledger=self.save_ledger,
+            update_reviewed_findings=self.update_reviewed_findings,
             update_coverage=self.update_coverage,
             get_last_review_error=lambda: self._last_review_error,
             active_handles=self._active_handles,
@@ -777,17 +824,18 @@ class BaseTeam(abc.ABC):
         snapshot = get_snapshot_identity(self.target_path)
         return str(snapshot.get("snapshot_id") or "").strip()
 
+    def _snapshot_identity(self) -> dict[str, Any]:
+        return get_snapshot_identity(self.target_path)
+
+    def _uses_canonical_ledger_writes(self) -> bool:
+        return True
+
     def _persist_partial_results(self) -> None:
         if not self._partial_findings:
             return
         try:
             ledger = self.load_ledger()
             new_findings = self.deduplicate_findings(list(self._partial_findings), ledger)
-            for finding in new_findings:
-                finding.setdefault("review_tier", "INCONCLUSIVE")
-            ledger.setdefault("findings", []).extend(new_findings)
-            ledger.setdefault("coverage", {})["total_findings"] = len(ledger.get("findings") or [])
-            self.save_ledger(ledger)
             self.write_traces(
                 [
                     {

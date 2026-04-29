@@ -48,6 +48,7 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             class_name=" Native-Module-Abuse ",
             lane="web",
             family="web_bounty",
+            root_override="/tmp/me-root",
             snapshot=None,
         )
 
@@ -62,8 +63,15 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             "native-module-abuse",
             lane="web",
             family="web_bounty",
+            root_override="/tmp/me-root",
         )
-        mock_get.assert_called_once_with("notion", "D03", lane="web", family="web_bounty")
+        mock_get.assert_called_once_with(
+            "notion",
+            "D03",
+            lane="web",
+            family="web_bounty",
+            root_override="/tmp/me-root",
+        )
         payload = json.loads(stdout.getvalue())
         self.assertEqual(
             payload,
@@ -108,6 +116,7 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             version_label="v2.2.0",
             lane="exe",
             family="binaries",
+            root_override="/tmp/me-root",
         )
 
         stdout = io.StringIO()
@@ -133,8 +142,15 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             "unit-agent",
             lane="exe",
             family="binaries",
+            root_override="/tmp/me-root",
         )
-        mock_get.assert_called_once_with("notion", "B07", lane="exe", family="binaries")
+        mock_get.assert_called_once_with(
+            "notion",
+            "B07",
+            lane="exe",
+            family="binaries",
+            root_override="/tmp/me-root",
+        )
         payload = json.loads(stdout.getvalue())
         self.assertEqual(payload["added"], True)
         self.assertEqual(payload["duplicate"], False)
@@ -157,6 +173,7 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             version_label="v2.2.0",
             lane="api",
             family="web_bounty",
+            root_override="/tmp/me-root",
         )
 
         stdout = io.StringIO()
@@ -170,8 +187,14 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             version_label="v2.2.0",
             lane="api",
             family="web_bounty",
+            root_override="/tmp/me-root",
         )
-        mock_path.assert_called_once_with("My Program", lane="api", family="web_bounty")
+        mock_path.assert_called_once_with(
+            "My Program",
+            lane="api",
+            family="web_bounty",
+            root_override="/tmp/me-root",
+        )
         payload = json.loads(stdout.getvalue())
         self.assertEqual(
             payload,

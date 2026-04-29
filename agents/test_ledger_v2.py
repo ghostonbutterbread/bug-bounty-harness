@@ -17,6 +17,7 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from agents.bounty_core_bootstrap import ensure_bounty_core_importable
+from agents.ledger import update_team_finding
 from agents.ledger_v2 import VersionedFindingsLedger, ledger_add, ledger_get, ledger_list, ledger_path
 from agents.apk_prefingerprint import _select_apk_candidate
 from agents.snapshot_identity import get_snapshot_identity, get_snapshot_id, is_same_snapshot
@@ -418,6 +419,62 @@ class LedgerV2Tests(unittest.TestCase):
         self.assertEqual({item["fid"] for item in harness_seen}, {"D01", "D02"})
         self.assertTrue(path.exists())
         self.assertFalse(ledger_path(self.program, lane="apk", family="binaries").exists())
+
+    def test_update_team_finding_patches_reviewer_identity_changes_by_fid(self) -> None:
+        explicit_root = self.tmp / "reviewed-storage"
+        is_new, fid = ledger_add(
+            self.program,
+            {
+                "type": "Initial IPC issue",
+                "class_name": "ipc-trust-boundary",
+                "file": "src/preload.js",
+                "line": 44,
+                "severity": "HIGH",
+                "review_tier": "DORMANT_HYPOTHETICAL",
+            },
+            "snap-a",
+            "v1.0.0",
+            "run-a",
+            "zero-day-team",
+            lane="apk",
+            family="binaries",
+            root_override=explicit_root,
+        )
+        self.assertTrue(is_new)
+        self.assertEqual(fid, "D01")
+
+        updated = update_team_finding(
+            self.program,
+            {
+                "fid": "D01",
+                "type": "Reviewed corrected issue",
+                "title": "Reviewed corrected issue",
+                "class_name": "native-module-abuse",
+                "file": "src/corrected.js",
+                "line": 7,
+                "severity": "CRITICAL",
+                "review_tier": "CONFIRMED",
+                "status": "confirmed",
+            },
+            snapshot_id="snap-a",
+            version_label="v1.0.0",
+            run_id="run-review",
+            agent="zero-day-team",
+            lane="apk",
+            family="binaries",
+            root_override=explicit_root,
+        )
+
+        self.assertEqual(updated["fid"], "D01")
+        self.assertEqual(updated["type"], "Reviewed corrected issue")
+        self.assertEqual(updated["class_name"], "native-module-abuse")
+        self.assertEqual(updated["file"], "src/corrected.js")
+        self.assertEqual(updated["line"], 7)
+        findings = ledger_list(self.program, family="binaries", lane="apk", root_override=explicit_root)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["fid"], "D01")
+        self.assertEqual(findings[0]["title"], "Reviewed corrected issue")
+        self.assertFalse(list((explicit_root / "binaries" / self.program / "apk" / "reports").glob("**/*.md")))
 
     def test_versioned_update_preserves_unknown_top_level_metadata(self) -> None:
         path = ledger_path(self.program, lane="apk", family="binaries")

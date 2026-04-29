@@ -38,6 +38,7 @@ class ZeroDayTeamOutputRootTests(unittest.TestCase):
             path=storage.ledgers_root / "ledger.json",
             get_class_context=Mock(return_value=""),
             update=Mock(),
+            run_id="run-1",
         )
         finding = {
             "fid": "D01",
@@ -61,6 +62,7 @@ class ZeroDayTeamOutputRootTests(unittest.TestCase):
             patch.object(zero_day_team, "_select_profiles", return_value=[]),
             patch.object(zero_day_team, "_load_findings", return_value=[finding]),
             patch.object(zero_day_team, "stage2_ghost_review", return_value=([finding], [], [])),
+            patch.object(zero_day_team, "update_team_finding", return_value=finding) as update_mock,
             patch.object(zero_day_team, "build_chain_graph", return_value={"nodes": [], "edges": []}),
             patch.object(zero_day_team, "get_chainable_findings", return_value=[finding]),
             patch("importlib.util.spec_from_file_location", return_value=spec),
@@ -82,6 +84,13 @@ class ZeroDayTeamOutputRootTests(unittest.TestCase):
             chainer_args[chainer_args.index("--output-dir") + 1],
             str(storage.reports_root / "chained"),
         )
+        update_mock.assert_called_once()
+        self.assertEqual(update_mock.call_args.args[:2], ("Example_Program", finding))
+        self.assertEqual(update_mock.call_args.kwargs["family"], "web")
+        self.assertEqual(update_mock.call_args.kwargs["lane"], "0day_team")
+        self.assertFalse(update_mock.call_args.kwargs["write_report"])
+        self.assertFalse(update_mock.call_args.kwargs["refresh"])
+        ledger.update.assert_not_called()
 
 
 if __name__ == "__main__":

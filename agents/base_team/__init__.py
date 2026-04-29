@@ -11,6 +11,7 @@ from .findings import (
     safe_int,
 )
 from .ledger import load_ledger
+from .promotion import promote_reviewed_findings
 from .reports import dated_report_index_paths, write_report_indexes
 from .review import (
     build_review_prompt,
@@ -49,6 +50,7 @@ __all__ = [
     "normalize_review_tier",
     "orchestrate",
     "pretty_print_findings",
+    "promote_reviewed_findings",
     "read_findings_jsonl",
     "reset_findings_store",
     "resolve_team_storage",

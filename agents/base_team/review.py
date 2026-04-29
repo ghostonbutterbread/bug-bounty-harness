@@ -355,7 +355,8 @@ def _render_confirmed_report(findings: Sequence[dict[str, Any]]) -> str:
     if not findings:
         return "# Confirmed Findings\n\nNo confirmed findings.\n"
     sections = ["# Confirmed Findings", ""]
-    for finding in findings:
+    for raw_finding in findings:
+        finding = _ensure_report_fields(raw_finding)
         severity_label = str(finding.get("severity_label") or finding.get("severity", "UNKNOWN"))
         sections.extend([
             f"## [{severity_label}] {finding['vulnerability_name']}",
@@ -382,7 +383,8 @@ def _render_dormant_report(findings: Sequence[dict[str, Any]]) -> str:
     if not findings:
         return "# Dormant Findings\n\nNo dormant findings.\n"
     sections = ["# Dormant Findings", ""]
-    for finding in findings:
+    for raw_finding in findings:
+        finding = _ensure_report_fields(raw_finding)
         tier = str(finding.get("review_tier", "DORMANT")).upper()
         sections.extend([
             f"## [{tier}] {finding['vulnerability_name']}",
@@ -409,7 +411,8 @@ def _render_novel_findings_report(findings: Sequence[dict[str, Any]]) -> str:
     if not findings:
         return "# Novel Findings\n\nNo reviewed novel findings.\n"
     sections = ["# Novel Findings", ""]
-    for finding in findings:
+    for raw_finding in findings:
+        finding = _ensure_report_fields(raw_finding)
         tier = str(finding.get("review_tier", "DORMANT")).upper()
         sections.extend([
             f"## [{tier}] {finding['vulnerability_name']}",
@@ -446,6 +449,7 @@ def stage2_ghost_review(
     review_single: ReviewSingleFn | None = None,
     review_timeout: int = 600,
     max_workers: int = DEFAULT_REVIEW_MAX_WORKERS,
+    write_reports: bool = True,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Shared Stage 2 review gate for BaseTeam-backed procedural teams."""
     confirmed: list[dict[str, Any]] = []
@@ -523,14 +527,15 @@ def stage2_ghost_review(
             else:
                 dormant.append(reviewed)
 
-    storage = resolve_team_storage(program, team_type=hunt_type, output_root=output_root)
-    write_report_indexes(
-        storage,
-        confirmed=confirmed,
-        dormant=dormant,
-        novel=novel,
-        render_confirmed=_render_confirmed_report,
-        render_dormant=_render_dormant_report,
-        render_novel=_render_novel_findings_report,
-    )
+    if write_reports:
+        storage = resolve_team_storage(program, team_type=hunt_type, output_root=output_root)
+        write_report_indexes(
+            storage,
+            confirmed=confirmed,
+            dormant=dormant,
+            novel=novel,
+            render_confirmed=_render_confirmed_report,
+            render_dormant=_render_dormant_report,
+            render_novel=_render_novel_findings_report,
+        )
     return confirmed, dormant, novel

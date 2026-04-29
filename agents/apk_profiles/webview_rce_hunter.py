@@ -5,28 +5,33 @@ PROFILE = ApkHuntProfile(
     key="webview-rce-hunter",
     title="WebView RCE Hunter",
     description=(
-        "Analyze WebView usage for JavaScript bridge abuse, local file access, dangerous navigation, "
-        "and WebView-to-native code execution paths."
+        "Trace attacker-controlled navigation, bridge exposure, and WebView callbacks into Android-native sinks. "
+        "Prioritize evidence-backed WebView exploit chains over configuration-only observations."
     ),
-    surface_types=("webview", "command-exec", "dynamic-loader"),
+    surface_types=("webview", "command-exec", "dynamic-loader", "url-scheme"),
     entry_questions=(
-        "Which classes instantiate or configure WebView and what attacker-controlled content reaches them?",
-        "Are JavaScript interfaces, evaluateJavascript, or permissive settings exposed to untrusted pages?",
+        "Which WebView classes are reachable from exported activities, deep links, share flows, or externally supplied URLs?",
+        "Which exact methods load attacker-influenced URLs, HTML, JS, postMessage payloads, or asset content into a WebView?",
     ),
     cross_questions=(
-        "Can remote or deep-link-supplied content reach a privileged JavaScript bridge?",
-        "Do WebView callbacks bridge into command execution, loaders, content providers, or native code?",
+        "Does attacker-controlled WebView content reach addJavascriptInterface, evaluateJavascript, WebMessagePort, file access, or permissive settings in the same execution path?",
+        "After WebView entry, which callbacks or bridge methods can trigger privileged intents, provider access, dynamic loading, or command/native execution?",
     ),
     sink_categories=(
-        "addJavascriptInterface on attacker-reachable content",
-        "evaluateJavascript fed by attacker-controlled strings",
-        "setAllowFileAccess or universal access enabling local file exfiltration",
-        "WebView callbacks that invoke Runtime.exec, loaders, or privileged intents",
+        "Untrusted content reaching addJavascriptInterface or bridge registration",
+        "Attacker-controlled strings reaching evaluateJavascript, loadUrl javascript:, or WebMessage channels",
+        "WebView settings that enable file or universal access on attacker-reachable pages",
+        "Bridge or callback methods that cross into privileged Android actions, loaders, providers, or native code",
     ),
     reasoning=(
-        "Start from WebView classes, then check whether URI handlers, remote content, or asset pages can reach "
-        "native bridges or execution sinks. Distinguish configuration-only code from actually reachable flows."
+        "Use a 0day-style path narrative: entrypoint, attacker control, boundary, gate, sink, exploitability. "
+        "Only emit findings when you can name the concrete WebView entry method and the downstream privileged sink or missing guard. "
+        "If you only see risky configuration without attacker reachability, return empty output."
     ),
-    tags=("webview", "javascript"),
+    prompt_addendum=(
+        "Prioritize WebViewClient/ChromeClient callbacks, deep-link seeded navigation, share/open/view handlers, "
+        "javascript: URLs, postMessage bridges, and classes that convert web content into Android intents or native calls."
+    ),
+    tags=("webview", "javascript", "evidence-first"),
 )
 

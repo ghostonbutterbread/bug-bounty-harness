@@ -43,6 +43,7 @@ from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.decompiler import decompile_smali_targets
 from agents.dynamic_agent_builder import DynamicAgentBuilder
 from agents.ledger import create_team_ledger_from_storage, update_team_finding
+from agents.base_team.promotion import promote_reviewed_findings
 from agents.base_team.reports import dated_report_index_paths
 from agents.base_team.storage import resolve_team_storage
 from agents.snapshot_identity import get_snapshot_identity
@@ -880,37 +881,9 @@ def orchestrate_apk_team(
         program_slug,
         "apk",
         output_root=storage_root_override,
+        write_reports=False,
     )
-    reviewed_findings = confirmed_findings + dormant_findings + novel_findings
-    ledger_updates = 0
-    for finding in reviewed_findings:
-        title = str(finding.get("vulnerability_name") or finding.get("type") or "").strip() or "untitled"
-        if is_placeholder_finding(finding):
-            print(f"[ledger] REJECTED placeholder finding: {title}", flush=True)
-            continue
-        fid = str(finding.get("fid", "")).strip()
-        if fid:
-            try:
-                update_team_finding(
-                    program_slug,
-                    finding,
-                    snapshot_id=str(snapshot_identity.get("snapshot_id") or ""),
-                    version_label=str(snapshot_identity.get("version_label") or ""),
-                    run_id=getattr(ledger, "run_id", None),
-                    agent="apk-team",
-                    family=storage.family,
-                    lane=storage.lane,
-                    root_override=getattr(ledger, "root_override", storage_root_override),
-                    write_report=False,
-                    refresh=False,
-                    update_current=False,
-                    update_sighting=False,
-                )
-                ledger_updates += 1
-                if verbosity.very_verbose:
-                    print(f"[ledger] UPDATED {fid} via {ledger.path}")
-            except Exception as exc:
-                print(f"[ledger] FAILED update {fid}: {exc}", flush=True)
+    def _record_promoted_apk_finding(finding: dict[str, Any], fid: str, title: str) -> None:
         registry.record_progressive_finding(finding, requested_by=str(finding.get("agent") or "apk-team"))
         # MGP: claim this finding so other agents know it's confirmed
         if mem is not None:
@@ -926,17 +899,30 @@ def orchestrate_apk_team(
                 )
             except Exception:
                 pass
-        _safe_log_span(
-            span_type="finding",
-            level="RESULT",
-            message=f"Finding: {fid or title}",
-            finding_fid=fid or title,
-            review_tier=str(finding.get("review_tier") or finding.get("severity") or "UNKNOWN"),
-            duplicate=False,
-            finding_reward=0,
-            allocated_pte_lite=0,
-        )
 
+    promotion = promote_reviewed_findings(
+        program=program_slug,
+        storage=storage,
+        reviewed_groups={
+            "confirmed": confirmed_findings,
+            "dormant": dormant_findings,
+            "novel": novel_findings,
+        },
+        snapshot_identity=snapshot_identity,
+        run_id=getattr(ledger, "run_id", None),
+        agent="apk-team",
+        root_override=getattr(ledger, "root_override", storage_root_override),
+        update_finding=update_team_finding,
+        log_span=_safe_log_span,
+        on_promoted=_record_promoted_apk_finding,
+        verbose=verbosity.very_verbose,
+        ledger_path=ledger.path,
+    )
+    confirmed_findings = promotion["confirmed"]
+    dormant_findings = promotion["dormant"]
+    novel_findings = promotion["novel"]
+    reviewed_findings = promotion["reviewed"]
+    ledger_updates = promotion["ledger_updates"]
     confirmed_report_path, dormant_report_path, novel_report_path = dated_report_index_paths(storage)
     report_root = confirmed_report_path.parent
     rejected_count = max(0, len(raw_findings) - len(reviewed_findings))

@@ -37,8 +37,20 @@ def _sanitize_program_name(program: str) -> str:
     return cleaned or "default_program"
 
 
-def _shared_brain_index_path(program: str, lane: str = "apk", family: str = "binaries") -> Path:
-    layout = resolve_storage(program, family=family, lane=lane, create=False)
+def _shared_brain_index_path(
+    program: str,
+    lane: str = "apk",
+    family: str = "binaries",
+    *,
+    root_override: str | Path | None = None,
+) -> Path:
+    layout = resolve_storage(
+        program,
+        family=family,
+        lane=lane,
+        root_override=root_override,
+        create=False,
+    )
     return layout.ledgers_root / "shared_brain" / "index.json"
 
 
@@ -91,20 +103,46 @@ class FileLock:
 class CoverageStore:
     """Persistent per-snapshot file coverage for vulnerability-class passes."""
 
-    def __init__(self, program_slug: str, target_dir: Path, lane: str = "apk", family: str = "binaries"):
+    def __init__(
+        self,
+        program_slug: str,
+        target_dir: Path,
+        lane: str = "apk",
+        family: str = "binaries",
+        root_override: str | Path | None = None,
+    ):
         self.program = _sanitize_program_name(program_slug)
         self.target_dir = Path(target_dir).expanduser().resolve(strict=False)
         self.lane = str(lane or "apk").strip() or "apk"
         self.family = str(family or "binaries").strip() or "binaries"
-        self.storage = resolve_storage(self.program, family=self.family, lane=self.lane, create=True)
+        self.root_override = (
+            Path(root_override).expanduser().resolve(strict=False) if root_override else None
+        )
+        self.storage = resolve_storage(
+            self.program,
+            family=self.family,
+            lane=self.lane,
+            root_override=self.root_override,
+            create=True,
+        )
         self.coverage_dir = self.storage.ledgers_root
         self.path = self.coverage_dir / COVERAGE_FILENAME
         self.lock_path = Path(f"{self.path}.lock")
         self.backup_path = Path(f"{self.path}.bak")
 
-        self.shared_brain = load_index(self.program, family=self.family, lane=self.lane)
+        self.shared_brain = load_index(
+            self.program,
+            family=self.family,
+            lane=self.lane,
+            root_override=self.root_override,
+        )
         if self.shared_brain is None:
-            shared_brain_path = _shared_brain_index_path(self.program)
+            shared_brain_path = _shared_brain_index_path(
+                self.program,
+                lane=self.lane,
+                family=self.family,
+                root_override=self.root_override,
+            )
             raise ValueError(
                 f"shared_brain index not found for program {self.program!r}: {shared_brain_path}"
             )

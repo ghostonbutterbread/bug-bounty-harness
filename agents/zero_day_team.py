@@ -28,6 +28,12 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from agents.base_team import AgentSpec as TeamAgentSpec
 from agents.base_team import BaseTeam
+from agents.base_team import (
+    extract_findings_from_log as shared_extract_findings_from_log,
+    normalize_finding as shared_normalize_finding,
+    read_findings_jsonl as shared_read_findings_jsonl,
+    safe_int as shared_safe_int,
+)
 from agents.chain_matrix import build_chain_graph, get_chainable_findings  # type: ignore[attr-defined]
 from agents.hybrid_preflight import run_preflight  # type: ignore[attr-defined]
 from agents.dynamic_agent_builder import DynamicAgentBuilder  # type: ignore[attr-defined]
@@ -41,7 +47,8 @@ from agents.shared_brain import (  # type: ignore[attr-defined]
     update_index,
 )
 from agents.coverage_store import CoverageStore
-from agents.base_team.reports import dated_report_index_paths, write_report_indexes
+from agents.base_team.promotion import promote_reviewed_findings
+from agents.base_team.reports import dated_report_index_paths
 from agents.base_team.review import stage2_ghost_review as shared_stage2_ghost_review
 from agents.base_team.storage import resolve_team_storage
 from agents.snapshot_identity import get_snapshot_identity
@@ -882,91 +889,57 @@ def _spawn_agent(
 
 
 def _safe_int(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
+    return shared_safe_int(value)
 
 
 def _normalize_finding(raw: Any, default_agent: str) -> Optional[Dict[str, Any]]:
+    """Apply zero-day-specific validation on top of shared finding normalization."""
     if not isinstance(raw, dict):
         return None
 
-    category = str(raw.get("category", "")).strip().lower()
-    class_name = str(raw.get("class_name", "")).strip().lower()
-    if category not in {"class", "novel"}:
-        category = "novel" if class_name == "novel" else "class"
-
-    finding_type = str(raw.get("type", "")).strip()
-    file_path = str(raw.get("file", "")).strip()
-    description = str(raw.get("description", "")).strip()
-    source = str(raw.get("source", "")).strip()
-    sink = str(raw.get("sink", "")).strip()
-    if not finding_type or not file_path or not description:
+    normalized = shared_normalize_finding(raw, default_agent=default_agent, default_class=default_agent)
+    if normalized is None:
         return None
+
+    description = str(normalized.get("description") or "").strip()
+    if not description:
+        return None
+
+    raw_category = str(raw.get("category") or "").strip().lower()
+    class_name = str(normalized.get("class_name") or raw.get("class_name") or "").strip().lower()
+    category = raw_category if raw_category in {"class", "novel"} else ("novel" if class_name == "novel" else "class")
+
+    source = str(normalized.get("source") or "").strip()
+    sink = str(normalized.get("sink") or "").strip()
     if category == "novel" and (not source or not sink):
         return None
 
-    normalized_class = class_name or ("novel" if category == "novel" else default_agent)
-    if category == "class" and normalized_class not in CLASS_PROFILES:
-        normalized_class = default_agent
+    if category == "class" and class_name not in CLASS_PROFILES:
+        class_name = default_agent
+    elif not class_name:
+        class_name = "novel" if category == "novel" else default_agent
 
-    return {
-        "agent": str(raw.get("agent") or default_agent),
-        "category": category,
-        "class_name": normalized_class,
-        "fid": str(raw.get("fid", "")).strip(),
-        "type": finding_type,
-        "file": file_path,
-        "line": _safe_int(raw.get("line")),
-        "description": description,
-        "severity": str(raw.get("severity", "UNKNOWN")).upper(),
-        "context": str(raw.get("context", "")).strip(),
-        "source": source,
-        "trust_boundary": str(raw.get("trust_boundary", "")).strip(),
-        "flow_path": str(raw.get("flow_path", "")).strip(),
-        "sink": sink,
-        "exploitability": str(raw.get("exploitability", "")).strip(),
-    }
+    normalized["category"] = category
+    normalized["class_name"] = class_name
+    normalized["fid"] = str(raw.get("fid") or normalized.get("fid") or "").strip()
+    return normalized
 
 
 def _load_findings(findings_path: Path) -> List[Dict[str, Any]]:
     findings: List[Dict[str, Any]] = []
-    if not findings_path.exists():
-        return findings
-
-    with findings_path.open("r", encoding="utf-8", errors="replace") as handle:
-        for raw_line in handle:
-            line = raw_line.strip()
-            if not line:
-                continue
-            try:
-                parsed = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            normalized = _normalize_finding(parsed, default_agent="unknown")
-            if normalized is not None:
-                findings.append(normalized)
+    for parsed in shared_read_findings_jsonl(findings_path):
+        normalized = _normalize_finding(parsed, default_agent="unknown")
+        if normalized is not None:
+            findings.append(normalized)
     return findings
 
 
 def _extract_findings_from_log(log_path: Path, default_agent: str) -> List[Dict[str, Any]]:
     findings: List[Dict[str, Any]] = []
-    if not log_path.exists():
-        return findings
-
-    with log_path.open("r", encoding="utf-8", errors="replace") as handle:
-        for raw_line in handle:
-            line = raw_line.strip()
-            if not line or not line.startswith("{"):
-                continue
-            try:
-                parsed = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            normalized = _normalize_finding(parsed, default_agent=default_agent)
-            if normalized is not None:
-                findings.append(normalized)
+    for parsed in shared_extract_findings_from_log(log_path, default_agent=default_agent):
+        normalized = _normalize_finding(parsed, default_agent=default_agent)
+        if normalized is not None:
+            findings.append(normalized)
     return findings
 
 
@@ -1662,6 +1635,8 @@ def stage2_ghost_review(
     program: str,
     hunt_type: str,
     output_root: Path | None = None,
+    *,
+    write_reports: bool = True,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Compatibility wrapper for the shared BaseTeam Stage 2 review gate."""
 
@@ -1681,6 +1656,7 @@ def stage2_ghost_review(
         review_timeout=CLAUDE_REVIEW_TIMEOUT_SECONDS,
         max_workers=CLAUDE_REVIEW_MAX_WORKERS,
         output_root=output_root,
+        write_reports=write_reports,
     )
 
 def _finding_signature(finding: Dict[str, Any]) -> str:
@@ -1757,7 +1733,13 @@ def _run_agent_session(
         if salvaged and not getattr(session, "skip_ledger", False):
             deduped = []
             for f in salvaged:
-                is_dup, fid, f_with_fid = ledger.check(f)
+                try:
+                    is_dup, fid, f_with_fid = ledger.check(f)
+                except Exception as exc:
+                    queued = dict(f)
+                    queued["ledger_reservation_error"] = str(exc)
+                    deduped.append(queued)
+                    continue
                 if not is_dup:
                     deduped.append(f_with_fid)
                 elif fid:
@@ -2277,48 +2259,30 @@ def orchestrate_zero_day_team(
         program_slug,
         "web",
         output_root=storage_root_override,
+        write_reports=False,
     )
-    reviewed_findings = confirmed_findings + dormant_findings + novel_findings
-    # Update ledger with reviewer results
-    ledger_updates = 0
-    for finding in reviewed_findings:
-        title = str(finding.get("vulnerability_name") or finding.get("type") or "").strip() or "untitled"
-        if is_placeholder_finding(finding):
-            print(f"[ledger] REJECTED placeholder finding: {title}", flush=True)
-            continue
-        fid = str(finding.get("fid", "")).strip()
-        if fid:
-            try:
-                update_team_finding(
-                    program_slug,
-                    finding,
-                    snapshot_id=str(snapshot_identity.get("snapshot_id") or ""),
-                    version_label=str(snapshot_identity.get("version_label") or ""),
-                    run_id=getattr(ledger, "run_id", None),
-                    agent="zero-day-team",
-                    family=family,
-                    lane=lane,
-                    root_override=getattr(ledger, "root_override", storage_root_override),
-                    write_report=False,
-                    refresh=False,
-                    update_current=False,
-                    update_sighting=False,
-                )
-                ledger_updates += 1
-                if verbosity.very_verbose:
-                    print(f"[ledger] UPDATED {fid} via {ledger.path}")
-            except Exception as exc:
-                print(f"[ledger] FAILED update {fid}: {exc}", flush=True)
-        _safe_log_span(
-            span_type="finding",
-            level="RESULT",
-            message=f"Finding: {fid or title}",
-            finding_fid=fid or title,
-            review_tier=str(finding.get("review_tier") or finding.get("severity") or "UNKNOWN"),
-            duplicate=False,
-            finding_reward=0,
-            allocated_pte_lite=0,
-        )
+    promotion = promote_reviewed_findings(
+        program=program_slug,
+        storage=storage,
+        reviewed_groups={
+            "confirmed": confirmed_findings,
+            "dormant": dormant_findings,
+            "novel": novel_findings,
+        },
+        snapshot_identity=snapshot_identity,
+        run_id=getattr(ledger, "run_id", None),
+        agent="zero-day-team",
+        root_override=getattr(ledger, "root_override", storage_root_override),
+        update_finding=update_team_finding,
+        log_span=_safe_log_span,
+        verbose=verbosity.very_verbose,
+        ledger_path=ledger.path,
+    )
+    confirmed_findings = promotion["confirmed"]
+    dormant_findings = promotion["dormant"]
+    novel_findings = promotion["novel"]
+    reviewed_findings = promotion["reviewed"]
+    ledger_updates = promotion["ledger_updates"]
     print(f"[ledger] Updated {ledger_updates} findings in ledger", flush=True)
     rejected_count = max(0, len(raw_findings) - len(reviewed_findings))
 

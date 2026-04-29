@@ -30,6 +30,9 @@ def load_findings(findings_path: Path) -> list[dict[str, Any]]:
                 continue
             normalized = normalize_finding(parsed, default_agent="unknown", default_class="unknown")
             if normalized is not None:
+                fid = str(parsed.get("fid") or "").strip()
+                if fid:
+                    normalized["fid"] = fid
                 findings.append(normalized)
     return findings
 
@@ -47,14 +50,30 @@ def run_agent_session(
 
     exit_code = session.process.wait()
     session_findings = extract_findings_from_log(session.log_path, session.profile.key)
+    findings_to_queue: list[dict[str, Any]] = []
     if session_findings and not session.skip_ledger:
         for finding in session_findings:
-            ledger.add_or_update(finding)
+            try:
+                is_duplicate, fid, reserved = ledger.check(finding)
+            except Exception as exc:
+                queued = dict(finding)
+                queued["ledger_reservation_error"] = str(exc)
+                findings_to_queue.append(queued)
+                continue
+            if is_duplicate:
+                continue
+            queued = dict(finding)
+            queued.update({key: value for key, value in reserved.items() if value not in (None, "")})
+            if fid:
+                queued["fid"] = fid
+            findings_to_queue.append(queued)
+    else:
+        findings_to_queue = list(session_findings)
 
     try:
         findings_path.parent.mkdir(parents=True, exist_ok=True)
         with findings_path.open("a", encoding="utf-8") as handle:
-            for finding in session_findings:
+            for finding in findings_to_queue:
                 handle.write(json.dumps(finding, sort_keys=True))
                 handle.write("\n")
     except OSError:

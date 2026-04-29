@@ -320,7 +320,7 @@ class PteAuditTests(unittest.TestCase):
         )
         logger.finish(success=True, summary="done")
 
-        trace_dir = self._ghost_dir("demo") / "traces"
+        trace_dir = self.home / "Shared" / "web_bounty" / "demo" / "web" / "ledgers" / "traces"
         trace_files = list(trace_dir.glob("*.jsonl"))
         self.assertEqual(len(trace_files), 1)
         rows = [json.loads(line) for line in trace_files[0].read_text(encoding="utf-8").splitlines() if line.strip()]

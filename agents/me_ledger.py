@@ -20,7 +20,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agents.coverage_store import CoverageStore
-from agents.ledger_v2 import ledger_add, ledger_check, ledger_get, ledger_list, ledger_path
+from agents.ledger import ledger_add, ledger_check, ledger_get, ledger_list, ledger_path
 from agents.snapshot_identity import get_snapshot_identity
 from agents.storage_resolver import resolve_storage
 
@@ -29,6 +29,10 @@ DEFAULT_AGENT = os.environ.get("ME_AGENT") or "codex"
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _default_run_id() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _normalize_program(program: str) -> str:

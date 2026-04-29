@@ -35,11 +35,12 @@ for _p in (_PROJECT_ROOT, Path.home() / "projects" / "bounty-tools",
 
 # ── ledger + MGP imports (lazy so we don't break if not available) ──────────
 try:
-    from agents.ledger_v2 import VersionedFindingsLedger
+    from agents.ledger import create_team_ledger, update_team_finding
     from agents.snapshot_identity import get_snapshot_identity
     from agents.apk_surface_registry import ApkSurfaceRegistry
 except ImportError:
-    VersionedFindingsLedger = None
+    create_team_ledger = None
+    update_team_finding = None
     get_snapshot_identity = None
     ApkSurfaceRegistry = None
 
@@ -453,6 +454,64 @@ If no valid chains: {{"chains": []}}"""
     return chains
 
 
+def _persist_pass2_findings(
+    findings: list[dict[str, Any]],
+    *,
+    ledger: Any,
+    registry: Any,
+    program: str,
+    logger: Any = None,
+) -> int:
+    """Reserve new pass-2 findings, then persist through the harness adapter."""
+    deduplicated_count = 0
+    for f in findings:
+        if ledger is not None:
+            try:
+                is_duplicate, existing_fid, finding_with_fid = ledger.check(f)
+                if is_duplicate:
+                    _safe_log_span(
+                        logger,
+                        "phase",
+                        "STEP",
+                        f" Deduped: {f.get('title', f.get('type', 'unknown'))}",
+                    )
+                else:
+                    fid = str(existing_fid or finding_with_fid.get("fid") or "").strip()
+                    if not fid:
+                        raise ValueError("ledger.check did not reserve a fid")
+                    finding_with_fid = dict(finding_with_fid)
+                    finding_with_fid["fid"] = fid
+                    if update_team_finding is None:
+                        raise RuntimeError("harness ledger adapter is unavailable")
+                    update_team_finding(
+                        program,
+                        finding_with_fid,
+                        snapshot_id=getattr(ledger, "snapshot_id", None) or None,
+                        version_label=getattr(ledger, "version_label", None) or None,
+                        run_id=getattr(ledger, "run_id", None),
+                        agent="deep-dive",
+                        family=getattr(ledger, "family", None),
+                        lane=getattr(ledger, "lane", None),
+                        root_override=getattr(ledger, "root_override", None),
+                        write_report=False,
+                        refresh=False,
+                        update_current=False,
+                        update_sighting=False,
+                    )
+                    deduplicated_count += 1
+            except Exception as exc:
+                _safe_log_span(
+                    logger,
+                    "phase",
+                    "WARN",
+                    f"Ledger update failed: {exc}",
+                    finding=f.get("title", "unknown"),
+                )
+        if registry is not None:
+            registry.record_progressive_finding(f, requested_by="deep_dive")
+    return deduplicated_count
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 def main() -> None:
     parser = argparse.ArgumentParser(description="Solo Deep-Dive APK Hunter")
@@ -517,16 +576,18 @@ def main() -> None:
 
     # Init ledger — matches apk_team dedup so findings merge across both tools
     ledger = None
-    if VersionedFindingsLedger and get_snapshot_identity:
+    if create_team_ledger and get_snapshot_identity:
         try:
             snapshot_identity = get_snapshot_identity(extracted_root)
             version_label = str(snapshot_identity.get("version_label") or registry_path.parent.name or "")
-            ledger = VersionedFindingsLedger(
+            ledger = create_team_ledger(
                 program,
                 target_root=extracted_root,
                 version_label=version_label,
                 snapshot_identity=snapshot_identity,
                 agent="deep-dive",
+                lane="apk",
+                family="binaries",
             )
         except Exception as exc:
             _log(f"Ledger init failed (will run without dedup): {exc}", "⚠️")
@@ -573,23 +634,13 @@ def main() -> None:
     p2_time = time.time() - p2_start
 
     # Feed findings through the shared ledger (deduplicates with apk_team findings)
-    deduplicated_count = 0
-    for f in findings:
-        if ledger is not None:
-            try:
-                before_fid = f.get("fid")
-                updated = ledger.update(f)
-                is_new = (before_fid is None) and bool(updated.get("fid"))
-                if is_new:
-                    deduplicated_count += 1
-                else:
-                    _safe_log_span(logger, "phase", "STEP",
-                        f" Deduped: {f.get('title', f.get('type', 'unknown'))}")
-            except Exception as exc:
-                _safe_log_span(logger, "phase", "WARN",
-                    f"Ledger update failed: {exc}", finding=f.get("title", "unknown"))
-        if registry is not None:
-            registry.record_progressive_finding(f, requested_by="deep_dive")
+    deduplicated_count = _persist_pass2_findings(
+        findings,
+        ledger=ledger,
+        registry=registry,
+        program=program,
+        logger=logger,
+    )
 
     if findings:
         with (findings_path / "findings.jsonl").open("w", encoding="utf-8") as f:

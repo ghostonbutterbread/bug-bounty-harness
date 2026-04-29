@@ -178,6 +178,27 @@ class BaseTeamLedgerWriteTests(unittest.TestCase):
         self.assertNotIn("report_path", stored)
         self.assertFalse((self.team.storage.ledgers_root / "indexes" / "by_status" / "inconclusive.json").exists())
 
+    def test_active_base_team_write_paths_do_not_call_legacy_save_ledger(self) -> None:
+        with patch.object(self.team, "save_ledger", side_effect=AssertionError("legacy save_ledger should not be used")):
+            reserved = self.team.deduplicate_findings([self._finding()], self.team.load_ledger())
+            reviewed = {
+                **reserved[0],
+                "review_tier": "CONFIRMED",
+                "tier": "CONFIRMED",
+                "review_notes": "Confirmed reachable exported component.",
+            }
+
+            updated = self.team.update_reviewed_findings([reviewed])
+            self.team.update_coverage("ipc-agent", "android-ipc", len(updated))
+            self.team._partial_findings = [self._finding()]
+            self.team._persist_partial_results()
+
+        payload = self._payload()
+        self.assertEqual(len(payload["findings"]), 1)
+        self.assertEqual(payload["findings"][0]["fid"], "D01")
+        self.assertEqual(payload["findings"][0]["current"]["review_tier"], "CONFIRMED")
+        self.assertEqual(payload["coverage"]["surfaces_tested"], ["android-ipc"])
+
     def test_runtime_review_path_uses_reviewed_update_instead_of_whole_ledger_save(self) -> None:
         reviewed = {**self._finding(), "fid": "D01", "review_tier": "CONFIRMED"}
         calls: list[str] = []

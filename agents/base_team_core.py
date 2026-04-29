@@ -263,7 +263,7 @@ class BaseTeam(abc.ABC):
         )
 
     def save_ledger(self, ledger: dict[str, Any]) -> None:
-        """Persist the ledger atomically under an exclusive lock."""
+        """Compatibility-only whole-ledger save; active finding writes use canonical adapters."""
         shared_save_ledger(
             ledger,
             ledger_path=self.ledger_path,

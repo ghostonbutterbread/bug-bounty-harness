@@ -10,7 +10,7 @@ from .findings import (
     read_findings_jsonl,
     safe_int,
 )
-from .ledger import load_ledger, save_ledger
+from .ledger import load_ledger
 from .reports import dated_report_index_paths, write_report_indexes
 from .review import (
     build_review_prompt,
@@ -56,7 +56,6 @@ __all__ = [
     "run_agent_session",
     "run_review_cli",
     "safe_int",
-    "save_ledger",
     "spawn_agent",
     "split_file_reference",
     "stage2_ghost_review",

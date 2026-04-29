@@ -1,10 +1,8 @@
-"""Shared ledger loading and saving helpers for BaseTeam-backed teams."""
+"""Shared ledger loading and canonical write helpers for BaseTeam-backed teams."""
 
 from __future__ import annotations
 
 import fcntl
-import json
-import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
@@ -14,8 +12,6 @@ TimestampFn = Callable[[], str]
 NormalizeFindingFn = Callable[[Any], dict[str, Any] | None]
 EnsureParentFn = Callable[[Path], None]
 ReadLedgerFn = Callable[[], dict[str, Any]]
-NormalizeLedgerFn = Callable[[dict[str, Any]], dict[str, Any]]
-MergeLedgerFn = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
 
 
 def load_ledger(
@@ -34,45 +30,6 @@ def load_ledger(
             payload = read_ledger_unchecked()
             set_last_loaded(payload)
             return payload
-        finally:
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
-
-
-def save_ledger(
-    ledger: dict[str, Any],
-    *,
-    ledger_path: Path,
-    ledger_lock_path: Path,
-    ensure_parent: EnsureParentFn,
-    read_ledger_unchecked: ReadLedgerFn,
-    normalize_ledger_payload: NormalizeLedgerFn,
-    merge_ledger: MergeLedgerFn,
-    set_last_loaded: Callable[[dict[str, Any]], None],
-) -> None:
-    """Compatibility-only whole-ledger save; active finding writes use canonical adapters."""
-    payload = normalize_ledger_payload(ledger)
-    ensure_parent(ledger_path)
-    ensure_parent(ledger_lock_path)
-    ledger_lock_path.touch(exist_ok=True)
-
-    with ledger_lock_path.open("a+", encoding="utf-8") as lock_handle:
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-        try:
-            current = read_ledger_unchecked()
-            merged = merge_ledger(current, payload)
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=ledger_path.parent,
-                prefix=f".{ledger_path.name}.",
-                suffix=".tmp",
-                delete=False,
-            ) as handle:
-                json.dump(merged, handle, indent=2, sort_keys=False)
-                handle.write("\n")
-                temp_path = Path(handle.name)
-            temp_path.replace(ledger_path)
-            set_last_loaded(merged)
         finally:
             fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 

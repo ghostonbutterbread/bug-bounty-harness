@@ -18,7 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from agents.ledger_v2 import ledger_add
+from agents.ledger import ledger_add, read_team_findings
 from agents.source_roots import source_root_candidates
 from agents.storage_resolver import resolve_family_lane, resolve_storage
 from agents.report_paths import (
@@ -384,25 +384,17 @@ def _load_ledger_findings(
     lane: str | None = None,
     root_override: str | Path | None = None,
 ) -> list[FindingRecord]:
-    ledger_path = (
-        _storage_layout(
-            program,
-            hunt_type,
-            family=family,
-            lane=lane,
-            root_override=root_override,
-        ).ledgers_root
-        / "ledger.json"
+    resolved_family, resolved_lane = resolve_family_lane(
+        hunt_type=hunt_type,
+        family=family,
+        lane=lane,
     )
-    if not ledger_path.exists():
-        return []
-    try:
-        payload = json.loads(ledger_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return []
-    raw_findings = payload.get("findings", [])
-    if not isinstance(raw_findings, list):
-        return []
+    raw_findings = read_team_findings(
+        program,
+        family=resolved_family,
+        lane=resolved_lane,
+        root_override=root_override,
+    )
     findings: list[FindingRecord] = []
     for item in raw_findings:
         if not isinstance(item, dict):

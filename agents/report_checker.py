@@ -20,6 +20,11 @@ if str(REPO_ROOT) not in sys.path:
 
 from agents.ledger_v2 import ledger_add
 from agents.storage_resolver import resolve_family_lane, resolve_storage
+from agents.report_paths import (
+    is_seeded_report_index,
+    report_index_roots_for_read,
+    status_report_path_for_read,
+)
 from agents.verbosity import clamp_verbosity
 
 
@@ -269,17 +274,56 @@ def is_placeholder_finding(finding: FindingRecord) -> bool:
     return sum(1 for value in fields if _is_placeholder_text(value)) >= 3
 
 
-def _storage_layout(program: str, hunt_type: str, *, family: str | None = None, lane: str | None = None):
+def _storage_layout(
+    program: str,
+    hunt_type: str,
+    *,
+    family: str | None = None,
+    lane: str | None = None,
+    root_override: str | Path | None = None,
+):
     resolved_family, resolved_lane = resolve_family_lane(family=family, lane=lane, hunt_type=hunt_type)
-    return resolve_storage(_sanitize_program_name(program), family=resolved_family, lane=resolved_lane, create=True)
+    return resolve_storage(
+        _sanitize_program_name(program),
+        family=resolved_family,
+        lane=resolved_lane,
+        root_override=root_override,
+        create=True,
+    )
 
 
-def _reports_root(program: str, hunt_type: str, *, family: str | None = None, lane: str | None = None) -> Path:
-    return _storage_layout(program, hunt_type, family=family, lane=lane).reports_root
+def _reports_root(
+    program: str,
+    hunt_type: str,
+    *,
+    family: str | None = None,
+    lane: str | None = None,
+    root_override: str | Path | None = None,
+) -> Path:
+    return _storage_layout(
+        program,
+        hunt_type,
+        family=family,
+        lane=lane,
+        root_override=root_override,
+    ).reports_root
 
 
-def _validation_report_paths(program: str, hunt_type: str, *, family: str | None = None, lane: str | None = None) -> tuple[Path, Path, Path]:
-    reports_root = _reports_root(program, hunt_type, family=family, lane=lane)
+def _validation_report_paths(
+    program: str,
+    hunt_type: str,
+    *,
+    family: str | None = None,
+    lane: str | None = None,
+    root_override: str | Path | None = None,
+) -> tuple[Path, Path, Path]:
+    reports_root = _reports_root(
+        program,
+        hunt_type,
+        family=family,
+        lane=lane,
+        root_override=root_override,
+    )
     reports_root.mkdir(parents=True, exist_ok=True)
     date_stamp = _today_iso()
     artifacts_dir = reports_root / "validation_artifacts" / date_stamp
@@ -291,8 +335,24 @@ def _validation_report_paths(program: str, hunt_type: str, *, family: str | None
     )
 
 
-def _default_findings_json(program: str, hunt_type: str = "web", *, family: str | None = None, lane: str | None = None) -> Path:
-    return _storage_layout(program, hunt_type, family=family, lane=lane).ledgers_root / "findings.jsonl"
+def _default_findings_json(
+    program: str,
+    hunt_type: str = "web",
+    *,
+    family: str | None = None,
+    lane: str | None = None,
+    root_override: str | Path | None = None,
+) -> Path:
+    return (
+        _storage_layout(
+            program,
+            hunt_type,
+            family=family,
+            lane=lane,
+            root_override=root_override,
+        ).ledgers_root
+        / "findings.jsonl"
+    )
 
 
 def _load_jsonl_findings(path: Path) -> list[FindingRecord]:
@@ -315,8 +375,24 @@ def _load_jsonl_findings(path: Path) -> list[FindingRecord]:
     return findings
 
 
-def _load_ledger_findings(program: str, hunt_type: str = "web", *, family: str | None = None, lane: str | None = None) -> list[FindingRecord]:
-    ledger_path = _storage_layout(program, hunt_type, family=family, lane=lane).ledgers_root / "ledger.json"
+def _load_ledger_findings(
+    program: str,
+    hunt_type: str = "web",
+    *,
+    family: str | None = None,
+    lane: str | None = None,
+    root_override: str | Path | None = None,
+) -> list[FindingRecord]:
+    ledger_path = (
+        _storage_layout(
+            program,
+            hunt_type,
+            family=family,
+            lane=lane,
+            root_override=root_override,
+        ).ledgers_root
+        / "ledger.json"
+    )
     if not ledger_path.exists():
         return []
     try:
@@ -357,25 +433,8 @@ def _load_ledger_findings(program: str, hunt_type: str = "web", *, family: str |
     return findings
 
 
-def _latest_report_path(reports_root: Path, filename: str) -> Path | None:
-    dated_candidates = [path for path in reports_root.glob(f"*/{filename}") if path.is_file()]
-    legacy_candidates = [path for path in reports_root.glob(f"{filename[:-3]}_*") if path.is_file()]
-    candidates = dated_candidates + legacy_candidates
-    if not candidates:
-        return None
-    return max(candidates, key=lambda item: item.stat().st_mtime)
-
-
 def _resolve_report_path(reports_root: Path, bucket: str, legacy_filename: str) -> Path | None:
-    dated_bucket_root = reports_root / bucket
-    canonical_flat = dated_bucket_root / "index.md"
-    if canonical_flat.is_file():
-        return canonical_flat
-    if dated_bucket_root.is_dir():
-        dated_candidates = [path for path in dated_bucket_root.glob("*/index.md") if path.is_file()]
-        if dated_candidates:
-            return max(dated_candidates, key=lambda item: item.stat().st_mtime)
-    return _latest_report_path(reports_root, legacy_filename)
+    return status_report_path_for_read(reports_root, bucket, legacy_filename)
 
 
 def _extract_markdown_field(block: str, label: str) -> str:
@@ -541,33 +600,44 @@ def _load_markdown_findings(
     *,
     family: str | None = None,
     lane: str | None = None,
+    root_override: str | Path | None = None,
 ) -> list[FindingRecord]:
     findings: list[FindingRecord] = []
 
     if report_paths is None:
-        reports_root = _reports_root(program, hunt_type, family=family, lane=lane)
         report_specs = [
             ("confirmed", "confirmed.md", "class", "confirmed"),
             ("dormant", "dormant.md", "class", "pending-review"),
             ("novel", "novel_findings.md", "novel", "novel"),
         ]
-        for bucket, legacy_filename, default_category, default_status in report_specs:
-            path = _resolve_report_path(reports_root, bucket, legacy_filename)
-            if path is None:
-                continue
-            text = path.read_text(encoding="utf-8", errors="replace")
-            findings.extend(
-                _load_markdown_findings_from_text(
-                    text,
-                    default_category=default_category,
-                    default_status=default_status,
+        for source in report_index_roots_for_read(
+            program,
+            hunt_type,
+            family=family,
+            lane=lane,
+            root_override=root_override,
+        ):
+            for bucket, legacy_filename, default_category, default_status in report_specs:
+                path = _resolve_report_path(source.path, bucket, legacy_filename)
+                if path is None:
+                    continue
+                text = path.read_text(encoding="utf-8", errors="replace")
+                findings.extend(
+                    _load_markdown_findings_from_text(
+                        text,
+                        default_category=default_category,
+                        default_status=default_status,
+                    )
                 )
-            )
+            if findings:
+                return findings
         return findings
 
     for raw_path in report_paths:
         path = Path(raw_path).expanduser()
         if not path.is_file():
+            continue
+        if is_seeded_report_index(path):
             continue
         default_category, default_status = _report_defaults_for_path(path)
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -1266,6 +1336,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--hunt-type", default="source", choices=("source", "web", "api", "apk"), help="Report namespace. Default: source.")
     parser.add_argument("--family", help="Optional storage family override.")
     parser.add_argument("--lane", help="Optional storage lane override.")
+    parser.add_argument("--root", dest="storage_root", help="Explicit local canonical root override.")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     parser.add_argument("--findings-json", help="Optional findings.jsonl override.")
     parser.add_argument("--source-root", help="Optional application source root override.")
@@ -1281,12 +1352,35 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     verbosity = clamp_verbosity(args.verbose)
     program = _sanitize_program_name(args.program)
-    findings_json_path = Path(args.findings_json).expanduser().resolve() if args.findings_json else _default_findings_json(program, args.hunt_type, family=args.family, lane=args.lane)
+    storage_root = Path(args.storage_root).expanduser().resolve(strict=False) if args.storage_root else None
+    findings_json_path = (
+        Path(args.findings_json).expanduser().resolve()
+        if args.findings_json
+        else _default_findings_json(
+            program,
+            args.hunt_type,
+            family=args.family,
+            lane=args.lane,
+            root_override=storage_root,
+        )
+    )
 
     findings = _merge_findings(
         _load_jsonl_findings(findings_json_path),
-        _load_ledger_findings(program, args.hunt_type, family=args.family, lane=args.lane),
-        _load_markdown_findings(program, args.hunt_type, family=args.family, lane=args.lane),
+        _load_ledger_findings(
+            program,
+            args.hunt_type,
+            family=args.family,
+            lane=args.lane,
+            root_override=storage_root,
+        ),
+        _load_markdown_findings(
+            program,
+            args.hunt_type,
+            family=args.family,
+            lane=args.lane,
+            root_override=storage_root,
+        ),
     )
     selected = _select_findings(
         findings,
@@ -1301,7 +1395,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     source_roots = _source_root_candidates(program, args.source_root)
     source_root = source_roots[0] if source_roots else None
     template = _load_prompt_template()
-    markdown_path, json_path, artifact_dir = _validation_report_paths(program, args.hunt_type, family=args.family, lane=args.lane)
+    markdown_path, json_path, artifact_dir = _validation_report_paths(
+        program,
+        args.hunt_type,
+        family=args.family,
+        lane=args.lane,
+        root_override=storage_root,
+    )
     if args.output_dir:
         custom_root = Path(args.output_dir).expanduser().resolve(strict=False)
         custom_root.mkdir(parents=True, exist_ok=True)
@@ -1405,6 +1505,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     agent="report-checker",
                     lane=resolved_lane,
                     family=resolved_family,
+                    root_override=storage_root,
                 )
             except Exception as exc:
                 audit["further_investigation"].append(f"ledger update failed: {exc}")

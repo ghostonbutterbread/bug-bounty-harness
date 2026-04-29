@@ -33,7 +33,6 @@ from agents.base_team.findings import (
     safe_int,
 )
 from agents.base_team.ledger import (
-    deduplicate_findings as shared_deduplicate_findings,
     load_ledger as shared_load_ledger,
     reserve_findings as shared_reserve_findings,
     save_ledger as shared_save_ledger,
@@ -282,27 +281,16 @@ class BaseTeam(abc.ABC):
         ledger: dict[str, Any],
     ) -> list[dict[str, Any]]:
         """Return new findings while updating sighting counts on existing entries."""
-        if self._uses_canonical_ledger_writes():
-            return shared_reserve_findings(
-                raw_findings,
-                program=self.program,
-                storage=self.storage,
-                target_path=self.target_path,
-                snapshot_identity=self._snapshot_identity(),
-                run_id=self.run_id,
-                agent="base-team",
-                normalize_finding=self._normalize_finding,
-                timestamp_iso=_timestamp_iso,
-                team_type=self.team_type,
-            )
-
-        return shared_deduplicate_findings(
+        return shared_reserve_findings(
             raw_findings,
-            ledger,
+            program=self.program,
+            storage=self.storage,
+            target_path=self.target_path,
+            snapshot_identity=self._snapshot_identity(),
+            run_id=self.run_id,
+            agent="base-team",
             normalize_finding=self._normalize_finding,
-            finding_identity=self._finding_identity,
             timestamp_iso=_timestamp_iso,
-            snapshot_id=self._snapshot_id,
             team_type=self.team_type,
         )
 
@@ -395,37 +383,17 @@ class BaseTeam(abc.ABC):
 
     def update_coverage(self, agent_name: str, surface: str, finding_count: int) -> None:
         """Update coverage metadata for a single agent execution."""
-        if self._uses_canonical_ledger_writes():
-            shared_update_coverage_state(
-                ledger_path=self.ledger_path,
-                ledger_lock_path=self.ledger_lock_path,
-                ensure_parent=self._ensure_parent,
-                read_default_ledger=self._default_ledger,
-                timestamp_iso=_timestamp_iso,
-                agent_name=agent_name,
-                surface=surface,
-                finding_count=finding_count,
-                set_last_loaded=lambda payload: setattr(self, "_last_loaded_ledger", payload),
-            )
-            return
-
-        ledger = self.load_ledger()
-        coverage = ledger.setdefault("coverage", {})
-        agents_run = coverage.setdefault("agents_run", {})
-        surfaces_tested = coverage.setdefault("surfaces_tested", [])
-
-        agents_run[str(agent_name)] = _timestamp_iso()
-        normalized_surface = str(surface or "").strip()
-        if normalized_surface and normalized_surface not in surfaces_tested:
-            surfaces_tested.append(normalized_surface)
-            surfaces_tested.sort()
-
-        coverage["total_findings"] = max(
-            _safe_int(coverage.get("total_findings")),
-            len(ledger.get("findings") or []),
-            max(0, int(finding_count)),
+        shared_update_coverage_state(
+            ledger_path=self.ledger_path,
+            ledger_lock_path=self.ledger_lock_path,
+            ensure_parent=self._ensure_parent,
+            read_default_ledger=self._default_ledger,
+            timestamp_iso=_timestamp_iso,
+            agent_name=agent_name,
+            surface=surface,
+            finding_count=finding_count,
+            set_last_loaded=lambda payload: setattr(self, "_last_loaded_ledger", payload),
         )
-        self.save_ledger(ledger)
 
     def stage2_review(
         self,
@@ -826,9 +794,6 @@ class BaseTeam(abc.ABC):
 
     def _snapshot_identity(self) -> dict[str, Any]:
         return get_snapshot_identity(self.target_path)
-
-    def _uses_canonical_ledger_writes(self) -> bool:
-        return True
 
     def _persist_partial_results(self) -> None:
         if not self._partial_findings:

@@ -24,8 +24,36 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from agents.base_team.findings import (
+    extract_findings_from_log,
+    finding_identity,
+    normalize_finding,
+    normalize_relpath,
+    read_findings_jsonl,
+    safe_int,
+)
+from agents.base_team.ledger import (
+    deduplicate_findings as shared_deduplicate_findings,
+    load_ledger as shared_load_ledger,
+    save_ledger as shared_save_ledger,
+)
+from agents.base_team.review import (
+    build_review_prompt as shared_build_review_prompt,
+    normalize_review_tier as shared_normalize_review_tier,
+    review_single_finding as shared_review_single_finding,
+    run_review_cli as shared_run_review_cli,
+    stage2_review as shared_stage2_review,
+)
+from agents.base_team.runtime import (
+    install_signal_handlers as shared_install_signal_handlers,
+    orchestrate as shared_orchestrate,
+    spawn_agent as shared_spawn_agent,
+    wait_for_agents as shared_wait_for_agents,
+    write_traces as shared_write_traces,
+)
+from agents.base_team.storage import resolve_team_storage
 from agents.snapshot_identity import get_snapshot_identity
-from agents.storage_resolver import resolve_family_lane, resolve_storage, write_context_files
+from agents.storage_resolver import resolve_family_lane
 
 
 LOGGER = logging.getLogger(__name__)
@@ -54,20 +82,6 @@ def _slug(value: str, *, separator: str = "-") -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", separator, str(value or "").strip().lower())
     cleaned = cleaned.strip(separator)
     return cleaned or "unnamed"
-
-
-def _safe_int(value: Any, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _normalize_relpath(value: Any) -> str:
-    relpath = str(value or "").strip().replace("\\", "/")
-    while relpath.startswith("./"):
-        relpath = relpath[2:]
-    return relpath
 
 
 def _normalize_text_list(value: Any) -> list[str]:
@@ -157,19 +171,11 @@ class BaseTeam(abc.ABC):
         self.workdir = Path(__file__).resolve().parent.parent
 
         self.family, self.lane = self._storage_family_lane(team_type)
-        override_root = None
-        if output_root is not None:
-            output_root_text = str(output_root).strip()
-            if output_root_text:
-                override_root = Path(output_root_text).expanduser().resolve(strict=False)
-        self.storage = resolve_storage(
+        self.storage = resolve_team_storage(
             self.program,
-            family=self.family,
-            lane=self.lane,
-            root_override=override_root,
-            create=True,
+            team_type=team_type,
+            output_root=output_root,
         )
-        write_context_files(self.storage)
         self.output_root = self.storage.program_root
 
         self.team_dir = self.storage.lane_root
@@ -216,53 +222,18 @@ class BaseTeam(abc.ABC):
 
     def spawn_agent(self, prompt: str, agent_name: str, log_path: Path) -> subprocess.Popen[Any]:
         """Spawn a codex subprocess and capture its output to the provided log."""
-        self._ensure_parent(log_path)
-
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=self.team_dir,
-            prefix=f".prompt_{_slug(agent_name, separator='_')}_",
-            suffix=".txt",
-            delete=False,
-        ) as handle:
-            handle.write(prompt)
-            handle.write("\n")
-            prompt_file = Path(handle.name)
-
-        command = (
-            "codex exec -s danger-full-access --skip-git-repo-check "
-            f"-C {shlex.quote(str(self.workdir))} < {shlex.quote(str(prompt_file))}"
+        return shared_spawn_agent(
+            prompt,
+            agent_name,
+            log_path,
+            ensure_parent=self._ensure_parent,
+            team_dir=self.team_dir,
+            workdir=self.workdir,
+            target_path=self.target_path,
+            active_handles=self._active_handles,
+            write_traces=self.write_traces,
+            slug=lambda value: _slug(value, separator="_"),
         )
-
-        log_handle = log_path.open("ab")
-        process = subprocess.Popen(
-            ["bash", "-lc", command],
-            cwd=str(self.workdir),
-            stdin=subprocess.DEVNULL,
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-        )
-        setattr(process, "_bbh_log_path", str(log_path))
-        setattr(process, "_bbh_prompt_path", str(prompt_file))
-        setattr(process, "_bbh_agent_name", str(agent_name))
-        setattr(process, "_bbh_log_handle", log_handle)
-        self._active_handles[agent_name] = process
-
-        self.write_traces(
-            [
-                {
-                    "event": "spawn",
-                    "agent_name": agent_name,
-                    "log_path": str(log_path),
-                    "prompt_path": str(prompt_file),
-                    "pid": process.pid,
-                    "command": command,
-                    "target_path": str(self.target_path),
-                }
-            ]
-        )
-        return process
 
     def wait_for_agents(
         self,
@@ -270,92 +241,36 @@ class BaseTeam(abc.ABC):
         timeout: int,
     ) -> dict[str, tuple[str, int]]:
         """Wait for spawned agents, respecting a global timeout."""
-        deadline = time.monotonic() + max(1, int(timeout))
-        pending = dict(handles)
-        completed: dict[str, tuple[str, int]] = {}
-
-        while pending:
-            if self._sigterm_received:
-                break
-
-            for agent_name, handle in list(pending.items()):
-                returncode = handle.poll()
-                if returncode is None:
-                    continue
-                completed[agent_name] = (self._read_log_for_handle(handle), returncode)
-                self._cleanup_handle(handle)
-                pending.pop(agent_name, None)
-
-            if not pending:
-                break
-            if time.monotonic() >= deadline:
-                break
-            time.sleep(0.2)
-
-        for agent_name, handle in pending.items():
-            try:
-                handle.terminate()
-                handle.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                handle.kill()
-                handle.wait(timeout=5)
-            except OSError:
-                pass
-            completed[agent_name] = (self._read_log_for_handle(handle), -9)
-            self._cleanup_handle(handle)
-            self.write_traces(
-                [
-                    {
-                        "event": "timeout",
-                        "agent_name": agent_name,
-                        "pid": handle.pid,
-                        "timeout_seconds": int(timeout),
-                    }
-                ]
-            )
-
-        return completed
+        return shared_wait_for_agents(
+            handles,
+            timeout,
+            sigterm_received=lambda: self._sigterm_received,
+            read_log_for_handle=self._read_log_for_handle,
+            cleanup_handle=self._cleanup_handle,
+            write_traces=self.write_traces,
+        )
 
     def load_ledger(self) -> dict[str, Any]:
         """Load the team ledger or return an empty v2-compatible structure."""
-        self._ensure_parent(self.ledger_lock_path)
-        self.ledger_lock_path.touch(exist_ok=True)
-        with self.ledger_lock_path.open("a+", encoding="utf-8") as lock_handle:
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-            try:
-                payload = self._read_ledger_unchecked()
-                self._last_loaded_ledger = payload
-                return payload
-            finally:
-                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+        return shared_load_ledger(
+            self.ledger_lock_path,
+            ensure_parent=self._ensure_parent,
+            read_ledger_unchecked=self._read_ledger_unchecked,
+            set_last_loaded=lambda payload: setattr(self, "_last_loaded_ledger", payload),
+        )
 
     def save_ledger(self, ledger: dict[str, Any]) -> None:
         """Persist the ledger atomically under an exclusive lock."""
-        payload = self._normalize_ledger_payload(ledger)
-        self._ensure_parent(self.ledger_path)
-        self._ensure_parent(self.ledger_lock_path)
-        self.ledger_lock_path.touch(exist_ok=True)
-
-        with self.ledger_lock_path.open("a+", encoding="utf-8") as lock_handle:
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-            try:
-                current = self._read_ledger_unchecked()
-                merged = self._merge_ledger(current, payload)
-                with tempfile.NamedTemporaryFile(
-                    mode="w",
-                    encoding="utf-8",
-                    dir=self.ledger_path.parent,
-                    prefix=f".{self.ledger_path.name}.",
-                    suffix=".tmp",
-                    delete=False,
-                ) as handle:
-                    json.dump(merged, handle, indent=2, sort_keys=False)
-                    handle.write("\n")
-                    temp_path = Path(handle.name)
-                temp_path.replace(self.ledger_path)
-                self._last_loaded_ledger = merged
-            finally:
-                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+        shared_save_ledger(
+            ledger,
+            ledger_path=self.ledger_path,
+            ledger_lock_path=self.ledger_lock_path,
+            ensure_parent=self._ensure_parent,
+            read_ledger_unchecked=self._read_ledger_unchecked,
+            normalize_ledger_payload=self._normalize_ledger_payload,
+            merge_ledger=self._merge_ledger,
+            set_last_loaded=lambda payload: setattr(self, "_last_loaded_ledger", payload),
+        )
 
     def deduplicate_findings(
         self,
@@ -363,50 +278,15 @@ class BaseTeam(abc.ABC):
         ledger: dict[str, Any],
     ) -> list[dict[str, Any]]:
         """Return new findings while updating sighting counts on existing entries."""
-        findings = ledger.setdefault("findings", [])
-        seen: dict[tuple[str, int, str, str], dict[str, Any]] = {}
-        for finding in findings:
-            if not isinstance(finding, dict):
-                continue
-            seen[self._finding_identity(finding)] = finding
-
-        new_findings: list[dict[str, Any]] = []
-        now = _timestamp_iso()
-        for raw in raw_findings:
-            finding = self._normalize_finding(raw)
-            if finding is None:
-                continue
-            identity = self._finding_identity(finding)
-            existing = seen.get(identity)
-            if existing is not None:
-                existing["last_seen"] = now
-                existing["sighting_count"] = _safe_int(existing.get("sighting_count"), 1) + 1
-                sightings = existing.get("sightings")
-                if not isinstance(sightings, list):
-                    sightings = []
-                    existing["sightings"] = sightings
-                sightings.append(
-                    {
-                        "seen_at": now,
-                        "agent": str(finding.get("agent") or ""),
-                        "team_type": self.team_type,
-                    }
-                )
-                continue
-
-            finding["first_seen"] = now
-            finding["last_seen"] = now
-            finding["sighting_count"] = 1
-            finding["snapshot_id"] = self._snapshot_id()
-            seen[identity] = finding
-            new_findings.append(finding)
-
-        coverage = ledger.setdefault("coverage", {})
-        coverage["total_findings"] = max(
-            _safe_int(coverage.get("total_findings")),
-            len(findings) + len(new_findings),
+        return shared_deduplicate_findings(
+            raw_findings,
+            ledger,
+            normalize_finding=self._normalize_finding,
+            finding_identity=self._finding_identity,
+            timestamp_iso=_timestamp_iso,
+            snapshot_id=self._snapshot_id,
+            team_type=self.team_type,
         )
-        return new_findings
 
     def generate_dynamic_agents(self, target_path: Path, force: bool = False) -> list[AgentSpec]:
         """Load or generate dynamic agent specs for the current snapshot."""
@@ -506,50 +386,25 @@ class BaseTeam(abc.ABC):
         target_path: Path,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
         """Review findings with Claude first and Codex as fallback."""
-        confirmed: list[dict[str, Any]] = []
-        dormant: list[dict[str, Any]] = []
-        novel: list[dict[str, Any]] = []
-        self._last_review_error = None
-
-        for finding in findings:
-            try:
-                reviewed = self._review_single_finding(finding, target_path)
-            except Exception as exc:
-                reviewed = dict(finding)
-                reviewed["review_tier"] = "INCONCLUSIVE"
-                reviewed["review_error"] = str(exc)
-                self._last_review_error = str(exc)
-
-            category = str(reviewed.get("category") or "").strip().lower()
-            tier = self._normalize_review_tier(reviewed.get("review_tier"))
-            reviewed["review_tier"] = tier
-
-            if tier == "INCONCLUSIVE":
-                # Inconclusive findings go to dormant but keep their tier flag
-                dormant.append(reviewed)
-            elif category == "novel" or tier == "NOVEL":
-                novel.append(reviewed)
-            elif tier == "CONFIRMED":
-                confirmed.append(reviewed)
-            else:
-                dormant.append(reviewed)
-
-        return confirmed, dormant, novel
+        return shared_stage2_review(
+            findings,
+            target_path,
+            review_single_finding=self._review_single_finding,
+            normalize_review_tier=self._normalize_review_tier,
+            set_last_review_error=lambda value: setattr(self, "_last_review_error", value),
+        )
 
     def write_traces(self, events: list[dict[str, Any]]) -> None:
         """Append JSONL trace events to a timestamped trace file."""
-        if not events:
-            return
-        trace_path = self.traces_dir / f"{_trace_timestamp()}.jsonl"
-        self._ensure_parent(trace_path)
-        with trace_path.open("a", encoding="utf-8") as handle:
-            for event in events:
-                payload = dict(event)
-                payload.setdefault("timestamp", _timestamp_iso())
-                payload.setdefault("program", self.program)
-                payload.setdefault("team_type", self.team_type)
-                handle.write(json.dumps(payload, sort_keys=True))
-                handle.write("\n")
+        shared_write_traces(
+            events,
+            traces_dir=self.traces_dir,
+            ensure_parent=self._ensure_parent,
+            trace_timestamp=_trace_timestamp,
+            timestamp_iso=_timestamp_iso,
+            program=self.program,
+            team_type=self.team_type,
+        )
 
     def orchestrate(
         self,
@@ -557,193 +412,44 @@ class BaseTeam(abc.ABC):
         agents_mode: str = "all",
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
         """Run the full team lifecycle."""
-        if agents_mode not in {"static", "dynamic", "all"}:
-            raise ValueError("agents_mode must be one of: static, dynamic, all")
-
-        self._install_signal_handlers()
-        self._partial_findings = []
-
-        static_specs = self.get_static_profiles() if agents_mode in {"static", "all"} else []
-        dynamic_specs = (
-            self.generate_dynamic_agents(self.target_path, force=self.force_preflight)
-            if agents_mode in {"dynamic", "all"}
-            else []
+        return shared_orchestrate(
+            parallel=parallel,
+            agents_mode=agents_mode,
+            install_signal_handlers=self._install_signal_handlers,
+            set_partial_findings=lambda findings: setattr(self, "_partial_findings", findings),
+            get_static_profiles=self.get_static_profiles,
+            generate_dynamic_agents=self.generate_dynamic_agents,
+            target_path=self.target_path,
+            force_preflight=self.force_preflight,
+            select_specs=lambda static_specs, dynamic_specs: self._select_specs(
+                static_specs,
+                dynamic_specs,
+                agents_mode=agents_mode,
+            ),
+            load_shared_brain=self.load_shared_brain,
+            load_ledger=self.load_ledger,
+            set_last_loaded_ledger=lambda ledger: setattr(self, "_last_loaded_ledger", ledger),
+            findings_path=self.findings_path,
+            write_traces=self.write_traces,
+            snapshot_id=self._snapshot_id,
+            spawn_agent=self.spawn_agent,
+            agents_dir=self.agents_dir,
+            slug=lambda value: _slug(value, separator="_"),
+            trace_timestamp=_trace_timestamp,
+            sigterm_received=lambda: self._sigterm_received,
+            read_log_for_handle=self._read_log_for_handle,
+            cleanup_handle=self._cleanup_handle,
+            collect_agent_findings=self._collect_agent_findings,
+            agent_timeout=self.agent_timeout,
+            deduplicate_findings=self.deduplicate_findings,
+            stage2_review=self.stage2_review,
+            save_ledger=self.save_ledger,
+            update_coverage=self.update_coverage,
+            get_last_review_error=lambda: self._last_review_error,
+            active_handles=self._active_handles,
+            persist_partial_results=self._persist_partial_results,
+            render_prompt=self._render_prompt,
         )
-        selected_specs = self._select_specs(static_specs, dynamic_specs, agents_mode=agents_mode)
-        shared_brain = self.load_shared_brain()
-        ledger = self.load_ledger()
-        self._last_loaded_ledger = ledger
-        self.findings_path.write_text("", encoding="utf-8")
-
-        self.write_traces(
-            [
-                {
-                    "event": "preflight",
-                    "agents_mode": agents_mode,
-                    "parallel": bool(parallel),
-                    "static_count": len(static_specs),
-                    "dynamic_count": len(dynamic_specs),
-                    "selected_count": len(selected_specs),
-                    "snapshot_id": self._snapshot_id(),
-                    "shared_brain_files": len((shared_brain.get("files") or {})),
-                }
-            ]
-        )
-
-        raw_findings: list[dict[str, Any]] = []
-        findings_by_agent: dict[str, list[dict[str, Any]]] = {}
-
-        try:
-            if parallel:
-                handles: dict[str, subprocess.Popen[Any]] = {}
-                log_paths: dict[str, Path] = {}
-                for spec in selected_specs:
-                    rendered = self._render_prompt(spec)
-                    timestamp = _trace_timestamp()
-                    log_path = self.agents_dir / f"agent_{_slug(spec.key, separator='_')}_{timestamp}.log"
-                    log_paths[spec.key] = log_path
-                    handles[spec.key] = self.spawn_agent(rendered, spec.key, log_path)
-
-                # Poll agents and collect findings as they complete (not just at the end)
-                # This ensures partial findings are saved on SIGTERM during the wait
-                pending = dict(handles)
-                completed: dict[str, tuple[str, int]] = {}
-                deadline = time.monotonic() + max(1, int(self.agent_timeout))
-
-                while pending:
-                    if self._sigterm_received:
-                        break
-
-                    for agent_name, handle in list(pending.items()):
-                        returncode = handle.poll()
-                        if returncode is None:
-                            continue
-                        completed[agent_name] = (self._read_log_for_handle(handle), returncode)
-                        self._cleanup_handle(handle)
-                        pending.pop(agent_name, None)
-
-                        # Collect findings immediately when each agent finishes
-                        spec = next((s for s in selected_specs if s.key == agent_name), None)
-                        if spec is not None:
-                            agent_findings = self._collect_agent_findings(spec, log_paths.get(agent_name))
-                            findings_by_agent[agent_name] = agent_findings
-                            raw_findings.extend(agent_findings)
-                            self._partial_findings = list(raw_findings)
-                            self.write_traces(
-                                [
-                                    {
-                                        "event": "agent_complete",
-                                        "agent_name": agent_name,
-                                        "surface": spec.surface,
-                                        "returncode": returncode,
-                                        "finding_count": len(agent_findings),
-                                    }
-                                ]
-                            )
-
-                    if not pending:
-                        break
-                    if time.monotonic() >= deadline:
-                        break
-                    time.sleep(0.2)
-
-                # Handle timed-out agents
-                for agent_name, handle in pending.items():
-                    try:
-                        handle.terminate()
-                        handle.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        handle.kill()
-                        handle.wait(timeout=5)
-                    except OSError:
-                        pass
-                    completed[agent_name] = (self._read_log_for_handle(handle), -9)
-                    self._cleanup_handle(handle)
-
-                    spec = next((s for s in selected_specs if s.key == agent_name), None)
-                    if spec is not None:
-                        agent_findings = self._collect_agent_findings(spec, log_paths.get(agent_name))
-                        findings_by_agent[agent_name] = agent_findings
-                        raw_findings.extend(agent_findings)
-                        self._partial_findings = list(raw_findings)
-                        self.write_traces(
-                            [
-                                {
-                                    "event": "timeout",
-                                    "agent_name": agent_name,
-                                    "surface": spec.surface,
-                                    "pid": handle.pid,
-                                    "timeout_seconds": int(self.agent_timeout),
-                                    "finding_count": len(agent_findings),
-                                }
-                            ]
-                        )
-            else:
-                for spec in selected_specs:
-                    if self._sigterm_received:
-                        break
-                    rendered = self._render_prompt(spec)
-                    timestamp = _trace_timestamp()
-                    log_path = self.agents_dir / f"agent_{_slug(spec.key, separator='_')}_{timestamp}.log"
-                    handle = self.spawn_agent(rendered, spec.key, log_path)
-                    self.wait_for_agents({spec.key: handle}, timeout=self.agent_timeout)
-                    agent_findings = self._collect_agent_findings(spec, log_path)
-                    findings_by_agent[spec.key] = agent_findings
-                    raw_findings.extend(agent_findings)
-                    self._partial_findings = list(raw_findings)
-                    self.write_traces(
-                        [
-                            {
-                                "event": "agent_complete",
-                                "agent_name": spec.key,
-                                "surface": spec.surface,
-                                "returncode": handle.returncode,
-                                "finding_count": len(agent_findings),
-                            }
-                        ]
-                    )
-
-            self._partial_findings = list(raw_findings)
-            new_findings = self.deduplicate_findings(raw_findings, ledger)
-            confirmed, dormant, novel = self.stage2_review(new_findings, self.target_path)
-            reviewed_findings = confirmed + dormant + novel
-            ledger.setdefault("findings", []).extend(reviewed_findings)
-            ledger.setdefault("coverage", {})["total_findings"] = len(ledger.get("findings") or [])
-            self.save_ledger(ledger)
-
-            for spec in selected_specs:
-                self.update_coverage(
-                    agent_name=spec.key,
-                    surface=spec.surface,
-                    finding_count=len(findings_by_agent.get(spec.key, [])),
-                )
-
-            self.write_traces(
-                [
-                    {
-                        "event": "review_complete",
-                        "confirmed": len(confirmed),
-                        "dormant": len(dormant),
-                        "novel": len(novel),
-                        "review_error": self._last_review_error,
-                    }
-                ]
-            )
-            return confirmed, dormant, novel
-        except SystemExit:
-            raise
-        except BaseException:
-            self._persist_partial_results()
-            raise
-        finally:
-            for handle in list(self._active_handles.values()):
-                if handle.poll() is None:
-                    try:
-                        handle.terminate()
-                    except OSError:
-                        pass
-                self._cleanup_handle(handle)
-            self._active_handles.clear()
 
     def _select_specs(
         self,
@@ -826,7 +532,7 @@ class BaseTeam(abc.ABC):
                 continue
             key = (
                 str(normalized.get("file") or ""),
-                _safe_int(normalized.get("line")),
+                safe_int(normalized.get("line")),
                 str(normalized.get("class_name") or ""),
                 str(normalized.get("type") or ""),
             )
@@ -837,147 +543,36 @@ class BaseTeam(abc.ABC):
         return combined
 
     def _review_single_finding(self, finding: dict[str, Any], target_path: Path) -> dict[str, Any]:
-        prompt = self._build_review_prompt(finding, target_path)
-        review_data: dict[str, Any] | None = None
-        errors: list[str] = []
-
-        for cli_name in ("claude", "codex"):
-            try:
-                output = self._run_review_cli(cli_name, prompt, timeout=self.review_timeout)
-                try:
-                    review_data = _extract_json_object(output)
-                except Exception as exc:
-                    errors.append(f"{cli_name}: {exc}")
-                    continue
-                if not review_data:
-                    errors.append(f"{cli_name}: empty review result")
-                    review_data = None
-                    continue
-                break
-            except Exception as exc:
-                errors.append(f"{cli_name}: {exc}")
-
-        if review_data is None:
-            reviewed = dict(finding)
-            reviewed["review_tier"] = "INCONCLUSIVE"
-            reviewed["review_error"] = "; ".join(errors) if errors else "All review CLIs failed"
-            return reviewed
-
-        reviewed = dict(finding)
-        tier = self._normalize_review_tier(review_data.get("tier") or review_data.get("review_tier"))
-        reviewed["review_tier"] = tier
-        reviewed["review_notes"] = str(review_data.get("review_notes") or "").strip()
-        reviewed["blocked_reason"] = str(review_data.get("blocked_reason") or "").strip()
-        reviewed["impact"] = str(review_data.get("impact") or "").strip()
-        reviewed["remediation"] = str(review_data.get("remediation") or "").strip()
-        reviewed["review_model"] = str(review_data.get("model") or "").strip()
-        return reviewed
+        return shared_review_single_finding(
+            finding,
+            target_path,
+            build_review_prompt=self._build_review_prompt,
+            run_review_cli=self._run_review_cli,
+            extract_json_object=_extract_json_object,
+            normalize_review_tier=self._normalize_review_tier,
+            review_timeout=self.review_timeout,
+        )
 
     def _run_review_cli(self, cli_name: str, prompt: str, timeout: int) -> str:
-        if cli_name == "claude":
-            command = ["claude", "--print", "--permission-mode", "bypassPermissions"]
-        elif cli_name == "codex":
-            command = [
-                "codex",
-                "exec",
-                "-s",
-                "danger-full-access",
-                "--skip-git-repo-check",
-                "-C",
-                str(self.workdir),
-            ]
-        else:
-            raise ValueError(f"unsupported review CLI {cli_name!r}")
-
-        process = subprocess.Popen(
-            command,
-            cwd=str(self.workdir),
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        try:
-            stdout_text, stderr_text = process.communicate(prompt, timeout=max(1, int(timeout)))
-        except subprocess.TimeoutExpired as exc:
-            process.kill()
-            process.communicate(timeout=5)
-            raise TimeoutError(f"{cli_name} review timed out") from exc
-        if process.returncode != 0 and not (stdout_text or "").strip():
-            raise RuntimeError(stderr_text.strip() or f"{cli_name} exited with {process.returncode}")
-        return stdout_text.strip() or stderr_text.strip()
+        return shared_run_review_cli(cli_name, prompt, timeout, workdir=self.workdir)
 
     def _build_review_prompt(self, finding: dict[str, Any], target_path: Path) -> str:
-        source_path = self._resolve_source_path(finding.get("file"))
-        excerpt = self._source_excerpt(source_path, _safe_int(finding.get("line"))) if source_path else "UNAVAILABLE"
-        return f"""Review this single vulnerability-hunting finding.
-
-Return only one JSON object. No markdown and no prose outside JSON.
-Allowed tiers: CONFIRMED, DORMANT, NOVEL, INCONCLUSIVE.
-
-JSON schema:
-{{"tier":"CONFIRMED|DORMANT|NOVEL|INCONCLUSIVE","impact":"...","blocked_reason":"...","remediation":"...","review_notes":"...","model":"{{
-optional
-}}"}}
-
-Target path: {target_path}
-Resolved source path: {source_path or "UNRESOLVED"}
-
-Finding:
-{json.dumps(finding, indent=2, sort_keys=True)}
-
-Source excerpt:
-{excerpt}
-"""
+        return shared_build_review_prompt(
+            finding,
+            target_path,
+            resolve_source_path=self._resolve_source_path,
+            source_excerpt=self._source_excerpt,
+            safe_int=safe_int,
+        )
 
     def _normalize_review_tier(self, value: Any) -> str:
-        tier = str(value or "").strip().upper().replace("-", "_")
-        if tier in {"DORMANT_ACTIVE", "DORMANT_HYPOTHETICAL"}:
-            tier = "DORMANT"
-        if tier not in REVIEW_TIERS:
-            return "INCONCLUSIVE"
-        return tier
+        return shared_normalize_review_tier(value)
 
     def _read_findings_jsonl(self) -> list[dict[str, Any]]:
-        findings: list[dict[str, Any]] = []
-        if not self.findings_path.exists():
-            return findings
-        try:
-            with self.findings_path.open("r", encoding="utf-8", errors="replace") as handle:
-                for raw_line in handle:
-                    line = raw_line.strip()
-                    if not line.startswith("{"):
-                        continue
-                    try:
-                        payload = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if isinstance(payload, dict):
-                        findings.append(payload)
-        except OSError:
-            return []
-        return findings
+        return read_findings_jsonl(self.findings_path)
 
     def _extract_findings_from_log(self, log_path: Path, default_agent: str) -> list[dict[str, Any]]:
-        findings: list[dict[str, Any]] = []
-        if not log_path.exists():
-            return findings
-        try:
-            with log_path.open("r", encoding="utf-8", errors="replace") as handle:
-                for raw_line in handle:
-                    line = raw_line.strip()
-                    if not line.startswith("{"):
-                        continue
-                    try:
-                        payload = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    normalized = self._normalize_finding(payload, default_agent=default_agent)
-                    if normalized is not None:
-                        findings.append(normalized)
-        except OSError:
-            return []
-        return findings
+        return extract_findings_from_log(log_path, default_agent=default_agent)
 
     def _normalize_finding(
         self,
@@ -986,48 +581,10 @@ Source excerpt:
         default_agent: str = "unknown",
         default_class: str = "unknown",
     ) -> dict[str, Any] | None:
-        if not isinstance(raw, dict):
-            return None
-        file_path = _normalize_relpath(raw.get("file"))
-        if not file_path:
-            return None
-
-        category = str(raw.get("category") or "class").strip().lower()
-        if category not in {"class", "novel"}:
-            category = "class"
-
-        class_name = str(raw.get("class_name") or raw.get("vuln_class") or default_class).strip().lower()
-        if not class_name:
-            class_name = default_class
-
-        finding_type = str(raw.get("type") or raw.get("title") or "").strip()
-        if not finding_type:
-            return None
-
-        return {
-            "agent": str(raw.get("agent") or default_agent).strip() or default_agent,
-            "category": category,
-            "class_name": class_name,
-            "type": finding_type,
-            "file": file_path,
-            "line": _safe_int(raw.get("line")),
-            "description": str(raw.get("description") or "").strip(),
-            "severity": str(raw.get("severity") or "UNKNOWN").strip().upper() or "UNKNOWN",
-            "context": str(raw.get("context") or "").strip(),
-            "source": str(raw.get("source") or "").strip(),
-            "trust_boundary": str(raw.get("trust_boundary") or "").strip(),
-            "flow_path": str(raw.get("flow_path") or "").strip(),
-            "sink": str(raw.get("sink") or "").strip(),
-            "exploitability": str(raw.get("exploitability") or "").strip(),
-        }
+        return normalize_finding(raw, default_agent=default_agent, default_class=default_class)
 
     def _finding_identity(self, finding: dict[str, Any]) -> tuple[str, int, str, str]:
-        return (
-            _normalize_relpath(finding.get("file")),
-            _safe_int(finding.get("line")),
-            str(finding.get("class_name") or "").strip().lower(),
-            str(finding.get("type") or "").strip().lower(),
-        )
+        return finding_identity(finding)
 
     def _resolve_source_path(self, file_value: Any) -> Path | None:
         relpath = _normalize_relpath(file_value)
@@ -1244,17 +801,13 @@ Source excerpt:
             LOGGER.exception("failed to persist partial results: %s", exc)
 
     def _install_signal_handlers(self) -> None:
-        if self._signal_handlers_installed:
-            return
-
-        def _handle_sigterm(signum: int, _frame: Any) -> None:
-            self._sigterm_received = True
-            self.write_traces([{"event": "signal", "signal": signum}])
-            self._persist_partial_results()
-            raise SystemExit(143)
-
-        signal.signal(signal.SIGTERM, _handle_sigterm)
-        self._signal_handlers_installed = True
+        shared_install_signal_handlers(
+            signal_handlers_installed=lambda: self._signal_handlers_installed,
+            set_sigterm_received=lambda value: setattr(self, "_sigterm_received", value),
+            persist_partial_results=self._persist_partial_results,
+            set_signal_handlers_installed=lambda value: setattr(self, "_signal_handlers_installed", value),
+            write_traces=self.write_traces,
+        )
 
     def _ensure_parent(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1321,7 +874,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = parse_args(argv)
     target_path = Path(args.target_path).expanduser()
-    output_root = Path(args.output_root).expanduser()
+    output_root = Path(args.output_root).expanduser() if args.output_root else None
 
     if args.team_type == "0day_team":
         from agents.zero_day_team import ZeroDayTeam

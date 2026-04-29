@@ -16,9 +16,16 @@ _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from agents.ledger_v2 import ledger_add, ledger_get, ledger_list, ledger_path
+from agents.bounty_core_bootstrap import ensure_bounty_core_importable
+from agents.ledger_v2 import VersionedFindingsLedger, ledger_add, ledger_get, ledger_list, ledger_path
 from agents.apk_prefingerprint import _select_apk_candidate
 from agents.snapshot_identity import get_snapshot_identity, get_snapshot_id, is_same_snapshot
+from agents.storage_resolver import infer_family_from_lane, resolve_storage
+
+ensure_bounty_core_importable()
+from bounty_core.ledger import ledger_add as core_ledger_add
+from bounty_core.ledger import ledger_list as core_ledger_list
+from bounty_core.ledger import list_findings as core_list_findings
 
 
 _CONCURRENT_ADD_SCRIPT = textwrap.dedent(
@@ -277,6 +284,213 @@ class LedgerV2Tests(unittest.TestCase):
         self.assertEqual(len(payload["findings"]), 1)
         self.assertEqual(payload["findings"][0]["class_name"], "canva-websocket-auth-bypass")
         self.assertEqual(len(payload["findings"][0]["sightings"]), 2)
+
+    def test_versioned_update_persists_core_identity_without_losing_snapshot_metadata(self) -> None:
+        ledger = VersionedFindingsLedger(
+            self.program,
+            target_root=self.tmp,
+            snapshot_identity={"snapshot_id": "snap-reviewed", "version_label": "v9.0.0"},
+            run_id="20260428T010203Z",
+            agent="manual-hunter",
+            lane="apk",
+            family="binaries",
+        )
+
+        finding = ledger.update(
+            {
+                "type": "Reviewed IPC issue",
+                "class_name": "ipc-trust-boundary",
+                "file": "src/preload.js",
+                "line": 44,
+                "severity": "HIGH",
+                "review_tier": "CONFIRMED",
+                "status": "confirmed",
+            }
+        )
+
+        self.assertEqual(finding["fid"], "D01")
+        self.assertEqual(finding["first_snapshot"], "snap-reviewed")
+        self.assertEqual(finding["last_snapshot"], "snap-reviewed")
+        self.assertEqual(finding["current"]["version_label"], "v9.0.0")
+        self.assertEqual(len(finding["sightings"]), 1)
+        self.assertEqual(finding["identity"], "harness-fid:notion:binaries:apk:D01")
+        self.assertEqual(finding["harness_fid"], "D01")
+
+        core_findings = core_list_findings(self.program, family="binaries", lane="apk")
+        self.assertEqual(len(core_findings), 1)
+        self.assertEqual(core_findings[0]["fid"], "D01")
+        self.assertEqual(core_findings[0]["identity"], "harness-fid:notion:binaries:apk:D01")
+
+        updated = ledger.update({**finding, "severity": "CRITICAL"})
+        self.assertEqual(updated["fid"], "D01")
+        self.assertEqual(updated["severity"], "CRITICAL")
+        self.assertEqual(len(core_list_findings(self.program, family="binaries", lane="apk")), 1)
+
+    def test_versioned_update_with_root_override_uses_explicit_canonical_root(self) -> None:
+        explicit_root = self.tmp / "canonical-storage"
+        default_path = ledger_path(self.program, lane="apk", family="binaries")
+        explicit_path = ledger_path(
+            self.program,
+            lane="apk",
+            family="binaries",
+            root_override=explicit_root,
+        )
+        ledger = VersionedFindingsLedger(
+            self.program,
+            target_root=self.tmp,
+            snapshot_identity={"snapshot_id": "snap-explicit", "version_label": "v9.1.0"},
+            run_id="20260428T020304Z",
+            agent="manual-hunter",
+            lane="apk",
+            family="binaries",
+            root_override=explicit_root,
+        )
+
+        finding = ledger.update(
+            {
+                "type": "Explicit root issue",
+                "class_name": "ipc-trust-boundary",
+                "file": "src/explicit.js",
+                "severity": "HIGH",
+                "review_tier": "CONFIRMED",
+                "status": "confirmed",
+            }
+        )
+
+        self.assertEqual(ledger.path, explicit_path)
+        self.assertEqual(finding["fid"], "D01")
+        self.assertTrue(explicit_path.exists())
+        self.assertFalse(default_path.exists())
+        self.assertEqual(
+            len(core_list_findings(self.program, family="binaries", lane="apk", root_override=explicit_root)),
+            1,
+        )
+        self.assertEqual(len(core_list_findings(self.program, family="binaries", lane="apk")), 0)
+
+    def test_harness_and_core_apis_share_one_explicit_ledger_root(self) -> None:
+        explicit_root = self.tmp / "shared-storage"
+        path = ledger_path(self.program, lane="apk", family="binaries", root_override=explicit_root)
+
+        harness_new, harness_fid = ledger_add(
+            self.program,
+            {
+                "type": "Harness-added IPC issue",
+                "class_name": "ipc-trust-boundary",
+                "file": "src/preload.js",
+                "line": 44,
+                "severity": "HIGH",
+            },
+            "snap-harness",
+            "v1.0.0",
+            "run-harness",
+            "harness-wrapper",
+            lane="apk",
+            family="binaries",
+            root_override=explicit_root,
+        )
+        self.assertTrue(harness_new)
+        self.assertEqual(harness_fid, "D01")
+
+        core_seen = core_ledger_list(self.program, family="binaries", lane="apk", root_override=explicit_root)
+        self.assertEqual([item["fid"] for item in core_seen], ["D01"])
+
+        core_new, core_fid = core_ledger_add(
+            self.program,
+            {
+                "type": "Core-added IPC issue",
+                "class_name": "ipc-trust-boundary",
+                "file": "src/preload.js",
+                "line": 88,
+                "severity": "HIGH",
+            },
+            "snap-core",
+            "v1.1.0",
+            "run-core",
+            "core-api",
+            lane="apk",
+            family="binaries",
+            root_override=explicit_root,
+        )
+        self.assertTrue(core_new)
+        self.assertEqual(core_fid, "D02")
+
+        harness_seen = ledger_list(self.program, family="binaries", lane="apk", root_override=explicit_root)
+        self.assertEqual({item["fid"] for item in harness_seen}, {"D01", "D02"})
+        self.assertTrue(path.exists())
+        self.assertFalse(ledger_path(self.program, lane="apk", family="binaries").exists())
+
+    def test_versioned_update_preserves_unknown_top_level_metadata(self) -> None:
+        path = ledger_path(self.program, lane="apk", family="binaries")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "program": self.program,
+                    "updated_at": "2026-04-28T00:00:00Z",
+                    "coverage": {"src/preload.js": {"ipc-trust-boundary": True}},
+                    "custom_metadata": {"owner": "compat"},
+                    "findings": [],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        ledger = VersionedFindingsLedger(
+            self.program,
+            target_root=self.tmp,
+            snapshot_identity={"snapshot_id": "snap-metadata", "version_label": "v9.2.0"},
+            run_id="20260428T030405Z",
+            agent="manual-hunter",
+            lane="apk",
+            family="binaries",
+        )
+
+        ledger.update(
+            {
+                "type": "Metadata preserving issue",
+                "class_name": "ipc-trust-boundary",
+                "file": "src/preload.js",
+                "severity": "HIGH",
+                "review_tier": "CONFIRMED",
+                "status": "confirmed",
+            }
+        )
+
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["coverage"], {"src/preload.js": {"ipc-trust-boundary": True}})
+        self.assertEqual(payload["custom_metadata"], {"owner": "compat"})
+        self.assertEqual(len(payload["findings"]), 1)
+
+    def test_storage_resolver_facade_matches_core_custom_lane_and_binary_roots(self) -> None:
+        with self.assertRaises(ValueError):
+            infer_family_from_lane("mobile-research")
+
+        custom_layout = resolve_storage(
+            self.program,
+            family="binaries",
+            lane="mobile-research",
+            root_override=self.tmp / "storage",
+            create=False,
+        )
+        self.assertEqual(custom_layout.family, "binaries")
+        self.assertEqual(custom_layout.lane, "mobile-research")
+
+        layout = resolve_storage(
+            self.program,
+            family="binaries",
+            lane="apk",
+            root_override=self.tmp / "storage",
+            create=True,
+        )
+
+        self.assertEqual(layout.family, "binaries")
+        self.assertEqual(layout.lane, "apk")
+        self.assertEqual(layout.recon_root, layout.lane_root / "recon")
+        self.assertEqual(layout.input_root, layout.lane_root / "input")
+        self.assertTrue((layout.recon_root / "artifacts").is_dir())
+        self.assertTrue((layout.input_root / "original").is_dir())
 
     def test_file_locking_under_concurrent_writes(self) -> None:
         processes: list[subprocess.Popen[str]] = []

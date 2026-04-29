@@ -24,6 +24,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from agents.report_paths import canonical_reports_root, report_index_roots_for_read, status_report_path_for_read
+from agents.storage_resolver import resolve_family_lane
+
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -895,7 +898,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--source", default="~/source/",
                         help="Path to the application source code (default: ~/source/)")
     parser.add_argument("--output-dir",
-                        help="Output directory (default: ~/Shared/bounty_recon/{program}/ghost/chained/)")
+                        help="Output directory (default: canonical reports/chained storage)")
+    parser.add_argument("--storage-root",
+                        help="Explicit local canonical root override for default report input/output paths.")
     parser.add_argument("--findings-json",
                         help="Optional JSON array of reviewed findings to process instead of report markdown.")
     parser.add_argument("--dormant-only", action="store_true", help="Only process dormant findings")
@@ -907,17 +912,55 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv or sys.argv[1:])
 
 
+def _default_output_dir(program: str, hunt_type: str, storage_root: str | None) -> Path:
+    family, lane = _chainer_family_lane(hunt_type)
+    return canonical_reports_root(
+        program,
+        hunt_type,
+        family=family,
+        lane=lane,
+        root_override=storage_root,
+        create=True,
+    ) / "chained"
+
+
+def _chainer_family_lane(hunt_type: str) -> tuple[str, str]:
+    route = "0day_team" if hunt_type == "source" else hunt_type
+    return resolve_family_lane(hunt_type=route)
+
+
+def _default_status_report_paths(
+    program: str,
+    hunt_type: str,
+    storage_root: str | None,
+) -> tuple[Path | None, Path | None]:
+    family, lane = _chainer_family_lane(hunt_type)
+    for source in report_index_roots_for_read(
+        program,
+        hunt_type,
+        family=family,
+        lane=lane,
+        root_override=storage_root,
+    ):
+        dormant_path = status_report_path_for_read(source.path, "dormant", "dormant.md")
+        novel_path = status_report_path_for_read(source.path, "novel", "novel_findings.md")
+        if dormant_path or novel_path:
+            return dormant_path, novel_path
+    return None, None
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     program = args.program
     source_path = Path(args.source).expanduser().resolve()
-    output_dir = (Path(args.output_dir) if args.output_dir else
-                  Path.home() / "Shared" / "bounty_recon" / program / "ghost" / "chained")
+    output_dir = (
+        Path(args.output_dir).expanduser().resolve(strict=False)
+        if args.output_dir
+        else _default_output_dir(program, args.hunt_type, args.storage_root).resolve(strict=False)
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    reports_dir = Path.home() / "Shared" / "bounty_recon" / program / "ghost" / f"reports_{args.hunt_type}"
-    dormant_path = _latest_report_path(reports_dir, "dormant.md")
-    novel_path = _latest_report_path(reports_dir, "novel_findings.md")
+    dormant_path, novel_path = _default_status_report_paths(program, args.hunt_type, args.storage_root)
 
     print(f"[chainer] Program: {program}")
     print(f"[chainer] Source: {source_path}")

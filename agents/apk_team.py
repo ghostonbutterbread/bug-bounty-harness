@@ -33,9 +33,9 @@ try:
 except ImportError:
     BountyMemory = None
 
-from agents.base_team import AgentSpec as TeamAgentSpec
+from agents.base_team import AgentSession, AgentSpec as TeamAgentSpec
 from agents.base_team import BaseTeam
-import agents.zero_day_team as zdt
+from agents.base_team import display_file_reference, ensure_directory, extract_findings_from_log, is_placeholder_finding, load_findings, pretty_print_findings, reset_findings_store, run_agent_session, stage2_ghost_review, summarize_findings, write_chainable_findings_input
 from agents.apk_prefingerprint import build_surface_registry
 from agents.apk_profiles import ApkHuntProfile, BUILTIN_PROFILES, PROFILE_BY_KEY
 from agents.apk_surface_registry import ApkSurfaceRegistry
@@ -43,8 +43,9 @@ from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.decompiler import decompile_smali_targets
 from agents.dynamic_agent_builder import DynamicAgentBuilder
 from agents.ledger import VersionedFindingsLedger, create_team_ledger_from_storage
+from agents.base_team.reports import dated_report_index_paths
+from agents.base_team.storage import resolve_team_storage
 from agents.snapshot_identity import get_snapshot_identity
-from agents.storage_resolver import resolve_family_lane, resolve_storage, write_context_files
 from agents.verbosity import clamp_verbosity
 
 try:
@@ -128,7 +129,7 @@ class APKTeam(BaseTeam):
 
     def get_static_profiles(self) -> list[TeamAgentSpec]:
         snapshot_id = self._snapshot_id() or "unspecified"
-        created_at = zdt._timestamp_iso()
+        created_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
         return [
             TeamAgentSpec(
                 key=item["key"],
@@ -150,7 +151,7 @@ class APKTeam(BaseTeam):
         *,
         snapshot_id: str,
     ) -> list[TeamAgentSpec]:
-        created_at = zdt._timestamp_iso()
+        created_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
         specs: list[TeamAgentSpec] = []
         for surface in surfaces:
             surface_type = str(surface.get("surface_type") or "apk-surface").strip() or "apk-surface"
@@ -439,16 +440,34 @@ Output rules:
 - Static review only. Do not run the APK, emulators, tests, or build steps.
 - Every finding must identify source, trust boundary, flow path, sink, and exploitability.
 - If a pattern looks real but incomplete, still report it as dormant-quality evidence rather than inventing a PoC.
+- Prefer zero findings over weak findings. Empty output is good when the evidence is not there.
 - If you do not find a real issue, output exactly: {{}}
+- Do NOT copy literal placeholder text from this prompt. Any finding that uses generic filler values will be rejected.
 
-Append every finding to {findings_path} in JSONL using one of these schemas:
-Class finding:
-{{"agent": "{profile.key}", "category": "class", "class_name": "{profile.key}", "type": "short vulnerability label", "file": "relative/path.smali", "line": 123, "description": "why this path is dangerous", "severity": "LOW|MEDIUM|HIGH|CRITICAL", "context": "relevant smali context and reasoning", "source": "identified source", "trust_boundary": "what boundary is crossed", "flow_path": "how the data moves", "sink": "dangerous sink category or concrete sink", "exploitability": "why an attacker can or cannot trigger it"}}
-
-Novel finding:
-{{"agent": "{profile.key}", "category": "novel", "class_name": "novel", "type": "short novel pattern label", "file": "relative/path.smali", "line": 123, "description": "why this appears novel and dangerous", "severity": "LOW|MEDIUM|HIGH|CRITICAL", "context": "relevant smali context and reasoning", "source": "identified source", "trust_boundary": "boundary crossed or unresolved boundary question", "flow_path": "known or suspected flow", "sink": "identified dangerous sink", "exploitability": "what is known or missing about exploitability"}}
-
-- Also print each JSON object on one line to stdout so the orchestrator can salvage findings from the agent log.
+Finding contract:
+- Emit a single-line JSON object only for real evidence-backed findings.
+- A CLASS finding must use:
+  - agent = {profile.key}
+  - category = class
+  - class_name = {profile.key}
+- A NOVEL finding must use:
+  - agent = {profile.key}
+  - category = novel
+  - class_name = novel
+- Required fields for any finding:
+  - type: specific vulnerability label, not a generic placeholder
+  - file: real relative smali path you actually inspected
+  - line: real line number from that file
+  - description: concrete reason this path is dangerous
+  - severity: one of LOW, MEDIUM, HIGH, CRITICAL
+  - context: concrete smali reasoning tied to this APK
+  - source: real attacker-controlled input or trust entrypoint
+  - trust_boundary: actual boundary crossed or missing guard
+  - flow_path: concrete data flow, or the exact missing hop if incomplete
+  - sink: real dangerous sink category or concrete sink
+  - exploitability: concrete triggerability reasoning
+- Never use values like "short vulnerability label", "relative/path.smali", "123", "LOW|MEDIUM|HIGH|CRITICAL", "identified source", "what boundary is crossed", "how the data moves", or other schema filler.
+- Also print each finding JSON object on one line to stdout so the orchestrator can salvage findings from the agent log.
 - Never emit placeholder findings, fake lines, or template text.
 """
 
@@ -466,9 +485,9 @@ def _spawn_apk_agent(
     targeted_files: Sequence[str],
     pseudo_java: dict[str, str],
     fresh: bool,
-) -> zdt.AgentSession:
+) -> AgentSession:
     workspace = agents_root / f"{profile.key}_{int(time.time() * 1000)}"
-    zdt._ensure_directory(workspace)
+    ensure_directory(workspace)
 
     env = os.environ.copy()
     env["APK_TEAM_AGENT_NAME"] = profile.key
@@ -528,7 +547,7 @@ def _spawn_apk_agent(
             success=False,
             error=str(exc),
         )
-        return zdt.AgentSession(profile=profile, workspace=workspace, log_path=fallback_log, process=None, skip_ledger=fresh)
+        return AgentSession(profile=profile, workspace=workspace, log_path=fallback_log, process=None, skip_ledger=fresh)
 
     log_path = agents_root / f"agent_{profile.key}_{process.pid}.log"
     _safe_log_span(
@@ -555,7 +574,7 @@ def _spawn_apk_agent(
         output_bytes=0,
         success=True,
     )
-    return zdt.AgentSession(profile=profile, workspace=workspace, log_path=log_path, process=process, skip_ledger=fresh)
+    return AgentSession(profile=profile, workspace=workspace, log_path=log_path, process=process, skip_ledger=fresh)
 
 
 def _targeted_files_for_profile(registry: ApkSurfaceRegistry, profile: ApkHuntProfile) -> list[str]:
@@ -609,7 +628,13 @@ def _run_single_profile(
         pseudo_java=pseudo_java,
         fresh=fresh,
     )
-    exit_code = zdt._run_agent_session(session, findings_path, ledger)
+    exit_code = run_agent_session(
+        session,
+        findings_path,
+        ledger,
+        extract_findings_from_log=extract_findings_from_log,
+        maybe_log_span=_safe_log_span,
+    )
     return profile, exit_code
 
 
@@ -637,21 +662,20 @@ def orchestrate_apk_team(
     global _APK_TEAM_LOGGER
 
     program_slug = _sanitize_program_name(program)
-    family, lane = resolve_family_lane(hunt_type="apk")
-    storage = resolve_storage(
-        program_slug,
-        family=family,
-        lane=lane,
-        root_override=Path(output_root).expanduser().resolve(strict=False) if output_root is not None else None,
-        create=True,
+    storage_root_override = (
+        Path(output_root).expanduser().resolve(strict=False) if output_root is not None else None
     )
-    write_context_files(storage)
+    storage = resolve_team_storage(
+        program_slug,
+        team_type="apk",
+        output_root=storage_root_override,
+    )
     team_root = storage.lane_root
     agents_root = team_root / "agents"
     findings_path = storage.ledgers_root / FINDINGS_FILENAME
-    zdt._ensure_directory(team_root)
-    zdt._ensure_directory(agents_root)
-    zdt._reset_findings_store(findings_path)
+    ensure_directory(team_root)
+    ensure_directory(agents_root)
+    reset_findings_store(findings_path)
 
     if SubagentLogger is not None:
         try:
@@ -659,7 +683,6 @@ def orchestrate_apk_team(
             _APK_TEAM_LOGGER.start(target=str(apk_path))
         except Exception:
             _APK_TEAM_LOGGER = None
-    zdt._ZERO_DAY_TEAM_LOGGER = _APK_TEAM_LOGGER
 
     prefingerprint = build_surface_registry(
         program_slug,
@@ -775,21 +798,17 @@ def orchestrate_apk_team(
     for profile in profiles:
         prepared_bundles[profile.key] = _prepare_profile_bundle(registry, profile)
 
-    # MGP: skip profiles already tested for this APK version
+    # MGP: record APK profile coverage, but do not block reruns.
+    # APK analysis is intentionally incremental: the same profile may need to be rerun
+    # as prompts evolve, evidence accumulates, or the profile mix changes over time.
     mgp_skipped: list[str] = []
     mgp_scheduled: list[str] = []
     if mem is not None:
-        filtered_profiles: list = []
-        for profile in profiles:
-            profile_key = f"profile:{dynamic_version}:{profile.key}"
-            if mem.is_tested(program_slug, profile_key):
-                mgp_skipped.append(profile.key)
-            else:
-                filtered_profiles.append(profile)
-                mgp_scheduled.append(profile.key)
-        profiles = filtered_profiles
-        if mgp_skipped:
-            print(f"[apk_team] 🌐 MGP skipping {len(mgp_skipped)} already-tested profiles: {mgp_skipped}", flush=True)
+        mgp_scheduled = [profile.key for profile in profiles]
+        if fresh:
+            print("[apk_team] 🌐 fresh mode enabled, forcing a real rerun of all selected profiles", flush=True)
+        else:
+            print("[apk_team] 🌐 MGP logging enabled, but tested-profile skip gate is disabled for incremental APK reruns", flush=True)
 
     worker_cap = min(MAX_PARALLEL_AGENTS, max(1, int(max_agents or DEFAULT_MAX_AGENTS)))
     if parallel:
@@ -842,11 +861,11 @@ def orchestrate_apk_team(
                 mem.claim_tested(program_slug, profile_key, result="completed")
             print(f"[apk_team] Finished {index}/{len(profiles)}: {profile.key}")
 
-    raw_findings = zdt._load_findings(findings_path)
+    raw_findings = load_findings(findings_path)
     prefiltered_findings: list[dict[str, Any]] = []
     prefilter_rejected = 0
     for finding in raw_findings:
-        if zdt.is_placeholder_finding(finding):
+        if is_placeholder_finding(finding):
             prefilter_rejected += 1
             if verbosity.very_verbose:
                 title = str(finding.get("vulnerability_name") or finding.get("type") or "untitled").strip()
@@ -855,17 +874,18 @@ def orchestrate_apk_team(
         prefiltered_findings.append(finding)
     if verbosity.verbose and prefilter_rejected:
         print(f"[apk_team] prefilter rejected {prefilter_rejected} placeholder finding(s) before review")
-    confirmed_findings, dormant_findings, novel_findings = zdt.stage2_ghost_review(
+    confirmed_findings, dormant_findings, novel_findings = stage2_ghost_review(
         prefiltered_findings,
         extracted_root,
         program_slug,
-        "source",
+        "apk",
+        output_root=storage_root_override,
     )
     reviewed_findings = confirmed_findings + dormant_findings + novel_findings
     ledger_updates = 0
     for finding in reviewed_findings:
         title = str(finding.get("vulnerability_name") or finding.get("type") or "").strip() or "untitled"
-        if zdt.is_placeholder_finding(finding):
+        if is_placeholder_finding(finding):
             print(f"[ledger] REJECTED placeholder finding: {title}", flush=True)
             continue
         fid = str(finding.get("fid", "")).strip()
@@ -903,17 +923,10 @@ def orchestrate_apk_team(
             allocated_pte_lite=0,
         )
 
-    apk_family, apk_lane = resolve_family_lane(hunt_type="apk")
-    apk_storage = resolve_storage(program_slug, family=apk_family, lane=apk_lane, create=True)
-    report_date = datetime.now().strftime("%d-%m-%Y")
-    confirmed_report_path = apk_storage.reports_root / "confirmed" / report_date / "index.md"
-    dormant_report_path = apk_storage.reports_root / "dormant" / report_date / "index.md"
-    novel_report_path = apk_storage.reports_root / "novel" / report_date / "index.md"
+    confirmed_report_path, dormant_report_path, novel_report_path = dated_report_index_paths(storage)
     report_root = confirmed_report_path.parent
-    for report_dir in (confirmed_report_path.parent, dormant_report_path.parent, novel_report_path.parent):
-        report_dir.mkdir(parents=True, exist_ok=True)
     rejected_count = max(0, len(raw_findings) - len(reviewed_findings))
-    summary = zdt._summarize_findings(reviewed_findings)
+    summary = summarize_findings(reviewed_findings)
     summary["raw_findings"] = len(raw_findings)
     summary["profiles_run"] = [profile.key for profile in profiles]
     summary["by_tier"] = {
@@ -955,14 +968,14 @@ def orchestrate_apk_team(
         print(f"[apk_team] confirmed_report={confirmed_report_path}")
         print(f"[apk_team] dormant_report={dormant_report_path}")
         print(f"[apk_team] novel_report={novel_report_path}")
-    zdt._pretty_print_findings(reviewed_findings)
+    pretty_print_findings(reviewed_findings, display_file_reference=display_file_reference)
 
     if chain and reviewed_findings:
         graph = build_chain_graph(reviewed_findings)
         chainable = get_chainable_findings(reviewed_findings)
         print(f"[chain] {len(chainable)}/{len(reviewed_findings)} findings are chainable")
         if chainable:
-            chain_input_path = zdt._write_chainable_findings_input(team_root / "chainable_findings.json", chainable)
+            chain_input_path = write_chainable_findings_input(team_root / "chainable_findings.json", chainable)
             try:
                 spec = importlib.util.spec_from_file_location("chainer", Path(__file__).parent / "chainer.py")
                 chainer_mod = importlib.util.module_from_spec(spec)  # type: ignore[assignment]
@@ -975,6 +988,8 @@ def orchestrate_apk_team(
                         str(extracted_root),
                         "--findings-json",
                         str(chain_input_path),
+                        "--output-dir",
+                        str(storage.reports_root / "chained"),
                     ]
                 )
                 print(

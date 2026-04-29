@@ -81,6 +81,33 @@ def create_team_ledger_from_storage(
     )
 
 
+
+def read_team_findings(
+    program: str,
+    *,
+    family: str | None = None,
+    lane: str | None = None,
+    root_override: str | Path | None = None,
+    storage_root: str | Path | None = None,
+    snapshot_id: str | None = None,
+    version_label: str | None = None,
+) -> list[dict[str, Any]]:
+    """Read canonical team findings through the harness ledger adapter.
+
+    This is the read-only migration seam for callers that previously parsed
+    `ledger.json` directly. It keeps path resolution, migration, and fixture
+    normalization owned by `bounty_core.ledger`.
+    """
+    return ledger_list(
+        program,
+        snapshot_id=snapshot_id,
+        version_label=version_label,
+        family=family,
+        lane=lane or "apk",
+        root_override=root_override,
+        storage_root=storage_root,
+    )
+
 def team_ledger_path(*, storage: StorageLayout, program: str | None = None) -> Path:
     """Return the canonical ledger path for an already resolved storage context."""
     if program is None:
@@ -97,6 +124,7 @@ __all__ = [
     "VersionedFindingsLedger",
     "create_team_ledger",
     "create_team_ledger_from_storage",
+    "read_team_findings",
     "team_ledger_path",
     "ledger_add",
     "ledger_check",

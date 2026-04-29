@@ -10,7 +10,7 @@ from .findings import (
     read_findings_jsonl,
     safe_int,
 )
-from .ledger import deduplicate_findings, load_ledger, save_ledger
+from .ledger import load_ledger, save_ledger
 from .reports import dated_report_index_paths, write_report_indexes
 from .review import (
     build_review_prompt,
@@ -36,7 +36,6 @@ __all__ = [
     "AgentSession",
     "build_review_prompt",
     "dated_report_index_paths",
-    "deduplicate_findings",
     "ensure_directory",
     "extract_findings_from_log",
     "finding_identity",

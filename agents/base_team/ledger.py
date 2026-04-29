@@ -1,4 +1,4 @@
-"""Shared ledger loading, saving, and finding dedup helpers for BaseTeam-backed teams."""
+"""Shared ledger loading and saving helpers for BaseTeam-backed teams."""
 
 from __future__ import annotations
 
@@ -14,8 +14,6 @@ from .findings import safe_int
 
 TimestampFn = Callable[[], str]
 NormalizeFindingFn = Callable[[Any], dict[str, Any] | None]
-FindingIdentityFn = Callable[[dict[str, Any]], tuple[str, int, str, str]]
-SnapshotIdFn = Callable[[], str | None]
 EnsureParentFn = Callable[[Path], None]
 ReadLedgerFn = Callable[[], dict[str, Any]]
 NormalizeLedgerFn = Callable[[dict[str, Any]], dict[str, Any]]
@@ -80,63 +78,6 @@ def save_ledger(
             set_last_loaded(merged)
         finally:
             fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
-
-
-def deduplicate_findings(
-    raw_findings: list[dict[str, Any]],
-    ledger: dict[str, Any],
-    *,
-    normalize_finding: NormalizeFindingFn,
-    finding_identity: FindingIdentityFn,
-    timestamp_iso: TimestampFn,
-    snapshot_id: SnapshotIdFn,
-    team_type: str,
-) -> list[dict[str, Any]]:
-    """Return new findings while updating sighting counts on existing entries."""
-    findings = ledger.setdefault("findings", [])
-    seen: dict[tuple[str, int, str, str], dict[str, Any]] = {}
-    for finding in findings:
-        if not isinstance(finding, dict):
-            continue
-        seen[finding_identity(finding)] = finding
-
-    new_findings: list[dict[str, Any]] = []
-    now = timestamp_iso()
-    for raw in raw_findings:
-        finding = normalize_finding(raw)
-        if finding is None:
-            continue
-        identity = finding_identity(finding)
-        existing = seen.get(identity)
-        if existing is not None:
-            existing["last_seen"] = now
-            existing["sighting_count"] = safe_int(existing.get("sighting_count"), 1) + 1
-            sightings = existing.get("sightings")
-            if not isinstance(sightings, list):
-                sightings = []
-                existing["sightings"] = sightings
-            sightings.append(
-                {
-                    "seen_at": now,
-                    "agent": str(finding.get("agent") or ""),
-                    "team_type": team_type,
-                }
-            )
-            continue
-
-        finding["first_seen"] = now
-        finding["last_seen"] = now
-        finding["sighting_count"] = 1
-        finding["snapshot_id"] = snapshot_id()
-        seen[identity] = finding
-        new_findings.append(finding)
-
-    coverage = ledger.setdefault("coverage", {})
-    coverage["total_findings"] = max(
-        safe_int(coverage.get("total_findings")),
-        len(findings) + len(new_findings),
-    )
-    return new_findings
 
 
 def reserve_findings(

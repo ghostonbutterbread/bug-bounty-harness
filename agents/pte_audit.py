@@ -188,8 +188,18 @@ class FindingOutcome:
 
 
 class HarnessEfficiencyScorer:
-    def __init__(self, program: str):
+    def __init__(
+        self,
+        program: str,
+        *,
+        family: str | None = None,
+        lane: str | None = None,
+        root_override: str | Path | None = None,
+    ):
         self.program = _normalize_program(program)
+        self.family = family
+        self.lane = lane or "apk"
+        self.root_override = Path(root_override).expanduser().resolve(strict=False) if root_override else None
         self.ghost_dir = Path.home() / "Shared" / "bounty_recon" / self.program / "ghost"
         self.traces_dir = self.ghost_dir / "traces"
         self.findings_dir = self.ghost_dir / "reports"
@@ -243,10 +253,15 @@ class HarnessEfficiencyScorer:
         if self._ledger_cache is not None:
             return self._ledger_cache
         try:
-            findings = read_team_findings(self.program)
+            findings = read_team_findings(
+                self.program,
+                family=self.family,
+                lane=self.lane,
+                root_override=self.root_override,
+            )
         except Exception:
             findings = []
-        if not findings:
+        if not findings and self.root_override is None:
             legacy_path = self.ghost_dir / "ledger.json"
             try:
                 legacy_payload = json.loads(legacy_path.read_text(encoding="utf-8"))
@@ -721,6 +736,9 @@ def _format_compare(left: dict[str, Any], right: dict[str, Any]) -> str:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Audit harness efficiency using PTE-lite traces and ledger outcomes.")
     parser.add_argument("--program", required=True, help="Program slug")
+    parser.add_argument("--family", default=None, help="Storage family for canonical ledger reads")
+    parser.add_argument("--lane", default="apk", help="Storage lane for canonical ledger reads")
+    parser.add_argument("--root", dest="root_override", help="Explicit local canonical root override")
     parser.add_argument("--agent", help="Agent name for focused profile output")
     parser.add_argument("--report", action="store_true", help="Generate a markdown report")
     parser.add_argument("--inefficiency", metavar="AGENT", help="Show inefficiency patterns for one agent")
@@ -732,7 +750,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
-    scorer = HarnessEfficiencyScorer(args.program)
+    scorer = HarnessEfficiencyScorer(
+        args.program,
+        family=args.family,
+        lane=args.lane,
+        root_override=args.root_override,
+    )
 
     if args.compare:
         left = scorer.score_agent_profile(args.compare[0])

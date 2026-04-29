@@ -15,7 +15,15 @@ from agents.storage_resolver import StorageLayout
 
 ensure_bounty_core_importable()
 
-from bounty_core.ledger import VersionedFindingsLedger, ledger_add, ledger_check, ledger_get, ledger_list, ledger_path  # noqa: E402
+from bounty_core.ledger import (  # noqa: E402
+    VersionedFindingsLedger,
+    ledger_add,
+    ledger_check,
+    ledger_get,
+    ledger_list,
+    ledger_path,
+    patch_finding_by_fid,
+)
 
 
 def _explicit_root_from_storage(storage: StorageLayout) -> Path | None:
@@ -108,6 +116,74 @@ def read_team_findings(
         storage_root=storage_root,
     )
 
+
+def update_team_finding(
+    program: str,
+    finding: dict[str, Any],
+    *,
+    snapshot_id: str | None = None,
+    version_label: str | None = None,
+    run_id: str | None = None,
+    agent: str = "codex",
+    family: str | None = None,
+    lane: str | None = None,
+    root_override: str | Path | None = None,
+    storage_root: str | Path | None = None,
+) -> dict[str, Any]:
+    """Update a team finding through the harness ledger adapter.
+
+    FID-addressed validation updates patch the existing ledger entry in place
+    so reviewer corrections cannot create a duplicate when file, line, class,
+    or title changes. Snapshot and sighting metadata are intentionally left
+    untouched. If the FID has not been reserved yet, fall back to the canonical
+    v2 ledger reservation path, which writes only the ledger and does not
+    refresh report indexes.
+    """
+    fid = str((finding or {}).get("fid") or "").strip()
+    if not fid:
+        raise ValueError("finding fid is required")
+
+    resolved_lane = lane or "apk"
+    patched = patch_finding_by_fid(
+        program,
+        fid,
+        dict(finding),
+        lane=resolved_lane,
+        family=family,
+        root_override=root_override,
+        storage_root=storage_root,
+    )
+    if patched is not None:
+        return patched
+
+    is_new, reserved_fid = ledger_add(
+        program,
+        dict(finding),
+        str(snapshot_id or finding.get("snapshot_id") or finding.get("first_snapshot") or "report-checker"),
+        str(version_label if version_label is not None else finding.get("version_label") or ""),
+        str(run_id or finding.get("run_id") or "report-checker"),
+        str(agent or finding.get("agent") or "codex"),
+        lane=resolved_lane,
+        family=family,
+        root_override=root_override,
+        storage_root=storage_root,
+    )
+    target_fid = str(reserved_fid or fid).strip()
+    stored = ledger_get(
+        program,
+        target_fid,
+        lane=resolved_lane,
+        family=family,
+        root_override=root_override,
+        storage_root=storage_root,
+    )
+    if stored is None:
+        result = dict(finding)
+        result["fid"] = target_fid
+        result["is_new"] = is_new
+        return result
+    return stored
+
 def team_ledger_path(*, storage: StorageLayout, program: str | None = None) -> Path:
     """Return the canonical ledger path for an already resolved storage context."""
     if program is None:
@@ -126,9 +202,11 @@ __all__ = [
     "create_team_ledger_from_storage",
     "read_team_findings",
     "team_ledger_path",
+    "update_team_finding",
     "ledger_add",
     "ledger_check",
     "ledger_get",
     "ledger_list",
     "ledger_path",
+    "patch_finding_by_fid",
 ]

@@ -18,7 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from agents.ledger import ledger_add, read_team_findings
+from agents.ledger import read_team_findings, update_team_finding
 from agents.source_roots import source_root_candidates
 from agents.storage_resolver import resolve_family_lane, resolve_storage
 from agents.report_paths import (
@@ -1501,7 +1501,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if ledger_enabled and finding.fid:
             try:
-                ledger_add(
+                update_team_finding(
                     program,
                     updated_finding,
                     snapshot_id="report-checker",

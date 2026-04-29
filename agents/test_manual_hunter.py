@@ -24,6 +24,7 @@ from agents.manual_hunter import (
     main,
 )
 from agents.shared_brain import build_index, save_index
+from agents.storage_resolver import resolve_storage
 
 
 class ManualHunterTests(unittest.TestCase):
@@ -55,27 +56,19 @@ class ManualHunterTests(unittest.TestCase):
         self.addCleanup(self.home_patcher.stop)
 
         index = build_index(self.target_root, self.program)
-        save_index(index, self.program)
+        save_index(index, self.program, family="binaries", lane="apk")
+
+    def _storage(self):
+        return resolve_storage(self.program, family="binaries", lane="apk", create=False)
 
     def _ledger_path(self) -> Path:
-        return (
-            self.home
-            / "Shared"
-            / "bounty_recon"
-            / self.program
-            / "ghost"
-            / "ledger"
-            / "findings_ledger.json"
-        )
+        return self._storage().ledgers_root / "ledger.json"
 
     def _coverage_path(self) -> Path:
-        return self.target_root.parent / "ghost" / "coverage.json"
+        return self._storage().ledgers_root / "coverage.json"
 
-    def _reports_dir(self) -> Path:
-        date_folder = self.home / "Shared" / "bounty_recon" / self.program / "ghost" / "reports_source"
-        children = [path for path in date_folder.iterdir() if path.is_dir()]
-        self.assertTrue(children)
-        return children[0]
+    def _report_index_paths(self) -> list[Path]:
+        return sorted(self._storage().reports_root.glob("*/*/index.md"))
 
     def test_from_file_ingests_then_dedupes_and_marks_coverage(self) -> None:
         note_path = self.tmp / "test_finding.md"
@@ -108,20 +101,25 @@ class ManualHunterTests(unittest.TestCase):
         ledger_payload = json.loads(self._ledger_path().read_text(encoding="utf-8"))
         self.assertEqual(len(ledger_payload["findings"]), 1)
         self.assertEqual(ledger_payload["findings"][0]["fid"], "D01")
-        self.assertEqual(ledger_payload["findings"][0]["vuln_class"], "native-module-abuse")
+        self.assertEqual(ledger_payload["findings"][0]["class_name"], "native-module-abuse")
 
-        reports_dir = self._reports_dir()
-        dormant_report = reports_dir / "dormant.md"
-        self.assertTrue(dormant_report.exists())
-        dormant_text = dormant_report.read_text(encoding="utf-8")
-        self.assertIn("SQLite injection via exposed IPC port", dormant_text)
-        self.assertIn("execSqliteStatement()", dormant_text)
+        report_indexes = self._report_index_paths()
+        self.assertTrue(report_indexes)
+        report_text = "\n".join(path.read_text(encoding="utf-8") for path in report_indexes)
+        self.assertIn("SQLite injection via exposed IPC port", report_text)
+        self.assertIn("execSqliteStatement()", report_text)
 
         coverage_payload = json.loads(self._coverage_path().read_text(encoding="utf-8"))
         snapshots = coverage_payload["snapshots"]
-        self.assertEqual(len(snapshots), 1)
-        snapshot = next(iter(snapshots.values()))
-        coverage_entry = snapshot["classes"]["native-module-abuse"]["files"][".webpack/renderer/preload.js"]
+        coverage_entries = [
+            snapshot["classes"]["native-module-abuse"]["files"][".webpack/renderer/preload.js"]
+            for snapshot in snapshots.values()
+            if "native-module-abuse" in snapshot.get("classes", {})
+            and ".webpack/renderer/preload.js"
+            in snapshot["classes"]["native-module-abuse"].get("files", {})
+        ]
+        self.assertEqual(len(coverage_entries), 1)
+        coverage_entry = coverage_entries[0]
         self.assertEqual(coverage_entry["status"], "done")
         self.assertEqual(coverage_entry["method"], "manual-hunter")
         self.assertEqual(coverage_entry["finding_fids"], ["D01"])
@@ -152,6 +150,32 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(parsed.finding["review_tier"], "CONFIRMED")
         self.assertTrue(parsed.finding["sink"])
 
+    def test_source_root_explicit_override_wins_over_shared_brain(self) -> None:
+        explicit_root = self.tmp / "explicit-source"
+        explicit_root.mkdir(parents=True, exist_ok=True)
+
+        hunter = ManualHunter(self.program, source_root=explicit_root)
+
+        self.assertEqual(hunter.source_root, explicit_root.resolve(strict=False))
+
+    def test_build_hunt_context_uses_shared_brain_target_before_default_source_root(self) -> None:
+        fallback_root = self.home / "source" / self.program
+        fallback_root.mkdir(parents=True, exist_ok=True)
+
+        context = _build_hunt_context(self.program)
+
+        self.assertIn(f"Target: {self.target_root}", context)
+        self.assertNotIn(f"Target: {fallback_root}", context)
+
+    def test_build_hunt_context_falls_back_to_default_source_root_without_shared_brain(self) -> None:
+        program = "fallback_only"
+        fallback_root = self.home / "source" / program
+        fallback_root.mkdir(parents=True, exist_ok=True)
+
+        context = _build_hunt_context(program, storage_root=self.tmp / "fallback-storage")
+
+        self.assertIn(f"Target: ~/source/{program}", context)
+
     def test_build_hunt_context_includes_findings_examined_and_unexplored_surface(self) -> None:
         (self.target_root / "renderer").mkdir(parents=True, exist_ok=True)
         (self.target_root / "renderer" / "view.js").write_text(
@@ -162,7 +186,7 @@ class ManualHunterTests(unittest.TestCase):
             "const child_process = require('child_process');\nchild_process.exec(userCommand);\n",
             encoding="utf-8",
         )
-        save_index(build_index(self.target_root, self.program), self.program)
+        save_index(build_index(self.target_root, self.program), self.program, family="binaries", lane="apk")
 
         hunter = ManualHunter(self.program, source_root=self.target_root)
         parsed = hunter.parse_text(
@@ -185,7 +209,7 @@ class ManualHunterTests(unittest.TestCase):
         context = _build_hunt_context(self.program, source_root=self.target_root)
         self.assertIn(f"Program: {self.program}", context)
         self.assertIn(f"Target: {self.target_root}", context)
-        self.assertIn(f"Output: {self.target_root / 'reports'}", context)
+        self.assertIn("Output: ~/Shared/binaries/notion/apk/reports/raw", context)
         self.assertIn("D01: SQLite injection via exposed IPC port", context)
         self.assertIn(".webpack/renderer/preload.js (native-module-abuse) ✅", context)
         self.assertIn("renderer/view.js (dom-xss)", context)
@@ -237,12 +261,13 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(workdir, self.target_root)
         self.assertIn("extra_instructions", mock_run_codex_hunt.call_args.kwargs)
         self.assertIn("/me context handoff bundle", mock_run_codex_hunt.call_args.kwargs["extra_instructions"])
+        reports_dir = self._storage().reports_root / "raw"
         mock_sync_reports_main.assert_called_once_with(
             self.program,
-            source_dir=str(self.target_root / "reports"),
+            source_dir=str(reports_dir),
             verbose=True,
         )
-        self.assertTrue((self.target_root / "reports").is_dir())
+        self.assertTrue(reports_dir.is_dir())
 
 
 if __name__ == "__main__":

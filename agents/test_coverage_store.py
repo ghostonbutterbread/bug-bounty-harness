@@ -16,6 +16,8 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from agents.coverage_store import CoverageStore  # noqa: E402
+from agents.shared_brain import RepoIndex, load_index, save_index  # noqa: E402
+from agents.storage_resolver import resolve_storage  # noqa: E402
 
 
 _CONCURRENT_MARK_SCRIPT = """
@@ -80,6 +82,9 @@ class CoverageStoreTests(unittest.TestCase):
         self.addCleanup(self.home_patcher.stop)
 
     def _shared_brain_path(self) -> Path:
+        return self._storage().ledgers_root / "shared_brain" / "index.json"
+
+    def _legacy_shared_brain_path(self) -> Path:
         return (
             self.home
             / "Shared"
@@ -90,8 +95,17 @@ class CoverageStoreTests(unittest.TestCase):
             / "index.json"
         )
 
+    def _storage(self, *, root_override: str | Path | None = None):
+        return resolve_storage(
+            self.program,
+            family="binaries",
+            lane="apk",
+            root_override=root_override,
+            create=False,
+        )
+
     def _coverage_path(self) -> Path:
-        return self.target_dir.parent / "ghost" / "coverage.json"
+        return self._storage().ledgers_root / "coverage.json"
 
     def _write_shared_brain(
         self,
@@ -99,8 +113,9 @@ class CoverageStoreTests(unittest.TestCase):
         git_head: str | None = "abc123",
         manifest_hash: str = "manifest-1",
         files: dict[str, dict[str, object]] | None = None,
+        legacy: bool = False,
     ) -> None:
-        path = self._shared_brain_path()
+        path = self._legacy_shared_brain_path() if legacy else self._shared_brain_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "version": 1,
@@ -114,6 +129,108 @@ class CoverageStoreTests(unittest.TestCase):
             "inventories": {},
         }
         path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    def test_save_index_writes_canonical_shared_brain_path(self) -> None:
+        index = RepoIndex(
+            target_root=str(self.target_dir),
+            target_id="target-123",
+            generated_at="2026-04-06T20:00:00Z",
+            git_head="abc123",
+            manifest_hash="manifest-1",
+            files={"src/a.js": _brain_file("sha-a")},
+        )
+
+        save_index(index, self.program, family="binaries", lane="apk")
+
+        self.assertTrue(self._shared_brain_path().is_file())
+        self.assertFalse(self._legacy_shared_brain_path().exists())
+
+    def test_save_index_root_override_writes_only_explicit_root(self) -> None:
+        explicit_root = self.tmp / "explicit-root"
+        index = RepoIndex(
+            target_root=str(self.target_dir),
+            target_id="target-123",
+            generated_at="2026-04-06T20:00:00Z",
+            git_head="explicit-head",
+            manifest_hash="manifest-explicit",
+            files={"src/explicit.js": _brain_file("sha-explicit")},
+        )
+
+        save_index(
+            index,
+            self.program,
+            family="binaries",
+            lane="apk",
+            root_override=explicit_root,
+        )
+
+        explicit_path = (
+            self._storage(root_override=explicit_root).ledgers_root
+            / "shared_brain"
+            / "index.json"
+        )
+        self.assertTrue(explicit_path.is_file())
+        self.assertTrue(str(explicit_path).startswith(str(explicit_root.resolve(strict=False))))
+        self.assertFalse(self._shared_brain_path().exists())
+        self.assertFalse(self._legacy_shared_brain_path().exists())
+
+    def test_load_index_canonical_wins_over_legacy(self) -> None:
+        self._write_shared_brain(
+            git_head="canonical-head",
+            files={"src/canonical.js": _brain_file("sha-canonical")},
+        )
+        self._write_shared_brain(
+            git_head="legacy-head",
+            files={"src/legacy.js": _brain_file("sha-legacy")},
+            legacy=True,
+        )
+
+        index = load_index(self.program, family="binaries", lane="apk")
+
+        self.assertIsNotNone(index)
+        assert index is not None
+        self.assertEqual(index.git_head, "canonical-head")
+        self.assertIn("src/canonical.js", index.files)
+        self.assertNotIn("src/legacy.js", index.files)
+
+    def test_load_index_reads_legacy_fallback_when_canonical_missing(self) -> None:
+        self._write_shared_brain(
+            git_head="legacy-head",
+            files={"src/legacy.js": _brain_file("sha-legacy")},
+            legacy=True,
+        )
+
+        store = CoverageStore(self.program, self.target_dir)
+
+        self.assertEqual(store.get_snapshot_id(), "legacy-head")
+        self.assertIn("src/legacy.js", store.shared_brain.files)
+
+    def test_load_index_root_override_does_not_read_legacy_fallback(self) -> None:
+        explicit_root = self.tmp / "explicit-root"
+        self._write_shared_brain(
+            git_head="legacy-head",
+            files={"src/legacy.js": _brain_file("sha-legacy")},
+            legacy=True,
+        )
+
+        index = load_index(
+            self.program,
+            family="binaries",
+            lane="apk",
+            root_override=explicit_root,
+        )
+
+        self.assertIsNone(index)
+
+    def test_coverage_store_reads_and_writes_canonical_paths(self) -> None:
+        self._write_shared_brain(files={"src/a.js": _brain_file("sha-a")})
+
+        store = CoverageStore(self.program, self.target_dir)
+        store.mark_examined("dom-xss", ["src/a.js"], method="agent-static")
+
+        self.assertTrue(self._shared_brain_path().is_file())
+        self.assertTrue(self._coverage_path().is_file())
+        self.assertFalse((self.target_dir.parent / "ghost" / "coverage.json").exists())
 
     def test_mark_and_retrieve(self) -> None:
         self._write_shared_brain(

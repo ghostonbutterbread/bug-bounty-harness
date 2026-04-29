@@ -14,7 +14,7 @@ import subprocess
 from typing import Any, Iterable
 
 from agents.sink_detector import SinkDetector
-from agents.storage_resolver import resolve_storage
+from agents.storage_resolver import normalize_program, resolve_storage
 
 
 LOGGER = logging.getLogger(__name__)
@@ -459,11 +459,33 @@ def update_index(target_path: str | Path, existing: RepoIndex) -> RepoIndex:
     return updated
 
 
-def load_index(program: str, *, family: str = "web_bounty", lane: str = "web") -> RepoIndex | None:
+def load_index(
+    program: str,
+    *,
+    family: str = "web_bounty",
+    lane: str = "web",
+    root_override: str | Path | None = None,
+) -> RepoIndex | None:
     """Load an existing index from disk if present and valid."""
-    path = _index_path(program, family=family, lane=lane)
-    if not path.exists():
+    canonical_path = _index_path(
+        program,
+        family=family,
+        lane=lane,
+        root_override=root_override,
+        create=False,
+    )
+    if canonical_path.exists():
+        return _load_index_from_path(canonical_path)
+    if root_override is not None:
         return None
+
+    legacy_path = _legacy_index_path(program)
+    if not legacy_path.exists():
+        return None
+    return _load_index_from_path(legacy_path)
+
+
+def _load_index_from_path(path: Path) -> RepoIndex | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -483,9 +505,22 @@ def load_index(program: str, *, family: str = "web_bounty", lane: str = "web") -
     return index
 
 
-def save_index(index: RepoIndex, program: str, *, family: str = "web_bounty", lane: str = "web") -> None:
+def save_index(
+    index: RepoIndex,
+    program: str,
+    *,
+    family: str = "web_bounty",
+    lane: str = "web",
+    root_override: str | Path | None = None,
+) -> None:
     """Persist an index under the program's shared brain directory."""
-    path = _index_path(program, family=family, lane=lane)
+    path = _index_path(
+        program,
+        family=family,
+        lane=lane,
+        root_override=root_override,
+        create=True,
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(index.to_dict(), indent=2, sort_keys=True)
     path.write_text(payload + "\n", encoding="utf-8")
@@ -622,9 +657,34 @@ def _target_id_for(target_root: Path) -> str:
     return hashlib.sha1(str(target_root).encode("utf-8")).hexdigest()
 
 
-def _index_path(program: str, family: str = "web_bounty", lane: str = "web") -> Path:
-    layout = resolve_storage(str(program).strip(), family=family, lane=lane, create=True)
+def _index_path(
+    program: str,
+    family: str = "web_bounty",
+    lane: str = "web",
+    *,
+    root_override: str | Path | None = None,
+    create: bool = True,
+) -> Path:
+    layout = resolve_storage(
+        str(program).strip(),
+        family=family,
+        lane=lane,
+        root_override=root_override,
+        create=create,
+    )
     return layout.ledgers_root / "shared_brain" / INDEX_FILENAME
+
+
+def _legacy_index_path(program: str) -> Path:
+    return (
+        Path.home()
+        / "Shared"
+        / "bounty_recon"
+        / normalize_program(program)
+        / "ghost"
+        / "shared_brain"
+        / INDEX_FILENAME
+    )
 
 
 def _git_head_for(target_root: Path) -> str | None:

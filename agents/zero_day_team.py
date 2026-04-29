@@ -31,7 +31,7 @@ from agents.base_team import BaseTeam
 from agents.chain_matrix import build_chain_graph, get_chainable_findings  # type: ignore[attr-defined]
 from agents.hybrid_preflight import run_preflight  # type: ignore[attr-defined]
 from agents.dynamic_agent_builder import DynamicAgentBuilder  # type: ignore[attr-defined]
-from agents.ledger import VersionedFindingsLedger, create_team_ledger_from_storage, update_team_finding
+from agents.ledger import create_team_ledger_from_storage, update_team_finding
 from agents.shared_brain import (  # type: ignore[attr-defined]
     build_index,
     get_class_context as get_shared_brain_class_context,
@@ -1720,7 +1720,7 @@ def _append_unique_findings(findings_path: Path, findings: Sequence[Dict[str, An
 def _run_agent_session(
     session: AgentSession,
     findings_path: Path,
-    ledger: VersionedFindingsLedger,
+    ledger: Any,
 ) -> int:
     if session.process is None:
         return -1
@@ -1851,7 +1851,7 @@ def _run_single_agent(
     target: Path,
     findings_path: Path,
     agents_root: Path,
-    ledger: VersionedFindingsLedger,
+    ledger: Any,
     class_context: str = "",
     repo_context: str = "",
     starting_entry: dict[str, Any] | None = None,

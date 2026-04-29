@@ -4,16 +4,13 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import re
 import sys
-import tempfile
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -67,29 +64,55 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
-def _ghost_root(program: str, lane: str = "apk", family: str = "binaries") -> Path:
-    layout = resolve_storage(_normalize_program(program), family=family, lane=lane, create=True)
+def _root_override(args: argparse.Namespace) -> str | Path | None:
+    return getattr(args, "root_override", None)
+
+
+def _ghost_root(
+    program: str,
+    lane: str = "apk",
+    family: str = "binaries",
+    *,
+    root_override: str | Path | None = None,
+) -> Path:
+    layout = resolve_storage(
+        _normalize_program(program),
+        family=family,
+        lane=lane,
+        root_override=root_override,
+        create=True,
+    )
     return layout.ledgers_root
 
 
-def _ledger_lock_path(program: str, lane: str = "apk", family: str = "binaries") -> Path:
-    return _ghost_root(program, lane=lane, family=family) / "ledger.lock"
+def _coverage_root(
+    program: str,
+    lane: str = "apk",
+    family: str = "binaries",
+    *,
+    root_override: str | Path | None = None,
+) -> Path:
+    return _ghost_root(program, lane=lane, family=family, root_override=root_override)
 
 
-def _coverage_root(program: str, lane: str = "apk", family: str = "binaries") -> Path:
-    return _ghost_root(program, lane=lane, family=family)
+def _coverage_path(
+    program: str,
+    lane: str = "apk",
+    family: str = "binaries",
+    *,
+    root_override: str | Path | None = None,
+) -> Path:
+    return _coverage_root(program, lane=lane, family=family, root_override=root_override) / "coverage.json"
 
 
-def _coverage_path(program: str, lane: str = "apk", family: str = "binaries") -> Path:
-    return _coverage_root(program, lane=lane, family=family) / "coverage.json"
-
-
-def _coverage_lock_path(program: str, lane: str = "apk", family: str = "binaries") -> Path:
-    return _coverage_root(program, lane=lane, family=family) / "coverage.lock"
-
-
-def _shared_brain_index_path(program: str, lane: str = "apk", family: str = "binaries") -> Path:
-    return _ghost_root(program, lane=lane, family=family) / "shared_brain" / "index.json"
+def _shared_brain_index_path(
+    program: str,
+    lane: str = "apk",
+    family: str = "binaries",
+    *,
+    root_override: str | Path | None = None,
+) -> Path:
+    return _ghost_root(program, lane=lane, family=family, root_override=root_override) / "shared_brain" / "index.json"
 
 
 def _default_coverage(program: str) -> dict[str, Any]:
@@ -100,24 +123,6 @@ def _default_coverage(program: str) -> dict[str, Any]:
         "updated_at": _utc_now(),
         "snapshots": {},
     }
-
-
-@contextmanager
-def _locked_json(path: Path, lock_path: Path, default_factory, *, exclusive: bool) -> Iterator[dict[str, Any]]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path.touch(exist_ok=True)
-    mode = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
-
-    with lock_path.open("a+", encoding="utf-8") as lock_handle:
-        fcntl.flock(lock_handle.fileno(), mode)
-        try:
-            payload = _read_json(path, default_factory())
-            yield payload
-            if exclusive:
-                _write_json_atomic(path, payload)
-        finally:
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
 
 def _read_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
@@ -133,22 +138,6 @@ def _read_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        "w",
-        encoding="utf-8",
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        delete=False,
-    ) as handle:
-        json.dump(payload, handle, indent=2, sort_keys=False)
-        handle.write("\n")
-        temp_path = Path(handle.name)
-    temp_path.replace(path)
-
-
 def next_fid(findings: list[dict[str, Any]], prefix: str = "D") -> str:
     normalized_prefix = (prefix or "D").strip().upper() or "D"
     max_value = 0
@@ -162,8 +151,19 @@ def next_fid(findings: list[dict[str, Any]], prefix: str = "D") -> str:
     return f"{normalized_prefix}{max_value + 1:02d}"
 
 
-def _load_shared_brain_candidates(program: str, lane: str = "apk", family: str = "binaries") -> dict[str, list[str]]:
-    path = _shared_brain_index_path(program, lane=lane, family=family)
+def _load_shared_brain_candidates(
+    program: str,
+    lane: str = "apk",
+    family: str = "binaries",
+    *,
+    root_override: str | Path | None = None,
+) -> dict[str, list[str]]:
+    path = _shared_brain_index_path(
+        program,
+        lane=lane,
+        family=family,
+        root_override=root_override,
+    )
     payload = _read_json(path, {})
     files = payload.get("files", {})
     if not isinstance(files, dict):
@@ -208,8 +208,17 @@ def _load_shared_brain_candidates(program: str, lane: str = "apk", family: str =
     return {class_name: sorted(paths) for class_name, paths in sorted(classes.items())}
 
 
-def _load_coverage_payload(program: str, lane: str = "apk", family: str = "binaries") -> dict[str, Any]:
-    return _read_json(_coverage_path(program, lane=lane, family=family), _default_coverage(program))
+def _load_coverage_payload(
+    program: str,
+    lane: str = "apk",
+    family: str = "binaries",
+    *,
+    root_override: str | Path | None = None,
+) -> dict[str, Any]:
+    return _read_json(
+        _coverage_path(program, lane=lane, family=family, root_override=root_override),
+        _default_coverage(program),
+    )
 
 
 def _examined_files(payload: dict[str, Any], class_name: str, snapshot_id: str | None = None) -> set[str]:
@@ -243,8 +252,19 @@ def _examined_files(payload: dict[str, Any], class_name: str, snapshot_id: str |
     return examined
 
 
-def _resolve_target_root(program: str, lane: str = "apk", family: str = "binaries") -> Path:
-    index_path = _shared_brain_index_path(program, lane=lane, family=family)
+def _resolve_target_root(
+    program: str,
+    lane: str = "apk",
+    family: str = "binaries",
+    *,
+    root_override: str | Path | None = None,
+) -> Path:
+    index_path = _shared_brain_index_path(
+        program,
+        lane=lane,
+        family=family,
+        root_override=root_override,
+    )
     payload = _read_json(index_path, {})
     target_root = Path(str(payload.get("target_root") or "")).expanduser()
     if str(target_root).strip():
@@ -257,23 +277,41 @@ def _resolve_target_root(program: str, lane: str = "apk", family: str = "binarie
     return Path.cwd().resolve(strict=False)
 
 
-def _resolve_snapshot(program: str, version_label: str | None) -> dict[str, Any]:
-    return get_snapshot_identity(_resolve_target_root(program), version_label=version_label)
+def _resolve_snapshot(
+    program: str,
+    version_label: str | None,
+    *,
+    lane: str = "apk",
+    family: str = "binaries",
+    root_override: str | Path | None = None,
+) -> dict[str, Any]:
+    return get_snapshot_identity(
+        _resolve_target_root(program, lane=lane, family=family, root_override=root_override),
+        version_label=version_label,
+    )
 
 
 def cmd_check(args: argparse.Namespace) -> int:
+    root_override = _root_override(args)
     exists, fid = ledger_check(
         args.program,
         _normalize_relpath(args.file),
         _normalize_class_name(args.class_name),
         lane=args.lane,
         family=args.family,
+        root_override=root_override,
     )
     if not exists or not fid:
         print(json.dumps({"exists": False}))
         return 0
 
-    finding = ledger_get(args.program, fid, lane=args.lane, family=args.family)
+    finding = ledger_get(
+        args.program,
+        fid,
+        lane=args.lane,
+        family=args.family,
+        root_override=root_override,
+    )
     if args.snapshot:
         sightings = []
         if isinstance(finding, dict):
@@ -300,7 +338,14 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def cmd_add(args: argparse.Namespace) -> int:
-    snapshot = _resolve_snapshot(args.program, args.version_label)
+    root_override = _root_override(args)
+    snapshot = _resolve_snapshot(
+        args.program,
+        args.version_label,
+        lane=args.lane,
+        family=args.family,
+        root_override=root_override,
+    )
     finding = {
         "type": args.type,
         "class_name": _normalize_class_name(args.class_name),
@@ -320,8 +365,15 @@ def cmd_add(args: argparse.Namespace) -> int:
         args.agent,
         lane=args.lane,
         family=args.family,
+        root_override=root_override,
     )
-    entry = ledger_get(args.program, str(fid or ""), lane=args.lane, family=args.family)
+    entry = ledger_get(
+        args.program,
+        str(fid or ""),
+        lane=args.lane,
+        family=args.family,
+        root_override=root_override,
+    )
     print(
         json.dumps(
             {
@@ -338,10 +390,27 @@ def cmd_add(args: argparse.Namespace) -> int:
 
 
 def cmd_cover(args: argparse.Namespace) -> int:
+    root_override = _root_override(args)
     class_name = _normalize_class_name(args.class_name)
-    snapshot = _resolve_snapshot(args.program, args.version_label)
-    target_root = _resolve_target_root(args.program, lane=args.lane, family=args.family)
-    store = CoverageStore(args.program, target_root, lane=args.lane, family=args.family)
+    snapshot = _resolve_snapshot(
+        args.program,
+        args.version_label,
+        lane=args.lane,
+        family=args.family,
+        root_override=root_override,
+    )
+    target_root = _resolve_target_root(
+        args.program,
+        lane=args.lane,
+        family=args.family,
+        root_override=root_override,
+    )
+    store = CoverageStore(
+        args.program,
+        target_root,
+        lane=args.lane,
+        family=args.family,
+    )
     store.mark_examined(
         vuln_class=class_name,
         files=[_normalize_relpath(args.file)],
@@ -351,7 +420,12 @@ def cmd_cover(args: argparse.Namespace) -> int:
         snapshot_id=str(snapshot.get("snapshot_id") or ""),
         version_label=str(snapshot.get("version_label") or ""),
     )
-    candidates = _load_shared_brain_candidates(args.program, lane=args.lane, family=args.family).get(class_name, [])
+    candidates = _load_shared_brain_candidates(
+        args.program,
+        lane=args.lane,
+        family=args.family,
+        root_override=root_override,
+    ).get(class_name, [])
     uncovered = len(store.get_unexplored(class_name, candidates))
 
     print(
@@ -371,19 +445,23 @@ def cmd_cover(args: argparse.Namespace) -> int:
 
 
 def cmd_list(args: argparse.Namespace) -> int:
+    root_override = _root_override(args)
     findings = ledger_list(
         args.program,
         snapshot_id=args.snapshot,
         version_label=args.version_label,
         lane=args.lane,
         family=args.family,
+        root_override=root_override,
     )
 
     print(
         json.dumps(
             {
                 "program": _normalize_program(args.program),
-                "ledger_path": str(ledger_path(args.program, lane=args.lane, family=args.family)),
+                "ledger_path": str(
+                    ledger_path(args.program, lane=args.lane, family=args.family, root_override=root_override)
+                ),
                 "findings": findings,
             },
             indent=2,
@@ -393,7 +471,13 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_unexplored(args: argparse.Namespace) -> int:
-    all_candidates = _load_shared_brain_candidates(args.program, lane=args.lane, family=args.family)
+    root_override = _root_override(args)
+    all_candidates = _load_shared_brain_candidates(
+        args.program,
+        lane=args.lane,
+        family=args.family,
+        root_override=root_override,
+    )
     if args.class_name:
         requested = _normalize_class_name(args.class_name)
         class_names = [requested]
@@ -403,8 +487,19 @@ def cmd_unexplored(args: argparse.Namespace) -> int:
     classes: dict[str, dict[str, Any]] = {}
     for class_name in class_names:
         candidates = all_candidates.get(class_name, [])
-        coverage = _load_coverage_payload(args.program, lane=args.lane, family=args.family)
-        snapshot = _resolve_snapshot(args.program, args.version_label)
+        coverage = _load_coverage_payload(
+            args.program,
+            lane=args.lane,
+            family=args.family,
+            root_override=root_override,
+        )
+        snapshot = _resolve_snapshot(
+            args.program,
+            args.version_label,
+            lane=args.lane,
+            family=args.family,
+            root_override=root_override,
+        )
         examined = sorted(_examined_files(coverage, class_name, snapshot_id=str(snapshot.get("snapshot_id") or "")))
         unexplored = [candidate for candidate in candidates if candidate not in set(examined)]
         classes[class_name] = {
@@ -412,25 +507,42 @@ def cmd_unexplored(args: argparse.Namespace) -> int:
             "examined_count": len(examined),
             "unexplored_count": len(unexplored),
             "unexplored": unexplored,
-            "coverage_path": str(_coverage_path(args.program, lane=args.lane, family=args.family)),
+            "coverage_path": str(
+                _coverage_path(args.program, lane=args.lane, family=args.family, root_override=root_override)
+            ),
         }
 
     response: dict[str, Any] = {
         "program": _normalize_program(args.program),
-        "shared_brain_path": str(_shared_brain_index_path(args.program, lane=args.lane, family=args.family)),
+        "shared_brain_path": str(
+            _shared_brain_index_path(args.program, lane=args.lane, family=args.family, root_override=root_override)
+        ),
         "classes": classes,
     }
-    if not _shared_brain_index_path(args.program, lane=args.lane, family=args.family).exists():
+    if not _shared_brain_index_path(
+        args.program,
+        lane=args.lane,
+        family=args.family,
+        root_override=root_override,
+    ).exists():
         response["warning"] = "shared_brain index not found; no candidate surfaces available"
 
     print(json.dumps(response, indent=2))
     return 0
 
 
-def _add_common_arguments(parser: argparse.ArgumentParser, *, include_file: bool = True, include_class: bool = True) -> None:
+def _add_common_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    include_file: bool = True,
+    include_class: bool = True,
+    include_root: bool = True,
+) -> None:
     parser.add_argument("--program", required=True)
     parser.add_argument("--family", default="binaries", help="Storage family, e.g. binaries or web_bounty.")
     parser.add_argument("--lane", default="apk", help="Storage lane, e.g. apk, exe, mac, web, api.")
+    if include_root:
+        parser.add_argument("--root", dest="root_override", help="Explicit local canonical root override.")
     if include_file:
         parser.add_argument("--file", required=True)
     if include_class:
@@ -456,7 +568,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_parser.set_defaults(func=cmd_add)
 
     cover_parser = subparsers.add_parser("cover", help="Mark a file/class surface as explored")
-    _add_common_arguments(cover_parser)
+    _add_common_arguments(cover_parser, include_root=False)
     cover_parser.add_argument("--agent", default=DEFAULT_AGENT)
     cover_parser.add_argument("--version", dest="version_label")
     cover_parser.set_defaults(func=cmd_cover)
@@ -468,7 +580,7 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser.set_defaults(func=cmd_list)
 
     unexplored_parser = subparsers.add_parser("unexplored", help="List unexplored surfaces by class")
-    _add_common_arguments(unexplored_parser, include_file=False, include_class=False)
+    _add_common_arguments(unexplored_parser, include_file=False, include_class=False, include_root=False)
     unexplored_parser.add_argument("--class", "--class-name", dest="class_name")
     unexplored_parser.set_defaults(func=cmd_unexplored)
 

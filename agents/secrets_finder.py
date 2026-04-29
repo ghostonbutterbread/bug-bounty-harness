@@ -588,6 +588,8 @@ class SecretsFinder:
                 self.sources_scanned.append(source)
 
     def _add_finding(self, finding: FindingRecord) -> None:
+        # Scanner-local collector only. BUGSPEC-2 canonical ledger writes are
+        # reserved for reviewed team/orchestrator promotion paths.
         dedupe_key = (finding.type, finding.value, finding.source_path, finding.line_number)
         with self._lock:
             if dedupe_key in self._seen_findings:
@@ -1475,6 +1477,8 @@ class SecretsFinder:
         return saved_paths
 
     def save_to_campaign(self) -> int:
+        # Legacy campaign.json compatibility sink, separate from the canonical
+        # bounty-core/team ledger. Do not use this path for ledger promotion.
         if not self.campaign_id or CampaignState is None:
             return 0
         count = 0

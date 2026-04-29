@@ -41,8 +41,12 @@ from agents.shared_brain import (  # type: ignore[attr-defined]
     update_index,
 )
 from agents.coverage_store import CoverageStore
+from agents.base_team.reports import dated_report_index_paths, write_report_indexes
+from agents.base_team.review import stage2_ghost_review as shared_stage2_ghost_review
+from agents.base_team.storage import resolve_team_storage
 from agents.snapshot_identity import get_snapshot_identity
-from agents.storage_resolver import resolve_family_lane, resolve_storage, write_context_files
+from agents.storage_resolver import resolve_family_lane
+from agents.verbosity import clamp_verbosity
 
 try:
     from subagent_logger import SubagentLogger, compute_pte_lite
@@ -985,33 +989,16 @@ def _display_file_reference(finding: Dict[str, Any]) -> str:
     return file_path
 
 
-def _ghost_reports_root(program: str, target_type: str = "source", output_root: Path | None = None) -> Path:
-    family, lane = resolve_family_lane(hunt_type="web")
-    storage = resolve_storage(
+def _resolve_zero_day_storage(program: str, output_root: Path | None = None):
+    return resolve_team_storage(
         _sanitize_program_name(program),
-        family=family,
-        lane=lane,
-        root_override=output_root,
-        create=True,
+        team_type="0day_team",
+        output_root=output_root,
     )
-    write_context_files(storage)
-    return storage.reports_root
 
 
-def _ghost_report_paths(program: str, target_type: str = "source", output_root: Path | None = None) -> Tuple[Path, Path, Path]:
-    reports_root = _ghost_reports_root(program, target_type, output_root=output_root)
-    report_date = datetime.now().strftime("%d-%m-%Y")
-    confirmed_dir = reports_root / "confirmed" / report_date
-    dormant_dir = reports_root / "dormant" / report_date
-    novel_dir = reports_root / "novel" / report_date
-    confirmed_dir.mkdir(parents=True, exist_ok=True)
-    dormant_dir.mkdir(parents=True, exist_ok=True)
-    novel_dir.mkdir(parents=True, exist_ok=True)
-    return (
-        confirmed_dir / "index.md",
-        dormant_dir / "index.md",
-        novel_dir / "index.md",
-    )
+def _report_index_paths_from_storage(storage) -> Tuple[Path, Path, Path]:
+    return dated_report_index_paths(storage)
 
 
 def _resolve_finding_source(target_path: Path, file_value: Any) -> Optional[Path]:
@@ -1674,76 +1661,27 @@ def stage2_ghost_review(
     target_path: Path,
     program: str,
     hunt_type: str,
+    output_root: Path | None = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Review raw agent findings and classify them into report buckets."""
+    """Compatibility wrapper for the shared BaseTeam Stage 2 review gate."""
 
-    confirmed: List[Dict[str, Any]] = []
-    dormant: List[Dict[str, Any]] = []
-    novel: List[Dict[str, Any]] = []
-    seen_keys: set[Tuple[str, str, str, str, str, str]] = set()
-    review_candidates: List[Dict[str, Any]] = []
+    def _legacy_review_single(finding: Dict[str, Any], review_target: Path) -> Dict[str, Any]:
+        _tier, reviewed, _reason = _review_single_finding(finding, review_target)
+        return reviewed
 
-    for finding in findings:
-        dedupe_key = _finding_dedupe_key(finding)
-        description = str(finding.get("description", "")).strip()
-        severity = str(finding.get("severity", "")).strip()
-        category = str(finding.get("category", "class")).strip().lower()
-        finding_type = str(finding.get("type", "unknown"))
-        finding_file = str(finding.get("file", "unknown"))
-
-        if description == "..." or is_placeholder_finding(finding):
-            print(f"[REVIEW] REJECTED | {finding_type} | {finding_file} | placeholder finding")
-            continue
-        if not severity:
-            print(f"[REVIEW] REJECTED | {finding_type} | {finding_file} | missing severity")
-            continue
-        if category == "novel" and (not str(finding.get("source", "")).strip() or not str(finding.get("sink", "")).strip()):
-            print(f"[REVIEW] REJECTED | {finding_type} | {finding_file} | novel finding missing source or sink")
-            continue
-        if dedupe_key in seen_keys:
-            print(f"[REVIEW] REJECTED | {finding_type} | {finding_file} | duplicate finding")
-            continue
-
-        seen_keys.add(dedupe_key)
-        review_candidates.append(finding)
-
-    with ThreadPoolExecutor(max_workers=CLAUDE_REVIEW_MAX_WORKERS) as pool:
-        futures = {
-            pool.submit(_review_single_finding, finding, target_path): finding
-            for finding in review_candidates
-        }
-        for future in as_completed(futures):
-            finding = futures[future]
-            try:
-                tier, reviewed, reason = future.result()
-            except Exception:
-                tier = "DORMANT"
-                reason = "review inconclusive"
-                reviewed = _inconclusive_review(finding, None, "", reason)
-
-            print(
-                f"[REVIEW] {tier} | {finding.get('category', 'class')} | "
-                f"{finding.get('type', 'unknown')} | {finding.get('file', 'unknown')} | {reason}"
-            )
-
-            if tier == "REJECTED":
-                continue
-            if str(reviewed.get("category", "class")).strip().lower() == "novel":
-                novel.append(reviewed)
-            elif tier == "CONFIRMED":
-                confirmed.append(reviewed)
-            else:
-                dormant.append(reviewed)
-
-    reports_root = _ghost_reports_root(program, hunt_type)
-    _ensure_directory(reports_root)
-    confirmed_path, dormant_path, novel_path = _ghost_report_paths(program, hunt_type)
-    confirmed_path.write_text(_render_confirmed_report(confirmed), encoding="utf-8")
-    dormant_path.write_text(_render_dormant_report(dormant), encoding="utf-8")
-    novel_path.write_text(_render_novel_findings_report(novel), encoding="utf-8")
-
-    return confirmed, dormant, novel
-
+    # Historically this procedural zero-day path always wrote to the 0day
+    # storage lane regardless of the caller's older hunt_type label (often
+    # "web"). Keep that output shape while making the review gate shared.
+    return shared_stage2_ghost_review(
+        findings,
+        target_path,
+        program,
+        "0day_team",
+        review_single=_legacy_review_single,
+        review_timeout=CLAUDE_REVIEW_TIMEOUT_SECONDS,
+        max_workers=CLAUDE_REVIEW_MAX_WORKERS,
+        output_root=output_root,
+    )
 
 def _finding_signature(finding: Dict[str, Any]) -> str:
     return json.dumps(finding, sort_keys=True, separators=(",", ":"))
@@ -2005,15 +1943,15 @@ def orchestrate_zero_day_team(
         print("[orchestrator] Ignoring legacy num_agents argument; class-based mode runs one agent per class.")
 
     program_slug = _sanitize_program_name(program)
-    family, lane = resolve_family_lane(hunt_type="web")
-    storage = resolve_storage(
-        program_slug,
-        family=family,
-        lane=lane,
-        root_override=Path(output_root).expanduser().resolve(strict=False) if output_root is not None else None,
-        create=True,
+    storage_root_override = (
+        Path(output_root).expanduser().resolve(strict=False) if output_root is not None else None
     )
-    write_context_files(storage)
+    storage = _resolve_zero_day_storage(
+        program_slug,
+        output_root=storage_root_override,
+    )
+    family = storage.family
+    lane = storage.lane
     team_root = storage.lane_root
     agents_root = team_root / "agents"
     findings_path = storage.ledgers_root / FINDINGS_FILENAME
@@ -2154,12 +2092,23 @@ def orchestrate_zero_day_team(
         print("[shared_brain] disabled via --no-shared-brain; continuing without repo index")
     else:
         try:
-            shared_brain_index = load_index(program_slug, family=family, lane=lane)
+            shared_brain_index = load_index(
+                program_slug,
+                family=family,
+                lane=lane,
+                root_override=storage_root_override,
+            )
             if shared_brain_index is not None:
                 shared_brain_index = update_index(target, shared_brain_index)
             else:
                 shared_brain_index = build_index(target, program_slug)
-            save_index(shared_brain_index, program_slug, family=family, lane=lane)
+            save_index(
+                shared_brain_index,
+                program_slug,
+                family=family,
+                lane=lane,
+                root_override=storage_root_override,
+            )
             print(
                 f"[shared_brain] indexed {len(shared_brain_index.files)} files "
                 f"across {len(shared_brain_index.frameworks)} framework signal(s)"
@@ -2322,7 +2271,13 @@ def orchestrate_zero_day_team(
             print(f"[orchestrator] Finished {index}/{len(active_profiles)}: {profile.key}")
 
     raw_findings = _load_findings(findings_path)
-    confirmed_findings, dormant_findings, novel_findings = stage2_ghost_review(raw_findings, target, program_slug, "web")
+    confirmed_findings, dormant_findings, novel_findings = stage2_ghost_review(
+        raw_findings,
+        target,
+        program_slug,
+        "web",
+        output_root=storage_root_override,
+    )
     reviewed_findings = confirmed_findings + dormant_findings + novel_findings
     # Update ledger with reviewer results
     ledger_updates = 0
@@ -2353,7 +2308,7 @@ def orchestrate_zero_day_team(
     print(f"[ledger] Updated {ledger_updates} findings in ledger", flush=True)
     rejected_count = max(0, len(raw_findings) - len(reviewed_findings))
 
-    confirmed_report_path, dormant_report_path, novel_report_path = _ghost_report_paths(program_slug, hunt_type)
+    confirmed_report_path, dormant_report_path, novel_report_path = _report_index_paths_from_storage(storage)
     novel_tier_summary = {
         "confirmed": sum(1 for item in novel_findings if str(item.get("review_tier", "")).upper() == "CONFIRMED"),
         "dormant": sum(1 for item in novel_findings if str(item.get("review_tier", "")).upper() != "CONFIRMED"),
@@ -2431,6 +2386,7 @@ def orchestrate_zero_day_team(
                     program_slug,
                     "--source", str(target),
                     "--findings-json", str(chain_input_path),
+                    "--output-dir", str(storage.reports_root / "chained"),
                 ])
                 print(f"[orchestrator] Chainer complete: {chainer_result} chain(s) developed.")
             except Exception as exc:

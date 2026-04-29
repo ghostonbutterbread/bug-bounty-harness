@@ -49,7 +49,7 @@ def save_ledger(
     merge_ledger: MergeLedgerFn,
     set_last_loaded: Callable[[dict[str, Any]], None],
 ) -> None:
-    """Persist the ledger atomically under an exclusive lock."""
+    """Compatibility-only whole-ledger save; active finding writes use canonical adapters."""
     payload = normalize_ledger_payload(ledger)
     ensure_parent(ledger_path)
     ensure_parent(ledger_lock_path)

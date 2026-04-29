@@ -333,15 +333,34 @@ class PteAuditTests(unittest.TestCase):
         self.assertTrue(rows[0]["trace_id"].startswith("xss_hunter_"))
 
     @patch("agents.pte_audit.read_team_findings")
-    def test_load_ledger_findings_uses_harness_adapter(self, mock_read_team_findings) -> None:
+    def test_load_ledger_findings_uses_harness_adapter_with_explicit_storage(self, mock_read_team_findings) -> None:
         findings = [{"fid": "D01", "class_name": "dom-xss"}]
         mock_read_team_findings.return_value = findings
 
-        scorer = HarnessEfficiencyScorer("demo")
+        scorer = HarnessEfficiencyScorer(
+            "demo",
+            family="web_bounty",
+            lane="web",
+            root_override=self.tmp / "canonical-root",
+        )
 
         self.assertEqual(scorer._load_ledger_findings(), findings)
         self.assertEqual(scorer._load_ledger_findings(), findings)
-        mock_read_team_findings.assert_called_once_with("demo")
+        mock_read_team_findings.assert_called_once_with(
+            "demo",
+            family="web_bounty",
+            lane="web",
+            root_override=(self.tmp / "canonical-root").resolve(strict=False),
+        )
+
+    @patch("agents.pte_audit.read_team_findings")
+    def test_explicit_root_does_not_fallback_to_legacy_ghost_ledger(self, mock_read_team_findings) -> None:
+        self._write_ledger("demo")
+        mock_read_team_findings.return_value = []
+        scorer = HarnessEfficiencyScorer("demo", root_override=self.tmp / "canonical-root")
+
+        self.assertEqual(scorer._load_ledger_findings(), [])
+        mock_read_team_findings.assert_called_once()
 
     def test_harness_efficiency_scoring_and_cli_outputs(self) -> None:
         program = "demo"

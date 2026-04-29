@@ -42,7 +42,7 @@ from agents.apk_surface_registry import ApkSurfaceRegistry
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.decompiler import decompile_smali_targets
 from agents.dynamic_agent_builder import DynamicAgentBuilder
-from agents.ledger import VersionedFindingsLedger, create_team_ledger_from_storage, update_team_finding
+from agents.ledger import create_team_ledger_from_storage, update_team_finding
 from agents.base_team.reports import dated_report_index_paths
 from agents.base_team.storage import resolve_team_storage
 from agents.snapshot_identity import get_snapshot_identity
@@ -609,7 +609,7 @@ def _run_single_profile(
     extracted_root: Path,
     findings_path: Path,
     agents_root: Path,
-    ledger: VersionedFindingsLedger,
+    ledger: Any,
     fresh: bool,
     prepared_bundle: tuple[dict[str, Any], list[str], dict[str, str]],
     registry: ApkSurfaceRegistry,

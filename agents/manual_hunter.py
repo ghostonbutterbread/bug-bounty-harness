@@ -24,7 +24,6 @@ if str(REPO_ROOT) not in sys.path:
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.coverage_store import CoverageStore
 from agents.ledger import (
-    VersionedFindingsLedger,
     create_team_ledger,
     create_team_ledger_from_storage,
     update_team_finding,

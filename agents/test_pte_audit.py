@@ -332,6 +332,17 @@ class PteAuditTests(unittest.TestCase):
         self.assertEqual(model_rows[0]["pte_lite"], 2190)
         self.assertTrue(rows[0]["trace_id"].startswith("xss_hunter_"))
 
+    @patch("agents.pte_audit.read_team_findings")
+    def test_load_ledger_findings_uses_harness_adapter(self, mock_read_team_findings) -> None:
+        findings = [{"fid": "D01", "class_name": "dom-xss"}]
+        mock_read_team_findings.return_value = findings
+
+        scorer = HarnessEfficiencyScorer("demo")
+
+        self.assertEqual(scorer._load_ledger_findings(), findings)
+        self.assertEqual(scorer._load_ledger_findings(), findings)
+        mock_read_team_findings.assert_called_once_with("demo")
+
     def test_harness_efficiency_scoring_and_cli_outputs(self) -> None:
         program = "demo"
         self._write_ledger(program)

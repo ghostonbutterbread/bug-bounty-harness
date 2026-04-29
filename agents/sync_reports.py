@@ -19,6 +19,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.coverage_store import CoverageStore
+from agents.ledger import update_team_finding
 from agents.manual_hunter import (
     ManualHunter,
     ParsedFinding,
@@ -623,7 +624,21 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{existing_fid} already exists, skipped")
                 continue
 
-            finding = hunter.ledger.update(finding)
+            finding = update_team_finding(
+                program,
+                finding,
+                snapshot_id=getattr(hunter, "snapshot_id", None) or None,
+                version_label=getattr(hunter, "version_label", None) or None,
+                run_id=_normalize_text(finding.get("run_id")) or _default_run_id(),
+                agent="sync-reports",
+                family=getattr(hunter, "family", None),
+                lane=getattr(hunter, "lane", None),
+                root_override=getattr(hunter, "storage_root", None),
+                write_report=False,
+                refresh=False,
+                update_current=False,
+                update_sighting=False,
+            )
             report_output = _append_canonical_report(hunter, finding)
             coverage_relpath = None
             try:

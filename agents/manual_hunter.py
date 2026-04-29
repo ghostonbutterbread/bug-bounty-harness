@@ -23,7 +23,12 @@ if str(REPO_ROOT) not in sys.path:
 
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.coverage_store import CoverageStore
-from agents.ledger import VersionedFindingsLedger, create_team_ledger, create_team_ledger_from_storage
+from agents.ledger import (
+    VersionedFindingsLedger,
+    create_team_ledger,
+    create_team_ledger_from_storage,
+    update_team_finding,
+)
 from agents.report_checker import (
     FindingRecord,
     _load_ledger_findings,
@@ -1094,7 +1099,21 @@ class ManualHunter:
                 print("Use --link-duplicate-comment to attach the note to the existing finding.")
             return 1
 
-        self.ledger.update(finding)
+        finding = update_team_finding(
+            self.program,
+            finding,
+            snapshot_id=self.snapshot_id or None,
+            version_label=self.version_label or None,
+            run_id=_normalize_text(finding.get("run_id")) or _default_run_id(),
+            agent="manual-hunter",
+            family=self.family,
+            lane=self.lane,
+            root_override=self.storage_root,
+            write_report=False,
+            refresh=False,
+            update_current=False,
+            update_sighting=False,
+        )
         self._append_report(finding)
         self._mark_coverage(finding, parsed)
         self._print_chain_suggestions(finding)

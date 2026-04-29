@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
@@ -149,6 +149,49 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(parsed.finding["class_name"], "native-module-abuse")
         self.assertEqual(parsed.finding["review_tier"], "CONFIRMED")
         self.assertTrue(parsed.finding["sink"])
+
+    @patch("agents.manual_hunter.update_team_finding")
+    def test_ingest_uses_team_finding_adapter_after_duplicate_reservation(self, mock_update_team_finding) -> None:
+        storage_root = self.tmp / "explicit-storage"
+        hunter = ManualHunter(self.program, source_root=self.target_root, storage_root=storage_root)
+        parsed = hunter.parse_text(
+            "\n".join(
+                [
+                    "Title: SQLite injection via exposed IPC port",
+                    "Type: arbitrary SQL execution",
+                    "Class: native-module-abuse",
+                    "Severity: HIGH",
+                    "File: .webpack/renderer/preload.js:4",
+                    "Description: The preload bridge exposes SQLite execution to renderer-controlled messages.",
+                ]
+            ),
+            source_label="unit-test",
+        )
+        reserved_finding = {**parsed.finding, "fid": "D77"}
+        hunter.ledger = Mock(wraps=hunter.ledger)
+        hunter.ledger.check.return_value = (False, None, reserved_finding)
+        mock_update_team_finding.return_value = reserved_finding
+
+        with (
+            patch.object(hunter, "_append_report") as mock_append_report,
+            patch.object(hunter, "_mark_coverage") as mock_mark_coverage,
+            patch.object(hunter, "_print_chain_suggestions"),
+            redirect_stdout(io.StringIO()),
+        ):
+            rc = hunter.ingest(parsed)
+
+        self.assertEqual(rc, 0)
+        hunter.ledger.check.assert_called_once_with(parsed.finding)
+        hunter.ledger.update.assert_not_called()
+        mock_update_team_finding.assert_called_once()
+        self.assertEqual(mock_update_team_finding.call_args.args[:2], (self.program, reserved_finding))
+        self.assertEqual(mock_update_team_finding.call_args.kwargs["family"], "binaries")
+        self.assertEqual(mock_update_team_finding.call_args.kwargs["lane"], "apk")
+        self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], storage_root.resolve(strict=False))
+        self.assertFalse(mock_update_team_finding.call_args.kwargs["write_report"])
+        self.assertFalse(mock_update_team_finding.call_args.kwargs["refresh"])
+        mock_append_report.assert_called_once_with(reserved_finding)
+        mock_mark_coverage.assert_called_once_with(reserved_finding, parsed)
 
     def test_source_root_explicit_override_wins_over_shared_brain(self) -> None:
         explicit_root = self.tmp / "explicit-source"

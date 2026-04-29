@@ -26,7 +26,6 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from agents.base_team.findings import (
     extract_findings_from_log,
-    finding_identity,
     normalize_finding,
     normalize_relpath,
     read_findings_jsonl,
@@ -581,9 +580,6 @@ class BaseTeam(abc.ABC):
     ) -> dict[str, Any] | None:
         return normalize_finding(raw, default_agent=default_agent, default_class=default_class)
 
-    def _finding_identity(self, finding: dict[str, Any]) -> tuple[str, int, str, str]:
-        return finding_identity(finding)
-
     def _resolve_source_path(self, file_value: Any) -> Path | None:
         relpath = _normalize_relpath(file_value)
         if not relpath:
@@ -690,86 +686,6 @@ class BaseTeam(abc.ABC):
         payload = self._normalize_ledger_payload(loaded)
         payload["updated_at"] = str(loaded.get("updated_at") or payload["updated_at"])
         return payload
-
-    def _merge_ledger(self, current: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
-        merged = self._normalize_ledger_payload(current)
-        payload = self._normalize_ledger_payload(incoming)
-
-        by_identity: dict[tuple[str, int, str, str], dict[str, Any]] = {}
-        findings: list[dict[str, Any]] = []
-        for finding in merged.get("findings", []):
-            record = dict(finding)
-            identity = self._finding_identity(record)
-            by_identity[identity] = record
-            findings.append(record)
-
-        for finding in payload.get("findings", []):
-            record = dict(finding)
-            identity = self._finding_identity(record)
-            existing = by_identity.get(identity)
-            if existing is None:
-                by_identity[identity] = record
-                findings.append(record)
-                continue
-
-            previous_first_seen = existing.get("first_seen")
-            previous_last_seen = existing.get("last_seen")
-            previous_sighting_count = existing.get("sighting_count")
-            previous_sightings = list(existing.get("sightings") or [])
-
-            existing.update(record)
-
-            first_seen_values = [value for value in (previous_first_seen, record.get("first_seen")) if value]
-            if first_seen_values:
-                existing["first_seen"] = min(str(value) for value in first_seen_values)
-
-            last_seen_values = [value for value in (previous_last_seen, record.get("last_seen")) if value]
-            if last_seen_values:
-                existing["last_seen"] = max(str(value) for value in last_seen_values)
-
-            existing["sighting_count"] = max(
-                _safe_int(previous_sighting_count, 1),
-                _safe_int(record.get("sighting_count"), 1),
-            )
-
-            sightings: list[dict[str, Any]] = []
-            seen_sightings: set[str] = set()
-            for candidate in previous_sightings + list(record.get("sightings") or []):
-                if not isinstance(candidate, dict):
-                    continue
-                signature = json.dumps(candidate, sort_keys=True)
-                if signature in seen_sightings:
-                    continue
-                seen_sightings.add(signature)
-                sightings.append(candidate)
-            if sightings:
-                existing["sightings"] = sightings
-
-        merged["findings"] = findings
-
-        coverage = merged.setdefault("coverage", {})
-        incoming_coverage = payload.get("coverage") or {}
-        surfaces = {
-            str(item).strip()
-            for item in list(coverage.get("surfaces_tested") or []) + list(incoming_coverage.get("surfaces_tested") or [])
-            if str(item).strip()
-        }
-        coverage["surfaces_tested"] = sorted(surfaces)
-        coverage["agents_run"] = {
-            **{str(key).strip(): str(value).strip() for key, value in (coverage.get("agents_run") or {}).items() if str(key).strip()},
-            **{
-                str(key).strip(): str(value).strip()
-                for key, value in (incoming_coverage.get("agents_run") or {}).items()
-                if str(key).strip()
-            },
-        }
-        coverage["total_findings"] = max(
-            _safe_int(coverage.get("total_findings")),
-            _safe_int(incoming_coverage.get("total_findings")),
-            len(findings),
-        )
-        merged["updated_at"] = payload.get("updated_at") or _timestamp_iso()
-        return merged
 
     def _snapshot_id(self) -> str:
         snapshot = get_snapshot_identity(self.target_path)

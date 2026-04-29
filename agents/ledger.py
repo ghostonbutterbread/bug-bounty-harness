@@ -23,6 +23,7 @@ from bounty_core.ledger import (  # noqa: E402
     ledger_list,
     ledger_path,
     patch_finding_by_fid,
+    update_coverage_state as core_update_coverage_state,
 )
 
 
@@ -208,6 +209,26 @@ def update_team_finding(
         return result
     return stored
 
+def update_team_coverage_state(
+    program: str,
+    *,
+    storage: StorageLayout,
+    agent_name: str,
+    surface: str,
+    finding_count: int,
+) -> dict[str, Any]:
+    """Update team coverage metadata through the harness ledger adapter."""
+    return core_update_coverage_state(
+        program,
+        agent_name=agent_name,
+        surface=surface,
+        finding_count=finding_count,
+        lane=storage.lane,
+        family=storage.family,
+        root_override=_explicit_root_from_storage(storage),
+    )
+
+
 def team_ledger_path(*, storage: StorageLayout, program: str | None = None) -> Path:
     """Return the canonical ledger path for an already resolved storage context."""
     if program is None:
@@ -226,6 +247,7 @@ __all__ = [
     "create_team_ledger_from_storage",
     "read_team_findings",
     "team_ledger_path",
+    "update_team_coverage_state",
     "update_team_finding",
     "ledger_add",
     "ledger_check",

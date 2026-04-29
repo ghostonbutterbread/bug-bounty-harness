@@ -16,6 +16,11 @@ if str(_project_root) not in sys.path:
 from agents import zero_day_team  # noqa: E402
 
 
+class FakeProcess:
+    def wait(self, timeout=None) -> int:
+        return 0
+
+
 class ZeroDayTeamOutputRootTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -88,8 +93,8 @@ class ZeroDayTeamOutputRootTests(unittest.TestCase):
         self.assertEqual(update_mock.call_args.args[:2], ("Example_Program", finding))
         self.assertEqual(update_mock.call_args.kwargs["family"], "web")
         self.assertEqual(update_mock.call_args.kwargs["lane"], "0day_team")
-        self.assertFalse(update_mock.call_args.kwargs["write_report"])
-        self.assertFalse(update_mock.call_args.kwargs["refresh"])
+        self.assertTrue(update_mock.call_args.kwargs["write_report"])
+        self.assertTrue(update_mock.call_args.kwargs["refresh"])
         ledger.update.assert_not_called()
 
     def test_raw_jsonl_findings_are_review_input_only(self) -> None:
@@ -150,6 +155,32 @@ class ZeroDayTeamOutputRootTests(unittest.TestCase):
         update_mock.assert_not_called()
         ledger.update.assert_not_called()
         add_finding_mock.assert_not_called()
+
+    def test_agent_session_queues_finding_when_ledger_reservation_fails(self) -> None:
+        findings_path = self.tmp / "findings.jsonl"
+        log_path = self.tmp / "agent.log"
+        workspace = self.tmp / "workspace"
+        workspace.mkdir()
+        log_path.write_text(
+            '{"agent":"xss","category":"class","class_name":"xss","description":"Reviewed finding.",'
+            '"file":"src/main.py","severity":"HIGH","type":"xss-sink"}\n',
+            encoding="utf-8",
+        )
+        session = SimpleNamespace(
+            process=FakeProcess(),
+            log_path=log_path,
+            profile=SimpleNamespace(key="xss"),
+            workspace=workspace,
+            skip_ledger=False,
+        )
+        ledger = SimpleNamespace(check=Mock(side_effect=RuntimeError("reservation failed")))
+
+        exit_code = zero_day_team._run_agent_session(session, findings_path, ledger)
+
+        self.assertEqual(exit_code, 0)
+        queued = findings_path.read_text(encoding="utf-8")
+        self.assertIn('"ledger_reservation_error": "reservation failed"', queued)
+        self.assertIn('"type": "xss-sink"', queued)
 
 
 if __name__ == "__main__":

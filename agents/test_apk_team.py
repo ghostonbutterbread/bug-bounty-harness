@@ -14,6 +14,14 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from agents import apk_team  # noqa: E402
+from agents.base_team.apk_compat import load_findings, run_agent_session  # noqa: E402
+
+
+class FakeProcess:
+    returncode = 0
+
+    def wait(self) -> int:
+        return 0
 
 
 class ApkTeamOutputRootTests(unittest.TestCase):
@@ -91,9 +99,47 @@ class ApkTeamOutputRootTests(unittest.TestCase):
         self.assertEqual(update_mock.call_args.kwargs["root_override"], expected_root)
         self.assertEqual(update_mock.call_args.kwargs["family"], "binaries")
         self.assertEqual(update_mock.call_args.kwargs["lane"], "apk")
-        self.assertFalse(update_mock.call_args.kwargs["write_report"])
-        self.assertFalse(update_mock.call_args.kwargs["refresh"])
+        self.assertTrue(update_mock.call_args.kwargs["write_report"])
+        self.assertTrue(update_mock.call_args.kwargs["refresh"])
         ledger.update.assert_not_called()
+
+    def test_apk_load_findings_preserves_reserved_fid(self) -> None:
+        findings_path = self.tmp / "findings.jsonl"
+        findings_path.write_text(
+            '{"agent":"provider-agent","class_name":"provider","description":"Reviewed finding.",'
+            '"fid":"D01","file":"AndroidManifest.xml","severity":"HIGH","type":"exported-provider"}\n',
+            encoding="utf-8",
+        )
+
+        self.assertEqual(load_findings(findings_path)[0]["fid"], "D01")
+
+    def test_apk_agent_session_reserves_before_queueing_raw_jsonl(self) -> None:
+        findings_path = self.tmp / "findings.jsonl"
+        raw = {"type": "exported-provider", "file": "AndroidManifest.xml", "severity": "HIGH"}
+        reserved = {**raw, "fid": "D01", "snapshot_id": "snap-1"}
+        ledger = SimpleNamespace(check=Mock(return_value=(False, "D01", reserved)))
+        session = SimpleNamespace(
+            process=FakeProcess(),
+            log_path=self.tmp / "agent.log",
+            profile=SimpleNamespace(key="provider-agent"),
+            workspace=self.tmp / "workspace",
+            skip_ledger=False,
+        )
+        session.log_path.write_text("{}\n", encoding="utf-8")
+        session.workspace.mkdir()
+
+        exit_code = run_agent_session(
+            session,
+            findings_path,
+            ledger,
+            extract_findings_from_log=Mock(return_value=[raw]),
+        )
+
+        self.assertEqual(exit_code, 0)
+        ledger.check.assert_called_once_with(raw)
+        queued = findings_path.read_text(encoding="utf-8")
+        self.assertIn('"fid": "D01"', queued)
+        self.assertFalse(hasattr(ledger, "add_or_update"))
 
     def test_chainer_invocation_uses_canonical_reports_output(self) -> None:
         storage = SimpleNamespace(

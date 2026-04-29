@@ -129,6 +129,10 @@ def update_team_finding(
     lane: str | None = None,
     root_override: str | Path | None = None,
     storage_root: str | Path | None = None,
+    write_report: bool = False,
+    refresh: bool = False,
+    update_current: bool = False,
+    update_sighting: bool = False,
 ) -> dict[str, Any]:
     """Update a team finding through the harness ledger adapter.
 
@@ -152,6 +156,10 @@ def update_team_finding(
         family=family,
         root_override=root_override,
         storage_root=storage_root,
+        write_report=write_report,
+        refresh=refresh,
+        update_current=update_current,
+        update_sighting=update_sighting,
     )
     if patched is not None:
         return patched
@@ -169,6 +177,22 @@ def update_team_finding(
         storage_root=storage_root,
     )
     target_fid = str(reserved_fid or fid).strip()
+    if write_report or refresh or update_current or update_sighting:
+        patched = patch_finding_by_fid(
+            program,
+            target_fid,
+            dict(finding),
+            lane=resolved_lane,
+            family=family,
+            root_override=root_override,
+            storage_root=storage_root,
+            write_report=write_report,
+            refresh=refresh,
+            update_current=update_current,
+            update_sighting=update_sighting,
+        )
+        if patched is not None:
+            return patched
     stored = ledger_get(
         program,
         target_fid,

@@ -214,9 +214,6 @@ def validate_brainstorm_spec(
                 f"expected one of: {expected}"
             )
 
-        if hypothesis.status == "retired":
-            continue
-
         local_agent_keys: dict[str, str] = {}
         for agent_key in hypothesis.suggested_agents:
             normalized_agent_key = _validate_suggested_agent_key(agent_key, hypothesis.id)
@@ -228,6 +225,9 @@ def validate_brainstorm_spec(
                     f"in hypothesis {hypothesis.id}"
                 )
             local_agent_keys[normalized_agent_key] = agent_key
+
+            if hypothesis.status == "retired":
+                continue
 
             previous_id = active_agent_keys.get(normalized_agent_key)
             if previous_id and previous_id != hypothesis.id:
@@ -766,6 +766,11 @@ def _validate_coverage_event(event: dict[str, Any]) -> None:
             )
 
     if event_type == "coverage_status_changed":
+        if agent_key := str(event.get("agent_key") or "").strip():
+            raise BrainstormSpecError(
+                "coverage_status_changed event must not include agent_key; "
+                f"got {agent_key!r}"
+            )
         status = str(event.get("status") or "").strip()
         if status not in COVERAGE_STATUSES:
             expected = ", ".join(sorted(COVERAGE_STATUSES))
@@ -844,6 +849,8 @@ def _apply_coverage_event(summary: dict[str, Any], event: dict[str, Any]) -> Non
     summary["events"] += 1
     event_type = str(event.get("event") or "")
     agent_key = str(event.get("agent_key") or "").strip()
+    if event_type == "coverage_status_changed" and agent_key:
+        return
     if agent_key:
         agent = summary["agents"].setdefault(
             agent_key,

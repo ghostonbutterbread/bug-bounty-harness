@@ -204,12 +204,35 @@ def test_parse_rejects_unsafe_suggested_agent_keys(tmp_path: Path) -> None:
             parse_brainstorm_spec(_write_spec(tmp_path / unsafe_key.replace("/", "_"), text))
 
 
+def test_parse_validates_retired_hypothesis_suggested_agent_keys(
+    tmp_path: Path,
+) -> None:
+    unsafe_retired = _valid_spec_text().replace(
+        "- Status: untested\n- Priority: medium",
+        "- Status: retired\n- Priority: medium",
+        1,
+    ).replace("canva-open-redirect-deeplink-chain", "../escape", 1)
+    with pytest.raises(BrainstormSpecError, match="path separators"):
+        parse_brainstorm_spec(_write_spec(tmp_path / "unsafe_retired", unsafe_retired))
+
+    retired_active_collision = _valid_spec_text().replace(
+        "- Status: untested\n- Priority: medium",
+        "- Status: retired\n- Priority: medium",
+        1,
+    ).replace("canva-open-redirect-deeplink-chain", "canva-svg-import-xss", 1)
+
+    spec = parse_brainstorm_spec(
+        _write_spec(tmp_path / "retired_collision", retired_active_collision)
+    )
+
+    assert spec.hypotheses[1].status == "retired"
+
+
 def test_parse_preserves_nested_evidence_urls_and_freeform_text(tmp_path: Path) -> None:
     text = _valid_spec_text().replace(
-        "### H001 — SVG import can create renderer script execution\n- Status: untested",
-        "### H001 — SVG import can create renderer script execution\n"
-        "Free-form analyst context before fields.\n"
-        "- Status: untested",
+        "Review sanitizer behavior and preview rendering before choosing payloads.",
+        "Review sanitizer behavior and preview rendering before choosing payloads.\n"
+        "Free-form analyst context before fields.",
         1,
     ).replace(
         "  - DORMANT-1",
@@ -220,7 +243,11 @@ def test_parse_preserves_nested_evidence_urls_and_freeform_text(tmp_path: Path) 
     spec = parse_brainstorm_spec(_write_spec(tmp_path, text))
 
     first = spec.hypotheses[0]
-    assert first.freeform_text == "Review sanitizer behavior and preview rendering before choosing payloads."
+    assert first.freeform_text == (
+        "Review sanitizer behavior and preview rendering before choosing payloads.\n"
+        "Free-form analyst context before fields."
+    )
+    assert "https://example.com/report?id=1:2" in first.evidence
     assert "https://example.test/reports/DORMANT-1:details" in first.evidence
 
 
@@ -525,6 +552,71 @@ def test_coverage_mixed_blocked_and_no_finding_status_is_order_independent(
     assert (
         summary["hypotheses"]["H001"]["agents"]["agent-clean"]["status"]
         == "tested_no_finding"
+    )
+
+
+def test_coverage_rejects_agent_scoped_status_changes(tmp_path: Path) -> None:
+    coverage_path = tmp_path / "brainstorm" / "coverage.jsonl"
+
+    with pytest.raises(BrainstormSpecError, match="must not include agent_key"):
+        append_coverage(
+            coverage_path,
+            {
+                "event": "coverage_status_changed",
+                "hypothesis_id": "H001",
+                "agent_key": "agent-a",
+                "status": "retired",
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "events",
+    [
+        [
+            {
+                "event": "coverage_status_changed",
+                "hypothesis_id": "H001",
+                "agent_key": "agent-a",
+                "status": "retired",
+            },
+            {
+                "event": "agent_completed_no_finding",
+                "hypothesis_id": "H001",
+                "agent_key": "agent-a",
+            },
+        ],
+        [
+            {
+                "event": "agent_completed_no_finding",
+                "hypothesis_id": "H001",
+                "agent_key": "agent-a",
+            },
+            {
+                "event": "coverage_status_changed",
+                "hypothesis_id": "H001",
+                "agent_key": "agent-a",
+                "status": "retired",
+            },
+        ],
+    ],
+)
+def test_coverage_ignores_legacy_agent_scoped_status_changes_order_independently(
+    tmp_path: Path,
+    events: list[dict[str, str]],
+) -> None:
+    coverage_path = tmp_path / "brainstorm" / "coverage.jsonl"
+    coverage_path.parent.mkdir(parents=True, exist_ok=True)
+    coverage_path.write_text(
+        "".join(json.dumps(event, sort_keys=True) + "\n" for event in events),
+        encoding="utf-8",
+    )
+
+    summary = summarize_coverage(coverage_path)
+
+    assert summary["hypotheses"]["H001"]["status"] == "tested_no_finding"
+    assert summary["hypotheses"]["H001"]["agents"]["agent-a"]["status"] == (
+        "tested_no_finding"
     )
 
 

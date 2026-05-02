@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from agents.report_paths import canonical_reports_root, report_index_roots_for_read, status_report_path_for_read
-from agents.storage_resolver import resolve_family_lane
+from agents.storage_resolver import resolve_target_identity
 
 
 # ---------------------------------------------------------------------------
@@ -907,39 +907,95 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--novel-only", action="store_true", help="Only process novel findings")
     parser.add_argument("--skip-codex", action="store_true",
                         help="Parse findings and write report without running codex")
-    parser.add_argument("--hunt-type", default="source", choices=("source", "web"),
-                        help="Type of target: source (exe/apk) or web. Default: source.")
+    parser.add_argument("--hunt-type", default="source", choices=("source", "web", "api", "apk", "exe", "mac"),
+                        help="Type of target namespace. Default: source, preserving legacy zero-day web routing.")
+    parser.add_argument("--family", help="Explicit storage family override, such as web_bounty or binaries.")
+    parser.add_argument("--lane", help="Explicit storage lane override, such as web, api, apk, exe, or mac.")
+    parser.add_argument("--target-kind", help="Target kind hint, such as web, api, apk, exe, electron-exe, or mac.")
+    parser.add_argument("--intent-text", help="Natural-language routing hint from the task or wrapper.")
     return parser.parse_args(argv or sys.argv[1:])
 
 
-def _default_output_dir(program: str, hunt_type: str, storage_root: str | None) -> Path:
-    family, lane = _chainer_family_lane(hunt_type)
-    return canonical_reports_root(
+def _default_output_dir(
+    program: str,
+    hunt_type: str,
+    storage_root: str | None,
+    *,
+    family: str | None = None,
+    lane: str | None = None,
+    target_kind: str | None = None,
+    intent_text: str | None = None,
+    target_path: str | Path | None = None,
+) -> Path:
+    resolved_family, resolved_lane = _chainer_family_lane(
         program,
         hunt_type,
         family=family,
         lane=lane,
+        target_kind=target_kind,
+        intent_text=intent_text,
+        target_path=target_path,
+    )
+    return canonical_reports_root(
+        program,
+        hunt_type,
+        family=resolved_family,
+        lane=resolved_lane,
         root_override=storage_root,
         create=True,
     ) / "chained"
 
 
-def _chainer_family_lane(hunt_type: str) -> tuple[str, str]:
+def _chainer_family_lane(
+    program: str,
+    hunt_type: str,
+    *,
+    family: str | None = None,
+    lane: str | None = None,
+    target_kind: str | None = None,
+    intent_text: str | None = None,
+    target_path: str | Path | None = None,
+) -> tuple[str, str]:
     route = "0day_team" if hunt_type == "source" else hunt_type
-    return resolve_family_lane(hunt_type=route)
+    has_explicit_identity_hint = any(value is not None for value in (family, lane, target_kind, intent_text))
+    identity = resolve_target_identity(
+        program=program,
+        family=family,
+        lane=lane,
+        target_kind=target_kind,
+        intent_text=intent_text,
+        target_path=target_path if hunt_type != "source" or has_explicit_identity_hint else None,
+        wrapper_hint=route,
+        hunt_type=route,
+    )
+    return identity.family, identity.lane
 
 
 def _default_status_report_paths(
     program: str,
     hunt_type: str,
     storage_root: str | None,
+    *,
+    family: str | None = None,
+    lane: str | None = None,
+    target_kind: str | None = None,
+    intent_text: str | None = None,
+    target_path: str | Path | None = None,
 ) -> tuple[Path | None, Path | None]:
-    family, lane = _chainer_family_lane(hunt_type)
-    for source in report_index_roots_for_read(
+    resolved_family, resolved_lane = _chainer_family_lane(
         program,
         hunt_type,
         family=family,
         lane=lane,
+        target_kind=target_kind,
+        intent_text=intent_text,
+        target_path=target_path,
+    )
+    for source in report_index_roots_for_read(
+        program,
+        hunt_type,
+        family=resolved_family,
+        lane=resolved_lane,
         root_override=storage_root,
     ):
         dormant_path = status_report_path_for_read(source.path, "dormant", "dormant.md")
@@ -956,11 +1012,29 @@ def main(argv: list[str] | None = None) -> int:
     output_dir = (
         Path(args.output_dir).expanduser().resolve(strict=False)
         if args.output_dir
-        else _default_output_dir(program, args.hunt_type, args.storage_root).resolve(strict=False)
+        else _default_output_dir(
+            program,
+            args.hunt_type,
+            args.storage_root,
+            family=args.family,
+            lane=args.lane,
+            target_kind=args.target_kind,
+            intent_text=args.intent_text,
+            target_path=source_path,
+        ).resolve(strict=False)
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    dormant_path, novel_path = _default_status_report_paths(program, args.hunt_type, args.storage_root)
+    dormant_path, novel_path = _default_status_report_paths(
+        program,
+        args.hunt_type,
+        args.storage_root,
+        family=args.family,
+        lane=args.lane,
+        target_kind=args.target_kind,
+        intent_text=args.intent_text,
+        target_path=source_path,
+    )
 
     print(f"[chainer] Program: {program}")
     print(f"[chainer] Source: {source_path}")

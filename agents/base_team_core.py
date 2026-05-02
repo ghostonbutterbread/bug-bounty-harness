@@ -53,7 +53,7 @@ from agents.base_team.runtime import (
 )
 from agents.base_team.storage import resolve_team_storage
 from agents.snapshot_identity import get_snapshot_identity
-from agents.storage_resolver import resolve_family_lane
+from agents.storage_resolver import TargetIdentity, resolve_family_lane
 
 
 LOGGER = logging.getLogger(__name__)
@@ -153,6 +153,12 @@ class BaseTeam(abc.ABC):
         target_path: Path,
         output_root: Path | None = None,
         max_agents: int = 10,
+        family: str | None = None,
+        lane: str | None = None,
+        target_kind: str | None = None,
+        intent_text: str | None = None,
+        target_identity: TargetIdentity | None = None,
+        infer_target_identity: bool = False,
     ) -> None:
         normalized_program = re.sub(r"[^A-Za-z0-9._-]+", "_", str(program or "").strip())
         if not normalized_program:
@@ -169,13 +175,23 @@ class BaseTeam(abc.ABC):
         self.target_path = resolved_target
         self.max_agents = max(1, int(max_agents))
         self.workdir = Path(__file__).resolve().parent.parent
+        has_identity_context = any(
+            value is not None
+            for value in (family, lane, target_kind, intent_text, target_identity)
+        ) or infer_target_identity
 
-        self.family, self.lane = self._storage_family_lane(team_type)
         self.storage = resolve_team_storage(
             self.program,
             team_type=team_type,
             output_root=output_root,
+            family=family,
+            lane=lane,
+            target_kind=target_kind,
+            intent_text=intent_text,
+            target_path=resolved_target if has_identity_context else None,
+            target_identity=target_identity,
         )
+        self.family, self.lane = self.storage.family, self.storage.lane
         self.output_root = self.storage.program_root
 
         self.team_dir = self.storage.lane_root
@@ -666,7 +682,7 @@ class BaseTeam(abc.ABC):
                 if str(key).strip()
             }
             normalized["coverage"]["total_findings"] = max(
-                _safe_int(coverage.get("total_findings")),
+                safe_int(coverage.get("total_findings")),
                 len(normalized["findings"]),
             )
         return normalized
@@ -763,6 +779,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Optional explicit local canonical root override. Defaults to Shared family roots via storage_resolver.",
     )
+    parser.add_argument("--family", help="Explicit storage family override, such as web_bounty or binaries.")
+    parser.add_argument("--lane", help="Explicit storage lane override, such as web, api, apk, exe, or mac.")
+    parser.add_argument("--target-kind", help="Target kind hint, such as web, api, apk, exe, electron-exe, or mac.")
+    parser.add_argument("--intent-text", help="Natural-language routing hint from the task or wrapper.")
     parser.add_argument("--parallel", action=argparse.BooleanOptionalAction, default=True, help="Run agents in parallel.")
     parser.add_argument(
         "--agents",
@@ -797,6 +817,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             target_path=target_path,
             output_root=output_root,
             max_agents=args.max_agents,
+            family=args.family,
+            lane=args.lane,
+            target_kind=args.target_kind,
+            intent_text=args.intent_text,
         )
     elif args.team_type == "apk":
         from agents.apk_team import APKTeam
@@ -807,6 +831,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             target_path=target_path,
             output_root=output_root,
             max_agents=args.max_agents,
+            family=args.family,
+            lane=args.lane,
+            target_kind=args.target_kind,
+            intent_text=args.intent_text,
+            infer_target_identity=True,
         )
     else:
         raise SystemExit("web team is not implemented yet")

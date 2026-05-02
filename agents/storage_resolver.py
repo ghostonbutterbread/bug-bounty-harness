@@ -26,6 +26,11 @@ from bounty_core.storage import (  # noqa: E402
     resolve_family_lane,
     resolve_storage,
 )
+from bounty_core.target_identity import (  # noqa: E402
+    TargetIdentity,
+    TargetIdentityEvidence,
+    resolve_target_identity,
+)
 
 
 def write_context_files(
@@ -69,6 +74,8 @@ __all__ = [
     "NOTE_BUCKETS",
     "REPORT_STATES",
     "StorageLayout",
+    "TargetIdentity",
+    "TargetIdentityEvidence",
     "VALID_FAMILIES",
     "WEB_FAMILY",
     "build_me_context",
@@ -79,5 +86,6 @@ __all__ = [
     "normalize_program",
     "resolve_family_lane",
     "resolve_storage",
+    "resolve_target_identity",
     "write_context_files",
 ]

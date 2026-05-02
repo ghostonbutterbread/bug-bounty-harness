@@ -93,6 +93,8 @@ class ApkTeamOutputRootTests(unittest.TestCase):
             )
 
         self.assertEqual(resolve_mock.call_args.kwargs["output_root"], expected_root)
+        self.assertIsNone(resolve_mock.call_args.kwargs["target_kind"])
+        self.assertEqual(resolve_mock.call_args.kwargs["target_path"], str(self.tmp / "example.apk"))
         self.assertEqual(review_mock.call_args.kwargs["output_root"], expected_root)
         update_mock.assert_called_once()
         self.assertEqual(update_mock.call_args.args[:2], ("Example_Program", finding))
@@ -280,6 +282,81 @@ class ApkTeamOutputRootTests(unittest.TestCase):
         ledger.update.assert_not_called()
         add_finding_mock.assert_not_called()
         registry.record_progressive_finding.assert_not_called()
+
+    def test_canonical_lane_root_output_root_does_not_nest_storage(self) -> None:
+        lane_root = self.tmp / "Shared" / "binaries" / "Example_Program" / "apk"
+        apk_path = lane_root / "input" / "example.apk"
+        apk_path.parent.mkdir(parents=True)
+        apk_path.write_text("placeholder\n", encoding="utf-8")
+        registry = SimpleNamespace(
+            extracted_root=self.tmp / "extracted-apk",
+            registry_path=self.tmp / "surface_registry.json",
+            payload={"package_name": "com.example.app", "version_name": "1.2.3", "stats": {}},
+            record_progressive_finding=Mock(),
+        )
+        ledger = SimpleNamespace(
+            path=lane_root / "ledgers" / "ledger.json",
+            get_class_context=Mock(return_value=""),
+            update=Mock(),
+            run_id="run-1",
+        )
+
+        with (
+            patch.object(Path, "home", return_value=self.tmp),
+            patch.object(apk_team, "SubagentLogger", None),
+            patch.object(apk_team, "BountyMemory", None),
+            patch.object(
+                apk_team,
+                "build_surface_registry",
+                return_value={"surface_registry_path": str(registry.registry_path)},
+            ) as registry_mock,
+            patch.object(apk_team.ApkSurfaceRegistry, "load", return_value=registry),
+            patch.object(
+                apk_team,
+                "get_snapshot_identity",
+                return_value={"snapshot_id": "snap-1", "version_label": "1.2.3"},
+            ),
+            patch.object(apk_team, "create_team_ledger_from_storage", return_value=ledger) as ledger_mock,
+            patch.object(apk_team, "DynamicAgentBuilder") as builder_cls,
+            patch.object(apk_team, "_select_profiles", return_value=[]),
+            patch.object(apk_team, "load_findings", return_value=[]),
+            patch.object(apk_team, "stage2_ghost_review", return_value=([], [], [])) as review_mock,
+            patch.object(apk_team, "pretty_print_findings"),
+        ):
+            builder_cls.return_value.run.return_value = []
+
+            apk_team.orchestrate_apk_team(
+                "Example Program",
+                str(apk_path),
+                output_root=lane_root,
+            )
+
+        storage = ledger_mock.call_args.kwargs["storage"]
+        self.assertEqual(storage.lane_root, lane_root)
+        self.assertEqual(registry_mock.call_args.kwargs["output_root"], lane_root)
+        self.assertEqual(review_mock.call_args.kwargs["output_root"], lane_root)
+        self.assertFalse((lane_root / "binaries" / "Example_Program" / "apk").exists())
+
+    def test_cli_accepts_target_identity_routing_flags(self) -> None:
+        args = apk_team._parse_cli_args(
+            [
+                "Example Program",
+                str(self.tmp / "example.apk"),
+                "--target-kind",
+                "apk",
+                "--intent-text",
+                "Android APK review",
+                "--family",
+                "binaries",
+                "--lane",
+                "apk",
+            ]
+        )
+
+        self.assertEqual(args.target_kind, "apk")
+        self.assertEqual(args.intent_text, "Android APK review")
+        self.assertEqual(args.family, "binaries")
+        self.assertEqual(args.lane, "apk")
 
 
 if __name__ == "__main__":

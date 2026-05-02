@@ -23,7 +23,7 @@ if _bounty_tools_root.as_posix() not in (p.as_posix() for p in map(Path, sys.pat
     sys.path.insert(0, _bounty_tools_root.as_posix())
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from agents.base_team import AgentSpec as TeamAgentSpec
@@ -51,8 +51,9 @@ from agents.base_team.promotion import promote_reviewed_findings
 from agents.base_team.reports import dated_report_index_paths
 from agents.base_team.review import stage2_ghost_review as shared_stage2_ghost_review
 from agents.base_team.storage import resolve_team_storage
+from agents.brainstorm_adapters import brainstorm_intent_to_dynamic_agent_spec
+from agents.brainstorm_spec import append_coverage, parse_brainstorm_spec
 from agents.snapshot_identity import get_snapshot_identity
-from agents.storage_resolver import resolve_family_lane
 from agents.verbosity import clamp_verbosity
 
 try:
@@ -72,6 +73,7 @@ AGENT_TIMEOUT_SECONDS = 1800
 CLAUDE_REVIEW_TIMEOUT_SECONDS = 600
 CLAUDE_REVIEW_MAX_WORKERS = 4
 MAX_PARALLEL_AGENTS = 10  # hard cap on concurrent sub-agents
+SOURCE_EXCERPT_MAX_LINE_CHARS = 1200
 _ZERO_DAY_TEAM_LOGGER = None
 
 SOURCE_TRUST_CONTEXT_PROMPT = (
@@ -125,6 +127,7 @@ class VulnerabilityClassProfile:
     prompt_addendum: str = ""
     focus_globs: Tuple[str, ...] = ()
     ignore_globs: Tuple[str, ...] = ()
+    brainstorm_metadata: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def title(self) -> str:
@@ -579,6 +582,7 @@ class AgentSession:
     log_path: Path
     process: Optional[subprocess.Popen]
     skip_ledger: bool = False
+    coverage_path: Path | None = None
 
 
 def _sanitize_program_name(program: str) -> str:
@@ -600,9 +604,25 @@ def _normalize_class_name(value: str) -> str:
 
 
 def _profile_from_agent_spec(spec: Any) -> VulnerabilityClassProfile:
-    focus_globs = tuple(str(item).strip() for item in (getattr(spec, "focus_files_glob", []) or []) if str(item).strip())
+    focus_globs = tuple(
+        str(item).strip()
+        for item in (
+            getattr(spec, "focus_files_glob", None)
+            or getattr(spec, "focus_globs", None)
+            or []
+        )
+        if str(item).strip()
+    )
     ignore_globs = tuple(str(item).strip() for item in (getattr(spec, "ignore_files_glob", []) or []) if str(item).strip())
-    patterns = tuple(str(item).strip() for item in (getattr(spec, "patterns", []) or []) if str(item).strip())
+    patterns = tuple(
+        str(item).strip()
+        for item in (
+            getattr(spec, "patterns", None)
+            or getattr(spec, "code_patterns", None)
+            or []
+        )
+        if str(item).strip()
+    )
     surface = str(getattr(spec, "surface_type", "") or "custom surface").replace("-", " ")
     vuln_class = str(getattr(spec, "vuln_class", "") or "custom vulnerability").replace("_", " ").replace("-", " ")
     entry_questions = (
@@ -633,7 +653,22 @@ def _profile_from_agent_spec(spec: Any) -> VulnerabilityClassProfile:
         prompt_addendum=str(getattr(spec, "agent_prompt_template", "")).rstrip(),
         focus_globs=focus_globs,
         ignore_globs=ignore_globs,
+        brainstorm_metadata=dict(getattr(spec, "brainstorm_metadata", {}) or {}),
     )
+
+
+def _select_from_profiles(
+    selected_class: Optional[str],
+    profiles: Sequence[VulnerabilityClassProfile],
+) -> List[VulnerabilityClassProfile]:
+    if not selected_class:
+        return list(profiles)
+    all_profiles = {profile.key.lower(): profile for profile in profiles}
+    normalized = _normalize_class_name(selected_class)
+    if normalized not in all_profiles:
+        known = ", ".join(sorted(all_profiles))
+        raise ValueError(f"Unknown class {selected_class!r}. Expected one of: {known}")
+    return [all_profiles[normalized]]
 
 
 def _select_profiles(
@@ -811,6 +846,7 @@ def _spawn_agent(
     starting_entry: dict[str, Any] | None = None,
     skip_ledger: bool = False,
     hunt_type: str = "source",
+    coverage_path: Path | None = None,
 ) -> AgentSession:
     workspace = agents_root / f"{profile.key}_{int(time.time() * 1000)}"
     _ensure_directory(workspace)
@@ -865,6 +901,7 @@ def _spawn_agent(
             log_path=fallback_log,
             process=None,
             skip_ledger=skip_ledger,
+            coverage_path=coverage_path,
         )
 
     log_path = agents_root / f"agent_{profile.key}_{process.pid}.log"
@@ -885,6 +922,7 @@ def _spawn_agent(
         log_path=log_path,
         process=process,
         skip_ledger=skip_ledger,
+        coverage_path=coverage_path,
     )
 
 
@@ -903,6 +941,8 @@ def _normalize_finding(raw: Any, default_agent: str) -> Optional[Dict[str, Any]]
 
     description = str(normalized.get("description") or "").strip()
     if not description:
+        return None
+    if is_placeholder_finding(raw) or is_placeholder_finding(normalized):
         return None
 
     raw_category = str(raw.get("category") or "").strip().lower()
@@ -962,11 +1002,21 @@ def _display_file_reference(finding: Dict[str, Any]) -> str:
     return file_path
 
 
-def _resolve_zero_day_storage(program: str, output_root: Path | None = None):
+def _resolve_zero_day_storage(
+    program: str,
+    output_root: str | Path | None = None,
+    target_path: str | Path | None = None,
+    target_kind: str | None = None,
+    intent_text: str | None = None,
+):
+    program_slug = _sanitize_program_name(program)
     return resolve_team_storage(
-        _sanitize_program_name(program),
+        program=program_slug,
         team_type="0day_team",
         output_root=output_root,
+        target_path=target_path,
+        target_kind=target_kind,
+        intent_text=intent_text,
     )
 
 
@@ -1006,7 +1056,14 @@ def _read_source_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-def _source_excerpt(source_text: str, line_number: int, radius: int = 20) -> str:
+def _source_excerpt(
+    source_text: str,
+    line_number: int,
+    radius: int = 20,
+    *,
+    focus_terms: Sequence[str] = (),
+    max_line_chars: int = SOURCE_EXCERPT_MAX_LINE_CHARS,
+) -> str:
     lines = source_text.splitlines()
     if not lines:
         return ""
@@ -1018,10 +1075,43 @@ def _source_excerpt(source_text: str, line_number: int, radius: int = 20) -> str
         start = max(0, line_number - radius - 1)
         end = min(len(lines), line_number + radius)
 
-    excerpt_lines = [
-        f"{index + 1}: {lines[index]}"
-        for index in range(start, end)
-    ]
+    excerpt_lines = []
+    for index in range(start, end):
+        line = lines[index]
+        line_prefix = f"{index + 1}: "
+        if len(line) <= max_line_chars:
+            excerpt_lines.append(f"{line_prefix}{line}")
+            continue
+
+        focus_index = -1
+        focus_label = ""
+        for term in focus_terms:
+            normalized_term = str(term or "").strip()
+            if len(normalized_term) < 4:
+                continue
+            focus_index = line.find(normalized_term)
+            if focus_index >= 0:
+                focus_label = normalized_term[:80]
+                break
+
+        if focus_index >= 0:
+            start_char = max(0, focus_index - (max_line_chars // 2))
+        else:
+            start_char = 0
+        end_char = min(len(line), start_char + max_line_chars)
+        start_char = max(0, end_char - max_line_chars)
+        snippet = line[start_char:end_char]
+        if start_char > 0:
+            snippet = "..." + snippet
+        if end_char < len(line):
+            snippet = snippet + "..."
+
+        focus_note = f" around focus term {focus_label!r}" if focus_label else ""
+        excerpt_lines.append(
+            f"[truncated line {index + 1}: original length {len(line)} chars; "
+            f"showing chars {start_char + 1}-{end_char}{focus_note}]"
+        )
+        excerpt_lines.append(f"{line_prefix}{snippet}")
     return "\n".join(excerpt_lines)
 
 
@@ -1081,7 +1171,14 @@ def is_placeholder_finding(finding: dict) -> bool:
     combined = f"{title} {description}".lower()
     markers = (
         "path:123",
+        "why this path is dangerous",
+        "why this appears novel and dangerous",
+        "relevant code context and reasoning",
         "identified source",
+        "boundary crossed or unresolved boundary question",
+        "known or suspected flow",
+        "identified dangerous sink",
+        "what is known or missing about exploitability",
         "dangerous sink category",
         "what boundary is crossed",
         "how the data moves",
@@ -1090,7 +1187,7 @@ def is_placeholder_finding(finding: dict) -> bool:
 
     if title_lc in {"short vulnerability label", "short novel pattern label", "placeholder"}:
         return True
-    if file_ref in {"path:123", ""}:
+    if file_ref in {"path:123", "path", ""}:
         return True
     return any(marker in combined for marker in markers)
 
@@ -1305,7 +1402,16 @@ def _review_single_finding(
     if source_path is not None:
         try:
             source_text = _read_source_text(source_path)
-            excerpt = _source_excerpt(source_text, _finding_line_number(finding))
+            excerpt = _source_excerpt(
+                source_text,
+                _finding_line_number(finding),
+                focus_terms=(
+                    str(finding.get("source") or ""),
+                    str(finding.get("sink") or ""),
+                    str(finding.get("context") or ""),
+                    str(finding.get("type") or ""),
+                ),
+            )
         except OSError:
             excerpt = ""
 
@@ -1675,6 +1781,8 @@ def _append_unique_findings(findings_path: Path, findings: Sequence[Dict[str, An
             existing = {_finding_signature(item) for item in _load_findings(findings_path)}
             pending: List[Dict[str, Any]] = []
             for finding in findings:
+                if is_placeholder_finding(finding):
+                    continue
                 signature = _finding_signature(finding)
                 if signature in existing:
                     continue
@@ -1691,6 +1799,214 @@ def _append_unique_findings(findings_path: Path, findings: Sequence[Dict[str, An
             fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
     finally:
         lock_handle.close()
+
+
+def _brainstorm_event_base(profile: VulnerabilityClassProfile) -> dict[str, Any] | None:
+    metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
+    hypothesis_id = str(metadata.get("hypothesis_id") or "").strip()
+    agent_key = str(metadata.get("brainstorm_agent_key") or profile.key).strip()
+    if not hypothesis_id or not agent_key:
+        return None
+    return {
+        "hypothesis_id": hypothesis_id,
+        "hypothesis_title": metadata.get("hypothesis_title"),
+        "agent_key": agent_key,
+        "source_spec_path": metadata.get("source_spec_path") or metadata.get("brainstorm_spec"),
+        "expected_chain": metadata.get("expected_chain"),
+        "brainstorm_spec": metadata.get("brainstorm_spec"),
+    }
+
+
+def _append_brainstorm_coverage(
+    coverage_path: Path | None,
+    profile: VulnerabilityClassProfile,
+    event: str,
+    **fields: Any,
+) -> None:
+    if coverage_path is None:
+        return
+    base = _brainstorm_event_base(profile)
+    if base is None:
+        return
+    try:
+        append_coverage(coverage_path, {"event": event, **base, **fields})
+    except Exception as exc:
+        print(f"[brainstorm] coverage warning for {profile.key}: {exc}", flush=True)
+
+
+def _append_brainstorm_hypothesis_loaded(
+    coverage_path: Path,
+    *,
+    hypothesis: Any,
+    run_id: str | None,
+    spec_path: Path,
+) -> None:
+    try:
+        append_coverage(
+            coverage_path,
+            {
+                "event": "hypothesis_loaded",
+                "hypothesis_id": hypothesis.id,
+                "hypothesis_title": hypothesis.title,
+                "status": hypothesis.status,
+                "run_id": run_id,
+                "source_spec_path": str(spec_path),
+                "brainstorm_spec": str(spec_path),
+            },
+        )
+    except Exception as exc:
+        print(f"[brainstorm] coverage warning for {hypothesis.id}: {exc}", flush=True)
+
+
+def _agent_log_has_empty_result(log_path: Path) -> bool:
+    try:
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return bool(re.search(r"(?m)^\s*\{\s*\}\s*$", text))
+
+
+def _append_brainstorm_completion(
+    session: AgentSession,
+    *,
+    exit_code: int,
+    initial_salvaged: Sequence[Dict[str, Any]],
+    final_salvaged: Sequence[Dict[str, Any]],
+) -> None:
+    coverage_path = getattr(session, "coverage_path", None)
+    if coverage_path is None or not getattr(session.profile, "brainstorm_metadata", None):
+        return
+    if exit_code == -9:
+        _append_brainstorm_coverage(coverage_path, session.profile, "agent_timeout")
+        return
+    if exit_code != 0:
+        _append_brainstorm_coverage(
+            coverage_path,
+            session.profile,
+            "agent_crashed",
+            exit_code=exit_code,
+        )
+        return
+    if initial_salvaged and not final_salvaged:
+        _append_brainstorm_coverage(coverage_path, session.profile, "agent_duplicate_only")
+        return
+    if final_salvaged:
+        _append_brainstorm_coverage(
+            coverage_path,
+            session.profile,
+            "agent_completed_with_raw_findings",
+            raw_finding_signatures=[_finding_signature(item) for item in final_salvaged],
+        )
+        return
+    if _agent_log_has_empty_result(session.log_path):
+        _append_brainstorm_coverage(coverage_path, session.profile, "agent_completed_no_finding")
+        return
+    _append_brainstorm_coverage(coverage_path, session.profile, "agent_invalid_output")
+
+
+def _brainstorm_profile_key(profile: VulnerabilityClassProfile) -> tuple[str, str] | None:
+    metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
+    hypothesis_id = str(metadata.get("hypothesis_id") or "").strip()
+    agent_key = str(metadata.get("brainstorm_agent_key") or profile.key).strip()
+    if not hypothesis_id or not agent_key:
+        return None
+    return hypothesis_id, agent_key
+
+
+def _finding_brainstorm_profile(
+    finding: Dict[str, Any],
+    profiles_by_key: dict[tuple[str, str], VulnerabilityClassProfile],
+) -> VulnerabilityClassProfile | None:
+    hypothesis_id = str(finding.get("hypothesis_id") or "").strip()
+    agent_key = str(finding.get("brainstorm_agent_key") or finding.get("agent") or "").strip()
+    if not hypothesis_id or not agent_key:
+        return None
+    return profiles_by_key.get((hypothesis_id, agent_key))
+
+
+def _review_match_key(finding: Dict[str, Any]) -> tuple[str, ...]:
+    fid = str(finding.get("fid") or "").strip()
+    if fid:
+        return ("fid", fid)
+    return (
+        "shape",
+        str(finding.get("hypothesis_id") or "").strip(),
+        str(finding.get("brainstorm_agent_key") or finding.get("agent") or "").strip(),
+        str(finding.get("type") or "").strip(),
+        str(finding.get("file") or "").strip(),
+        str(finding.get("line") or "").strip(),
+        str(finding.get("source") or "").strip(),
+        str(finding.get("sink") or "").strip(),
+    )
+
+
+def _append_brainstorm_review_coverage(
+    coverage_path: Path | None,
+    *,
+    raw_findings: Sequence[Dict[str, Any]],
+    reviewed_findings: Sequence[Dict[str, Any]],
+    profiles: Sequence[VulnerabilityClassProfile],
+) -> None:
+    if coverage_path is None:
+        return
+    profiles_by_key = {
+        key: profile
+        for profile in profiles
+        if (key := _brainstorm_profile_key(profile)) is not None
+    }
+    if not profiles_by_key:
+        return
+    reviewed_by_key = {_review_match_key(item): item for item in reviewed_findings}
+    for raw in raw_findings:
+        profile = _finding_brainstorm_profile(raw, profiles_by_key)
+        if profile is None:
+            continue
+        reviewed = reviewed_by_key.get(_review_match_key(raw))
+        if reviewed is None:
+            _append_brainstorm_coverage(coverage_path, profile, "review_rejected")
+            continue
+        fid = str(reviewed.get("fid") or raw.get("fid") or "").strip()
+        if fid:
+            _append_brainstorm_coverage(
+                coverage_path,
+                profile,
+                "review_promoted",
+                linked_fids=[fid],
+            )
+
+
+def _reserve_missing_fids_for_fresh_review(
+    findings: Sequence[Dict[str, Any]],
+    ledger: Any,
+) -> List[Dict[str, Any]]:
+    """Assign stable ledger FIDs in --fresh mode without suppressing duplicates."""
+    reserved_findings: List[Dict[str, Any]] = []
+    for finding in findings:
+        if str(finding.get("fid") or "").strip():
+            reserved_findings.append(dict(finding))
+            continue
+
+        try:
+            is_duplicate, fid, reserved = ledger.check(finding)
+        except Exception as exc:
+            queued = dict(finding)
+            queued["ledger_reservation_error"] = str(exc)
+            reserved_findings.append(queued)
+            continue
+
+        queued = dict(finding)
+        if isinstance(reserved, dict):
+            queued.update({key: value for key, value in reserved.items() if value not in (None, "")})
+        if fid:
+            queued["fid"] = fid
+        if is_duplicate and fid:
+            print(
+                f'[ledger] FRESH reusing duplicate fid {fid}: '
+                f'{finding.get("type", finding.get("description", "unknown"))[:60]}',
+                flush=True,
+            )
+        reserved_findings.append(queued)
+    return reserved_findings
 
 
 def _run_agent_session(
@@ -1729,6 +2045,7 @@ def _run_agent_session(
 
     try:
         salvaged = _extract_findings_from_log(session.log_path, default_agent=session.profile.key)
+        initial_salvaged = list(salvaged)
         # Deduplicate through ledger before reviewer sees anything
         if salvaged and not getattr(session, "skip_ledger", False):
             deduped = []
@@ -1750,6 +2067,12 @@ def _run_agent_session(
                     )
             salvaged = deduped
         _append_unique_findings(findings_path, salvaged)
+        _append_brainstorm_completion(
+            session,
+            exit_code=exit_code,
+            initial_salvaged=initial_salvaged,
+            final_salvaged=salvaged,
+        )
         for finding in salvaged:
             fid = str(finding.get("fid") or f"{session.profile.key}:{finding.get('file')}:{finding.get('line')}")
             _safe_log_span(
@@ -1763,7 +2086,12 @@ def _run_agent_session(
                 allocated_pte_lite=0,
             )
     except OSError:
-        pass
+        _append_brainstorm_completion(
+            session,
+            exit_code=exit_code,
+            initial_salvaged=[],
+            final_salvaged=[],
+        )
 
     return exit_code
 
@@ -1839,6 +2167,7 @@ def _run_single_agent(
     starting_entry: dict[str, Any] | None = None,
     fresh: bool = False,
     hunt_type: str = "source",
+    coverage_path: Path | None = None,
 ) -> Tuple[VulnerabilityClassProfile, int]:
     session = _spawn_agent(
         profile=profile,
@@ -1850,7 +2179,22 @@ def _run_single_agent(
         repo_context=repo_context,
         starting_entry=starting_entry,
         skip_ledger=fresh,
+        coverage_path=coverage_path,
     )
+    if session.process is not None:
+        _append_brainstorm_coverage(
+            coverage_path,
+            profile,
+            "agent_spawned",
+            pid=getattr(session.process, "pid", None),
+        )
+    else:
+        _append_brainstorm_coverage(
+            coverage_path,
+            profile,
+            "agent_crashed",
+            spawn_failed=True,
+        )
     exit_code = _run_agent_session(session, findings_path, ledger)
     return profile, exit_code
 
@@ -1899,6 +2243,64 @@ def _resolve_analysis_target(
     raise ValueError(f"Unsupported target_type: {target_type!r}")
 
 
+def _reject_brainstorm_profile_collisions(
+    brainstorm_profiles: Sequence[VulnerabilityClassProfile],
+    existing_profiles: Sequence[VulnerabilityClassProfile],
+) -> None:
+    existing_keys = {profile.key.casefold(): profile.key for profile in existing_profiles}
+    seen: dict[str, str] = {}
+    for profile in brainstorm_profiles:
+        normalized_key = profile.key.casefold()
+        if normalized_key in seen:
+            raise ValueError(
+                "duplicate brainstorm profile key "
+                f"{profile.key!r} conflicts with {seen[normalized_key]!r}"
+            )
+        seen[normalized_key] = profile.key
+        if normalized_key in existing_keys:
+            raise ValueError(
+                "brainstorm profile key "
+                f"{profile.key!r} conflicts with existing profile {existing_keys[normalized_key]!r}"
+            )
+
+
+def _load_brainstorm_profiles(
+    *,
+    spec_path: str | Path,
+    program_slug: str,
+    version: str,
+    selected_hypothesis: str | None = None,
+) -> tuple[list[VulnerabilityClassProfile], list[Any], Path]:
+    spec = parse_brainstorm_spec(spec_path)
+    selected_id = str(selected_hypothesis or "").strip()
+    selected_hypotheses = []
+    for hypothesis in spec.hypotheses:
+        if hypothesis.status == "retired":
+            continue
+        if selected_id and hypothesis.id != selected_id:
+            continue
+        selected_hypotheses.append(hypothesis)
+    if selected_id and not selected_hypotheses:
+        raise ValueError(f"brainstorm hypothesis {selected_id!r} was not found or is retired")
+
+    profiles: list[VulnerabilityClassProfile] = []
+    for hypothesis in selected_hypotheses:
+        for intent in hypothesis_to_agent_intents_for_profile(spec, hypothesis):
+            dynamic_spec = brainstorm_intent_to_dynamic_agent_spec(
+                intent,
+                program=program_slug,
+                version=version,
+            )
+            profiles.append(_profile_from_agent_spec(dynamic_spec))
+    return profiles, selected_hypotheses, spec.path
+
+
+def hypothesis_to_agent_intents_for_profile(spec: Any, hypothesis: Any) -> list[Any]:
+    from agents.brainstorm_spec import hypothesis_to_agent_intents
+
+    return hypothesis_to_agent_intents(spec, hypothesis)
+
+
 def orchestrate_zero_day_team(
     program: str,
     target_path: str,
@@ -1916,6 +2318,11 @@ def orchestrate_zero_day_team(
     version_label: str | None = None,
     force_refresh_dynamic_agents: bool = False,
     output_root: str | None = None,
+    target_kind: str | None = None,
+    intent_text: str | None = None,
+    brainstorm_spec: str | None = None,
+    brainstorm_only: bool = False,
+    brainstorm_hypothesis: str | None = None,
     verbose: int = 0,
 ) -> Dict[str, Any]:
     """Run one clean static-analysis agent per vulnerability class."""
@@ -1931,9 +2338,17 @@ def orchestrate_zero_day_team(
     storage = _resolve_zero_day_storage(
         program_slug,
         output_root=storage_root_override,
+        target_path=target_path,
+        target_kind=target_kind,
+        intent_text=intent_text,
     )
     family = storage.family
     lane = storage.lane
+    resolved_storage_root_override = (
+        Path(storage.base_root).expanduser().resolve(strict=False)
+        if getattr(storage, "root_mode", "") == "explicit-local"
+        else None
+    )
     team_root = storage.lane_root
     agents_root = team_root / "agents"
     findings_path = storage.ledgers_root / FINDINGS_FILENAME
@@ -1972,6 +2387,10 @@ def orchestrate_zero_day_team(
         print(f"[orchestrator] working root={storage.working_root}")
     dynamic_specs = []
     dynamic_profiles: List[VulnerabilityClassProfile] = []
+    brainstorm_profiles: List[VulnerabilityClassProfile] = []
+    brainstorm_hypotheses: list[Any] = []
+    brainstorm_spec_path: Path | None = None
+    brainstorm_coverage_path: Path | None = None
     dynamic_version = (
         str(snapshot_identity.get("version_label") or "").strip()
         or str(snapshot_identity.get("snapshot_id") or "").strip()
@@ -2067,7 +2486,42 @@ def orchestrate_zero_day_team(
             success=False,
             error=str(exc),
         )
-    profiles = _select_profiles(selected_class, extra_profiles=dynamic_profiles)
+    if brainstorm_only and not brainstorm_spec:
+        raise ValueError("--brainstorm-only requires --brainstorm-spec")
+    if brainstorm_hypothesis and not brainstorm_spec:
+        raise ValueError("--brainstorm-hypothesis requires --brainstorm-spec")
+    if brainstorm_spec:
+        brainstorm_coverage_path = storage.lane_root / "brainstorm" / "coverage.jsonl"
+        brainstorm_profiles, brainstorm_hypotheses, brainstorm_spec_path = _load_brainstorm_profiles(
+            spec_path=brainstorm_spec,
+            program_slug=program_slug,
+            version=dynamic_version,
+            selected_hypothesis=brainstorm_hypothesis,
+        )
+        _reject_brainstorm_profile_collisions(
+            brainstorm_profiles,
+            [*CLASS_PROFILES.values(), *dynamic_profiles],
+        )
+        for profile in brainstorm_profiles:
+            profile.brainstorm_metadata["_coverage_path"] = str(brainstorm_coverage_path)
+        for hypothesis in brainstorm_hypotheses:
+            _append_brainstorm_hypothesis_loaded(
+                brainstorm_coverage_path,
+                hypothesis=hypothesis,
+                run_id=getattr(ledger, "run_id", None),
+                spec_path=brainstorm_spec_path,
+            )
+        print(
+            f"[brainstorm] loaded {len(brainstorm_profiles)} profile(s) "
+            f"from {brainstorm_spec_path}"
+        )
+    if brainstorm_only:
+        profiles = _select_from_profiles(selected_class, brainstorm_profiles)
+    else:
+        profiles = _select_profiles(
+            selected_class,
+            extra_profiles=[*dynamic_profiles, *brainstorm_profiles],
+        )
     shared_brain_index = None
 
     if no_shared_brain:
@@ -2078,7 +2532,7 @@ def orchestrate_zero_day_team(
                 program_slug,
                 family=family,
                 lane=lane,
-                root_override=storage_root_override,
+                root_override=resolved_storage_root_override,
             )
             if shared_brain_index is not None:
                 shared_brain_index = update_index(target, shared_brain_index)
@@ -2089,7 +2543,7 @@ def orchestrate_zero_day_team(
                 program_slug,
                 family=family,
                 lane=lane,
-                root_override=storage_root_override,
+                root_override=resolved_storage_root_override,
             )
             print(
                 f"[shared_brain] indexed {len(shared_brain_index.files)} files "
@@ -2201,6 +2655,15 @@ def orchestrate_zero_day_team(
                 chosen = entry_points[0]
             starting_entries_by_profile[profile.key] = chosen
 
+    for profile in active_profiles:
+        if getattr(profile, "brainstorm_metadata", None):
+            _append_brainstorm_coverage(
+                brainstorm_coverage_path,
+                profile,
+                "agent_queued",
+                run_id=getattr(ledger, "run_id", None),
+            )
+
     if parallel:
         print(f"[orchestrator] Running {len(active_profiles)} class agents in PARALLEL mode (cap: {MAX_PARALLEL_AGENTS})")
         if active_profiles:
@@ -2220,6 +2683,7 @@ def orchestrate_zero_day_team(
                         else "",
                         starting_entries_by_profile.get(profile.key),
                         fresh,
+                        coverage_path=brainstorm_coverage_path,
                     ): profile
                     for profile in active_profiles
                 }
@@ -2249,16 +2713,19 @@ def orchestrate_zero_day_team(
                 ),
                 starting_entry=starting_entries_by_profile.get(profile.key),
                 fresh=fresh,
+                coverage_path=brainstorm_coverage_path,
             )
             print(f"[orchestrator] Finished {index}/{len(active_profiles)}: {profile.key}")
 
     raw_findings = _load_findings(findings_path)
+    if fresh and raw_findings:
+        raw_findings = _reserve_missing_fids_for_fresh_review(raw_findings, ledger)
     confirmed_findings, dormant_findings, novel_findings = stage2_ghost_review(
         raw_findings,
         target,
         program_slug,
         "web",
-        output_root=storage_root_override,
+        output_root=resolved_storage_root_override,
         write_reports=False,
     )
     promotion = promote_reviewed_findings(
@@ -2272,7 +2739,7 @@ def orchestrate_zero_day_team(
         snapshot_identity=snapshot_identity,
         run_id=getattr(ledger, "run_id", None),
         agent="zero-day-team",
-        root_override=getattr(ledger, "root_override", storage_root_override),
+        root_override=getattr(ledger, "root_override", resolved_storage_root_override),
         update_finding=update_team_finding,
         log_span=_safe_log_span,
         verbose=verbosity.very_verbose,
@@ -2283,6 +2750,12 @@ def orchestrate_zero_day_team(
     novel_findings = promotion["novel"]
     reviewed_findings = promotion["reviewed"]
     ledger_updates = promotion["ledger_updates"]
+    _append_brainstorm_review_coverage(
+        brainstorm_coverage_path,
+        raw_findings=raw_findings,
+        reviewed_findings=reviewed_findings,
+        profiles=active_profiles,
+    )
     print(f"[ledger] Updated {ledger_updates} findings in ledger", flush=True)
     rejected_count = max(0, len(raw_findings) - len(reviewed_findings))
 
@@ -2337,6 +2810,14 @@ def orchestrate_zero_day_team(
         "keys": [profile.key for profile in dynamic_profiles],
         "version": dynamic_version,
     }
+    if brainstorm_spec_path is not None:
+        summary["brainstorm"] = {
+            "spec": str(brainstorm_spec_path),
+            "coverage": str(brainstorm_coverage_path),
+            "profiles": [profile.key for profile in brainstorm_profiles],
+            "hypotheses": [hypothesis.id for hypothesis in brainstorm_hypotheses],
+            "only": brainstorm_only,
+        }
     _pretty_print_findings(reviewed_findings)
 
     # Run chainer if --chain was requested
@@ -2365,6 +2846,9 @@ def orchestrate_zero_day_team(
                     "--source", str(target),
                     "--findings-json", str(chain_input_path),
                     "--output-dir", str(storage.reports_root / "chained"),
+                    "--family", str(storage.family),
+                    "--lane", str(storage.lane),
+                    "--target-kind", str(target_kind or storage.lane),
                 ])
                 print(f"[orchestrator] Chainer complete: {chainer_result} chain(s) developed.")
             except Exception as exc:
@@ -2447,6 +2931,27 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
         "--output-root",
         help="Optional explicit local canonical root override. Defaults to Shared canonical storage.",
     )
+    parser.add_argument(
+        "--target-kind",
+        help="Optional target kind hint for storage routing, such as web, api, apk, exe, electron-exe, or mac.",
+    )
+    parser.add_argument(
+        "--intent-text",
+        help="Optional natural-language task text used as routing evidence before path/artifact fallback.",
+    )
+    parser.add_argument(
+        "--brainstorm-spec",
+        help="Path to a brainstorm spec markdown file to convert into additional procedural profiles.",
+    )
+    parser.add_argument(
+        "--brainstorm-only",
+        action="store_true",
+        help="Run only profiles generated from --brainstorm-spec.",
+    )
+    parser.add_argument(
+        "--brainstorm-hypothesis",
+        help="Only load profiles for one non-retired brainstorm hypothesis id.",
+    )
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     return parser.parse_args(list(argv))
 
@@ -2477,6 +2982,11 @@ if __name__ == "__main__":
         version_label=args.version_label,
         force_refresh_dynamic_agents=args.force_refresh_dynamic_agents,
         output_root=args.output_root,
+        target_kind=args.target_kind,
+        intent_text=args.intent_text,
+        brainstorm_spec=args.brainstorm_spec,
+        brainstorm_only=args.brainstorm_only,
+        brainstorm_hypothesis=args.brainstorm_hypothesis,
         verbose=args.verbose,
     )
     print(json.dumps(result, indent=2, sort_keys=True))

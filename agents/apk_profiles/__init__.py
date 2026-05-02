@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class ApkHuntProfile:
     reasoning: str
     prompt_addendum: str = ""
     tags: tuple[str, ...] = ()
+    brainstorm_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 from agents.apk_profiles.broadcast_hijack_hunter import PROFILE as BROADCAST_HIJACK_HUNTER
@@ -39,4 +41,3 @@ BUILTIN_PROFILES = [
 ]
 
 PROFILE_BY_KEY = {profile.key: profile for profile in BUILTIN_PROFILES}
-

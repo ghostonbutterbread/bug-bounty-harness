@@ -6,6 +6,15 @@ import json
 from pathlib import Path
 from typing import Any
 
+BRAINSTORM_METADATA_FIELDS = (
+    "brainstorm_spec",
+    "hypothesis_id",
+    "hypothesis_title",
+    "brainstorm_agent_key",
+    "brainstorm_surface",
+    "brainstorm_tags",
+)
+
 
 def safe_int(value: Any, default: int = 0) -> int:
     try:
@@ -66,7 +75,7 @@ def normalize_finding(
     if not finding_type:
         return None
 
-    return {
+    normalized = {
         "agent": str(raw.get("agent") or default_agent).strip() or default_agent,
         "category": category,
         "class_name": class_name,
@@ -82,6 +91,10 @@ def normalize_finding(
         "sink": str(raw.get("sink") or "").strip(),
         "exploitability": str(raw.get("exploitability") or "").strip(),
     }
+    for key in BRAINSTORM_METADATA_FIELDS:
+        if key in raw:
+            normalized[key] = raw[key]
+    return normalized
 
 
 def extract_findings_from_log(log_path: Path, *, default_agent: str) -> list[dict[str, Any]]:

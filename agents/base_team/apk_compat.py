@@ -9,6 +9,7 @@ from typing import Any, Callable, Sequence
 
 from .compat import AgentSession
 from .findings import normalize_finding
+from .reporting_compat import is_placeholder_finding
 
 
 NormalizeFindingFn = Callable[[Any, str], dict[str, Any] | None]
@@ -74,6 +75,8 @@ def run_agent_session(
         findings_path.parent.mkdir(parents=True, exist_ok=True)
         with findings_path.open("a", encoding="utf-8") as handle:
             for finding in findings_to_queue:
+                if is_placeholder_finding(finding):
+                    continue
                 handle.write(json.dumps(finding, sort_keys=True))
                 handle.write("\n")
     except OSError:

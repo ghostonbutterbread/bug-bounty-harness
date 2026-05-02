@@ -20,8 +20,9 @@ SourceExcerptFn = Callable[[Path, int], str]
 ExtractJsonFn = Callable[[str], dict[str, Any]]
 
 
-REVIEW_TIERS = {"CONFIRMED", "DORMANT", "NOVEL", "INCONCLUSIVE"}
+REVIEW_TIERS = {"CONFIRMED", "DORMANT", "DORMANT_ACTIVE", "DORMANT_HYPOTHETICAL", "NOVEL", "INCONCLUSIVE"}
 DEFAULT_REVIEW_MAX_WORKERS = 4
+SOURCE_EXCERPT_MAX_LINE_CHARS = 1200
 
 
 def stage2_review(
@@ -222,8 +223,6 @@ Source excerpt:
 
 def normalize_review_tier(value: Any) -> str:
     tier = str(value or "").strip().upper().replace("-", "_")
-    if tier in {"DORMANT_ACTIVE", "DORMANT_HYPOTHETICAL"}:
-        tier = "DORMANT"
     if tier not in REVIEW_TIERS:
         return "INCONCLUSIVE"
     return tier
@@ -331,7 +330,24 @@ def _source_excerpt_for_path(path: Path, line_number: int, radius: int = 20) -> 
     else:
         start = max(0, line_number - radius - 1)
         end = min(len(lines), line_number + radius)
-    return "\n".join(f"{index + 1}: {lines[index]}" for index in range(start, end))
+    excerpt_lines: list[str] = []
+    for index in range(start, end):
+        line = lines[index]
+        line_prefix = f"{index + 1}: "
+        if len(line) <= SOURCE_EXCERPT_MAX_LINE_CHARS:
+            excerpt_lines.append(f"{line_prefix}{line}")
+            continue
+
+        end_char = min(len(line), SOURCE_EXCERPT_MAX_LINE_CHARS)
+        snippet = line[:end_char]
+        if end_char < len(line):
+            snippet = snippet + "..."
+        excerpt_lines.append(
+            f"[truncated line {index + 1}: original length {len(line)} chars; "
+            f"showing chars 1-{end_char}]"
+        )
+        excerpt_lines.append(f"{line_prefix}{snippet}")
+    return "\n".join(excerpt_lines)
 
 
 def _extract_json_object_for_review(text: str) -> dict[str, Any]:

@@ -19,6 +19,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -31,6 +32,8 @@ from agents.zero_day_team import (  # noqa: E402
     _normalize_finding,
     is_placeholder_finding,
 )
+from agents.base_team.promotion import promote_reviewed_findings  # noqa: E402
+from agents.base_team.review import stage2_ghost_review  # noqa: E402
 from agents.findings_ledger import FindingsLedger, LEDGER_FILENAME  # noqa: E402
 from agents.chain_matrix import build_chain_graph, get_chainable_findings  # noqa: E402
 
@@ -491,6 +494,100 @@ class TestNormalizeClaudeReviewContract(unittest.TestCase):
         )
         self.assertEqual(result["fid"], "D07")
         self.assertEqual(result["type"], "DOM-XSS-CUSTOM")
+
+
+# ===========================================================================
+# 5b. Shared dormant subtier preservation
+# ===========================================================================
+
+class TestSharedDormantSubtierPreservation(unittest.TestCase):
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        self.tmp = Path(self.tempdir.name)
+        self.target = self.tmp / "target"
+        self.target.mkdir()
+
+    def _shared_finding(self, tier: str, *, fid: str = "D01") -> dict[str, Any]:
+        return {
+            "fid": fid,
+            "agent": "dom-xss",
+            "category": "class",
+            "class_name": "dom-xss",
+            "type": f"{tier.lower()} finding",
+            "file": "src/renderer.js",
+            "line": 42,
+            "description": "User-controlled hash reaches a DOM sink.",
+            "severity": "HIGH",
+            "source": "location.hash",
+            "sink": "innerHTML",
+            "review_tier": tier,
+            "tier": tier,
+            "vulnerability_name": f"{tier} DOM sink",
+            "review_notes": "Reviewed as dormant subtier.",
+        }
+
+    def test_stage2_ghost_review_preserves_dormant_subtiers_in_dormant_bucket(self):
+        findings = [
+            self._shared_finding("DORMANT_ACTIVE", fid="D01"),
+            self._shared_finding("DORMANT_HYPOTHETICAL", fid="D02"),
+        ]
+
+        def review_single(finding: dict[str, Any], _target: Path) -> dict[str, Any]:
+            return dict(finding)
+
+        confirmed, dormant, novel = stage2_ghost_review(
+            findings,
+            self.target,
+            "Example Program",
+            "0day_team",
+            output_root=self.tmp / "out",
+            review_single=review_single,
+            max_workers=1,
+            write_reports=False,
+        )
+
+        self.assertEqual(confirmed, [])
+        self.assertEqual(novel, [])
+        self.assertEqual([item["review_tier"] for item in dormant], ["DORMANT_ACTIVE", "DORMANT_HYPOTHETICAL"])
+
+    def test_promotion_and_reporting_preserve_dormant_subtier_labels(self):
+        storage = SimpleNamespace(
+            family="web",
+            lane="0day_team",
+            reports_root=self.tmp / "reports",
+        )
+        calls: list[dict[str, Any]] = []
+
+        def update_finding(_program: str, finding: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+            calls.append(dict(finding))
+            return dict(finding)
+
+        promotion = promote_reviewed_findings(
+            program="Example_Program",
+            storage=storage,
+            reviewed_groups={
+                "confirmed": [],
+                "dormant": [
+                    self._shared_finding("DORMANT_ACTIVE", fid="D01"),
+                    self._shared_finding("DORMANT_HYPOTHETICAL", fid="D02"),
+                ],
+                "novel": [],
+            },
+            snapshot_identity={"snapshot_id": "snap-1", "version_label": "v1"},
+            run_id="run-1",
+            agent="test",
+            root_override=None,
+            update_finding=update_finding,
+        )
+
+        self.assertEqual([item["review_tier"] for item in promotion["dormant"]], ["DORMANT_ACTIVE", "DORMANT_HYPOTHETICAL"])
+        self.assertEqual([item["review_tier"] for item in calls], ["DORMANT_ACTIVE", "DORMANT_HYPOTHETICAL"])
+        dormant_report = next((storage.reports_root / "dormant").glob("*/index.md"))
+        report_text = dormant_report.read_text(encoding="utf-8")
+        self.assertIn("[DORMANT_ACTIVE]", report_text)
+        self.assertIn("[DORMANT_HYPOTHETICAL]", report_text)
 
 
 # ===========================================================================

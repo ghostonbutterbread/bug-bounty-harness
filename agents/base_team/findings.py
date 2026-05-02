@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from agents.base_team.reporting_compat import is_placeholder_finding
+
 BRAINSTORM_METADATA_FIELDS = (
     "brainstorm_spec",
     "hypothesis_id",
@@ -94,6 +96,8 @@ def normalize_finding(
     for key in BRAINSTORM_METADATA_FIELDS:
         if key in raw:
             normalized[key] = raw[key]
+    if is_placeholder_finding(raw) or is_placeholder_finding(normalized):
+        return None
     return normalized
 
 

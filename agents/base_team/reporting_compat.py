@@ -39,7 +39,14 @@ def is_placeholder_finding(finding: dict[str, Any]) -> bool:
     combined = f"{title} {description}".lower()
     markers = (
         "path:123",
+        "why this path is dangerous",
+        "why this appears novel and dangerous",
+        "relevant code context and reasoning",
         "identified source",
+        "boundary crossed or unresolved boundary question",
+        "known or suspected flow",
+        "identified dangerous sink",
+        "what is known or missing about exploitability",
         "dangerous sink category",
         "what boundary is crossed",
         "how the data moves",
@@ -48,6 +55,6 @@ def is_placeholder_finding(finding: dict[str, Any]) -> bool:
 
     if title_lc in {"short vulnerability label", "short novel pattern label", "placeholder"}:
         return True
-    if file_ref in {"path:123", ""}:
+    if file_ref in {"path:123", "path", ""}:
         return True
     return any(marker in combined for marker in markers)

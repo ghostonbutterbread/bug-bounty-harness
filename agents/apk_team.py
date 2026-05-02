@@ -320,6 +320,11 @@ def _infer_surface_types_from_dynamic_spec(spec: Any) -> tuple[str, ...]:
 def _profile_from_agent_spec(spec: Any) -> ApkHuntProfile:
     surface_types = _infer_surface_types_from_dynamic_spec(spec)
     surface_text = ", ".join(surface_types)
+    prompt_addendum = str(
+        getattr(spec, "agent_prompt_template", None)
+        or getattr(spec, "prompt_template", "")
+        or ""
+    ).rstrip()
     return ApkHuntProfile(
         key=str(getattr(spec, "key", "")).strip(),
         title=str(getattr(spec, "name", "")).strip() or str(getattr(spec, "key", "")).replace("-", " ").title(),
@@ -338,8 +343,9 @@ def _profile_from_agent_spec(spec: Any) -> ApkHuntProfile:
         reasoning=(
             f"Use the brainstorm dynamic spec for APK surfaces {surface_text}. Stay anchored to the surface registry and targeted files first."
         ),
-        prompt_addendum=str(getattr(spec, "agent_prompt_template", "")).rstrip(),
+        prompt_addendum=prompt_addendum,
         tags=tuple(surface_types),
+        brainstorm_metadata=dict(getattr(spec, "brainstorm_metadata", {}) or {}),
     )
 
 
@@ -651,6 +657,10 @@ def orchestrate_apk_team(
     version_label: str | None = None,
     force_refresh_dynamic_agents: bool = False,
     output_root: str | Path | None = None,
+    family: str | None = None,
+    lane: str | None = None,
+    target_kind: str | None = None,
+    intent_text: str | None = None,
     verbose: int = 0,
 ) -> dict[str, Any]:
     """
@@ -670,6 +680,11 @@ def orchestrate_apk_team(
         program_slug,
         team_type="apk",
         output_root=storage_root_override,
+        family=family,
+        lane=lane,
+        target_kind=target_kind,
+        intent_text=intent_text,
+        target_path=apk_path,
     )
     team_root = storage.lane_root
     agents_root = team_root / "agents"
@@ -1023,6 +1038,16 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
         help="Regenerate dynamic agent specs for the current APK version.",
     )
     parser.add_argument("--output-root", help="Override the apk_team output root.")
+    parser.add_argument("--family", help="Explicit storage family override, such as binaries.")
+    parser.add_argument("--lane", help="Explicit storage lane override, such as apk.")
+    parser.add_argument(
+        "--target-kind",
+        help="Optional target kind hint for storage routing, such as apk.",
+    )
+    parser.add_argument(
+        "--intent-text",
+        help="Optional natural-language task text used as routing evidence before path/artifact fallback.",
+    )
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     args = parser.parse_args(list(argv))
     if not args.program and not args.program_override:
@@ -1044,6 +1069,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         version_label=args.version_label,
         force_refresh_dynamic_agents=args.force_refresh_dynamic_agents,
         output_root=args.output_root,
+        family=args.family,
+        lane=args.lane,
+        target_kind=args.target_kind,
+        intent_text=args.intent_text,
         verbose=args.verbose,
     )
     print(json.dumps(result, indent=2, sort_keys=True))

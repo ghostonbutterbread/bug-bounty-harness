@@ -12,6 +12,11 @@ from agents.brainstorm_spec import (
     spec_to_agent_intents,
     summarize_coverage,
 )
+from agents.brainstorm_adapters import (
+    brainstorm_intent_to_apk_profile,
+    brainstorm_intent_to_dynamic_agent_spec,
+    brainstorm_intent_to_zero_day_profile,
+)
 
 
 def _valid_spec_text() -> str:
@@ -827,11 +832,47 @@ def test_conversion_to_agent_intent_preserves_brainstorm_metadata(tmp_path: Path
         "brainstorm_surface": "import-upload-render",
         "brainstorm_tags": ["xss", "import", "renderer", "electron-bridge"],
     }
-    assert first.finding_metadata() == {
-        "brainstorm_spec": str(spec.path),
-        "hypothesis_id": "H001",
-        "hypothesis_title": "SVG import can create renderer script execution",
-        "brainstorm_agent_key": "canva-svg-import-xss",
-        "brainstorm_surface": "import-upload-render",
-        "brainstorm_tags": ["xss", "import", "renderer", "electron-bridge"],
-    }
+
+
+def test_brainstorm_intent_adapters_preserve_zero_day_and_apk_boundaries(
+    tmp_path: Path,
+) -> None:
+    spec = parse_brainstorm_spec(_write_spec(tmp_path, _valid_spec_text()))
+    intent = spec_to_agent_intents(spec)[0]
+
+    dynamic_spec = brainstorm_intent_to_dynamic_agent_spec(
+        intent,
+        program="canva",
+        version="snap-1",
+    )
+    zero_day_profile = brainstorm_intent_to_zero_day_profile(
+        intent,
+        program="canva",
+        version="snap-1",
+    )
+    apk_profile = brainstorm_intent_to_apk_profile(
+        intent,
+        program="canva",
+        version="snap-1",
+    )
+
+    for profile in (dynamic_spec, zero_day_profile, apk_profile):
+        metadata = profile.brainstorm_metadata
+        assert metadata["hypothesis_id"] == "H001"
+        assert metadata["brainstorm_agent_key"] == "canva-svg-import-xss"
+        assert metadata["expected_chain"] == (
+            "imported SVG/pasted content -> renderer script execution -> ElectronBridge host RPC"
+        )
+        assert metadata["source_spec_path"] == str(spec.path)
+        assert metadata["brainstorm_spec"] == str(spec.path)
+        assert metadata["hypothesis_title"] == "SVG import can create renderer script execution"
+        assert metadata["brainstorm_surface"] == "import-upload-render"
+        assert metadata["brainstorm_tags"] == ["xss", "import", "renderer", "electron-bridge"]
+        prompt_addendum = getattr(
+            profile,
+            "prompt_addendum",
+            getattr(profile, "agent_prompt_template", ""),
+        )
+        assert "hypothesis_id" in prompt_addendum
+        assert "brainstorm_agent_key" in prompt_addendum
+        assert "Expected chain:" in prompt_addendum

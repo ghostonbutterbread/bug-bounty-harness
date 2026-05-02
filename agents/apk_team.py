@@ -39,6 +39,8 @@ from agents.base_team import display_file_reference, ensure_directory, extract_f
 from agents.apk_prefingerprint import build_surface_registry
 from agents.apk_profiles import ApkHuntProfile, BUILTIN_PROFILES, PROFILE_BY_KEY
 from agents.apk_surface_registry import ApkSurfaceRegistry
+from agents.brainstorm_adapters import brainstorm_intent_to_apk_profile
+from agents.brainstorm_spec import append_coverage, hypothesis_to_agent_intents, parse_brainstorm_spec
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.decompiler import decompile_smali_targets
 from agents.dynamic_agent_builder import DynamicAgentBuilder
@@ -609,6 +611,265 @@ def _prepare_profile_bundle(
     return registry_context, targeted_files, pseudo_java
 
 
+
+
+def _brainstorm_event_base(profile: ApkHuntProfile) -> dict[str, Any] | None:
+    metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
+    hypothesis_id = str(metadata.get("hypothesis_id") or "").strip()
+    agent_key = str(metadata.get("brainstorm_agent_key") or profile.key).strip()
+    if not hypothesis_id or not agent_key:
+        return None
+    return {
+        "hypothesis_id": hypothesis_id,
+        "hypothesis_title": metadata.get("hypothesis_title"),
+        "agent_key": agent_key,
+        "source_spec_path": metadata.get("source_spec_path") or metadata.get("brainstorm_spec"),
+        "expected_chain": metadata.get("expected_chain"),
+        "brainstorm_spec": metadata.get("brainstorm_spec"),
+    }
+
+
+def _append_brainstorm_coverage(
+    coverage_path: Path | None,
+    profile: ApkHuntProfile,
+    event: str,
+    **fields: Any,
+) -> None:
+    if coverage_path is None:
+        return
+    base = _brainstorm_event_base(profile)
+    if base is None:
+        return
+    try:
+        append_coverage(coverage_path, {"event": event, **base, **fields})
+    except Exception as exc:
+        print(f"[apk_team][brainstorm] coverage warning for {profile.key}: {exc}", flush=True)
+
+
+def _append_brainstorm_hypothesis_loaded(
+    coverage_path: Path,
+    *,
+    hypothesis: Any,
+    spec_path: Path,
+) -> None:
+    try:
+        append_coverage(
+            coverage_path,
+            {
+                "event": "hypothesis_loaded",
+                "hypothesis_id": hypothesis.id,
+                "hypothesis_title": hypothesis.title,
+                "status": hypothesis.status,
+                "source_spec_path": str(spec_path),
+                "brainstorm_spec": str(spec_path),
+            },
+        )
+    except Exception as exc:
+        print(f"[apk_team][brainstorm] coverage warning for {hypothesis.id}: {exc}", flush=True)
+
+
+def _agent_log_has_empty_result(log_path: Path) -> bool:
+    try:
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return bool(re.search(r"(?m)^\s*\{\s*\}\s*$", text))
+
+
+def _append_brainstorm_completion(
+    session: AgentSession,
+    *,
+    exit_code: int,
+    initial_salvaged: Sequence[dict[str, Any]],
+    final_salvaged: Sequence[dict[str, Any]],
+) -> None:
+    coverage_path = getattr(session, "coverage_path", None)
+    if coverage_path is None or not getattr(session.profile, "brainstorm_metadata", None):
+        return
+    if exit_code == -9:
+        _append_brainstorm_coverage(coverage_path, session.profile, "agent_timeout")
+        return
+    if exit_code != 0:
+        _append_brainstorm_coverage(
+            coverage_path,
+            session.profile,
+            "agent_crashed",
+            exit_code=exit_code,
+        )
+        return
+    if final_salvaged:
+        _append_brainstorm_coverage(
+            coverage_path,
+            session.profile,
+            "agent_completed_with_raw_findings",
+            raw_finding_signatures=[_review_match_key(item) for item in final_salvaged],
+        )
+        return
+    if initial_salvaged:
+        _append_brainstorm_coverage(coverage_path, session.profile, "agent_duplicate_only")
+        return
+    if _agent_log_has_empty_result(session.log_path):
+        _append_brainstorm_coverage(coverage_path, session.profile, "agent_completed_no_finding")
+        return
+    _append_brainstorm_coverage(coverage_path, session.profile, "agent_invalid_output")
+
+
+def _brainstorm_profile_key(profile: ApkHuntProfile) -> tuple[str, str] | None:
+    metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
+    hypothesis_id = str(metadata.get("hypothesis_id") or "").strip()
+    agent_key = str(metadata.get("brainstorm_agent_key") or profile.key).strip()
+    if not hypothesis_id or not agent_key:
+        return None
+    return hypothesis_id, agent_key
+
+
+def _finding_brainstorm_profile(
+    finding: dict[str, Any],
+    profiles_by_key: dict[tuple[str, str], ApkHuntProfile],
+) -> ApkHuntProfile | None:
+    hypothesis_id = str(finding.get("hypothesis_id") or "").strip()
+    agent_key = str(finding.get("brainstorm_agent_key") or finding.get("agent") or "").strip()
+    if not hypothesis_id or not agent_key:
+        return None
+    return profiles_by_key.get((hypothesis_id, agent_key))
+
+
+def _review_match_key(finding: dict[str, Any]) -> tuple[str, ...]:
+    fid = str(finding.get("fid") or "").strip()
+    if fid:
+        return ("fid", fid)
+    return (
+        "shape",
+        str(finding.get("hypothesis_id") or "").strip(),
+        str(finding.get("brainstorm_agent_key") or finding.get("agent") or "").strip(),
+        str(finding.get("type") or "").strip(),
+        str(finding.get("file") or "").strip(),
+        str(finding.get("line") or "").strip(),
+        str(finding.get("source") or "").strip(),
+        str(finding.get("sink") or "").strip(),
+    )
+
+
+def _append_brainstorm_review_coverage(
+    coverage_path: Path | None,
+    *,
+    raw_findings: Sequence[dict[str, Any]],
+    reviewed_findings: Sequence[dict[str, Any]],
+    profiles: Sequence[ApkHuntProfile],
+) -> None:
+    if coverage_path is None:
+        return
+    profiles_by_key = {
+        key: profile
+        for profile in profiles
+        if (key := _brainstorm_profile_key(profile)) is not None
+    }
+    if not profiles_by_key:
+        return
+    reviewed_by_key = {_review_match_key(item): item for item in reviewed_findings}
+    for raw in raw_findings:
+        profile = _finding_brainstorm_profile(raw, profiles_by_key)
+        if profile is None:
+            continue
+        reviewed = reviewed_by_key.get(_review_match_key(raw))
+        if reviewed is None:
+            _append_brainstorm_coverage(coverage_path, profile, "review_rejected")
+            continue
+        fid = str(reviewed.get("fid") or raw.get("fid") or "").strip()
+        if fid:
+            _append_brainstorm_coverage(coverage_path, profile, "review_promoted", linked_fids=[fid])
+
+
+def _reject_brainstorm_profile_collisions(
+    brainstorm_profiles: Sequence[ApkHuntProfile],
+    existing_profiles: Sequence[ApkHuntProfile],
+) -> None:
+    existing_keys = {profile.key.casefold(): profile.key for profile in existing_profiles}
+    seen: dict[str, str] = {}
+    for profile in brainstorm_profiles:
+        normalized_key = profile.key.casefold()
+        if normalized_key in seen:
+            raise ValueError(
+                "duplicate brainstorm APK profile key "
+                f"{profile.key!r} conflicts with {seen[normalized_key]!r}"
+            )
+        seen[normalized_key] = profile.key
+        if normalized_key in existing_keys:
+            raise ValueError(
+                "brainstorm APK profile key "
+                f"{profile.key!r} conflicts with existing profile {existing_keys[normalized_key]!r}"
+            )
+
+
+def _load_brainstorm_profiles(
+    *,
+    spec_path: str | Path,
+    program_slug: str,
+    version: str,
+    selected_hypothesis: str | None = None,
+) -> tuple[list[ApkHuntProfile], list[Any], Path]:
+    spec = parse_brainstorm_spec(spec_path)
+    selected_id = str(selected_hypothesis or "").strip()
+    selected_hypotheses = []
+    for hypothesis in spec.hypotheses:
+        if hypothesis.status == "retired":
+            continue
+        if selected_id and hypothesis.id != selected_id:
+            continue
+        selected_hypotheses.append(hypothesis)
+    if selected_id and not selected_hypotheses:
+        raise ValueError(f"brainstorm hypothesis {selected_id!r} was not found or is retired")
+
+    profiles: list[ApkHuntProfile] = []
+    for hypothesis in selected_hypotheses:
+        for intent in hypothesis_to_agent_intents(spec, hypothesis):
+            profiles.append(
+                brainstorm_intent_to_apk_profile(
+                    intent,
+                    program=program_slug,
+                    version=version,
+                )
+            )
+    return profiles, selected_hypotheses, spec.path
+
+
+
+def _findings_file_offset(findings_path: Path) -> int:
+    try:
+        return findings_path.stat().st_size
+    except OSError:
+        return 0
+
+
+def _load_new_profile_findings(
+    findings_path: Path,
+    *,
+    offset: int,
+    profile: ApkHuntProfile,
+) -> list[dict[str, Any]]:
+    if not findings_path.exists():
+        return []
+    loaded: list[dict[str, Any]] = []
+    try:
+        with findings_path.open("r", encoding="utf-8", errors="replace") as handle:
+            handle.seek(offset)
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(item, dict) or is_placeholder_finding(item):
+                    continue
+                agent_key = str(item.get("brainstorm_agent_key") or item.get("agent") or "").strip()
+                if agent_key == profile.key:
+                    loaded.append(item)
+    except OSError:
+        return []
+    return loaded
+
 def _run_single_profile(
     profile: ApkHuntProfile,
     *,
@@ -620,6 +881,7 @@ def _run_single_profile(
     fresh: bool,
     prepared_bundle: tuple[dict[str, Any], list[str], dict[str, str]],
     registry: ApkSurfaceRegistry,
+    coverage_path: Path | None = None,
 ) -> tuple[ApkHuntProfile, int]:
     registry_context, targeted_files, pseudo_java = prepared_bundle
     session = _spawn_apk_agent(
@@ -635,12 +897,31 @@ def _run_single_profile(
         pseudo_java=pseudo_java,
         fresh=fresh,
     )
+    setattr(session, "coverage_path", coverage_path)
+    if session.process is not None:
+        _append_brainstorm_coverage(coverage_path, profile, "agent_spawned")
+    findings_offset = _findings_file_offset(findings_path)
     exit_code = run_agent_session(
         session,
         findings_path,
         ledger,
-        extract_findings_from_log=extract_findings_from_log,
+        extract_findings_from_log=lambda log_path, default_agent: extract_findings_from_log(
+            log_path,
+            default_agent=default_agent,
+        ),
         maybe_log_span=_safe_log_span,
+    )
+    try:
+        initial_salvaged = extract_findings_from_log(session.log_path, default_agent=profile.key)
+        initial_salvaged = [item for item in initial_salvaged if not is_placeholder_finding(item)]
+    except Exception:
+        initial_salvaged = []
+    final_salvaged = _load_new_profile_findings(findings_path, offset=findings_offset, profile=profile)
+    _append_brainstorm_completion(
+        session,
+        exit_code=exit_code,
+        initial_salvaged=initial_salvaged,
+        final_salvaged=final_salvaged,
     )
     return profile, exit_code
 
@@ -661,6 +942,9 @@ def orchestrate_apk_team(
     lane: str | None = None,
     target_kind: str | None = None,
     intent_text: str | None = None,
+    brainstorm_spec: str | None = None,
+    brainstorm_only: bool = False,
+    brainstorm_hypothesis: str | None = None,
     verbose: int = 0,
 ) -> dict[str, Any]:
     """
@@ -671,6 +955,11 @@ def orchestrate_apk_team(
     5. Ghost review -> dedupe -> optional chainer
     """
     global _APK_TEAM_LOGGER
+
+    if brainstorm_only and not brainstorm_spec:
+        raise ValueError("--brainstorm-only requires --brainstorm-spec")
+    if brainstorm_hypothesis and not brainstorm_spec:
+        raise ValueError("--brainstorm-hypothesis requires --brainstorm-spec")
 
     program_slug = _sanitize_program_name(program)
     storage_root_override = (
@@ -809,7 +1098,41 @@ def orchestrate_apk_team(
             error=str(exc),
         )
 
-    profiles = _select_profiles(selected_profile, dynamic_profiles)
+    brainstorm_profiles: list[ApkHuntProfile] = []
+    brainstorm_hypotheses: list[Any] = []
+    brainstorm_spec_path: Path | None = None
+    brainstorm_coverage_path: Path | None = None
+    if brainstorm_spec:
+        brainstorm_coverage_path = team_root / "brainstorm" / "coverage.jsonl"
+        brainstorm_profiles, brainstorm_hypotheses, brainstorm_spec_path = _load_brainstorm_profiles(
+            spec_path=brainstorm_spec,
+            program_slug=program_slug,
+            version=dynamic_version,
+            selected_hypothesis=brainstorm_hypothesis,
+        )
+        _reject_brainstorm_profile_collisions(
+            brainstorm_profiles,
+            [*BUILTIN_PROFILES, *dynamic_profiles],
+        )
+        for hypothesis in brainstorm_hypotheses:
+            _append_brainstorm_hypothesis_loaded(
+                brainstorm_coverage_path,
+                hypothesis=hypothesis,
+                spec_path=brainstorm_spec_path,
+            )
+
+    selectable_profiles = [*dynamic_profiles, *brainstorm_profiles]
+    if brainstorm_only:
+        if selected_profile:
+            normalized_profile = str(selected_profile).strip().lower()
+            profiles = [profile for profile in brainstorm_profiles if profile.key.lower() == normalized_profile]
+            if not profiles:
+                known = ", ".join(sorted(profile.key for profile in brainstorm_profiles))
+                raise ValueError(f"unknown APK profile {selected_profile!r}. Expected one of: {known}")
+        else:
+            profiles = list(brainstorm_profiles)
+    else:
+        profiles = _select_profiles(selected_profile, selectable_profiles)
     prepared_bundles: dict[str, tuple[dict[str, Any], list[str], dict[str, str]]] = {}
     for profile in profiles:
         prepared_bundles[profile.key] = _prepare_profile_bundle(registry, profile)
@@ -830,21 +1153,24 @@ def orchestrate_apk_team(
     if parallel:
         print(f"[apk_team] Running {len(profiles)} profiles in PARALLEL mode (cap: {worker_cap})")
         with ThreadPoolExecutor(max_workers=min(worker_cap, len(profiles) or 1)) as pool:
-            futures = {
-                pool.submit(
-                    _run_single_profile,
-                    profile,
-                    program=program_slug,
-                    extracted_root=extracted_root,
-                    findings_path=findings_path,
-                    agents_root=agents_root,
-                    ledger=ledger,
-                    fresh=fresh,
-                    prepared_bundle=prepared_bundles[profile.key],
-                    registry=registry,
-                ): profile
-                for profile in profiles
-            }
+            futures = {}
+            for profile in profiles:
+                _append_brainstorm_coverage(brainstorm_coverage_path, profile, "agent_queued")
+                futures[
+                    pool.submit(
+                        _run_single_profile,
+                        profile,
+                        program=program_slug,
+                        extracted_root=extracted_root,
+                        findings_path=findings_path,
+                        agents_root=agents_root,
+                        ledger=ledger,
+                        fresh=fresh,
+                        prepared_bundle=prepared_bundles[profile.key],
+                        registry=registry,
+                        coverage_path=brainstorm_coverage_path,
+                    )
+                ] = profile
             for future in as_completed(futures):
                 profile = futures[future]
                 try:
@@ -855,11 +1181,18 @@ def orchestrate_apk_team(
                         profile_key = f"profile:{dynamic_version}:{completed_profile.key}"
                         mem.claim_tested(program_slug, profile_key, result=f"exit={exit_code}")
                 except Exception as exc:
+                    _append_brainstorm_coverage(
+                        brainstorm_coverage_path,
+                        profile,
+                        "agent_crashed",
+                        error=str(exc),
+                    )
                     print(f"[apk_team] {profile.key} raised: {exc}")
     else:
         print(f"[apk_team] Running {len(profiles)} profiles in SEQUENTIAL mode")
         for index, profile in enumerate(profiles, start=1):
             print(f"[apk_team] Starting {index}/{len(profiles)}: {profile.key}")
+            _append_brainstorm_coverage(brainstorm_coverage_path, profile, "agent_queued")
             _run_single_profile(
                 profile,
                 program=program_slug,
@@ -870,6 +1203,7 @@ def orchestrate_apk_team(
                 fresh=fresh,
                 prepared_bundle=prepared_bundles[profile.key],
                 registry=registry,
+                coverage_path=brainstorm_coverage_path,
             )
             # MGP: record that this profile was tested
             if mem is not None:
@@ -938,6 +1272,12 @@ def orchestrate_apk_team(
     novel_findings = promotion["novel"]
     reviewed_findings = promotion["reviewed"]
     ledger_updates = promotion["ledger_updates"]
+    _append_brainstorm_review_coverage(
+        brainstorm_coverage_path,
+        raw_findings=prefiltered_findings,
+        reviewed_findings=reviewed_findings,
+        profiles=brainstorm_profiles,
+    )
     confirmed_report_path, dormant_report_path, novel_report_path = dated_report_index_paths(storage)
     report_root = confirmed_report_path.parent
     rejected_count = max(0, len(raw_findings) - len(reviewed_findings))
@@ -974,6 +1314,14 @@ def orchestrate_apk_team(
         "keys": [profile.key for profile in dynamic_profiles],
         "version": dynamic_version,
     }
+    if brainstorm_spec_path is not None:
+        summary["brainstorm"] = {
+            "spec": str(brainstorm_spec_path),
+            "coverage": str(brainstorm_coverage_path) if brainstorm_coverage_path is not None else None,
+            "profiles": [profile.key for profile in brainstorm_profiles],
+            "hypotheses": [hypothesis.id for hypothesis in brainstorm_hypotheses],
+            "only": bool(brainstorm_only),
+        }
     summary["ledger_updates"] = ledger_updates
     if verbosity.verbose:
         print(f"[apk_team] ledger_updates={ledger_updates} ledger_path={ledger.path}")
@@ -1038,6 +1386,16 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
         help="Regenerate dynamic agent specs for the current APK version.",
     )
     parser.add_argument("--output-root", help="Override the apk_team output root.")
+    parser.add_argument("--brainstorm-spec", help="Markdown brainstorm spec to convert into APK profiles.")
+    parser.add_argument(
+        "--brainstorm-only",
+        action="store_true",
+        help="Run only profiles generated from --brainstorm-spec.",
+    )
+    parser.add_argument(
+        "--brainstorm-hypothesis",
+        help="Run only one hypothesis id from --brainstorm-spec.",
+    )
     parser.add_argument("--family", help="Explicit storage family override, such as binaries.")
     parser.add_argument("--lane", help="Explicit storage lane override, such as apk.")
     parser.add_argument(
@@ -1073,6 +1431,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         lane=args.lane,
         target_kind=args.target_kind,
         intent_text=args.intent_text,
+        brainstorm_spec=args.brainstorm_spec,
+        brainstorm_only=args.brainstorm_only,
+        brainstorm_hypothesis=args.brainstorm_hypothesis,
         verbose=args.verbose,
     )
     print(json.dumps(result, indent=2, sort_keys=True))

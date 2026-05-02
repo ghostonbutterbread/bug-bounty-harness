@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -357,6 +358,300 @@ class ApkTeamOutputRootTests(unittest.TestCase):
         self.assertEqual(args.intent_text, "Android APK review")
         self.assertEqual(args.family, "binaries")
         self.assertEqual(args.lane, "apk")
+
+
+    def _brainstorm_spec_text(self) -> str:
+        return """# Brainstorm Spec: Example APK
+
+## Metadata
+- Program: Example Program
+- Family: binaries
+- Lane: apk
+- Target kind: apk
+- Target path: example.apk
+- Created: 2026-05-01
+- Status: active
+
+## Target mental model
+Example APK has exported components, WebViews, and content providers.
+
+## Impact primitives
+### P001 — Exported provider read primitive
+- Source: `content://com.example.provider`
+- Impact: exported provider can expose private app data
+- Evidence: https://example.test/provider
+- Status: active
+
+## Hypotheses
+### H001 — Exported provider reaches private files
+- Status: untested
+- Priority: high
+- Surface: exported content provider
+- Entry point: attacker calls content provider URI
+- Expected chain: exported provider -> path confusion -> private file read
+- Suggested agents:
+  - apk-provider-private-file-read
+- Tags: idor, content-provider, android
+- Evidence:
+  - https://example.test/provider
+
+### H002 — WebView bridge reaches privileged action
+- Status: untested
+- Priority: medium
+- Surface: WebView JavaScript bridge
+- Entry point: attacker-controlled web content
+- Expected chain: web content -> JavaScript bridge -> privileged Android action
+- Suggested agents:
+  - apk-webview-bridge-action
+- Tags: xss, webview, android
+
+## Coverage log
+| Hypothesis | Agent | Status | Result | Linked FIDs | Run ID | Notes |
+|---|---|---|---|---|---|---|
+"""
+
+    def _write_brainstorm_spec(self) -> Path:
+        path = self.tmp / "brainstorm" / "spec.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self._brainstorm_spec_text(), encoding="utf-8")
+        return path
+
+    def _basic_apk_orchestrator_fixtures(self):
+        storage = SimpleNamespace(
+            family="binaries",
+            lane="apk",
+            lane_root=self.tmp / "storage" / "lane",
+            reports_root=self.tmp / "storage" / "reports",
+            ledgers_root=self.tmp / "storage" / "ledgers",
+            context_root=self.tmp / "storage" / "context",
+            working_root=self.tmp / "storage" / "work",
+        )
+        registry = SimpleNamespace(
+            extracted_root=self.tmp / "extracted-apk",
+            registry_path=self.tmp / "surface_registry.json",
+            payload={"package_name": "com.example.app", "version_name": "1.2.3", "stats": {}},
+            record_progressive_finding=Mock(),
+        )
+        ledger = SimpleNamespace(
+            path=storage.ledgers_root / "ledger.json",
+            get_class_context=Mock(return_value=""),
+            update=Mock(),
+            run_id="run-1",
+        )
+        return storage, registry, ledger
+
+    def test_apk_brainstorm_only_selects_generated_profiles_and_summary(self) -> None:
+        spec_path = self._write_brainstorm_spec()
+        storage, registry, ledger = self._basic_apk_orchestrator_fixtures()
+        ran_profiles: list[str] = []
+
+        def fake_run(profile, **_kwargs):
+            ran_profiles.append(profile.key)
+            return profile, 0
+
+        with (
+            patch.object(apk_team, "SubagentLogger", None),
+            patch.object(apk_team, "BountyMemory", None),
+            patch.object(apk_team, "resolve_team_storage", return_value=storage),
+            patch.object(apk_team, "build_surface_registry", return_value={"surface_registry_path": str(registry.registry_path)}),
+            patch.object(apk_team.ApkSurfaceRegistry, "load", return_value=registry),
+            patch.object(apk_team, "get_snapshot_identity", return_value={"snapshot_id": "snap-1", "version_label": "1.2.3"}),
+            patch.object(apk_team, "create_team_ledger_from_storage", return_value=ledger),
+            patch.object(apk_team, "DynamicAgentBuilder") as builder_cls,
+            patch.object(apk_team, "_prepare_profile_bundle", return_value=({}, [], {})),
+            patch.object(apk_team, "_run_single_profile", side_effect=fake_run),
+            patch.object(apk_team, "load_findings", return_value=[]),
+            patch.object(apk_team, "stage2_ghost_review", return_value=([], [], [])),
+            patch.object(apk_team, "pretty_print_findings"),
+        ):
+            builder_cls.return_value.run.return_value = []
+            summary = apk_team.orchestrate_apk_team(
+                "Example Program",
+                str(self.tmp / "example.apk"),
+                brainstorm_spec=str(spec_path),
+                brainstorm_only=True,
+                brainstorm_hypothesis="H001",
+            )
+
+        self.assertEqual(ran_profiles, ["apk-provider-private-file-read"])
+        self.assertEqual(summary["profiles_run"], ["apk-provider-private-file-read"])
+        self.assertEqual(summary["brainstorm"]["hypotheses"], ["H001"])
+        self.assertTrue(summary["brainstorm"]["only"])
+        coverage_events = [
+            json.loads(line)["event"]
+            for line in (storage.lane_root / "brainstorm" / "coverage.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(coverage_events, ["hypothesis_loaded", "agent_queued"])
+
+
+    def test_apk_brainstorm_only_selected_profile_filters_generated_profiles(self) -> None:
+        spec_path = self._write_brainstorm_spec()
+        storage, registry, ledger = self._basic_apk_orchestrator_fixtures()
+        ran_profiles: list[str] = []
+
+        def fake_run(profile, **_kwargs):
+            ran_profiles.append(profile.key)
+            return profile, 0
+
+        with (
+            patch.object(apk_team, "SubagentLogger", None),
+            patch.object(apk_team, "BountyMemory", None),
+            patch.object(apk_team, "resolve_team_storage", return_value=storage),
+            patch.object(apk_team, "build_surface_registry", return_value={"surface_registry_path": str(registry.registry_path)}),
+            patch.object(apk_team.ApkSurfaceRegistry, "load", return_value=registry),
+            patch.object(apk_team, "get_snapshot_identity", return_value={"snapshot_id": "snap-1", "version_label": "1.2.3"}),
+            patch.object(apk_team, "create_team_ledger_from_storage", return_value=ledger),
+            patch.object(apk_team, "DynamicAgentBuilder") as builder_cls,
+            patch.object(apk_team, "_prepare_profile_bundle", return_value=({}, [], {})),
+            patch.object(apk_team, "_run_single_profile", side_effect=fake_run),
+            patch.object(apk_team, "load_findings", return_value=[]),
+            patch.object(apk_team, "stage2_ghost_review", return_value=([], [], [])),
+            patch.object(apk_team, "pretty_print_findings"),
+        ):
+            builder_cls.return_value.run.return_value = []
+            summary = apk_team.orchestrate_apk_team(
+                "Example Program",
+                str(self.tmp / "example.apk"),
+                selected_profile="apk-webview-bridge-action",
+                brainstorm_spec=str(spec_path),
+                brainstorm_only=True,
+            )
+
+        self.assertEqual(ran_profiles, ["apk-webview-bridge-action"])
+        self.assertEqual(summary["profiles_run"], ["apk-webview-bridge-action"])
+
+    def test_apk_brainstorm_only_invalid_selected_profile_fails_closed(self) -> None:
+        spec_path = self._write_brainstorm_spec()
+        storage, registry, ledger = self._basic_apk_orchestrator_fixtures()
+
+        with (
+            patch.object(apk_team, "SubagentLogger", None),
+            patch.object(apk_team, "BountyMemory", None),
+            patch.object(apk_team, "resolve_team_storage", return_value=storage),
+            patch.object(apk_team, "build_surface_registry", return_value={"surface_registry_path": str(registry.registry_path)}),
+            patch.object(apk_team.ApkSurfaceRegistry, "load", return_value=registry),
+            patch.object(apk_team, "get_snapshot_identity", return_value={"snapshot_id": "snap-1", "version_label": "1.2.3"}),
+            patch.object(apk_team, "create_team_ledger_from_storage", return_value=ledger),
+            patch.object(apk_team, "DynamicAgentBuilder") as builder_cls,
+        ):
+            builder_cls.return_value.run.return_value = []
+            with self.assertRaisesRegex(ValueError, "unknown APK profile"):
+                apk_team.orchestrate_apk_team(
+                    "Example Program",
+                    str(self.tmp / "example.apk"),
+                    selected_profile="typo-profile",
+                    brainstorm_spec=str(spec_path),
+                    brainstorm_only=True,
+                )
+
+    def test_apk_brainstorm_profile_key_collision_fails_closed(self) -> None:
+        builtin = apk_team.BUILTIN_PROFILES[0]
+        profile = apk_team.ApkHuntProfile(
+            key=builtin.key,
+            title="Duplicate brainstorm profile",
+            description="Collision regression test.",
+            surface_types=("content-provider",),
+            entry_questions=("Can provider data be read?",),
+            cross_questions=("Does the provider cross a trust boundary?",),
+            sink_categories=("openFile",),
+            reasoning="collision regression test",
+            brainstorm_metadata={
+                "hypothesis_id": "H001",
+                "brainstorm_agent_key": builtin.key,
+            },
+        )
+
+        with self.assertRaisesRegex(ValueError, "conflicts with existing profile"):
+            apk_team._reject_brainstorm_profile_collisions([profile], apk_team.BUILTIN_PROFILES)
+
+    def test_apk_brainstorm_completion_and_review_coverage_events(self) -> None:
+        coverage_path = self.tmp / "brainstorm" / "coverage.jsonl"
+        profile = apk_team.ApkHuntProfile(
+            key="apk-provider-private-file-read",
+            title="Provider private file read",
+            description="Completion coverage regression test.",
+            surface_types=("content-provider",),
+            entry_questions=("Can provider data be read?",),
+            cross_questions=("Does the provider cross a trust boundary?",),
+            sink_categories=("openFile",),
+            reasoning="coverage regression test",
+            brainstorm_metadata={
+                "brainstorm_spec": str(self.tmp / "brainstorm" / "spec.md"),
+                "source_spec_path": str(self.tmp / "brainstorm" / "spec.md"),
+                "hypothesis_id": "H001",
+                "hypothesis_title": "Exported provider reaches private files",
+                "brainstorm_agent_key": "apk-provider-private-file-read",
+                "expected_chain": "exported provider -> private file read",
+            },
+        )
+        raw_finding = {
+            **profile.brainstorm_metadata,
+            "agent": "apk-provider-private-file-read",
+            "category": "class",
+            "class_name": "content-provider",
+            "type": "exported provider private file read",
+            "file": "smali/com/example/Provider.smali",
+            "line": 42,
+            "description": "Exported provider opens private files.",
+            "severity": "HIGH",
+            "source": "content URI",
+            "sink": "openFile",
+        }
+        session = SimpleNamespace(
+            profile=profile,
+            workspace=self.tmp / "workspace",
+            log_path=self.tmp / "agent.log",
+            process=FakeProcess(),
+            skip_ledger=False,
+        )
+        session.workspace.mkdir()
+        session.log_path.write_text(json.dumps(raw_finding) + "\n", encoding="utf-8")
+        ledger = SimpleNamespace(
+            check=Mock(return_value=(False, "D01", {**raw_finding, "fid": "D01"})),
+            get_class_context=Mock(return_value=""),
+        )
+
+        with patch.object(apk_team, "_spawn_apk_agent", return_value=session):
+            apk_team._run_single_profile(
+                profile,
+                program="Example_Program",
+                extracted_root=self.tmp,
+                findings_path=self.tmp / "findings.jsonl",
+                agents_root=self.tmp / "agents",
+                ledger=ledger,
+                fresh=False,
+                prepared_bundle=({}, [], {}),
+                registry=SimpleNamespace(registry_path=self.tmp / "surface_registry.json"),
+                coverage_path=coverage_path,
+            )
+        reviewed = {**raw_finding, "fid": "D01", "review_tier": "CONFIRMED"}
+        apk_team._append_brainstorm_review_coverage(
+            coverage_path,
+            raw_findings=[{**raw_finding, "fid": "D01"}],
+            reviewed_findings=[reviewed],
+            profiles=[profile],
+        )
+
+        events = [json.loads(line)["event"] for line in coverage_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(events, ["agent_spawned", "agent_completed_with_raw_findings", "review_promoted"])
+
+    def test_apk_cli_accepts_brainstorm_spec_flags(self) -> None:
+        args = apk_team._parse_cli_args(
+            [
+                "Example Program",
+                str(self.tmp / "example.apk"),
+                "--brainstorm-spec",
+                str(self.tmp / "brainstorm" / "spec.md"),
+                "--brainstorm-only",
+                "--brainstorm-hypothesis",
+                "H001",
+            ]
+        )
+
+        self.assertEqual(args.brainstorm_spec, str(self.tmp / "brainstorm" / "spec.md"))
+        self.assertTrue(args.brainstorm_only)
+        self.assertEqual(args.brainstorm_hypothesis, "H001")
+
 
 
 if __name__ == "__main__":

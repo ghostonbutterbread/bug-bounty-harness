@@ -40,7 +40,7 @@ from agents.apk_prefingerprint import build_surface_registry
 from agents.apk_profiles import ApkHuntProfile, BUILTIN_PROFILES, PROFILE_BY_KEY
 from agents.apk_surface_registry import ApkSurfaceRegistry
 from agents.brainstorm_adapters import brainstorm_intent_to_apk_profile
-from agents.brainstorm_spec import append_coverage, hypothesis_to_agent_intents, parse_brainstorm_spec
+from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.decompiler import decompile_smali_targets
 from agents.dynamic_agent_builder import DynamicAgentBuilder
@@ -50,6 +50,14 @@ from agents.base_team.reports import dated_report_index_paths
 from agents.base_team.storage import resolve_team_storage
 from agents.snapshot_identity import get_snapshot_identity
 from agents.verbosity import clamp_verbosity
+
+ensure_bounty_core_importable("bounty_core.brainstorm_spec")
+
+from bounty_core.brainstorm_spec import (  # noqa: E402
+    append_coverage,
+    hypothesis_to_agent_intents,
+    parse_brainstorm_spec,
+)
 
 try:
     from subagent_logger import SubagentLogger, compute_pte_lite

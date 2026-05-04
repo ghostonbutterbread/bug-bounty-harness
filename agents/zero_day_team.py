@@ -52,9 +52,13 @@ from agents.base_team.reports import dated_report_index_paths
 from agents.base_team.review import stage2_ghost_review as shared_stage2_ghost_review
 from agents.base_team.storage import resolve_team_storage
 from agents.brainstorm_adapters import brainstorm_intent_to_dynamic_agent_spec
-from agents.brainstorm_spec import append_coverage, parse_brainstorm_spec
+from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.snapshot_identity import get_snapshot_identity
 from agents.verbosity import clamp_verbosity
+
+ensure_bounty_core_importable("bounty_core.brainstorm_spec")
+
+from bounty_core.brainstorm_spec import append_coverage, parse_brainstorm_spec  # noqa: E402
 
 try:
     from subagent_logger import SubagentLogger, compute_pte_lite
@@ -2296,7 +2300,7 @@ def _load_brainstorm_profiles(
 
 
 def hypothesis_to_agent_intents_for_profile(spec: Any, hypothesis: Any) -> list[Any]:
-    from agents.brainstorm_spec import hypothesis_to_agent_intents
+    from bounty_core.brainstorm_spec import hypothesis_to_agent_intents
 
     return hypothesis_to_agent_intents(spec, hypothesis)
 

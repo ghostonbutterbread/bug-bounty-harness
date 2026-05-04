@@ -257,8 +257,13 @@ Coverage statuses:
 Minimum team flag:
 
 ```bash
-python3 agents/zero_day_team.py canva <target> --brainstorm-spec <path>
-python3 agents/apk_team.py canva <target> --brainstorm-spec <path>
+cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
+PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
+  python3 agents/zero_day_team.py canva <target> --brainstorm-spec <path>
+
+cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
+PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
+  python3 agents/apk_team.py canva <target> --brainstorm-spec <path>
 ```
 
 Behavior:
@@ -401,13 +406,11 @@ Concrete teams should only supply modality-specific prompt framing, e.g. APK vs 
 
 ### Phase 4 — skill wrapper
 
-- Add bounty harness skill wrapper at:
+- Add the bounty harness skill wrapper at the canonical source path:
 
 ```text
-~/.openclaw/workspace/skills/brainstorm-spec/SKILL.md
+skills/brainstorm-spec/SKILL.md
 ```
-
-or the canonical harness skill path if the repo owns skill sync.
 
 - Add playbook at:
 
@@ -415,7 +418,8 @@ or the canonical harness skill path if the repo owns skill sync.
 prompts/brainstorm-spec-playbook.md
 ```
 
-- Update skill registry/sync if required by the harness workflow.
+- Update `SKILL_REGISTRY.md` so provider sync targets are explicit.
+- Let `./setup.sh --sync` or `./sync_skills.sh` publish from `skills/brainstorm-spec/` to Claude Code, Codex, and Ghost/OpenClaw provider directories.
 
 ### Phase 5 — migrate to `bounty_core`
 

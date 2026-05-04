@@ -19,6 +19,7 @@ Skills use paths from `config.env` or environment variables.
 | `HARNESS_WORDLISTS` | Wordlists directory | `~/wordlists` |
 | `CLAUDE_SKILLS_DIR` | Claude Code skills directory | `~/.claude/skills` |
 | `CODEX_SKILLS_DIR` | Codex skills directory | `~/.agents/skills` |
+| `GHOST_SKILLS_DIR` | Ghost/OpenClaw workspace skills directory | `~/.openclaw/workspace/skills` |
 | `KAIDO_MCP_PROXY_URL` | Caido MCP proxy URL for traffic capture and replay | `http://127.0.0.1:3333/mcp` |
 
 ### Config File
@@ -34,6 +35,7 @@ HARNESS_SHARED_BASE="${HOME}/Shared/bounty_recon"
 HARNESS_ROOT="${HOME}/projects/bug_bounty_harness"
 CLAUDE_SKILLS_DIR="${HOME}/.claude/skills"
 CODEX_SKILLS_DIR="${HOME}/.agents/skills"
+GHOST_SKILLS_DIR="${HOME}/.openclaw/workspace/skills"
 KAIDO_MCP_PROXY_URL="http://127.0.0.1:3333/mcp"
 ```
 
@@ -67,6 +69,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
 | **csrf** | `/csrf {program}` | `skills/csrff/SKILL.md` |
 | **mental-map** | `/mental-map {program}` | `prompts/mental-map-playbook.md` |
+| **brainstorm-spec** | `/brainstorm-spec {program}` | `prompts/brainstorm-spec-playbook.md` |
 
 ---
 
@@ -82,6 +85,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /recon superdrug
 /csrf superdrug
 /mental-map superdrug
+/brainstorm-spec canva --family binaries --lane exe --target-kind electron-exe
 ```
 
 ### Agent Spawn
@@ -105,8 +109,9 @@ spawn_codex(
 |----------|-----------|
 | Claude Code | `~/.claude/skills/` (or `$CLAUDE_SKILLS_DIR`) |
 | Codex | `~/.agents/skills/` (or `$CODEX_SKILLS_DIR`) |
+| Ghost/OpenClaw | `~/.openclaw/workspace/skills/` (or `$GHOST_SKILLS_DIR`) |
 
-Sync with: `./sync_skills.sh` or `./setup.sh --sync`
+Sync with: `./sync_skills.sh` or `./setup.sh --sync`; both publish from canonical source `skills/{name}/` to all provider targets by default.
 
 ---
 
@@ -130,9 +135,10 @@ Per-program knowledge file:
 
 1. Create skill wrapper: `skills/{name}/SKILL.md`
 2. Create playbook if needed: `prompts/{name}-playbook.md`
-3. Create harness if needed: `agents/{name}_hunter.py`
-4. Add to this registry
-5. Run `./setup.sh --sync`
+3. Create sync metadata if the skill should publish `_meta.json`
+4. Create harness if needed: `agents/{name}_hunter.py`
+5. Add to this registry
+6. Run `./setup.sh --sync`
 
 ---
 
@@ -150,9 +156,11 @@ bug_bounty_harness/
 │   ├── xss/SKILL.md
 │   └── ...
 ├── .claude/skills/        # Synced for Claude Code
+├── .agents/skills/        # Synced for Codex
+├── .openclaw/workspace/skills/ # Synced for Ghost/OpenClaw
 └── SKILL_REGISTRY.md      # This file
 ```
 
 ---
 
-*Last updated: 2026-03-31*
+*Last updated: 2026-05-04*

@@ -4,6 +4,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 from agents.app_mapper import (
     PatternSpec,
     TARGET_PACKS,
@@ -15,7 +17,10 @@ from agents.app_mapper import (
     map_application,
     register_target_pack,
     register_vulnerability_pack,
+    render_rce_spec,
+    validate_run_id,
     write_artifacts,
+    write_agent_contexts,
 )
 from agents.brainstorm_adapters import (
     brainstorm_intent_to_dynamic_agent_spec,
@@ -236,6 +241,381 @@ subprocess.run(config_path, shell=True)
     ]
     assert surfaces
     assert candidates
+
+
+def test_app_mapper_writes_candidate_isolated_agent_context(tmp_path: Path) -> None:
+    target = tmp_path / "node-app"
+    _write(
+        target / "package.json",
+        """
+{
+  "main": "runner.js",
+  "scripts": {
+    "start": "node runner.js"
+  }
+}
+""".strip(),
+    )
+    _write(
+        target / "runner.js",
+        """
+const fs = require("fs");
+const path = require("path");
+const child_process = require("child_process");
+
+const configPath = path.join(process.cwd(), "project.json");
+const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+child_process.exec(config.command);
+""".strip(),
+    )
+
+    result = map_application("node target", target, target_kind="node")
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="context-run",
+        write_specs=True,
+    )
+
+    spec = parse_brainstorm_spec(paths["rce_spec"])
+    candidate = result.candidates[0]
+    context_path = paths[f"agent_context_{candidate['id'].lower()}"]
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    context_text = json.dumps(context, sort_keys=True)
+
+    assert context_path.is_file()
+    assert context["candidate"]["id"] == candidate["id"]
+    assert context["candidate"]["map_ids"] == {
+        "candidate_id": candidate["id"],
+        "flow_id": candidate["flow_id"],
+        "source_id": candidate["source"]["id"],
+        "boundary_id": candidate["boundary"]["id"],
+        "transform_id": candidate["transform"]["id"] if candidate.get("transform") else None,
+        "sink_id": candidate["sink"]["id"],
+        "surface_id": candidate["surface_id"],
+    }
+    assert context["evidence"]["source"]["file"] == candidate["source"]["file"]
+    assert context["evidence"]["source"]["snippet"] == candidate["source"]["snippet"]
+    assert context["evidence"]["boundary"]["file"] == candidate["boundary"]["file"]
+    assert context["evidence"]["boundary"]["snippet"] == candidate["boundary"]["snippet"]
+    assert context["evidence"]["sink"]["file"] == candidate["sink"]["file"]
+    assert context["evidence"]["sink"]["snippet"] == candidate["sink"]["snippet"]
+    if candidate.get("transform"):
+        assert context["evidence"]["transform"]["file"] == candidate["transform"]["file"]
+        assert context["evidence"]["transform"]["snippet"] == candidate["transform"]["snippet"]
+    else:
+        assert context["evidence"]["transform"] is None
+    assert context["hypothesis_linkage"]["hypothesis_id"] == spec.hypotheses[0].id
+    assert context["hypothesis_linkage"]["agent_key"] == spec.hypotheses[0].suggested_agents[0]
+    assert f"appmap-{candidate['id']}" in context["hypothesis_linkage"]["evidence_refs"]
+    assert context["hypothesis_linkage"]["spec_file"] == "generated_specs/rce-spec.md"
+    assert context["active_target_packs"] == ["node", "config"]
+    assert context["active_vulnerability_pack"] == "rce"
+    assert "electron" not in context_text.lower()
+
+
+def test_app_mapper_mixed_electron_node_candidate_context_does_not_leak_electron_pack(tmp_path: Path) -> None:
+    target = tmp_path / "mixed-electron-node"
+    _write(
+        target / "package.json",
+        """
+{
+  "main": "src/electron-main.js",
+  "dependencies": {
+    "electron": "^30.0.0"
+  }
+}
+""".strip(),
+    )
+    _write(
+        target / "src" / "electron-main.js",
+        """
+const { app } = require("electron");
+app.whenReady();
+""".strip(),
+    )
+    _write(
+        target / "tools" / "runner.js",
+        """
+const fs = require("fs");
+const path = require("path");
+const child_process = require("child_process");
+
+const configPath = path.join(process.cwd(), "project.json");
+const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+child_process.exec(config.command);
+""".strip(),
+    )
+
+    result = map_application("mixed target", target, target_kind="electron-exe")
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="mixed-run",
+        write_specs=True,
+    )
+    candidate = next(item for item in result.candidates if item["source"]["file"] == "tools/runner.js")
+    context_path = paths[f"agent_context_{candidate['id'].lower()}"]
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    context_text = json.dumps(context, sort_keys=True).lower()
+
+    assert context["active_target_packs"] == ["node", "config"]
+    assert context["target_profile"]["target_kind"] == "node"
+    assert "frameworks" not in context["target_profile"]
+    assert "detected_kinds" not in context["target_profile"]
+    assert "electron" not in context_text
+
+
+def test_appmap_context_linkage_rejects_duplicate_and_multi_candidate_evidence(tmp_path: Path) -> None:
+    result = _two_candidate_result(tmp_path)
+    spec_path = tmp_path / "generated_specs" / "rce-spec.md"
+    spec_path.parent.mkdir(parents=True)
+    spec_text = render_rce_spec(result, run_id="strict-run")
+
+    duplicate_text = spec_text.replace("  - appmap-C0001", "  - appmap-C0001\n  - appmap-C0001", 1)
+    spec_path.write_text(duplicate_text, encoding="utf-8")
+    duplicate_spec = parse_brainstorm_spec(spec_path)
+    with pytest.raises(ValueError, match="duplicate candidate evidence"):
+        write_agent_contexts(
+            result,
+            run_root=tmp_path,
+            run_id="strict-run",
+            spec_path=spec_path,
+            parsed_spec=duplicate_spec,
+        )
+
+    multi_text = spec_text.replace("  - appmap-C0001", "  - appmap-C0001\n  - appmap-C0002", 1)
+    spec_path.write_text(multi_text, encoding="utf-8")
+    multi_spec = parse_brainstorm_spec(spec_path)
+    with pytest.raises(ValueError, match="aggregates multiple candidate IDs"):
+        write_agent_contexts(
+            result,
+            run_root=tmp_path,
+            run_id="strict-run",
+            spec_path=spec_path,
+            parsed_spec=multi_spec,
+        )
+
+
+def test_appmap_context_linkage_rejects_missing_candidate_evidence(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+    spec_path = tmp_path / "generated_specs" / "rce-spec.md"
+    spec_path.parent.mkdir(parents=True)
+    spec_text = render_rce_spec(result, run_id="missing-run")
+    spec_path.write_text(spec_text.replace("  - appmap-C0001\n", "", 1), encoding="utf-8")
+    spec = parse_brainstorm_spec(spec_path)
+
+    with pytest.raises(ValueError, match="missing appmap-C#### candidate evidence"):
+        write_agent_contexts(
+            result,
+            run_root=tmp_path,
+            run_id="missing-run",
+            spec_path=spec_path,
+            parsed_spec=spec,
+        )
+
+
+def test_appmap_context_writes_one_packet_per_suggested_agent(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+    spec_path = tmp_path / "generated_specs" / "rce-spec.md"
+    spec_path.parent.mkdir(parents=True)
+    spec_text = render_rce_spec(result, run_id="multi-agent-run")
+    first_agent = parse_brainstorm_spec(_write_temp_spec(spec_path, spec_text)).hypotheses[0].suggested_agents[0]
+    second_agent = "appmap-second-agent"
+    spec_text = spec_text.replace(f"  - {first_agent}", f"  - {first_agent}\n  - {second_agent}", 1)
+    spec_path.write_text(spec_text, encoding="utf-8")
+    spec = parse_brainstorm_spec(spec_path)
+
+    context_paths = write_agent_contexts(
+        result,
+        run_root=tmp_path,
+        run_id="multi-agent-run",
+        spec_path=spec_path,
+        parsed_spec=spec,
+    )
+
+    assert len(context_paths) == 2
+    names = {path.name for path in context_paths}
+    assert names == {f"H001-C0001-{first_agent}.json", f"H001-C0001-{second_agent}.json"}
+    packets = [json.loads(path.read_text(encoding="utf-8")) for path in context_paths]
+    assert {packet["hypothesis_linkage"]["agent_key"] for packet in packets} == {
+        first_agent,
+        second_agent,
+    }
+
+
+def test_brainstorm_runtime_adapter_uses_appmap_packet_instead_of_full_spec_context(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="adapter-run",
+        write_specs=True,
+    )
+    spec = parse_brainstorm_spec(paths["rce_spec"])
+    intent = hypothesis_to_agent_intents(spec, spec.hypotheses[0])[0]
+
+    dynamic_spec = brainstorm_intent_to_dynamic_agent_spec(
+        intent,
+        program=spec.metadata["Program"],
+        version=spec.metadata["AppMap run id"],
+    )
+
+    assert "Use this AppMap context packet as the complete assignment context" in dynamic_spec.agent_prompt_template
+    assert "Target mental model:" not in dynamic_spec.agent_prompt_template
+    assert "Impact primitives:" not in dynamic_spec.agent_prompt_template
+    assert "appmap_context_packet" in dynamic_spec.agent_prompt_template
+    assert dynamic_spec.brainstorm_metadata["appmap_candidate_id"] == "C0001"
+    assert dynamic_spec.brainstorm_metadata["appmap_context_packet"].endswith(".json")
+
+
+
+def test_brainstorm_runtime_adapter_handles_mixed_case_appmap_agent_key(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+    spec_path = tmp_path / "generated_specs" / "rce-spec.md"
+    spec_path.parent.mkdir(parents=True)
+    spec_text = render_rce_spec(result, run_id="mixed-case-run")
+    original_agent = parse_brainstorm_spec(_write_temp_spec(spec_path, spec_text)).hypotheses[0].suggested_agents[0]
+    mixed_agent = "AppMapAgent"
+    spec_text = spec_text.replace(f"  - {original_agent}", f"  - {mixed_agent}", 1)
+    spec_text = spec_text.replace(
+        f"appmap-context:H001:C0001:{original_agent}",
+        f"appmap-context:H001:C0001:{mixed_agent}",
+        1,
+    )
+    spec_path.write_text(spec_text, encoding="utf-8")
+    spec = parse_brainstorm_spec(spec_path)
+    context_paths = write_agent_contexts(
+        result,
+        run_root=tmp_path,
+        run_id="mixed-case-run",
+        spec_path=spec_path,
+        parsed_spec=spec,
+    )
+    assert [path.name for path in context_paths] == ["H001-C0001-appmapagent.json"]
+
+    intent = hypothesis_to_agent_intents(spec, spec.hypotheses[0])[0]
+    dynamic_spec = brainstorm_intent_to_dynamic_agent_spec(
+        intent,
+        program=spec.metadata["Program"],
+        version=spec.metadata["AppMap run id"],
+    )
+
+    assert "Use this AppMap context packet as the complete assignment context" in dynamic_spec.agent_prompt_template
+    assert dynamic_spec.brainstorm_metadata["brainstorm_agent_key"] == mixed_agent
+    assert dynamic_spec.brainstorm_metadata["appmap_candidate_id"] == "C0001"
+
+
+def test_non_appmap_spec_can_reference_appmap_like_evidence_without_packet(tmp_path: Path) -> None:
+    spec_path = tmp_path / "brainstorm" / "spec.md"
+    spec_path.parent.mkdir(parents=True)
+    spec_path.write_text(
+        """# Brainstorm Spec: Generic AppMap Reference
+
+## Metadata
+- Program: demo
+- Family: web
+- Lane: source
+- Target kind: node
+- Target path: .
+- Created: 2026-05-04
+- Status: active
+
+## Target mental model
+This is a normal hand-authored spec that mentions a legacy AppMap-looking artifact.
+
+## Impact primitives
+### P001 - Historical artifact
+- Source: old report
+- Impact: may inform a manual review
+- Evidence: appmap-C0001
+- Status: active
+
+## Hypotheses
+### H001 - Manual review should keep normal context
+- Status: untested
+- Priority: medium
+- Surface: manual-review
+- Entry point: operator supplied report
+- Expected chain: report -> reviewer -> finding
+- Suggested agents:
+  - ManualAgent
+- Focus files:
+  - .
+- Tags: manual, appmap-reference
+- Evidence:
+  - appmap-C0001
+
+## Coverage log
+| Hypothesis | Agent | Status | Result | Linked FIDs | Run ID | Notes |
+|---|---|---|---|---|---|---|
+""",
+        encoding="utf-8",
+    )
+    spec = parse_brainstorm_spec(spec_path, validate_paths=False)
+    intent = hypothesis_to_agent_intents(spec, spec.hypotheses[0])[0]
+
+    dynamic_spec = brainstorm_intent_to_dynamic_agent_spec(intent, program="demo", version="manual")
+
+    assert "Use this AppMap context packet as the complete assignment context" not in dynamic_spec.agent_prompt_template
+    assert "Target mental model:" in dynamic_spec.agent_prompt_template
+    assert "appmap_context_packet" not in dynamic_spec.brainstorm_metadata
+
+def test_run_id_traversal_is_rejected(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+
+    with pytest.raises(ValueError, match="run_id must"):
+        write_artifacts(
+            result,
+            output_root=tmp_path / "out",
+            run_id="../escape",
+            write_specs=True,
+        )
+    assert validate_run_id("safe.Run_123-abc") == "safe.Run_123-abc"
+
+
+def test_synthetic_canva_electron_smoke_spec_remains_parser_valid(tmp_path: Path) -> None:
+    target = tmp_path / "canva-synthetic"
+    _write(
+        target / "package.json",
+        """
+{
+  "main": "src/main.js",
+  "dependencies": {
+    "electron": "^30.0.0"
+  }
+}
+""".strip(),
+    )
+    _write(
+        target / "src" / "main.js",
+        """
+const { ipcMain } = require("electron");
+const child_process = require("child_process");
+const fs = require("fs");
+const path = require("path");
+
+ipcMain.handle("export:run", async (_event, project) => {
+  const configPath = path.join(process.cwd(), project.config);
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  return child_process.exec(config.command);
+});
+""".strip(),
+    )
+
+    result = map_application("Canva synthetic", target, target_kind="electron-exe")
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="canva-smoke",
+        write_specs=True,
+    )
+
+    spec = parse_brainstorm_spec(paths["rce_spec"])
+
+    assert spec.metadata["Program"] == "canva-synthetic"
+    assert spec.hypotheses
+    assert list((paths["agent_contexts"]).glob("*.json"))
 
 
 def test_generated_agent_key_is_stable_and_bounded_for_long_program_names(tmp_path: Path) -> None:
@@ -480,6 +860,13 @@ run(input)
         spec_text = paths["spec"].read_text(encoding="utf-8")
         assert "Custom Pack Renderer handled demo-rce." in spec_text
         assert "Custom Pack Renderer run demo-run" in spec_text
+        context_path = paths[f"agent_context_{result.candidates[0]['id'].lower()}"]
+        context_text = context_path.read_text(encoding="utf-8")
+        context = json.loads(context_text)
+        assert context["active_target_packs"] == ["demo-framework", "config"]
+        assert context["active_vulnerability_pack"] == "demo-rce"
+        assert context["hypothesis_linkage"]["agent_key"] == "demo-appmap-agent"
+        assert "electron" not in context_text.lower()
     finally:
         TARGET_PACKS.clear()
         TARGET_PACKS.update(original_target_packs)
@@ -492,3 +879,44 @@ def _write_spec(path: Path, result, *, run_id: str) -> Path:
 
     path.write_text(render_rce_spec(result, run_id=run_id), encoding="utf-8")
     return path
+
+
+def _write_temp_spec(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _one_candidate_result(tmp_path: Path):
+    target = tmp_path / "one-candidate"
+    _write(
+        target / "runner.js",
+        """
+const fs = require("fs");
+const path = require("path");
+const child_process = require("child_process");
+
+const configPath = path.join(process.cwd(), "project.json");
+const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+child_process.exec(config.command);
+""".strip(),
+    )
+    return map_application("one candidate", target, target_kind="node")
+
+
+def _two_candidate_result(tmp_path: Path):
+    target = tmp_path / "two-candidate"
+    for name in ("first.js", "second.js"):
+        _write(
+            target / name,
+            f"""
+const fs = require("fs");
+const path = require("path");
+const child_process = require("child_process");
+
+const configPath = path.join(process.cwd(), "{name}.json");
+const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+child_process.exec(config.command);
+""".strip(),
+        )
+    return map_application("two candidate", target, target_kind="node")

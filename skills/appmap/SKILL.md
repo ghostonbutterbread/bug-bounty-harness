@@ -33,12 +33,16 @@ Read the playbook before running the mapper:
 - **Mapper:** `$HARNESS_ROOT/agents/app_mapper.py`
 - **Default output:** `~/Shared/appmap/{program}/static/appmap/{run_id}/`
 - **Generated specs:** `{output}/generated_specs/`
+- **Agent contexts:** `{output}/agent_contexts/<hypothesis_id>-<candidate_id>-<agent_key>.json` when generated specs link hypotheses to candidates
 
 ## Responsibilities
 
 - Run static AppMap against local source or extracted application code.
 - Preserve AppMap artifacts: profile, architecture, surfaces, flows, candidates, rejected candidates, and summary.
 - Generate parser-valid brainstorm specs when `--write-specs` is requested and candidates exist.
+- Preserve candidate-isolated agent handoff contexts with only the linked map IDs, evidence snippets/files, active packs, and next steps.
+- Ensure each AppMap hypothesis links to exactly one `appmap-C####` candidate and write one context packet per suggested agent.
+- Keep packet `active_target_packs` candidate-evidence scoped so mixed targets do not leak unrelated framework context.
 - Keep AppMap pre-runtime. Do not add or use `zero_day_team --appmap` integration from this skill.
 - Hand generated specs to the normal team runtime only when the user explicitly asks to run hypotheses.
 
@@ -57,7 +61,7 @@ PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   --write-specs
 ```
 
-4. Read `appmap_summary.md`, `architecture.md`, `candidates.jsonl`, and `rejected_candidates.jsonl`.
+4. Read `appmap_summary.md`, `architecture.md`, `candidates.jsonl`, `rejected_candidates.jsonl`, and generated `agent_contexts/*.json` when present.
 5. Validate generated specs with `agents.brainstorm_spec.parse_brainstorm_spec` when present.
 6. Report the output directory, candidate count, generated specs, and any no-candidate reason visible in rejected candidates.
 
@@ -72,6 +76,8 @@ PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   --brainstorm-spec <appmap-output>/generated_specs/rce-spec.md \
   --brainstorm-only
 ```
+
+For AppMap-linked specs, normal brainstorm runtime handoff consumes `agent_contexts/*.json` automatically. The adapter matches `hypothesis_id`, `appmap-C####` candidate evidence, and `agent_key`, then uses the packet as the agent prompt context instead of the spec-wide mental model and impact primitives. Missing, duplicate, ambiguous, or multi-candidate linkage is a hard error.
 
 Do not introduce a `zero_day_team --appmap` invocation here.
 

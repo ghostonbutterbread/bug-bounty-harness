@@ -17,6 +17,7 @@
 #   HARNESS_WORDLISTS      - Wordlists directory
 #   CLAUDE_SKILLS_DIR      - Claude Code skills directory
 #   CODEX_SKILLS_DIR       - Codex skills directory
+#   GHOST_SKILLS_DIR       - Ghost/OpenClaw workspace skills directory
 #
 # Examples:
 #   ./setup.sh --init                    # Full setup
@@ -60,6 +61,7 @@ load_config() {
     : "${HARNESS_WORDLISTS:=${HOME}/wordlists}"
     : "${CLAUDE_SKILLS_DIR:=${HOME}/.claude/skills}"
     : "${CODEX_SKILLS_DIR:=${HOME}/.agents/skills}"
+    : "${GHOST_SKILLS_DIR:=${HOME}/.openclaw/workspace/skills}"
 }
 
 # =============================================================================
@@ -87,6 +89,7 @@ create_directories() {
         "$HARNESS_WORDLISTS"
         "$CLAUDE_SKILLS_DIR"
         "$CODEX_SKILLS_DIR"
+        "$GHOST_SKILLS_DIR"
     )
     
     for dir in "${dirs[@]}"; do
@@ -144,6 +147,7 @@ show_config() {
     echo "  HARNESS_WORDLISTS:   $HARNESS_WORDLISTS"
     echo "  CLAUDE_SKILLS_DIR:   $CLAUDE_SKILLS_DIR"
     echo "  CODEX_SKILLS_DIR:    $CODEX_SKILLS_DIR"
+    echo "  GHOST_SKILLS_DIR:    $GHOST_SKILLS_DIR"
     echo ""
     echo "OS: $(detect_os)"
     echo ""

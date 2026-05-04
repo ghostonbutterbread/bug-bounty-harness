@@ -24,8 +24,12 @@ Optional:
 
 - `target-kind`: use `auto` unless the user gives a specific kind such as `electron-exe`
 - `focus`: Phase 2 supports `rce`
-- `output-root`: use only when the user wants a specific destination
+- `output-mode`: `standalone` for scratch runs, `canonical` for lane storage
+- `family` and `lane`: required for canonical storage
+- `shared-root`: optional canonical base; defaults to `~/Shared`
+- `output-root`: standalone-only custom destination
 - `run-id`: use for repeatable tests or comparison runs
+- `promote-to-brainstorm`: copies generated specs/context packets into a brainstorm area only when explicitly requested
 
 If the target path is missing or ambiguous, ask before running the mapper.
 
@@ -51,6 +55,30 @@ python3 agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/
   --write-specs
 ```
 
+Canonical lane output:
+
+```bash
+python3 agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
+  --target-kind electron-exe \
+  --focus rce \
+  --write-specs \
+  --output-mode canonical \
+  --family binaries \
+  --lane exe
+```
+
+This writes the immutable AppMap run under:
+
+```text
+~/Shared/<family>/<program>/<lane>/appmap/<run_id>/
+```
+
+Standalone mode remains backward compatible and writes under:
+
+```text
+<output-root>/appmap/<run_id>/
+```
+
 ## 3. Review Artifacts
 
 Inspect:
@@ -63,6 +91,8 @@ Inspect:
 - `rejected_candidates.jsonl`: explicit reasons for discarded evidence
 - `generated_specs/rce-spec.md`: parser-compatible brainstorm spec when candidates exist
 - `agent_contexts/*.json`: candidate-isolated handoff packets for generated hypotheses
+- `manifest.json`: run metadata and artifact pointers for discovery without reading findings ledgers
+- `../index.jsonl`: append-only AppMap run index under the lane or standalone `appmap/` root
 
 A candidate should have a plausible attacker-controlled source, a trust boundary, a concrete sink, file evidence, and a question agents can answer.
 
@@ -83,7 +113,42 @@ Packet schema contract:
 
 Strict linkage rules: every AppMap hypothesis must reference exactly one `appmap-C####` candidate; missing, duplicate, unknown, or multi-candidate evidence must fail before handoff. If a hypothesis has multiple suggested agents, write one packet per agent using the same candidate evidence.
 
-## 4. Validate Specs
+## 4. Promote Handoff Artifacts
+
+Promotion is opt-in. It copies only generated specs and `agent_contexts/*.json` into `brainstorm/`; raw `surfaces.jsonl`, `flows.jsonl`, `candidates.jsonl`, and rejected map data stay in the AppMap run root.
+
+Canonical promotion:
+
+```bash
+python3 agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
+  --target-kind electron-exe \
+  --focus rce \
+  --write-specs \
+  --output-mode canonical \
+  --family binaries \
+  --lane exe \
+  --promote-to-brainstorm
+```
+
+By default, promotion creates a per-run handoff directory so repeated runs with the same hypothesis, candidate, and agent names cannot collide:
+
+```text
+~/Shared/<family>/<program>/<lane>/brainstorm/appmap-<run_id>-<focus>/rce-spec.md
+~/Shared/<family>/<program>/<lane>/brainstorm/appmap-<run_id>-<focus>/agent_contexts/
+```
+
+Do not overwrite an existing hand-authored `brainstorm/spec.md`. To intentionally target a specific filename inside the per-run handoff directory, use `--promote-spec-name`; if that file exists, promotion fails unless `--overwrite-brainstorm-spec` is also set. Promoted specs resolve only their sibling `agent_contexts/` packets. Promoted specs and packets preserve `AppMap run id`, `AppMap run root`, and packet trace fields back to the originating run.
+
+Standalone promotion requires an explicit brainstorm destination:
+
+```bash
+python3 agents/app_mapper.py demo /path/to/source \
+  --write-specs \
+  --promote-to-brainstorm \
+  --brainstorm-root /home/ryushe/Shared/<family>/<program>/<lane>/brainstorm
+```
+
+## 5. Validate Specs
 
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
@@ -100,7 +165,7 @@ PY
 
 If validation fails, fix the generated spec or mapper before handing it to a runtime.
 
-## 5. Report Results
+## 6. Report Results
 
 Include:
 
@@ -109,10 +174,12 @@ Include:
 - Surface, flow, candidate, and rejected counts
 - Generated spec path, if present
 - Agent context path(s), if present
+- Manifest and index path
+- Promoted spec/context paths, if promotion was requested
 - Top candidate source, boundary, sink, and file evidence
 - Any reason no spec was generated
 
-## 6. Runtime Handoff
+## 7. Runtime Handoff
 
 Use a generated spec with existing team commands only when requested:
 

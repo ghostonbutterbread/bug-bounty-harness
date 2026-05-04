@@ -6,8 +6,12 @@ from datetime import datetime, timezone
 import json
 from typing import Any
 
-from agents.brainstorm_spec import BrainstormAgentIntent
+from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.dynamic_agent_builder import AgentSpec
+
+ensure_bounty_core_importable("bounty_core.brainstorm_spec")
+
+from bounty_core.brainstorm_spec import BrainstormAgentIntent  # noqa: E402
 
 
 def brainstorm_finding_metadata(intent: BrainstormAgentIntent) -> dict[str, Any]:

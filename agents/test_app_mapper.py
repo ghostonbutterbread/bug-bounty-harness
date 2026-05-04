@@ -1,9 +1,22 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
-from agents.app_mapper import map_application, write_artifacts
+from agents.app_mapper import (
+    PatternSpec,
+    TARGET_PACKS,
+    VULNERABILITY_PACKS,
+    TargetDetection,
+    TargetPack,
+    VulnerabilityPack,
+    build_rce_flows,
+    map_application,
+    register_target_pack,
+    register_vulnerability_pack,
+    write_artifacts,
+)
 from agents.brainstorm_adapters import (
     brainstorm_intent_to_dynamic_agent_spec,
     brainstorm_intent_to_zero_day_profile,
@@ -195,6 +208,21 @@ subprocess.run(config_path, shell=True)
     assert spec.metadata["Program"] == "python-target"
     assert spec.metadata["AppMap run id"] == "test-run"
     assert spec.hypotheses[0].tags[:3] == ["rce", "appmap", "static"]
+    candidate = result.candidates[0]
+    expected_focus_files = sorted(
+        {
+            str(candidate["source"]["file"]),
+            str(candidate["boundary"]["file"]),
+            str(candidate["sink"]["file"]),
+            *(
+                [str(candidate["transform"]["file"])]
+                if candidate.get("transform")
+                else []
+            ),
+        }
+    )
+    assert spec.hypotheses[0].focus_files_glob == expected_focus_files
+    assert not any(path.startswith("**/") for path in spec.hypotheses[0].focus_files_glob)
 
     surfaces = [
         json.loads(line)
@@ -292,6 +320,171 @@ subprocess.run(config_path, shell=True)
     assert dynamic_spec.brainstorm_metadata["brainstorm_agent_key"] == intent.agent_key
     assert profile.brainstorm_metadata["expected_chain"] == hypothesis.expected_chain
     assert profile.brainstorm_metadata["hypothesis_id"] == hypothesis.id
+
+
+def test_app_mapper_packs_are_extensible_without_core_language_branches(tmp_path: Path) -> None:
+    target = tmp_path / "demo-app"
+    _write(target / "demo.manifest", "demo framework\n")
+    _write(
+        target / "src" / "flow.demo",
+        """
+input = externalConfig()
+boundary = projectWorkspace()
+run(input)
+""".strip(),
+    )
+
+    original_target_packs = dict(TARGET_PACKS)
+    original_vuln_packs = dict(VULNERABILITY_PACKS)
+
+    def render_demo_spec(result, run_id: str) -> str:
+        candidate = result.candidates[0]
+        focus_files = sorted(
+            {
+                str(candidate["source"]["file"]),
+                str(candidate["boundary"]["file"]),
+                str(candidate["sink"]["file"]),
+            }
+        )
+        return "\n".join(
+            [
+                "# Brainstorm Spec: demo target AppMap Demo",
+                "",
+                "## Metadata",
+                "- Program: demo-target",
+                "- Family: appmap",
+                "- Lane: static",
+                f"- Target kind: {result.profile.target_kind}",
+                "- Target path: .",
+                "- Created: 2026-05-04",
+                "- Status: active",
+                f"- AppMap run id: {run_id}",
+                "",
+                "## Target mental model",
+                f"Custom Pack Renderer handled {result.focus}.",
+                "",
+                "## Impact primitives",
+                "### P001 - Demo sink",
+                "- Source: demo external config source",
+                "- Impact: custom renderer controls this output",
+                f"- Evidence: appmap-{candidate['id']}",
+                "- Status: active",
+                "",
+                "## Hypotheses",
+                "### H001 - Demo custom renderer",
+                "Can demo framework input reach the demo sink?",
+                "- Status: untested",
+                "- Priority: high",
+                f"- Surface: appmap-{candidate['surface_id']}-config",
+                "- Entry point: demo external config source (project-controlled)",
+                "- Expected chain: config source -> project-boundary boundary -> process-exec sink",
+                "- Suggested agents:",
+                "  - demo-appmap-agent",
+                "- Focus files:",
+                *[f"  - {path}" for path in focus_files],
+                "- Tags: demo-rce, appmap, static",
+                "- Evidence:",
+                f"  - appmap-{candidate['id']}",
+                f"- Notes: Custom Pack Renderer run {run_id}",
+                "",
+                "## Coverage log",
+                "| Hypothesis | Agent | Status | Result | Linked FIDs | Run ID | Notes |",
+                "|---|---|---|---|---|---|---|",
+                "",
+            ]
+        )
+
+    try:
+        register_target_pack(
+            TargetPack(
+                key="demo-framework",
+                aliases=("demo-framework",),
+                file_extensions=(".demo",),
+                manifest_names=("demo.manifest",),
+                detect=lambda target_path, _languages: TargetDetection(
+                    detected_kind="demo-framework",
+                    frameworks=("demo-framework",),
+                    manifests=("demo.manifest",),
+                    confidence_bonus=0.2,
+                )
+                if (target_path / "demo.manifest").is_file()
+                else None,
+                source_patterns_for_file=lambda path: (
+                    PatternSpec(
+                        "demo-external-config",
+                        re.compile(r"externalConfig", re.IGNORECASE),
+                        "source",
+                        "config",
+                        "demo external config source",
+                        "project-controlled",
+                        "medium",
+                        0.8,
+                    ),
+                )
+                if path.suffix == ".demo"
+                else (),
+                boundary_patterns_for_file=lambda path: (
+                    PatternSpec(
+                        "demo-project-boundary",
+                        re.compile(r"projectWorkspace", re.IGNORECASE),
+                        "boundary",
+                        "project-boundary",
+                        "demo project boundary",
+                        "project-controlled",
+                        "medium",
+                        0.8,
+                    ),
+                )
+                if path.suffix == ".demo"
+                else (),
+            )
+        )
+        register_vulnerability_pack(
+            VulnerabilityPack(
+                key="demo-rce",
+                sink_patterns_for_file=lambda path: (
+                    PatternSpec(
+                        "demo-run",
+                        re.compile(r"\brun\(", re.IGNORECASE),
+                        "sink",
+                        "process-exec",
+                        "demo process execution sink",
+                        "privileged-local",
+                        "unknown",
+                        0.9,
+                    ),
+                )
+                if path.suffix == ".demo"
+                else (),
+                transform_patterns_for_file=lambda _path: (),
+                build_flows=build_rce_flows,
+                render_spec=render_demo_spec,
+            )
+        )
+
+        result = map_application("demo target", target, focus="demo-rce")
+        paths = write_artifacts(
+            result,
+            output_root=tmp_path / "out",
+            run_id="demo-run",
+            write_specs=True,
+        )
+
+        assert result.profile.target_kind == "demo-framework"
+        assert "demo-framework" in result.profile.frameworks
+        assert result.candidates
+        assert result.candidates[0]["sink"]["kind"] == "process-exec"
+        assert paths["spec"].name == "demo-rce-spec.md"
+        assert paths["demo_rce_spec"] == paths["spec"]
+        assert "rce_spec" not in paths
+        spec_text = paths["spec"].read_text(encoding="utf-8")
+        assert "Custom Pack Renderer handled demo-rce." in spec_text
+        assert "Custom Pack Renderer run demo-run" in spec_text
+    finally:
+        TARGET_PACKS.clear()
+        TARGET_PACKS.update(original_target_packs)
+        VULNERABILITY_PACKS.clear()
+        VULNERABILITY_PACKS.update(original_vuln_packs)
 
 
 def _write_spec(path: Path, result, *, run_id: str) -> Path:

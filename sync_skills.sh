@@ -189,12 +189,16 @@ main() {
     echo "OS detected: $OS"
     echo "HARNESS_ROOT: $HARNESS_ROOT"
     echo ""
-    # Auto-pull latest changes from git
-    echo "Pulling latest changes from origin..."
-    if git pull --ff-only 2>/dev/null; then
-        echo "  ✓ Updated from origin/master"
+    # Auto-pull latest changes from git unless this is a dry run.
+    if [ "$DRY_RUN" = true ]; then
+        echo "Dry run: skipping git pull"
     else
-        echo "  - Up to date or local changes (git pull skipped)"
+        echo "Pulling latest changes from origin..."
+        if git pull --ff-only 2>/dev/null; then
+            echo "  ✓ Updated from origin/master"
+        else
+            echo "  - Up to date or local changes (git pull skipped)"
+        fi
     fi
     echo ""
 

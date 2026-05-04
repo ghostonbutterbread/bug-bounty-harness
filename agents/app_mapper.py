@@ -365,6 +365,8 @@ PY_SINK_PATTERNS = [
 
 MAX_AGENT_KEY_LEN = 64
 MAX_CHAIN_LINE_SPAN = 40
+MAX_GENERATED_HYPOTHESES = 5
+RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 JS_STATIC_PROCESS_LITERAL_RE = _compile(
     r"\b(?:child_process\.)?(?:exec|execFile|spawn|fork)\s*\(\s*(['\"`])(?:\\.|(?!\1).)*\1\s*(?:[,)]|$)"
@@ -763,12 +765,14 @@ def scan_surfaces(target_path: Path, *, focus: str = "rce", target_profile: Targ
     target_packs = _active_target_packs(target_profile)
 
     for path in iter_source_files(target_path):
-        patterns: list[PatternSpec] = []
+        patterns: list[tuple[PatternSpec, tuple[str, ...]]] = []
         for pack in target_packs:
-            patterns.extend(pack.source_patterns_for_file(path))
-            patterns.extend(pack.boundary_patterns_for_file(path))
-        patterns.extend(vuln_pack.transform_patterns_for_file(path))
-        patterns.extend(vuln_pack.sink_patterns_for_file(path))
+            for spec in pack.source_patterns_for_file(path):
+                patterns.append((spec, _surface_target_pack_keys(spec, pack.key)))
+            for spec in pack.boundary_patterns_for_file(path):
+                patterns.append((spec, _surface_target_pack_keys(spec, pack.key)))
+        patterns.extend((spec, ()) for spec in vuln_pack.transform_patterns_for_file(path))
+        patterns.extend((spec, ()) for spec in vuln_pack.sink_patterns_for_file(path))
         if not patterns:
             continue
 
@@ -782,7 +786,7 @@ def scan_surfaces(target_path: Path, *, focus: str = "rce", target_profile: Targ
             stripped = line.strip()
             if not stripped:
                 continue
-            for spec in patterns:
+            for spec, target_pack_keys in patterns:
                 if not spec.regex.search(stripped):
                     continue
                 counters[spec.role] = counters.get(spec.role, 0) + 1
@@ -800,9 +804,17 @@ def scan_surfaces(target_path: Path, *, focus: str = "rce", target_profile: Targ
                         "trust_level": spec.trust_level,
                         "attacker_control": spec.attacker_control,
                         "confidence": spec.confidence,
+                        "target_pack_keys": list(target_pack_keys),
                     }
                 )
     return surfaces
+
+
+def _surface_target_pack_keys(spec: PatternSpec, emitting_pack_key: str) -> tuple[str, ...]:
+    keys = {emitting_pack_key}
+    if spec.family in TARGET_PACKS:
+        keys.add(spec.family)
+    return tuple(sorted(keys))
 
 
 def build_rce_flows(surfaces: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -1056,7 +1068,11 @@ def write_artifacts(
     run_id: str,
     write_specs: bool,
 ) -> dict[str, Path]:
-    run_root = output_root.expanduser().resolve(strict=False) / "appmap" / run_id
+    safe_run_id = validate_run_id(run_id)
+    appmap_root = output_root.expanduser().resolve(strict=False) / "appmap"
+    run_root = appmap_root / safe_run_id
+    if not run_root.resolve(strict=False).is_relative_to(appmap_root):
+        raise ValueError(f"run_id {run_id!r} resolves outside output root")
     generated_specs = run_root / "generated_specs"
     run_root.mkdir(parents=True, exist_ok=True)
     generated_specs.mkdir(parents=True, exist_ok=True)
@@ -1085,16 +1101,41 @@ def write_artifacts(
     if write_specs and result.candidates:
         focus_slug = sanitize_key(result.focus, fallback="focus")
         spec_path = generated_specs / f"{focus_slug}-spec.md"
-        rendered = VULNERABILITY_PACKS[result.focus].render_spec(result, run_id)
+        rendered = VULNERABILITY_PACKS[result.focus].render_spec(result, safe_run_id)
         spec_path.write_text(rendered, encoding="utf-8")
-        parse_brainstorm_spec(spec_path)
+        spec = parse_brainstorm_spec(spec_path)
         paths["spec"] = spec_path
         paths[f"{focus_slug.replace('-', '_')}_spec"] = spec_path
         if result.focus == "rce":
             paths["rce_spec"] = spec_path
+        context_paths = write_agent_contexts(
+            result,
+            run_root=run_root,
+            run_id=safe_run_id,
+            spec_path=spec_path,
+            parsed_spec=spec,
+        )
+        if context_paths:
+            paths["agent_contexts"] = run_root / "agent_contexts"
+            for index, context_path in enumerate(context_paths, start=1):
+                stem_parts = context_path.stem.split("-", 2)
+                if len(stem_parts) >= 2:
+                    hypothesis_id, candidate_id = stem_parts[0].lower(), stem_parts[1].lower()
+                    paths.setdefault(f"agent_context_{candidate_id}", context_path)
+                    paths[f"agent_context_{hypothesis_id}_{candidate_id}_{index}"] = context_path
 
-    paths["summary"].write_text(render_summary(result, paths, run_id=run_id), encoding="utf-8")
+    paths["summary"].write_text(render_summary(result, paths, run_id=safe_run_id), encoding="utf-8")
     return paths
+
+
+def validate_run_id(run_id: str) -> str:
+    safe = str(run_id or "").strip()
+    if not safe or safe in {".", ".."} or not RUN_ID_RE.fullmatch(safe):
+        raise ValueError(
+            "run_id must be 1-128 ASCII letters, digits, dots, underscores, or hyphens; "
+            "it must start with a letter or digit and must not contain path separators"
+        )
+    return safe
 
 
 def _write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
@@ -1141,7 +1182,7 @@ def render_architecture(result: MapResult) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def render_rce_spec(result: MapResult, *, run_id: str, max_hypotheses: int = 5) -> str:
+def render_rce_spec(result: MapResult, *, run_id: str, max_hypotheses: int = MAX_GENERATED_HYPOTHESES) -> str:
     program_slug = sanitize_key(result.profile.program)
     created = datetime.now(timezone.utc).date().isoformat()
     candidates = result.candidates[:max_hypotheses]
@@ -1196,6 +1237,7 @@ def render_rce_spec(result: MapResult, *, run_id: str, max_hypotheses: int = 5) 
                     "- Tags: rce, appmap, static, " + source["kind"] + ", " + sink["kind"],
                     "- Evidence:",
                     f"  - appmap-{candidate['id']}",
+                    f"  - appmap-context:{hypothesis_id}:{candidate['id']}:{agent_key}",
                     f"  - surface-{candidate['surface_id']}",
                     f"  - flow-{candidate['flow_id']}",
                     f"- Notes: {notes}",
@@ -1227,6 +1269,211 @@ def render_rce_spec(result: MapResult, *, run_id: str, max_hypotheses: int = 5) 
         "| Hypothesis | Agent | Status | Result | Linked FIDs | Run ID | Notes |\n"
         "|---|---|---|---|---|---|---|\n"
     )
+
+
+def write_agent_contexts(
+    result: MapResult,
+    *,
+    run_root: Path,
+    run_id: str,
+    spec_path: Path,
+    parsed_spec: Any,
+) -> list[Path]:
+    """Write candidate-isolated handoff packets for generated hypotheses."""
+
+    links = _strict_hypothesis_agent_links(parsed_spec, result.candidates)
+    if not links:
+        return []
+
+    contexts_dir = run_root / "agent_contexts"
+    contexts_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    candidates_by_id = {str(candidate["id"]): candidate for candidate in result.candidates}
+
+    for linkage in links:
+        candidate_id = str(linkage["candidate_id"])
+        candidate = candidates_by_id[candidate_id]
+        agent_key = sanitize_key(str(linkage.get("agent_key") or "agent"), fallback="agent")
+        hypothesis_id = sanitize_key(str(linkage.get("hypothesis_id") or "hypothesis"), fallback="hypothesis")
+        context_path = contexts_dir / f"{hypothesis_id.upper()}-{candidate_id}-{agent_key}.json"
+        context = render_agent_context(
+            result,
+            candidate,
+            run_id=run_id,
+            spec_path=spec_path,
+            run_root=run_root,
+            hypothesis_linkage=linkage,
+        )
+        context_path.write_text(json.dumps(context, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        written.append(context_path)
+
+    return written
+
+
+def render_agent_context(
+    result: MapResult,
+    candidate: dict[str, Any],
+    *,
+    run_id: str,
+    spec_path: Path,
+    run_root: Path,
+    hypothesis_linkage: dict[str, Any],
+) -> dict[str, Any]:
+    source = candidate["source"]
+    boundary = candidate["boundary"]
+    transform = candidate.get("transform")
+    sink = candidate["sink"]
+    active_target_pack_keys = _candidate_target_pack_keys(candidate)
+    map_ids = {
+        "candidate_id": candidate["id"],
+        "flow_id": candidate["flow_id"],
+        "source_id": source["id"],
+        "boundary_id": boundary["id"],
+        "transform_id": transform["id"] if transform else None,
+        "sink_id": sink["id"],
+        "surface_id": candidate["surface_id"],
+    }
+    return {
+        "schema_version": 1,
+        "run_id": run_id,
+        "program": result.profile.program,
+        "focus": result.focus,
+        "candidate": {
+            "id": candidate["id"],
+            "priority": candidate["priority"],
+            "score": candidate["score"],
+            "question": candidate["question"],
+            "map_ids": map_ids,
+        },
+        "target_profile": _minimal_target_profile(result.profile, active_target_pack_keys),
+        "active_target_packs": active_target_pack_keys,
+        "active_vulnerability_pack": result.focus,
+        "hypothesis_linkage": {
+            **hypothesis_linkage,
+            "spec_file": _relative_to(spec_path, run_root),
+        },
+        "focus_files": _focus_files_for_candidate(candidate),
+        "evidence": {
+            "source": _evidence_item(source),
+            "boundary": _evidence_item(boundary),
+            "transform": _evidence_item(transform) if transform else None,
+            "sink": _evidence_item(sink),
+        },
+        "next_steps": [
+            "Use only this packet's map IDs, evidence snippets, and focus files for the hypothesis.",
+            "Trace source-to-boundary-to-sink control and data flow in the listed files.",
+            "Record findings or no-findings against the linked hypothesis ID, agent key, candidate ID, and flow ID.",
+        ],
+    }
+
+
+def _strict_hypothesis_agent_links(
+    parsed_spec: Any,
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    candidate_ids = {str(candidate["id"]) for candidate in candidates}
+    linked_candidates: dict[str, str] = {}
+    links: list[dict[str, Any]] = []
+    for hypothesis in getattr(parsed_spec, "hypotheses", []):
+        evidence_refs = list(getattr(hypothesis, "evidence", []))
+        candidate_refs = [
+            match.group(1)
+            for evidence in evidence_refs
+            for match in re.finditer(r"\bappmap-(C\d{4})\b", evidence)
+        ]
+        unique_candidate_refs = sorted(set(candidate_refs))
+        if not candidate_refs:
+            raise ValueError(f"AppMap hypothesis {hypothesis.id} is missing appmap-C#### candidate evidence")
+        if len(candidate_refs) != len(unique_candidate_refs):
+            raise ValueError(f"AppMap hypothesis {hypothesis.id} contains duplicate candidate evidence")
+        if len(unique_candidate_refs) != 1:
+            raise ValueError(
+                f"AppMap hypothesis {hypothesis.id} aggregates multiple candidate IDs: "
+                f"{', '.join(unique_candidate_refs)}"
+            )
+        candidate_id = unique_candidate_refs[0]
+        if candidate_id not in candidate_ids:
+            raise ValueError(f"AppMap hypothesis {hypothesis.id} references unknown candidate {candidate_id}")
+        previous_hypothesis = linked_candidates.get(candidate_id)
+        if previous_hypothesis is not None:
+            raise ValueError(
+                f"AppMap candidate {candidate_id} is linked by multiple hypotheses: "
+                f"{previous_hypothesis} and {hypothesis.id}"
+            )
+        linked_candidates[candidate_id] = hypothesis.id
+        for agent_key in getattr(hypothesis, "suggested_agents", []):
+            links.append(
+                {
+                    "hypothesis_id": hypothesis.id,
+                    "hypothesis_title": hypothesis.title,
+                    "candidate_id": candidate_id,
+                    "agent_key": agent_key,
+                    "evidence_refs": evidence_refs,
+                    "surface": hypothesis.surface,
+                    "expected_chain": hypothesis.expected_chain,
+                }
+            )
+    return links
+
+
+def _candidate_target_pack_keys(candidate: dict[str, Any]) -> list[str]:
+    keys: set[str] = set()
+    for surface_key in ("source", "boundary", "transform", "sink"):
+        surface = candidate.get(surface_key)
+        if not isinstance(surface, dict):
+            continue
+        keys.update(str(key) for key in surface.get("target_pack_keys") or [] if str(key).strip())
+    if not keys:
+        for surface_key in ("source", "boundary"):
+            surface = candidate.get(surface_key)
+            if isinstance(surface, dict) and str(surface.get("kind", "")) in TARGET_PACKS:
+                keys.add(str(surface["kind"]))
+    return sorted(keys, key=lambda key: (key == "config", key))
+
+
+def _minimal_target_profile(profile: TargetProfile, active_target_pack_keys: list[str]) -> dict[str, Any]:
+    return {
+        "program": profile.program,
+        "target_kind": _candidate_target_kind(profile, active_target_pack_keys),
+        "languages": profile.languages,
+        "manifests": profile.manifests,
+        "confidence": profile.confidence,
+    }
+
+
+def _candidate_target_kind(profile: TargetProfile, active_target_pack_keys: list[str]) -> str:
+    for key in active_target_pack_keys:
+        pack = TARGET_PACKS.get(key)
+        if pack and (profile.target_kind == pack.key or profile.target_kind in pack.aliases):
+            return profile.target_kind
+    for key in active_target_pack_keys:
+        if key != "config":
+            return key
+    return active_target_pack_keys[0] if active_target_pack_keys else profile.target_kind
+
+
+def _evidence_item(surface: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": surface["id"],
+        "role": surface["role"],
+        "kind": surface["kind"],
+        "name": surface["name"],
+        "description": surface["description"],
+        "file": surface["file"],
+        "line": surface["line"],
+        "snippet": surface["snippet"],
+        "trust_level": surface["trust_level"],
+        "attacker_control": surface["attacker_control"],
+        "confidence": surface["confidence"],
+        "target_pack_keys": list(surface.get("target_pack_keys") or []),
+    }
+
+
+def _relative_to(path: Path, base: Path) -> str:
+    try:
+        return path.relative_to(base).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def _stable_agent_key(program_slug: str, candidate: dict[str, Any]) -> str:
@@ -1304,6 +1551,9 @@ def render_summary(result: MapResult, paths: dict[str, Path], *, run_id: str) ->
                 "```",
             ]
         )
+        if "agent_contexts" in paths:
+            context_count = len(list(paths["agent_contexts"].glob("*.json")))
+            lines.insert(9, f"- Agent contexts: `{paths['agent_contexts']}` ({context_count})")
     else:
         lines.append(f"- Generated {result.focus.upper()} spec: none; no candidate met the MVP threshold.")
     return "\n".join(lines).rstrip() + "\n"

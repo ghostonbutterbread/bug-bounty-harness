@@ -62,8 +62,26 @@ Inspect:
 - `candidates.jsonl`: hypotheses eligible for spec generation
 - `rejected_candidates.jsonl`: explicit reasons for discarded evidence
 - `generated_specs/rce-spec.md`: parser-compatible brainstorm spec when candidates exist
+- `agent_contexts/*.json`: candidate-isolated handoff packets for generated hypotheses
 
 A candidate should have a plausible attacker-controlled source, a trust boundary, a concrete sink, file evidence, and a question agents can answer.
+
+Agent context packets are runtime handoff inputs, not just archival artifacts. Each packet is one hypothesis + one candidate + one suggested agent. The generated spec links the candidate with `appmap-C####` evidence and may include `appmap-context:<hypothesis_id>:<candidate_id>:<agent_key>` evidence. During normal `--brainstorm-spec` conversion, the harness adapter loads the matching packet from `agent_contexts/` and replaces the broad brainstorm mental model / impact primitive prompt context with the packet.
+
+Packet schema contract:
+
+- `schema_version`: integer packet schema version
+- `run_id`, `program`, `focus`
+- `candidate`: `id`, `priority`, `score`, `question`, and `map_ids` for candidate, flow, source, boundary, transform, sink, and surface
+- `target_profile`: candidate-scoped minimal profile only; do not include whole-profile `frameworks` or `detected_kinds`
+- `active_target_packs`: target pack keys derived from the linked candidate evidence only
+- `active_vulnerability_pack`: vulnerability pack key such as `rce`
+- `hypothesis_linkage`: `hypothesis_id`, `hypothesis_title`, `candidate_id`, `agent_key`, `evidence_refs`, `surface`, `expected_chain`, and `spec_file`
+- `focus_files`
+- `evidence`: exact source, boundary, optional transform, and sink items with file, line, snippet, confidence, and emitting `target_pack_keys`
+- `next_steps`
+
+Strict linkage rules: every AppMap hypothesis must reference exactly one `appmap-C####` candidate; missing, duplicate, unknown, or multi-candidate evidence must fail before handoff. If a hypothesis has multiple suggested agents, write one packet per agent using the same candidate evidence.
 
 ## 4. Validate Specs
 
@@ -90,6 +108,7 @@ Include:
 - Target kind and framework summary
 - Surface, flow, candidate, and rejected counts
 - Generated spec path, if present
+- Agent context path(s), if present
 - Top candidate source, boundary, sink, and file evidence
 - Any reason no spec was generated
 
@@ -105,4 +124,4 @@ PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   --brainstorm-only
 ```
 
-AppMap does not own agent execution, findings review, coverage ledgers, or report promotion.
+The runtime adapter consumes `agent_contexts/<hypothesis_id>-<candidate_id>-<agent_key>.json` automatically for AppMap-linked hypotheses. If the packet is missing or ambiguous, fix the AppMap artifacts before running agents. AppMap does not own agent execution, findings review, coverage ledgers, or report promotion.

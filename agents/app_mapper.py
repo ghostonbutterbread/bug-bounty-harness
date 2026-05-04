@@ -16,7 +16,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 _AGENT_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _AGENT_DIR.parent
@@ -73,6 +73,40 @@ class PatternSpec:
     confidence: float
 
 
+@dataclass(frozen=True)
+class TargetDetection:
+    detected_kind: str
+    frameworks: tuple[str, ...] = ()
+    manifests: tuple[str, ...] = ()
+    entrypoints: tuple[dict[str, Any], ...] = ()
+    confidence_bonus: float = 0.0
+
+
+@dataclass(frozen=True)
+class TargetPack:
+    """Framework or language adapter that emits normalized AppMap evidence."""
+
+    key: str
+    aliases: tuple[str, ...]
+    file_extensions: tuple[str, ...]
+    manifest_names: tuple[str, ...]
+    detect: Callable[[Path, dict[str, int]], TargetDetection | None]
+    source_patterns_for_file: Callable[[Path], tuple[PatternSpec, ...]]
+    boundary_patterns_for_file: Callable[[Path], tuple[PatternSpec, ...]] = lambda _path: ()
+
+
+@dataclass(frozen=True)
+class VulnerabilityPack:
+    key: str
+    sink_patterns_for_file: Callable[[Path], tuple[PatternSpec, ...]]
+    transform_patterns_for_file: Callable[[Path], tuple[PatternSpec, ...]]
+    build_flows: Callable[
+        [list[dict[str, Any]]],
+        tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]],
+    ]
+    render_spec: Callable[[MapResult, str], str]
+
+
 @dataclass
 class TargetProfile:
     program: str
@@ -89,10 +123,15 @@ class TargetProfile:
 @dataclass
 class MapResult:
     profile: TargetProfile
+    focus: str = "rce"
     surfaces: list[dict[str, Any]] = field(default_factory=list)
     flows: list[dict[str, Any]] = field(default_factory=list)
     candidates: list[dict[str, Any]] = field(default_factory=list)
     rejected_candidates: list[dict[str, Any]] = field(default_factory=list)
+
+
+TARGET_PACKS: dict[str, TargetPack] = {}
+VULNERABILITY_PACKS: dict[str, VulnerabilityPack] = {}
 
 
 def _compile(pattern: str) -> re.Pattern[str]:
@@ -121,6 +160,19 @@ JS_SOURCE_PATTERNS = [
         0.68,
     ),
     PatternSpec(
+        "node-remote-config",
+        _compile(r"\b(fetch\(|axios\.|request\(|got\().{0,80}(config|metadata|template|script|feature|update)"),
+        "source",
+        "network-config",
+        "network response appears to feed config, templates, scripts, or update metadata",
+        "remote-controlled",
+        "medium",
+        0.7,
+    ),
+]
+
+ELECTRON_SOURCE_PATTERNS = [
+    PatternSpec(
         "electron-ipc-message",
         _compile(r"\b(ipcMain\.(handle|on)|ipcRenderer\.(send|invoke)|contextBridge\.exposeInMainWorld)\b"),
         "source",
@@ -139,16 +191,6 @@ JS_SOURCE_PATTERNS = [
         "external",
         "medium",
         0.76,
-    ),
-    PatternSpec(
-        "node-remote-config",
-        _compile(r"\b(fetch\(|axios\.|request\(|got\().{0,80}(config|metadata|template|script|feature|update)"),
-        "source",
-        "network-config",
-        "network response appears to feed config, templates, scripts, or update metadata",
-        "remote-controlled",
-        "medium",
-        0.7,
     ),
 ]
 
@@ -185,7 +227,7 @@ PY_SOURCE_PATTERNS = [
     ),
 ]
 
-BOUNDARY_PATTERNS = [
+GENERIC_BOUNDARY_PATTERNS = [
     PatternSpec(
         "cwd-or-project-boundary",
         _compile(r"\b(workspace|project|import(ed)? project|settings|config)\b|\b(process\.cwd|os\.getcwd)\s*\("),
@@ -197,16 +239,6 @@ BOUNDARY_PATTERNS = [
         0.65,
     ),
     PatternSpec(
-        "renderer-to-main-boundary",
-        _compile(r"\b(ipcMain\.(handle|on)|contextBridge\.exposeInMainWorld|preload|BrowserWindow)\b"),
-        "boundary",
-        "electron-boundary",
-        "lower-trust renderer or preload flow reaches privileged Electron code",
-        "lower-trust-renderer",
-        "high",
-        0.85,
-    ),
-    PatternSpec(
         "remote-to-local-boundary",
         _compile(r"\b(axios\.|requests\.(get|post)|httpx\.|download|update|sync)\b|\b(fetch|request)\s*\("),
         "boundary",
@@ -215,6 +247,19 @@ BOUNDARY_PATTERNS = [
         "remote-controlled",
         "medium",
         0.66,
+    ),
+]
+
+ELECTRON_BOUNDARY_PATTERNS = [
+    PatternSpec(
+        "renderer-to-main-boundary",
+        _compile(r"\b(ipcMain\.(handle|on)|contextBridge\.exposeInMainWorld|preload|BrowserWindow)\b"),
+        "boundary",
+        "electron-boundary",
+        "lower-trust renderer or preload flow reaches privileged Electron code",
+        "lower-trust-renderer",
+        "high",
+        0.85,
     ),
 ]
 
@@ -327,6 +372,16 @@ JS_STATIC_PROCESS_LITERAL_RE = _compile(
 PY_STATIC_PROCESS_LITERAL_RE = _compile(
     r"\b(?:subprocess\.(?:run|Popen|call|check_call|check_output)|os\.(?:system|popen))\s*\(\s*(?:[rub]{0,2})?(['\"])(?:\\.|(?!\1).)*\1\s*(?:[,)]|$)"
 )
+CONFIG_FILE_SOURCE_PATTERN = PatternSpec(
+    "manifest-or-config-file",
+    _compile(r".+"),
+    "source",
+    "config-file",
+    "configuration or manifest file present in source tree",
+    "project-controlled",
+    "medium",
+    0.52,
+)
 IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 LINKAGE_STOPWORDS = {
     "JSON",
@@ -373,18 +428,280 @@ LINKAGE_STOPWORDS = {
 }
 
 
+def register_target_pack(pack: TargetPack) -> None:
+    """Register a target/framework pack without changing core mapping code."""
+
+    if not pack.key:
+        raise ValueError("target pack key must not be empty")
+    TARGET_PACKS[pack.key] = pack
+
+
+def register_vulnerability_pack(pack: VulnerabilityPack) -> None:
+    if not pack.key:
+        raise ValueError("vulnerability pack key must not be empty")
+    VULNERABILITY_PACKS[pack.key] = pack
+
+
+def _all_scan_extensions() -> set[str]:
+    extensions = set(SCAN_EXTENSIONS)
+    for pack in TARGET_PACKS.values():
+        extensions.update(ext.lower() for ext in pack.file_extensions)
+    return extensions
+
+
+def _all_special_filenames() -> set[str]:
+    filenames = set(SPECIAL_FILENAMES)
+    for pack in TARGET_PACKS.values():
+        filenames.update(pack.manifest_names)
+    return filenames
+
+
+def _js_like(path: Path) -> bool:
+    return path.suffix.lower() in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
+
+
+def _config_like(path: Path) -> bool:
+    return path.suffix.lower() in {".json", ".yaml", ".yml", ".toml", ".ini", ".env"} or path.name in _all_special_filenames()
+
+
+def _node_source_patterns(path: Path) -> tuple[PatternSpec, ...]:
+    if not _js_like(path):
+        return ()
+    return tuple(JS_SOURCE_PATTERNS)
+
+
+def _electron_source_patterns(path: Path) -> tuple[PatternSpec, ...]:
+    if not _js_like(path):
+        return ()
+    return tuple(ELECTRON_SOURCE_PATTERNS)
+
+
+def _python_source_patterns(path: Path) -> tuple[PatternSpec, ...]:
+    return tuple(PY_SOURCE_PATTERNS) if path.suffix.lower() == ".py" else ()
+
+
+def _config_source_patterns(path: Path) -> tuple[PatternSpec, ...]:
+    return (CONFIG_FILE_SOURCE_PATTERN,) if _config_like(path) else ()
+
+
+def _generic_boundary_patterns(path: Path) -> tuple[PatternSpec, ...]:
+    if _js_like(path) or path.suffix.lower() == ".py":
+        return tuple(GENERIC_BOUNDARY_PATTERNS)
+    return ()
+
+
+def _electron_boundary_patterns(path: Path) -> tuple[PatternSpec, ...]:
+    if not _js_like(path):
+        return ()
+    return tuple(ELECTRON_BOUNDARY_PATTERNS)
+
+
+def _rce_sink_patterns(path: Path) -> tuple[PatternSpec, ...]:
+    if _js_like(path):
+        return tuple(JS_SINK_PATTERNS)
+    if path.suffix.lower() == ".py":
+        return tuple(PY_SINK_PATTERNS)
+    return ()
+
+
+def _rce_transform_patterns(path: Path) -> tuple[PatternSpec, ...]:
+    if _js_like(path) or path.suffix.lower() == ".py":
+        return tuple(TRANSFORM_PATTERNS)
+    return ()
+
+
+def _active_target_packs(profile: TargetProfile | None) -> list[TargetPack]:
+    if profile is None:
+        return list(TARGET_PACKS.values())
+    active: list[TargetPack] = []
+    target_kind = profile.target_kind
+    detected = set(profile.detected_kinds)
+    for pack in TARGET_PACKS.values():
+        if (
+            pack.key == "config"
+            or pack.key in detected
+            or target_kind == pack.key
+            or target_kind in pack.aliases
+        ):
+            active.append(pack)
+    return active
+
+
+def _detect_node_target(target_path: Path, languages: dict[str, int]) -> TargetDetection | None:
+    package_json = target_path / "package.json"
+    manifests: list[str] = []
+    frameworks: set[str] = set()
+    entrypoints: list[dict[str, Any]] = []
+
+    if package_json.is_file():
+        manifests.append("package.json")
+        try:
+            package = json.loads(package_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            package = {}
+        deps = {
+            **(package.get("dependencies") if isinstance(package.get("dependencies"), dict) else {}),
+            **(package.get("devDependencies") if isinstance(package.get("devDependencies"), dict) else {}),
+        }
+        if any(name in deps for name in ("express", "fastify", "koa", "next")):
+            frameworks.add("node-web")
+        if package.get("main"):
+            entrypoints.append({"kind": "node-main", "path": str(package["main"])})
+        scripts = package.get("scripts")
+        if isinstance(scripts, dict):
+            for name, command in sorted(scripts.items()):
+                if name in {"start", "dev", "serve", "main"}:
+                    entrypoints.append({"kind": "npm-script", "name": name, "command": str(command)})
+
+    if not package_json.is_file() and not languages.get("javascript"):
+        return None
+    return TargetDetection(
+        detected_kind="node",
+        frameworks=tuple(sorted(frameworks)),
+        manifests=tuple(manifests),
+        entrypoints=tuple(entrypoints),
+        confidence_bonus=0.08 if package_json.is_file() else 0.0,
+    )
+
+
+def _detect_electron_target(target_path: Path, _languages: dict[str, int]) -> TargetDetection | None:
+    package_json = target_path / "package.json"
+    has_electron = False
+    entrypoints: list[dict[str, Any]] = []
+
+    if package_json.is_file():
+        try:
+            package = json.loads(package_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            package = {}
+        deps = {
+            **(package.get("dependencies") if isinstance(package.get("dependencies"), dict) else {}),
+            **(package.get("devDependencies") if isinstance(package.get("devDependencies"), dict) else {}),
+        }
+        has_electron = "electron" in deps
+
+    for path in iter_source_files(target_path):
+        if not _js_like(path):
+            continue
+        try:
+            line_sample = path.read_text(encoding="utf-8", errors="ignore")[:12000]
+        except OSError:
+            line_sample = ""
+        if (
+            "from 'electron'" in line_sample
+            or 'from "electron"' in line_sample
+            or "require('electron')" in line_sample
+            or 'require("electron")' in line_sample
+        ):
+            has_electron = True
+            rel = path.relative_to(target_path).as_posix()
+            if "preload" in path.name.lower():
+                entrypoints.append({"kind": "electron-preload", "path": rel})
+            if "ipcMain" in line_sample or "app.whenReady" in line_sample:
+                entrypoints.append({"kind": "electron-main", "path": rel})
+
+    if not has_electron:
+        return None
+    return TargetDetection(
+        detected_kind="electron",
+        frameworks=("electron",),
+        entrypoints=tuple(entrypoints),
+        confidence_bonus=0.12,
+    )
+
+
+def _detect_python_target(target_path: Path, languages: dict[str, int]) -> TargetDetection | None:
+    manifests = [manifest for manifest in ("pyproject.toml", "requirements.txt", "setup.py") if (target_path / manifest).is_file()]
+    entrypoints: list[dict[str, Any]] = []
+    if not languages.get("python") and not manifests:
+        return None
+    for path in iter_source_files(target_path):
+        if path.suffix.lower() != ".py":
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            text = ""
+        if '__name__ == "__main__"' in text or "__name__ == '__main__'" in text:
+            entrypoints.append({"kind": "python-main", "path": path.relative_to(target_path).as_posix()})
+    return TargetDetection(
+        detected_kind="python",
+        frameworks=("python",) if manifests else (),
+        manifests=tuple(manifests),
+        entrypoints=tuple(entrypoints),
+        confidence_bonus=0.08 if manifests else 0.0,
+    )
+
+
+def _register_builtin_packs() -> None:
+    register_target_pack(
+        TargetPack(
+            key="electron",
+            aliases=("electron", "electron-exe"),
+            file_extensions=(".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"),
+            manifest_names=("package.json",),
+            detect=_detect_electron_target,
+            source_patterns_for_file=_electron_source_patterns,
+            boundary_patterns_for_file=_electron_boundary_patterns,
+        )
+    )
+    register_target_pack(
+        TargetPack(
+            key="node",
+            aliases=("node", "javascript", "node-web"),
+            file_extensions=(".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"),
+            manifest_names=("package.json",),
+            detect=_detect_node_target,
+            source_patterns_for_file=_node_source_patterns,
+            boundary_patterns_for_file=_generic_boundary_patterns,
+        )
+    )
+    register_target_pack(
+        TargetPack(
+            key="python",
+            aliases=("python", "py"),
+            file_extensions=(".py",),
+            manifest_names=("pyproject.toml", "requirements.txt", "setup.py"),
+            detect=_detect_python_target,
+            source_patterns_for_file=_python_source_patterns,
+            boundary_patterns_for_file=_generic_boundary_patterns,
+        )
+    )
+    register_target_pack(
+        TargetPack(
+            key="config",
+            aliases=("config", "manifest"),
+            file_extensions=(".json", ".yaml", ".yml", ".toml", ".ini", ".env"),
+            manifest_names=tuple(SPECIAL_FILENAMES),
+            detect=lambda _target_path, _languages: None,
+            source_patterns_for_file=_config_source_patterns,
+        )
+    )
+    register_vulnerability_pack(
+        VulnerabilityPack(
+            key="rce",
+            sink_patterns_for_file=_rce_sink_patterns,
+            transform_patterns_for_file=_rce_transform_patterns,
+            build_flows=build_rce_flows,
+            render_spec=lambda result, run_id: render_rce_spec(result, run_id=run_id),
+        )
+    )
+
+
 def sanitize_key(value: str, *, fallback: str = "target") -> str:
     slug = re.sub(r"[^A-Za-z0-9_-]+", "-", value.strip().lower()).strip("-_")
     return slug or fallback
 
 
 def iter_source_files(root: Path, *, max_file_bytes: int = 8_000_000) -> Iterable[Path]:
+    scan_extensions = _all_scan_extensions()
+    special_filenames = _all_special_filenames()
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
         if any(part in SKIP_DIRS for part in path.parts):
             continue
-        if path.name not in SPECIAL_FILENAMES and path.suffix.lower() not in SCAN_EXTENSIONS:
+        if path.name not in special_filenames and path.suffix.lower() not in scan_extensions:
             continue
         try:
             if path.stat().st_size > max_file_bytes:
@@ -400,79 +717,32 @@ def classify_target(program: str, target_path: Path, target_kind: str = "auto") 
     manifests: list[str] = []
     entrypoints: list[dict[str, Any]] = []
 
-    package_json = target_path / "package.json"
-    if package_json.is_file():
-        manifests.append("package.json")
-        try:
-            package = json.loads(package_json.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            package = {}
-        deps = {
-            **(package.get("dependencies") if isinstance(package.get("dependencies"), dict) else {}),
-            **(package.get("devDependencies") if isinstance(package.get("devDependencies"), dict) else {}),
-        }
-        if "electron" in deps:
-            frameworks.add("electron")
-        if any(name in deps for name in ("express", "fastify", "koa", "next")):
-            frameworks.add("node-web")
-        if package.get("main"):
-            entrypoints.append({"kind": "node-main", "path": str(package["main"])})
-        scripts = package.get("scripts")
-        if isinstance(scripts, dict):
-            for name, command in sorted(scripts.items()):
-                if name in {"start", "dev", "serve", "main"}:
-                    entrypoints.append({"kind": "npm-script", "name": name, "command": str(command)})
-
-    for manifest in ("pyproject.toml", "requirements.txt", "setup.py"):
-        if (target_path / manifest).is_file():
-            manifests.append(manifest)
-            frameworks.add("python")
-
     for path in iter_source_files(target_path):
         suffix = path.suffix.lower()
         if suffix in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
             languages["javascript"] = languages.get("javascript", 0) + 1
         elif suffix == ".py":
             languages["python"] = languages.get("python", 0) + 1
-            try:
-                text = path.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                text = ""
-            if '__name__ == "__main__"' in text or "__name__ == '__main__'" in text:
-                entrypoints.append(
-                    {
-                        "kind": "python-main",
-                        "path": path.relative_to(target_path).as_posix(),
-                    }
-                )
         elif suffix in {".json", ".yaml", ".yml", ".toml", ".ini", ".env"}:
             languages["config"] = languages.get("config", 0) + 1
 
-        if suffix in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
-            try:
-                line_sample = path.read_text(encoding="utf-8", errors="ignore")[:12000]
-            except OSError:
-                line_sample = ""
-            if "from 'electron'" in line_sample or 'from "electron"' in line_sample or "require('electron')" in line_sample or 'require("electron")' in line_sample:
-                frameworks.add("electron")
-                rel = path.relative_to(target_path).as_posix()
-                if "preload" in path.name.lower():
-                    entrypoints.append({"kind": "electron-preload", "path": rel})
-                if "ipcMain" in line_sample or "app.whenReady" in line_sample:
-                    entrypoints.append({"kind": "electron-main", "path": rel})
-
     detected_kinds: list[str] = []
-    if "electron" in frameworks:
-        detected_kinds.append("electron")
-    if languages.get("javascript") or package_json.is_file():
-        detected_kinds.append("node")
-    if languages.get("python"):
-        detected_kinds.append("python")
+    confidence_bonus = 0.0
+    for pack in TARGET_PACKS.values():
+        detection = pack.detect(target_path, languages)
+        if detection is None:
+            continue
+        if detection.detected_kind not in detected_kinds:
+            detected_kinds.append(detection.detected_kind)
+        frameworks.update(detection.frameworks)
+        manifests.extend(manifest for manifest in detection.manifests if manifest not in manifests)
+        entrypoints.extend(detection.entrypoints)
+        confidence_bonus += detection.confidence_bonus
     if not detected_kinds:
         detected_kinds.append("source-tree")
 
     resolved_kind = target_kind if target_kind != "auto" else detected_kinds[0]
-    confidence = 0.9 if target_kind != "auto" else min(0.95, 0.55 + (0.12 * len(detected_kinds)) + (0.08 * len(frameworks)))
+    confidence = 0.9 if target_kind != "auto" else min(0.95, 0.55 + (0.12 * len(detected_kinds)) + (0.08 * len(frameworks)) + confidence_bonus)
     return TargetProfile(
         program=program,
         target_path=str(target_path.resolve(strict=False)),
@@ -486,34 +756,20 @@ def classify_target(program: str, target_path: Path, target_kind: str = "auto") 
     )
 
 
-def scan_surfaces(target_path: Path) -> list[dict[str, Any]]:
+def scan_surfaces(target_path: Path, *, focus: str = "rce", target_profile: TargetProfile | None = None) -> list[dict[str, Any]]:
     surfaces: list[dict[str, Any]] = []
     counters: dict[str, int] = {}
-    non_electron_boundaries = [
-        pattern for pattern in BOUNDARY_PATTERNS if pattern.family != "electron-boundary"
-    ]
+    vuln_pack = VULNERABILITY_PACKS[focus]
+    target_packs = _active_target_packs(target_profile)
 
     for path in iter_source_files(target_path):
-        suffix = path.suffix.lower()
-        patterns = [*BOUNDARY_PATTERNS, *TRANSFORM_PATTERNS]
-        if suffix in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
-            patterns = [*JS_SOURCE_PATTERNS, *patterns, *JS_SINK_PATTERNS]
-        elif suffix == ".py":
-            patterns = [*PY_SOURCE_PATTERNS, *non_electron_boundaries, *TRANSFORM_PATTERNS, *PY_SINK_PATTERNS]
-        elif suffix in {".json", ".yaml", ".yml", ".toml", ".ini", ".env"} or path.name in SPECIAL_FILENAMES:
-            patterns = [
-                PatternSpec(
-                    "manifest-or-config-file",
-                    _compile(r".+"),
-                    "source",
-                    "config-file",
-                    "configuration or manifest file present in source tree",
-                    "project-controlled",
-                    "medium",
-                    0.52,
-                )
-            ]
-        else:
+        patterns: list[PatternSpec] = []
+        for pack in target_packs:
+            patterns.extend(pack.source_patterns_for_file(path))
+            patterns.extend(pack.boundary_patterns_for_file(path))
+        patterns.extend(vuln_pack.transform_patterns_for_file(path))
+        patterns.extend(vuln_pack.sink_patterns_for_file(path))
+        if not patterns:
             continue
 
         try:
@@ -774,11 +1030,19 @@ def _candidate_score(
     return round(min(base, 0.98), 2)
 
 
-def map_application(program: str, target_path: Path, *, target_kind: str = "auto") -> MapResult:
+def map_application(program: str, target_path: Path, *, target_kind: str = "auto", focus: str = "rce") -> MapResult:
     profile = classify_target(program, target_path, target_kind=target_kind)
-    surfaces = scan_surfaces(target_path)
-    flows, candidates, rejected = build_rce_flows(surfaces)
-    return MapResult(profile=profile, surfaces=surfaces, flows=flows, candidates=candidates, rejected_candidates=rejected)
+    vuln_pack = VULNERABILITY_PACKS[focus]
+    surfaces = scan_surfaces(target_path, focus=focus, target_profile=profile)
+    flows, candidates, rejected = vuln_pack.build_flows(surfaces)
+    return MapResult(
+        profile=profile,
+        focus=focus,
+        surfaces=surfaces,
+        flows=flows,
+        candidates=candidates,
+        rejected_candidates=rejected,
+    )
 
 
 def default_output_root(program: str) -> Path:
@@ -818,12 +1082,16 @@ def write_artifacts(
     _write_jsonl(paths["candidates"], result.candidates)
     _write_jsonl(paths["rejected_candidates"], result.rejected_candidates)
 
-    spec_path: Path | None = None
     if write_specs and result.candidates:
-        spec_path = generated_specs / "rce-spec.md"
-        spec_path.write_text(render_rce_spec(result, run_id=run_id), encoding="utf-8")
+        focus_slug = sanitize_key(result.focus, fallback="focus")
+        spec_path = generated_specs / f"{focus_slug}-spec.md"
+        rendered = VULNERABILITY_PACKS[result.focus].render_spec(result, run_id)
+        spec_path.write_text(rendered, encoding="utf-8")
         parse_brainstorm_spec(spec_path)
-        paths["rce_spec"] = spec_path
+        paths["spec"] = spec_path
+        paths[f"{focus_slug.replace('-', '_')}_spec"] = spec_path
+        if result.focus == "rce":
+            paths["rce_spec"] = spec_path
 
     paths["summary"].write_text(render_summary(result, paths, run_id=run_id), encoding="utf-8")
     return paths
@@ -846,9 +1114,10 @@ def render_architecture(result: MapResult) -> str:
         f"- Frameworks: {', '.join(profile.frameworks) if profile.frameworks else 'none detected'}",
         f"- Manifests: {', '.join(profile.manifests) if profile.manifests else 'none detected'}",
         f"- Entry points: {len(profile.entrypoints)}",
-        f"- RCE surfaces: {len(result.surfaces)}",
-        f"- RCE flows: {len(result.flows)}",
-        f"- RCE candidates: {len(result.candidates)}",
+        f"- Focus: {result.focus}",
+        f"- {result.focus.upper()} surfaces: {len(result.surfaces)}",
+        f"- {result.focus.upper()} flows: {len(result.flows)}",
+        f"- {result.focus.upper()} candidates: {len(result.candidates)}",
         "",
         "## Entrypoints",
         "",
@@ -857,7 +1126,7 @@ def render_architecture(result: MapResult) -> str:
         lines.extend(f"- `{json.dumps(entry, sort_keys=True)}`" for entry in profile.entrypoints[:20])
     else:
         lines.append("- No explicit entrypoints detected.")
-    lines.extend(["", "## High-Signal RCE Candidates", ""])
+    lines.extend(["", f"## High-Signal {result.focus.upper()} Candidates", ""])
     if result.candidates:
         for candidate in result.candidates[:10]:
             lines.append(
@@ -899,7 +1168,7 @@ def render_rce_spec(result: MapResult, *, run_id: str, max_hypotheses: int = 5) 
             )
         )
         transform_text = f" -> {transform['kind']} transform" if transform else ""
-        focus_files = _focus_globs_for_candidate(candidate)
+        focus_files = _focus_files_for_candidate(candidate)
         title = f"{_title_case(source['kind'])} input may influence {_title_case(sink['kind'])}"
         notes = (
             f"AppMap run {run_id}; candidate {candidate['id']}; flow {candidate['flow_id']}; "
@@ -982,7 +1251,7 @@ def _stable_agent_key(program_slug: str, candidate: dict[str, Any]) -> str:
     return tail[:MAX_AGENT_KEY_LEN].strip("-_") or f"appmap-rce-{digest}"
 
 
-def _focus_globs_for_candidate(candidate: dict[str, Any]) -> list[str]:
+def _focus_files_for_candidate(candidate: dict[str, Any]) -> list[str]:
     files = {
         str(candidate["source"]["file"]),
         str(candidate["boundary"]["file"]),
@@ -990,17 +1259,7 @@ def _focus_globs_for_candidate(candidate: dict[str, Any]) -> list[str]:
     }
     if candidate.get("transform"):
         files.add(str(candidate["transform"]["file"]))
-    globs = sorted(_portable_glob(file_name) for file_name in files)
-    return globs[:8] or ["**/*.js", "**/*.py"]
-
-
-def _portable_glob(file_name: str) -> str:
-    suffix = Path(file_name).suffix
-    if suffix in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py"}:
-        return f"**/*{suffix}"
-    if suffix:
-        return f"**/*{suffix}"
-    return "**/*"
+    return sorted(files)[:8] or ["."]
 
 
 def _title_case(value: str) -> str:
@@ -1013,7 +1272,7 @@ def _mental_model(result: MapResult) -> str:
     frameworks = ", ".join(profile.frameworks) if profile.frameworks else "no named framework"
     return (
         f"Static AppMap classified this target as {profile.target_kind} "
-        f"({kinds}) with {frameworks}. The RCE mapper found "
+        f"({kinds}) with {frameworks}. The {result.focus} mapper found "
         f"{len(result.surfaces)} source/boundary/transform/sink surfaces and "
         f"{len(result.candidates)} candidate chain(s) that preserve AppMap IDs "
         "for traceability."
@@ -1032,21 +1291,25 @@ def render_summary(result: MapResult, paths: dict[str, Path], *, run_id: str) ->
         f"- Candidates: {len(result.candidates)}",
         f"- Rejected candidates: {len(result.rejected_candidates)}",
     ]
-    if "rce_spec" in paths:
+    if "spec" in paths:
+        focus_label = result.focus.upper()
         lines.extend(
             [
-                f"- Generated RCE spec: `{paths['rce_spec']}`",
+                f"- Generated {focus_label} spec: `{paths['spec']}`",
                 "",
                 "Suggested run command:",
                 "",
                 "```bash",
-                f"python3 agents/zero_day_team.py {sanitize_key(result.profile.program)} {result.profile.target_path} --brainstorm-spec {paths['rce_spec']} --brainstorm-only",
+                f"python3 agents/zero_day_team.py {sanitize_key(result.profile.program)} {result.profile.target_path} --brainstorm-spec {paths['spec']} --brainstorm-only",
                 "```",
             ]
         )
     else:
-        lines.append("- Generated RCE spec: none; no candidate met the MVP threshold.")
+        lines.append(f"- Generated {result.focus.upper()} spec: none; no candidate met the MVP threshold.")
     return "\n".join(lines).rstrip() + "\n"
+
+
+_register_builtin_packs()
 
 
 def _target_kind_arg(value: str) -> str:
@@ -1061,7 +1324,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("program", help="Program name used in generated artifacts.")
     parser.add_argument("target_path", help="Local source tree, Electron app source, or extracted code path.")
     parser.add_argument("--target-kind", default="auto", type=_target_kind_arg, help="Target kind hint; defaults to auto.")
-    parser.add_argument("--focus", default="rce", choices=["rce"], help="Vulnerability focus for Phase 1.")
+    parser.add_argument("--focus", default="rce", choices=sorted(VULNERABILITY_PACKS), help="Vulnerability focus for Phase 2.")
     parser.add_argument("--write-specs", action="store_true", help="Write and validate generated brainstorm specs.")
     parser.add_argument("--output-root", help="Output root. Defaults to ~/Shared/appmap/<program>/static.")
     parser.add_argument("--run-id", help="Deterministic run id override for tests or repeatable workflows.")
@@ -1076,12 +1339,12 @@ def main(argv: list[str] | None = None) -> int:
 
     run_id = args.run_id or f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{int(time.time())}"
     output_root = Path(args.output_root).expanduser() if args.output_root else default_output_root(args.program)
-    result = map_application(args.program, target_path, target_kind=args.target_kind)
+    result = map_application(args.program, target_path, target_kind=args.target_kind, focus=args.focus)
     paths = write_artifacts(result, output_root=output_root, run_id=run_id, write_specs=args.write_specs)
     print(f"[appmap] output: {paths['run_root']}")
     print(f"[appmap] surfaces={len(result.surfaces)} flows={len(result.flows)} candidates={len(result.candidates)}")
-    if "rce_spec" in paths:
-        print(f"[appmap] generated spec: {paths['rce_spec']}")
+    if "spec" in paths:
+        print(f"[appmap] generated spec: {paths['spec']}")
     return 0
 
 

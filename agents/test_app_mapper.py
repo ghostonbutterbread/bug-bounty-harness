@@ -14,10 +14,13 @@ from agents.app_mapper import (
     TargetPack,
     VulnerabilityPack,
     build_rce_flows,
+    canonical_output_root,
     map_application,
+    promote_appmap_handoff,
     register_target_pack,
     register_vulnerability_pack,
     render_rce_spec,
+    resolve_output_root,
     validate_run_id,
     write_artifacts,
     write_agent_contexts,
@@ -243,6 +246,341 @@ subprocess.run(config_path, shell=True)
     assert candidates
 
 
+def test_app_mapper_resolves_and_writes_canonical_lane_appmap_root(tmp_path: Path) -> None:
+    shared_root = tmp_path / "Shared"
+    lane_root = canonical_output_root(
+        family="Binaries",
+        program="Canva App",
+        lane="EXE",
+        shared_root=shared_root,
+    )
+
+    assert lane_root == shared_root / "binaries" / "canva-app" / "exe"
+    assert resolve_output_root(
+        "Canva App",
+        output_mode="canonical",
+        family="Binaries",
+        lane="EXE",
+        shared_root=shared_root,
+    ) == lane_root
+    with pytest.raises(ValueError, match="requires --family and --lane"):
+        resolve_output_root("Canva App", output_mode="canonical", family="Binaries")
+
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="canonical-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+
+    assert paths["run_root"] == lane_root.resolve(strict=False) / "appmap" / "canonical-run"
+    manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+    assert manifest["output_mode"] == "canonical"
+    assert manifest["run_root"] == str(paths["run_root"])
+    assert manifest["artifacts"]["surfaces"] == "surfaces.jsonl"
+    index_rows = [
+        json.loads(line)
+        for line in paths["index"].read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    assert index_rows[-1]["run_id"] == "canonical-run"
+    assert index_rows[-1]["run_root"] == str(paths["run_root"])
+
+
+def test_app_mapper_preserves_standalone_output_root_compatibility(tmp_path: Path) -> None:
+    output_root = tmp_path / "legacy-out"
+    result = _one_candidate_result(tmp_path)
+
+    paths = write_artifacts(
+        result,
+        output_root=output_root,
+        run_id="standalone-run",
+        write_specs=True,
+    )
+
+    assert resolve_output_root("one candidate", output_root=output_root) == output_root
+    assert paths["run_root"] == output_root.resolve(strict=False) / "appmap" / "standalone-run"
+    assert paths["rce_spec"].parent == paths["run_root"] / "generated_specs"
+    assert json.loads(paths["manifest"].read_text(encoding="utf-8"))["output_mode"] == "standalone"
+
+
+def test_appmap_promotion_copies_only_handoff_files_and_preserves_run_trace(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    brainstorm_root = lane_root / "brainstorm"
+    brainstorm_root.mkdir(parents=True)
+    (brainstorm_root / "spec.md").write_text("# Existing human brainstorm\n", encoding="utf-8")
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="promo-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+
+    collision_root = brainstorm_root / "appmap-promo-run-rce"
+    collision_root.mkdir(parents=True)
+    (collision_root / "spec.md").write_text("# Existing promoted spec\n", encoding="utf-8")
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        promote_appmap_handoff(
+            paths,
+            brainstorm_root=brainstorm_root,
+            run_id="promo-run",
+            spec_name="spec.md",
+        )
+
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=brainstorm_root,
+        run_id="promo-run",
+    )
+
+    promoted_spec = promotion.spec_paths[0]
+    assert promoted_spec == brainstorm_root.resolve(strict=False) / "appmap-promo-run-rce" / "rce-spec.md"
+    assert promotion.promotion_root == brainstorm_root.resolve(strict=False) / "appmap-promo-run-rce"
+    assert (brainstorm_root / "spec.md").read_text(encoding="utf-8") == "# Existing human brainstorm\n"
+    promoted_text = promoted_spec.read_text(encoding="utf-8")
+    assert f"- AppMap run root: {paths['run_root']}" in promoted_text
+    assert promotion.context_paths
+    assert promotion.context_paths[0].parent == promotion.promotion_root / "agent_contexts"
+    packet = json.loads(promotion.context_paths[0].read_text(encoding="utf-8"))
+    assert packet["appmap_run_root"] == str(paths["run_root"])
+    assert packet["hypothesis_linkage"]["spec_file"] == "generated_specs/rce-spec.md"
+    manifest = json.loads(promotion.manifest_path.read_text(encoding="utf-8").splitlines()[-1])
+    assert manifest["appmap_run_root"] == str(paths["run_root"])
+    assert manifest["promotion_root"] == "appmap-promo-run-rce"
+    assert manifest["promoted_contexts"] == [f"agent_contexts/{promotion.context_paths[0].name}"]
+    assert not (lane_root / "ledgers").exists()
+    assert not (lane_root / "reports").exists()
+    assert not (brainstorm_root / "surfaces.jsonl").exists()
+    assert not (brainstorm_root / "flows.jsonl").exists()
+    assert not (brainstorm_root / "candidates.jsonl").exists()
+
+
+def test_dynamic_agent_conversion_consumes_promoted_appmap_packet_context(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="promoted-adapter-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="promoted-adapter-run",
+    )
+    spec = parse_brainstorm_spec(promotion.spec_paths[0])
+    intent = hypothesis_to_agent_intents(spec, spec.hypotheses[0])[0]
+
+    dynamic_spec = brainstorm_intent_to_dynamic_agent_spec(
+        intent,
+        program=spec.metadata["Program"],
+        version=spec.metadata["AppMap run id"],
+    )
+
+    assert "Use this AppMap context packet as the complete assignment context" in dynamic_spec.agent_prompt_template
+    assert str(lane_root / "brainstorm" / "appmap-promoted-adapter-run-rce" / "agent_contexts") in dynamic_spec.brainstorm_metadata["appmap_context_packet"]
+    assert dynamic_spec.brainstorm_metadata["appmap_candidate_id"] == result.candidates[0]["id"]
+    assert dynamic_spec.brainstorm_metadata["appmap_flow_id"] == result.candidates[0]["flow_id"]
+    assert "surfaces.jsonl" not in dynamic_spec.brainstorm_metadata
+    assert "flows.jsonl" not in dynamic_spec.brainstorm_metadata
+    assert "candidates.jsonl" not in dynamic_spec.brainstorm_metadata
+
+
+def test_repeated_appmap_promotions_namespace_packets_by_run(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    first_paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="repeat-run-one",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    second_paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="repeat-run-two",
+        write_specs=True,
+        output_mode="canonical",
+    )
+
+    first = promote_appmap_handoff(
+        first_paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="repeat-run-one",
+        spec_name="spec.md",
+    )
+    second = promote_appmap_handoff(
+        second_paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="repeat-run-two",
+        spec_name="spec.md",
+        overwrite=True,
+    )
+
+    first_spec = parse_brainstorm_spec(first.spec_paths[0])
+    second_spec = parse_brainstorm_spec(second.spec_paths[0])
+    first_intent = hypothesis_to_agent_intents(first_spec, first_spec.hypotheses[0])[0]
+    second_intent = hypothesis_to_agent_intents(second_spec, second_spec.hypotheses[0])[0]
+    first_dynamic = brainstorm_intent_to_dynamic_agent_spec(
+        first_intent,
+        program=first_spec.metadata["Program"],
+        version=first_spec.metadata["AppMap run id"],
+    )
+    second_dynamic = brainstorm_intent_to_dynamic_agent_spec(
+        second_intent,
+        program=second_spec.metadata["Program"],
+        version=second_spec.metadata["AppMap run id"],
+    )
+
+    assert first.spec_paths[0] == lane_root / "brainstorm" / "appmap-repeat-run-one-rce" / "spec.md"
+    assert second.spec_paths[0] == lane_root / "brainstorm" / "appmap-repeat-run-two-rce" / "spec.md"
+    assert "appmap-repeat-run-one-rce/agent_contexts" in first_dynamic.brainstorm_metadata["appmap_context_packet"]
+    assert "appmap-repeat-run-two-rce/agent_contexts" in second_dynamic.brainstorm_metadata["appmap_context_packet"]
+    first_packet = json.loads(Path(first_dynamic.brainstorm_metadata["appmap_context_packet"]).read_text(encoding="utf-8"))
+    second_packet = json.loads(Path(second_dynamic.brainstorm_metadata["appmap_context_packet"]).read_text(encoding="utf-8"))
+    assert first_packet["run_id"] == "repeat-run-one"
+    assert second_packet["run_id"] == "repeat-run-two"
+
+
+def test_appmap_adapter_rejects_packet_run_id_mismatch(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="packet-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="packet-run",
+    )
+    packet_path = promotion.context_paths[0]
+    packet = json.loads(packet_path.read_text(encoding="utf-8"))
+    packet["run_id"] = "different-run"
+    packet_path.write_text(json.dumps(packet, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    spec = parse_brainstorm_spec(promotion.spec_paths[0])
+    intent = hypothesis_to_agent_intents(spec, spec.hypotheses[0])[0]
+
+    with pytest.raises(ValueError, match="run_id does not match spec AppMap run id"):
+        brainstorm_intent_to_dynamic_agent_spec(
+            intent,
+            program=spec.metadata["Program"],
+            version=spec.metadata["AppMap run id"],
+        )
+
+
+def test_appmap_promotion_refuses_destination_symlink(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="dest-link-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion_root = lane_root / "brainstorm" / "appmap-dest-link-run-rce"
+    promotion_root.mkdir(parents=True)
+    outside = tmp_path / "outside-spec.md"
+    outside.write_text("# outside\n", encoding="utf-8")
+    (promotion_root / "rce-spec.md").symlink_to(outside)
+
+    with pytest.raises(ValueError, match="refusing symlink destination"):
+        promote_appmap_handoff(
+            paths,
+            brainstorm_root=lane_root / "brainstorm",
+            run_id="dest-link-run",
+        )
+
+
+def test_appmap_promotion_refuses_source_symlink(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="source-link-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    real_context = next((paths["agent_contexts"]).glob("*.json"))
+    context_text = real_context.read_text(encoding="utf-8")
+    real_context.unlink()
+    source_target = tmp_path / "source-target.json"
+    source_target.write_text(context_text, encoding="utf-8")
+    real_context.symlink_to(source_target)
+
+    with pytest.raises(ValueError, match="refusing symlink source"):
+        promote_appmap_handoff(
+            paths,
+            brainstorm_root=lane_root / "brainstorm",
+            run_id="source-link-run",
+        )
+    assert not (lane_root / "brainstorm").exists()
+
+
+def test_appmap_promotion_context_collision_preflight_leaves_no_partial_spec(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="context-collision-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    source_context = next((paths["agent_contexts"]).glob("*.json"))
+    promotion_root = lane_root / "brainstorm" / "appmap-context-collision-run-rce"
+    collision = promotion_root / "agent_contexts" / source_context.name
+    collision.parent.mkdir(parents=True)
+    collision.write_text('{"existing": true}\n', encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="refusing to overwrite existing promoted AppMap file"):
+        promote_appmap_handoff(
+            paths,
+            brainstorm_root=lane_root / "brainstorm",
+            run_id="context-collision-run",
+        )
+
+    assert not (promotion_root / "rce-spec.md").exists()
+    assert collision.read_text(encoding="utf-8") == '{"existing": true}\n'
+
+
+
+def test_appmap_promotion_manifest_non_file_preflight_leaves_no_partial_artifacts(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="manifest-dir-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    brainstorm_root = lane_root / "brainstorm"
+    (brainstorm_root / "appmap_promotions.jsonl").mkdir(parents=True)
+
+    with pytest.raises(FileExistsError, match="refusing non-file promoted AppMap manifest destination"):
+        promote_appmap_handoff(
+            paths,
+            brainstorm_root=brainstorm_root,
+            run_id="manifest-dir-run",
+        )
+
+    promotion_root = brainstorm_root / "appmap-manifest-dir-run-rce"
+    assert not (promotion_root / "rce-spec.md").exists()
+    assert not (promotion_root / "agent_contexts").exists()
+
 def test_app_mapper_writes_candidate_isolated_agent_context(tmp_path: Path) -> None:
     target = tmp_path / "node-app"
     _write(
@@ -357,7 +695,12 @@ child_process.exec(config.command);
     candidate = next(item for item in result.candidates if item["source"]["file"] == "tools/runner.js")
     context_path = paths[f"agent_context_{candidate['id'].lower()}"]
     context = json.loads(context_path.read_text(encoding="utf-8"))
-    context_text = json.dumps(context, sort_keys=True).lower()
+    context_without_run_path = {
+        key: value
+        for key, value in context.items()
+        if key != "appmap_run_root"
+    }
+    context_text = json.dumps(context_without_run_path, sort_keys=True).lower()
 
     assert context["active_target_packs"] == ["node", "config"]
     assert context["target_profile"]["target_kind"] == "node"

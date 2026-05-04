@@ -9,13 +9,14 @@ Map a local application and forge focused brainstorm specs from source/boundary/
 ## Invocation
 
 ```text
-/appmap <program> <target_path> [--target-kind <kind>] [--focus rce] [--write-specs] [--output-root <path>]
+/appmap <program> <target_path> [--target-kind <kind>] [--focus rce] [--write-specs] [--output-mode standalone|canonical] [--family <family>] [--lane <lane>] [--promote-to-brainstorm]
 ```
 
 Examples:
 
 ```text
 /appmap canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --target-kind electron-exe --focus rce --write-specs
+/appmap canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --target-kind electron-exe --focus rce --write-specs --output-mode canonical --family binaries --lane exe
 /appmap demo /path/to/source --focus rce
 ```
 
@@ -32,8 +33,11 @@ Read the playbook before running the mapper:
 - **Playbook:** `$HARNESS_ROOT/prompts/appmap-playbook.md`
 - **Mapper:** `$HARNESS_ROOT/agents/app_mapper.py`
 - **Default output:** `~/Shared/appmap/{program}/static/appmap/{run_id}/`
+- **Canonical output:** `~/Shared/{family}/{program}/{lane}/appmap/{run_id}/`
 - **Generated specs:** `{output}/generated_specs/`
 - **Agent contexts:** `{output}/agent_contexts/<hypothesis_id>-<candidate_id>-<agent_key>.json` when generated specs link hypotheses to candidates
+- **Run manifest:** `{output}/manifest.json`
+- **Run index:** `~/Shared/{family}/{program}/{lane}/appmap/index.jsonl` for canonical runs
 
 ## Responsibilities
 
@@ -42,6 +46,10 @@ Read the playbook before running the mapper:
 - Generate parser-valid brainstorm specs when `--write-specs` is requested and candidates exist.
 - Preserve candidate-isolated agent handoff contexts with only the linked map IDs, evidence snippets/files, active packs, and next steps.
 - Ensure each AppMap hypothesis links to exactly one `appmap-C####` candidate and write one context packet per suggested agent.
+- Write `manifest.json` plus `appmap/index.jsonl` so future modules discover AppMap artifacts without reading findings ledgers.
+- Promote generated specs/context packets into `brainstorm/` only when explicitly requested.
+- During promotion, keep raw surfaces, flows, candidates, and rejected candidates in the AppMap run root.
+- Do not overwrite existing `brainstorm/spec.md` unless the user explicitly chooses that filename and allows overwrite.
 - Keep packet `active_target_packs` candidate-evidence scoped so mixed targets do not leak unrelated framework context.
 - Keep AppMap pre-runtime. Do not add or use `zero_day_team --appmap` integration from this skill.
 - Hand generated specs to the normal team runtime only when the user explicitly asks to run hypotheses.
@@ -61,9 +69,38 @@ PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   --write-specs
 ```
 
-4. Read `appmap_summary.md`, `architecture.md`, `candidates.jsonl`, `rejected_candidates.jsonl`, and generated `agent_contexts/*.json` when present.
+For canonical lane storage:
+
+```bash
+python3 agents/app_mapper.py <program> <target_path> \
+  --target-kind auto \
+  --focus rce \
+  --write-specs \
+  --output-mode canonical \
+  --family <family> \
+  --lane <lane>
+```
+
+4. Read `appmap_summary.md`, `architecture.md`, `manifest.json`, `candidates.jsonl`, `rejected_candidates.jsonl`, and generated `agent_contexts/*.json` when present.
 5. Validate generated specs with `agents.brainstorm_spec.parse_brainstorm_spec` when present.
-6. Report the output directory, candidate count, generated specs, and any no-candidate reason visible in rejected candidates.
+6. Promote only on request with `--promote-to-brainstorm`. Canonical mode defaults to `{lane_root}/brainstorm`; standalone mode needs `--brainstorm-root`.
+7. Report the output directory, manifest/index, candidate count, generated specs, promoted handoff paths when any, and no-candidate reasons visible in rejected candidates.
+
+## Promotion
+
+Default promotion writes a unique per-run handoff directory:
+
+```text
+~/Shared/{family}/{program}/{lane}/brainstorm/appmap-<run_id>-<focus>/rce-spec.md
+```
+
+It also copies matching context packets to the spec's sibling context directory:
+
+```text
+~/Shared/{family}/{program}/{lane}/brainstorm/appmap-<run_id>-<focus>/agent_contexts/
+```
+
+Promoted specs and packets keep pointers to the originating AppMap run. Existing `brainstorm/spec.md` remains untouched; `--promote-spec-name` chooses a filename inside the per-run promotion directory, and overwrite applies only there.
 
 ## Runtime Handoff
 

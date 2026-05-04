@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import re
+import shutil
 import sys
 import time
 from dataclasses import dataclass, field
@@ -128,6 +129,15 @@ class MapResult:
     flows: list[dict[str, Any]] = field(default_factory=list)
     candidates: list[dict[str, Any]] = field(default_factory=list)
     rejected_candidates: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class PromotionResult:
+    brainstorm_root: Path
+    promotion_root: Path
+    spec_paths: list[Path]
+    context_paths: list[Path]
+    manifest_path: Path
 
 
 TARGET_PACKS: dict[str, TargetPack] = {}
@@ -1061,12 +1071,46 @@ def default_output_root(program: str) -> Path:
     return Path.home() / "Shared" / "appmap" / sanitize_key(program) / "static"
 
 
+def canonical_output_root(
+    *,
+    family: str,
+    program: str,
+    lane: str,
+    shared_root: Path | None = None,
+) -> Path:
+    """Return the canonical lane root used for durable AppMap data."""
+
+    root = shared_root.expanduser() if shared_root is not None else Path.home() / "Shared"
+    return root / sanitize_key(family, fallback="family") / sanitize_key(program) / sanitize_key(lane, fallback="lane")
+
+
+def resolve_output_root(
+    program: str,
+    *,
+    output_mode: str = "standalone",
+    output_root: Path | None = None,
+    family: str | None = None,
+    lane: str | None = None,
+    shared_root: Path | None = None,
+) -> Path:
+    if output_mode == "standalone":
+        return output_root.expanduser() if output_root is not None else default_output_root(program)
+    if output_mode != "canonical":
+        raise ValueError("output_mode must be 'standalone' or 'canonical'")
+    if output_root is not None:
+        raise ValueError("--output-root is standalone-only; use --shared-root with --output-mode canonical")
+    if not family or not lane:
+        raise ValueError("--output-mode canonical requires --family and --lane")
+    return canonical_output_root(family=family, program=program, lane=lane, shared_root=shared_root)
+
+
 def write_artifacts(
     result: MapResult,
     *,
     output_root: Path,
     run_id: str,
     write_specs: bool,
+    output_mode: str = "standalone",
 ) -> dict[str, Path]:
     safe_run_id = validate_run_id(run_id)
     appmap_root = output_root.expanduser().resolve(strict=False) / "appmap"
@@ -1085,6 +1129,8 @@ def write_artifacts(
         "flows": run_root / "flows.jsonl",
         "candidates": run_root / "candidates.jsonl",
         "rejected_candidates": run_root / "rejected_candidates.jsonl",
+        "manifest": run_root / "manifest.json",
+        "index": appmap_root / "index.jsonl",
         "summary": run_root / "appmap_summary.md",
     }
 
@@ -1102,6 +1148,7 @@ def write_artifacts(
         focus_slug = sanitize_key(result.focus, fallback="focus")
         spec_path = generated_specs / f"{focus_slug}-spec.md"
         rendered = VULNERABILITY_PACKS[result.focus].render_spec(result, safe_run_id)
+        rendered = _with_appmap_run_root_metadata(rendered, run_root)
         spec_path.write_text(rendered, encoding="utf-8")
         spec = parse_brainstorm_spec(spec_path)
         paths["spec"] = spec_path
@@ -1124,8 +1171,95 @@ def write_artifacts(
                     paths.setdefault(f"agent_context_{candidate_id}", context_path)
                     paths[f"agent_context_{hypothesis_id}_{candidate_id}_{index}"] = context_path
 
+    manifest = render_run_manifest(result, paths, run_id=safe_run_id, output_mode=output_mode)
+    paths["manifest"].write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _append_run_index(paths["index"], manifest)
     paths["summary"].write_text(render_summary(result, paths, run_id=safe_run_id), encoding="utf-8")
     return paths
+
+
+def promote_appmap_handoff(
+    paths: dict[str, Path],
+    *,
+    brainstorm_root: Path,
+    run_id: str,
+    spec_name: str | None = None,
+    overwrite: bool = False,
+) -> PromotionResult:
+    """Copy generated specs and context packets into a brainstorm handoff area.
+
+    Promotion is intentionally narrow: only generated specs and agent context
+    packets move into brainstorm space. Raw surfaces, flows, and candidates stay
+    in the originating AppMap run root.
+    """
+
+    if "spec" not in paths:
+        raise ValueError("cannot promote AppMap handoff without a generated spec")
+    safe_run_id = validate_run_id(run_id)
+    run_root = paths["run_root"]
+    brainstorm_base = brainstorm_root.expanduser()
+    _reject_symlink_components(brainstorm_base, label="destination")
+    destination_root = brainstorm_base.resolve(strict=False)
+
+    source_specs = sorted({path for key, path in paths.items() if key == "spec" or key.endswith("_spec")})
+    focus_slug = _promotion_focus_slug(paths, source_specs)
+    promotion_root = destination_root / f"appmap-{safe_run_id}-{focus_slug}"
+    _ensure_destination_inside(promotion_root, destination_root)
+
+    copy_pairs: list[tuple[Path, Path]] = []
+    for source_spec in source_specs:
+        destination_name = spec_name or source_spec.name
+        destination_spec = promotion_root / _safe_relative_filename(destination_name)
+        copy_pairs.append((source_spec, destination_spec))
+
+    contexts_dir = paths.get("agent_contexts")
+    if contexts_dir:
+        _reject_symlink_components(contexts_dir, label="source")
+    if contexts_dir and contexts_dir.is_dir():
+        promoted_context_root = promotion_root / "agent_contexts"
+        for source_context in sorted(path for path in contexts_dir.iterdir() if path.suffix == ".json"):
+            destination_context = promoted_context_root / source_context.name
+            copy_pairs.append((source_context, destination_context))
+
+    manifest_path = destination_root / "appmap_promotions.jsonl"
+    _preflight_promotion_copy(copy_pairs, promotion_root=promotion_root, overwrite=overwrite)
+    _preflight_manifest_path(manifest_path, destination_root)
+    for source, destination in copy_pairs:
+        _copy_file_safely(source, destination, overwrite=overwrite)
+
+    promoted_specs = [
+        destination
+        for source, destination in copy_pairs
+        if source in source_specs
+    ]
+    promoted_contexts = [
+        destination
+        for source, destination in copy_pairs
+        if source not in source_specs
+    ]
+
+    promotion_record = {
+        "schema_version": 1,
+        "promoted_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "appmap_run_id": safe_run_id,
+        "appmap_run_root": str(run_root),
+        "source_specs": [_relative_to(path, run_root) for path in source_specs],
+        "promotion_root": promotion_root.name,
+        "promoted_specs": [_relative_to(path, promotion_root) for path in promoted_specs],
+        "promoted_contexts": [_relative_to(path, promotion_root) for path in promoted_contexts],
+        "source_manifest": _relative_to(paths["manifest"], run_root) if "manifest" in paths else None,
+    }
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    with manifest_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(promotion_record, sort_keys=True) + "\n")
+
+    return PromotionResult(
+        brainstorm_root=destination_root,
+        promotion_root=promotion_root,
+        spec_paths=promoted_specs,
+        context_paths=promoted_contexts,
+        manifest_path=manifest_path,
+    )
 
 
 def validate_run_id(run_id: str) -> str:
@@ -1142,6 +1276,193 @@ def _write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def _copy_file_safely(source: Path, destination: Path, *, overwrite: bool) -> None:
+    promotion_root = destination.parent.parent if destination.parent.name == "agent_contexts" else destination.parent
+    _preflight_promotion_copy(
+        [(source, destination)],
+        promotion_root=promotion_root,
+        overwrite=overwrite,
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination, follow_symlinks=False)
+
+
+def _promotion_focus_slug(paths: dict[str, Path], source_specs: list[Path]) -> str:
+    manifest_path = paths.get("manifest")
+    if manifest_path and manifest_path.is_file() and not manifest_path.is_symlink():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            manifest = {}
+        focus = str(manifest.get("focus") or "").strip() if isinstance(manifest, dict) else ""
+        if focus:
+            return sanitize_key(focus, fallback="focus")
+    if source_specs:
+        stem = source_specs[0].stem
+        if stem.endswith("-spec"):
+            stem = stem[:-5]
+        return sanitize_key(stem, fallback="focus")
+    return "focus"
+
+
+def _preflight_promotion_copy(
+    pairs: list[tuple[Path, Path]],
+    *,
+    promotion_root: Path,
+    overwrite: bool,
+) -> None:
+    destination_names: set[Path] = set()
+    _reject_symlink_components(promotion_root, label="destination")
+    promotion_root_resolved = promotion_root.resolve(strict=False)
+    for source, destination in pairs:
+        _reject_symlink_components(source, label="source")
+        if not source.is_file():
+            raise FileNotFoundError(f"missing promoted AppMap source file: {source}")
+        _reject_symlink_components(destination, label="destination")
+        _ensure_destination_inside(destination, promotion_root_resolved)
+        if destination in destination_names:
+            raise ValueError(f"duplicate promoted AppMap destination: {destination}")
+        destination_names.add(destination)
+        try:
+            destination.lstat()
+        except FileNotFoundError:
+            continue
+        if destination.is_symlink():
+            raise ValueError(f"refusing symlink destination for promoted AppMap file: {destination}")
+        if not overwrite:
+            raise FileExistsError(
+                f"refusing to overwrite existing promoted AppMap file: {destination}; "
+                "choose a unique run id/spec name or pass overwrite=True"
+            )
+        if not destination.is_file():
+            raise FileExistsError(f"refusing to overwrite non-file promoted AppMap destination: {destination}")
+
+
+def _preflight_manifest_path(manifest_path: Path, destination_root: Path) -> None:
+    _reject_symlink_components(manifest_path, label="destination")
+    _ensure_destination_inside(manifest_path, destination_root.resolve(strict=False))
+    try:
+        manifest_path.lstat()
+    except FileNotFoundError:
+        return
+    if manifest_path.is_symlink():
+        raise ValueError(f"refusing symlink destination for promoted AppMap manifest: {manifest_path}")
+    if not manifest_path.is_file():
+        raise FileExistsError(f"refusing non-file promoted AppMap manifest destination: {manifest_path}")
+
+
+def _ensure_destination_inside(destination: Path, root: Path) -> None:
+    root_resolved = root.resolve(strict=False)
+    destination_resolved = destination.resolve(strict=False)
+    if destination_resolved != root_resolved and not destination_resolved.is_relative_to(root_resolved):
+        raise ValueError(f"promoted AppMap destination escapes promotion root: {destination}")
+
+
+def _reject_symlink_components(path: Path, *, label: str) -> None:
+    expanded = path.expanduser()
+    current = Path(expanded.anchor) if expanded.is_absolute() else Path.cwd()
+    parts = expanded.parts[1:] if expanded.is_absolute() else expanded.parts
+    for part in parts:
+        current = current / part
+        try:
+            if current.is_symlink():
+                raise ValueError(f"refusing symlink {label} for promoted AppMap file: {current}")
+        except OSError as exc:
+            raise ValueError(f"cannot inspect promoted AppMap {label} path {current}: {exc}") from exc
+
+
+def _safe_relative_filename(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw or raw in {".", ".."}:
+        raise ValueError("promoted spec filename must not be empty")
+    path = Path(raw)
+    if path.is_absolute() or len(path.parts) != 1 or any(part in {"", ".", ".."} for part in path.parts):
+        raise ValueError("promoted spec filename must be a single safe filename")
+    return path.name
+
+
+def _with_appmap_run_root_metadata(text: str, run_root: Path) -> str:
+    if "\n- AppMap run root:" in text:
+        return text
+    marker = "\n- AppMap run id:"
+    index = text.find(marker)
+    if index < 0:
+        return text
+    line_end = text.find("\n", index + 1)
+    if line_end < 0:
+        return text + f"\n- AppMap run root: {run_root}\n"
+    return text[:line_end] + f"\n- AppMap run root: {run_root}" + text[line_end:]
+
+
+def render_run_manifest(
+    result: MapResult,
+    paths: dict[str, Path],
+    *,
+    run_id: str,
+    output_mode: str,
+) -> dict[str, Any]:
+    run_root = paths["run_root"]
+    artifacts = {
+        key: _relative_to(path, run_root)
+        for key, path in sorted(paths.items())
+        if key
+        in {
+            "target_profile",
+            "architecture",
+            "surfaces",
+            "flows",
+            "candidates",
+            "rejected_candidates",
+            "summary",
+            "spec",
+            "agent_contexts",
+        }
+    }
+    return {
+        "schema_version": 1,
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "run_id": run_id,
+        "program": result.profile.program,
+        "program_slug": sanitize_key(result.profile.program),
+        "focus": result.focus,
+        "output_mode": output_mode,
+        "run_root": str(run_root),
+        "target_path": result.profile.target_path,
+        "target_kind": result.profile.target_kind,
+        "detected_kinds": result.profile.detected_kinds,
+        "counts": {
+            "surfaces": len(result.surfaces),
+            "flows": len(result.flows),
+            "candidates": len(result.candidates),
+            "rejected_candidates": len(result.rejected_candidates),
+            "agent_contexts": len(list(paths["agent_contexts"].glob("*.json"))) if "agent_contexts" in paths else 0,
+        },
+        "artifacts": artifacts,
+    }
+
+
+def _append_run_index(index_path: Path, manifest: dict[str, Any]) -> None:
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_record = {
+        key: manifest[key]
+        for key in (
+            "schema_version",
+            "created_at",
+            "run_id",
+            "program",
+            "program_slug",
+            "focus",
+            "output_mode",
+            "run_root",
+            "target_path",
+            "target_kind",
+            "counts",
+        )
+    }
+    with index_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(index_record, sort_keys=True) + "\n")
 
 
 def render_architecture(result: MapResult) -> str:
@@ -1336,6 +1657,7 @@ def render_agent_context(
     return {
         "schema_version": 1,
         "run_id": run_id,
+        "appmap_run_root": str(run_root),
         "program": result.profile.program,
         "focus": result.focus,
         "candidate": {
@@ -1537,6 +1859,8 @@ def render_summary(result: MapResult, paths: dict[str, Path], *, run_id: str) ->
         f"- Flows: {len(result.flows)}",
         f"- Candidates: {len(result.candidates)}",
         f"- Rejected candidates: {len(result.rejected_candidates)}",
+        f"- Manifest: `{paths['manifest']}`",
+        f"- Index: `{paths['index']}`",
     ]
     if "spec" in paths:
         focus_label = result.focus.upper()
@@ -1577,7 +1901,34 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--focus", default="rce", choices=sorted(VULNERABILITY_PACKS), help="Vulnerability focus for Phase 2.")
     parser.add_argument("--write-specs", action="store_true", help="Write and validate generated brainstorm specs.")
     parser.add_argument("--output-root", help="Output root. Defaults to ~/Shared/appmap/<program>/static.")
+    parser.add_argument(
+        "--output-mode",
+        choices=("standalone", "canonical"),
+        default="standalone",
+        help="standalone keeps the legacy output-root layout; canonical writes under ~/Shared/<family>/<program>/<lane>/appmap/<run_id>/.",
+    )
+    parser.add_argument("--family", help="Canonical Shared family, for example binaries or web.")
+    parser.add_argument("--lane", help="Canonical Shared lane, for example exe or source.")
+    parser.add_argument("--shared-root", help="Shared root for canonical output. Defaults to ~/Shared.")
     parser.add_argument("--run-id", help="Deterministic run id override for tests or repeatable workflows.")
+    parser.add_argument(
+        "--promote-to-brainstorm",
+        action="store_true",
+        help="Copy generated specs and AppMap context packets into the lane brainstorm area.",
+    )
+    parser.add_argument(
+        "--brainstorm-root",
+        help="Destination brainstorm directory for promotion. Defaults to <canonical-lane-root>/brainstorm in canonical mode.",
+    )
+    parser.add_argument(
+        "--promote-spec-name",
+        help="Promoted spec filename inside brainstorm/appmap-<run-id>-<focus>/. Defaults to the generated spec filename.",
+    )
+    parser.add_argument(
+        "--overwrite-brainstorm-spec",
+        action="store_true",
+        help="Allow promotion to overwrite an existing brainstorm spec/context file.",
+    )
     return parser
 
 
@@ -1588,13 +1939,51 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"target_path must be an existing directory: {target_path}")
 
     run_id = args.run_id or f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{int(time.time())}"
-    output_root = Path(args.output_root).expanduser() if args.output_root else default_output_root(args.program)
+    try:
+        output_root = resolve_output_root(
+            args.program,
+            output_mode=args.output_mode,
+            output_root=Path(args.output_root) if args.output_root else None,
+            family=args.family,
+            lane=args.lane,
+            shared_root=Path(args.shared_root) if args.shared_root else None,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     result = map_application(args.program, target_path, target_kind=args.target_kind, focus=args.focus)
-    paths = write_artifacts(result, output_root=output_root, run_id=run_id, write_specs=args.write_specs)
+    paths = write_artifacts(
+        result,
+        output_root=output_root,
+        run_id=run_id,
+        write_specs=args.write_specs,
+        output_mode=args.output_mode,
+    )
+    promotion: PromotionResult | None = None
+    if args.promote_to_brainstorm:
+        if not args.write_specs:
+            raise SystemExit("--promote-to-brainstorm requires --write-specs")
+        if args.brainstorm_root:
+            brainstorm_root = Path(args.brainstorm_root)
+        elif args.output_mode == "canonical":
+            brainstorm_root = output_root / "brainstorm"
+        else:
+            raise SystemExit("--promote-to-brainstorm in standalone mode requires --brainstorm-root")
+        try:
+            promotion = promote_appmap_handoff(
+                paths,
+                brainstorm_root=brainstorm_root,
+                run_id=run_id,
+                spec_name=args.promote_spec_name,
+                overwrite=args.overwrite_brainstorm_spec,
+            )
+        except (ValueError, OSError) as exc:
+            raise SystemExit(str(exc)) from exc
     print(f"[appmap] output: {paths['run_root']}")
     print(f"[appmap] surfaces={len(result.surfaces)} flows={len(result.flows)} candidates={len(result.candidates)}")
     if "spec" in paths:
         print(f"[appmap] generated spec: {paths['spec']}")
+    if promotion is not None:
+        print(f"[appmap] promoted spec(s): {', '.join(str(path) for path in promotion.spec_paths)}")
     return 0
 
 

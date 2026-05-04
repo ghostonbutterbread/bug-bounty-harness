@@ -186,6 +186,8 @@ def _load_appmap_packet_for_intent(intent: BrainstormAgentIntent) -> dict[str, A
         )
 
     matches: list[dict[str, Any]] = []
+    spec_run_id = _appmap_run_id_from_spec(Path(intent.source_spec_path))
+    run_id_mismatches: list[tuple[Path, str]] = []
     for path in candidates:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -195,6 +197,10 @@ def _load_appmap_packet_for_intent(intent: BrainstormAgentIntent) -> dict[str, A
             raise ValueError(f"invalid AppMap context packet {path}: expected JSON object")
         linkage = payload.get("hypothesis_linkage") if isinstance(payload.get("hypothesis_linkage"), dict) else {}
         packet_candidate = payload.get("candidate") if isinstance(payload.get("candidate"), dict) else {}
+        packet_run_id = str(payload.get("run_id") or "").strip()
+        if spec_run_id and packet_run_id and packet_run_id != spec_run_id:
+            run_id_mismatches.append((path, packet_run_id))
+            continue
         if (
             str(linkage.get("hypothesis_id")) == intent.hypothesis_id
             and str(linkage.get("agent_key")) == intent.agent_key
@@ -202,6 +208,12 @@ def _load_appmap_packet_for_intent(intent: BrainstormAgentIntent) -> dict[str, A
         ):
             payload["_packet_path"] = path
             matches.append(payload)
+    if not matches and run_id_mismatches:
+        details = ", ".join(f"{path} has {packet_run_id}" for path, packet_run_id in run_id_mismatches)
+        raise ValueError(
+            "AppMap context packet run_id does not match spec AppMap run id "
+            f"{spec_run_id}: {details}"
+        )
     if len(matches) != 1:
         raise ValueError(
             "ambiguous AppMap context packet lookup for "
@@ -209,6 +221,15 @@ def _load_appmap_packet_for_intent(intent: BrainstormAgentIntent) -> dict[str, A
             f"{len(matches)} matches"
         )
     return matches[0]
+
+
+def _appmap_run_id_from_spec(spec_path: Path) -> str:
+    try:
+        text = spec_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    match = re.search(r"(?m)^-\s*AppMap run id:\s*(\S+)\s*$", text)
+    return match.group(1).strip() if match else ""
 
 
 def _appmap_packet_file_key(value: str) -> str:

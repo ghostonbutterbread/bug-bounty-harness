@@ -138,6 +138,13 @@ By default, promotion creates a per-run handoff directory so repeated runs with 
 ~/Shared/<family>/<program>/<lane>/brainstorm/appmap-<run_id>-<focus>/agent_contexts/
 ```
 
+The default `--promotion-layout flat` preserves the existing `appmap-<run_id>-<focus>/` layout. To group focus areas under one run directory, opt in with `--promotion-layout category`:
+
+```text
+~/Shared/<family>/<program>/<lane>/brainstorm/appmap-<run_id>/<focus>/rce-spec.md
+~/Shared/<family>/<program>/<lane>/brainstorm/appmap-<run_id>/<focus>/agent_contexts/
+```
+
 Do not overwrite an existing hand-authored `brainstorm/spec.md`. To intentionally target a specific filename inside the per-run handoff directory, use `--promote-spec-name`; if that file exists, promotion fails unless `--overwrite-brainstorm-spec` is also set. Promoted specs resolve only their sibling `agent_contexts/` packets. Promoted specs and packets preserve `AppMap run id`, `AppMap run root`, and packet trace fields back to the originating run.
 
 Standalone promotion requires an explicit brainstorm destination:
@@ -166,7 +173,7 @@ python3 agents/app_mapper.py <program> \
   --list-handoffs
 ```
 
-The command reads `appmap_promotions.jsonl` and scans `brainstorm/appmap-<run_id>-<focus>/` directories for promoted specs. It does not map targets, run agents, or write findings data.
+The command reads `appmap_promotions.jsonl` and scans both `brainstorm/appmap-<run_id>-<focus>/` and `brainstorm/appmap-<run_id>/<focus>/` directories for promoted specs. It does not map targets, run agents, or write findings data.
 
 ## 6. Validate Handoffs
 

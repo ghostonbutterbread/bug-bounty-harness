@@ -1208,6 +1208,7 @@ def promote_appmap_handoff(
     run_id: str,
     spec_name: str | None = None,
     overwrite: bool = False,
+    promotion_layout: str = "flat",
 ) -> PromotionResult:
     """Copy generated specs and context packets into a brainstorm handoff area.
 
@@ -1218,6 +1219,8 @@ def promote_appmap_handoff(
 
     if "spec" not in paths:
         raise ValueError("cannot promote AppMap handoff without a generated spec")
+    if promotion_layout not in {"flat", "category"}:
+        raise ValueError("promotion_layout must be 'flat' or 'category'")
     safe_run_id = validate_run_id(run_id)
     run_root = paths["run_root"]
     brainstorm_base = brainstorm_root.expanduser()
@@ -1226,7 +1229,10 @@ def promote_appmap_handoff(
 
     source_specs = sorted({path for key, path in paths.items() if key == "spec" or key.endswith("_spec")})
     focus_slug = _promotion_focus_slug(paths, source_specs)
-    promotion_root = destination_root / f"appmap-{safe_run_id}-{focus_slug}"
+    if promotion_layout == "category":
+        promotion_root = destination_root / f"appmap-{safe_run_id}" / focus_slug
+    else:
+        promotion_root = destination_root / f"appmap-{safe_run_id}-{focus_slug}"
     _ensure_destination_inside(promotion_root, destination_root)
 
     copy_pairs: list[tuple[Path, Path]] = []
@@ -1267,7 +1273,8 @@ def promote_appmap_handoff(
         "appmap_run_id": safe_run_id,
         "appmap_run_root": str(run_root),
         "source_specs": [_relative_to(path, run_root) for path in source_specs],
-        "promotion_root": promotion_root.name,
+        "promotion_layout": promotion_layout,
+        "promotion_root": _relative_to(promotion_root, destination_root),
         "focus": focus_slug,
         "promoted_specs": [_relative_to(path, promotion_root) for path in promoted_specs],
         "promoted_contexts": [_relative_to(path, promotion_root) for path in promoted_contexts],
@@ -1291,12 +1298,15 @@ def list_promoted_handoffs(brainstorm_root: Path) -> list[PromotedHandoff]:
 
     root = brainstorm_root.expanduser().resolve(strict=False)
     handoffs: dict[Path, PromotedHandoff] = {}
+    manifest_category_roots: set[Path] = set()
     manifest_path = root / "appmap_promotions.jsonl"
     if manifest_path.is_file():
         for record in _read_jsonl_objects(manifest_path):
             promotion_root = _resolve_manifest_promotion_root(root, record.get("promotion_root"))
             if promotion_root is None:
                 continue
+            if record.get("promotion_layout") == "category":
+                manifest_category_roots.add(promotion_root)
             run_id = str(record.get("appmap_run_id") or "")
             focus_hint = str(record.get("focus") or "").strip()
             for spec_rel in record.get("promoted_specs") or []:
@@ -1315,8 +1325,8 @@ def list_promoted_handoffs(brainstorm_root: Path) -> list[PromotedHandoff]:
                     handoffs[spec_path] = handoff
 
     if root.is_dir():
-        for promotion_root in sorted(path for path in root.glob("appmap-*") if path.is_dir() and not path.is_symlink()):
-            if _has_symlink_component(promotion_root):
+        for promotion_root in _iter_promoted_spec_roots(root, category_roots=manifest_category_roots):
+            if promotion_root.is_symlink() or _has_symlink_component(promotion_root):
                 continue
             resolved_promotion_root = promotion_root.resolve(strict=False)
             if not _path_is_within(resolved_promotion_root, root):
@@ -1609,7 +1619,7 @@ def _promoted_handoff_from_spec(
     run_id = str(metadata.get("AppMap run id") or run_id_hint or "").strip()
     focus = sanitize_key(focus_hint, fallback="") if focus_hint else ""
     if not focus:
-        focus = _handoff_focus_from_spec(spec_path, promotion_root)
+        focus = _handoff_focus_from_spec(spec_path, promotion_root, run_id=run_id)
     contexts_dir = spec_path.parent / "agent_contexts"
     context_count = (
         len([path for path in contexts_dir.glob("*.json") if path.is_file() and not path.is_symlink()])
@@ -1627,14 +1637,41 @@ def _promoted_handoff_from_spec(
     )
 
 
-def _handoff_focus_from_spec(spec_path: Path, promotion_root: Path) -> str:
+def _handoff_focus_from_spec(spec_path: Path, promotion_root: Path, *, run_id: str = "") -> str:
     stem = spec_path.stem
     if stem.endswith("-spec"):
         return stem[:-5] or "focus"
+    if stem == "spec":
+        parent = promotion_root.parent
+        if re.fullmatch(r"appmap-[A-Za-z0-9][A-Za-z0-9._-]{0,127}", parent.name):
+            return sanitize_key(promotion_root.name, fallback="focus")
+        safe_run_id = sanitize_key(run_id, fallback="")
+        flat_prefix = f"appmap-{safe_run_id}-" if safe_run_id else ""
+        if flat_prefix and promotion_root.name.startswith(flat_prefix):
+            return sanitize_key(promotion_root.name[len(flat_prefix):], fallback="focus")
     match = re.match(r"appmap-[^-]+-(?P<focus>.+)", promotion_root.name)
     if match:
         return match.group("focus")
     return stem or "focus"
+
+
+def _iter_promoted_spec_roots(root: Path, *, category_roots: set[Path]) -> Iterable[Path]:
+    for appmap_root in sorted(path for path in root.glob("appmap-*") if path.is_dir() and not path.is_symlink()):
+        if _has_symlink_component(appmap_root):
+            continue
+        resolved_appmap_root = appmap_root.resolve(strict=False)
+        if not _path_is_within(resolved_appmap_root, root):
+            continue
+        yield appmap_root
+        for focus_root in sorted(category_roots, key=lambda path: (str(path).casefold(), str(path))):
+            if focus_root.parent != resolved_appmap_root:
+                continue
+            if focus_root.is_symlink() or _has_symlink_component(focus_root):
+                continue
+            resolved_focus_root = focus_root.resolve(strict=False)
+            if not _path_is_within(resolved_focus_root, resolved_appmap_root):
+                continue
+            yield resolved_focus_root
 
 
 def _appmap_candidate_refs(evidence_refs: list[str]) -> list[str]:
@@ -2489,6 +2526,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Promoted spec filename inside brainstorm/appmap-<run-id>-<focus>/. Defaults to the generated spec filename.",
     )
     parser.add_argument(
+        "--promotion-layout",
+        choices=("flat", "category"),
+        default="flat",
+        help=(
+            "Promotion directory layout. flat writes brainstorm/appmap-<run-id>-<focus>/; "
+            "category writes brainstorm/appmap-<run-id>/<focus>/. Defaults to flat for compatibility."
+        ),
+    )
+    parser.add_argument(
         "--overwrite-brainstorm-spec",
         action="store_true",
         help="Allow promotion to overwrite an existing brainstorm spec/context file.",
@@ -2615,6 +2661,7 @@ def main(argv: list[str] | None = None) -> int:
                 run_id=run_id,
                 spec_name=args.promote_spec_name,
                 overwrite=args.overwrite_brainstorm_spec,
+                promotion_layout=args.promotion_layout,
             )
         except (ValueError, OSError) as exc:
             raise SystemExit(str(exc)) from exc

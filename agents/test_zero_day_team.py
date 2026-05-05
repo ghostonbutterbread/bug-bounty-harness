@@ -913,6 +913,15 @@ Electron desktop target.
         with self.assertRaisesRegex(ValueError, "must not be a symlink"):
             zero_day_team._discover_brainstorm_spec_dir(spec_dir)
 
+    def test_brainstorm_spec_dir_appmap_flat_dir_stays_non_recursive(self) -> None:
+        spec_dir = self.tmp / "appmap-run-rce"
+        nested = spec_dir / "nested"
+        nested.mkdir(parents=True)
+        (nested / "spec.md").write_text("# Nested\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "contains no spec.md"):
+            zero_day_team._discover_brainstorm_spec_dir(spec_dir)
+
     def test_appmap_coverage_gate_skips_duplicate_snapshot_hypothesis_candidate_agent(self) -> None:
         lane_root = self.tmp / "Shared" / "appmap" / "canva" / "static"
         target = lane_root / "input" / "app_asar"

@@ -2446,31 +2446,71 @@ def _discover_brainstorm_spec_dir(spec_dir: str | Path) -> list[Path]:
         raise FileNotFoundError(f"--brainstorm-spec-dir does not exist: {root}")
     if not root.is_dir():
         raise NotADirectoryError(f"--brainstorm-spec-dir is not a directory: {root}")
+
+    def discover_category_spec_dirs_from_manifest() -> list[Path]:
+        manifest_path = root.parent / "appmap_promotions.jsonl"
+        if manifest_path.is_symlink() or not manifest_path.is_file():
+            return []
+        dirs: list[Path] = []
+        try:
+            lines = manifest_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        for line in lines:
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(record, dict) or record.get("promotion_layout") != "category":
+                continue
+            promotion_root = str(record.get("promotion_root") or "").strip()
+            parts = Path(promotion_root).parts
+            if len(parts) != 2 or parts[0] != root.name:
+                continue
+            child = root / parts[1]
+            if child.is_symlink():
+                raise ValueError(f"--brainstorm-spec-dir category child must not be a symlink: {child}")
+            resolved_child = child.resolve(strict=False)
+            if not resolved_child.is_dir():
+                continue
+            if not resolved_child.is_relative_to(root):
+                raise ValueError(f"--brainstorm-spec-dir category child escapes directory: {child}")
+            dirs.append(resolved_child)
+        return sorted(set(dirs), key=lambda path: (path.name.casefold(), path.name, str(path)))
+
     specs: list[Path] = []
     seen_names: dict[str, str] = {}
-    for path in root.iterdir():
-        is_candidate = path.suffix.lower() == ".md" and (path.name == "spec.md" or path.name.endswith("-spec.md"))
-        if not is_candidate:
-            continue
-        folded = path.name.casefold()
-        existing_name = seen_names.get(folded)
-        if existing_name is not None and existing_name != path.name:
-            raise ValueError(
-                "--brainstorm-spec-dir has case-insensitive spec name collision: "
-                f"{existing_name!r} and {path.name!r}"
-            )
-        seen_names[folded] = path.name
-        if path.is_symlink():
-            raise ValueError(f"--brainstorm-spec-dir spec must not be a symlink: {path}")
-        if not path.is_file():
-            continue
-        resolved = path.resolve(strict=False)
-        if not resolved.is_relative_to(root):
-            raise ValueError(f"--brainstorm-spec-dir spec escapes directory: {path}")
-        specs.append(resolved)
+
+    def collect_specs(spec_roots: Sequence[Path]) -> None:
+        for spec_root in spec_roots:
+            for path in spec_root.iterdir():
+                is_candidate = path.suffix.lower() == ".md" and (path.name == "spec.md" or path.name.endswith("-spec.md"))
+                if not is_candidate:
+                    continue
+                relative_key = str(path.relative_to(root))
+                folded = relative_key.casefold()
+                existing_name = seen_names.get(folded)
+                if existing_name is not None and existing_name != relative_key:
+                    raise ValueError(
+                        "--brainstorm-spec-dir has case-insensitive spec path collision: "
+                        f"{existing_name!r} and {relative_key!r}"
+                    )
+                seen_names[folded] = relative_key
+                if path.is_symlink():
+                    raise ValueError(f"--brainstorm-spec-dir spec must not be a symlink: {path}")
+                if not path.is_file():
+                    continue
+                resolved = path.resolve(strict=False)
+                if not resolved.is_relative_to(root):
+                    raise ValueError(f"--brainstorm-spec-dir spec escapes directory: {path}")
+                specs.append(resolved)
+
+    collect_specs([root])
+    if not specs:
+        collect_specs(discover_category_spec_dirs_from_manifest())
     if not specs:
         raise ValueError(f"--brainstorm-spec-dir contains no spec.md or *-spec.md files: {root}")
-    return sorted(specs, key=lambda path: (path.name.casefold(), path.name, str(path)))
+    return sorted(specs, key=lambda path: (str(path.relative_to(root)).casefold(), str(path.relative_to(root)), str(path)))
 
 
 def _brainstorm_spec_path_inputs(value: str | Path | Sequence[str | Path] | None) -> list[str | Path]:

@@ -104,6 +104,7 @@ def _brainstorm_prompt_addendum(
         key: metadata[key]
         for key in (
             "brainstorm_spec",
+            "source_spec_path",
             "hypothesis_id",
             "hypothesis_title",
             "brainstorm_agent_key",

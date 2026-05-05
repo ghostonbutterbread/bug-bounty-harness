@@ -16,6 +16,8 @@ from agents.app_mapper import (
     build_rce_flows,
     build_parser,
     canonical_output_root,
+    _assignment_identities_for_status,
+    campaign_status,
     list_promoted_handoffs,
     main as app_mapper_main,
     map_application,
@@ -521,11 +523,173 @@ def test_appmap_list_validate_and_plan_category_layout(tmp_path: Path, capsys: p
     assert "--brainstorm-hypothesis H001" in command
     assert "--appmap" not in command
 
+    coverage_path = lane_root / "brainstorm" / "coverage.jsonl"
+    identity = _assignment_identities_for_status(promotion.spec_paths[0])[0]
+    coverage_event = {
+        "event": "agent_completed_no_finding",
+        "hypothesis_id": identity["hypothesis_id"],
+        "agent_key": identity["agent_key"],
+        "source_spec_path": str(promotion.spec_paths[0]),
+        "brainstorm_spec": str(promotion.spec_paths[0]),
+        "appmap_candidate_id": identity["candidate_id"],
+        "appmap_run_id": "category-handoff-run",
+    }
+    coverage_path.write_text(json.dumps(coverage_event, sort_keys=True) + "\n", encoding="utf-8")
+    status = campaign_status(lane_root / "brainstorm")
+    assert status["status_counts"] == {"complete": 1}
+    assert status["specs"][0]["coverage_events"]["agent_completed_no_finding"] == 1
+    assert status["specs"][0]["assignments"] == {"covered": 1, "review": 0, "attention": 0, "running": 0, "pending": 0}
+
     assert app_mapper_main(["--list-handoffs", "--brainstorm-root", str(lane_root / "brainstorm")]) == 0
     list_out = capsys.readouterr().out
     assert "run_id=category-handoff-run" in list_out
     assert "focus=rce" in list_out
     assert "contexts=1" in list_out
+
+    assert app_mapper_main(["--campaign-status", "--brainstorm-root", str(lane_root / "brainstorm")]) == 0
+    status_out = capsys.readouterr().out
+    assert "campaign status" in status_out
+    assert "statuses: complete=1" in status_out
+    assert "status=complete" in status_out
+    assert "covered=1" in status_out
+
+
+def test_appmap_campaign_status_uses_latest_terminal_per_assignment(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="status-latest-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="status-latest-run",
+        promotion_layout="category",
+    )
+    coverage_path = lane_root / "brainstorm" / "coverage.jsonl"
+    identity = _assignment_identities_for_status(promotion.spec_paths[0])[0]
+    base = {
+        "hypothesis_id": identity["hypothesis_id"],
+        "agent_key": identity["agent_key"],
+        "source_spec_path": str(promotion.spec_paths[0]),
+        "brainstorm_spec": str(promotion.spec_paths[0]),
+        "appmap_candidate_id": identity["candidate_id"],
+        "appmap_run_id": "status-latest-run",
+    }
+    coverage_path.write_text(
+        "\n".join(
+            json.dumps({"event": event, **base}, sort_keys=True)
+            for event in ("agent_completed_with_raw_findings", "review_promoted")
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    status = campaign_status(lane_root / "brainstorm")
+
+    assert status["status_counts"] == {"complete": 1}
+    assert status["specs"][0]["assignments"] == {"covered": 1, "review": 0, "attention": 0, "running": 0, "pending": 0}
+
+
+def test_appmap_campaign_status_does_not_complete_from_duplicate_events_for_one_assignment(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _two_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="status-pending-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="status-pending-run",
+        promotion_layout="category",
+    )
+    coverage_path = lane_root / "brainstorm" / "coverage.jsonl"
+    identity = _assignment_identities_for_status(promotion.spec_paths[0])[0]
+    base = {
+        "hypothesis_id": identity["hypothesis_id"],
+        "agent_key": identity["agent_key"],
+        "source_spec_path": str(promotion.spec_paths[0]),
+        "brainstorm_spec": str(promotion.spec_paths[0]),
+        "appmap_candidate_id": identity["candidate_id"],
+        "appmap_run_id": "status-pending-run",
+    }
+    coverage_path.write_text(
+        "\n".join(json.dumps({"event": "agent_completed_no_finding", **base}, sort_keys=True) for _ in range(2))
+        + "\n",
+        encoding="utf-8",
+    )
+
+    status = campaign_status(lane_root / "brainstorm")
+
+    assert status["status_counts"] == {"ready": 1}
+    assert status["specs"][0]["assignments"] == {"covered": 1, "review": 0, "attention": 0, "running": 0, "pending": 1}
+
+
+def test_appmap_campaign_status_running_is_latest_per_assignment(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _two_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="status-running-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="status-running-run",
+        promotion_layout="category",
+    )
+    identities = _assignment_identities_for_status(promotion.spec_paths[0])
+    coverage_path = lane_root / "brainstorm" / "coverage.jsonl"
+    covered_base = {
+        "hypothesis_id": identities[0]["hypothesis_id"],
+        "agent_key": identities[0]["agent_key"],
+        "source_spec_path": str(promotion.spec_paths[0]),
+        "brainstorm_spec": str(promotion.spec_paths[0]),
+        "appmap_candidate_id": identities[0]["candidate_id"],
+        "appmap_run_id": "status-running-run",
+    }
+    running_base = {
+        "hypothesis_id": identities[1]["hypothesis_id"],
+        "agent_key": identities[1]["agent_key"],
+        "source_spec_path": str(promotion.spec_paths[0]),
+        "brainstorm_spec": str(promotion.spec_paths[0]),
+        "appmap_candidate_id": identities[1]["candidate_id"],
+        "appmap_run_id": "status-running-run",
+    }
+    coverage_path.write_text(
+        "\n".join(
+            [
+                json.dumps({"event": "agent_queued", **covered_base}, sort_keys=True),
+                json.dumps({"event": "agent_spawned", **covered_base}, sort_keys=True),
+                json.dumps({"event": "agent_completed_no_finding", **covered_base}, sort_keys=True),
+                json.dumps({"event": "agent_queued", **running_base}, sort_keys=True),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    status = campaign_status(lane_root / "brainstorm")
+
+    assert status["status_counts"] == {"running": 1}
+    assert status["specs"][0]["assignments"] == {
+        "covered": 1,
+        "review": 0,
+        "attention": 0,
+        "running": 1,
+        "pending": 0,
+    }
 
 
 def test_zero_day_team_spec_dir_discovers_category_focus_folder(tmp_path: Path) -> None:

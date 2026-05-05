@@ -25,7 +25,12 @@ _PROJECT_ROOT = _AGENT_DIR.parent
 if _PROJECT_ROOT.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
     sys.path.insert(0, _PROJECT_ROOT.as_posix())
 
-from agents.brainstorm_spec import hypothesis_to_agent_intents, parse_brainstorm_spec
+from agents.brainstorm_spec import (
+    coverage_event_matches_assignment,
+    hypothesis_to_agent_intents,
+    parse_brainstorm_spec,
+    read_coverage_jsonl,
+)
 
 
 SCAN_EXTENSIONS = {
@@ -1360,6 +1365,160 @@ def list_promoted_handoffs(brainstorm_root: Path) -> list[PromotedHandoff]:
     return sorted(handoffs.values(), key=lambda item: (item.run_id, str(item.spec_path)))
 
 
+APPMAP_STATUS_COVERED_EVENTS = {"agent_completed_no_finding", "agent_duplicate_only", "review_promoted"}
+APPMAP_STATUS_ATTENTION_EVENTS = {"agent_timeout", "agent_crashed", "agent_invalid_output", "review_rejected"}
+APPMAP_STATUS_RAW_EVENTS = {"agent_completed_with_raw_findings"}
+APPMAP_STATUS_TERMINAL_EVENTS = APPMAP_STATUS_COVERED_EVENTS | APPMAP_STATUS_ATTENTION_EVENTS | APPMAP_STATUS_RAW_EVENTS
+
+
+def _normalized_status_path(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", raw):
+        return raw
+    return str(Path(raw).expanduser().resolve(strict=False))
+
+
+def _coverage_events_for_spec(coverage_path: Path, spec_path: Path) -> list[dict[str, Any]]:
+    normalized_spec = _normalized_status_path(spec_path)
+    return [
+        event
+        for event in read_coverage_jsonl(coverage_path)
+        if _normalized_status_path(event.get("source_spec_path") or event.get("brainstorm_spec")) == normalized_spec
+    ]
+
+
+def _event_counts(events: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for event in events:
+        event_name = str(event.get("event") or "").strip()
+        if event_name:
+            counts[event_name] = counts.get(event_name, 0) + 1
+    return counts
+
+
+def _assignment_identities_for_status(spec_path: Path) -> list[dict[str, str]]:
+    try:
+        spec = _strict_parse_promoted_spec(spec_path)
+    except Exception:
+        return []
+    appmap_run_id = str(getattr(spec, "metadata", {}).get("AppMap run id") or "").strip()
+    identities: list[dict[str, str]] = []
+    for hypothesis in getattr(spec, "hypotheses", []):
+        if getattr(hypothesis, "status", "") == "retired":
+            continue
+        evidence_refs = [str(item) for item in getattr(hypothesis, "evidence", [])]
+        candidate_refs = sorted(set(_appmap_candidate_refs(evidence_refs)))
+        if len(candidate_refs) != 1:
+            continue
+        try:
+            intents = hypothesis_to_agent_intents(spec, hypothesis)
+        except Exception:
+            continue
+        for intent in intents:
+            identities.append(
+                {
+                    "source_spec_path": _normalized_status_path(spec_path),
+                    "hypothesis_id": str(getattr(intent, "hypothesis_id", hypothesis.id)),
+                    "agent_key": str(getattr(intent, "agent_key", "")),
+                    "candidate_id": candidate_refs[0],
+                    "appmap_context_packet": "",
+                    "appmap_run_id": appmap_run_id,
+                    "snapshot_id": "",
+                    "snapshot_version": "",
+                }
+            )
+    return identities
+
+
+def _latest_assignment_event(identity: dict[str, str], events: list[dict[str, Any]]) -> str:
+    latest = ""
+    tracked_events = APPMAP_STATUS_TERMINAL_EVENTS | {"agent_queued", "agent_spawned"}
+    for event in events:
+        event_name = str(event.get("event") or "").strip()
+        if event_name not in tracked_events:
+            continue
+        if coverage_event_matches_assignment(event, identity):
+            latest = event_name
+    return latest
+
+
+def _assignment_status_counts(identities: list[dict[str, str]], events: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {"covered": 0, "review": 0, "attention": 0, "running": 0, "pending": 0}
+    for identity in identities:
+        latest = _latest_assignment_event(identity, events)
+        if not latest:
+            counts["pending"] += 1
+        elif latest in APPMAP_STATUS_COVERED_EVENTS:
+            counts["covered"] += 1
+        elif latest in APPMAP_STATUS_RAW_EVENTS:
+            counts["review"] += 1
+        elif latest in APPMAP_STATUS_ATTENTION_EVENTS:
+            counts["attention"] += 1
+        elif latest in {"agent_queued", "agent_spawned"}:
+            counts["running"] += 1
+        else:
+            counts["pending"] += 1
+    return counts
+
+
+def _campaign_spec_status(
+    validation: HandoffValidationResult,
+    counts: dict[str, int],
+    assignment_counts: dict[str, int],
+) -> str:
+    if not validation.ok:
+        return "blocked"
+    if assignment_counts.get("attention", 0):
+        return "attention"
+    if assignment_counts.get("review", 0):
+        return "review"
+    expected = int(validation.counts.get("appmap_intents") or 0)
+    if expected and assignment_counts.get("covered", 0) >= expected:
+        return "complete"
+    if assignment_counts.get("running", 0):
+        return "running"
+    return "ready"
+
+
+def campaign_status(brainstorm_root: Path) -> dict[str, Any]:
+    root = brainstorm_root.expanduser().resolve(strict=False)
+    coverage_path = root / "coverage.jsonl"
+    handoffs = list_promoted_handoffs(root)
+    specs: list[dict[str, Any]] = []
+    status_counts: dict[str, int] = {}
+    for handoff in handoffs:
+        validation = validate_promoted_handoff(handoff.spec_path)
+        events = _coverage_events_for_spec(coverage_path, handoff.spec_path)
+        counts = _event_counts(events)
+        assignment_counts = _assignment_status_counts(_assignment_identities_for_status(handoff.spec_path), events)
+        status = _campaign_spec_status(validation, counts, assignment_counts)
+        status_counts[status] = status_counts.get(status, 0) + 1
+        specs.append(
+            {
+                "status": status,
+                "run_id": handoff.run_id,
+                "focus": handoff.focus,
+                "spec": str(handoff.spec_path),
+                "source": handoff.source,
+                "contexts": handoff.context_count,
+                "validation_ok": validation.ok,
+                "validation_errors": list(validation.errors),
+                "counts": dict(validation.counts),
+                "coverage_events": counts,
+                "assignments": assignment_counts,
+            }
+        )
+    return {
+        "brainstorm_root": str(root),
+        "coverage": str(coverage_path),
+        "handoff_count": len(handoffs),
+        "status_counts": status_counts,
+        "specs": specs,
+    }
+
+
 def validate_promoted_handoff(spec_path: Path) -> HandoffValidationResult:
     """Validate AppMap-linked handoff packets without writing runtime artifacts."""
 
@@ -2545,6 +2704,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="List promoted AppMap handoffs from --brainstorm-root or a canonical lane.",
     )
     parser.add_argument(
+        "--campaign-status",
+        action="store_true",
+        help="Show promoted AppMap campaign status and brainstorm coverage from --brainstorm-root or a canonical lane.",
+    )
+    parser.add_argument(
         "--validate-handoff",
         help="Validate a promoted AppMap brainstorm spec and its sibling agent_contexts packets without writing runtime data.",
     )
@@ -2564,7 +2728,7 @@ def _resolve_handoff_brainstorm_root(args: argparse.Namespace) -> Path:
         return Path(args.brainstorm_root)
     if args.output_mode == "canonical":
         if not args.program:
-            raise SystemExit("--list-handoffs with canonical lane discovery requires program")
+            raise SystemExit("handoff discovery with canonical lane discovery requires program")
         try:
             lane_root = resolve_output_root(
                 args.program,
@@ -2576,14 +2740,17 @@ def _resolve_handoff_brainstorm_root(args: argparse.Namespace) -> Path:
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
         return lane_root / "brainstorm"
-    raise SystemExit("--list-handoffs requires --brainstorm-root or --output-mode canonical with program, --family, and --lane")
+    raise SystemExit("handoff discovery requires --brainstorm-root or --output-mode canonical with program, --family, and --lane")
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    mode_count = sum(bool(value) for value in (args.list_handoffs, args.validate_handoff, args.plan_handoff))
+    mode_count = sum(
+        bool(value)
+        for value in (args.list_handoffs, args.campaign_status, args.validate_handoff, args.plan_handoff)
+    )
     if mode_count > 1:
-        raise SystemExit("choose only one of --list-handoffs, --validate-handoff, or --plan-handoff")
+        raise SystemExit("choose only one of --list-handoffs, --campaign-status, --validate-handoff, or --plan-handoff")
     if args.list_handoffs:
         brainstorm_root = _resolve_handoff_brainstorm_root(args)
         handoffs = list_promoted_handoffs(brainstorm_root)
@@ -2595,6 +2762,35 @@ def main(argv: list[str] | None = None) -> int:
                 f"run_id={handoff.run_id or '-'} focus={handoff.focus} "
                 f"contexts={handoff.context_count} source={handoff.source} spec={handoff.spec_path}"
             )
+        return 0
+    if args.campaign_status:
+        brainstorm_root = _resolve_handoff_brainstorm_root(args)
+        status = campaign_status(brainstorm_root)
+        print(f"[appmap] campaign status: {status['brainstorm_root']}")
+        print(f"[appmap] coverage: {status['coverage']}")
+        print(f"[appmap] promoted handoffs: {status['handoff_count']}")
+        if status["status_counts"]:
+            counts = ", ".join(
+                f"{name}={count}" for name, count in sorted(status["status_counts"].items())
+            )
+            print(f"[appmap] statuses: {counts}")
+        for item in status["specs"]:
+            coverage = item["coverage_events"]
+            print(
+                "[appmap] "
+                f"status={item['status']} run_id={item['run_id'] or '-'} focus={item['focus']} "
+                f"hypotheses={item['counts']['appmap_hypotheses']} "
+                f"intents={item['counts']['appmap_intents']} "
+                f"queued={coverage.get('agent_queued', 0)} "
+                f"covered={item['assignments'].get('covered', 0)} "
+                f"review={item['assignments'].get('review', 0)} "
+                f"running={item['assignments'].get('running', 0)} "
+                f"pending={item['assignments'].get('pending', 0)} "
+                f"attention={item['assignments'].get('attention', 0)} "
+                f"spec={item['spec']}"
+            )
+            for error in item["validation_errors"]:
+                print(f"[appmap] error: {error}", file=sys.stderr)
         return 0
     if args.validate_handoff:
         result = validate_promoted_handoff(Path(args.validate_handoff))

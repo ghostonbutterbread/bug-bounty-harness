@@ -11,6 +11,7 @@ Map a local application and forge focused brainstorm specs from source/boundary/
 ```text
 /appmap <program> <target_path> [--target-kind <kind>] [--focus rce] [--write-specs] [--output-mode standalone|canonical] [--family <family>] [--lane <lane>] [--promote-to-brainstorm]
 /appmap --list-handoffs --brainstorm-root <brainstorm_root>
+/appmap --campaign-status --brainstorm-root <brainstorm_root>
 /appmap --validate-handoff <promoted_spec>
 /appmap --plan-handoff <promoted_spec> [--brainstorm-hypothesis H001]
 ```
@@ -137,6 +138,13 @@ Promoted handoff discovery:
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 python3 agents/app_mapper.py --list-handoffs --brainstorm-root ~/Shared/<family>/<program>/<lane>/brainstorm
+```
+
+Campaign status / operator view:
+
+```bash
+cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
+python3 agents/app_mapper.py --campaign-status --brainstorm-root ~/Shared/<family>/<program>/<lane>/brainstorm
 ```
 
 Promoted handoff validation:

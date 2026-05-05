@@ -175,6 +175,15 @@ python3 agents/app_mapper.py <program> \
 
 The command reads `appmap_promotions.jsonl` and scans both `brainstorm/appmap-<run_id>-<focus>/` and `brainstorm/appmap-<run_id>/<focus>/` directories for promoted specs. It does not map targets, run agents, or write findings data.
 
+Campaign status is also read-only and combines promoted handoff validation with `brainstorm/coverage.jsonl` counts:
+
+```bash
+python3 agents/app_mapper.py --campaign-status \
+  --brainstorm-root ~/Shared/<family>/<program>/<lane>/brainstorm
+```
+
+Use it after runtime handoffs to see which specs are `ready`, `running`, `review`, `complete`, `attention`, or `blocked`.
+
 ## 6. Validate Handoffs
 
 ```bash

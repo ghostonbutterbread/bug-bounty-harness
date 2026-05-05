@@ -151,7 +151,7 @@ Planning prints the exact existing runtime command:
 python3 agents/app_mapper.py --plan-handoff <promoted-spec> --brainstorm-hypothesis H001
 ```
 
-The planned command must use `python3 agents/zero_day_team.py <program> <target_path> --brainstorm-spec <promoted-spec> --brainstorm-only` and must not include `--appmap`.
+The planned command must use `python3 agents/zero_day_team.py <program> <target_path> --brainstorm-spec <promoted-spec> --brainstorm-only` and must not include `--appmap`. Runtime defaults to one agent per hypothesis. If the user explicitly wants clustered execution for a reviewed AppMap campaign, pass `--brainstorm-cluster-size 2` (or another small value); clustering is only for assignments sharing the same focus files, source, and sink.
 
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"

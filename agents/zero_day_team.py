@@ -1861,10 +1861,12 @@ def _filter_appmap_profiles_by_coverage(
     return active, skipped
 
 
-def _brainstorm_event_base(profile: VulnerabilityClassProfile) -> dict[str, Any] | None:
-    metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
+def _brainstorm_event_base_from_metadata(
+    profile: VulnerabilityClassProfile,
+    metadata: dict[str, Any],
+) -> dict[str, Any] | None:
     hypothesis_id = str(metadata.get("hypothesis_id") or "").strip()
-    agent_key = str(metadata.get("brainstorm_agent_key") or profile.key).strip()
+    agent_key = str(metadata.get("brainstorm_agent_key") or metadata.get("agent_key") or profile.key).strip()
     if not hypothesis_id or not agent_key:
         return None
     base = {
@@ -1875,7 +1877,7 @@ def _brainstorm_event_base(profile: VulnerabilityClassProfile) -> dict[str, Any]
         "expected_chain": metadata.get("expected_chain"),
         "brainstorm_spec": metadata.get("brainstorm_spec"),
     }
-    if _is_appmap_brainstorm_profile(profile):
+    if _is_appmap_brainstorm_profile(profile) or metadata.get("appmap_candidate_id") or metadata.get("appmap_context_packet"):
         candidate_id = _appmap_candidate_identity(metadata)
         if candidate_id:
             base["appmap_candidate_id"] = candidate_id
@@ -1893,7 +1895,33 @@ def _brainstorm_event_base(profile: VulnerabilityClassProfile) -> dict[str, Any]
             value = str(metadata.get(source_key) or "").strip()
             if value:
                 base[coverage_key] = value
+    cluster_id = str(metadata.get("brainstorm_cluster_id") or "").strip()
+    if cluster_id:
+        base["brainstorm_cluster_id"] = cluster_id
     return base
+
+
+def _brainstorm_event_base(profile: VulnerabilityClassProfile) -> dict[str, Any] | None:
+    metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
+    return _brainstorm_event_base_from_metadata(profile, metadata)
+
+
+def _append_brainstorm_coverage_for_metadata(
+    coverage_path: Path | None,
+    profile: VulnerabilityClassProfile,
+    metadata: dict[str, Any],
+    event: str,
+    **fields: Any,
+) -> None:
+    if coverage_path is None:
+        return
+    base = _brainstorm_event_base_from_metadata(profile, metadata)
+    if base is None:
+        return
+    try:
+        append_coverage(coverage_path, {"event": event, **base, **fields})
+    except Exception as exc:
+        print(f"[brainstorm] coverage warning for {profile.key}: {exc}", flush=True)
 
 
 def _append_brainstorm_coverage(
@@ -1902,15 +1930,8 @@ def _append_brainstorm_coverage(
     event: str,
     **fields: Any,
 ) -> None:
-    if coverage_path is None:
-        return
-    base = _brainstorm_event_base(profile)
-    if base is None:
-        return
-    try:
-        append_coverage(coverage_path, {"event": event, **base, **fields})
-    except Exception as exc:
-        print(f"[brainstorm] coverage warning for {profile.key}: {exc}", flush=True)
+    for metadata in _brainstorm_assignment_metadata(profile):
+        _append_brainstorm_coverage_for_metadata(coverage_path, profile, metadata, event, **fields)
 
 
 def _append_brainstorm_hypothesis_loaded(
@@ -1945,6 +1966,72 @@ def _agent_log_has_empty_result(log_path: Path) -> bool:
     return bool(re.search(r"(?m)^\s*\{\s*\}\s*$", text))
 
 
+def _findings_by_assignment_key(
+    findings: Sequence[Dict[str, Any]],
+) -> dict[tuple[str, str, str], list[Dict[str, Any]]]:
+    grouped: dict[tuple[str, str, str], list[Dict[str, Any]]] = {}
+    for finding in findings:
+        key = _finding_assignment_key(finding)
+        if key is None:
+            continue
+        grouped.setdefault(key, []).append(finding)
+    return grouped
+
+
+def _append_clustered_brainstorm_completion(
+    session: AgentSession,
+    *,
+    initial_salvaged: Sequence[Dict[str, Any]],
+    final_salvaged: Sequence[Dict[str, Any]],
+) -> bool:
+    coverage_path = getattr(session, "coverage_path", None)
+    assignments = _brainstorm_assignment_metadata(session.profile)
+    if coverage_path is None or len(assignments) <= 1:
+        return False
+
+    final_by_key = _findings_by_assignment_key(final_salvaged)
+    initial_by_key = _findings_by_assignment_key(initial_salvaged)
+    assignment_keys = {
+        key
+        for metadata in assignments
+        if (key := _brainstorm_metadata_key(metadata, default_agent_key=session.profile.key)) is not None
+    }
+    unmatched_salvaged = any(
+        _finding_assignment_key(item) not in assignment_keys
+        for item in [*initial_salvaged, *final_salvaged]
+    )
+    log_empty = _agent_log_has_empty_result(session.log_path)
+    for metadata in assignments:
+        key = _brainstorm_metadata_key(metadata, default_agent_key=session.profile.key)
+        final_matches = final_by_key.get(key, []) if key is not None else []
+        if final_matches:
+            _append_brainstorm_coverage_for_metadata(
+                coverage_path,
+                session.profile,
+                metadata,
+                "agent_completed_with_raw_findings",
+                raw_finding_signatures=[_finding_signature(item) for item in final_matches],
+            )
+            continue
+        initial_matches = initial_by_key.get(key, []) if key is not None else []
+        if initial_matches:
+            _append_brainstorm_coverage_for_metadata(coverage_path, session.profile, metadata, "agent_duplicate_only")
+            continue
+        if unmatched_salvaged:
+            _append_brainstorm_coverage_for_metadata(
+                coverage_path,
+                session.profile,
+                metadata,
+                "agent_invalid_output",
+                unassigned_raw_finding_count=len([*initial_salvaged, *final_salvaged]),
+            )
+        elif log_empty or final_salvaged or initial_salvaged:
+            _append_brainstorm_coverage_for_metadata(coverage_path, session.profile, metadata, "agent_completed_no_finding")
+        else:
+            _append_brainstorm_coverage_for_metadata(coverage_path, session.profile, metadata, "agent_invalid_output")
+    return True
+
+
 def _append_brainstorm_completion(
     session: AgentSession,
     *,
@@ -1965,6 +2052,12 @@ def _append_brainstorm_completion(
             "agent_crashed",
             exit_code=exit_code,
         )
+        return
+    if _append_clustered_brainstorm_completion(
+        session,
+        initial_salvaged=initial_salvaged,
+        final_salvaged=final_salvaged,
+    ):
         return
     if initial_salvaged and not final_salvaged:
         _append_brainstorm_coverage(coverage_path, session.profile, "agent_duplicate_only")
@@ -2004,6 +2097,28 @@ def _brainstorm_profile_key(profile: VulnerabilityClassProfile) -> tuple[str, st
     return source_spec_path, hypothesis_id, agent_key
 
 
+def _brainstorm_assignment_keys(profile: VulnerabilityClassProfile) -> list[tuple[str, str, str]]:
+    primary = _brainstorm_profile_key(profile)
+    keys: list[tuple[str, str, str]] = [primary] if primary is not None else []
+    metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
+    for assignment in metadata.get("brainstorm_cluster_assignments") or []:
+        if not isinstance(assignment, dict):
+            continue
+        hypothesis_id = str(assignment.get("hypothesis_id") or "").strip()
+        agent_key = str(assignment.get("brainstorm_agent_key") or assignment.get("agent_key") or "").strip()
+        source_spec_path = _normalize_brainstorm_source_spec_path(
+            assignment.get("source_spec_path") or assignment.get("brainstorm_spec")
+        )
+        key = (source_spec_path, hypothesis_id, agent_key)
+        if all(key) and key not in keys:
+            keys.append(key)
+    return keys
+
+
+def _brainstorm_assignment_metadata(profile: VulnerabilityClassProfile) -> list[dict[str, Any]]:
+    metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
+    assignments = [item for item in metadata.get("brainstorm_cluster_assignments") or [] if isinstance(item, dict)]
+    return [dict(item) for item in assignments] or [metadata]
 
 
 def _brainstorm_profile_assignment(profile: VulnerabilityClassProfile) -> dict[str, str]:
@@ -2028,10 +2143,10 @@ def _brainstorm_hypothesis_assignment(hypothesis: Any) -> dict[str, str]:
     }
 
 
-def _finding_brainstorm_profile(
+def _finding_brainstorm_assignment(
     finding: Dict[str, Any],
-    profiles_by_key: dict[tuple[str, str, str], VulnerabilityClassProfile],
-) -> VulnerabilityClassProfile | None:
+    profiles_by_key: dict[tuple[str, str, str], tuple[VulnerabilityClassProfile, dict[str, Any]]],
+) -> tuple[VulnerabilityClassProfile, dict[str, Any]] | None:
     hypothesis_id = str(finding.get("hypothesis_id") or "").strip()
     agent_key = str(finding.get("brainstorm_agent_key") or finding.get("agent") or "").strip()
     source_spec_path = _normalize_brainstorm_source_spec_path(
@@ -2040,6 +2155,28 @@ def _finding_brainstorm_profile(
     if not hypothesis_id or not agent_key or not source_spec_path:
         return None
     return profiles_by_key.get((source_spec_path, hypothesis_id, agent_key))
+
+
+def _brainstorm_metadata_key(metadata: dict[str, Any], *, default_agent_key: str = "") -> tuple[str, str, str] | None:
+    hypothesis_id = str(metadata.get("hypothesis_id") or "").strip()
+    agent_key = str(metadata.get("brainstorm_agent_key") or metadata.get("agent_key") or default_agent_key).strip()
+    source_spec_path = _normalize_brainstorm_source_spec_path(
+        metadata.get("source_spec_path") or metadata.get("brainstorm_spec")
+    )
+    if not hypothesis_id or not agent_key or not source_spec_path:
+        return None
+    return source_spec_path, hypothesis_id, agent_key
+
+
+def _finding_assignment_key(finding: Dict[str, Any]) -> tuple[str, str, str] | None:
+    hypothesis_id = str(finding.get("hypothesis_id") or "").strip()
+    agent_key = str(finding.get("brainstorm_agent_key") or finding.get("agent") or "").strip()
+    source_spec_path = _normalize_brainstorm_source_spec_path(
+        finding.get("source_spec_path") or finding.get("brainstorm_spec")
+    )
+    if not hypothesis_id or not agent_key or not source_spec_path:
+        return None
+    return source_spec_path, hypothesis_id, agent_key
 
 
 def _review_match_key(finding: Dict[str, Any]) -> tuple[str, ...]:
@@ -2070,27 +2207,35 @@ def _append_brainstorm_review_coverage(
 ) -> None:
     if coverage_path is None:
         return
-    profiles_by_key = {
-        key: profile
-        for profile in profiles
-        if (key := _brainstorm_profile_key(profile)) is not None
-    }
+    profiles_by_key: dict[tuple[str, str, str], tuple[VulnerabilityClassProfile, dict[str, Any]]] = {}
+    for profile in profiles:
+        for metadata in _brainstorm_assignment_metadata(profile):
+            hypothesis_id = str(metadata.get("hypothesis_id") or "").strip()
+            agent_key = str(metadata.get("brainstorm_agent_key") or metadata.get("agent_key") or profile.key).strip()
+            source_spec_path = _normalize_brainstorm_source_spec_path(
+                metadata.get("source_spec_path") or metadata.get("brainstorm_spec")
+            )
+            key = (source_spec_path, hypothesis_id, agent_key)
+            if all(key):
+                profiles_by_key[key] = (profile, metadata)
     if not profiles_by_key:
         return
     reviewed_by_key = {_review_match_key(item): item for item in reviewed_findings}
     for raw in raw_findings:
-        profile = _finding_brainstorm_profile(raw, profiles_by_key)
-        if profile is None:
+        assignment = _finding_brainstorm_assignment(raw, profiles_by_key)
+        if assignment is None:
             continue
+        profile, metadata = assignment
         reviewed = reviewed_by_key.get(_review_match_key(raw))
         if reviewed is None:
-            _append_brainstorm_coverage(coverage_path, profile, "review_rejected")
+            _append_brainstorm_coverage_for_metadata(coverage_path, profile, metadata, "review_rejected")
             continue
         fid = str(reviewed.get("fid") or raw.get("fid") or "").strip()
         if fid:
-            _append_brainstorm_coverage(
+            _append_brainstorm_coverage_for_metadata(
                 coverage_path,
                 profile,
+                metadata,
                 "review_promoted",
                 linked_fids=[fid],
             )
@@ -2364,6 +2509,134 @@ def _resolve_analysis_target(
     raise ValueError(f"Unsupported target_type: {target_type!r}")
 
 
+def _cluster_slug(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-") or "cluster"
+
+
+def _load_appmap_cluster_packet(profile: VulnerabilityClassProfile) -> dict[str, Any] | None:
+    metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
+    packet_path = str(metadata.get("appmap_context_packet") or "").strip()
+    if not packet_path:
+        return None
+    path = Path(packet_path).expanduser()
+    if path.is_symlink() or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _surface_cluster_part(packet: dict[str, Any], key: str) -> tuple[str, str, str]:
+    evidence = packet.get("evidence") if isinstance(packet.get("evidence"), dict) else {}
+    surface = evidence.get(key) if isinstance(evidence.get(key), dict) else {}
+    return (
+        str(surface.get("file") or "").strip(),
+        str(surface.get("kind") or "").strip(),
+        str(surface.get("line") or "").strip(),
+    )
+
+
+def _brainstorm_cluster_key(profile: VulnerabilityClassProfile) -> tuple[Any, ...] | None:
+    if not _is_appmap_brainstorm_profile(profile):
+        return None
+    packet = _load_appmap_cluster_packet(profile)
+    if packet is None:
+        return None
+    metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
+    source = _surface_cluster_part(packet, "source")
+    sink = _surface_cluster_part(packet, "sink")
+    if not source[0] or not sink[0]:
+        return None
+    return (
+        _normalize_brainstorm_source_spec_path(metadata.get("source_spec_path") or metadata.get("brainstorm_spec")),
+        str(metadata.get("appmap_run_id") or packet.get("run_id") or "").strip(),
+        tuple(profile.focus_globs),
+        source,
+        sink,
+    )
+
+
+def _cluster_brainstorm_profiles(
+    profiles: Sequence[VulnerabilityClassProfile],
+    *,
+    max_cluster_size: int,
+) -> tuple[list[VulnerabilityClassProfile], list[dict[str, Any]]]:
+    if max_cluster_size <= 1:
+        return list(profiles), []
+
+    groups: dict[tuple[Any, ...], list[VulnerabilityClassProfile]] = {}
+    passthrough: list[VulnerabilityClassProfile] = []
+    for profile in profiles:
+        key = _brainstorm_cluster_key(profile)
+        if key is None:
+            passthrough.append(profile)
+        else:
+            groups.setdefault(key, []).append(profile)
+
+    clustered: list[VulnerabilityClassProfile] = []
+    summaries: list[dict[str, Any]] = []
+    for key, group in groups.items():
+        for offset in range(0, len(group), max_cluster_size):
+            chunk = group[offset : offset + max_cluster_size]
+            if len(chunk) == 1:
+                clustered.append(chunk[0])
+                continue
+            first = chunk[0]
+            cluster_id = _cluster_slug(
+                "cluster-" + "-".join(
+                    str(dict(getattr(item, "brainstorm_metadata", {}) or {}).get("hypothesis_id") or item.key)
+                    for item in chunk
+                )
+            )
+            assignments: list[dict[str, Any]] = []
+            prompt_sections: list[str] = []
+            for item in chunk:
+                item_metadata = dict(getattr(item, "brainstorm_metadata", {}) or {})
+                item_metadata["brainstorm_cluster_id"] = cluster_id
+                assignments.append(item_metadata)
+                prompt_sections.append(f"### Cluster member: {item.key}\n{item.prompt_addendum}")
+            metadata = dict(getattr(first, "brainstorm_metadata", {}) or {})
+            metadata["brainstorm_cluster_id"] = cluster_id
+            metadata["brainstorm_cluster_size"] = len(chunk)
+            metadata["brainstorm_cluster_assignments"] = assignments
+            cluster_key = _cluster_slug(f"{first.key}-{cluster_id}")
+            clustered_profile = VulnerabilityClassProfile(
+                key=cluster_key,
+                description=(
+                    f"Clustered AppMap brainstorm agent for {len(chunk)} hypotheses that share the same "
+                    "focus files, source, and sink evidence."
+                ),
+                entry_questions=first.entry_questions,
+                cross_questions=first.cross_questions,
+                sink_categories=first.sink_categories,
+                reasoning=first.reasoning,
+                display_name=f"{first.title} Cluster ({len(chunk)} assignments)",
+                prompt_addendum=(
+                    "Clustered brainstorm assignment: evaluate each member independently, but use the shared "
+                    "source/sink context to avoid duplicate agent spawns. Emit findings separately with the exact "
+                    "metadata for the matching member. If no member has a real issue, output exactly {}.\n\n"
+                    "Cluster assignment metadata:\n"
+                    + json.dumps(assignments, indent=2, sort_keys=True)
+                    + "\n\n"
+                    + "\n\n".join(prompt_sections)
+                ),
+                focus_globs=first.focus_globs,
+                ignore_globs=first.ignore_globs,
+                brainstorm_metadata=metadata,
+            )
+            clustered.append(clustered_profile)
+            summaries.append(
+                {
+                    "cluster_id": cluster_id,
+                    "profile": clustered_profile.key,
+                    "members": [_brainstorm_profile_assignment(item) for item in chunk],
+                }
+            )
+    return [*passthrough, *clustered], summaries
+
+
 def _reject_brainstorm_profile_collisions(
     brainstorm_profiles: Sequence[VulnerabilityClassProfile],
     existing_profiles: Sequence[VulnerabilityClassProfile],
@@ -2603,6 +2876,7 @@ def orchestrate_zero_day_team(
     brainstorm_spec_dir: str | Path | None = None,
     brainstorm_only: bool = False,
     brainstorm_hypothesis: str | None = None,
+    brainstorm_cluster_size: int = 1,
     verbose: int = 0,
 ) -> Dict[str, Any]:
     """Run one clean static-analysis agent per vulnerability class."""
@@ -2610,6 +2884,8 @@ def orchestrate_zero_day_team(
 
     if num_agents is not None:
         print("[orchestrator] Ignoring legacy num_agents argument; class-based mode runs one agent per class.")
+    if brainstorm_cluster_size < 1:
+        raise ValueError("--brainstorm-cluster-size must be at least 1")
 
     program_slug = _sanitize_program_name(program)
     storage_root_override = (
@@ -2929,6 +3205,16 @@ def orchestrate_zero_day_team(
         coverage_path=brainstorm_coverage_path,
         fresh=fresh,
     )
+    active_profiles, brainstorm_clusters = _cluster_brainstorm_profiles(
+        active_profiles,
+        max_cluster_size=brainstorm_cluster_size,
+    )
+    if brainstorm_clusters:
+        print(
+            "[brainstorm] clustered "
+            f"{sum(len(cluster['members']) for cluster in brainstorm_clusters)} assignment(s) "
+            f"into {len(brainstorm_clusters)} agent(s)"
+        )
     if appmap_coverage_skipped_profiles:
         skipped_keys = [profile.key for profile in appmap_coverage_skipped_profiles]
         skipped_profile_keys.extend(skipped_keys)
@@ -3132,6 +3418,8 @@ def orchestrate_zero_day_team(
             "coverage_skipped_assignments": [
                 _brainstorm_profile_assignment(profile) for profile in appmap_coverage_skipped_profiles
             ],
+            "cluster_size": brainstorm_cluster_size,
+            "clusters": brainstorm_clusters,
         }
     _pretty_print_findings(reviewed_findings)
 
@@ -3272,6 +3560,15 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
         "--brainstorm-hypothesis",
         help="Only load profiles for one non-retired brainstorm hypothesis id.",
     )
+    parser.add_argument(
+        "--brainstorm-cluster-size",
+        type=int,
+        default=1,
+        help=(
+            "Maximum AppMap brainstorm assignments to merge into one agent when they share "
+            "the same focus files, source, and sink. Defaults to 1 (one agent per hypothesis)."
+        ),
+    )
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     return parser.parse_args(list(argv))
 
@@ -3308,6 +3605,7 @@ if __name__ == "__main__":
         brainstorm_spec_dir=args.brainstorm_spec_dir,
         brainstorm_only=args.brainstorm_only,
         brainstorm_hypothesis=args.brainstorm_hypothesis,
+        brainstorm_cluster_size=args.brainstorm_cluster_size,
         verbose=args.verbose,
     )
     print(json.dumps(result, indent=2, sort_keys=True))

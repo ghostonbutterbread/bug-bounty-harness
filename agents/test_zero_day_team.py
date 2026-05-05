@@ -74,13 +74,19 @@ Electron desktop target.
 - Tags: retired
 """
 
-    def _appmap_brainstorm_spec_text(self, count: int = 1) -> str:
+    def _appmap_brainstorm_spec_text(
+        self,
+        count: int = 1,
+        *,
+        agent_prefix: str = "canva-appmap-rce",
+        run_id: str = "appmap-run-1",
+    ) -> str:
         primitives = []
         hypotheses = []
         for index in range(1, count + 1):
             hypothesis_id = f"H{index:03d}"
             candidate_id = f"C{index:04d}"
-            agent_key = f"canva-appmap-rce-{index}"
+            agent_key = f"{agent_prefix}-{index}"
             primitives.append(
                 "\n".join(
                     [
@@ -122,7 +128,7 @@ Electron desktop target.
             "- Target kind: electron-exe\n"
             "- Target path: input/app_asar\n"
             "- Status: active\n"
-            "- AppMap run id: appmap-run-1\n\n"
+            f"- AppMap run id: {run_id}\n\n"
             "## Target mental model\n"
             "Static AppMap target.\n\n"
             "## Impact primitives\n"
@@ -136,19 +142,30 @@ Electron desktop target.
             "|---|---|---|---|---|---|---|\n"
         )
 
-    def _write_appmap_spec(self, lane_root: Path, count: int = 1) -> Path:
-        spec_path = lane_root / "brainstorm" / "appmap-rce-spec.md"
+    def _write_appmap_spec(
+        self,
+        lane_root: Path,
+        count: int = 1,
+        *,
+        spec_path: Path | None = None,
+        agent_prefix: str = "canva-appmap-rce",
+        run_id: str = "appmap-run-1",
+    ) -> Path:
+        spec_path = spec_path or lane_root / "brainstorm" / "appmap-rce-spec.md"
         spec_path.parent.mkdir(parents=True, exist_ok=True)
-        spec_path.write_text(self._appmap_brainstorm_spec_text(count=count), encoding="utf-8")
+        spec_path.write_text(
+            self._appmap_brainstorm_spec_text(count=count, agent_prefix=agent_prefix, run_id=run_id),
+            encoding="utf-8",
+        )
         contexts_dir = spec_path.parent / "agent_contexts"
         contexts_dir.mkdir(parents=True, exist_ok=True)
         for index in range(1, count + 1):
             hypothesis_id = f"H{index:03d}"
             candidate_id = f"C{index:04d}"
-            agent_key = f"canva-appmap-rce-{index}"
+            agent_key = f"{agent_prefix}-{index}"
             packet = {
                 "schema_version": 1,
-                "run_id": "appmap-run-1",
+                "run_id": run_id,
                 "candidate": {
                     "id": candidate_id,
                     "map_ids": {"flow_id": f"F{index:04d}"},
@@ -223,11 +240,13 @@ Electron desktop target.
         *,
         lane_root: Path,
         target: Path,
-        spec_path: Path,
+        spec_path,
         storage: SimpleNamespace,
         spawned_profiles: list,
+        spec_dir: Path | None = None,
         fresh: bool = False,
         parallel: bool = False,
+        brainstorm_hypothesis: str | None = None,
     ) -> dict:
         ledger = SimpleNamespace(
             path=storage.ledgers_root / "ledger.json",
@@ -286,8 +305,10 @@ Electron desktop target.
                 str(target),
                 no_preflight=True,
                 no_shared_brain=True,
-                brainstorm_spec=str(spec_path),
+                brainstorm_spec=spec_path,
+                brainstorm_spec_dir=spec_dir,
                 brainstorm_only=True,
+                brainstorm_hypothesis=brainstorm_hypothesis,
                 fresh=fresh,
                 parallel=parallel,
             )
@@ -699,6 +720,199 @@ Electron desktop target.
         self.assertEqual(queued["snapshot_id"], "snap-1")
         self.assertEqual(queued["source_spec_path"], str(spec_path.resolve(strict=False)))
 
+    def test_brainstorm_single_spec_usage_stays_backward_compatible(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "single"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=str(spec_path),
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+        )
+
+        self.assertEqual(result["classes_run"], ["canva-appmap-rce-1"])
+        self.assertEqual(result["brainstorm"]["spec"], str(spec_path.resolve(strict=False)))
+        self.assertEqual(result["brainstorm"]["specs"], [str(spec_path.resolve(strict=False))])
+
+    def test_brainstorm_repeatable_explicit_specs_run_as_one_campaign(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "repeatable"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_a = self._write_appmap_spec(lane_root, spec_path=lane_root / "brainstorm" / "a" / "spec.md")
+        spec_b = self._write_appmap_spec(lane_root, spec_path=lane_root / "brainstorm" / "b" / "spec.md")
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=[str(spec_a), str(spec_b)],
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+        )
+
+        self.assertEqual(result["classes_run"], ["canva-appmap-rce-1", "canva-appmap-rce-1"])
+        self.assertEqual(result["brainstorm"]["hypotheses"], ["H001", "H001"])
+        self.assertEqual(
+            [item["source_spec_path"] for item in result["brainstorm"]["hypothesis_assignments"]],
+            [str(spec_a.resolve(strict=False)), str(spec_b.resolve(strict=False))],
+        )
+        self.assertEqual(
+            [item["source_spec_path"] for item in result["brainstorm"]["profile_assignments"]],
+            [str(spec_a.resolve(strict=False)), str(spec_b.resolve(strict=False))],
+        )
+        self.assertEqual(
+            result["brainstorm"]["specs"],
+            [str(spec_a.resolve(strict=False)), str(spec_b.resolve(strict=False))],
+        )
+        self.assertEqual(
+            [profile.brainstorm_metadata["source_spec_path"] for profile in spawned_profiles],
+            [str(spec_a.resolve(strict=False)), str(spec_b.resolve(strict=False))],
+        )
+
+    def test_duplicate_hypothesis_and_agent_ids_are_separated_by_spec_path(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "duplicate-hids"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_a = self._write_appmap_spec(lane_root, spec_path=lane_root / "brainstorm" / "a" / "spec.md")
+        spec_b = self._write_appmap_spec(lane_root, spec_path=lane_root / "brainstorm" / "b" / "spec.md")
+
+        profiles, hypotheses, paths = zero_day_team._load_brainstorm_campaign_profiles(
+            spec_paths=[spec_a, spec_b],
+            program_slug="canva",
+            version="1.2.3",
+        )
+        zero_day_team._reject_brainstorm_profile_collisions(profiles, [])
+
+        self.assertEqual([hypothesis.id for hypothesis in hypotheses], ["H001", "H001"])
+        self.assertEqual(paths, [spec_a.resolve(strict=False), spec_b.resolve(strict=False)])
+        self.assertEqual(profiles[0].key, profiles[1].key)
+        self.assertNotEqual(
+            zero_day_team._brainstorm_profile_key(profiles[0]),
+            zero_day_team._brainstorm_profile_key(profiles[1]),
+        )
+
+
+    def test_selected_class_returns_duplicate_brainstorm_keys_across_specs(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "selected-class"
+        spec_a = self._write_appmap_spec(lane_root, spec_path=lane_root / "brainstorm" / "a" / "spec.md")
+        spec_b = self._write_appmap_spec(lane_root, spec_path=lane_root / "brainstorm" / "b" / "spec.md")
+
+        profiles, _, _ = zero_day_team._load_brainstorm_campaign_profiles(
+            spec_paths=[spec_a, spec_b],
+            program_slug="canva",
+            version="1.2.3",
+        )
+        selected = zero_day_team._select_from_profiles("canva-appmap-rce-1", profiles)
+
+        self.assertEqual(len(selected), 2)
+        self.assertEqual(
+            [profile.brainstorm_metadata["source_spec_path"] for profile in selected],
+            [str(spec_a.resolve(strict=False)), str(spec_b.resolve(strict=False))],
+        )
+
+    def test_coverage_skip_in_one_spec_does_not_skip_same_assignment_in_another_spec(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "coverage-by-spec"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_a = self._write_appmap_spec(lane_root, spec_path=lane_root / "brainstorm" / "a" / "spec.md")
+        spec_b = self._write_appmap_spec(lane_root, spec_path=lane_root / "brainstorm" / "b" / "spec.md")
+        self._append_appmap_coverage_row(lane_root, spec_a, "agent_completed_no_finding")
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=[str(spec_a), str(spec_b)],
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+        )
+
+        self.assertEqual(result["classes_run"], ["canva-appmap-rce-1"])
+        self.assertEqual(result["brainstorm"]["coverage_skipped"], ["canva-appmap-rce-1"])
+        self.assertEqual(
+            result["brainstorm"]["coverage_skipped_assignments"][0]["source_spec_path"],
+            str(spec_a.resolve(strict=False)),
+        )
+        self.assertEqual(len(spawned_profiles), 1)
+        self.assertEqual(
+            spawned_profiles[0].brainstorm_metadata["source_spec_path"],
+            str(spec_b.resolve(strict=False)),
+        )
+        rows = [
+            json.loads(line)
+            for line in (lane_root / "brainstorm" / "coverage.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        queued_specs = [row["source_spec_path"] for row in rows if row["event"] == "agent_queued"]
+        self.assertEqual(queued_specs, [str(spec_b.resolve(strict=False))])
+
+    def test_selected_hypothesis_across_multiple_specs(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "selected"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_a = self._write_appmap_spec(lane_root, spec_path=lane_root / "brainstorm" / "a" / "spec.md")
+        spec_b = self._write_appmap_spec(lane_root, count=2, spec_path=lane_root / "brainstorm" / "b" / "spec.md")
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=[str(spec_a), str(spec_b)],
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            brainstorm_hypothesis="H002",
+        )
+
+        self.assertEqual(result["classes_run"], ["canva-appmap-rce-2"])
+        self.assertEqual(result["brainstorm"]["hypotheses"], ["H002"])
+        self.assertEqual(
+            spawned_profiles[0].brainstorm_metadata["source_spec_path"],
+            str(spec_b.resolve(strict=False)),
+        )
+        with self.assertRaisesRegex(ValueError, "H999.*not found or is retired"):
+            self._run_appmap_brainstorm(
+                lane_root=lane_root,
+                target=target,
+                spec_path=[str(spec_a), str(spec_b)],
+                storage=storage,
+                spawned_profiles=[],
+                brainstorm_hypothesis="H999",
+            )
+
+    def test_brainstorm_spec_dir_discovery_is_deterministic_and_non_recursive(self) -> None:
+        spec_dir = self.tmp / "specs"
+        spec_dir.mkdir()
+        (spec_dir / "notes.md").write_text("# Notes\n", encoding="utf-8")
+        (spec_dir / "zeta-spec.md").write_text("# Zeta\n", encoding="utf-8")
+        (spec_dir / "spec.md").write_text("# Main\n", encoding="utf-8")
+        nested = spec_dir / "nested"
+        nested.mkdir()
+        (nested / "alpha-spec.md").write_text("# Nested\n", encoding="utf-8")
+
+        paths = zero_day_team._discover_brainstorm_spec_dir(spec_dir)
+
+        self.assertEqual([path.name for path in paths], ["spec.md", "zeta-spec.md"])
+
+    def test_brainstorm_spec_dir_rejects_symlinked_specs(self) -> None:
+        spec_dir = self.tmp / "spec-symlink"
+        outside = self.tmp / "outside"
+        spec_dir.mkdir()
+        outside.mkdir()
+        outside_spec = outside / "outside-spec.md"
+        outside_spec.write_text("# Outside\n", encoding="utf-8")
+        (spec_dir / "evil-spec.md").symlink_to(outside_spec)
+
+        with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+            zero_day_team._discover_brainstorm_spec_dir(spec_dir)
+
     def test_appmap_coverage_gate_skips_duplicate_snapshot_hypothesis_candidate_agent(self) -> None:
         lane_root = self.tmp / "Shared" / "appmap" / "canva" / "static"
         target = lane_root / "input" / "app_asar"
@@ -975,13 +1189,24 @@ Electron desktop target.
                 str(self.tmp / "target"),
                 "--brainstorm-spec",
                 str(self.tmp / "brainstorm" / "spec.md"),
+                "--brainstorm-spec",
+                str(self.tmp / "brainstorm" / "rce-spec.md"),
+                "--brainstorm-spec-dir",
+                str(self.tmp / "brainstorm" / "generated_specs"),
                 "--brainstorm-only",
                 "--brainstorm-hypothesis",
                 "H001",
             ]
         )
 
-        self.assertEqual(args.brainstorm_spec, str(self.tmp / "brainstorm" / "spec.md"))
+        self.assertEqual(
+            args.brainstorm_spec,
+            [
+                str(self.tmp / "brainstorm" / "spec.md"),
+                str(self.tmp / "brainstorm" / "rce-spec.md"),
+            ],
+        )
+        self.assertEqual(args.brainstorm_spec_dir, str(self.tmp / "brainstorm" / "generated_specs"))
         self.assertTrue(args.brainstorm_only)
         self.assertEqual(args.brainstorm_hypothesis, "H001")
 

@@ -673,12 +673,12 @@ def _select_from_profiles(
 ) -> List[VulnerabilityClassProfile]:
     if not selected_class:
         return list(profiles)
-    all_profiles = {profile.key.lower(): profile for profile in profiles}
     normalized = _normalize_class_name(selected_class)
-    if normalized not in all_profiles:
-        known = ", ".join(sorted(all_profiles))
+    matches = [profile for profile in profiles if profile.key.casefold() == normalized]
+    if not matches:
+        known = ", ".join(sorted({profile.key.casefold() for profile in profiles}))
         raise ValueError(f"Unknown class {selected_class!r}. Expected one of: {known}")
-    return [all_profiles[normalized]]
+    return matches
 
 
 def _select_profiles(
@@ -686,15 +686,15 @@ def _select_profiles(
     extra_profiles: Sequence[VulnerabilityClassProfile] = (),
 ) -> List[VulnerabilityClassProfile]:
     ordered_profiles = list(CLASS_PROFILES.values()) + list(extra_profiles)
-    all_profiles = {profile.key.lower(): profile for profile in ordered_profiles}
     if not selected_class:
         return ordered_profiles
 
     normalized = _normalize_class_name(selected_class)
-    if normalized not in all_profiles:
-        known = ", ".join(sorted(all_profiles))
+    matches = [profile for profile in ordered_profiles if profile.key.casefold() == normalized]
+    if not matches:
+        known = ", ".join(sorted({profile.key.casefold() for profile in ordered_profiles}))
         raise ValueError(f"Unknown class {selected_class!r}. Expected one of: {known}")
-    return [all_profiles[normalized]]
+    return matches
 
 
 def _build_prompt_base(
@@ -1983,24 +1983,63 @@ def _append_brainstorm_completion(
     _append_brainstorm_coverage(coverage_path, session.profile, "agent_invalid_output")
 
 
-def _brainstorm_profile_key(profile: VulnerabilityClassProfile) -> tuple[str, str] | None:
+def _normalize_brainstorm_source_spec_path(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", raw):
+        return raw
+    return str(Path(raw).expanduser().resolve(strict=False))
+
+
+def _brainstorm_profile_key(profile: VulnerabilityClassProfile) -> tuple[str, str, str] | None:
     metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
     hypothesis_id = str(metadata.get("hypothesis_id") or "").strip()
     agent_key = str(metadata.get("brainstorm_agent_key") or profile.key).strip()
-    if not hypothesis_id or not agent_key:
+    source_spec_path = _normalize_brainstorm_source_spec_path(
+        metadata.get("source_spec_path") or metadata.get("brainstorm_spec")
+    )
+    if not hypothesis_id or not agent_key or not source_spec_path:
         return None
-    return hypothesis_id, agent_key
+    return source_spec_path, hypothesis_id, agent_key
+
+
+
+
+def _brainstorm_profile_assignment(profile: VulnerabilityClassProfile) -> dict[str, str]:
+    metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
+    return {
+        "profile": profile.key,
+        "hypothesis_id": str(metadata.get("hypothesis_id") or "").strip(),
+        "agent_key": str(metadata.get("brainstorm_agent_key") or profile.key).strip(),
+        "source_spec_path": _normalize_brainstorm_source_spec_path(
+            metadata.get("source_spec_path") or metadata.get("brainstorm_spec")
+        ),
+    }
+
+
+def _brainstorm_hypothesis_assignment(hypothesis: Any) -> dict[str, str]:
+    return {
+        "hypothesis_id": str(getattr(hypothesis, "id", "")).strip(),
+        "title": str(getattr(hypothesis, "title", "")).strip(),
+        "source_spec_path": _normalize_brainstorm_source_spec_path(
+            getattr(hypothesis, "source_spec_path", "")
+        ),
+    }
 
 
 def _finding_brainstorm_profile(
     finding: Dict[str, Any],
-    profiles_by_key: dict[tuple[str, str], VulnerabilityClassProfile],
+    profiles_by_key: dict[tuple[str, str, str], VulnerabilityClassProfile],
 ) -> VulnerabilityClassProfile | None:
     hypothesis_id = str(finding.get("hypothesis_id") or "").strip()
     agent_key = str(finding.get("brainstorm_agent_key") or finding.get("agent") or "").strip()
-    if not hypothesis_id or not agent_key:
+    source_spec_path = _normalize_brainstorm_source_spec_path(
+        finding.get("source_spec_path") or finding.get("brainstorm_spec")
+    )
+    if not hypothesis_id or not agent_key or not source_spec_path:
         return None
-    return profiles_by_key.get((hypothesis_id, agent_key))
+    return profiles_by_key.get((source_spec_path, hypothesis_id, agent_key))
 
 
 def _review_match_key(finding: Dict[str, Any]) -> tuple[str, ...]:
@@ -2009,6 +2048,9 @@ def _review_match_key(finding: Dict[str, Any]) -> tuple[str, ...]:
         return ("fid", fid)
     return (
         "shape",
+        _normalize_brainstorm_source_spec_path(
+            finding.get("source_spec_path") or finding.get("brainstorm_spec")
+        ),
         str(finding.get("hypothesis_id") or "").strip(),
         str(finding.get("brainstorm_agent_key") or finding.get("agent") or "").strip(),
         str(finding.get("type") or "").strip(),
@@ -2327,15 +2369,26 @@ def _reject_brainstorm_profile_collisions(
     existing_profiles: Sequence[VulnerabilityClassProfile],
 ) -> None:
     existing_keys = {profile.key.casefold(): profile.key for profile in existing_profiles}
-    seen: dict[str, str] = {}
+    seen_assignments: dict[tuple[str, str, str], str] = {}
+    seen_non_assignments: dict[str, str] = {}
     for profile in brainstorm_profiles:
         normalized_key = profile.key.casefold()
-        if normalized_key in seen:
+        assignment_key = _brainstorm_profile_key(profile)
+        if assignment_key is None and normalized_key in seen_non_assignments:
             raise ValueError(
                 "duplicate brainstorm profile key "
-                f"{profile.key!r} conflicts with {seen[normalized_key]!r}"
+                f"{profile.key!r} conflicts with {seen_non_assignments[normalized_key]!r}"
             )
-        seen[normalized_key] = profile.key
+        if assignment_key is not None and assignment_key in seen_assignments:
+            raise ValueError(
+                "duplicate brainstorm assignment "
+                f"{assignment_key[1]!r}/{assignment_key[2]!r} from {assignment_key[0]} "
+                f"conflicts with {seen_assignments[assignment_key]!r}"
+            )
+        if assignment_key is None:
+            seen_non_assignments[normalized_key] = profile.key
+        else:
+            seen_assignments[assignment_key] = profile.key
         if normalized_key in existing_keys:
             raise ValueError(
                 "brainstorm profile key "
@@ -2349,6 +2402,7 @@ def _load_brainstorm_profiles(
     program_slug: str,
     version: str,
     selected_hypothesis: str | None = None,
+    require_selected: bool = True,
 ) -> tuple[list[VulnerabilityClassProfile], list[Any], Path]:
     spec = parse_brainstorm_spec(spec_path)
     selected_id = str(selected_hypothesis or "").strip()
@@ -2358,8 +2412,9 @@ def _load_brainstorm_profiles(
             continue
         if selected_id and hypothesis.id != selected_id:
             continue
+        setattr(hypothesis, "source_spec_path", spec.path)
         selected_hypotheses.append(hypothesis)
-    if selected_id and not selected_hypotheses:
+    if selected_id and require_selected and not selected_hypotheses:
         raise ValueError(f"brainstorm hypothesis {selected_id!r} was not found or is retired")
 
     profiles: list[VulnerabilityClassProfile] = []
@@ -2380,6 +2435,103 @@ def _load_brainstorm_profiles(
                 profile.brainstorm_metadata.setdefault("appmap_run_id", appmap_run_id)
             profiles.append(profile)
     return profiles, selected_hypotheses, spec.path
+
+
+def _discover_brainstorm_spec_dir(spec_dir: str | Path) -> list[Path]:
+    raw_root = Path(spec_dir).expanduser()
+    if raw_root.is_symlink():
+        raise ValueError(f"--brainstorm-spec-dir must not be a symlink: {raw_root}")
+    root = raw_root.resolve(strict=False)
+    if not root.exists():
+        raise FileNotFoundError(f"--brainstorm-spec-dir does not exist: {root}")
+    if not root.is_dir():
+        raise NotADirectoryError(f"--brainstorm-spec-dir is not a directory: {root}")
+    specs: list[Path] = []
+    seen_names: dict[str, str] = {}
+    for path in root.iterdir():
+        is_candidate = path.suffix.lower() == ".md" and (path.name == "spec.md" or path.name.endswith("-spec.md"))
+        if not is_candidate:
+            continue
+        folded = path.name.casefold()
+        existing_name = seen_names.get(folded)
+        if existing_name is not None and existing_name != path.name:
+            raise ValueError(
+                "--brainstorm-spec-dir has case-insensitive spec name collision: "
+                f"{existing_name!r} and {path.name!r}"
+            )
+        seen_names[folded] = path.name
+        if path.is_symlink():
+            raise ValueError(f"--brainstorm-spec-dir spec must not be a symlink: {path}")
+        if not path.is_file():
+            continue
+        resolved = path.resolve(strict=False)
+        if not resolved.is_relative_to(root):
+            raise ValueError(f"--brainstorm-spec-dir spec escapes directory: {path}")
+        specs.append(resolved)
+    if not specs:
+        raise ValueError(f"--brainstorm-spec-dir contains no spec.md or *-spec.md files: {root}")
+    return sorted(specs, key=lambda path: (path.name.casefold(), path.name, str(path)))
+
+
+def _brainstorm_spec_path_inputs(value: str | Path | Sequence[str | Path] | None) -> list[str | Path]:
+    if value is None:
+        return []
+    if isinstance(value, (str, Path)):
+        return [value]
+    return list(value)
+
+
+def _resolve_brainstorm_spec_paths(
+    *,
+    brainstorm_spec: str | Path | Sequence[str | Path] | None,
+    brainstorm_spec_dir: str | Path | None,
+) -> list[Path]:
+    paths: list[Path] = []
+    seen: set[str] = set()
+    for item in [*_brainstorm_spec_path_inputs(brainstorm_spec)]:
+        path = Path(item).expanduser().resolve(strict=False)
+        key = str(path)
+        if key not in seen:
+            seen.add(key)
+            paths.append(path)
+    if brainstorm_spec_dir:
+        for path in _discover_brainstorm_spec_dir(brainstorm_spec_dir):
+            resolved = path.expanduser().resolve(strict=False)
+            key = str(resolved)
+            if key not in seen:
+                seen.add(key)
+                paths.append(resolved)
+    return paths
+
+
+def _load_brainstorm_campaign_profiles(
+    *,
+    spec_paths: Sequence[str | Path],
+    program_slug: str,
+    version: str,
+    selected_hypothesis: str | None = None,
+) -> tuple[list[VulnerabilityClassProfile], list[Any], list[Path]]:
+    profiles: list[VulnerabilityClassProfile] = []
+    hypotheses: list[Any] = []
+    loaded_paths: list[Path] = []
+    selected_id = str(selected_hypothesis or "").strip()
+    for spec_path in spec_paths:
+        spec_profiles, spec_hypotheses, parsed_path = _load_brainstorm_profiles(
+            spec_path=spec_path,
+            program_slug=program_slug,
+            version=version,
+            selected_hypothesis=selected_id or None,
+            require_selected=False,
+        )
+        loaded_paths.append(parsed_path)
+        profiles.extend(spec_profiles)
+        hypotheses.extend(spec_hypotheses)
+    if selected_id and not hypotheses:
+        spec_list = ", ".join(str(path) for path in loaded_paths) or "(no specs loaded)"
+        raise ValueError(
+            f"brainstorm hypothesis {selected_id!r} was not found or is retired in selected specs: {spec_list}"
+        )
+    return profiles, hypotheses, loaded_paths
 
 
 def hypothesis_to_agent_intents_for_profile(spec: Any, hypothesis: Any) -> list[Any]:
@@ -2407,7 +2559,8 @@ def orchestrate_zero_day_team(
     output_root: str | None = None,
     target_kind: str | None = None,
     intent_text: str | None = None,
-    brainstorm_spec: str | None = None,
+    brainstorm_spec: str | Path | Sequence[str | Path] | None = None,
+    brainstorm_spec_dir: str | Path | None = None,
     brainstorm_only: bool = False,
     brainstorm_hypothesis: str | None = None,
     verbose: int = 0,
@@ -2476,7 +2629,7 @@ def orchestrate_zero_day_team(
     dynamic_profiles: List[VulnerabilityClassProfile] = []
     brainstorm_profiles: List[VulnerabilityClassProfile] = []
     brainstorm_hypotheses: list[Any] = []
-    brainstorm_spec_path: Path | None = None
+    brainstorm_spec_paths: list[Path] = []
     brainstorm_coverage_path: Path | None = None
     dynamic_version = (
         str(snapshot_identity.get("version_label") or "").strip()
@@ -2573,14 +2726,18 @@ def orchestrate_zero_day_team(
             success=False,
             error=str(exc),
         )
-    if brainstorm_only and not brainstorm_spec:
-        raise ValueError("--brainstorm-only requires --brainstorm-spec")
-    if brainstorm_hypothesis and not brainstorm_spec:
-        raise ValueError("--brainstorm-hypothesis requires --brainstorm-spec")
-    if brainstorm_spec:
+    resolved_brainstorm_spec_paths = _resolve_brainstorm_spec_paths(
+        brainstorm_spec=brainstorm_spec,
+        brainstorm_spec_dir=brainstorm_spec_dir,
+    )
+    if brainstorm_only and not resolved_brainstorm_spec_paths:
+        raise ValueError("--brainstorm-only requires --brainstorm-spec or --brainstorm-spec-dir")
+    if brainstorm_hypothesis and not resolved_brainstorm_spec_paths:
+        raise ValueError("--brainstorm-hypothesis requires --brainstorm-spec or --brainstorm-spec-dir")
+    if resolved_brainstorm_spec_paths:
         brainstorm_coverage_path = storage.lane_root / "brainstorm" / "coverage.jsonl"
-        brainstorm_profiles, brainstorm_hypotheses, brainstorm_spec_path = _load_brainstorm_profiles(
-            spec_path=brainstorm_spec,
+        brainstorm_profiles, brainstorm_hypotheses, brainstorm_spec_paths = _load_brainstorm_campaign_profiles(
+            spec_paths=resolved_brainstorm_spec_paths,
             program_slug=program_slug,
             version=dynamic_version,
             selected_hypothesis=brainstorm_hypothesis,
@@ -2603,11 +2760,11 @@ def orchestrate_zero_day_team(
                 brainstorm_coverage_path,
                 hypothesis=hypothesis,
                 run_id=getattr(ledger, "run_id", None),
-                spec_path=brainstorm_spec_path,
+                spec_path=Path(getattr(hypothesis, "source_spec_path", "") or brainstorm_spec_paths[0]),
             )
         print(
             f"[brainstorm] loaded {len(brainstorm_profiles)} profile(s) "
-            f"from {brainstorm_spec_path}"
+            f"from {len(brainstorm_spec_paths)} spec(s)"
         )
     if brainstorm_only:
         profiles = _select_from_profiles(selected_class, brainstorm_profiles)
@@ -2917,14 +3074,24 @@ def orchestrate_zero_day_team(
         "keys": [profile.key for profile in dynamic_profiles],
         "version": dynamic_version,
     }
-    if brainstorm_spec_path is not None:
+    if brainstorm_spec_paths:
         summary["brainstorm"] = {
-            "spec": str(brainstorm_spec_path),
+            "spec": str(brainstorm_spec_paths[0]),
+            "specs": [str(path) for path in brainstorm_spec_paths],
             "coverage": str(brainstorm_coverage_path),
             "profiles": [profile.key for profile in brainstorm_profiles],
+            "profile_assignments": [
+                _brainstorm_profile_assignment(profile) for profile in brainstorm_profiles
+            ],
             "hypotheses": [hypothesis.id for hypothesis in brainstorm_hypotheses],
+            "hypothesis_assignments": [
+                _brainstorm_hypothesis_assignment(hypothesis) for hypothesis in brainstorm_hypotheses
+            ],
             "only": brainstorm_only,
             "coverage_skipped": [profile.key for profile in appmap_coverage_skipped_profiles],
+            "coverage_skipped_assignments": [
+                _brainstorm_profile_assignment(profile) for profile in appmap_coverage_skipped_profiles
+            ],
         }
     _pretty_print_findings(reviewed_findings)
 
@@ -3049,7 +3216,12 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--brainstorm-spec",
+        action="append",
         help="Path to a brainstorm spec markdown file to convert into additional procedural profiles.",
+    )
+    parser.add_argument(
+        "--brainstorm-spec-dir",
+        help="Directory containing spec.md or *-spec.md brainstorm specs to run as one campaign.",
     )
     parser.add_argument(
         "--brainstorm-only",
@@ -3093,6 +3265,7 @@ if __name__ == "__main__":
         target_kind=args.target_kind,
         intent_text=args.intent_text,
         brainstorm_spec=args.brainstorm_spec,
+        brainstorm_spec_dir=args.brainstorm_spec_dir,
         brainstorm_only=args.brainstorm_only,
         brainstorm_hypothesis=args.brainstorm_hypothesis,
         verbose=args.verbose,

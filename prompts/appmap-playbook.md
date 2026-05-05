@@ -200,6 +200,15 @@ The output must stay on the existing runtime path:
 python3 agents/zero_day_team.py <program> <target_path> --brainstorm-spec <promoted-spec> --brainstorm-only --brainstorm-hypothesis H001
 ```
 
+Default runtime remains one agent per hypothesis. To reduce duplicate work only after reviewing the campaign, opt in to small AppMap clusters when assignments share the same focus files, source evidence, and sink evidence:
+
+```bash
+python3 agents/zero_day_team.py <program> <target_path> \
+  --brainstorm-spec-dir ~/Shared/<family>/<program>/<lane>/brainstorm/appmap-<run_id> \
+  --brainstorm-only \
+  --brainstorm-cluster-size 2
+```
+
 Do not add or suggest `zero_day_team --appmap`.
 
 ## 8. Report Results

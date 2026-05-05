@@ -150,6 +150,7 @@ Electron desktop target.
         spec_path: Path | None = None,
         agent_prefix: str = "canva-appmap-rce",
         run_id: str = "appmap-run-1",
+        shared_source_sink: bool = False,
     ) -> Path:
         spec_path = spec_path or lane_root / "brainstorm" / "appmap-rce-spec.md"
         spec_path.parent.mkdir(parents=True, exist_ok=True)
@@ -176,7 +177,18 @@ Electron desktop target.
                 },
                 "target_profile": {"target_kind": "electron-exe"},
                 "focus_files": ["src/**/*.js"],
-                "evidence": {},
+                "evidence": {
+                    "source": {
+                        "file": "src/shared.js" if shared_source_sink else f"src/source{index}.js",
+                        "line": 10 if shared_source_sink else index,
+                        "kind": "config",
+                    },
+                    "sink": {
+                        "file": "src/shared.js" if shared_source_sink else f"src/sink{index}.js",
+                        "line": 80 if shared_source_sink else index + 100,
+                        "kind": "process-exec",
+                    },
+                },
             }
             (contexts_dir / f"{hypothesis_id}-{candidate_id}-{agent_key}.json").write_text(
                 json.dumps(packet, indent=2, sort_keys=True) + "\n",
@@ -247,6 +259,7 @@ Electron desktop target.
         fresh: bool = False,
         parallel: bool = False,
         brainstorm_hypothesis: str | None = None,
+        brainstorm_cluster_size: int = 1,
     ) -> dict:
         ledger = SimpleNamespace(
             path=storage.ledgers_root / "ledger.json",
@@ -309,6 +322,7 @@ Electron desktop target.
                 brainstorm_spec_dir=spec_dir,
                 brainstorm_only=True,
                 brainstorm_hypothesis=brainstorm_hypothesis,
+                brainstorm_cluster_size=brainstorm_cluster_size,
                 fresh=fresh,
                 parallel=parallel,
             )
@@ -852,6 +866,192 @@ Electron desktop target.
         ]
         queued_specs = [row["source_spec_path"] for row in rows if row["event"] == "agent_queued"]
         self.assertEqual(queued_specs, [str(spec_b.resolve(strict=False))])
+
+    def test_clustered_completion_fails_closed_for_unassigned_findings(self) -> None:
+        coverage_path = self.tmp / "coverage.jsonl"
+        log_path = self.tmp / "agent.log"
+        log_path.write_text('{"findings": []}\n', encoding="utf-8")
+        spec_path = str((self.tmp / "spec.md").resolve(strict=False))
+        assignments = [
+            {
+                "hypothesis_id": "H001",
+                "hypothesis_title": "H001",
+                "brainstorm_agent_key": "canva-appmap-rce-1",
+                "source_spec_path": spec_path,
+                "brainstorm_spec": spec_path,
+                "appmap_candidate_id": "C0001",
+                "appmap_run_id": "appmap-run-1",
+                "_snapshot_version": "1.2.3",
+                "brainstorm_cluster_id": "cluster-H001-H002",
+            },
+            {
+                "hypothesis_id": "H002",
+                "hypothesis_title": "H002",
+                "brainstorm_agent_key": "canva-appmap-rce-2",
+                "source_spec_path": spec_path,
+                "brainstorm_spec": spec_path,
+                "appmap_candidate_id": "C0002",
+                "appmap_run_id": "appmap-run-1",
+                "_snapshot_version": "1.2.3",
+                "brainstorm_cluster_id": "cluster-H001-H002",
+            },
+        ]
+        profile = zero_day_team.VulnerabilityClassProfile(
+            key="cluster-profile",
+            description="cluster",
+            entry_questions=(),
+            cross_questions=(),
+            sink_categories=(),
+            reasoning="cluster",
+            brainstorm_metadata={**assignments[0], "brainstorm_cluster_assignments": assignments},
+        )
+        session = zero_day_team.AgentSession(
+            profile=profile,
+            workspace=self.tmp,
+            log_path=log_path,
+            process=None,
+            coverage_path=coverage_path,
+        )
+        malformed = {
+            "hypothesis_id": "H999",
+            "brainstorm_agent_key": "unknown-agent",
+            "brainstorm_spec": spec_path,
+            "type": "rce",
+            "file": "src/shared.js",
+            "line": 80,
+        }
+
+        zero_day_team._append_brainstorm_completion(
+            session,
+            exit_code=0,
+            initial_salvaged=[malformed],
+            final_salvaged=[malformed],
+        )
+
+        rows = [json.loads(line) for line in coverage_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([row["event"] for row in rows], ["agent_invalid_output", "agent_invalid_output"])
+        self.assertTrue(all(row["unassigned_raw_finding_count"] == 2 for row in rows))
+
+    def test_clustered_completion_records_findings_per_assignment(self) -> None:
+        coverage_path = self.tmp / "coverage.jsonl"
+        log_path = self.tmp / "agent.log"
+        log_path.write_text('{"findings": []}\n', encoding="utf-8")
+        assignments = []
+        for hypothesis_id, agent_key, candidate_id in (
+            ("H001", "canva-appmap-rce-1", "C0001"),
+            ("H002", "canva-appmap-rce-2", "C0002"),
+        ):
+            assignments.append(
+                {
+                    "hypothesis_id": hypothesis_id,
+                    "hypothesis_title": hypothesis_id,
+                    "brainstorm_agent_key": agent_key,
+                    "source_spec_path": str((self.tmp / "spec.md").resolve(strict=False)),
+                    "brainstorm_spec": str((self.tmp / "spec.md").resolve(strict=False)),
+                    "appmap_candidate_id": candidate_id,
+                    "appmap_run_id": "appmap-run-1",
+                    "_snapshot_version": "1.2.3",
+                    "brainstorm_cluster_id": "cluster-H001-H002",
+                }
+            )
+        profile = zero_day_team.VulnerabilityClassProfile(
+            key="cluster-profile",
+            description="cluster",
+            entry_questions=(),
+            cross_questions=(),
+            sink_categories=(),
+            reasoning="cluster",
+            brainstorm_metadata={
+                **assignments[0],
+                "brainstorm_cluster_assignments": assignments,
+            },
+        )
+        session = zero_day_team.AgentSession(
+            profile=profile,
+            workspace=self.tmp,
+            log_path=log_path,
+            process=None,
+            coverage_path=coverage_path,
+        )
+        finding = {
+            "hypothesis_id": "H001",
+            "brainstorm_agent_key": "canva-appmap-rce-1",
+            "brainstorm_spec": str((self.tmp / "spec.md").resolve(strict=False)),
+            "type": "rce",
+            "file": "src/shared.js",
+            "line": 80,
+            "source": "config",
+            "sink": "exec",
+        }
+
+        zero_day_team._append_brainstorm_completion(
+            session,
+            exit_code=0,
+            initial_salvaged=[finding],
+            final_salvaged=[finding],
+        )
+
+        rows = [json.loads(line) for line in coverage_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(
+            [(row["event"], row["hypothesis_id"]) for row in rows],
+            [("agent_completed_with_raw_findings", "H001"), ("agent_completed_no_finding", "H002")],
+        )
+        self.assertIn("raw_finding_signatures", rows[0])
+        self.assertNotIn("raw_finding_signatures", rows[1])
+
+    def test_appmap_brainstorm_cluster_size_does_not_merge_different_source_sink(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "no-cluster"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root, count=2, shared_source_sink=False)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=str(spec_path),
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            brainstorm_cluster_size=2,
+        )
+
+        self.assertEqual(len(spawned_profiles), 2)
+        self.assertEqual(result["classes_run"], ["canva-appmap-rce-1", "canva-appmap-rce-2"])
+        self.assertEqual(result["brainstorm"]["clusters"], [])
+
+    def test_appmap_brainstorm_cluster_size_merges_shared_source_sink_assignments(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "cluster"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root, count=2, shared_source_sink=True)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=str(spec_path),
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            brainstorm_cluster_size=2,
+        )
+
+        self.assertEqual(len(spawned_profiles), 1)
+        self.assertEqual(result["classes_run"], [spawned_profiles[0].key])
+        self.assertEqual(result["brainstorm"]["cluster_size"], 2)
+        self.assertEqual(len(result["brainstorm"]["clusters"]), 1)
+        self.assertEqual(
+            [member["hypothesis_id"] for member in result["brainstorm"]["clusters"][0]["members"]],
+            ["H001", "H002"],
+        )
+        rows = [
+            json.loads(line)
+            for line in (lane_root / "brainstorm" / "coverage.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        queued = [row for row in rows if row["event"] == "agent_queued"]
+        self.assertEqual([row["hypothesis_id"] for row in queued], ["H001", "H002"])
+        self.assertTrue(all(row.get("brainstorm_cluster_id") for row in queued))
 
     def test_selected_hypothesis_across_multiple_specs(self) -> None:
         lane_root = self.tmp / "Shared" / "appmap" / "canva" / "selected"

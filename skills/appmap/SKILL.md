@@ -99,10 +99,17 @@ Default promotion writes a unique per-run handoff directory:
 ~/Shared/{family}/{program}/{lane}/brainstorm/appmap-<run_id>-<focus>/rce-spec.md
 ```
 
+This is `--promotion-layout flat` and remains the default for compatibility. Opt in to category layout with `--promotion-layout category` to write:
+
+```text
+~/Shared/{family}/{program}/{lane}/brainstorm/appmap-<run_id>/<focus>/rce-spec.md
+```
+
 It also copies matching context packets to the spec's sibling context directory:
 
 ```text
 ~/Shared/{family}/{program}/{lane}/brainstorm/appmap-<run_id>-<focus>/agent_contexts/
+~/Shared/{family}/{program}/{lane}/brainstorm/appmap-<run_id>/<focus>/agent_contexts/
 ```
 
 Promoted specs and packets keep pointers to the originating AppMap run. Existing `brainstorm/spec.md` remains untouched; `--promote-spec-name` chooses a filename inside the per-run promotion directory, and overwrite applies only there.

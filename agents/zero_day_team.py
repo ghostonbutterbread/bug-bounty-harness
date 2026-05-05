@@ -58,7 +58,13 @@ from agents.verbosity import clamp_verbosity
 
 ensure_bounty_core_importable("bounty_core.brainstorm_spec")
 
-from bounty_core.brainstorm_spec import append_coverage, parse_brainstorm_spec  # noqa: E402
+from bounty_core.brainstorm_spec import (  # noqa: E402
+    append_coverage,
+    appmap_assignment_identity,
+    is_appmap_assignment_covered,
+    parse_brainstorm_spec,
+    read_coverage_jsonl,
+)
 
 try:
     from subagent_logger import SubagentLogger, compute_pte_lite
@@ -1805,13 +1811,63 @@ def _append_unique_findings(findings_path: Path, findings: Sequence[Dict[str, An
         lock_handle.close()
 
 
+def _appmap_candidate_identity(metadata: dict[str, Any]) -> str:
+    return str(metadata.get("candidate_id") or metadata.get("appmap_candidate_id") or "").strip()
+
+
+def _is_appmap_brainstorm_profile(profile: VulnerabilityClassProfile) -> bool:
+    metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
+    if not metadata:
+        return False
+    if _appmap_candidate_identity(metadata):
+        return True
+    if str(metadata.get("appmap_context_packet") or "").strip():
+        return True
+    return bool(re.search(r"\bappmap\b", ",".join(str(item) for item in metadata.get("brainstorm_tags", []))))
+
+
+def _appmap_coverage_identity(profile: VulnerabilityClassProfile) -> dict[str, str] | None:
+    metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
+    return appmap_assignment_identity(metadata, default_agent_key=profile.key)
+
+
+def _read_brainstorm_coverage_events(coverage_path: Path) -> list[dict[str, Any]]:
+    return read_coverage_jsonl(coverage_path)
+
+
+def _filter_appmap_profiles_by_coverage(
+    profiles: Sequence[VulnerabilityClassProfile],
+    *,
+    coverage_path: Path | None,
+    fresh: bool,
+) -> tuple[list[VulnerabilityClassProfile], list[VulnerabilityClassProfile]]:
+    if fresh or coverage_path is None:
+        return list(profiles), []
+    events = _read_brainstorm_coverage_events(coverage_path)
+    if not events:
+        return list(profiles), []
+
+    active: list[VulnerabilityClassProfile] = []
+    skipped: list[VulnerabilityClassProfile] = []
+    for profile in profiles:
+        identity = _appmap_coverage_identity(profile)
+        if identity is None:
+            active.append(profile)
+            continue
+        if is_appmap_assignment_covered(identity, events):
+            skipped.append(profile)
+        else:
+            active.append(profile)
+    return active, skipped
+
+
 def _brainstorm_event_base(profile: VulnerabilityClassProfile) -> dict[str, Any] | None:
     metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
     hypothesis_id = str(metadata.get("hypothesis_id") or "").strip()
     agent_key = str(metadata.get("brainstorm_agent_key") or profile.key).strip()
     if not hypothesis_id or not agent_key:
         return None
-    return {
+    base = {
         "hypothesis_id": hypothesis_id,
         "hypothesis_title": metadata.get("hypothesis_title"),
         "agent_key": agent_key,
@@ -1819,6 +1875,25 @@ def _brainstorm_event_base(profile: VulnerabilityClassProfile) -> dict[str, Any]
         "expected_chain": metadata.get("expected_chain"),
         "brainstorm_spec": metadata.get("brainstorm_spec"),
     }
+    if _is_appmap_brainstorm_profile(profile):
+        candidate_id = _appmap_candidate_identity(metadata)
+        if candidate_id:
+            base["appmap_candidate_id"] = candidate_id
+            if metadata.get("candidate_id"):
+                base["candidate_id"] = str(metadata.get("candidate_id")).strip()
+        appmap_context_packet = str(metadata.get("appmap_context_packet") or "").strip()
+        if appmap_context_packet:
+            base["appmap_context_packet"] = appmap_context_packet
+        for source_key, coverage_key in (
+            ("appmap_run_id", "appmap_run_id"),
+            ("appmap_flow_id", "appmap_flow_id"),
+            ("_snapshot_id", "snapshot_id"),
+            ("_snapshot_version", "snapshot_version"),
+        ):
+            value = str(metadata.get(source_key) or "").strip()
+            if value:
+                base[coverage_key] = value
+    return base
 
 
 def _append_brainstorm_coverage(
@@ -2295,7 +2370,15 @@ def _load_brainstorm_profiles(
                 program=program_slug,
                 version=version,
             )
-            profiles.append(_profile_from_agent_spec(dynamic_spec))
+            profile = _profile_from_agent_spec(dynamic_spec)
+            appmap_run_id = str(
+                spec.metadata.get("AppMap run id")
+                or spec.metadata.get("appmap_run_id")
+                or ""
+            ).strip()
+            if appmap_run_id and _is_appmap_brainstorm_profile(profile):
+                profile.brainstorm_metadata.setdefault("appmap_run_id", appmap_run_id)
+            profiles.append(profile)
     return profiles, selected_hypotheses, spec.path
 
 
@@ -2508,6 +2591,13 @@ def orchestrate_zero_day_team(
         )
         for profile in brainstorm_profiles:
             profile.brainstorm_metadata["_coverage_path"] = str(brainstorm_coverage_path)
+            if _is_appmap_brainstorm_profile(profile):
+                snapshot_id = str(snapshot_identity.get("snapshot_id") or "").strip()
+                snapshot_version = str(snapshot_identity.get("version_label") or dynamic_version or "").strip()
+                if snapshot_id:
+                    profile.brainstorm_metadata["_snapshot_id"] = snapshot_id
+                if snapshot_version:
+                    profile.brainstorm_metadata["_snapshot_version"] = snapshot_version
         for hypothesis in brainstorm_hypotheses:
             _append_brainstorm_hypothesis_loaded(
                 brainstorm_coverage_path,
@@ -2635,6 +2725,19 @@ def orchestrate_zero_day_team(
             expected_worth=1.0,
             redundancy_penalty=0.0,
             spawned=profile in active_profiles,
+        )
+
+    active_profiles, appmap_coverage_skipped_profiles = _filter_appmap_profiles_by_coverage(
+        active_profiles,
+        coverage_path=brainstorm_coverage_path,
+        fresh=fresh,
+    )
+    if appmap_coverage_skipped_profiles:
+        skipped_keys = [profile.key for profile in appmap_coverage_skipped_profiles]
+        skipped_profile_keys.extend(skipped_keys)
+        print(
+            "[brainstorm] coverage gate skipped "
+            f"{len(skipped_keys)} AppMap profile(s): {', '.join(skipped_keys)}"
         )
 
     # Pre-assign DIVERSE entry points across all active profiles (no two profiles
@@ -2821,6 +2924,7 @@ def orchestrate_zero_day_team(
             "profiles": [profile.key for profile in brainstorm_profiles],
             "hypotheses": [hypothesis.id for hypothesis in brainstorm_hypotheses],
             "only": brainstorm_only,
+            "coverage_skipped": [profile.key for profile in appmap_coverage_skipped_profiles],
         }
     _pretty_print_findings(reviewed_findings)
 

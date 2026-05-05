@@ -74,6 +74,224 @@ Electron desktop target.
 - Tags: retired
 """
 
+    def _appmap_brainstorm_spec_text(self, count: int = 1) -> str:
+        primitives = []
+        hypotheses = []
+        for index in range(1, count + 1):
+            hypothesis_id = f"H{index:03d}"
+            candidate_id = f"C{index:04d}"
+            agent_key = f"canva-appmap-rce-{index}"
+            primitives.append(
+                "\n".join(
+                    [
+                        f"### P{index:03d} - Process execution reachable from config evidence",
+                        "- Source: project config",
+                        "- Impact: config may reach process execution",
+                        f"- Evidence: appmap-{candidate_id}",
+                        "- Status: active",
+                    ]
+                )
+            )
+            hypotheses.append(
+                "\n".join(
+                    [
+                        f"### {hypothesis_id} - Project config may influence process execution",
+                        "- Status: untested",
+                        "- Priority: high",
+                        "- Surface: appmap-S0001-config",
+                        "- Entry point: user-controlled project config",
+                        "- Expected chain: config source -> project boundary -> child_process sink",
+                        "- Suggested agents:",
+                        f"  - {agent_key}",
+                        "- Focus files:",
+                        "  - src/**/*.js",
+                        "- Tags: rce, appmap, static",
+                        "- Evidence:",
+                        f"  - appmap-{candidate_id}",
+                        f"  - appmap-context:{hypothesis_id}:{candidate_id}:{agent_key}",
+                        "  - flow-F0001",
+                    ]
+                )
+            )
+        return (
+            "# Brainstorm Spec: Canva AppMap RCE\n\n"
+            "## Metadata\n"
+            "- Program: canva\n"
+            "- Family: appmap\n"
+            "- Lane: static\n"
+            "- Target kind: electron-exe\n"
+            "- Target path: input/app_asar\n"
+            "- Status: active\n"
+            "- AppMap run id: appmap-run-1\n\n"
+            "## Target mental model\n"
+            "Static AppMap target.\n\n"
+            "## Impact primitives\n"
+            + "\n\n".join(primitives)
+            + "\n\n"
+            "## Hypotheses\n"
+            + "\n\n".join(hypotheses)
+            + "\n\n"
+            "## Coverage log\n"
+            "| Hypothesis | Agent | Status | Result | Linked FIDs | Run ID | Notes |\n"
+            "|---|---|---|---|---|---|---|\n"
+        )
+
+    def _write_appmap_spec(self, lane_root: Path, count: int = 1) -> Path:
+        spec_path = lane_root / "brainstorm" / "appmap-rce-spec.md"
+        spec_path.parent.mkdir(parents=True, exist_ok=True)
+        spec_path.write_text(self._appmap_brainstorm_spec_text(count=count), encoding="utf-8")
+        contexts_dir = spec_path.parent / "agent_contexts"
+        contexts_dir.mkdir(parents=True, exist_ok=True)
+        for index in range(1, count + 1):
+            hypothesis_id = f"H{index:03d}"
+            candidate_id = f"C{index:04d}"
+            agent_key = f"canva-appmap-rce-{index}"
+            packet = {
+                "schema_version": 1,
+                "run_id": "appmap-run-1",
+                "candidate": {
+                    "id": candidate_id,
+                    "map_ids": {"flow_id": f"F{index:04d}"},
+                },
+                "hypothesis_linkage": {
+                    "hypothesis_id": hypothesis_id,
+                    "agent_key": agent_key,
+                },
+                "target_profile": {"target_kind": "electron-exe"},
+                "focus_files": ["src/**/*.js"],
+                "evidence": {},
+            }
+            (contexts_dir / f"{hypothesis_id}-{candidate_id}-{agent_key}.json").write_text(
+                json.dumps(packet, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        return spec_path
+
+    def _write_tag_only_appmap_spec(self, lane_root: Path) -> Path:
+        spec_path = lane_root / "brainstorm" / "appmap-rce-spec.md"
+        spec_path.parent.mkdir(parents=True, exist_ok=True)
+        text = self._appmap_brainstorm_spec_text(count=1).replace(
+            "  - appmap-C0001\n"
+            "  - appmap-context:H001:C0001:canva-appmap-rce-1\n"
+            "  - flow-F0001",
+            "  - flow-F0001",
+        )
+        spec_path.write_text(text, encoding="utf-8")
+        return spec_path
+
+    def _append_appmap_coverage_row(
+        self,
+        lane_root: Path,
+        spec_path: Path,
+        event: str,
+        **overrides,
+    ) -> None:
+        coverage_path = lane_root / "brainstorm" / "coverage.jsonl"
+        coverage_path.parent.mkdir(parents=True, exist_ok=True)
+        row = {
+            "event": event,
+            "hypothesis_id": "H001",
+            "agent_key": "canva-appmap-rce-1",
+            "source_spec_path": str(spec_path.resolve(strict=False)),
+            "brainstorm_spec": str(spec_path.resolve(strict=False)),
+            "appmap_candidate_id": "C0001",
+            "appmap_context_packet": str(
+                (spec_path.parent / "agent_contexts" / "H001-C0001-canva-appmap-rce-1.json")
+                .resolve(strict=False)
+            ),
+            "appmap_run_id": "appmap-run-1",
+            "snapshot_id": "snap-1",
+            "snapshot_version": "1.2.3",
+        }
+        row.update(overrides)
+        with coverage_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+    def _appmap_storage(self, lane_root: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            family="appmap",
+            lane="static",
+            lane_root=lane_root,
+            reports_root=lane_root / "reports",
+            ledgers_root=lane_root / "ledgers",
+            context_root=lane_root / "context",
+            working_root=lane_root / "work",
+        )
+
+    def _run_appmap_brainstorm(
+        self,
+        *,
+        lane_root: Path,
+        target: Path,
+        spec_path: Path,
+        storage: SimpleNamespace,
+        spawned_profiles: list,
+        fresh: bool = False,
+        parallel: bool = False,
+    ) -> dict:
+        ledger = SimpleNamespace(
+            path=storage.ledgers_root / "ledger.json",
+            get_class_context=Mock(return_value=""),
+            check=Mock(),
+            run_id="run-1",
+            root_override=None,
+        )
+
+        class NoFindingProcess:
+            pid = 4242
+
+            def wait(self, timeout=None):
+                return 0
+
+        def fake_spawn(*, profile, agents_root, coverage_path=None, **_kwargs):
+            spawned_profiles.append(profile)
+            agents_root.mkdir(parents=True, exist_ok=True)
+            log_path = agents_root / f"agent_{profile.key}_{len(spawned_profiles)}.log"
+            log_path.write_text("{}\n", encoding="utf-8")
+            return zero_day_team.AgentSession(
+                profile=profile,
+                workspace=agents_root / profile.key,
+                log_path=log_path,
+                process=NoFindingProcess(),
+                coverage_path=coverage_path,
+            )
+
+        def promote_side_effect(*_args, reviewed_groups, **_kwargs):
+            return {
+                "confirmed": list(reviewed_groups["confirmed"]),
+                "dormant": list(reviewed_groups["dormant"]),
+                "novel": list(reviewed_groups["novel"]),
+                "reviewed": [],
+                "ledger_updates": 0,
+            }
+
+        with (
+            patch.object(zero_day_team, "SubagentLogger", None),
+            patch.object(zero_day_team, "_resolve_zero_day_storage", return_value=storage),
+            patch.object(
+                zero_day_team,
+                "get_snapshot_identity",
+                return_value={"snapshot_id": "snap-1", "version_label": "1.2.3", "channel": "stable"},
+            ),
+            patch.object(zero_day_team, "create_team_ledger_from_storage", return_value=ledger),
+            patch.object(zero_day_team, "DynamicAgentBuilder") as builder_cls,
+            patch.object(zero_day_team, "_spawn_agent", side_effect=fake_spawn),
+            patch.object(zero_day_team, "stage2_ghost_review", return_value=([], [], [])),
+            patch.object(zero_day_team, "promote_reviewed_findings", side_effect=promote_side_effect),
+            patch.object(zero_day_team, "_pretty_print_findings"),
+        ):
+            builder_cls.return_value.run.return_value = []
+            return zero_day_team.orchestrate_zero_day_team(
+                "canva",
+                str(target),
+                no_preflight=True,
+                no_shared_brain=True,
+                brainstorm_spec=str(spec_path),
+                brainstorm_only=True,
+                fresh=fresh,
+                parallel=parallel,
+            )
+
     def test_shared_binaries_target_routes_to_binary_lane_storage(self) -> None:
         target = self.tmp / "Shared" / "binaries" / "canva" / "exe" / "input" / "app_asar"
         target.parent.mkdir(parents=True)
@@ -452,6 +670,243 @@ Electron desktop target.
         stored_finding = json.loads((storage.ledgers_root / zero_day_team.FINDINGS_FILENAME).read_text().splitlines()[0])
         self.assertEqual(stored_finding["hypothesis_id"], "H001")
         self.assertEqual(stored_finding["brainstorm_agent_key"], "canva-svg-import-xss")
+
+    def test_appmap_coverage_gate_first_run_queues_and_spawns(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "static"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+        )
+
+        self.assertEqual(result["classes_run"], ["canva-appmap-rce-1"])
+        self.assertEqual([profile.key for profile in spawned_profiles], ["canva-appmap-rce-1"])
+        coverage_path = lane_root / "brainstorm" / "coverage.jsonl"
+        rows = [json.loads(line) for line in coverage_path.read_text(encoding="utf-8").splitlines()]
+        events = [row["event"] for row in rows]
+        self.assertEqual(events, ["hypothesis_loaded", "agent_queued", "agent_spawned", "agent_completed_no_finding"])
+        queued = next(row for row in rows if row["event"] == "agent_queued")
+        self.assertEqual(queued["appmap_candidate_id"], "C0001")
+        self.assertEqual(queued["appmap_run_id"], "appmap-run-1")
+        self.assertEqual(queued["snapshot_id"], "snap-1")
+        self.assertEqual(queued["source_spec_path"], str(spec_path.resolve(strict=False)))
+
+    def test_appmap_coverage_gate_skips_duplicate_snapshot_hypothesis_candidate_agent(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "static"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        first = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+        )
+        second = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+        )
+
+        self.assertEqual(first["classes_run"], ["canva-appmap-rce-1"])
+        self.assertEqual(second["classes_run"], [])
+        self.assertEqual(second["brainstorm"]["coverage_skipped"], ["canva-appmap-rce-1"])
+        self.assertEqual([profile.key for profile in spawned_profiles], ["canva-appmap-rce-1"])
+        rows = [json.loads(line) for line in (lane_root / "brainstorm" / "coverage.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(sum(1 for row in rows if row["event"] == "agent_queued"), 1)
+        self.assertEqual(sum(1 for row in rows if row["event"] == "agent_spawned"), 1)
+
+    def test_appmap_coverage_gate_does_not_skip_stale_queued_or_spawned(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "stale"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root)
+        self._append_appmap_coverage_row(lane_root, spec_path, "agent_queued")
+        self._append_appmap_coverage_row(lane_root, spec_path, "agent_spawned")
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+        )
+
+        self.assertEqual(result["classes_run"], ["canva-appmap-rce-1"])
+        self.assertEqual(result["brainstorm"]["coverage_skipped"], [])
+        self.assertEqual([profile.key for profile in spawned_profiles], ["canva-appmap-rce-1"])
+
+    def test_appmap_coverage_gate_does_not_skip_after_timeout_or_crash(self) -> None:
+        for event in ("agent_timeout", "agent_crashed"):
+            with self.subTest(event=event):
+                lane_root = self.tmp / "Shared" / "appmap" / "canva" / event
+                target = lane_root / "input" / "app_asar"
+                target.mkdir(parents=True)
+                spec_path = self._write_appmap_spec(lane_root)
+                self._append_appmap_coverage_row(lane_root, spec_path, event)
+                storage = self._appmap_storage(lane_root)
+                spawned_profiles: list = []
+
+                result = self._run_appmap_brainstorm(
+                    lane_root=lane_root,
+                    target=target,
+                    spec_path=spec_path,
+                    storage=storage,
+                    spawned_profiles=spawned_profiles,
+                )
+
+                self.assertEqual(result["classes_run"], ["canva-appmap-rce-1"])
+                self.assertEqual(result["brainstorm"]["coverage_skipped"], [])
+
+    def test_appmap_coverage_gate_does_not_skip_tag_only_appmap_profile(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "tag-only"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_tag_only_appmap_spec(lane_root)
+        self._append_appmap_coverage_row(lane_root, spec_path, "agent_completed_no_finding")
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+        )
+
+        self.assertEqual(result["classes_run"], ["canva-appmap-rce-1"])
+        self.assertEqual(result["brainstorm"]["coverage_skipped"], [])
+
+    def test_appmap_coverage_gate_does_not_skip_run_id_mismatch(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "run-mismatch"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root)
+        self._append_appmap_coverage_row(
+            lane_root,
+            spec_path,
+            "agent_completed_no_finding",
+            appmap_run_id="other-run",
+        )
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+        )
+
+        self.assertEqual(result["classes_run"], ["canva-appmap-rce-1"])
+        self.assertEqual(result["brainstorm"]["coverage_skipped"], [])
+
+    def test_appmap_coverage_gate_does_not_skip_changed_snapshot(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "changed-snapshot"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root)
+        self._append_appmap_coverage_row(
+            lane_root,
+            spec_path,
+            "agent_completed_no_finding",
+            snapshot_id="older-snapshot",
+        )
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+        )
+
+        self.assertEqual(result["classes_run"], ["canva-appmap-rce-1"])
+        self.assertEqual(result["brainstorm"]["coverage_skipped"], [])
+
+    def test_appmap_coverage_gate_fresh_bypasses_duplicate_skip(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "static"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+        )
+        fresh = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            fresh=True,
+        )
+
+        self.assertEqual(fresh["classes_run"], ["canva-appmap-rce-1"])
+        self.assertEqual(fresh["brainstorm"]["coverage_skipped"], [])
+        self.assertEqual([profile.key for profile in spawned_profiles], ["canva-appmap-rce-1", "canva-appmap-rce-1"])
+        rows = [json.loads(line) for line in (lane_root / "brainstorm" / "coverage.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(sum(1 for row in rows if row["event"] == "agent_queued"), 2)
+        self.assertEqual(sum(1 for row in rows if row["event"] == "agent_spawned"), 2)
+
+    def test_appmap_parallel_scheduling_keeps_hard_cap_at_ten(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "static"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root, count=12)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+        executor_caps: list[int] = []
+        real_executor = zero_day_team.ThreadPoolExecutor
+
+        class CapturingExecutor(real_executor):
+            def __init__(self, *args, **kwargs):
+                if "max_workers" in kwargs:
+                    executor_caps.append(kwargs["max_workers"])
+                elif args:
+                    executor_caps.append(args[0])
+                super().__init__(*args, **kwargs)
+
+        with patch.object(zero_day_team, "ThreadPoolExecutor", CapturingExecutor):
+            result = self._run_appmap_brainstorm(
+                lane_root=lane_root,
+                target=target,
+                spec_path=spec_path,
+                storage=storage,
+                spawned_profiles=spawned_profiles,
+                parallel=True,
+            )
+
+        self.assertEqual(executor_caps, [zero_day_team.MAX_PARALLEL_AGENTS])
+        self.assertEqual(zero_day_team.MAX_PARALLEL_AGENTS, 10)
+        self.assertEqual(len(spawned_profiles), 12)
+        self.assertEqual(len(result["classes_run"]), 12)
 
     def test_brainstorm_profile_key_collision_fails_closed(self) -> None:
         builtin = next(iter(zero_day_team.CLASS_PROFILES.values()))

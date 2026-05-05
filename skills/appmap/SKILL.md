@@ -10,6 +10,9 @@ Map a local application and forge focused brainstorm specs from source/boundary/
 
 ```text
 /appmap <program> <target_path> [--target-kind <kind>] [--focus rce] [--write-specs] [--output-mode standalone|canonical] [--family <family>] [--lane <lane>] [--promote-to-brainstorm]
+/appmap --list-handoffs --brainstorm-root <brainstorm_root>
+/appmap --validate-handoff <promoted_spec>
+/appmap --plan-handoff <promoted_spec> [--brainstorm-hypothesis H001]
 ```
 
 Examples:
@@ -49,6 +52,7 @@ Read the playbook before running the mapper:
 - Write `manifest.json` plus `appmap/index.jsonl` so future modules discover AppMap artifacts without reading findings ledgers.
 - Promote generated specs/context packets into `brainstorm/` only when explicitly requested.
 - During promotion, keep raw surfaces, flows, candidates, and rejected candidates in the AppMap run root.
+- List, validate, and plan promoted handoffs with read-only CLI modes before runtime.
 - Do not overwrite existing `brainstorm/spec.md` unless the user explicitly chooses that filename and allows overwrite.
 - Keep packet `active_target_packs` candidate-evidence scoped so mixed targets do not leak unrelated framework context.
 - Keep AppMap pre-runtime. Do not add or use `zero_day_team --appmap` integration from this skill.
@@ -84,7 +88,8 @@ python3 agents/app_mapper.py <program> <target_path> \
 4. Read `appmap_summary.md`, `architecture.md`, `manifest.json`, `candidates.jsonl`, `rejected_candidates.jsonl`, and generated `agent_contexts/*.json` when present.
 5. Validate generated specs with `agents.brainstorm_spec.parse_brainstorm_spec` when present.
 6. Promote only on request with `--promote-to-brainstorm`. Canonical mode defaults to `{lane_root}/brainstorm`; standalone mode needs `--brainstorm-root`.
-7. Report the output directory, manifest/index, candidate count, generated specs, promoted handoff paths when any, and no-candidate reasons visible in rejected candidates.
+7. For promoted specs, run `--list-handoffs`, `--validate-handoff`, or `--plan-handoff` as needed. These modes are read-only and must not write findings ledgers, raw map data, coverage, or reports.
+8. Report the output directory, manifest/index, candidate count, generated specs, promoted handoff paths when any, validation counts/errors, planned runtime command, and no-candidate reasons visible in rejected candidates.
 
 ## Promotion
 
@@ -119,6 +124,27 @@ For AppMap-linked specs, normal brainstorm runtime handoff consumes `agent_conte
 Do not introduce a `zero_day_team --appmap` invocation here.
 
 ## Validation
+
+Promoted handoff discovery:
+
+```bash
+cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
+python3 agents/app_mapper.py --list-handoffs --brainstorm-root ~/Shared/<family>/<program>/<lane>/brainstorm
+```
+
+Promoted handoff validation:
+
+```bash
+python3 agents/app_mapper.py --validate-handoff <promoted-spec>
+```
+
+Planning prints the exact existing runtime command:
+
+```bash
+python3 agents/app_mapper.py --plan-handoff <promoted-spec> --brainstorm-hypothesis H001
+```
+
+The planned command must use `python3 agents/zero_day_team.py <program> <target_path> --brainstorm-spec <promoted-spec> --brainstorm-only` and must not include `--appmap`.
 
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"

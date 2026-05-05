@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 import shutil
+import shlex
 import sys
 import time
 from dataclasses import dataclass, field
@@ -24,7 +25,7 @@ _PROJECT_ROOT = _AGENT_DIR.parent
 if _PROJECT_ROOT.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
     sys.path.insert(0, _PROJECT_ROOT.as_posix())
 
-from agents.brainstorm_spec import parse_brainstorm_spec
+from agents.brainstorm_spec import hypothesis_to_agent_intents, parse_brainstorm_spec
 
 
 SCAN_EXTENSIONS = {
@@ -138,6 +139,28 @@ class PromotionResult:
     spec_paths: list[Path]
     context_paths: list[Path]
     manifest_path: Path
+
+
+@dataclass(frozen=True)
+class PromotedHandoff:
+    brainstorm_root: Path
+    promotion_root: Path
+    spec_path: Path
+    run_id: str
+    focus: str
+    source: str
+    context_count: int
+
+
+@dataclass(frozen=True)
+class HandoffValidationResult:
+    spec_path: Path
+    counts: dict[str, int]
+    errors: list[str] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors
 
 
 TARGET_PACKS: dict[str, TargetPack] = {}
@@ -1245,6 +1268,7 @@ def promote_appmap_handoff(
         "appmap_run_root": str(run_root),
         "source_specs": [_relative_to(path, run_root) for path in source_specs],
         "promotion_root": promotion_root.name,
+        "focus": focus_slug,
         "promoted_specs": [_relative_to(path, promotion_root) for path in promoted_specs],
         "promoted_contexts": [_relative_to(path, promotion_root) for path in promoted_contexts],
         "source_manifest": _relative_to(paths["manifest"], run_root) if "manifest" in paths else None,
@@ -1262,6 +1286,220 @@ def promote_appmap_handoff(
     )
 
 
+def list_promoted_handoffs(brainstorm_root: Path) -> list[PromotedHandoff]:
+    """Discover promoted AppMap specs from the promotion ledger and per-run dirs."""
+
+    root = brainstorm_root.expanduser().resolve(strict=False)
+    handoffs: dict[Path, PromotedHandoff] = {}
+    manifest_path = root / "appmap_promotions.jsonl"
+    if manifest_path.is_file():
+        for record in _read_jsonl_objects(manifest_path):
+            promotion_root = _resolve_manifest_promotion_root(root, record.get("promotion_root"))
+            if promotion_root is None:
+                continue
+            run_id = str(record.get("appmap_run_id") or "")
+            focus_hint = str(record.get("focus") or "").strip()
+            for spec_rel in record.get("promoted_specs") or []:
+                spec_path = _resolve_manifest_promoted_spec(promotion_root, spec_rel)
+                if spec_path is None:
+                    continue
+                handoff = _promoted_handoff_from_spec(
+                    root,
+                    promotion_root,
+                    spec_path,
+                    source="manifest",
+                    run_id_hint=run_id,
+                    focus_hint=focus_hint,
+                )
+                if handoff is not None:
+                    handoffs[spec_path] = handoff
+
+    if root.is_dir():
+        for promotion_root in sorted(path for path in root.glob("appmap-*") if path.is_dir() and not path.is_symlink()):
+            if _has_symlink_component(promotion_root):
+                continue
+            resolved_promotion_root = promotion_root.resolve(strict=False)
+            if not _path_is_within(resolved_promotion_root, root):
+                continue
+            for spec_path in sorted(promotion_root.glob("*.md")):
+                if spec_path.is_symlink() or _has_symlink_component(spec_path):
+                    continue
+                resolved_spec = spec_path.resolve(strict=False)
+                if not _path_is_within(resolved_spec, resolved_promotion_root):
+                    continue
+                existing = handoffs.get(resolved_spec)
+                if existing is not None:
+                    handoffs[resolved_spec] = PromotedHandoff(
+                        brainstorm_root=existing.brainstorm_root,
+                        promotion_root=existing.promotion_root,
+                        spec_path=existing.spec_path,
+                        run_id=existing.run_id,
+                        focus=existing.focus,
+                        source="manifest,directory",
+                        context_count=existing.context_count,
+                    )
+                    continue
+                handoff = _promoted_handoff_from_spec(
+                    root,
+                    resolved_promotion_root,
+                    resolved_spec,
+                    source="directory",
+                )
+                if handoff is not None:
+                    handoffs[resolved_spec] = handoff
+    return sorted(handoffs.values(), key=lambda item: (item.run_id, str(item.spec_path)))
+
+
+def validate_promoted_handoff(spec_path: Path) -> HandoffValidationResult:
+    """Validate AppMap-linked handoff packets without writing runtime artifacts."""
+
+    errors: list[str] = []
+    counts = {
+        "hypotheses": 0,
+        "appmap_hypotheses": 0,
+        "appmap_intents": 0,
+        "packets": 0,
+    }
+    try:
+        resolved_spec = _resolve_direct_promoted_spec(spec_path)
+    except Exception as exc:
+        return HandoffValidationResult(spec_path.expanduser().resolve(strict=False), counts, [str(exc)])
+    try:
+        spec = _strict_parse_promoted_spec(resolved_spec)
+    except Exception as exc:
+        return HandoffValidationResult(resolved_spec, counts, [f"strict brainstorm spec parse failed: {exc}"])
+
+    counts["hypotheses"] = len(getattr(spec, "hypotheses", []))
+    spec_run_id = str(getattr(spec, "metadata", {}).get("AppMap run id") or "").strip()
+    spec_run_root = str(getattr(spec, "metadata", {}).get("AppMap run root") or "").strip()
+    if not spec_run_id:
+        errors.append("spec metadata is missing AppMap run id")
+    if not spec_run_root:
+        errors.append("spec metadata is missing AppMap run root")
+
+    contexts_dir = resolved_spec.parent / "agent_contexts"
+    for hypothesis in getattr(spec, "hypotheses", []):
+        evidence_refs = [str(item) for item in getattr(hypothesis, "evidence", [])]
+        candidate_refs = _appmap_candidate_refs(evidence_refs)
+        context_refs = _appmap_context_refs(evidence_refs)
+        if not candidate_refs and not context_refs:
+            continue
+        counts["appmap_hypotheses"] += 1
+        candidate_id = _validate_hypothesis_candidate_refs(hypothesis.id, candidate_refs, errors)
+        if candidate_id is None:
+            continue
+        try:
+            intents = hypothesis_to_agent_intents(spec, hypothesis)
+        except Exception as exc:
+            errors.append(f"{hypothesis.id}: failed to enumerate brainstorm intents: {exc}")
+            continue
+        for intent in intents:
+            counts["appmap_intents"] += 1
+            packet_path = _resolve_sibling_context_packet(
+                contexts_dir,
+                hypothesis_id=str(getattr(intent, "hypothesis_id", hypothesis.id)),
+                candidate_id=candidate_id,
+                agent_key=str(getattr(intent, "agent_key", "")),
+                errors=errors,
+            )
+            _validate_context_ref_for_intent(
+                intent,
+                candidate_id=candidate_id,
+                context_refs=context_refs,
+                errors=errors,
+            )
+            if packet_path is None:
+                continue
+            packet = _load_context_packet(packet_path, errors)
+            if packet is None:
+                continue
+            counts["packets"] += 1
+            _validate_context_packet(
+                packet,
+                packet_path=packet_path,
+                intent=intent,
+                candidate_id=candidate_id,
+                spec_run_id=spec_run_id,
+                spec_run_root=spec_run_root,
+                errors=errors,
+            )
+    if counts["appmap_hypotheses"] == 0:
+        errors.append("promoted AppMap handoff contains zero AppMap hypotheses")
+    if counts["appmap_intents"] == 0:
+        errors.append("promoted AppMap handoff contains zero AppMap agent intents")
+    if counts["packets"] == 0:
+        errors.append("promoted AppMap handoff contains zero AppMap context packets")
+    return HandoffValidationResult(resolved_spec, counts, errors)
+
+
+def plan_promoted_handoff_command(
+    spec_path: Path,
+    *,
+    selected_hypothesis: str | None = None,
+) -> str:
+    """Return the explicit existing runtime command for a promoted AppMap spec."""
+
+    resolved_spec = _resolve_direct_promoted_spec(spec_path)
+    try:
+        spec = _strict_parse_promoted_spec(resolved_spec)
+    except Exception as exc:
+        raise ValueError(f"strict brainstorm spec parse failed: {exc}") from exc
+    if selected_hypothesis:
+        matching_hypothesis = next(
+            (hypothesis for hypothesis in getattr(spec, "hypotheses", []) if hypothesis.id == selected_hypothesis),
+            None,
+        )
+        if matching_hypothesis is None or matching_hypothesis.status == "retired":
+            raise ValueError(f"brainstorm hypothesis {selected_hypothesis!r} was not found or is retired")
+        _validate_selected_hypothesis_for_plan(spec, matching_hypothesis, resolved_spec)
+    else:
+        active_hypotheses = [
+            hypothesis
+            for hypothesis in getattr(spec, "hypotheses", [])
+            if getattr(hypothesis, "status", "") != "retired"
+        ]
+        if not active_hypotheses:
+            raise ValueError("promoted AppMap handoff has no active hypotheses to plan")
+        for hypothesis in active_hypotheses:
+            _validate_selected_hypothesis_for_plan(spec, hypothesis, resolved_spec)
+    metadata = getattr(spec, "metadata", {})
+    program = str(metadata.get("Program") or "").strip() or "program"
+    target_path = str(metadata.get("Target path") or "").strip() or "."
+    run_root = str(metadata.get("AppMap run root") or "").strip()
+    if run_root:
+        manifest_path = Path(run_root).expanduser() / "manifest.json"
+        if manifest_path.is_file():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                manifest = {}
+            if isinstance(manifest, dict) and str(manifest.get("target_path") or "").strip():
+                target_path = str(manifest["target_path"])
+
+    command = [
+        "python3",
+        "agents/zero_day_team.py",
+        program,
+        target_path,
+        "--brainstorm-spec",
+        str(resolved_spec),
+        "--brainstorm-only",
+    ]
+    if selected_hypothesis:
+        command.extend(["--brainstorm-hypothesis", selected_hypothesis])
+    return shlex.join(command)
+
+
+def _resolve_direct_promoted_spec(spec_path: Path) -> Path:
+    raw_path = spec_path.expanduser()
+    if raw_path.is_symlink() or _has_symlink_component(raw_path):
+        raise ValueError(f"promoted AppMap spec path must not be a symlink or contain symlink components: {raw_path}")
+    resolved = raw_path.resolve(strict=False)
+    if not resolved.is_file():
+        raise FileNotFoundError(f"promoted AppMap spec does not exist or is not a regular file: {raw_path}")
+    return resolved
+
+
 def validate_run_id(run_id: str) -> str:
     safe = str(run_id or "").strip()
     if not safe or safe in {".", ".."} or not RUN_ID_RE.fullmatch(safe):
@@ -1276,6 +1514,332 @@ def _write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def _read_jsonl_objects(path: Path) -> Iterable[dict[str, Any]]:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            yield payload
+
+
+def _strict_parse_promoted_spec(spec_path: Path) -> Any:
+    return parse_brainstorm_spec(spec_path, validate_paths=True)
+
+
+def _resolve_manifest_promotion_root(root: Path, value: Any) -> Path | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    candidate = Path(raw).expanduser()
+    if any(part in {"", ".", ".."} for part in candidate.parts):
+        return None
+    raw_path = candidate if candidate.is_absolute() else root / candidate
+    resolved = raw_path.resolve(strict=False)
+    if not _path_is_within(resolved, root):
+        return None
+    if raw_path.is_symlink() or _has_symlink_component(raw_path):
+        return None
+    if not resolved.is_dir():
+        return None
+    return resolved
+
+
+def _resolve_manifest_promoted_spec(promotion_root: Path, value: Any) -> Path | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    candidate = Path(raw).expanduser()
+    if candidate.is_absolute() or any(part in {"", ".", ".."} for part in candidate.parts):
+        return None
+    raw_path = promotion_root / candidate
+    resolved = raw_path.resolve(strict=False)
+    if not _path_is_within(resolved, promotion_root):
+        return None
+    if raw_path.is_symlink() or _has_symlink_component(raw_path):
+        return None
+    if not resolved.is_file():
+        return None
+    return resolved
+
+
+def _path_is_within(path: Path, root: Path) -> bool:
+    resolved_root = root.resolve(strict=False)
+    resolved_path = path.resolve(strict=False)
+    return resolved_path == resolved_root or resolved_path.is_relative_to(resolved_root)
+
+
+def _has_symlink_component(path: Path) -> bool:
+    expanded = path.expanduser()
+    current = Path(expanded.anchor) if expanded.is_absolute() else Path.cwd()
+    parts = expanded.parts[1:] if expanded.is_absolute() else expanded.parts
+    for part in parts:
+        current = current / part
+        try:
+            if current.is_symlink():
+                return True
+        except OSError:
+            return True
+    return False
+
+
+def _promoted_handoff_from_spec(
+    brainstorm_root: Path,
+    promotion_root: Path,
+    spec_path: Path,
+    *,
+    source: str,
+    run_id_hint: str = "",
+    focus_hint: str = "",
+) -> PromotedHandoff | None:
+    try:
+        spec = _strict_parse_promoted_spec(spec_path)
+        metadata: dict[str, Any] = getattr(spec, "metadata", {})
+    except Exception:
+        return None
+    run_id = str(metadata.get("AppMap run id") or run_id_hint or "").strip()
+    focus = sanitize_key(focus_hint, fallback="") if focus_hint else ""
+    if not focus:
+        focus = _handoff_focus_from_spec(spec_path, promotion_root)
+    contexts_dir = spec_path.parent / "agent_contexts"
+    context_count = (
+        len([path for path in contexts_dir.glob("*.json") if path.is_file() and not path.is_symlink()])
+        if contexts_dir.is_dir() and not contexts_dir.is_symlink()
+        else 0
+    )
+    return PromotedHandoff(
+        brainstorm_root=brainstorm_root,
+        promotion_root=promotion_root,
+        spec_path=spec_path,
+        run_id=run_id,
+        focus=focus,
+        source=source,
+        context_count=context_count,
+    )
+
+
+def _handoff_focus_from_spec(spec_path: Path, promotion_root: Path) -> str:
+    stem = spec_path.stem
+    if stem.endswith("-spec"):
+        return stem[:-5] or "focus"
+    match = re.match(r"appmap-[^-]+-(?P<focus>.+)", promotion_root.name)
+    if match:
+        return match.group("focus")
+    return stem or "focus"
+
+
+def _appmap_candidate_refs(evidence_refs: list[str]) -> list[str]:
+    return [
+        match.group(1)
+        for evidence in evidence_refs
+        for match in re.finditer(r"\bappmap-(C\d{4})\b", evidence)
+    ]
+
+
+def _appmap_context_refs(evidence_refs: list[str]) -> list[tuple[str, str, str]]:
+    return [
+        match.groups()
+        for evidence in evidence_refs
+        for match in re.finditer(r"\bappmap-context:([^:\s]+):(C\d{4}):([^\s]+)\b", evidence)
+    ]
+
+
+def _validate_hypothesis_candidate_refs(
+    hypothesis_id: str,
+    candidate_refs: list[str],
+    errors: list[str],
+) -> str | None:
+    unique_candidate_refs = sorted(set(candidate_refs))
+    if not candidate_refs:
+        errors.append(f"{hypothesis_id}: missing appmap-C#### candidate evidence")
+        return None
+    if len(candidate_refs) != len(unique_candidate_refs):
+        errors.append(f"{hypothesis_id}: duplicate appmap-C#### candidate evidence")
+        return None
+    if len(unique_candidate_refs) != 1:
+        errors.append(f"{hypothesis_id}: aggregates multiple AppMap candidates: {', '.join(unique_candidate_refs)}")
+        return None
+    return unique_candidate_refs[0]
+
+
+def _validate_selected_hypothesis_for_plan(spec: Any, hypothesis: Any, resolved_spec: Path) -> None:
+    errors: list[str] = []
+    evidence_refs = [str(item) for item in getattr(hypothesis, "evidence", [])]
+    candidate_refs = _appmap_candidate_refs(evidence_refs)
+    context_refs = _appmap_context_refs(evidence_refs)
+    hypothesis_id = str(getattr(hypothesis, "id", ""))
+    if not candidate_refs and not context_refs:
+        raise ValueError(f"brainstorm hypothesis {hypothesis_id!r} is not an AppMap-linked hypothesis")
+
+    candidate_id = _validate_hypothesis_candidate_refs(hypothesis_id, candidate_refs, errors)
+    if candidate_id is not None:
+        try:
+            intents = hypothesis_to_agent_intents(spec, hypothesis)
+        except Exception as exc:
+            errors.append(f"{hypothesis_id}: failed to enumerate brainstorm intents: {exc}")
+            intents = []
+        metadata = getattr(spec, "metadata", {})
+        spec_run_id = str(metadata.get("AppMap run id") or "").strip()
+        spec_run_root = str(metadata.get("AppMap run root") or "").strip()
+        contexts_dir = resolved_spec.parent / "agent_contexts"
+        for intent in intents:
+            packet_path = _resolve_sibling_context_packet(
+                contexts_dir,
+                hypothesis_id=str(getattr(intent, "hypothesis_id", hypothesis_id)),
+                candidate_id=candidate_id,
+                agent_key=str(getattr(intent, "agent_key", "")),
+                errors=errors,
+            )
+            _validate_context_ref_for_intent(
+                intent,
+                candidate_id=candidate_id,
+                context_refs=context_refs,
+                errors=errors,
+            )
+            if packet_path is None:
+                continue
+            packet = _load_context_packet(packet_path, errors)
+            if packet is None:
+                continue
+            _validate_context_packet(
+                packet,
+                packet_path=packet_path,
+                intent=intent,
+                candidate_id=candidate_id,
+                spec_run_id=spec_run_id,
+                spec_run_root=spec_run_root,
+                errors=errors,
+            )
+    if errors:
+        raise ValueError(
+            f"brainstorm hypothesis {hypothesis_id!r} is not a valid AppMap handoff selection: "
+            + "; ".join(errors)
+        )
+
+
+def _resolve_sibling_context_packet(
+    contexts_dir: Path,
+    *,
+    hypothesis_id: str,
+    candidate_id: str,
+    agent_key: str,
+    errors: list[str],
+) -> Path | None:
+    safe_agent_key = sanitize_key(agent_key, fallback="agent")
+    if contexts_dir.is_symlink() or _has_symlink_component(contexts_dir):
+        errors.append(
+            f"{hypothesis_id}/{agent_key}: sibling agent_contexts directory must not be symlinked: {contexts_dir}"
+        )
+        return None
+    resolved_contexts_dir = contexts_dir.resolve(strict=False)
+    if not resolved_contexts_dir.is_dir():
+        matches: list[Path] = []
+    else:
+        expected = contexts_dir / f"{hypothesis_id}-{candidate_id}-{safe_agent_key}.json"
+        if expected.exists() or expected.is_symlink():
+            matches = [expected]
+        else:
+            matches = sorted(contexts_dir.glob(f"*-{candidate_id}-{safe_agent_key}.json"))
+    if len(matches) != 1:
+        errors.append(
+            f"{hypothesis_id}/{agent_key}: expected exactly one sibling AppMap context packet "
+            f"for {candidate_id} under {contexts_dir}; found {len(matches)}"
+        )
+        return None
+    packet_path = matches[0]
+    if packet_path.is_symlink():
+        errors.append(f"{packet_path}: AppMap context packet must not be a symlink")
+        return None
+    if _has_symlink_component(packet_path):
+        errors.append(f"{packet_path}: AppMap context packet path must not include symlink components")
+        return None
+    resolved_packet = packet_path.resolve(strict=False)
+    if not _path_is_within(resolved_packet, resolved_contexts_dir):
+        errors.append(f"{packet_path}: resolved AppMap context packet escapes sibling agent_contexts")
+        return None
+    if not resolved_packet.is_file():
+        errors.append(f"{packet_path}: AppMap context packet must be a regular file")
+        return None
+    return packet_path
+
+
+def _validate_context_ref_for_intent(
+    intent: Any,
+    *,
+    candidate_id: str,
+    context_refs: list[tuple[str, str, str]],
+    errors: list[str],
+) -> None:
+    hypothesis_id = str(getattr(intent, "hypothesis_id", ""))
+    agent_key = str(getattr(intent, "agent_key", ""))
+    matches = [
+        ref
+        for ref in context_refs
+        if ref[0] == hypothesis_id and ref[1] == candidate_id and ref[2] == agent_key
+    ]
+    if len(matches) != 1:
+        errors.append(
+            f"{hypothesis_id}/{agent_key}: expected exactly one matching appmap-context evidence ref "
+            f"for {candidate_id}; found {len(matches)}"
+        )
+
+
+def _load_context_packet(path: Path, errors: list[str]) -> dict[str, Any] | None:
+    if path.is_symlink():
+        errors.append(f"{path}: AppMap context packet must not be a symlink")
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        errors.append(f"{path}: invalid JSON context packet: {exc}")
+        return None
+    if not isinstance(payload, dict):
+        errors.append(f"{path}: context packet must be a JSON object")
+        return None
+    return payload
+
+
+def _validate_context_packet(
+    packet: dict[str, Any],
+    *,
+    packet_path: Path,
+    intent: Any,
+    candidate_id: str,
+    spec_run_id: str,
+    spec_run_root: str,
+    errors: list[str],
+) -> None:
+    hypothesis_id = str(getattr(intent, "hypothesis_id", ""))
+    agent_key = str(getattr(intent, "agent_key", ""))
+    linkage = packet.get("hypothesis_linkage") if isinstance(packet.get("hypothesis_linkage"), dict) else {}
+    packet_candidate = packet.get("candidate") if isinstance(packet.get("candidate"), dict) else {}
+    packet_run_id = str(packet.get("run_id") or "").strip()
+    packet_run_root = str(packet.get("appmap_run_root") or "").strip()
+    packet_candidate_id = str(packet_candidate.get("id") or "").strip()
+
+    if spec_run_id and packet_run_id != spec_run_id:
+        errors.append(f"{packet_path}: run_id {packet_run_id!r} does not match spec AppMap run id {spec_run_id!r}")
+    if spec_run_root and packet_run_root != spec_run_root:
+        errors.append(f"{packet_path}: appmap_run_root does not match spec AppMap run root")
+    if packet_candidate_id != candidate_id:
+        errors.append(f"{packet_path}: candidate.id {packet_candidate_id!r} does not match {candidate_id!r}")
+    if str(linkage.get("hypothesis_id") or "") != hypothesis_id:
+        errors.append(f"{packet_path}: hypothesis_linkage.hypothesis_id does not match {hypothesis_id!r}")
+    if str(linkage.get("candidate_id") or "") != candidate_id:
+        errors.append(f"{packet_path}: hypothesis_linkage.candidate_id does not match {candidate_id!r}")
+    if str(linkage.get("agent_key") or "") != agent_key:
+        errors.append(f"{packet_path}: hypothesis_linkage.agent_key does not match {agent_key!r}")
+    if "spec_file" not in linkage:
+        errors.append(f"{packet_path}: hypothesis_linkage.spec_file is missing")
 
 
 def _copy_file_safely(source: Path, destination: Path, *, overwrite: bool) -> None:
@@ -1895,8 +2459,8 @@ def _target_kind_arg(value: str) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Static Application Mapper / RCE Spec Forge MVP.")
-    parser.add_argument("program", help="Program name used in generated artifacts.")
-    parser.add_argument("target_path", help="Local source tree, Electron app source, or extracted code path.")
+    parser.add_argument("program", nargs="?", help="Program name used in generated artifacts.")
+    parser.add_argument("target_path", nargs="?", help="Local source tree, Electron app source, or extracted code path.")
     parser.add_argument("--target-kind", default="auto", type=_target_kind_arg, help="Target kind hint; defaults to auto.")
     parser.add_argument("--focus", default="rce", choices=sorted(VULNERABILITY_PACKS), help="Vulnerability focus for Phase 2.")
     parser.add_argument("--write-specs", action="store_true", help="Write and validate generated brainstorm specs.")
@@ -1929,11 +2493,87 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow promotion to overwrite an existing brainstorm spec/context file.",
     )
+    parser.add_argument(
+        "--list-handoffs",
+        action="store_true",
+        help="List promoted AppMap handoffs from --brainstorm-root or a canonical lane.",
+    )
+    parser.add_argument(
+        "--validate-handoff",
+        help="Validate a promoted AppMap brainstorm spec and its sibling agent_contexts packets without writing runtime data.",
+    )
+    parser.add_argument(
+        "--plan-handoff",
+        help="Print the explicit zero_day_team --brainstorm-spec command for a promoted AppMap spec.",
+    )
+    parser.add_argument(
+        "--brainstorm-hypothesis",
+        help="Add one selected --brainstorm-hypothesis value to --plan-handoff output.",
+    )
     return parser
+
+
+def _resolve_handoff_brainstorm_root(args: argparse.Namespace) -> Path:
+    if args.brainstorm_root:
+        return Path(args.brainstorm_root)
+    if args.output_mode == "canonical":
+        if not args.program:
+            raise SystemExit("--list-handoffs with canonical lane discovery requires program")
+        try:
+            lane_root = resolve_output_root(
+                args.program,
+                output_mode=args.output_mode,
+                family=args.family,
+                lane=args.lane,
+                shared_root=Path(args.shared_root) if args.shared_root else None,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        return lane_root / "brainstorm"
+    raise SystemExit("--list-handoffs requires --brainstorm-root or --output-mode canonical with program, --family, and --lane")
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    mode_count = sum(bool(value) for value in (args.list_handoffs, args.validate_handoff, args.plan_handoff))
+    if mode_count > 1:
+        raise SystemExit("choose only one of --list-handoffs, --validate-handoff, or --plan-handoff")
+    if args.list_handoffs:
+        brainstorm_root = _resolve_handoff_brainstorm_root(args)
+        handoffs = list_promoted_handoffs(brainstorm_root)
+        print(f"[appmap] brainstorm root: {brainstorm_root.expanduser().resolve(strict=False)}")
+        print(f"[appmap] promoted handoffs: {len(handoffs)}")
+        for handoff in handoffs:
+            print(
+                "[appmap] "
+                f"run_id={handoff.run_id or '-'} focus={handoff.focus} "
+                f"contexts={handoff.context_count} source={handoff.source} spec={handoff.spec_path}"
+            )
+        return 0
+    if args.validate_handoff:
+        result = validate_promoted_handoff(Path(args.validate_handoff))
+        print(f"[appmap] handoff validation: {'ok' if result.ok else 'failed'}")
+        print(f"[appmap] spec: {result.spec_path}")
+        print(
+            "[appmap] "
+            f"hypotheses={result.counts['hypotheses']} "
+            f"appmap_hypotheses={result.counts['appmap_hypotheses']} "
+            f"appmap_intents={result.counts['appmap_intents']} "
+            f"packets={result.counts['packets']} "
+            f"errors={len(result.errors)}"
+        )
+        for error in result.errors:
+            print(f"[appmap] error: {error}", file=sys.stderr)
+        return 0 if result.ok else 1
+    if args.plan_handoff:
+        try:
+            print(plan_promoted_handoff_command(Path(args.plan_handoff), selected_hypothesis=args.brainstorm_hypothesis))
+        except ValueError as exc:
+            print(f"[appmap] error: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    if not args.program or not args.target_path:
+        raise SystemExit("program and target_path are required unless using --list-handoffs, --validate-handoff, or --plan-handoff")
     target_path = Path(args.target_path).expanduser().resolve(strict=False)
     if not target_path.exists() or not target_path.is_dir():
         raise SystemExit(f"target_path must be an existing directory: {target_path}")

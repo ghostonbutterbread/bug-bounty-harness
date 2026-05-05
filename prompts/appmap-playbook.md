@@ -11,7 +11,8 @@ Use AppMap as a static pre-runtime step: map the application, preserve evidence-
 3. Review architecture, surfaces, flows, candidates, and rejected candidates.
 4. If a generated spec exists, validate it with the brainstorm spec parser.
 5. Report the artifact root and the highest-signal candidate chains.
-6. Hand off to team runtime only on explicit user request.
+6. For promoted specs, use read-only handoff discovery, validation, and planning before runtime.
+7. Hand off to team runtime only on explicit user request.
 
 ## 1. Resolve Inputs
 
@@ -148,24 +149,53 @@ python3 agents/app_mapper.py demo /path/to/source \
   --brainstorm-root /home/ryushe/Shared/<family>/<program>/<lane>/brainstorm
 ```
 
-## 5. Validate Specs
+## 5. Discover Promoted Handoffs
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
-SPEC_PATH="PATH_TO_APPMAP/generated_specs/rce-spec.md" \
-PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-python3 - <<'PY'
-import os
-from agents.brainstorm_spec import parse_brainstorm_spec
-
-spec = parse_brainstorm_spec(os.environ["SPEC_PATH"])
-print(f"loaded {len(spec.hypotheses)} hypotheses from {os.environ['SPEC_PATH']}")
-PY
+python3 agents/app_mapper.py --list-handoffs \
+  --brainstorm-root ~/Shared/<family>/<program>/<lane>/brainstorm
 ```
 
-If validation fails, fix the generated spec or mapper before handing it to a runtime.
+Canonical lane discovery can derive the brainstorm root:
 
-## 6. Report Results
+```bash
+python3 agents/app_mapper.py <program> \
+  --output-mode canonical \
+  --family <family> \
+  --lane <lane> \
+  --list-handoffs
+```
+
+The command reads `appmap_promotions.jsonl` and scans `brainstorm/appmap-<run_id>-<focus>/` directories for promoted specs. It does not map targets, run agents, or write findings data.
+
+## 6. Validate Handoffs
+
+```bash
+python3 agents/app_mapper.py --validate-handoff \
+  ~/Shared/<family>/<program>/<lane>/brainstorm/appmap-<run_id>-<focus>/rce-spec.md
+```
+
+Validation parses the spec, enumerates AppMap-linked brainstorm intents, checks that each intent resolves exactly one sibling `agent_contexts/*.json` packet, and verifies packet `run_id`, `appmap_run_root`, candidate, hypothesis, and agent linkage. It reports counts and errors only; it does not write ledgers, raw map data, coverage, or reports.
+
+If validation fails, fix the generated spec or promoted handoff before handing it to a runtime.
+
+## 7. Plan Runtime Handoff
+
+```bash
+python3 agents/app_mapper.py --plan-handoff <promoted-spec> --brainstorm-hypothesis H001
+```
+
+Unselected planning is allowed only when every active hypothesis in the promoted spec is AppMap-linked and has a valid sibling context packet. Prefer `--brainstorm-hypothesis` for first runtime execution so one AppMap candidate/agent lane is exercised deliberately.
+
+The output must stay on the existing runtime path:
+
+```bash
+python3 agents/zero_day_team.py <program> <target_path> --brainstorm-spec <promoted-spec> --brainstorm-only --brainstorm-hypothesis H001
+```
+
+Do not add or suggest `zero_day_team --appmap`.
+
+## 8. Report Results
 
 Include:
 
@@ -178,8 +208,10 @@ Include:
 - Promoted spec/context paths, if promotion was requested
 - Top candidate source, boundary, sink, and file evidence
 - Any reason no spec was generated
+- Handoff validation counts/errors before runtime, if a promoted spec is selected
+- Planned runtime command, if a handoff is ready
 
-## 7. Runtime Handoff
+## 9. Runtime Handoff
 
 Use a generated spec with existing team commands only when requested:
 

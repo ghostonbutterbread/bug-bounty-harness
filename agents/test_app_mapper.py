@@ -14,13 +14,18 @@ from agents.app_mapper import (
     TargetPack,
     VulnerabilityPack,
     build_rce_flows,
+    build_parser,
     canonical_output_root,
+    list_promoted_handoffs,
+    main as app_mapper_main,
     map_application,
+    plan_promoted_handoff_command,
     promote_appmap_handoff,
     register_target_pack,
     register_vulnerability_pack,
     render_rce_spec,
     resolve_output_root,
+    validate_promoted_handoff,
     validate_run_id,
     write_artifacts,
     write_agent_contexts,
@@ -390,6 +395,486 @@ def test_dynamic_agent_conversion_consumes_promoted_appmap_packet_context(tmp_pa
     assert "surfaces.jsonl" not in dynamic_spec.brainstorm_metadata
     assert "flows.jsonl" not in dynamic_spec.brainstorm_metadata
     assert "candidates.jsonl" not in dynamic_spec.brainstorm_metadata
+
+
+def test_appmap_lists_promoted_handoffs_from_manifest_and_per_run_dirs(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="listed-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="listed-run",
+    )
+    manual_root = lane_root / "brainstorm" / "appmap-manual-run-rce"
+    manual_root.mkdir(parents=True)
+    manual_spec = manual_root / "spec.md"
+    manual_spec.write_text(promotion.spec_paths[0].read_text(encoding="utf-8"), encoding="utf-8")
+    manual_context_root = manual_root / "agent_contexts"
+    manual_context_root.mkdir()
+    for context_path in promotion.context_paths:
+        (manual_context_root / context_path.name).write_text(context_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    handoffs = list_promoted_handoffs(lane_root / "brainstorm")
+
+    by_spec = {handoff.spec_path: handoff for handoff in handoffs}
+    assert promotion.spec_paths[0] in by_spec
+    assert by_spec[promotion.spec_paths[0]].source == "manifest,directory"
+    assert by_spec[promotion.spec_paths[0]].run_id == "listed-run"
+    assert manual_spec.resolve(strict=False) in by_spec
+    assert by_spec[manual_spec.resolve(strict=False)].source == "directory"
+    assert by_spec[manual_spec.resolve(strict=False)].context_count == len(promotion.context_paths)
+
+
+def test_appmap_list_skips_tampered_manifest_escapes(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="tamper-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="tamper-run",
+    )
+    outside_root = tmp_path / "outside"
+    outside_root.mkdir()
+    outside_spec = outside_root / "spec.md"
+    outside_spec.write_text(promotion.spec_paths[0].read_text(encoding="utf-8"), encoding="utf-8")
+    with promotion.manifest_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "appmap_run_id": "escape-dotdot",
+                    "promotion_root": "../outside",
+                    "promoted_specs": ["spec.md"],
+                }
+            )
+            + "\n"
+        )
+        handle.write(
+            json.dumps(
+                {
+                    "appmap_run_id": "escape-absolute",
+                    "promotion_root": str(outside_root.resolve(strict=False)),
+                    "promoted_specs": ["spec.md"],
+                }
+            )
+            + "\n"
+        )
+        handle.write(
+            json.dumps(
+                {
+                    "appmap_run_id": "escape-spec",
+                    "promotion_root": promotion.promotion_root.name,
+                    "promoted_specs": [f"../{outside_root.name}/spec.md"],
+                }
+            )
+            + "\n"
+        )
+
+    handoffs = list_promoted_handoffs(lane_root / "brainstorm")
+
+    by_spec = {handoff.spec_path: handoff for handoff in handoffs}
+    assert promotion.spec_paths[0] in by_spec
+    assert outside_spec.resolve(strict=False) not in by_spec
+    assert {handoff.run_id for handoff in handoffs} == {"tamper-run"}
+
+
+def test_appmap_list_skips_symlinked_appmap_dirs_and_specs(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="symlink-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="symlink-run",
+    )
+    brainstorm_root = lane_root / "brainstorm"
+    outside_root = tmp_path / "outside-link-target"
+    outside_root.mkdir()
+    outside_spec = outside_root / "spec.md"
+    outside_spec.write_text(promotion.spec_paths[0].read_text(encoding="utf-8"), encoding="utf-8")
+    (brainstorm_root / "appmap-linked-dir-rce").symlink_to(outside_root, target_is_directory=True)
+    spec_link_root = brainstorm_root / "appmap-linked-spec-rce"
+    spec_link_root.mkdir()
+    (spec_link_root / "spec.md").symlink_to(outside_spec)
+
+    handoffs = list_promoted_handoffs(brainstorm_root)
+
+    listed_paths = {handoff.spec_path for handoff in handoffs}
+    assert promotion.spec_paths[0] in listed_paths
+    assert outside_spec.resolve(strict=False) not in listed_paths
+    assert (spec_link_root / "spec.md").resolve(strict=False) not in listed_paths
+
+
+def test_appmap_listing_ignores_non_spec_markdown(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="notes-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="notes-run",
+    )
+    notes_root = lane_root / "brainstorm" / "appmap-notes-manual-rce"
+    notes_root.mkdir()
+    notes_path = notes_root / "notes.md"
+    notes_path.write_text("# Operational notes\n\nNot a brainstorm spec.\n", encoding="utf-8")
+
+    handoffs = list_promoted_handoffs(lane_root / "brainstorm")
+
+    listed_paths = {handoff.spec_path for handoff in handoffs}
+    assert promotion.spec_paths[0] in listed_paths
+    assert notes_path.resolve(strict=False) not in listed_paths
+
+
+def test_appmap_validate_promoted_handoff_success_and_failures(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="validate-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="validate-run",
+    )
+
+    success = validate_promoted_handoff(promotion.spec_paths[0])
+
+    assert success.ok
+    assert success.counts == {
+        "hypotheses": 1,
+        "appmap_hypotheses": 1,
+        "appmap_intents": 1,
+        "packets": 1,
+    }
+
+    missing_packet = promotion.context_paths[0]
+    packet_text = missing_packet.read_text(encoding="utf-8")
+    missing_packet.unlink()
+    missing = validate_promoted_handoff(promotion.spec_paths[0])
+    assert not missing.ok
+    assert any("expected exactly one sibling AppMap context packet" in error for error in missing.errors)
+
+    missing_packet.write_text(packet_text, encoding="utf-8")
+    packet = json.loads(packet_text)
+    packet["run_id"] = "other-run"
+    missing_packet.write_text(json.dumps(packet, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    mismatch = validate_promoted_handoff(promotion.spec_paths[0])
+    assert not mismatch.ok
+    assert any("does not match spec AppMap run id" in error for error in mismatch.errors)
+
+
+def test_appmap_validate_promoted_handoff_rejects_symlinked_context_packet(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="symlink-packet-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="symlink-packet-run",
+    )
+    packet_path = promotion.context_paths[0]
+    outside_packet = tmp_path / "outside-context.json"
+    outside_packet.write_text(packet_path.read_text(encoding="utf-8"), encoding="utf-8")
+    packet_path.unlink()
+    packet_path.symlink_to(outside_packet)
+
+    result = validate_promoted_handoff(promotion.spec_paths[0])
+
+    assert not result.ok
+    assert any("context packet must not be a symlink" in error for error in result.errors)
+    assert result.counts["packets"] == 0
+
+
+
+def test_appmap_direct_validate_and_plan_reject_symlinked_spec(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="symlink-spec-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="symlink-spec-run",
+    )
+    symlink_spec = lane_root / "brainstorm" / "appmap-symlink-spec-run-rce" / "linked-spec.md"
+    symlink_spec.symlink_to(promotion.spec_paths[0])
+
+    validation = validate_promoted_handoff(symlink_spec)
+
+    assert not validation.ok
+    assert any("spec path must not be a symlink" in error for error in validation.errors)
+    with pytest.raises(ValueError, match="spec path must not be a symlink"):
+        plan_promoted_handoff_command(symlink_spec)
+
+def test_appmap_validate_handoff_fails_on_strict_path_violation(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="strict-validate-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="strict-validate-run",
+    )
+    text = promotion.spec_paths[0].read_text(encoding="utf-8")
+    promotion.spec_paths[0].write_text(text.replace("  - runner.js", "  - ../escape.js", 1), encoding="utf-8")
+
+    result = validate_promoted_handoff(promotion.spec_paths[0])
+
+    assert not result.ok
+    assert any("strict brainstorm spec parse failed" in error for error in result.errors)
+    assert any("resolves outside lane root" in error for error in result.errors)
+    with pytest.raises(ValueError, match="strict brainstorm spec parse failed"):
+        plan_promoted_handoff_command(promotion.spec_paths[0])
+
+
+def test_appmap_validate_handoff_fails_without_appmap_content(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    brainstorm_root = lane_root / "brainstorm"
+    spec_root = brainstorm_root / "appmap-empty-run-rce"
+    spec_root.mkdir(parents=True)
+    spec_path = spec_root / "spec.md"
+    spec_path.write_text(
+        "\n".join(
+            [
+                "# Brainstorm Spec: Empty AppMap",
+                "",
+                "## Metadata",
+                "- Program: empty-appmap",
+                "- Family: appmap",
+                "- Lane: static",
+                "- Target kind: node",
+                "- Target path: .",
+                "- Created: 2026-05-04",
+                "- Status: active",
+                "- AppMap run id: empty-run",
+                f"- AppMap run root: {lane_root / 'appmap' / 'empty-run'}",
+                "",
+                "## Target mental model",
+                "No AppMap-linked hypotheses are present.",
+                "",
+                "## Impact primitives",
+                "### P001 - Manual primitive",
+                "- Source: local note",
+                "- Impact: local note",
+                "- Evidence: local-note",
+                "- Status: active",
+                "",
+                "## Hypotheses",
+                "### H001 - Manual hypothesis",
+                "- Status: untested",
+                "- Priority: high",
+                "- Surface: manual surface",
+                "- Entry point: manual entry",
+                "- Expected chain: manual source -> manual sink",
+                "- Suggested agents:",
+                "  - manual-agent",
+                "- Focus files:",
+                "  - .",
+                "- Tags: rce, static",
+                "- Evidence:",
+                "  - local-note",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = validate_promoted_handoff(spec_path)
+
+    assert not result.ok
+    assert result.counts["appmap_hypotheses"] == 0
+    assert result.counts["appmap_intents"] == 0
+    assert result.counts["packets"] == 0
+    assert any("zero AppMap hypotheses" in error for error in result.errors)
+    assert any("zero AppMap agent intents" in error for error in result.errors)
+    assert any("zero AppMap context packets" in error for error in result.errors)
+
+
+def test_appmap_plan_handoff_prints_existing_runtime_command_without_writes(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="plan-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="plan-run",
+    )
+
+    command = plan_promoted_handoff_command(promotion.spec_paths[0], selected_hypothesis="H001")
+
+    assert command == (
+        "python3 agents/zero_day_team.py one-candidate "
+        f"{result.profile.target_path} --brainstorm-spec {promotion.spec_paths[0]} "
+        "--brainstorm-only --brainstorm-hypothesis H001"
+    )
+    assert "--appmap" not in command
+    assert not (lane_root / "ledgers").exists()
+    assert not (lane_root / "reports").exists()
+
+
+def test_appmap_plan_handoff_rejects_missing_or_retired_selected_hypothesis(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="selected-plan-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="selected-plan-run",
+    )
+
+    with pytest.raises(ValueError, match="not found or is retired"):
+        plan_promoted_handoff_command(promotion.spec_paths[0], selected_hypothesis="H999")
+
+    text = promotion.spec_paths[0].read_text(encoding="utf-8")
+    promotion.spec_paths[0].write_text(text.replace("- Status: untested", "- Status: retired", 1), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not found or is retired"):
+        plan_promoted_handoff_command(promotion.spec_paths[0], selected_hypothesis="H001")
+
+
+def test_appmap_plan_handoff_rejects_non_appmap_selected_hypothesis_from_mixed_spec(tmp_path: Path) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="mixed-selected-plan-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="mixed-selected-plan-run",
+    )
+    text = promotion.spec_paths[0].read_text(encoding="utf-8")
+    manual_hypothesis = "\n".join(
+        [
+            "### H002 - Manual hypothesis",
+            "- Status: untested",
+            "- Priority: high",
+            "- Surface: manual surface",
+            "- Entry point: manual entry",
+            "- Expected chain: manual source -> manual sink",
+            "- Suggested agents:",
+            "  - manual-agent",
+            "- Focus files:",
+            "  - .",
+            "- Tags: rce, static",
+            "- Evidence:",
+            "  - manual-note",
+            "",
+        ]
+    )
+    promotion.spec_paths[0].write_text(
+        text.replace("\n## Coverage log\n", f"\n{manual_hypothesis}\n## Coverage log\n"),
+        encoding="utf-8",
+    )
+
+    command = plan_promoted_handoff_command(promotion.spec_paths[0], selected_hypothesis="H001")
+    assert "--brainstorm-hypothesis H001" in command
+    with pytest.raises(ValueError, match="not an AppMap-linked hypothesis"):
+        plan_promoted_handoff_command(promotion.spec_paths[0], selected_hypothesis="H002")
+    with pytest.raises(ValueError, match="not an AppMap-linked hypothesis"):
+        plan_promoted_handoff_command(promotion.spec_paths[0])
+
+
+def test_appmap_handoff_cli_parse_and_modes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    lane_root = tmp_path / "Shared" / "binaries" / "canva" / "exe"
+    result = _one_candidate_result(tmp_path)
+    paths = write_artifacts(
+        result,
+        output_root=lane_root,
+        run_id="cli-run",
+        write_specs=True,
+        output_mode="canonical",
+    )
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=lane_root / "brainstorm",
+        run_id="cli-run",
+    )
+    parser = build_parser()
+
+    args = parser.parse_args(["demo", "/tmp/target"])
+    assert args.program == "demo"
+    assert args.target_path == "/tmp/target"
+    list_args = parser.parse_args(["--list-handoffs", "--brainstorm-root", str(lane_root / "brainstorm")])
+    assert list_args.program is None
+    assert list_args.list_handoffs
+
+    assert app_mapper_main(["--validate-handoff", str(promotion.spec_paths[0])]) == 0
+    validate_out = capsys.readouterr().out
+    assert "handoff validation: ok" in validate_out
+    assert "packets=1" in validate_out
+
+    assert app_mapper_main(["--plan-handoff", str(promotion.spec_paths[0])]) == 0
+    plan_out = capsys.readouterr().out
+    assert "agents/zero_day_team.py one-candidate" in plan_out
+    assert "--brainstorm-spec" in plan_out
+    assert "--appmap" not in plan_out
+
+    with pytest.raises(SystemExit, match="program and target_path are required"):
+        app_mapper_main(["demo"])
 
 
 def test_repeated_appmap_promotions_namespace_packets_by_run(tmp_path: Path) -> None:

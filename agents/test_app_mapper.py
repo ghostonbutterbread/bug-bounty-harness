@@ -2000,17 +2000,25 @@ subprocess.run(args.command, shell=True)
     assert (research_root / "sources.jsonl").read_text(encoding="utf-8") == ""
 
 
-def test_app_mapper_web_fetch_provider_requires_research_online(tmp_path: Path) -> None:
+def test_app_mapper_web_fetch_provider_implies_online_for_web_mode(tmp_path: Path) -> None:
     result = _one_candidate_result(tmp_path)
-    provider = WebFetchResearchProvider(opener=lambda *_args, **_kwargs: None)
+    fetched: list[str] = []
 
-    with pytest.raises(ValueError, match="requires --research-online"):
-        generate_research_artifacts(
-            result,
-            research_provider="web-fetch",
-            source_urls=["https://research.example/appmap.json"],
-            provider=provider,
-        )
+    def fake_open(request: object, timeout: float = 0.0) -> "_FakeWebResponse":
+        fetched.append(getattr(request, "full_url"))
+        return _FakeWebResponse(getattr(request, "full_url"), b"<title>Implicit online</title>")
+
+    research = generate_research_artifacts(
+        result,
+        research_mode="web",
+        source_urls=["https://research.example/appmap.html"],
+        provider=WebFetchResearchProvider(opener=fake_open),
+    )
+
+    assert fetched == ["https://research.example/appmap.html"]
+    assert research["manifest"]["research_mode"] == "web"
+    assert research["manifest"]["online_requested"] is True
+    assert research["manifest"]["network_access"] is True
 
 
 class _FakeWebResponse:
@@ -2380,15 +2388,13 @@ def test_app_mapper_cli_research_option_errors_before_mapping(
             ]
         )
 
-    with pytest.raises(SystemExit, match="--research-provider web-fetch requires --research-online"):
+    with pytest.raises(SystemExit, match="--research-mode web requires at least one --research-source-url"):
         app_mapper_main(
             [
                 "demo",
                 str(tmp_path / "missing-target"),
-                "--research-provider",
-                "web-fetch",
-                "--research-source-url",
-                "https://research.example/source",
+                "--research-mode",
+                "web",
             ]
         )
 

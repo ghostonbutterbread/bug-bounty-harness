@@ -160,10 +160,10 @@ class WebFetchResearchProvider(ResearchProvider):
         self._now = now or (lambda: datetime.now(timezone.utc))
 
     def collect(self, request: ResearchRequest) -> dict[str, Any]:
-        if not request.research_online:
-            raise ValueError("--research-provider web-fetch requires --research-online")
+        if not (request.research_online or request.research_mode == "web"):
+            raise ValueError("web research requires --research-mode web or --research-online")
         if not request.source_urls:
-            raise ValueError("--research-provider web-fetch requires at least one --research-source-url")
+            raise ValueError("web research requires at least one --research-source-url")
         if len(request.source_urls) > self.max_source_urls:
             raise ValueError(f"--research-source-url accepts at most {self.max_source_urls} URLs")
         return self._collect_web(request, seed_first=True)
@@ -551,18 +551,16 @@ def validate_research_options(
     max_source_urls = int(getattr(provider, "max_source_urls", WebFetchResearchProvider.max_source_urls))
     if len(urls) > max_source_urls:
         raise ValueError(f"--research-source-url accepts at most {max_source_urls} URLs")
+    effective_research_online = bool(research_online or mode == "web")
+    if mode == "web" and not urls:
+        raise ValueError("--research-mode web requires at least one --research-source-url")
     if provider.key == WebFetchResearchProvider.key:
-        if not research_online:
-            raise ValueError("--research-provider web-fetch requires --research-online")
+        if not effective_research_online:
+            raise ValueError("web research requires --research-mode web or --research-online")
         if not urls:
-            raise ValueError("--research-provider web-fetch requires at least one --research-source-url")
+            raise ValueError("web research requires at least one --research-source-url")
     if mode == "local" and urls and not provider.network_capable:
         raise ValueError("--research-source-url requires --research-mode web|hybrid or --research-provider web-fetch")
-    if mode == "web":
-        if not research_online:
-            raise ValueError("--research-mode web requires --research-online")
-        if not urls:
-            raise ValueError("--research-mode web requires at least one --research-source-url")
     return urls
 
 
@@ -584,13 +582,14 @@ def generate_research_artifacts(
     else:
         mode = normalize_research_mode(research_mode)
     provider = provider or build_research_provider(provider_key_for_mode(mode) if research_provider == "local-seed" else research_provider)
+    effective_research_online = bool(research_online or mode == "web")
     urls = validate_research_options(
-        research_online=research_online,
+        research_online=effective_research_online,
         provider=provider,
         source_urls=source_urls,
         research_mode=mode,
     )
-    if not research_online and not seeds and not urls and not tuple(research_query_terms):
+    if not effective_research_online and not seeds and not urls and not tuple(research_query_terms):
         return None
     query = normalize_research_query(
         research_query_terms,
@@ -605,7 +604,7 @@ def generate_research_artifacts(
             provider_key=provider.key,
             research_mode=mode,
             research_query=query,
-            research_online=research_online,
+            research_online=effective_research_online,
             seed_paths=seeds,
             source_urls=urls,
         )

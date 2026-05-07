@@ -159,10 +159,12 @@ class BaseTeamLedgerWriteTests(unittest.TestCase):
         stored = updated[0]
         report_path = Path(stored["report_path"])
         self.assertTrue(report_path.exists())
-        self.assertEqual(report_path.parent.parent.name, "confirmed")
+        self.assertEqual(report_path.parent.parent.name, "findings")
+        self.assertEqual(report_path.parent.name, "confirmed")
+        self.assertEqual(report_path.name, f"{stored['fid']} - HIGH - Exported activity trust bypass.md")
         self.assertTrue((self.team.storage.ledgers_root / "indexes" / "by_status" / "confirmed.json").exists())
         self.assertTrue((self.team.storage.ledgers_root / "indexes" / "active_slice.json").exists())
-        confirmed_index = self.team.storage.reports_root / "index" / "confirmed.md"
+        confirmed_index = self.team.storage.reports_root / "confirmed.md"
         self.assertTrue(confirmed_index.exists())
         self.assertIn("Exported activity trust bypass", confirmed_index.read_text(encoding="utf-8"))
 

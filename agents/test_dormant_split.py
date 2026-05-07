@@ -584,10 +584,12 @@ class TestSharedDormantSubtierPreservation(unittest.TestCase):
 
         self.assertEqual([item["review_tier"] for item in promotion["dormant"]], ["DORMANT_ACTIVE", "DORMANT_HYPOTHETICAL"])
         self.assertEqual([item["review_tier"] for item in calls], ["DORMANT_ACTIVE", "DORMANT_HYPOTHETICAL"])
-        dormant_report = next((storage.reports_root / "dormant").glob("*/index.md"))
+        dormant_report = next((storage.reports_root / "daily").glob("*/dormant.md"))
         report_text = dormant_report.read_text(encoding="utf-8")
-        self.assertIn("[DORMANT_ACTIVE]", report_text)
-        self.assertIn("[DORMANT_HYPOTHETICAL]", report_text)
+        self.assertIn("DORMANT_ACTIVE", report_text)
+        self.assertIn("DORMANT_HYPOTHETICAL", report_text)
+        self.assertIn("[[D01 - HIGH - DORMANT_ACTIVE DOM sink|D01]]", report_text)
+        self.assertFalse((storage.reports_root / "dormant").exists())
 
 
 # ===========================================================================

@@ -447,7 +447,18 @@ Electron desktop target.
             str(storage.reports_root / "chained"),
         )
         update_mock.assert_called_once()
-        self.assertEqual(update_mock.call_args.args[:2], ("Example_Program", finding))
+        self.assertEqual(
+            update_mock.call_args.args[:2],
+            (
+                "Example_Program",
+                {
+                    "fid": "D01",
+                    "type": "exec-sink-reachability",
+                    "file": "src/main.py",
+                    "description": "Requires prior XSS to reach a command sink.",
+                },
+            ),
+        )
         self.assertEqual(update_mock.call_args.kwargs["family"], "web")
         self.assertEqual(update_mock.call_args.kwargs["lane"], "0day_team")
         self.assertTrue(update_mock.call_args.kwargs["write_report"])
@@ -582,6 +593,122 @@ Electron desktop target.
         update_mock.assert_called_once()
         self.assertEqual(update_mock.call_args.args[1]["fid"], "D01")
         self.assertEqual(result["by_tier"]["confirmed"], 1)
+
+    def test_non_fresh_raw_duplicates_promote_fid_bearing_finding(self) -> None:
+        target = self.tmp / "target"
+        target.mkdir()
+        storage = SimpleNamespace(
+            family="web",
+            lane="0day_team",
+            lane_root=self.tmp / "storage" / "lane",
+            reports_root=self.tmp / "storage" / "reports",
+            ledgers_root=self.tmp / "storage" / "ledgers",
+            context_root=self.tmp / "storage" / "context",
+            working_root=self.tmp / "storage" / "work",
+        )
+        stale_raw = {
+            "agent": "dom-xss",
+            "category": "class",
+            "class_name": "dom-xss",
+            "type": "hash reaches html sink",
+            "file": "src/main.js",
+            "line": 42,
+            "description": "User-controlled hash reaches an HTML interpretation sink.",
+            "severity": "HIGH",
+            "source": "location.hash",
+            "sink": "innerHTML",
+        }
+        fid_raw = {**stale_raw, "fid": "D01"}
+        ledger = SimpleNamespace(
+            path=storage.ledgers_root / "ledger.json",
+            get_class_context=Mock(return_value=""),
+            check=Mock(return_value=(True, "D99", {**stale_raw, "fid": "D99", "ledger_reserved": True})),
+            run_id="run-1",
+            root_override=self.tmp / "storage-root",
+        )
+        reviewed_inputs: list[dict] = []
+
+        def review_side_effect(finding, *_args, **_kwargs):
+            reviewed_inputs.append(dict(finding))
+            reviewed = dict(finding, review_tier="CONFIRMED", tier="CONFIRMED")
+            return "CONFIRMED", reviewed, "confirmed"
+
+        with (
+            patch.object(zero_day_team, "SubagentLogger", None),
+            patch.object(zero_day_team, "_resolve_zero_day_storage", return_value=storage),
+            patch.object(
+                zero_day_team,
+                "get_snapshot_identity",
+                return_value={"snapshot_id": "snap-1", "version_label": "1.2.3", "channel": "stable"},
+            ),
+            patch.object(zero_day_team, "create_team_ledger_from_storage", return_value=ledger),
+            patch.object(zero_day_team, "DynamicAgentBuilder") as builder_cls,
+            patch.object(zero_day_team, "_select_profiles", return_value=[]),
+            patch.object(zero_day_team, "_load_findings", return_value=[stale_raw, fid_raw]),
+            patch.object(zero_day_team, "_review_single_finding", side_effect=review_side_effect),
+            patch.object(zero_day_team, "update_team_finding", side_effect=lambda _program, finding, **_kwargs: dict(finding)) as update_mock,
+            patch.object(zero_day_team, "_pretty_print_findings"),
+        ):
+            builder_cls.return_value.run.return_value = []
+
+            result = zero_day_team.orchestrate_zero_day_team(
+                "Example Program",
+                str(target),
+                fresh=False,
+                chain=False,
+                no_preflight=True,
+                no_shared_brain=True,
+            )
+
+        ledger.check.assert_not_called()
+        self.assertEqual(len(reviewed_inputs), 1)
+        self.assertEqual(reviewed_inputs[0]["fid"], "D01")
+        self.assertNotIn("ledger_reserved", reviewed_inputs[0])
+        update_mock.assert_called_once()
+        self.assertEqual(update_mock.call_args.args[1]["fid"], "D01")
+        persisted = [json.loads(line) for line in (storage.ledgers_root / "findings.jsonl").read_text().splitlines() if line.strip()]
+        self.assertEqual([item.get("fid") for item in persisted], ["D01", "D01"])
+        self.assertEqual(result["by_tier"]["confirmed"], 1)
+
+    def test_review_semantic_dedupe_ignores_random_fids(self) -> None:
+        target = self.tmp / "target"
+        target.mkdir()
+        base_finding = {
+            "agent": "dom-xss",
+            "category": "class",
+            "class_name": "dom-xss",
+            "type": "hash reaches html sink",
+            "file": "src/main.js",
+            "line": 42,
+            "description": "User-controlled hash reaches an HTML interpretation sink.",
+            "severity": "HIGH",
+            "source": "location.hash",
+            "sink": "innerHTML",
+        }
+        reviewed_inputs: list[dict] = []
+
+        def review_side_effect(finding, *_args, **_kwargs):
+            reviewed_inputs.append(dict(finding))
+            reviewed = dict(finding, review_tier="CONFIRMED", tier="CONFIRMED")
+            return "CONFIRMED", reviewed, "confirmed"
+
+        with patch.object(zero_day_team, "_review_single_finding", side_effect=review_side_effect):
+            confirmed, dormant, novel = zero_day_team.stage2_ghost_review(
+                [
+                    {**base_finding, "fid": "RANDOM-FID-1"},
+                    {**base_finding, "fid": "RANDOM-FID-2"},
+                ],
+                target,
+                "Example_Program",
+                "web",
+                write_reports=False,
+            )
+
+        self.assertEqual(len(reviewed_inputs), 1)
+        self.assertEqual(reviewed_inputs[0]["fid"], "RANDOM-FID-1")
+        self.assertEqual([finding["fid"] for finding in confirmed], ["RANDOM-FID-1"])
+        self.assertEqual(dormant, [])
+        self.assertEqual(novel, [])
 
     def test_brainstorm_spec_wiring_runs_only_selected_profiles_and_writes_coverage(self) -> None:
         lane_root = self.tmp / "Shared" / "binaries" / "canva" / "exe"

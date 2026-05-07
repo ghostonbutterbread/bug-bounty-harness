@@ -240,6 +240,10 @@ def finding_dedupe_key(finding: dict[str, Any]) -> tuple[str, str, str, str, str
     )
 
 
+def _has_reserved_fid(finding: dict[str, Any]) -> bool:
+    return bool(str(finding.get("fid") or "").strip())
+
+
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
@@ -367,31 +371,94 @@ def _extract_json_object_for_review(text: str) -> dict[str, Any]:
     return payload
 
 
+def _report_category_for(finding: dict[str, Any]) -> str:
+    explicit = str(
+        finding.get("report_category")
+        or finding.get("category_group")
+        or finding.get("surface_category")
+        or ""
+    ).strip()
+    if explicit:
+        return explicit
+
+    haystack = " ".join(
+        str(finding.get(key) or "")
+        for key in (
+            "agent",
+            "class_name",
+            "type",
+            "vulnerability_name",
+            "file",
+            "source",
+            "sink",
+            "trust_boundary",
+            "flow_path",
+        )
+    ).lower()
+
+    if any(marker in haystack for marker in ("renderer", "main-world", "main world", "host rpc", "bridge", "ipc", "preload")):
+        return "Renderer / Privileged Bridge"
+    if any(marker in haystack for marker in ("external protocol", "deeplink", "deep link", "openexternal", "protocol")):
+        return "External Protocol Abuse"
+    if any(marker in haystack for marker in ("information disclosure", "leak", "exfil", "screenshot", "recording", "thumbnail")):
+        return "Information Disclosure"
+    if any(marker in haystack for marker in ("download", "file write", "arbitrary file", "path traversal", "file read")):
+        return "File / Download Abuse"
+    if any(marker in haystack for marker in ("auth", "session", "login", "callback", "oauth")):
+        return "Authentication / Session Flow"
+    if any(marker in haystack for marker in ("update", "relaunch", "installer")):
+        return "Updater / Lifecycle Abuse"
+
+    class_name = str(finding.get("class_name") or "").strip()
+    if class_name and class_name.lower() not in {"unknown", "class"}:
+        return class_name.replace("-", " ").replace("_", " ").title()
+    return "Other"
+
+
+def _group_findings_for_report(findings: Sequence[dict[str, Any]]) -> list[tuple[str, list[dict[str, Any]]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    order: list[str] = []
+    for raw_finding in findings:
+        finding = _ensure_report_fields(raw_finding)
+        category = _report_category_for(finding)
+        if category not in grouped:
+            grouped[category] = []
+            order.append(category)
+        grouped[category].append(finding)
+    return [(category, grouped[category]) for category in order]
+
+
+def _append_category_heading(sections: list[str], category: str, count: int) -> None:
+    sections.extend([f"## Category: {category}", f"Findings: {count}", ""])
+
+
 def _render_confirmed_report(findings: Sequence[dict[str, Any]]) -> str:
     if not findings:
         return "# Confirmed Findings\n\nNo confirmed findings.\n"
     sections = ["# Confirmed Findings", ""]
-    for raw_finding in findings:
-        finding = _ensure_report_fields(raw_finding)
-        severity_label = str(finding.get("severity_label") or finding.get("severity", "UNKNOWN"))
-        sections.extend([
-            f"## [{severity_label}] {finding['vulnerability_name']}",
-            f"**Type:** {finding['type']}",
-            f"**Class:** {finding.get('class_name', 'unknown')}",
-            f"**File:** {display_file_reference(finding)}",
-            f"**Agent:** {finding['agent']}",
-            "", "### Description", str(finding.get("description") or "None provided."),
-            "", "### Source -> Sink",
-            f"Source: {str(finding.get('source', '')).strip() or 'None provided.'}",
-            f"Trust boundary: {str(finding.get('trust_boundary', '')).strip() or 'None provided.'}",
-            f"Flow: {str(finding.get('flow_path', '')).strip() or 'None provided.'}",
-            f"Sink: {str(finding.get('sink', '')).strip() or 'None provided.'}",
-            "", "### Impact", str(finding.get("impact", "")).strip() or "None provided.",
-            "", "### Review Notes", str(finding.get("review_notes", "")).strip() or "None provided.",
-            "", "### PoC", str(finding.get("poc", "")).strip() or "None provided.",
-            "", "### CVSS Estimate", f"{finding.get('cvss_vector', '')} -> {finding.get('cvss_score', '')} ({severity_label})",
-            "", "### Remediation", str(finding.get("remediation", "")).strip() or "None provided.", "",
-        ])
+    for category, grouped_findings in _group_findings_for_report(findings):
+        _append_category_heading(sections, category, len(grouped_findings))
+        for finding in grouped_findings:
+            severity_label = str(finding.get("severity_label") or finding.get("severity", "UNKNOWN"))
+            sections.extend([
+                f"## [{severity_label}] {finding['vulnerability_name']}",
+                f"**Category:** {category}",
+                f"**Type:** {finding['type']}",
+                f"**Class:** {finding.get('class_name', 'unknown')}",
+                f"**File:** {display_file_reference(finding)}",
+                f"**Agent:** {finding['agent']}",
+                "", "### Description", str(finding.get("description") or "None provided."),
+                "", "### Source -> Sink",
+                f"Source: {str(finding.get('source', '')).strip() or 'None provided.'}",
+                f"Trust boundary: {str(finding.get('trust_boundary', '')).strip() or 'None provided.'}",
+                f"Flow: {str(finding.get('flow_path', '')).strip() or 'None provided.'}",
+                f"Sink: {str(finding.get('sink', '')).strip() or 'None provided.'}",
+                "", "### Impact", str(finding.get("impact", "")).strip() or "None provided.",
+                "", "### Review Notes", str(finding.get("review_notes", "")).strip() or "None provided.",
+                "", "### PoC", str(finding.get("poc", "")).strip() or "None provided.",
+                "", "### CVSS Estimate", f"{finding.get('cvss_vector', '')} -> {finding.get('cvss_score', '')} ({severity_label})",
+                "", "### Remediation", str(finding.get("remediation", "")).strip() or "None provided.", "",
+            ])
     return "\n".join(sections).rstrip() + "\n"
 
 
@@ -399,27 +466,29 @@ def _render_dormant_report(findings: Sequence[dict[str, Any]]) -> str:
     if not findings:
         return "# Dormant Findings\n\nNo dormant findings.\n"
     sections = ["# Dormant Findings", ""]
-    for raw_finding in findings:
-        finding = _ensure_report_fields(raw_finding)
-        tier = str(finding.get("review_tier", "DORMANT")).upper()
-        sections.extend([
-            f"## [{tier}] {finding['vulnerability_name']}",
-            f"**Type:** {finding['type']}",
-            f"**Class:** {finding.get('class_name', 'unknown')}",
-            f"**File:** {display_file_reference(finding)}",
-            f"**Agent:** {finding['agent']}",
-            "", "### Why It's Dangerous (if triggered)", str(finding.get("description") or "None provided."),
-            "", "### Source -> Sink",
-            f"Source: {str(finding.get('source', '')).strip() or 'None provided.'}",
-            f"Trust boundary: {str(finding.get('trust_boundary', '')).strip() or 'None provided.'}",
-            f"Flow: {str(finding.get('flow_path', '')).strip() or 'None provided.'}",
-            f"Sink: {str(finding.get('sink', '')).strip() or 'None provided.'}",
-            "", "### Impact If Chained", str(finding.get("impact", "")).strip() or "None provided.",
-            "", "### Review Notes", str(finding.get("review_notes", "")).strip() or "None provided.",
-            "", "### Why It's Blocked Right Now", str(finding.get("blocked_reason", "")).strip() or "None provided.",
-            "", "### What's Needed to Exploit", str(finding.get("chain_requirements", "")).strip() or "None provided.",
-            "", "### Remediation", str(finding.get("remediation", "")).strip() or "None provided.", "",
-        ])
+    for category, grouped_findings in _group_findings_for_report(findings):
+        _append_category_heading(sections, category, len(grouped_findings))
+        for finding in grouped_findings:
+            tier = str(finding.get("review_tier", "DORMANT")).upper()
+            sections.extend([
+                f"## [{tier}] {finding['vulnerability_name']}",
+                f"**Category:** {category}",
+                f"**Type:** {finding['type']}",
+                f"**Class:** {finding.get('class_name', 'unknown')}",
+                f"**File:** {display_file_reference(finding)}",
+                f"**Agent:** {finding['agent']}",
+                "", "### Why It's Dangerous (if triggered)", str(finding.get("description") or "None provided."),
+                "", "### Source -> Sink",
+                f"Source: {str(finding.get('source', '')).strip() or 'None provided.'}",
+                f"Trust boundary: {str(finding.get('trust_boundary', '')).strip() or 'None provided.'}",
+                f"Flow: {str(finding.get('flow_path', '')).strip() or 'None provided.'}",
+                f"Sink: {str(finding.get('sink', '')).strip() or 'None provided.'}",
+                "", "### Impact If Chained", str(finding.get("impact", "")).strip() or "None provided.",
+                "", "### Review Notes", str(finding.get("review_notes", "")).strip() or "None provided.",
+                "", "### Why It's Blocked Right Now", str(finding.get("blocked_reason", "")).strip() or "None provided.",
+                "", "### What's Needed to Exploit", str(finding.get("chain_requirements", "")).strip() or "None provided.",
+                "", "### Remediation", str(finding.get("remediation", "")).strip() or "None provided.", "",
+            ])
     return "\n".join(sections).rstrip() + "\n"
 
 
@@ -427,31 +496,33 @@ def _render_novel_findings_report(findings: Sequence[dict[str, Any]]) -> str:
     if not findings:
         return "# Novel Findings\n\nNo reviewed novel findings.\n"
     sections = ["# Novel Findings", ""]
-    for raw_finding in findings:
-        finding = _ensure_report_fields(raw_finding)
-        tier = str(finding.get("review_tier", "DORMANT")).upper()
-        sections.extend([
-            f"## [{tier}] {finding['vulnerability_name']}",
-            f"**Type:** {finding['type']}",
-            f"**Discovered During Class Pass:** {finding['agent']}",
-            f"**File:** {display_file_reference(finding)}",
-            "", "### Why It Looks Novel", str(finding.get("description") or "None provided."),
-            "", "### Source -> Sink",
-            f"Source: {str(finding.get('source', '')).strip() or 'None provided.'}",
-            f"Trust boundary: {str(finding.get('trust_boundary', '')).strip() or 'None provided.'}",
-            f"Flow: {str(finding.get('flow_path', '')).strip() or 'None provided.'}",
-            f"Sink: {str(finding.get('sink', '')).strip() or 'None provided.'}",
-            "", "### Impact", str(finding.get("impact", "")).strip() or "None provided.",
-            "", "### Review Notes", str(finding.get("review_notes", "")).strip() or "None provided.", "",
-        ])
-        if tier == "CONFIRMED":
-            sections.extend(["### PoC", str(finding.get("poc", "")).strip() or "None provided.", ""])
-        else:
+    for category, grouped_findings in _group_findings_for_report(findings):
+        _append_category_heading(sections, category, len(grouped_findings))
+        for finding in grouped_findings:
+            tier = str(finding.get("review_tier", "DORMANT")).upper()
             sections.extend([
-                "### Why It's Blocked Right Now", str(finding.get("blocked_reason", "")).strip() or "None provided.", "",
-                "### What's Needed to Chain It", str(finding.get("chain_requirements", "")).strip() or "None provided.", "",
+                f"## [{tier}] {finding['vulnerability_name']}",
+                f"**Category:** {category}",
+                f"**Type:** {finding['type']}",
+                f"**Discovered During Class Pass:** {finding['agent']}",
+                f"**File:** {display_file_reference(finding)}",
+                "", "### Why It Looks Novel", str(finding.get("description") or "None provided."),
+                "", "### Source -> Sink",
+                f"Source: {str(finding.get('source', '')).strip() or 'None provided.'}",
+                f"Trust boundary: {str(finding.get('trust_boundary', '')).strip() or 'None provided.'}",
+                f"Flow: {str(finding.get('flow_path', '')).strip() or 'None provided.'}",
+                f"Sink: {str(finding.get('sink', '')).strip() or 'None provided.'}",
+                "", "### Impact", str(finding.get("impact", "")).strip() or "None provided.",
+                "", "### Review Notes", str(finding.get("review_notes", "")).strip() or "None provided.", "",
             ])
-        sections.extend(["### Remediation", str(finding.get("remediation", "")).strip() or "None provided.", ""])
+            if tier == "CONFIRMED":
+                sections.extend(["### PoC", str(finding.get("poc", "")).strip() or "None provided.", ""])
+            else:
+                sections.extend([
+                    "### Why It's Blocked Right Now", str(finding.get("blocked_reason", "")).strip() or "None provided.", "",
+                    "### What's Needed to Chain It", str(finding.get("chain_requirements", "")).strip() or "None provided.", "",
+                ])
+            sections.extend(["### Remediation", str(finding.get("remediation", "")).strip() or "None provided.", ""])
     return "\n".join(sections).rstrip() + "\n"
 
 
@@ -471,7 +542,7 @@ def stage2_ghost_review(
     confirmed: list[dict[str, Any]] = []
     dormant: list[dict[str, Any]] = []
     novel: list[dict[str, Any]] = []
-    seen_keys: set[tuple[str, str, str, str, str, str]] = set()
+    seen_key_indexes: dict[tuple[str, str, str, str, str, str], int] = {}
     review_candidates: list[dict[str, Any]] = []
 
     for finding in findings:
@@ -491,10 +562,15 @@ def stage2_ghost_review(
         if category == "novel" and (not str(finding.get("source", "")).strip() or not str(finding.get("sink", "")).strip()):
             print(f"[REVIEW] REJECTED | {finding_type} | {finding_file} | novel finding missing source or sink")
             continue
-        if dedupe_key in seen_keys:
+        existing_index = seen_key_indexes.get(dedupe_key)
+        if existing_index is not None:
+            if _has_reserved_fid(finding) and not _has_reserved_fid(review_candidates[existing_index]):
+                review_candidates[existing_index] = finding
+                print(f"[REVIEW] DUPLICATE | {finding_type} | {finding_file} | kept fid-bearing copy")
+                continue
             print(f"[REVIEW] REJECTED | {finding_type} | {finding_file} | duplicate finding")
             continue
-        seen_keys.add(dedupe_key)
+        seen_key_indexes[dedupe_key] = len(review_candidates)
         review_candidates.append(finding)
 
     if review_single is None:

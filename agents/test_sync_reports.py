@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 from agents.shared_brain import RepoIndex, save_index
 from agents.snapshot_identity import get_snapshot_id
 from agents.storage_resolver import resolve_storage
+from agents.report_paths import discover_report_files, select_report_source
 from agents.sync_reports import _resolve_source_root, _mark_coverage, sync_reports_main
 
 
@@ -99,8 +100,8 @@ class TestSyncReports(unittest.TestCase):
             family="binaries",
             lane="apk",
             root_override=self.tmp / "storage-root",
-            write_report=False,
-            refresh=False,
+            write_report=True,
+            refresh=True,
             update_current=False,
             update_sighting=False,
         )
@@ -147,7 +148,7 @@ class TestSyncReports(unittest.TestCase):
         self.assertEqual(mock_update_team_finding.call_args.kwargs["lane"], "apk")
         self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], self.tmp / "storage-root")
         hunter.ledger.update.assert_not_called()
-        mock_append.assert_called_once()
+        mock_append.assert_not_called()
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._mark_coverage", return_value=None)
@@ -378,6 +379,85 @@ class TestSyncReports(unittest.TestCase):
         self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], self.tmp / "storage-root")
         hunter.ledger.update.assert_not_called()
 
+    def test_discover_report_files_excludes_generated_navigation_but_keeps_finding_bodies(self):
+        reports_root = self.tmp / "canonical-reports"
+        nav_files = [
+            reports_root / "dormant.md",
+            reports_root / "daily" / "05-06-2026" / "dormant.md",
+            reports_root / "categories" / "renderer" / "index.md",
+            reports_root / "severity" / "high" / "index.md",
+        ]
+        for path in nav_files:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                "<!-- generated: bounty-core-report-navigation -->\n# Generated Navigation\n",
+                encoding="utf-8",
+            )
+        canonical_body = reports_root / "findings" / "dormant" / "D01 - HIGH - Body.md"
+        canonical_body.parent.mkdir(parents=True, exist_ok=True)
+        canonical_body.write_text(
+            "<!-- generated: bounty-core-finding-report -->\n# Canonical Body\n",
+            encoding="utf-8",
+        )
+        raw_body = reports_root / "raw" / "finding.md"
+        raw_body.parent.mkdir(parents=True, exist_ok=True)
+        raw_body.write_text("# Raw Body\n", encoding="utf-8")
+
+        discovered = discover_report_files(reports_root)
+
+        self.assertEqual(discovered, [canonical_body, raw_body])
+
+    def test_generated_only_canonical_navigation_does_not_suppress_source_fallback(self):
+        home = self.tmp / "home"
+        generated_nav = home / "Shared" / "binaries" / "test_program" / "apk" / "reports" / "dormant.md"
+        generated_nav.parent.mkdir(parents=True, exist_ok=True)
+        generated_nav.write_text(
+            "<!-- generated: bounty-core-report-navigation -->\n# Dormant Findings\n",
+            encoding="utf-8",
+        )
+        source_report = home / "source" / "test_program" / "reports" / "finding.md"
+        source_report.parent.mkdir(parents=True, exist_ok=True)
+        source_report.write_text("# Source report\n\nsrc/app.js:12\n", encoding="utf-8")
+
+        with patch.dict(os.environ, {"HOME": str(home)}):
+            selected = select_report_source("test_program")
+
+        self.assertEqual(selected.path, source_report.parent.resolve(strict=False))
+        self.assertEqual(selected.mode, "source_reports")
+
+    @patch("agents.sync_reports._chain_suggestions", return_value=[])
+    @patch("agents.sync_reports._mark_coverage", return_value=None)
+    @patch("agents.sync_reports._append_canonical_report")
+    @patch("agents.sync_reports._candidates_for_file")
+    @patch("agents.sync_reports.update_team_finding")
+    @patch("agents.sync_reports.ManualHunter")
+    def test_sync_reports_does_not_parse_generated_navigation_files(
+        self,
+        mock_hunter_cls,
+        mock_update_team_finding,
+        mock_candidates,
+        mock_append,
+        _mock_coverage,
+        _mock_chain,
+    ):
+        nav = self.source_dir / "dormant.md"
+        nav.write_text(
+            "<!-- generated: bounty-core-report-navigation -->\n# Dormant Findings\n",
+            encoding="utf-8",
+        )
+        finding = {"type": "xss", "class_name": "dom-xss", "file": "src/app.js"}
+        hunter = self._hunter(check_side_effect=[(False, None, {**finding, "fid": "D01"})])
+        mock_hunter_cls.return_value = hunter
+        mock_candidates.return_value = [finding]
+        mock_append.return_value = self.tmp / "canonical.md"
+        mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
+
+        sync_reports_main("test_program", source_dir=self.source_dir.as_posix())
+
+        mock_candidates.assert_called_once()
+        self.assertEqual(mock_candidates.call_args.args[3], self.report_path)
+        mock_update_team_finding.assert_called_once()
+
     def test_sync_reports_explicit_root_writes_ledger_reports_and_coverage_canonically(self):
         program = "explicit_program"
         home = self.tmp / "home"
@@ -441,13 +521,16 @@ class TestSyncReports(unittest.TestCase):
         self.assertEqual([finding["fid"] for finding in ledger_payload["findings"]], ["D01"])
 
         self.assertTrue(str(raw_reports.resolve(strict=False)).startswith(explicit_prefix))
-        appended_reports = [
+        canonical_reports = [
             path
-            for path in storage.reports_root.glob("*/*/index.md")
+            for path in (storage.reports_root / "findings").glob("**/*.md")
             if "DOM XSS via location hash" in path.read_text(encoding="utf-8")
         ]
-        self.assertTrue(appended_reports)
-        self.assertTrue(all(str(path).startswith(explicit_prefix) for path in appended_reports))
+        self.assertTrue(canonical_reports)
+        self.assertTrue(all(str(path).startswith(explicit_prefix) for path in canonical_reports))
+        self.assertFalse(list(storage.reports_root.glob("confirmed/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))
+        self.assertFalse(list(storage.reports_root.glob("dormant/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))
+        self.assertFalse(list(storage.reports_root.glob("novel/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))
 
         shared_brain_path = storage.ledgers_root / "shared_brain" / "index.json"
         coverage_path = storage.ledgers_root / "coverage.json"

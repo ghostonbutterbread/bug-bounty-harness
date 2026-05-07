@@ -12,6 +12,8 @@ This is a backlog/spec document, not an implementation patch. Each implementatio
 
 - `report_checker` now propagates explicit `--root`/`root_override` through ledger reads, markdown reads, validation report writes, and ledger refresh without falling back to default home storage.
 - Status markdown detection now uses the same readable status-path rules as `report_checker`, so arbitrary canonical markdown and seeded indexes do not suppress legacy read fallback.
+- Report UX blockers fixed: canonical finding reports now carry a checksum-backed generated marker and are regenerated only when missing or still generated-safe; `update_finding`, FID patch/report refresh, manual imports, sync imports, and BaseTeam daily views now preserve hand-edited `reports/findings/*.md` bodies while deriving daily/category/index navigation from ledger-backed canonical reports.
+- Regression coverage added for hand-edited report survival across `update_finding` and `refresh_report_navigation_from_ledger`, manual/sync import canonical report routing without legacy daily appends, and direct BaseTeam `write_report_indexes` creating canonical reports before daily link views.
 
 ## Goals
 

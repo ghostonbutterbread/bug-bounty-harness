@@ -15,6 +15,9 @@ import shutil
 import shlex
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -175,18 +178,22 @@ class ResearchRequest:
     program: str
     focus: str
     target_kind: str
+    provider_key: str = "local-seed"
     research_online: bool = False
     seed_paths: tuple[Path, ...] = ()
+    source_urls: tuple[str, ...] = ()
 
 
 class ResearchProvider:
     """Opt-in research provider interface.
 
-    The Phase 1 implementation is deliberately offline-capable: providers may
-    ingest local fixtures, but no provider in this module performs network I/O.
+    Providers must declare whether they are network-capable. Network-capable
+    providers may only run when --research-online is set and the user selected
+    that provider explicitly; seed-only providers must never perform network I/O.
     """
 
     key = "base"
+    network_capable = False
 
     def collect(self, request: ResearchRequest) -> dict[str, Any]:
         raise NotImplementedError
@@ -1747,50 +1754,10 @@ def _read_jsonl_objects(path: Path) -> Iterable[dict[str, Any]]:
 class LocalSeedResearchProvider(ResearchProvider):
     """Deterministic provider backed by local seed files only."""
 
-    key = "local-seed-stub"
+    key = "local-seed"
 
     def collect(self, request: ResearchRequest) -> dict[str, Any]:
-        sources: list[dict[str, Any]] = []
-        technique_packs: list[dict[str, Any]] = []
-        errors: list[str] = []
-        known_source_ids: set[str] = set()
-        known_technique_ids: set[str] = set()
-
-        for seed_path in request.seed_paths:
-            seed = _load_research_seed(seed_path, errors)
-            aliases: dict[str, str] = {}
-            seed_sources: list[str] = []
-            for source in seed.get("sources", []):
-                normalized = _normalize_research_source(
-                    source,
-                    seed_path=seed_path,
-                    index=len(sources) + 1,
-                    known_ids=known_source_ids,
-                )
-                raw_id = str(source.get("id") or source.get("source_id") or "").strip()
-                if raw_id:
-                    aliases[raw_id] = normalized["id"]
-                known_source_ids.add(normalized["id"])
-                seed_sources.append(normalized["id"])
-                sources.append(normalized)
-            for technique in seed.get("technique_packs", []):
-                technique_packs.append(
-                    _normalize_technique_pack(
-                        technique,
-                        request=request,
-                        seed_path=seed_path,
-                        index=len(technique_packs) + 1,
-                        source_aliases=aliases,
-                        seed_source_ids=seed_sources,
-                        known_source_ids=known_source_ids,
-                        known_technique_ids=known_technique_ids,
-                        errors=errors,
-                    )
-                )
-                known_technique_ids.add(technique_packs[-1]["id"])
-
-        sources.sort(key=lambda item: item["id"])
-        technique_packs.sort(key=lambda item: item["id"])
+        sources, technique_packs, errors = _collect_seed_research(request)
         cache_key = _json_digest(
             {
                 "provider": self.key,
@@ -1803,29 +1770,480 @@ class LocalSeedResearchProvider(ResearchProvider):
             }
         )
         return {
-            "manifest": {
-                "schema_version": 1,
-                "enabled": bool(request.research_online or request.seed_paths),
+            "manifest": _research_manifest(
+                request,
+                provider_key=self.key,
+                cache_key=cache_key,
+                network_access=False,
+                network_policy="local seed provider only; no network I/O",
+                sources=sources,
+                technique_packs=technique_packs,
+                errors=errors,
+                fetched=[],
+            ),
+            "sources": sources,
+            "technique_packs": technique_packs,
+        }
+
+
+class WebFetchResearchProvider(ResearchProvider):
+    """Conservative HTTPS-only fetcher for operator-supplied source URLs."""
+
+    key = "web-fetch"
+    network_capable = True
+    max_source_urls = 10
+    max_bytes = 256 * 1024
+    timeout_seconds = 5.0
+
+    def __init__(
+        self,
+        *,
+        opener: Callable[..., Any] | None = None,
+        now: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._opener = opener or _non_redirecting_urlopen
+        self._now = now or (lambda: datetime.now(timezone.utc))
+
+    def collect(self, request: ResearchRequest) -> dict[str, Any]:
+        if not request.research_online:
+            raise ValueError("--research-provider web-fetch requires --research-online")
+        if not request.source_urls:
+            raise ValueError("--research-provider web-fetch requires at least one --research-source-url")
+        if len(request.source_urls) > self.max_source_urls:
+            raise ValueError(f"--research-source-url accepts at most {self.max_source_urls} URLs")
+
+        sources, technique_packs, errors = _collect_seed_research(request)
+        known_source_ids = {source["id"] for source in sources}
+        known_technique_ids = {technique["id"] for technique in technique_packs}
+        fetched: list[dict[str, Any]] = []
+
+        for url in request.source_urls:
+            fetch_record, source, metadata = self._fetch_source(url, len(sources) + 1)
+            fetched.append(fetch_record)
+            if source is None:
+                if fetch_record.get("error"):
+                    errors.append(f"{url}: {fetch_record['error']}")
+                continue
+
+            raw_source_id = str(source.get("id") or source.get("source_id") or "").strip()
+            if source["id"] in known_source_ids:
+                source["id"] = _stable_research_id(
+                    "",
+                    prefix="W",
+                    index=len(sources) + 1,
+                    payload=source,
+                    known_ids=known_source_ids,
+                )
+                source["citation"] = f"[{source['id']}]"
+            known_source_ids.add(source["id"])
+            sources.append(source)
+
+            if metadata is None:
+                continue
+            for metadata_error in metadata.get("errors", []):
+                errors.append(str(metadata_error))
+
+            aliases: dict[str, str] = {}
+            if raw_source_id:
+                aliases[raw_source_id] = source["id"]
+            seed_source_ids = [source["id"]]
+            for metadata_source in metadata.get("sources", []):
+                normalized_source = _normalize_research_source(
+                    metadata_source,
+                    seed_path=None,
+                    index=len(sources) + 1,
+                    known_ids=known_source_ids,
+                    default_url=str(metadata_source.get("url") or url),
+                    default_source_type="web-source-metadata",
+                    metadata_origin=url,
+                )
+                metadata_raw_id = str(metadata_source.get("id") or metadata_source.get("source_id") or "").strip()
+                if metadata_raw_id:
+                    aliases[metadata_raw_id] = normalized_source["id"]
+                known_source_ids.add(normalized_source["id"])
+                seed_source_ids.append(normalized_source["id"])
+                sources.append(normalized_source)
+
+            for technique in metadata.get("technique_packs", []):
+                normalized_technique = _normalize_technique_pack(
+                    technique,
+                    request=request,
+                    seed_path=Path(url),
+                    index=len(technique_packs) + 1,
+                    source_aliases=aliases,
+                    seed_source_ids=seed_source_ids,
+                    known_source_ids=known_source_ids,
+                    known_technique_ids=known_technique_ids,
+                    errors=errors,
+                )
+                known_technique_ids.add(normalized_technique["id"])
+                technique_packs.append(normalized_technique)
+
+        sources.sort(key=lambda item: item["id"])
+        technique_packs.sort(key=lambda item: item["id"])
+        cache_key = _json_digest(
+            {
                 "provider": self.key,
-                "cache_key": cache_key,
-                "cache_policy": "research artifacts are the offline cache for reproducible reuse",
-                "online_requested": bool(request.research_online),
-                "network_access": False,
-                "network_policy": "no network in Phase 1 provider; local seeds only",
                 "program": request.program,
                 "focus": request.focus,
                 "target_kind": request.target_kind,
                 "seed_paths": [str(path.expanduser().resolve(strict=False)) for path in request.seed_paths],
-                "counts": {
-                    "sources": len(sources),
-                    "technique_packs": len(technique_packs),
-                    "errors": len(errors),
-                },
-                "errors": errors,
-            },
+                "source_urls": list(request.source_urls),
+                "fetched": _stable_research_cache_value(fetched),
+                "sources": _stable_research_cache_value(sources),
+                "technique_packs": _stable_research_cache_value(technique_packs),
+            }
+        )
+        return {
+            "manifest": _research_manifest(
+                request,
+                provider_key=self.key,
+                cache_key=cache_key,
+                network_access=True,
+                network_policy=(
+                    "HTTPS-only fetch of explicit --research-source-url values; no search, crawling, "
+                    f"or target probing; max_bytes={self.max_bytes}; timeout_seconds={self.timeout_seconds:g}"
+                ),
+                sources=sources,
+                technique_packs=technique_packs,
+                errors=errors,
+                fetched=fetched,
+            ),
             "sources": sources,
             "technique_packs": technique_packs,
         }
+
+    def _fetch_source(self, raw_url: str, index: int) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
+        url = raw_url.strip()
+        fetched_at = self._now().astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        fetch_record: dict[str, Any] = {
+            "url": url,
+            "requested_at": fetched_at,
+            "status": "not_fetched",
+            "network_access": True,
+            "max_bytes": self.max_bytes,
+            "timeout_seconds": self.timeout_seconds,
+        }
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme.lower() != "https" or not parsed.netloc:
+            fetch_record["status"] = "rejected"
+            fetch_record["error"] = "research-source-url must be an absolute https URL"
+            return fetch_record, None, None
+
+        request = urllib.request.Request(url, headers={"User-Agent": "AppMapResearch/1.0"})
+        try:
+            with self._opener(request, timeout=self.timeout_seconds) as response:
+                final_url = str(getattr(response, "url", "") or getattr(response, "geturl", lambda: url)())
+                status_code = int(getattr(response, "status", 0) or getattr(response, "code", 0) or response.getcode())
+                headers = getattr(response, "headers", None)
+                if 300 <= status_code < 400:
+                    location = _header_value(headers, "Location")
+                    fetch_record.update(
+                        {
+                            "status": "redirect_rejected",
+                            "http_status": status_code,
+                            "location": location,
+                            "error": _redirect_rejected_error(location),
+                        }
+                    )
+                    return fetch_record, None, None
+                if final_url and final_url != url:
+                    fetch_record["status"] = "redirect_rejected"
+                    fetch_record["final_url"] = final_url
+                    fetch_record["error"] = _redirect_rejected_error(final_url)
+                    return fetch_record, None, None
+                if urllib.parse.urlsplit(final_url or url).scheme.lower() != "https":
+                    fetch_record["status"] = "rejected"
+                    fetch_record["final_url"] = final_url
+                    fetch_record["error"] = "redirected to non-https URL"
+                    return fetch_record, None, None
+                content_type = _header_value(headers, "Content-Type")
+                data = response.read(self.max_bytes + 1)
+        except urllib.error.HTTPError as exc:
+            if 300 <= int(exc.code) < 400:
+                location = _header_value(getattr(exc, "headers", None), "Location")
+                fetch_record.update(
+                    {
+                        "status": "redirect_rejected",
+                        "http_status": exc.code,
+                        "location": location,
+                        "error": _redirect_rejected_error(location),
+                    }
+                )
+                return fetch_record, None, None
+            fetch_record.update(
+                {
+                    "status": "http_error",
+                    "http_status": exc.code,
+                    "error": str(exc.reason or exc),
+                }
+            )
+            return fetch_record, None, None
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+            fetch_record.update({"status": "error", "error": str(exc)})
+            return fetch_record, None, None
+
+        truncated = len(data) > self.max_bytes
+        if truncated:
+            data = data[: self.max_bytes]
+        digest = hashlib.sha256(data).hexdigest()
+        text = _decode_web_bytes(data, content_type)
+        title = _extract_web_title(text) or urllib.parse.urlsplit(url).path.rsplit("/", 1)[-1] or url
+        summary = _summarize_web_text(text, content_type)
+        fetch_record.update(
+            {
+                "status": "ok_truncated" if truncated else "ok",
+                "http_status": status_code,
+                "final_url": final_url,
+                "content_type": content_type,
+                "bytes_read": len(data),
+                "truncated": truncated,
+                "content_sha256": digest,
+            }
+        )
+        if truncated:
+            fetch_record["error"] = f"response truncated after {self.max_bytes} bytes"
+
+        source_id = _stable_research_id(
+            "",
+            prefix="W",
+            index=index,
+            payload={"url": url, "content_sha256": digest},
+            known_ids=set(),
+        )
+        source = {
+            "id": source_id,
+            "title": _compact_text(title, 180),
+            "url": _compact_text(final_url or url, 500),
+            "source_type": "web-fetch",
+            "retrieved_at": fetched_at,
+            "local_path": "",
+            "summary": _compact_text(summary, 1200),
+            "content_sha256": digest,
+            "citation": f"[{source_id}]",
+            "network_access": True,
+            "http_status": status_code,
+            "content_type": _compact_text(content_type, 120),
+            "content_bytes": len(data),
+        }
+        metadata = _web_research_metadata(text, content_type, url)
+        return fetch_record, source, metadata
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+
+_NON_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+_VOLATILE_RESEARCH_CACHE_FIELDS = {"requested_at", "retrieved_at", "fetched_at", "generated_at"}
+
+
+def _non_redirecting_urlopen(request: urllib.request.Request, *, timeout: float) -> Any:
+    return _NON_REDIRECT_OPENER.open(request, timeout=timeout)
+
+
+def _redirect_rejected_error(location: str) -> str:
+    if location:
+        return f"redirect rejected; Location: {location}"
+    return "redirect rejected; Location header missing"
+
+
+def _stable_research_cache_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _stable_research_cache_value(item)
+            for key, item in value.items()
+            if str(key) not in _VOLATILE_RESEARCH_CACHE_FIELDS
+        }
+    if isinstance(value, list):
+        return [_stable_research_cache_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_stable_research_cache_value(item) for item in value)
+    return value
+
+
+def _collect_seed_research(request: ResearchRequest) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    sources: list[dict[str, Any]] = []
+    technique_packs: list[dict[str, Any]] = []
+    errors: list[str] = []
+    known_source_ids: set[str] = set()
+    known_technique_ids: set[str] = set()
+
+    for seed_path in request.seed_paths:
+        seed = _load_research_seed(seed_path, errors)
+        aliases: dict[str, str] = {}
+        seed_sources: list[str] = []
+        for source in seed.get("sources", []):
+            normalized = _normalize_research_source(
+                source,
+                seed_path=seed_path,
+                index=len(sources) + 1,
+                known_ids=known_source_ids,
+            )
+            raw_id = str(source.get("id") or source.get("source_id") or "").strip()
+            if raw_id:
+                aliases[raw_id] = normalized["id"]
+            known_source_ids.add(normalized["id"])
+            seed_sources.append(normalized["id"])
+            sources.append(normalized)
+        for technique in seed.get("technique_packs", []):
+            technique_packs.append(
+                _normalize_technique_pack(
+                    technique,
+                    request=request,
+                    seed_path=seed_path,
+                    index=len(technique_packs) + 1,
+                    source_aliases=aliases,
+                    seed_source_ids=seed_sources,
+                    known_source_ids=known_source_ids,
+                    known_technique_ids=known_technique_ids,
+                    errors=errors,
+                )
+            )
+            known_technique_ids.add(technique_packs[-1]["id"])
+
+    sources.sort(key=lambda item: item["id"])
+    technique_packs.sort(key=lambda item: item["id"])
+    return sources, technique_packs, errors
+
+
+def _research_manifest(
+    request: ResearchRequest,
+    *,
+    provider_key: str,
+    cache_key: str,
+    network_access: bool,
+    network_policy: str,
+    sources: list[dict[str, Any]],
+    technique_packs: list[dict[str, Any]],
+    errors: list[str],
+    fetched: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "enabled": bool(request.research_online or request.seed_paths or request.source_urls),
+        "provider": provider_key,
+        "cache_key": cache_key,
+        "cache_policy": "research artifacts are the offline cache for reproducible reuse",
+        "online_requested": bool(request.research_online),
+        "network_access": network_access,
+        "network_policy": network_policy,
+        "program": request.program,
+        "focus": request.focus,
+        "target_kind": request.target_kind,
+        "seed_paths": [str(path.expanduser().resolve(strict=False)) for path in request.seed_paths],
+        "source_urls": list(request.source_urls),
+        "fetched": fetched,
+        "counts": {
+            "sources": len(sources),
+            "technique_packs": len(technique_packs),
+            "errors": len(errors),
+        },
+        "errors": errors,
+    }
+
+
+RESEARCH_PROVIDERS: dict[str, type[ResearchProvider]] = {
+    LocalSeedResearchProvider.key: LocalSeedResearchProvider,
+    WebFetchResearchProvider.key: WebFetchResearchProvider,
+}
+
+
+def _build_research_provider(name: str) -> ResearchProvider:
+    try:
+        provider_cls = RESEARCH_PROVIDERS[name]
+    except KeyError as exc:
+        choices = ", ".join(sorted(RESEARCH_PROVIDERS))
+        raise ValueError(f"unknown research provider {name!r}; expected one of: {choices}") from exc
+    return provider_cls()
+
+
+def _normalized_research_source_urls(source_urls: Iterable[str]) -> tuple[str, ...]:
+    return tuple(str(url).strip() for url in source_urls if str(url).strip())
+
+
+def _validate_research_options(
+    *,
+    research_online: bool,
+    provider: ResearchProvider,
+    source_urls: Iterable[str],
+) -> tuple[str, ...]:
+    urls = _normalized_research_source_urls(source_urls)
+    max_source_urls = int(getattr(provider, "max_source_urls", WebFetchResearchProvider.max_source_urls))
+    if len(urls) > max_source_urls:
+        raise ValueError(f"--research-source-url accepts at most {max_source_urls} URLs")
+    if urls and not provider.network_capable:
+        raise ValueError("--research-source-url requires --research-provider web-fetch")
+    if provider.network_capable and not research_online:
+        raise ValueError(f"--research-provider {provider.key} requires --research-online")
+    if provider.key == WebFetchResearchProvider.key and research_online and not urls:
+        raise ValueError("--research-provider web-fetch requires at least one --research-source-url")
+    return urls
+
+
+def _header_value(headers: Any, name: str) -> str:
+    if headers is None:
+        return ""
+    getter = getattr(headers, "get", None)
+    if callable(getter):
+        value = getter(name) or getter(name.lower()) or getter(name.title())
+        return str(value or "")
+    return ""
+
+
+def _decode_web_bytes(data: bytes, content_type: str) -> str:
+    charset = ""
+    match = re.search(r"charset=([\w.\-]+)", content_type or "", re.IGNORECASE)
+    if match:
+        charset = match.group(1)
+    for encoding in (charset, "utf-8", "latin-1"):
+        if not encoding:
+            continue
+        try:
+            return data.decode(encoding, errors="replace")
+        except LookupError:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
+def _extract_web_title(text: str) -> str:
+    match = re.search(r"<title[^>]*>(.*?)</title>", text, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return ""
+    return _html_text(match.group(1))
+
+
+def _summarize_web_text(text: str, content_type: str) -> str:
+    if "html" in (content_type or "").lower() or re.search(r"<html\b|<body\b|<p\b", text, re.IGNORECASE):
+        text = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", text)
+        text = _html_text(text)
+    return _compact_text(text, 900)
+
+
+def _html_text(text: str) -> str:
+    text = re.sub(r"(?is)<[^>]+>", " ", text)
+    text = (
+        text.replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", '"')
+        .replace("&#39;", "'")
+    )
+    return _compact_text(text, 1200)
+
+
+def _web_research_metadata(text: str, content_type: str, url: str) -> dict[str, Any] | None:
+    lower_type = (content_type or "").lower()
+    path = urllib.parse.urlsplit(url).path.lower()
+    if "json" not in lower_type and not path.endswith((".json", ".jsonl")):
+        return None
+    errors: list[str] = []
+    metadata = _load_research_payload_text(text, origin=url, errors=errors, jsonl=path.endswith(".jsonl"))
+    if errors:
+        metadata["errors"] = errors
+    return metadata
 
 
 def generate_research_artifacts(
@@ -1833,19 +2251,28 @@ def generate_research_artifacts(
     *,
     research_online: bool = False,
     seed_paths: Iterable[Path] = (),
+    source_urls: Iterable[str] = (),
+    research_provider: str = "local-seed",
     provider: ResearchProvider | None = None,
 ) -> dict[str, Any] | None:
     seeds = tuple(path.expanduser() for path in seed_paths)
-    if not research_online and not seeds:
+    provider = provider or _build_research_provider(research_provider)
+    urls = _validate_research_options(
+        research_online=research_online,
+        provider=provider,
+        source_urls=source_urls,
+    )
+    if not research_online and not seeds and not urls:
         return None
-    provider = provider or LocalSeedResearchProvider()
     return provider.collect(
         ResearchRequest(
             program=result.profile.program,
             focus=result.focus,
             target_kind=result.profile.target_kind,
+            provider_key=provider.key,
             research_online=research_online,
             seed_paths=seeds,
+            source_urls=urls,
         )
     )
 
@@ -1883,10 +2310,38 @@ def _load_research_seed(seed_path: Path, errors: list[str]) -> dict[str, list[di
         }
         return {"sources": [source], "technique_packs": []}
 
-    return _research_payload_sections(payload, seed_path=path, errors=errors)
+    return _research_payload_sections(payload, origin=str(path), errors=errors)
 
 
-def _research_payload_sections(payload: Any, *, seed_path: Path, errors: list[str]) -> dict[str, list[dict[str, Any]]]:
+def _load_research_payload_text(
+    text: str,
+    *,
+    origin: str,
+    errors: list[str],
+    jsonl: bool,
+) -> dict[str, list[dict[str, Any]]]:
+    stripped = text.strip()
+    if not stripped:
+        return {"sources": [], "technique_packs": []}
+    try:
+        if jsonl:
+            payload: Any = []
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                if not line.strip():
+                    continue
+                try:
+                    payload.append(json.loads(line))
+                except json.JSONDecodeError as exc:
+                    errors.append(f"{origin}: line {line_number}: invalid JSON: {exc.msg}")
+        else:
+            payload = json.loads(stripped)
+    except json.JSONDecodeError as exc:
+        errors.append(f"{origin}: invalid JSON research metadata: {exc.msg}")
+        return {"sources": [], "technique_packs": []}
+    return _research_payload_sections(payload, origin=origin, errors=errors)
+
+
+def _research_payload_sections(payload: Any, *, origin: str, errors: list[str]) -> dict[str, list[dict[str, Any]]]:
     sources: list[dict[str, Any]] = []
     technique_packs: list[dict[str, Any]] = []
     if isinstance(payload, dict):
@@ -1899,7 +2354,7 @@ def _research_payload_sections(payload: Any, *, seed_path: Path, errors: list[st
             )
         )
         if str(payload.get("type") or "").strip() in {"source", "technique", "technique_pack"}:
-            rows = _research_payload_sections([payload], seed_path=seed_path, errors=errors)
+            rows = _research_payload_sections([payload], origin=origin, errors=errors)
             sources.extend(rows["sources"])
             technique_packs.extend(rows["technique_packs"])
     elif isinstance(payload, list):
@@ -1916,7 +2371,7 @@ def _research_payload_sections(payload: Any, *, seed_path: Path, errors: list[st
             elif "url" in row or "title" in row:
                 sources.append(row)
     else:
-        errors.append(f"{seed_path}: unsupported research seed JSON root")
+        errors.append(f"{origin}: unsupported research seed JSON root")
     return {"sources": sources, "technique_packs": technique_packs}
 
 
@@ -1931,22 +2386,30 @@ def _dict_rows(value: Any) -> list[dict[str, Any]]:
 def _normalize_research_source(
     source: dict[str, Any],
     *,
-    seed_path: Path,
+    seed_path: Path | None,
     index: int,
     known_ids: set[str],
+    default_url: str = "",
+    default_source_type: str = "seed",
+    metadata_origin: str = "",
 ) -> dict[str, Any]:
     raw_id = str(source.get("id") or source.get("source_id") or "").strip()
     source_id = _stable_research_id(raw_id, prefix="S", index=index, payload=source, known_ids=known_ids)
+    fallback_title = seed_path.name if seed_path is not None else default_url or source_id
+    local_path = str(source.get("local_path") or "")
+    if not local_path and seed_path is not None:
+        local_path = str(seed_path.resolve(strict=False))
     return {
         "id": source_id,
-        "title": _compact_text(str(source.get("title") or source.get("name") or seed_path.name), 180),
-        "url": _compact_text(str(source.get("url") or source.get("link") or ""), 500),
-        "source_type": _compact_text(str(source.get("source_type") or source.get("type") or "seed"), 80),
+        "title": _compact_text(str(source.get("title") or source.get("name") or fallback_title), 180),
+        "url": _compact_text(str(source.get("url") or source.get("link") or default_url), 500),
+        "source_type": _compact_text(str(source.get("source_type") or source.get("type") or default_source_type), 80),
         "retrieved_at": _compact_text(str(source.get("retrieved_at") or source.get("published_at") or ""), 80),
-        "local_path": _compact_text(str(source.get("local_path") or seed_path.resolve(strict=False)), 500),
+        "local_path": _compact_text(local_path, 500),
         "summary": _compact_text(str(source.get("summary") or source.get("description") or ""), 1200),
         "content_sha256": _json_digest(source),
         "citation": f"[{source_id}]",
+        "metadata_origin": _compact_text(metadata_origin, 500),
     }
 
 
@@ -3133,15 +3596,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--research-online",
         action="store_true",
         help=(
-            "Opt in to online-research mode. Phase 1 uses the safe local-seed provider and does not perform "
-            "network I/O; use --research-seed for cited fixtures."
+            "Allow a network-capable research provider to perform its documented fetches. "
+            "The default local-seed provider remains offline even when this flag is set."
         ),
+    )
+    parser.add_argument(
+        "--research-provider",
+        choices=sorted(RESEARCH_PROVIDERS),
+        default=LocalSeedResearchProvider.key,
+        help="Research provider to use. Default local-seed never performs network I/O.",
     )
     parser.add_argument(
         "--research-seed",
         action="append",
         default=[],
         help="Local JSON/JSONL/text research seed to normalize into cited research artifacts. Repeatable.",
+    )
+    parser.add_argument(
+        "--research-source-url",
+        action="append",
+        default=[],
+        help=(
+            "Explicit HTTPS source URL for --research-provider web-fetch. Repeatable; no search, crawl, "
+            "or target probing is performed."
+        ),
     )
     parser.add_argument(
         "--promote-to-brainstorm",
@@ -3288,6 +3766,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if not args.program or not args.target_path:
         raise SystemExit("program and target_path are required unless using --list-handoffs, --validate-handoff, or --plan-handoff")
+    try:
+        research_provider = _build_research_provider(args.research_provider)
+        _validate_research_options(
+            research_online=args.research_online,
+            provider=research_provider,
+            source_urls=args.research_source_url,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     target_path = Path(args.target_path).expanduser().resolve(strict=False)
     if not target_path.exists() or not target_path.is_dir():
         raise SystemExit(f"target_path must be an existing directory: {target_path}")
@@ -3305,11 +3792,16 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     result = map_application(args.program, target_path, target_kind=args.target_kind, focus=args.focus)
-    result.research = generate_research_artifacts(
-        result,
-        research_online=args.research_online,
-        seed_paths=[Path(path) for path in args.research_seed],
-    )
+    try:
+        result.research = generate_research_artifacts(
+            result,
+            research_online=args.research_online,
+            seed_paths=[Path(path) for path in args.research_seed],
+            source_urls=args.research_source_url,
+            provider=research_provider,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     paths = write_artifacts(
         result,
         output_root=output_root,

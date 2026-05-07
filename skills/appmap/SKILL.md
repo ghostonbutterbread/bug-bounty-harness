@@ -56,6 +56,7 @@ Read the playbook before running the mapper:
 - List, validate, and plan promoted handoffs with read-only CLI modes before runtime.
 - Do not overwrite existing `brainstorm/spec.md` unless the user explicitly chooses that filename and allows overwrite.
 - Keep packet `active_target_packs` candidate-evidence scoped so mixed targets do not leak unrelated framework context.
+- Keep research no-network-by-default. `--research-provider local-seed` is default and offline; use live fetch only with both `--research-provider web-fetch` and `--research-online`.
 - Keep AppMap pre-runtime. Do not add or use `zero_day_team --appmap` integration from this skill.
 - Hand generated specs to the normal team runtime only when the user explicitly asks to run hypotheses.
 
@@ -88,9 +89,10 @@ python3 agents/app_mapper.py <program> <target_path> \
 
 4. Read `appmap_summary.md`, `architecture.md`, `manifest.json`, `candidates.jsonl`, `rejected_candidates.jsonl`, and generated `agent_contexts/*.json` when present.
 5. Validate generated specs with `agents.brainstorm_spec.parse_brainstorm_spec` when present.
-6. Promote only on request with `--promote-to-brainstorm`. Canonical mode defaults to `{lane_root}/brainstorm`; standalone mode needs `--brainstorm-root`.
-7. For promoted specs, run `--list-handoffs`, `--validate-handoff`, or `--plan-handoff` as needed. These modes are read-only and must not write findings ledgers, raw map data, coverage, or reports.
-8. Report the output directory, manifest/index, candidate count, generated specs, promoted handoff paths when any, validation counts/errors, planned runtime command, and no-candidate reasons visible in rejected candidates.
+6. If research is requested, prefer `--research-seed`. Live research must use explicit HTTPS `--research-source-url` values plus `--research-provider web-fetch --research-online`; do not use search scraping, crawling, or target probing.
+7. Promote only on request with `--promote-to-brainstorm`. Canonical mode defaults to `{lane_root}/brainstorm`; standalone mode needs `--brainstorm-root`.
+8. For promoted specs, run `--list-handoffs`, `--validate-handoff`, or `--plan-handoff` as needed. These modes are read-only and must not write findings ledgers, raw map data, coverage, or reports.
+9. Report the output directory, manifest/index, candidate count, generated specs, promoted handoff paths when any, validation counts/errors, planned runtime command, research provider/network status, and no-candidate reasons visible in rejected candidates.
 
 ## Promotion
 

@@ -431,6 +431,19 @@ Once stable, move parser/coverage helpers into:
 
 The skill and teams should import from the shared module once available.
 
+### Phase 7 — AppMap research provider contract
+
+AppMap research remains optional and must be no-network-by-default.
+
+- `--research-provider local-seed` is the default. It normalizes local `--research-seed` JSON/JSONL/text fixtures and must never perform network I/O, including when `--research-online` is present.
+- `--research-provider web-fetch` is network-capable and may run only with `--research-online`.
+- `web-fetch` may fetch only repeatable, operator-supplied `--research-source-url` values. URLs must be absolute HTTPS URLs; the provider must not perform arbitrary search, crawl a target app, or probe discovered application endpoints.
+- Fetches must be bounded by conservative timeouts and maximum response bytes. Failures are non-fatal research errors recorded in the manifest.
+- Fetched pages are normalized into cited source records with URL, title, summary, content digest, retrieval metadata, and citation ID.
+- Technique packs may come only from explicit JSON/JSONL seed or fetched source metadata. Prose, HTML, or other fetched page text must not be interpreted into new technique packs.
+- `research/research_manifest.json` records provider, `network_access`, `online_requested`, seed paths, source URLs, fetch status/errors, byte counts, digests, counts, and artifact pointers. `sources.jsonl` and `technique_packs.jsonl` are the replayable cache for runtime adapters.
+- Candidate matching and AppMap packet isolation stay unchanged: research techniques are attached only through the existing strict applicability rules and candidate-scoped packet metadata.
+
 ## Acceptance Criteria
 
 - A target lane can contain a human-editable `brainstorm/spec.md`.

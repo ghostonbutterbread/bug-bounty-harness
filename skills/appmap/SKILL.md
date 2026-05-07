@@ -10,6 +10,7 @@ Map a local application and forge focused brainstorm specs from source/boundary/
 
 ```text
 /appmap <program> <target_path> [--target-kind <kind>] [--focus rce] [--write-specs] [--output-mode standalone|canonical] [--family <family>] [--lane <lane>] [--promote-to-brainstorm]
+/appmap <program> <target_path> --research-mode local|web|hybrid [--research-query WORD [WORD ...]] [--research-seed <path>] [--research-online --research-source-url <https-url>]
 /appmap --list-handoffs --brainstorm-root <brainstorm_root>
 /appmap --campaign-status --brainstorm-root <brainstorm_root>
 /appmap --validate-handoff <promoted_spec>
@@ -36,6 +37,7 @@ Read the playbook before running the mapper:
 
 - **Playbook:** `$HARNESS_ROOT/prompts/appmap-playbook.md`
 - **Mapper:** `$HARNESS_ROOT/agents/app_mapper.py`
+- **Research module:** `$HARNESS_ROOT/agents/appmap_research.py`
 - **Default output:** `~/Shared/appmap/{program}/static/appmap/{run_id}/`
 - **Canonical output:** `~/Shared/{family}/{program}/{lane}/appmap/{run_id}/`
 - **Generated specs:** `{output}/generated_specs/`
@@ -56,7 +58,9 @@ Read the playbook before running the mapper:
 - List, validate, and plan promoted handoffs with read-only CLI modes before runtime.
 - Do not overwrite existing `brainstorm/spec.md` unless the user explicitly chooses that filename and allows overwrite.
 - Keep packet `active_target_packs` candidate-evidence scoped so mixed targets do not leak unrelated framework context.
-- Keep research no-network-by-default. `--research-provider local-seed` is default and offline; use live fetch only with both `--research-provider web-fetch` and `--research-online`.
+- Keep research no-network-by-default. Prefer `--research-mode local|web|hybrid` plus `--research-query WORD [WORD ...]`.
+- Use `--research-mode local` for local `--research-seed` artifacts. Use `--research-mode hybrid` to process local seeds first and then explicit web sources only when `--research-online` and `--research-source-url` are present.
+- Treat `--research-provider`, `--research-online`, and `--research-source-url` compatibility carefully: old provider flags still work, but docs and new commands should prefer mode/query.
 - Keep AppMap pre-runtime. Do not add or use `zero_day_team --appmap` integration from this skill.
 - Hand generated specs to the normal team runtime only when the user explicitly asks to run hypotheses.
 
@@ -89,10 +93,10 @@ python3 agents/app_mapper.py <program> <target_path> \
 
 4. Read `appmap_summary.md`, `architecture.md`, `manifest.json`, `candidates.jsonl`, `rejected_candidates.jsonl`, and generated `agent_contexts/*.json` when present.
 5. Validate generated specs with `agents.brainstorm_spec.parse_brainstorm_spec` when present.
-6. If research is requested, prefer `--research-seed`. Live research must use explicit HTTPS `--research-source-url` values plus `--research-provider web-fetch --research-online`; do not use search scraping, crawling, or target probing.
+6. If research is requested, prefer `--research-mode local --research-query <terms> --research-seed <path>`. Hybrid mode reads local seeds first and then fetches explicit HTTPS `--research-source-url` values only when `--research-online` is set; do not use search scraping, crawling, or target probing.
 7. Promote only on request with `--promote-to-brainstorm`. Canonical mode defaults to `{lane_root}/brainstorm`; standalone mode needs `--brainstorm-root`.
 8. For promoted specs, run `--list-handoffs`, `--validate-handoff`, or `--plan-handoff` as needed. These modes are read-only and must not write findings ledgers, raw map data, coverage, or reports.
-9. Report the output directory, manifest/index, candidate count, generated specs, promoted handoff paths when any, validation counts/errors, planned runtime command, research provider/network status, and no-candidate reasons visible in rejected candidates.
+9. Report the output directory, manifest/index, candidate count, generated specs, promoted handoff paths when any, validation counts/errors, planned runtime command, research mode/query/provider/network status, and no-candidate reasons visible in rejected candidates.
 
 ## Promotion
 

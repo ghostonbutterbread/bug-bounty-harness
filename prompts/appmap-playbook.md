@@ -30,6 +30,10 @@ Optional:
 - `shared-root`: optional canonical base; defaults to `~/Shared`
 - `output-root`: standalone-only custom destination
 - `run-id`: use for repeatable tests or comparison runs
+- `research-mode`: `local`, `web`, or `hybrid`; default is `local`
+- `research-query`: words such as `electron xss`, normalized into DB-ready query metadata
+- `research-seed`: repeatable local JSON/JSONL/text research artifacts
+- `research-online` and `research-source-url`: opt in to bounded fetches of explicit HTTPS sources; no search or crawling
 - `promote-to-brainstorm`: copies generated specs/context packets into a brainstorm area only when explicitly requested
 
 If the target path is missing or ambiguous, ask before running the mapper.
@@ -94,9 +98,9 @@ Inspect:
 - `agent_contexts/*.json`: candidate-isolated handoff packets for generated hypotheses
 - `manifest.json`: run metadata and artifact pointers for discovery without reading findings ledgers
 - `../index.jsonl`: append-only AppMap run index under the lane or standalone `appmap/` root
-- `research/research_manifest.json`: optional research provider manifest with provider, source URL, fetch status/error, digest, and network-access metadata
-- `research/sources.jsonl`: optional cited source records with URL/title/summary/content digest/citation
-- `research/technique_packs.jsonl`: optional explicit JSON/JSONL technique packs; fetched prose must not be converted into techniques
+- `research/research_manifest.json`: optional research manifest with provider, `research_mode`, normalized `research_query`, categories, source URL, fetch status/error, digest, and network-access metadata
+- `research/sources.jsonl`: optional cited source records with URL/title/summary/content digest/citation plus `source_type`, `trust_score`, and `validation_status`
+- `research/technique_packs.jsonl`: optional explicit JSON/JSONL technique packs with DB-ready query/category/status fields; fetched prose must not be converted into techniques
 
 A candidate should have a plausible attacker-controlled source, a trust boundary, a concrete sink, file evidence, and a question agents can answer.
 
@@ -120,14 +124,18 @@ Strict linkage rules: every AppMap hypothesis must reference exactly one `appmap
 
 Research matching is intentionally narrow. A technique applies to a candidate only when its `vulnerability_pack` matches and it declares both matching `target_pack_keys` and matching `applicable_surface_kinds`; missing target or surface applicability is not a wildcard. The only exception is an explicit `applies_to_all: true` technique, which must be used deliberately.
 
-Research provider contract:
+Research module contract:
 
-- Default provider is `--research-provider local-seed`; it reads only repeatable `--research-seed` JSON/JSONL/text fixtures and never performs network I/O, even with `--research-online`.
-- Live fetch requires both `--research-provider web-fetch` and `--research-online`.
-- `web-fetch` may request only repeatable, operator-supplied `--research-source-url` values, and each URL must be absolute `https://`.
+- Provider/query logic lives in `agents/appmap_research.py`; `agents/app_mapper.py` stays the orchestrator/importer.
+- Prefer `--research-mode local|web|hybrid` and `--research-query WORD [WORD ...]`. Compatibility flags `--research-provider local-seed|web-fetch`, `--research-online`, and `--research-source-url` remain accepted where reasonable.
+- `--research-query electron xss` is normalized into raw terms, normalized terms, platform candidates, vulnerability candidates, a stable `query_key`, and categories such as `platform:electron` and `vulnerability:xss`.
+- `local` reads only repeatable `--research-seed` JSON/JSONL/text fixtures and never performs network I/O, even with `--research-online`.
+- `web` fetches only repeatable, operator-supplied `--research-source-url` values and still requires `--research-online`.
+- `hybrid` processes local seeds first. It performs the web phase only when both `--research-online` and explicit source URLs are present; otherwise it remains offline and records the skipped web phase.
+- Each source URL must be absolute `https://`.
 - `web-fetch` performs no search engine scraping, no crawling, no target-app probing, and enforces bounded fetch size/timeouts.
 - Fetched pages become cited source records. Technique packs are accepted only from explicit JSON/JSONL research metadata; fetched prose/HTML is never transformed into a technique pack.
-- `research_manifest.json` must record provider, `network_access`, source URLs, fetch status/errors, byte counts, content digests, and artifact paths so the run is replayable from saved artifacts.
+- `research_manifest.json` must record provider, research mode/query, categories, `network_access`, source URLs, fetch status/errors, byte counts, content digests, validation status, and artifact paths so the run is replayable from saved artifacts.
 
 ## 4. Promote Handoff Artifacts
 

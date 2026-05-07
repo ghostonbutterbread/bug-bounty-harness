@@ -435,13 +435,17 @@ The skill and teams should import from the shared module once available.
 
 AppMap research remains optional and must be no-network-by-default.
 
-- `--research-provider local-seed` is the default. It normalizes local `--research-seed` JSON/JSONL/text fixtures and must never perform network I/O, including when `--research-online` is present.
-- `--research-provider web-fetch` is network-capable and may run only with `--research-online`.
-- `web-fetch` may fetch only repeatable, operator-supplied `--research-source-url` values. URLs must be absolute HTTPS URLs; the provider must not perform arbitrary search, crawl a target app, or probe discovered application endpoints.
+- Research provider/query logic lives in `agents/appmap_research.py`; `agents/app_mapper.py` imports it and remains the mapping/orchestration layer.
+- Prefer `--research-mode local|web|hybrid` and `--research-query WORD [WORD ...]`. Backward-compatible `--research-provider local-seed|web-fetch`, `--research-online`, and `--research-source-url` remain accepted where reasonable.
+- `--research-query electron xss` normalizes into raw terms, normalized terms, platform candidates, vulnerability candidates, a stable `query_key`, and categories for DB-ready artifacts.
+- `local` normalizes local `--research-seed` JSON/JSONL/text fixtures and must never perform network I/O, including when `--research-online` is present.
+- `web` is network-capable and may fetch only with `--research-online` plus repeatable, operator-supplied `--research-source-url` values.
+- `hybrid` processes local seeds/artifacts first, then performs the same explicit web-fetch phase only when online/source URLs are available. It must not perform autonomous search.
+- Source URLs must be absolute HTTPS URLs; providers must not perform arbitrary search, crawl a target app, or probe discovered application endpoints.
 - Fetches must be bounded by conservative timeouts and maximum response bytes. Failures are non-fatal research errors recorded in the manifest.
 - Fetched pages are normalized into cited source records with URL, title, summary, content digest, retrieval metadata, and citation ID.
 - Technique packs may come only from explicit JSON/JSONL seed or fetched source metadata. Prose, HTML, or other fetched page text must not be interpreted into new technique packs.
-- `research/research_manifest.json` records provider, `network_access`, `online_requested`, seed paths, source URLs, fetch status/errors, byte counts, digests, counts, and artifact pointers. `sources.jsonl` and `technique_packs.jsonl` are the replayable cache for runtime adapters.
+- `research/research_manifest.json` records provider, research mode/query/categories, validation status, `network_access`, `online_requested`, seed paths, source URLs, fetch status/errors, byte counts, digests, counts, and artifact pointers. `sources.jsonl` and `technique_packs.jsonl` include `source_type`, `trust_score`, categories, and `validation_status: unreviewed` as the replayable cache for runtime adapters.
 - Candidate matching and AppMap packet isolation stay unchanged: research techniques are attached only through the existing strict applicability rules and candidate-scoped packet metadata.
 
 ## Acceptance Criteria

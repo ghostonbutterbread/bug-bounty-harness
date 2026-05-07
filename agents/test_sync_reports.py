@@ -379,7 +379,7 @@ class TestSyncReports(unittest.TestCase):
         self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], self.tmp / "storage-root")
         hunter.ledger.update.assert_not_called()
 
-    def test_discover_report_files_excludes_generated_navigation_but_keeps_finding_bodies(self):
+    def test_discover_report_files_excludes_generated_output_but_keeps_raw_reports(self):
         reports_root = self.tmp / "canonical-reports"
         nav_files = [
             reports_root / "dormant.md",
@@ -396,7 +396,7 @@ class TestSyncReports(unittest.TestCase):
         canonical_body = reports_root / "findings" / "dormant" / "D01 - HIGH - Body.md"
         canonical_body.parent.mkdir(parents=True, exist_ok=True)
         canonical_body.write_text(
-            "<!-- generated: bounty-core-finding-report -->\n# Canonical Body\n",
+            "# Canonical Body\n",
             encoding="utf-8",
         )
         raw_body = reports_root / "raw" / "finding.md"
@@ -405,7 +405,46 @@ class TestSyncReports(unittest.TestCase):
 
         discovered = discover_report_files(reports_root)
 
-        self.assertEqual(discovered, [canonical_body, raw_body])
+        self.assertEqual(discovered, [raw_body])
+
+    @patch("agents.sync_reports._chain_suggestions", return_value=[])
+    @patch("agents.sync_reports._mark_coverage", return_value=None)
+    @patch("agents.sync_reports._append_canonical_report")
+    @patch("agents.sync_reports._candidates_for_file")
+    @patch("agents.sync_reports.update_team_finding")
+    @patch("agents.sync_reports.ManualHunter")
+    def test_sync_reports_skips_generated_canonical_findings_but_imports_raw(
+        self,
+        mock_hunter_cls,
+        mock_update_team_finding,
+        mock_candidates,
+        mock_append,
+        _mock_coverage,
+        _mock_chain,
+    ):
+        reports_root = self.tmp / "canonical-reports"
+        generated_body = reports_root / "findings" / "confirmed" / "D01 - HIGH - Generated.md"
+        generated_body.parent.mkdir(parents=True, exist_ok=True)
+        generated_body.write_text(
+            "<!-- generated: bounty-core-finding-report -->\n# Generated\n\nsrc/generated.js:1\n",
+            encoding="utf-8",
+        )
+        raw_body = reports_root / "raw" / "raw-finding.md"
+        raw_body.parent.mkdir(parents=True, exist_ok=True)
+        raw_body.write_text("# Raw Body\n\nsrc/app.js:12\n", encoding="utf-8")
+
+        finding = {"type": "xss", "class_name": "dom-xss", "file": "src/app.js"}
+        hunter = self._hunter(check_side_effect=[(False, None, {**finding, "fid": "D01"})])
+        mock_hunter_cls.return_value = hunter
+        mock_candidates.return_value = [finding]
+        mock_append.return_value = self.tmp / "canonical.md"
+        mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
+
+        sync_reports_main("test_program", source_dir=reports_root.as_posix())
+
+        mock_candidates.assert_called_once()
+        self.assertEqual(mock_candidates.call_args.args[3], raw_body)
+        mock_update_team_finding.assert_called_once()
 
     def test_generated_only_canonical_navigation_does_not_suppress_source_fallback(self):
         home = self.tmp / "home"

@@ -13,13 +13,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
-from urllib.parse import unquote
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agents.ledger import read_team_findings, update_team_finding
+from agents.report_markdown import markdown_link_destinations
 from agents.source_roots import source_root_candidates
 from agents.storage_resolver import resolve_family_lane, resolve_storage
 from agents.report_paths import (
@@ -432,20 +432,6 @@ def _resolve_report_path(reports_root: Path, bucket: str, legacy_filename: str) 
     return status_report_path_for_read(reports_root, bucket, legacy_filename)
 
 
-def _markdown_link_destinations(text: str) -> list[str]:
-    destinations: list[str] = []
-    for match in re.finditer(r"\[[^\]]+\]\(([^)]*)\)", text):
-        raw = match.group(1).strip()
-        if not raw:
-            continue
-        if raw.startswith("<") and raw.endswith(">"):
-            raw = raw[1:-1].strip()
-        raw = raw.split("#", 1)[0].strip()
-        if raw:
-            destinations.append(unquote(raw))
-    return destinations
-
-
 def _load_linked_canonical_markdown_findings(
     index_path: Path,
     text: str,
@@ -458,7 +444,7 @@ def _load_linked_canonical_markdown_findings(
 
     findings: list[FindingRecord] = []
     seen: set[Path] = set()
-    for raw_link in _markdown_link_destinations(text):
+    for raw_link in markdown_link_destinations(text):
         if raw_link.startswith(("http://", "https://", "mailto:")):
             continue
         target = (index_path.parent / raw_link).expanduser().resolve(strict=False)

@@ -264,7 +264,7 @@ def test_app_mapper_resolves_and_writes_canonical_lane_appmap_root(tmp_path: Pat
         shared_root=shared_root,
     )
 
-    assert lane_root == shared_root / "binaries" / "canva-app" / "exe"
+    assert lane_root == shared_root / "binaries" / "Canva_App" / "exe"
     assert resolve_output_root(
         "Canva App",
         output_mode="canonical",

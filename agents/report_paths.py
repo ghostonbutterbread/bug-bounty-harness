@@ -27,6 +27,7 @@ DATE_SHAPED_DIR_RE = re.compile(r"^(?:\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4})$")
 DAILY_DATE_FORMAT = "%m-%d-%Y"
 REPORT_NAV_GENERATED_MARKER = "<!-- generated: bounty-core-report-navigation -->"
 CATEGORY_STUB_GENERATED_MARKER = "<!-- generated: bounty-core-category-link-stub -->"
+FINDING_REPORT_GENERATED_MARKER = "<!-- generated: bounty-core-finding-report -->"
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,7 +42,7 @@ def discover_report_files(source_dir: Path) -> list[Path]:
         path
         for path in source_dir.rglob("*.md")
         if path.is_file()
-        and not is_generated_report_navigation(path)
+        and not is_generated_report_output(path, source_root=source_dir)
         and not is_seeded_report_index(path)
     )
 
@@ -78,6 +79,34 @@ def is_generated_report_navigation(path: Path) -> bool:
     except OSError:
         return False
     return REPORT_NAV_GENERATED_MARKER in text or CATEGORY_STUB_GENERATED_MARKER in text
+
+
+def is_generated_report_output(path: Path, *, source_root: Path | None = None) -> bool:
+    """Return True for generated report output that should not be re-imported."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+    if (
+        REPORT_NAV_GENERATED_MARKER in text
+        or CATEGORY_STUB_GENERATED_MARKER in text
+        or FINDING_REPORT_GENERATED_MARKER in text
+    ):
+        return True
+
+    parts = path.parts
+    if any(left == "reports" and right == "findings" for left, right in zip(parts, parts[1:])):
+        return True
+    if source_root is not None:
+        try:
+            relative_parts = path.resolve(strict=False).relative_to(
+                source_root.resolve(strict=False)
+            ).parts
+        except ValueError:
+            relative_parts = ()
+        if relative_parts and relative_parts[0] == "findings":
+            return True
+    return False
 
 
 def is_seeded_raw_index(path: Path) -> bool:

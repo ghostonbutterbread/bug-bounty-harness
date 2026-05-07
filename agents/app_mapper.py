@@ -31,6 +31,7 @@ from agents.brainstorm_spec import (
     parse_brainstorm_spec,
     read_coverage_jsonl,
 )
+from agents.storage_resolver import resolve_storage
 
 
 SCAN_EXTENSIONS = {
@@ -1132,8 +1133,14 @@ def canonical_output_root(
 ) -> Path:
     """Return the canonical lane root used for durable AppMap data."""
 
-    root = shared_root.expanduser() if shared_root is not None else Path.home() / "Shared"
-    return root / sanitize_key(family, fallback="family") / sanitize_key(program) / sanitize_key(lane, fallback="lane")
+    storage = resolve_storage(
+        program,
+        family=family,
+        lane=lane,
+        root_override=shared_root,
+        create=False,
+    )
+    return storage.lane_root
 
 
 def resolve_output_root(

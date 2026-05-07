@@ -23,8 +23,8 @@ import textwrap
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import unquote
 
+from agents.report_markdown import markdown_link_destinations
 from agents.report_paths import canonical_reports_root, report_index_roots_for_read, status_report_path_for_read
 from agents.storage_resolver import resolve_target_identity
 
@@ -177,7 +177,7 @@ def _load_linked_canonical_findings(index_path: Path, text: str, *, is_novel: bo
 
     findings: list[ChainFinding] = []
     seen: set[Path] = set()
-    for raw_link in _markdown_link_destinations(text):
+    for raw_link in markdown_link_destinations(text):
         if raw_link.startswith(("http://", "https://", "mailto:")):
             continue
         target = (index_path.parent / raw_link).expanduser().resolve(strict=False)
@@ -188,20 +188,6 @@ def _load_linked_canonical_findings(index_path: Path, text: str, *, is_novel: bo
         if parsed is not None:
             findings.append(parsed)
     return findings
-
-
-def _markdown_link_destinations(text: str) -> list[str]:
-    destinations: list[str] = []
-    for match in re.finditer(r"\[[^\]]+\]\(([^)]*)\)", text):
-        raw = match.group(1).strip()
-        if not raw:
-            continue
-        if raw.startswith("<") and raw.endswith(">"):
-            raw = raw[1:-1].strip()
-        raw = raw.split("#", 1)[0].strip()
-        if raw:
-            destinations.append(unquote(raw))
-    return destinations
 
 
 def _load_canonical_markdown_finding(path: Path, *, is_novel: bool, index: int) -> ChainFinding | None:

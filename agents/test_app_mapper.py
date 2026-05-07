@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.error
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -13,6 +15,7 @@ from agents.app_mapper import (
     TargetDetection,
     TargetPack,
     VulnerabilityPack,
+    WebFetchResearchProvider,
     build_rce_flows,
     build_parser,
     canonical_output_root,
@@ -1646,7 +1649,7 @@ def test_app_mapper_writes_cited_research_artifacts_and_candidate_scoped_packets
     spec_text = paths["rce_spec"].read_text(encoding="utf-8")
     context_text = json.dumps(context, sort_keys=True).lower()
 
-    assert manifest["provider"] == "local-seed-stub"
+    assert manifest["provider"] == "local-seed"
     assert manifest["network_access"] is False
     assert manifest["counts"] == {"errors": 0, "sources": 2, "technique_packs": 2}
     assert {source["id"] for source in sources} == {"s0001", "s0002"}
@@ -1823,7 +1826,67 @@ def test_app_mapper_research_seed_jsonl_preserves_valid_rows_and_records_normali
     assert unresolved["citations"] == []
 
 
-def test_app_mapper_research_online_stub_writes_empty_artifacts_without_seed(tmp_path: Path) -> None:
+def test_app_mapper_default_research_writes_no_artifacts_without_flags(tmp_path: Path) -> None:
+    target = tmp_path / "python-app"
+    _write(
+        target / "runner.py",
+        """
+import argparse
+import subprocess
+
+parser = argparse.ArgumentParser()
+args = parser.parse_args()
+subprocess.run(args.command, shell=True)
+""".strip(),
+    )
+    output_root = tmp_path / "out"
+
+    assert (
+        app_mapper_main(
+            [
+                "python target",
+                str(target),
+                "--run-id",
+                "no-research-run",
+                "--output-root",
+                str(output_root),
+                "--write-specs",
+            ]
+        )
+        == 0
+    )
+
+    assert not (output_root / "appmap" / "no-research-run" / "research").exists()
+
+
+def test_app_mapper_seed_research_uses_local_provider_without_network(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _one_candidate_result(tmp_path)
+    seed_path = tmp_path / "research-seed.json"
+    seed_path.write_text(
+        json.dumps({"sources": [{"id": "seed-source", "title": "Seed", "summary": "Local only."}]}),
+        encoding="utf-8",
+    )
+
+    def fail_network(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("seed provider must not use network")
+
+    monkeypatch.setattr("agents.app_mapper.urllib.request.urlopen", fail_network)
+
+    research = generate_research_artifacts(result, seed_paths=[seed_path])
+
+    assert research is not None
+    assert research["manifest"]["provider"] == "local-seed"
+    assert research["manifest"]["network_access"] is False
+    assert research["manifest"]["counts"]["sources"] == 1
+
+
+def test_app_mapper_research_online_default_local_provider_writes_empty_artifacts_without_network(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     target = tmp_path / "python-app"
     _write(
         target / "runner.py",
@@ -1839,6 +1902,11 @@ subprocess.run(args.command, shell=True)
 """.strip(),
     )
     output_root = tmp_path / "out"
+
+    def fail_network(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("default local provider must not use network")
+
+    monkeypatch.setattr("agents.app_mapper.urllib.request.urlopen", fail_network)
 
     assert (
         app_mapper_main(
@@ -1858,10 +1926,298 @@ subprocess.run(args.command, shell=True)
 
     research_root = output_root / "appmap" / "research-online-run" / "research"
     manifest = json.loads((research_root / "research_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["provider"] == "local-seed"
     assert manifest["online_requested"] is True
     assert manifest["network_access"] is False
     assert manifest["counts"]["sources"] == 0
     assert (research_root / "sources.jsonl").read_text(encoding="utf-8") == ""
+
+
+def test_app_mapper_web_fetch_provider_requires_research_online(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+    provider = WebFetchResearchProvider(opener=lambda *_args, **_kwargs: None)
+
+    with pytest.raises(ValueError, match="requires --research-online"):
+        generate_research_artifacts(
+            result,
+            research_provider="web-fetch",
+            source_urls=["https://research.example/appmap.json"],
+            provider=provider,
+        )
+
+
+class _FakeWebResponse:
+    def __init__(
+        self,
+        url: str,
+        body: bytes,
+        content_type: str = "text/html",
+        status: int = 200,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.url = url
+        self.status = status
+        self.headers = {"Content-Type": content_type, **(headers or {})}
+        self._body = body
+
+    def __enter__(self) -> "_FakeWebResponse":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def getcode(self) -> int:
+        return self.status
+
+    def read(self, limit: int = -1) -> bytes:
+        if limit is None or limit < 0:
+            return self._body
+        return self._body[:limit]
+
+
+def test_app_mapper_web_fetch_provider_records_sources_and_explicit_json_techniques(
+    tmp_path: Path,
+) -> None:
+    result = _one_candidate_result(tmp_path)
+    fetched: list[str] = []
+
+    metadata_body = json.dumps(
+        {
+            "sources": [
+                {
+                    "id": "SRC1",
+                    "title": "Explicit JSON source",
+                    "url": "https://research.example/source",
+                    "summary": "Explicit source metadata can be cited.",
+                }
+            ],
+            "technique_packs": [
+                {
+                    "id": "json-technique",
+                    "title": "JSON supplied technique",
+                    "summary": "Review config data reaching child_process.",
+                    "vulnerability_pack": "rce",
+                    "target_pack_keys": ["node"],
+                    "applicable_surface_kinds": ["config", "process-exec"],
+                    "source_ids": ["SRC1"],
+                }
+            ],
+        },
+        sort_keys=True,
+    ).encode("utf-8")
+    html_body = b"<html><head><title>HTML source</title></head><body>Plain prose must not become a technique.</body></html>"
+
+    def fake_open(request: object, timeout: float = 0.0) -> _FakeWebResponse:
+        assert timeout == 5.0
+        url = getattr(request, "full_url")
+        fetched.append(url)
+        if url.endswith("/metadata.json"):
+            return _FakeWebResponse(url, metadata_body, "application/json; charset=utf-8")
+        return _FakeWebResponse(url, html_body, "text/html; charset=utf-8")
+
+    provider = WebFetchResearchProvider(
+        opener=fake_open,
+        now=lambda: datetime(2026, 5, 6, tzinfo=timezone.utc),
+    )
+    result.research = generate_research_artifacts(
+        result,
+        research_online=True,
+        research_provider="web-fetch",
+        source_urls=["https://research.example/metadata.json", "https://research.example/page"],
+        provider=provider,
+    )
+
+    assert fetched == ["https://research.example/metadata.json", "https://research.example/page"]
+    paths = write_artifacts(result, output_root=tmp_path / "out", run_id="web-research-run", write_specs=True)
+    manifest = json.loads(paths["research_manifest"].read_text(encoding="utf-8"))
+    sources = [json.loads(line) for line in paths["research_sources"].read_text(encoding="utf-8").splitlines()]
+    techniques = [
+        json.loads(line)
+        for line in paths["research_technique_packs"].read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert manifest["provider"] == "web-fetch"
+    assert manifest["network_access"] is True
+    assert manifest["source_urls"] == ["https://research.example/metadata.json", "https://research.example/page"]
+    assert [item["status"] for item in manifest["fetched"]] == ["ok", "ok"]
+    assert manifest["counts"] == {"errors": 0, "sources": 3, "technique_packs": 1}
+    assert any(source["title"] == "HTML source" and source["content_sha256"] for source in sources)
+    assert techniques[0]["id"] == "json-technique"
+    assert techniques[0]["source_ids"] == ["src1"]
+
+
+def test_app_mapper_web_fetch_provider_records_failures_non_fatal(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+
+    def failing_open(_request: object, timeout: float = 0.0) -> object:
+        raise urllib.error.URLError("fixture failure")
+
+    research = generate_research_artifacts(
+        result,
+        research_online=True,
+        research_provider="web-fetch",
+        source_urls=["https://research.example/failure", "http://127.0.0.1/local"],
+        provider=WebFetchResearchProvider(opener=failing_open),
+    )
+
+    assert research is not None
+    manifest = research["manifest"]
+    assert manifest["network_access"] is True
+    assert [item["status"] for item in manifest["fetched"]] == ["error", "rejected"]
+    assert manifest["counts"] == {"errors": 2, "sources": 0, "technique_packs": 0}
+    assert any("fixture failure" in error for error in manifest["errors"])
+    assert any("absolute https URL" in error for error in manifest["errors"])
+
+
+@pytest.mark.parametrize(
+    ("location", "label"),
+    [
+        ("http://research.example/insecure", "https_to_http"),
+        ("https://other.example/resource", "https_to_different_https"),
+    ],
+)
+def test_app_mapper_web_fetch_provider_rejects_redirects_without_following(
+    tmp_path: Path,
+    location: str,
+    label: str,
+) -> None:
+    result = _one_candidate_result(tmp_path)
+    start_url = f"https://research.example/{label}"
+    fetched: list[str] = []
+
+    def fake_open(request: object, timeout: float = 0.0) -> _FakeWebResponse:
+        url = getattr(request, "full_url")
+        fetched.append(url)
+        if url != start_url:
+            raise AssertionError(f"redirect target must not be fetched: {url}")
+        return _FakeWebResponse(url, b"", status=302, headers={"Location": location})
+
+    research = generate_research_artifacts(
+        result,
+        research_online=True,
+        research_provider="web-fetch",
+        source_urls=[start_url],
+        provider=WebFetchResearchProvider(opener=fake_open),
+    )
+
+    manifest = research["manifest"]
+    assert fetched == [start_url]
+    assert research["sources"] == []
+    assert manifest["fetched"][0]["status"] == "redirect_rejected"
+    assert manifest["fetched"][0]["location"] == location
+    assert manifest["counts"] == {"errors": 1, "sources": 0, "technique_packs": 0}
+    assert any(f"Location: {location}" in error for error in manifest["errors"])
+
+
+def test_app_mapper_web_fetch_provider_rejects_too_many_source_urls_before_fetching(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+    fetched: list[str] = []
+
+    def fake_open(request: object, timeout: float = 0.0) -> _FakeWebResponse:
+        fetched.append(getattr(request, "full_url"))
+        return _FakeWebResponse(getattr(request, "full_url"), b"unused")
+
+    with pytest.raises(ValueError, match="at most 10 URLs"):
+        generate_research_artifacts(
+            result,
+            research_online=True,
+            research_provider="web-fetch",
+            source_urls=[f"https://research.example/{index}" for index in range(11)],
+            provider=WebFetchResearchProvider(opener=fake_open),
+        )
+
+    assert fetched == []
+
+
+def test_app_mapper_web_fetch_cache_key_excludes_fetch_timestamps(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+    body = b"<html><head><title>Stable</title></head><body>Same content.</body></html>"
+
+    def fake_open(request: object, timeout: float = 0.0) -> _FakeWebResponse:
+        url = getattr(request, "full_url")
+        return _FakeWebResponse(url, body, "text/html; charset=utf-8")
+
+    first = generate_research_artifacts(
+        result,
+        research_online=True,
+        research_provider="web-fetch",
+        source_urls=["https://research.example/stable"],
+        provider=WebFetchResearchProvider(
+            opener=fake_open,
+            now=lambda: datetime(2026, 5, 6, 12, 0, tzinfo=timezone.utc),
+        ),
+    )
+    second = generate_research_artifacts(
+        result,
+        research_online=True,
+        research_provider="web-fetch",
+        source_urls=["https://research.example/stable"],
+        provider=WebFetchResearchProvider(
+            opener=fake_open,
+            now=lambda: datetime(2026, 5, 7, 12, 0, tzinfo=timezone.utc),
+        ),
+    )
+
+    assert first["manifest"]["cache_key"] == second["manifest"]["cache_key"]
+    assert first["manifest"]["fetched"][0]["requested_at"] != second["manifest"]["fetched"][0]["requested_at"]
+    assert first["sources"][0]["retrieved_at"] != second["sources"][0]["retrieved_at"]
+
+
+def test_app_mapper_web_fetch_provider_records_byte_truncation(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+
+    def fake_open(request: object, timeout: float = 0.0) -> _FakeWebResponse:
+        url = getattr(request, "full_url")
+        return _FakeWebResponse(url, b"0123456789ABCDEF", "text/plain; charset=utf-8")
+
+    provider = WebFetchResearchProvider(opener=fake_open)
+    provider.max_bytes = 8
+    research = generate_research_artifacts(
+        result,
+        research_online=True,
+        research_provider="web-fetch",
+        source_urls=["https://research.example/large.txt"],
+        provider=provider,
+    )
+
+    fetched = research["manifest"]["fetched"][0]
+    assert fetched["status"] == "ok_truncated"
+    assert fetched["bytes_read"] == 8
+    assert fetched["truncated"] is True
+    assert "truncated after 8 bytes" in fetched["error"]
+    assert research["sources"][0]["content_bytes"] == 8
+
+
+def test_app_mapper_cli_research_option_errors_before_mapping(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_mapping(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("invalid research options must fail before target mapping")
+
+    monkeypatch.setattr("agents.app_mapper.map_application", fail_mapping)
+
+    with pytest.raises(SystemExit, match="--research-source-url requires --research-provider web-fetch"):
+        app_mapper_main(
+            [
+                "demo",
+                str(tmp_path / "missing-target"),
+                "--research-source-url",
+                "https://research.example/source",
+            ]
+        )
+
+    with pytest.raises(SystemExit, match="--research-provider web-fetch requires --research-online"):
+        app_mapper_main(
+            [
+                "demo",
+                str(tmp_path / "missing-target"),
+                "--research-provider",
+                "web-fetch",
+                "--research-source-url",
+                "https://research.example/source",
+            ]
+        )
 
 
 def test_appmap_context_linkage_rejects_duplicate_and_multi_candidate_evidence(tmp_path: Path) -> None:

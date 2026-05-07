@@ -94,6 +94,9 @@ Inspect:
 - `agent_contexts/*.json`: candidate-isolated handoff packets for generated hypotheses
 - `manifest.json`: run metadata and artifact pointers for discovery without reading findings ledgers
 - `../index.jsonl`: append-only AppMap run index under the lane or standalone `appmap/` root
+- `research/research_manifest.json`: optional research provider manifest with provider, source URL, fetch status/error, digest, and network-access metadata
+- `research/sources.jsonl`: optional cited source records with URL/title/summary/content digest/citation
+- `research/technique_packs.jsonl`: optional explicit JSON/JSONL technique packs; fetched prose must not be converted into techniques
 
 A candidate should have a plausible attacker-controlled source, a trust boundary, a concrete sink, file evidence, and a question agents can answer.
 
@@ -116,6 +119,15 @@ Packet schema contract:
 Strict linkage rules: every AppMap hypothesis must reference exactly one `appmap-C####` candidate; missing, duplicate, unknown, or multi-candidate evidence must fail before handoff. If a hypothesis has multiple suggested agents, write one packet per agent using the same candidate evidence.
 
 Research matching is intentionally narrow. A technique applies to a candidate only when its `vulnerability_pack` matches and it declares both matching `target_pack_keys` and matching `applicable_surface_kinds`; missing target or surface applicability is not a wildcard. The only exception is an explicit `applies_to_all: true` technique, which must be used deliberately.
+
+Research provider contract:
+
+- Default provider is `--research-provider local-seed`; it reads only repeatable `--research-seed` JSON/JSONL/text fixtures and never performs network I/O, even with `--research-online`.
+- Live fetch requires both `--research-provider web-fetch` and `--research-online`.
+- `web-fetch` may request only repeatable, operator-supplied `--research-source-url` values, and each URL must be absolute `https://`.
+- `web-fetch` performs no search engine scraping, no crawling, no target-app probing, and enforces bounded fetch size/timeouts.
+- Fetched pages become cited source records. Technique packs are accepted only from explicit JSON/JSONL research metadata; fetched prose/HTML is never transformed into a technique pack.
+- `research_manifest.json` must record provider, `network_access`, source URLs, fetch status/errors, byte counts, content digests, and artifact paths so the run is replayable from saved artifacts.
 
 ## 4. Promote Handoff Artifacts
 

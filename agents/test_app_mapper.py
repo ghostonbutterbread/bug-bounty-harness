@@ -2021,6 +2021,63 @@ def test_app_mapper_web_fetch_provider_implies_online_for_web_mode(tmp_path: Pat
     assert research["manifest"]["network_access"] is True
 
 
+def test_app_mapper_cli_web_research_mode_implies_online_without_extra_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "python-app"
+    _write(
+        target / "runner.py",
+        """
+import argparse
+import subprocess
+
+parser = argparse.ArgumentParser()
+args = parser.parse_args()
+subprocess.run(args.command, shell=True)
+""".strip(),
+    )
+    output_root = tmp_path / "out"
+    fetched: list[str] = []
+
+    def fake_open(request: object, timeout: float = 0.0) -> "_FakeWebResponse":
+        fetched.append(getattr(request, "full_url"))
+        return _FakeWebResponse(getattr(request, "full_url"), b"<title>CLI Web Research</title>")
+
+    monkeypatch.setattr(
+        "agents.app_mapper._build_research_provider",
+        lambda _provider_key: WebFetchResearchProvider(opener=fake_open),
+    )
+
+    assert (
+        app_mapper_main(
+            [
+                "python target",
+                str(target),
+                "--run-id",
+                "cli-web-research-run",
+                "--output-root",
+                str(output_root),
+                "--write-specs",
+                "--research-mode",
+                "web",
+                "--research-source-url",
+                "https://research.example/cli-web",
+            ]
+        )
+        == 0
+    )
+
+    research_root = output_root / "appmap" / "cli-web-research-run" / "research"
+    manifest = json.loads((research_root / "research_manifest.json").read_text(encoding="utf-8"))
+    assert fetched == ["https://research.example/cli-web"]
+    assert manifest["provider"] == "web-fetch"
+    assert manifest["research_mode"] == "web"
+    assert manifest["online_requested"] is True
+    assert manifest["network_access"] is True
+    assert manifest["source_urls"] == ["https://research.example/cli-web"]
+
+
 class _FakeWebResponse:
     def __init__(
         self,

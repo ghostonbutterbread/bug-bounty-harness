@@ -46,13 +46,14 @@ from agents.decompiler import decompile_smali_targets
 from agents.dynamic_agent_builder import DynamicAgentBuilder
 from agents.ledger import create_team_ledger_from_storage, update_team_finding
 from agents.base_team.promotion import promote_reviewed_findings
-from agents.base_team.reports import dated_report_index_paths
 from agents.base_team.storage import resolve_team_storage
 from agents.snapshot_identity import get_snapshot_identity
 from agents.verbosity import clamp_verbosity
 
+ensure_bounty_core_importable()
 ensure_bounty_core_importable("bounty_core.brainstorm_spec")
 
+from bounty_core.reports import DAILY_REPORT_DATE_FORMAT, daily_report_paths  # noqa: E402
 from bounty_core.brainstorm_spec import (  # noqa: E402
     append_coverage,
     hypothesis_to_agent_intents,
@@ -1286,8 +1287,12 @@ def orchestrate_apk_team(
         reviewed_findings=reviewed_findings,
         profiles=brainstorm_profiles,
     )
-    confirmed_report_path, dormant_report_path, novel_report_path = dated_report_index_paths(storage)
-    report_root = confirmed_report_path.parent
+    confirmed_report_path, dormant_report_path, novel_report_path = promotion.get("report_paths") or (None, None, None)
+    planned_daily_paths = daily_report_paths(storage, datetime.now().strftime(DAILY_REPORT_DATE_FORMAT))
+    planned_confirmed_report_path = planned_daily_paths["confirmed"]
+    planned_dormant_report_path = planned_daily_paths["dormant"]
+    planned_novel_report_path = planned_daily_paths["novel"]
+    daily_root = confirmed_report_path.parent if confirmed_report_path else planned_daily_paths["root"]
     rejected_count = max(0, len(raw_findings) - len(reviewed_findings))
     summary = summarize_findings(reviewed_findings)
     summary["raw_findings"] = len(raw_findings)
@@ -1303,12 +1308,22 @@ def orchestrate_apk_team(
         "ledgers_root": str(storage.ledgers_root),
     }
     summary["reports"] = {
-        "confirmed_date_root": str(confirmed_report_path.parent),
-        "dormant_date_root": str(dormant_report_path.parent),
-        "novel_date_root": str(novel_report_path.parent),
-        "confirmed": str(confirmed_report_path),
-        "dormant": str(dormant_report_path),
-        "novel_findings": str(novel_report_path),
+        "daily_root": str(daily_root),
+        "daily_index": str(daily_root / "index.md"),
+        "daily_confirmed": str(confirmed_report_path or planned_confirmed_report_path),
+        "daily_dormant": str(dormant_report_path or planned_dormant_report_path),
+        "daily_novel": str(novel_report_path or planned_novel_report_path),
+        "findings_root": str(storage.reports_root / "findings"),
+        "categories_root": str(storage.reports_root / "categories"),
+        "confirmed_date_root": str(confirmed_report_path.parent) if confirmed_report_path else None,
+        "dormant_date_root": str(dormant_report_path.parent) if dormant_report_path else None,
+        "novel_date_root": str(novel_report_path.parent) if novel_report_path else None,
+        "confirmed": str(confirmed_report_path) if confirmed_report_path else None,
+        "dormant": str(dormant_report_path) if dormant_report_path else None,
+        "novel_findings": str(novel_report_path) if novel_report_path else None,
+        "planned_confirmed": str(planned_confirmed_report_path),
+        "planned_dormant": str(planned_dormant_report_path),
+        "planned_novel_findings": str(planned_novel_report_path),
     }
     summary["surface_registry"] = {
         "path": str(registry.registry_path),
@@ -1333,12 +1348,12 @@ def orchestrate_apk_team(
     summary["ledger_updates"] = ledger_updates
     if verbosity.verbose:
         print(f"[apk_team] ledger_updates={ledger_updates} ledger_path={ledger.path}")
-        print(f"[apk_team] confirmed_date_root={confirmed_report_path.parent}")
-        print(f"[apk_team] dormant_date_root={dormant_report_path.parent}")
-        print(f"[apk_team] novel_date_root={novel_report_path.parent}")
-        print(f"[apk_team] confirmed_report={confirmed_report_path}")
-        print(f"[apk_team] dormant_report={dormant_report_path}")
-        print(f"[apk_team] novel_report={novel_report_path}")
+        print(f"[apk_team] confirmed_date_root={confirmed_report_path.parent if confirmed_report_path else None}")
+        print(f"[apk_team] dormant_date_root={dormant_report_path.parent if dormant_report_path else None}")
+        print(f"[apk_team] novel_date_root={novel_report_path.parent if novel_report_path else None}")
+        print(f"[apk_team] confirmed_report={confirmed_report_path or '(not written)'}")
+        print(f"[apk_team] dormant_report={dormant_report_path or '(not written)'}")
+        print(f"[apk_team] novel_report={novel_report_path or '(not written)'}")
     pretty_print_findings(reviewed_findings, display_file_reference=display_file_reference)
 
     if chain and reviewed_findings:

@@ -135,6 +135,7 @@ class MapResult:
     flows: list[dict[str, Any]] = field(default_factory=list)
     candidates: list[dict[str, Any]] = field(default_factory=list)
     rejected_candidates: list[dict[str, Any]] = field(default_factory=list)
+    research: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -166,6 +167,28 @@ class HandoffValidationResult:
     @property
     def ok(self) -> bool:
         return not self.errors
+
+
+@dataclass(frozen=True)
+class ResearchRequest:
+    program: str
+    focus: str
+    target_kind: str
+    research_online: bool = False
+    seed_paths: tuple[Path, ...] = ()
+
+
+class ResearchProvider:
+    """Opt-in research provider interface.
+
+    The Phase 1 implementation is deliberately offline-capable: providers may
+    ingest local fixtures, but no provider in this module performs network I/O.
+    """
+
+    key = "base"
+
+    def collect(self, request: ResearchRequest) -> dict[str, Any]:
+        raise NotImplementedError
 
 
 TARGET_PACKS: dict[str, TargetPack] = {}
@@ -404,6 +427,7 @@ PY_SINK_PATTERNS = [
 MAX_AGENT_KEY_LEN = 64
 MAX_CHAIN_LINE_SPAN = 40
 MAX_GENERATED_HYPOTHESES = 5
+MAX_RESEARCH_SUMMARIES_PER_CANDIDATE = 3
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 JS_STATIC_PROCESS_LITERAL_RE = _compile(
@@ -1161,6 +1185,16 @@ def write_artifacts(
         "index": appmap_root / "index.jsonl",
         "summary": run_root / "appmap_summary.md",
     }
+    if result.research is not None:
+        research_root = run_root / "research"
+        paths.update(
+            {
+                "research": research_root,
+                "research_manifest": research_root / "research_manifest.json",
+                "research_sources": research_root / "sources.jsonl",
+                "research_technique_packs": research_root / "technique_packs.jsonl",
+            }
+        )
 
     paths["target_profile"].write_text(
         json.dumps(result.profile.__dict__, indent=2, sort_keys=True) + "\n",
@@ -1171,6 +1205,8 @@ def write_artifacts(
     _write_jsonl(paths["flows"], result.flows)
     _write_jsonl(paths["candidates"], result.candidates)
     _write_jsonl(paths["rejected_candidates"], result.rejected_candidates)
+    if result.research is not None:
+        _write_research_artifacts(result.research, paths)
 
     if write_specs and result.candidates:
         focus_slug = sanitize_key(result.focus, fallback="focus")
@@ -1701,6 +1737,304 @@ def _read_jsonl_objects(path: Path) -> Iterable[dict[str, Any]]:
             yield payload
 
 
+class LocalSeedResearchProvider(ResearchProvider):
+    """Deterministic provider backed by local seed files only."""
+
+    key = "local-seed-stub"
+
+    def collect(self, request: ResearchRequest) -> dict[str, Any]:
+        sources: list[dict[str, Any]] = []
+        technique_packs: list[dict[str, Any]] = []
+        errors: list[str] = []
+        known_source_ids: set[str] = set()
+        known_technique_ids: set[str] = set()
+
+        for seed_path in request.seed_paths:
+            seed = _load_research_seed(seed_path, errors)
+            aliases: dict[str, str] = {}
+            seed_sources: list[str] = []
+            for source in seed.get("sources", []):
+                normalized = _normalize_research_source(
+                    source,
+                    seed_path=seed_path,
+                    index=len(sources) + 1,
+                    known_ids=known_source_ids,
+                )
+                raw_id = str(source.get("id") or source.get("source_id") or "").strip()
+                if raw_id:
+                    aliases[raw_id] = normalized["id"]
+                known_source_ids.add(normalized["id"])
+                seed_sources.append(normalized["id"])
+                sources.append(normalized)
+            for technique in seed.get("technique_packs", []):
+                technique_packs.append(
+                    _normalize_technique_pack(
+                        technique,
+                        request=request,
+                        seed_path=seed_path,
+                        index=len(technique_packs) + 1,
+                        source_aliases=aliases,
+                        seed_source_ids=seed_sources,
+                        known_source_ids=known_source_ids,
+                        known_technique_ids=known_technique_ids,
+                        errors=errors,
+                    )
+                )
+                known_technique_ids.add(technique_packs[-1]["id"])
+
+        sources.sort(key=lambda item: item["id"])
+        technique_packs.sort(key=lambda item: item["id"])
+        cache_key = _json_digest(
+            {
+                "provider": self.key,
+                "program": request.program,
+                "focus": request.focus,
+                "target_kind": request.target_kind,
+                "seed_paths": [str(path.expanduser().resolve(strict=False)) for path in request.seed_paths],
+                "sources": sources,
+                "technique_packs": technique_packs,
+            }
+        )
+        return {
+            "manifest": {
+                "schema_version": 1,
+                "enabled": bool(request.research_online or request.seed_paths),
+                "provider": self.key,
+                "cache_key": cache_key,
+                "cache_policy": "research artifacts are the offline cache for reproducible reuse",
+                "online_requested": bool(request.research_online),
+                "network_access": False,
+                "network_policy": "no network in Phase 1 provider; local seeds only",
+                "program": request.program,
+                "focus": request.focus,
+                "target_kind": request.target_kind,
+                "seed_paths": [str(path.expanduser().resolve(strict=False)) for path in request.seed_paths],
+                "counts": {
+                    "sources": len(sources),
+                    "technique_packs": len(technique_packs),
+                    "errors": len(errors),
+                },
+                "errors": errors,
+            },
+            "sources": sources,
+            "technique_packs": technique_packs,
+        }
+
+
+def generate_research_artifacts(
+    result: MapResult,
+    *,
+    research_online: bool = False,
+    seed_paths: Iterable[Path] = (),
+    provider: ResearchProvider | None = None,
+) -> dict[str, Any] | None:
+    seeds = tuple(path.expanduser() for path in seed_paths)
+    if not research_online and not seeds:
+        return None
+    provider = provider or LocalSeedResearchProvider()
+    return provider.collect(
+        ResearchRequest(
+            program=result.profile.program,
+            focus=result.focus,
+            target_kind=result.profile.target_kind,
+            research_online=research_online,
+            seed_paths=seeds,
+        )
+    )
+
+
+def _load_research_seed(seed_path: Path, errors: list[str]) -> dict[str, list[dict[str, Any]]]:
+    path = seed_path.expanduser()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"{path}: failed to read seed: {exc}")
+        return {"sources": [], "technique_packs": []}
+    stripped = text.strip()
+    if not stripped:
+        return {"sources": [], "technique_packs": []}
+
+    payload: Any
+    try:
+        if path.suffix.lower() == ".jsonl":
+            payload = []
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                if not line.strip():
+                    continue
+                try:
+                    payload.append(json.loads(line))
+                except json.JSONDecodeError as exc:
+                    errors.append(f"{path}: line {line_number}: invalid JSON: {exc.msg}")
+        else:
+            payload = json.loads(stripped)
+    except json.JSONDecodeError:
+        source = {
+            "title": path.name,
+            "source_type": "local-text-seed",
+            "local_path": str(path.resolve(strict=False)),
+            "summary": _compact_text(stripped, 900),
+        }
+        return {"sources": [source], "technique_packs": []}
+
+    return _research_payload_sections(payload, seed_path=path, errors=errors)
+
+
+def _research_payload_sections(payload: Any, *, seed_path: Path, errors: list[str]) -> dict[str, list[dict[str, Any]]]:
+    sources: list[dict[str, Any]] = []
+    technique_packs: list[dict[str, Any]] = []
+    if isinstance(payload, dict):
+        sources.extend(_dict_rows(payload.get("sources")))
+        technique_packs.extend(
+            _dict_rows(
+                payload.get("technique_packs")
+                if payload.get("technique_packs") is not None
+                else payload.get("techniques")
+            )
+        )
+        if str(payload.get("type") or "").strip() in {"source", "technique", "technique_pack"}:
+            rows = _research_payload_sections([payload], seed_path=seed_path, errors=errors)
+            sources.extend(rows["sources"])
+            technique_packs.extend(rows["technique_packs"])
+    elif isinstance(payload, list):
+        for row in payload:
+            if not isinstance(row, dict):
+                continue
+            row_type = str(row.get("type") or row.get("record_type") or "").strip()
+            if row_type == "source":
+                sources.append(row)
+            elif row_type in {"technique", "technique_pack"}:
+                technique_packs.append(row)
+            elif "summary" in row and ("target_pack_keys" in row or "vulnerability_pack" in row):
+                technique_packs.append(row)
+            elif "url" in row or "title" in row:
+                sources.append(row)
+    else:
+        errors.append(f"{seed_path}: unsupported research seed JSON root")
+    return {"sources": sources, "technique_packs": technique_packs}
+
+
+def _dict_rows(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if isinstance(value, dict):
+        return [value]
+    return []
+
+
+def _normalize_research_source(
+    source: dict[str, Any],
+    *,
+    seed_path: Path,
+    index: int,
+    known_ids: set[str],
+) -> dict[str, Any]:
+    raw_id = str(source.get("id") or source.get("source_id") or "").strip()
+    source_id = _stable_research_id(raw_id, prefix="S", index=index, payload=source, known_ids=known_ids)
+    return {
+        "id": source_id,
+        "title": _compact_text(str(source.get("title") or source.get("name") or seed_path.name), 180),
+        "url": _compact_text(str(source.get("url") or source.get("link") or ""), 500),
+        "source_type": _compact_text(str(source.get("source_type") or source.get("type") or "seed"), 80),
+        "retrieved_at": _compact_text(str(source.get("retrieved_at") or source.get("published_at") or ""), 80),
+        "local_path": _compact_text(str(source.get("local_path") or seed_path.resolve(strict=False)), 500),
+        "summary": _compact_text(str(source.get("summary") or source.get("description") or ""), 1200),
+        "content_sha256": _json_digest(source),
+        "citation": f"[{source_id}]",
+    }
+
+
+def _normalize_technique_pack(
+    technique: dict[str, Any],
+    *,
+    request: ResearchRequest,
+    seed_path: Path,
+    index: int,
+    source_aliases: dict[str, str],
+    seed_source_ids: list[str],
+    known_source_ids: set[str],
+    known_technique_ids: set[str],
+    errors: list[str],
+) -> dict[str, Any]:
+    raw_id = str(technique.get("id") or technique.get("key") or technique.get("technique_id") or "").strip()
+    technique_id = _stable_research_id(raw_id, prefix="T", index=index, payload=technique, known_ids=known_technique_ids)
+    source_ids: list[str] = []
+    requested_source_ids = _string_list(technique.get("source_ids") or technique.get("sources"))
+    for item in requested_source_ids:
+        raw_source_id = str(item).strip()
+        if not raw_source_id:
+            continue
+        resolved_source_id = source_aliases.get(raw_source_id) or sanitize_key(raw_source_id, fallback="")
+        if resolved_source_id in known_source_ids:
+            source_ids.append(resolved_source_id)
+        else:
+            errors.append(f"{seed_path}: technique {technique_id} references unknown source id {raw_source_id!r}")
+    if not requested_source_ids:
+        source_ids = list(seed_source_ids)
+    source_ids = sorted(dict.fromkeys(source_ids))
+    return {
+        "id": technique_id,
+        "title": _compact_text(str(technique.get("title") or technique.get("name") or technique_id), 180),
+        "summary": _compact_text(str(technique.get("summary") or technique.get("description") or ""), 1400),
+        "vulnerability_pack": _compact_text(str(technique.get("vulnerability_pack") or technique.get("focus") or request.focus), 80),
+        "target_pack_keys": _string_list(technique.get("target_pack_keys") or technique.get("target_packs")),
+        "applicable_surface_kinds": _string_list(
+            technique.get("applicable_surface_kinds") or technique.get("surface_kinds")
+        ),
+        "applies_to_all": _bool_value(technique.get("applies_to_all")),
+        "guidance": [_compact_text(item, 500) for item in _string_list(technique.get("guidance") or technique.get("steps"))],
+        "source_ids": source_ids,
+        "citations": [f"[{source_id}]" for source_id in source_ids],
+        "seed_path": str(seed_path.resolve(strict=False)),
+        "content_sha256": _json_digest(technique),
+    }
+
+
+def _stable_research_id(
+    value: str,
+    *,
+    prefix: str,
+    index: int,
+    payload: dict[str, Any],
+    known_ids: set[str],
+) -> str:
+    cleaned = sanitize_key(value, fallback="")
+    if cleaned:
+        candidate = cleaned[:80]
+    else:
+        digest = _json_digest(payload)[:10]
+        candidate = f"{prefix}{index:04d}-{digest}"
+    while candidate in known_ids:
+        candidate = f"{candidate}-{_json_digest({'id': candidate, 'index': index})[:6]}"
+    return candidate
+
+
+def _json_digest(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, list | tuple | set):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [str(value).strip()] if str(value).strip() else []
+
+
+def _bool_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _compact_text(value: str, limit: int) -> str:
+    compacted = re.sub(r"\s+", " ", str(value or "")).strip()
+    return compacted[:limit]
+
+
 def _strict_parse_promoted_spec(spec_path: Path) -> Any:
     return parse_brainstorm_spec(spec_path, validate_paths=True)
 
@@ -2156,6 +2490,21 @@ def _with_appmap_run_root_metadata(text: str, run_root: Path) -> str:
     return text[:line_end] + f"\n- AppMap run root: {run_root}" + text[line_end:]
 
 
+def _write_research_artifacts(research: dict[str, Any], paths: dict[str, Path]) -> None:
+    paths["research"].mkdir(parents=True, exist_ok=True)
+    manifest = dict(research.get("manifest") or {})
+    manifest["artifacts"] = {
+        "sources": _relative_to(paths["research_sources"], paths["run_root"]),
+        "technique_packs": _relative_to(paths["research_technique_packs"], paths["run_root"]),
+    }
+    paths["research_manifest"].write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _write_jsonl(paths["research_sources"], research.get("sources") or [])
+    _write_jsonl(paths["research_technique_packs"], research.get("technique_packs") or [])
+
+
 def render_run_manifest(
     result: MapResult,
     paths: dict[str, Path],
@@ -2178,6 +2527,9 @@ def render_run_manifest(
             "summary",
             "spec",
             "agent_contexts",
+            "research_manifest",
+            "research_sources",
+            "research_technique_packs",
         }
     }
     return {
@@ -2198,6 +2550,8 @@ def render_run_manifest(
             "candidates": len(result.candidates),
             "rejected_candidates": len(result.rejected_candidates),
             "agent_contexts": len(list(paths["agent_contexts"].glob("*.json"))) if "agent_contexts" in paths else 0,
+            "research_sources": len(result.research.get("sources", [])) if result.research else 0,
+            "research_technique_packs": len(result.research.get("technique_packs", [])) if result.research else 0,
         },
         "artifacts": artifacts,
     }
@@ -2278,6 +2632,8 @@ def render_rce_spec(result: MapResult, *, run_id: str, max_hypotheses: int = MAX
         transform = candidate.get("transform")
         sink = candidate["sink"]
         agent_key = _stable_agent_key(program_slug, candidate)
+        research_summaries = _candidate_research_summaries(result, candidate)
+        research_notes = _research_notes(research_summaries)
         primitives.append(
             "\n".join(
                 [
@@ -2298,6 +2654,8 @@ def render_rce_spec(result: MapResult, *, run_id: str, max_hypotheses: int = MAX
             f"Boundary evidence {boundary['file']}:{boundary['line']}. "
             "Use appmap artifacts for exact snippets before testing."
         )
+        if research_notes:
+            notes = f"{notes} Research: {research_notes}."
         hypotheses.append(
             "\n".join(
                 [
@@ -2319,6 +2677,7 @@ def render_rce_spec(result: MapResult, *, run_id: str, max_hypotheses: int = MAX
                     "- Evidence:",
                     f"  - appmap-{candidate['id']}",
                     f"  - appmap-context:{hypothesis_id}:{candidate['id']}:{agent_key}",
+                    *_research_evidence_lines(research_summaries),
                     f"  - surface-{candidate['surface_id']}",
                     f"  - flow-{candidate['flow_id']}",
                     f"- Notes: {notes}",
@@ -2441,6 +2800,7 @@ def render_agent_context(
             "transform": _evidence_item(transform) if transform else None,
             "sink": _evidence_item(sink),
         },
+        "research": _candidate_research_packet(result, candidate),
         "next_steps": [
             "Use only this packet's map IDs, evidence snippets, and focus files for the hypothesis.",
             "Trace source-to-boundary-to-sink control and data flow in the listed files.",
@@ -2591,6 +2951,89 @@ def _focus_files_for_candidate(candidate: dict[str, Any]) -> list[str]:
     return sorted(files)[:8] or ["."]
 
 
+def _candidate_research_packet(result: MapResult, candidate: dict[str, Any]) -> dict[str, Any]:
+    summaries = _candidate_research_summaries(result, candidate)
+    source_ids = sorted({source_id for summary in summaries for source_id in summary.get("source_ids", [])})
+    sources_by_id = {
+        str(source.get("id")): source
+        for source in (result.research or {}).get("sources", [])
+        if isinstance(source, dict)
+    }
+    return {
+        "technique_summaries": summaries,
+        "sources": [
+            {
+                "id": source["id"],
+                "title": source.get("title", ""),
+                "url": source.get("url", ""),
+                "citation": source.get("citation", f"[{source['id']}]"),
+            }
+            for source_id in source_ids
+            for source in [sources_by_id.get(source_id)]
+            if source is not None
+        ],
+    }
+
+
+def _candidate_research_summaries(result: MapResult, candidate: dict[str, Any]) -> list[dict[str, Any]]:
+    research = result.research or {}
+    technique_packs = [item for item in research.get("technique_packs") or [] if isinstance(item, dict)]
+    if not technique_packs:
+        return []
+    candidate_target_packs = set(_candidate_target_pack_keys(candidate))
+    candidate_surface_kinds = {
+        str(surface.get("kind"))
+        for key in ("source", "boundary", "transform", "sink")
+        for surface in [candidate.get(key)]
+        if isinstance(surface, dict) and str(surface.get("kind"))
+    }
+    summaries: list[dict[str, Any]] = []
+    for technique in technique_packs:
+        vuln_pack = str(technique.get("vulnerability_pack") or result.focus).strip()
+        if vuln_pack and vuln_pack != result.focus:
+            continue
+        applies_to_all = _bool_value(technique.get("applies_to_all"))
+        target_keys = {str(item) for item in technique.get("target_pack_keys") or [] if str(item).strip()}
+        if not applies_to_all:
+            if not target_keys or not (target_keys & candidate_target_packs):
+                continue
+        surface_kinds = {str(item) for item in technique.get("applicable_surface_kinds") or [] if str(item).strip()}
+        if not applies_to_all:
+            if not surface_kinds or not (surface_kinds & candidate_surface_kinds):
+                continue
+        summaries.append(
+            {
+                "id": str(technique.get("id") or ""),
+                "title": str(technique.get("title") or ""),
+                "summary": str(technique.get("summary") or ""),
+                "guidance": list(technique.get("guidance") or [])[:4],
+                "source_ids": list(technique.get("source_ids") or []),
+                "citations": list(technique.get("citations") or []),
+            }
+        )
+    return sorted(summaries, key=lambda item: item["id"])[:MAX_RESEARCH_SUMMARIES_PER_CANDIDATE]
+
+
+def _research_evidence_lines(summaries: list[dict[str, Any]]) -> list[str]:
+    return [
+        f"  - research-technique:{summary['id']}"
+        for summary in summaries
+        if summary.get("id")
+    ]
+
+
+def _research_notes(summaries: list[dict[str, Any]]) -> str:
+    notes: list[str] = []
+    for summary in summaries:
+        title = str(summary.get("title") or summary.get("id") or "").strip()
+        citations = " ".join(str(item) for item in summary.get("citations") or [])
+        if title and citations:
+            notes.append(f"{title} {citations}")
+        elif title:
+            notes.append(title)
+    return "; ".join(notes)
+
+
 def _title_case(value: str) -> str:
     return " ".join(part.capitalize() for part in re.split(r"[-_]+", value) if part)
 
@@ -2622,6 +3065,14 @@ def render_summary(result: MapResult, paths: dict[str, Path], *, run_id: str) ->
         f"- Manifest: `{paths['manifest']}`",
         f"- Index: `{paths['index']}`",
     ]
+    if result.research is not None:
+        lines.extend(
+            [
+                f"- Research manifest: `{paths['research_manifest']}`",
+                f"- Research sources: {len(result.research.get('sources', []))}",
+                f"- Research technique packs: {len(result.research.get('technique_packs', []))}",
+            ]
+        )
     if "spec" in paths:
         focus_label = result.focus.upper()
         lines.extend(
@@ -2671,6 +3122,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lane", help="Canonical Shared lane, for example exe or source.")
     parser.add_argument("--shared-root", help="Shared root for canonical output. Defaults to ~/Shared.")
     parser.add_argument("--run-id", help="Deterministic run id override for tests or repeatable workflows.")
+    parser.add_argument(
+        "--research-online",
+        action="store_true",
+        help=(
+            "Opt in to online-research mode. Phase 1 uses the safe local-seed provider and does not perform "
+            "network I/O; use --research-seed for cited fixtures."
+        ),
+    )
+    parser.add_argument(
+        "--research-seed",
+        action="append",
+        default=[],
+        help="Local JSON/JSONL/text research seed to normalize into cited research artifacts. Repeatable.",
+    )
     parser.add_argument(
         "--promote-to-brainstorm",
         action="store_true",
@@ -2833,6 +3298,11 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     result = map_application(args.program, target_path, target_kind=args.target_kind, focus=args.focus)
+    result.research = generate_research_artifacts(
+        result,
+        research_online=args.research_online,
+        seed_paths=[Path(path) for path in args.research_seed],
+    )
     paths = write_artifacts(
         result,
         output_root=output_root,

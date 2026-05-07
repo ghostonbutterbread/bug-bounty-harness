@@ -48,13 +48,16 @@ from agents.shared_brain import (  # type: ignore[attr-defined]
 )
 from agents.coverage_store import CoverageStore
 from agents.base_team.promotion import promote_reviewed_findings
-from agents.base_team.reports import dated_report_index_paths
 from agents.base_team.review import stage2_ghost_review as shared_stage2_ghost_review
 from agents.base_team.storage import resolve_team_storage
 from agents.brainstorm_adapters import brainstorm_intent_to_dynamic_agent_spec
 from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.snapshot_identity import get_snapshot_identity
 from agents.verbosity import clamp_verbosity
+
+ensure_bounty_core_importable()
+
+from bounty_core.reports import DAILY_REPORT_DATE_FORMAT, daily_report_paths  # noqa: E402
 
 ensure_bounty_core_importable("bounty_core.brainstorm_spec")
 
@@ -984,6 +987,12 @@ def _load_findings(findings_path: Path) -> List[Dict[str, Any]]:
     return findings
 
 
+def _write_findings_jsonl(findings_path: Path, findings: Sequence[Dict[str, Any]]) -> None:
+    findings_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = "".join(json.dumps(dict(finding), sort_keys=True) + "\n" for finding in findings)
+    findings_path.write_text(payload, encoding="utf-8")
+
+
 def _extract_findings_from_log(log_path: Path, default_agent: str) -> List[Dict[str, Any]]:
     findings: List[Dict[str, Any]] = []
     for parsed in shared_extract_findings_from_log(log_path, default_agent=default_agent):
@@ -1031,7 +1040,8 @@ def _resolve_zero_day_storage(
 
 
 def _report_index_paths_from_storage(storage) -> Tuple[Path, Path, Path]:
-    return dated_report_index_paths(storage)
+    paths = daily_report_paths(storage, datetime.now().strftime(DAILY_REPORT_DATE_FORMAT))
+    return paths["confirmed"], paths["dormant"], paths["novel"]
 
 
 def _resolve_finding_source(target_path: Path, file_value: Any) -> Optional[Path]:
@@ -2241,15 +2251,29 @@ def _append_brainstorm_review_coverage(
             )
 
 
-def _reserve_missing_fids_for_fresh_review(
+def _reserve_missing_fids_for_review(
     findings: Sequence[Dict[str, Any]],
     ledger: Any,
 ) -> List[Dict[str, Any]]:
-    """Assign stable ledger FIDs in --fresh mode without suppressing duplicates."""
+    """Assign stable ledger FIDs before review without suppressing duplicates."""
     reserved_findings: List[Dict[str, Any]] = []
+    known_fids_by_key: dict[Tuple[str, str, str, str, str, str], str] = {}
     for finding in findings:
-        if str(finding.get("fid") or "").strip():
+        fid = str(finding.get("fid") or "").strip()
+        if fid:
+            known_fids_by_key.setdefault(_finding_dedupe_key(finding), fid)
+
+    for finding in findings:
+        existing_fid = str(finding.get("fid") or "").strip()
+        if existing_fid:
             reserved_findings.append(dict(finding))
+            continue
+
+        batch_fid = known_fids_by_key.get(_finding_dedupe_key(finding))
+        if batch_fid:
+            queued = dict(finding)
+            queued["fid"] = batch_fid
+            reserved_findings.append(queued)
             continue
 
         try:
@@ -2265,9 +2289,10 @@ def _reserve_missing_fids_for_fresh_review(
             queued.update({key: value for key, value in reserved.items() if value not in (None, "")})
         if fid:
             queued["fid"] = fid
+            known_fids_by_key.setdefault(_finding_dedupe_key(queued), fid)
         if is_duplicate and fid:
             print(
-                f'[ledger] FRESH reusing duplicate fid {fid}: '
+                f'[ledger] reusing duplicate fid {fid}: '
                 f'{finding.get("type", finding.get("description", "unknown"))[:60]}',
                 flush=True,
             )
@@ -3308,8 +3333,9 @@ def orchestrate_zero_day_team(
             print(f"[orchestrator] Finished {index}/{len(active_profiles)}: {profile.key}")
 
     raw_findings = _load_findings(findings_path)
-    if fresh and raw_findings:
-        raw_findings = _reserve_missing_fids_for_fresh_review(raw_findings, ledger)
+    if raw_findings:
+        raw_findings = _reserve_missing_fids_for_review(raw_findings, ledger)
+        _write_findings_jsonl(findings_path, raw_findings)
     confirmed_findings, dormant_findings, novel_findings = stage2_ghost_review(
         raw_findings,
         target,
@@ -3349,7 +3375,10 @@ def orchestrate_zero_day_team(
     print(f"[ledger] Updated {ledger_updates} findings in ledger", flush=True)
     rejected_count = max(0, len(raw_findings) - len(reviewed_findings))
 
-    confirmed_report_path, dormant_report_path, novel_report_path = _report_index_paths_from_storage(storage)
+    confirmed_report_path, dormant_report_path, novel_report_path = promotion.get("report_paths") or (None, None, None)
+    planned_confirmed_report_path, planned_dormant_report_path, planned_novel_report_path = _report_index_paths_from_storage(storage)
+    planned_daily_paths = daily_report_paths(storage, datetime.now().strftime(DAILY_REPORT_DATE_FORMAT))
+    daily_root = confirmed_report_path.parent if confirmed_report_path else planned_daily_paths["root"]
     novel_tier_summary = {
         "confirmed": sum(1 for item in novel_findings if str(item.get("review_tier", "")).upper() == "CONFIRMED"),
         "dormant": sum(1 for item in novel_findings if str(item.get("review_tier", "")).upper() != "CONFIRMED"),
@@ -3365,9 +3394,9 @@ def orchestrate_zero_day_team(
     print(f"[orchestrator] Storage lane root: {storage.lane_root}")
     print(f"[orchestrator] Reports root: {storage.reports_root}")
     print(f"[orchestrator] Ledgers root: {storage.ledgers_root}")
-    print(f"[orchestrator] Confirmed report: {confirmed_report_path}")
-    print(f"[orchestrator] Dormant report: {dormant_report_path}")
-    print(f"[orchestrator] Novel report: {novel_report_path}")
+    print(f"[orchestrator] Confirmed report: {confirmed_report_path or '(not written)'}")
+    print(f"[orchestrator] Dormant report: {dormant_report_path or '(not written)'}")
+    print(f"[orchestrator] Novel report: {novel_report_path or '(not written)'}")
 
     summary = _summarize_findings(reviewed_findings)
     summary["raw_findings"] = len(raw_findings)
@@ -3383,12 +3412,22 @@ def orchestrate_zero_day_team(
         "by_tier": novel_tier_summary,
     }
     summary["reports"] = {
-        "confirmed_date_root": str(confirmed_report_path.parent),
-        "dormant_date_root": str(dormant_report_path.parent),
-        "novel_date_root": str(novel_report_path.parent),
-        "confirmed": str(confirmed_report_path),
-        "dormant": str(dormant_report_path),
-        "novel_findings": str(novel_report_path),
+        "daily_root": str(daily_root),
+        "daily_index": str(daily_root / "index.md"),
+        "daily_confirmed": str(confirmed_report_path or planned_confirmed_report_path),
+        "daily_dormant": str(dormant_report_path or planned_dormant_report_path),
+        "daily_novel": str(novel_report_path or planned_novel_report_path),
+        "findings_root": str(storage.reports_root / "findings"),
+        "categories_root": str(storage.reports_root / "categories"),
+        "confirmed_date_root": str(confirmed_report_path.parent) if confirmed_report_path else None,
+        "dormant_date_root": str(dormant_report_path.parent) if dormant_report_path else None,
+        "novel_date_root": str(novel_report_path.parent) if novel_report_path else None,
+        "confirmed": str(confirmed_report_path) if confirmed_report_path else None,
+        "dormant": str(dormant_report_path) if dormant_report_path else None,
+        "novel_findings": str(novel_report_path) if novel_report_path else None,
+        "planned_confirmed": str(planned_confirmed_report_path),
+        "planned_dormant": str(planned_dormant_report_path),
+        "planned_novel_findings": str(planned_novel_report_path),
     }
     summary["snapshot"] = {
         "snapshot_id": snapshot_identity.get("snapshot_id"),
@@ -3492,7 +3531,7 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument(
         "--fresh",
         action="store_true",
-        help="Skip ledger dedupe — treat all findings as new. Default: False.",
+        help="Skip per-agent ledger dedupe; reserve identities before review. Default: False.",
     )
     parser.add_argument(
         "--model", "-m", type=str, default=None,

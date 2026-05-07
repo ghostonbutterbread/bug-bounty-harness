@@ -28,6 +28,7 @@ def brainstorm_finding_metadata(intent: BrainstormAgentIntent) -> dict[str, Any]
         metadata["appmap_context_packet"] = str(packet["_packet_path"])
         metadata["appmap_candidate_id"] = packet["candidate"]["id"]
         metadata["appmap_flow_id"] = packet["candidate"]["map_ids"]["flow_id"]
+        metadata.update(_appmap_research_metadata(packet))
     return metadata
 
 
@@ -113,6 +114,9 @@ def _brainstorm_prompt_addendum(
             "appmap_context_packet",
             "appmap_candidate_id",
             "appmap_flow_id",
+            "appmap_research_technique_ids",
+            "appmap_research_source_ids",
+            "appmap_research_citations",
         )
         if key in metadata
     }
@@ -242,6 +246,47 @@ def _appmap_contexts_dir(spec_path: Path) -> Path:
     if resolved.parent.name == "generated_specs":
         return resolved.parent.parent / "agent_contexts"
     return resolved.parent / "agent_contexts"
+
+
+def _appmap_research_metadata(packet: dict[str, Any]) -> dict[str, list[str]]:
+    research = packet.get("research") if isinstance(packet.get("research"), dict) else {}
+    summaries = [
+        summary
+        for summary in research.get("technique_summaries") or []
+        if isinstance(summary, dict)
+    ]
+    sources = [
+        source
+        for source in research.get("sources") or []
+        if isinstance(source, dict)
+    ]
+    technique_ids = _stable_unique(str(summary.get("id") or "").strip() for summary in summaries)
+    source_ids = _stable_unique(str(source.get("id") or "").strip() for source in sources)
+    citations = _stable_unique(
+        [
+            *(str(citation).strip() for summary in summaries for citation in summary.get("citations") or []),
+            *(str(source.get("citation") or "").strip() for source in sources),
+        ]
+    )
+    metadata: dict[str, list[str]] = {}
+    if technique_ids:
+        metadata["appmap_research_technique_ids"] = technique_ids
+    if source_ids:
+        metadata["appmap_research_source_ids"] = source_ids
+    if citations:
+        metadata["appmap_research_citations"] = citations
+    return metadata
+
+
+def _stable_unique(values: Any) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        unique.append(value)
+    return unique
 
 
 def _appmap_packet_prompt(packet: dict[str, Any]) -> str:

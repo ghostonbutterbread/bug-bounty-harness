@@ -110,9 +110,12 @@ Packet schema contract:
 - `hypothesis_linkage`: `hypothesis_id`, `hypothesis_title`, `candidate_id`, `agent_key`, `evidence_refs`, `surface`, `expected_chain`, and `spec_file`
 - `focus_files`
 - `evidence`: exact source, boundary, optional transform, and sink items with file, line, snippet, confidence, and emitting `target_pack_keys`
+- `research`: optional candidate-scoped research with `technique_summaries` and cited `sources`; adapters preserve stable metadata as `appmap_research_technique_ids`, `appmap_research_source_ids`, and `appmap_research_citations`
 - `next_steps`
 
 Strict linkage rules: every AppMap hypothesis must reference exactly one `appmap-C####` candidate; missing, duplicate, unknown, or multi-candidate evidence must fail before handoff. If a hypothesis has multiple suggested agents, write one packet per agent using the same candidate evidence.
+
+Research matching is intentionally narrow. A technique applies to a candidate only when its `vulnerability_pack` matches and it declares both matching `target_pack_keys` and matching `applicable_surface_kinds`; missing target or surface applicability is not a wildcard. The only exception is an explicit `applies_to_all: true` technique, which must be used deliberately.
 
 ## 4. Promote Handoff Artifacts
 
@@ -202,6 +205,8 @@ python3 agents/app_mapper.py --plan-handoff <promoted-spec> --brainstorm-hypothe
 ```
 
 Unselected planning is allowed only when every active hypothesis in the promoted spec is AppMap-linked and has a valid sibling context packet. Prefer `--brainstorm-hypothesis` for first runtime execution so one AppMap candidate/agent lane is exercised deliberately.
+
+Runtime adapters must preserve AppMap research packet metadata on findings and prompts using the exact fields `appmap_research_technique_ids`, `appmap_research_source_ids`, and `appmap_research_citations`. Generated evidence lines reference research techniques only as `research-technique:<id>`; citations stay in notes and packet metadata so comma-separated citation lists cannot be parsed as separate evidence items.
 
 The output must stay on the existing runtime path:
 

@@ -23,6 +23,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.coverage_store import CoverageStore
+from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.ledger import (
     create_team_ledger,
     create_team_ledger_from_storage,
@@ -39,6 +40,10 @@ from agents.snapshot_identity import get_snapshot_identity
 from agents.source_roots import resolve_source_root
 from agents.storage_resolver import StorageLayout, resolve_family_lane, resolve_storage, write_context_files
 from agents.verbosity import clamp_verbosity
+
+ensure_bounty_core_importable()
+
+from bounty_core.reports import refresh_report_navigation_from_ledger, write_finding_report  # noqa: E402
 
 
 SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "UNKNOWN"}
@@ -606,177 +611,6 @@ def _infer_review_tier(parsed: dict[str, Any]) -> str:
     return "CONFIRMED"
 
 
-def _report_bucket(finding: dict[str, Any]) -> str:
-    if str(finding.get("category", "class")).strip().lower() == "novel":
-        return "novel"
-    if str(finding.get("review_tier", "")).strip().upper() == "CONFIRMED":
-        return "confirmed"
-    return "dormant"
-
-
-def _report_header(bucket: str) -> str:
-    if bucket == "confirmed":
-        return "# Confirmed Findings\n\n"
-    if bucket == "novel":
-        return "# Novel Findings\n\n"
-    return "# Dormant Findings\n\n"
-
-
-def _display_file_reference(finding: dict[str, Any]) -> str:
-    file_path, inline_line = _split_file_reference(_normalize_text(finding.get("file")))
-    line = _safe_int(finding.get("line")) or inline_line
-    if line > 0:
-        return f"{file_path}:{line}"
-    return file_path
-
-
-def _render_confirmed_section(finding: dict[str, Any]) -> str:
-    severity = _normalize_text(finding.get("severity_label") or finding.get("severity") or "UNKNOWN")
-    return "\n".join(
-        [
-            f"## [{severity}] {finding['vulnerability_name']}",
-            f"**Type:** {finding['type']}",
-            f"**Class:** {finding.get('class_name', 'unknown')}",
-            f"**File:** {_display_file_reference(finding)}",
-            f"**Agent:** {finding['agent']}",
-            "",
-            "### Description",
-            _normalize_text(finding.get("description")) or "None provided.",
-            "",
-            "### Source -> Sink",
-            f"Source: {_normalize_text(finding.get('source')) or 'None provided.'}",
-            f"Trust boundary: {_normalize_text(finding.get('trust_boundary')) or 'None provided.'}",
-            f"Flow: {_normalize_text(finding.get('flow_path')) or 'None provided.'}",
-            f"Sink: {_normalize_text(finding.get('sink')) or 'None provided.'}",
-            "",
-            "### Impact",
-            _normalize_text(finding.get("impact")) or "None provided.",
-            "",
-            "### Review Notes",
-            _normalize_text(finding.get("review_notes")) or "None provided.",
-            "",
-            "### PoC",
-            _normalize_text(finding.get("poc")) or "None provided.",
-            "",
-            "### CVSS Estimate",
-            f"{_normalize_text(finding.get('cvss_vector'))} -> {_normalize_text(finding.get('cvss_score'))} ({severity})",
-            "",
-            "### Remediation",
-            _normalize_text(finding.get("remediation")) or "None provided.",
-            "",
-        ]
-    )
-
-
-def _render_dormant_section(finding: dict[str, Any]) -> str:
-    tier = _normalize_text(finding.get("review_tier") or "DORMANT").upper()
-    return "\n".join(
-        [
-            f"## [{tier}] {finding['vulnerability_name']}",
-            f"**Type:** {finding['type']}",
-            f"**Class:** {finding.get('class_name', 'unknown')}",
-            f"**File:** {_display_file_reference(finding)}",
-            f"**Agent:** {finding['agent']}",
-            "",
-            "### Why It's Dangerous (if triggered)",
-            _normalize_text(finding.get("description")) or "None provided.",
-            "",
-            "### Source -> Sink",
-            f"Source: {_normalize_text(finding.get('source')) or 'None provided.'}",
-            f"Trust boundary: {_normalize_text(finding.get('trust_boundary')) or 'None provided.'}",
-            f"Flow: {_normalize_text(finding.get('flow_path')) or 'None provided.'}",
-            f"Sink: {_normalize_text(finding.get('sink')) or 'None provided.'}",
-            "",
-            "### Impact If Chained",
-            _normalize_text(finding.get("impact")) or "None provided.",
-            "",
-            "### Review Notes",
-            _normalize_text(finding.get("review_notes")) or "None provided.",
-            "",
-            "### Why It's Blocked Right Now",
-            _normalize_text(finding.get("blocked_reason")) or "None provided.",
-            "",
-            "### What's Needed to Exploit",
-            _normalize_text(finding.get("chain_requirements")) or "None provided.",
-            "",
-            "### Remediation",
-            _normalize_text(finding.get("remediation")) or "None provided.",
-            "",
-        ]
-    )
-
-
-def _render_novel_section(finding: dict[str, Any]) -> str:
-    tier = _normalize_text(finding.get("review_tier") or "DORMANT").upper()
-    lines = [
-        f"## [{tier}] {finding['vulnerability_name']}",
-        f"**Type:** {finding['type']}",
-        f"**Discovered During Class Pass:** {finding['agent']}",
-        f"**File:** {_display_file_reference(finding)}",
-        "",
-        "### Why It Looks Novel",
-        _normalize_text(finding.get("description")) or "None provided.",
-        "",
-        "### Source -> Sink",
-        f"Source: {_normalize_text(finding.get('source')) or 'None provided.'}",
-        f"Trust boundary: {_normalize_text(finding.get('trust_boundary')) or 'None provided.'}",
-        f"Flow: {_normalize_text(finding.get('flow_path')) or 'None provided.'}",
-        f"Sink: {_normalize_text(finding.get('sink')) or 'None provided.'}",
-        "",
-        "### Impact",
-        _normalize_text(finding.get("impact")) or "None provided.",
-        "",
-        "### Review Notes",
-        _normalize_text(finding.get("review_notes")) or "None provided.",
-        "",
-    ]
-    if tier == "CONFIRMED":
-        lines.extend(["### PoC", _normalize_text(finding.get("poc")) or "None provided.", ""])
-    else:
-        lines.extend(
-            [
-                "### Why It's Blocked Right Now",
-                _normalize_text(finding.get("blocked_reason")) or "None provided.",
-                "",
-                "### What's Needed to Chain It",
-                _normalize_text(finding.get("chain_requirements")) or "None provided.",
-                "",
-            ]
-        )
-    lines.extend(["### Remediation", _normalize_text(finding.get("remediation")) or "None provided.", ""])
-    return "\n".join(lines)
-
-
-def _ghost_report_paths(program: str, hunt_type: str) -> tuple[Path, Path, Path]:
-    family, lane = resolve_family_lane(hunt_type=hunt_type)
-    storage = resolve_storage(_sanitize_program_name(program), family=family, lane=lane, create=True)
-    report_date = datetime.now().strftime("%d-%m-%Y")
-    confirmed = storage.reports_root / "confirmed" / report_date / "index.md"
-    dormant = storage.reports_root / "dormant" / report_date / "index.md"
-    novel = storage.reports_root / "novel" / report_date / "index.md"
-    for path in (confirmed, dormant, novel):
-        path.parent.mkdir(parents=True, exist_ok=True)
-    return (confirmed, dormant, novel)
-
-
-def _append_report_section(path: Path, bucket: str, finding: dict[str, Any]) -> None:
-    if bucket == "confirmed":
-        section = _render_confirmed_section(finding)
-    elif bucket == "novel":
-        section = _render_novel_section(finding)
-    else:
-        section = _render_dormant_section(finding)
-
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    if not existing.strip():
-        existing = _report_header(bucket)
-    if not existing.endswith("\n"):
-        existing += "\n"
-    if not existing.endswith("\n\n"):
-        existing += "\n"
-    path.write_text(existing + section.rstrip() + "\n", encoding="utf-8")
-
-
 @dataclass(slots=True)
 class ParsedFinding:
     finding: dict[str, Any]
@@ -1108,32 +942,24 @@ class ManualHunter:
             family=self.family,
             lane=self.lane,
             root_override=self.storage_root,
-            write_report=False,
-            refresh=False,
+            write_report=True,
+            refresh=True,
             update_current=False,
             update_sighting=False,
         )
-        self._append_report(finding)
+        report_path = _normalize_text(finding.get("report_path"))
+        if report_path:
+            print(f"Updated report: {report_path}")
         self._mark_coverage(finding, parsed)
         self._print_chain_suggestions(finding)
         print(f"Added finding {finding['fid']}")
         return 0
 
     def _append_report(self, finding: dict[str, Any]) -> None:
-        report_date = datetime.now().strftime("%d-%m-%Y")
-        confirmed_path = self.storage.reports_root / "confirmed" / report_date / "index.md"
-        dormant_path = self.storage.reports_root / "dormant" / report_date / "index.md"
-        novel_path = self.storage.reports_root / "novel" / report_date / "index.md"
-        for path in (confirmed_path, dormant_path, novel_path):
-            path.parent.mkdir(parents=True, exist_ok=True)
-        bucket = _report_bucket(finding)
-        target_path = {
-            "confirmed": confirmed_path,
-            "dormant": dormant_path,
-            "novel": novel_path,
-        }[bucket]
-        _append_report_section(target_path, bucket, finding)
-        print(f"Updated report: {target_path}")
+        report_path = write_finding_report(self.storage, finding)
+        finding["report_path"] = str(report_path)
+        refresh_report_navigation_from_ledger(self.storage)
+        print(f"Updated report: {report_path}")
 
     def _coverage_relpath(self, file_value: str) -> str | None:
         if self.shared_brain is None or not self.shared_brain.files:
@@ -1197,12 +1023,18 @@ class ManualHunter:
             print(f"Coverage not updated: {exc}")
 
     def _print_chain_suggestions(self, new_finding: dict[str, Any]) -> None:
-        report_paths = sorted(
+        canonical_reports = [
+            path
+            for path in (self.storage.reports_root / "findings").glob("**/*.md")
+            if path.is_file()
+        ]
+        legacy_reports = [
             path
             for bucket in ("confirmed", "dormant", "novel")
             for path in (self.storage.reports_root / bucket).glob("**/*.md")
             if path.is_file()
-        )
+        ]
+        report_paths = sorted({*canonical_reports, *legacy_reports})
         existing = _merge_findings(
             _load_markdown_findings(
                 self.program,

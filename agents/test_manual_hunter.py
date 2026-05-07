@@ -103,11 +103,14 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(ledger_payload["findings"][0]["fid"], "D01")
         self.assertEqual(ledger_payload["findings"][0]["class_name"], "native-module-abuse")
 
-        report_indexes = self._report_index_paths()
-        self.assertTrue(report_indexes)
-        report_text = "\n".join(path.read_text(encoding="utf-8") for path in report_indexes)
+        report_files = sorted(self._storage().reports_root.rglob("*.md"))
+        self.assertTrue(report_files)
+        report_text = "\n".join(path.read_text(encoding="utf-8") for path in report_files)
         self.assertIn("SQLite injection via exposed IPC port", report_text)
         self.assertIn("execSqliteStatement()", report_text)
+        self.assertFalse(list(self._storage().reports_root.glob("confirmed/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))
+        self.assertFalse(list(self._storage().reports_root.glob("dormant/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))
+        self.assertFalse(list(self._storage().reports_root.glob("novel/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))
 
         coverage_payload = json.loads(self._coverage_path().read_text(encoding="utf-8"))
         snapshots = coverage_payload["snapshots"]
@@ -188,9 +191,9 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(mock_update_team_finding.call_args.kwargs["family"], "binaries")
         self.assertEqual(mock_update_team_finding.call_args.kwargs["lane"], "apk")
         self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], storage_root.resolve(strict=False))
-        self.assertFalse(mock_update_team_finding.call_args.kwargs["write_report"])
-        self.assertFalse(mock_update_team_finding.call_args.kwargs["refresh"])
-        mock_append_report.assert_called_once_with(reserved_finding)
+        self.assertTrue(mock_update_team_finding.call_args.kwargs["write_report"])
+        self.assertTrue(mock_update_team_finding.call_args.kwargs["refresh"])
+        mock_append_report.assert_not_called()
         mock_mark_coverage.assert_called_once_with(reserved_finding, parsed)
 
     def test_source_root_explicit_override_wins_over_shared_brain(self) -> None:

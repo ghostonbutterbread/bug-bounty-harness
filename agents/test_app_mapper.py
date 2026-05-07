@@ -18,6 +18,7 @@ from agents.app_mapper import (
     canonical_output_root,
     _assignment_identities_for_status,
     campaign_status,
+    generate_research_artifacts,
     list_promoted_handoffs,
     main as app_mapper_main,
     map_application,
@@ -1579,6 +1580,288 @@ child_process.exec(config.command);
     assert "frameworks" not in context["target_profile"]
     assert "detected_kinds" not in context["target_profile"]
     assert "electron" not in context_text
+
+
+def test_app_mapper_writes_cited_research_artifacts_and_candidate_scoped_packets(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+    seed_path = tmp_path / "research-seed.json"
+    seed_path.write_text(
+        json.dumps(
+            {
+                "sources": [
+                    {
+                        "id": "S0001",
+                        "title": "Node child_process guidance",
+                        "url": "https://example.test/node-child-process",
+                        "summary": "Command execution risk depends on attacker-controlled command material.",
+                    },
+                    {
+                        "id": "S0002",
+                        "title": "Electron IPC guidance",
+                        "url": "https://example.test/electron-ipc",
+                        "summary": "Renderer to main IPC can be security sensitive.",
+                    },
+                ],
+                "technique_packs": [
+                    {
+                        "id": "node-rce-config",
+                        "title": "Node config to process execution",
+                        "summary": "Review config parsing and command construction before child_process sinks.",
+                        "vulnerability_pack": "rce",
+                        "target_pack_keys": ["node"],
+                        "applicable_surface_kinds": ["config", "process-exec"],
+                        "source_ids": ["S0001"],
+                    },
+                    {
+                        "id": "electron-ipc-rce",
+                        "title": "Electron IPC to privileged sink",
+                        "summary": "Review renderer IPC messages that reach privileged Electron APIs.",
+                        "vulnerability_pack": "rce",
+                        "target_pack_keys": ["electron"],
+                        "applicable_surface_kinds": ["ipc"],
+                        "source_ids": ["S0002"],
+                    },
+                ],
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    result.research = generate_research_artifacts(result, seed_paths=[seed_path])
+
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="research-run",
+        write_specs=True,
+    )
+
+    manifest = json.loads(paths["research_manifest"].read_text(encoding="utf-8"))
+    sources = [json.loads(line) for line in paths["research_sources"].read_text(encoding="utf-8").splitlines()]
+    techniques = [
+        json.loads(line)
+        for line in paths["research_technique_packs"].read_text(encoding="utf-8").splitlines()
+    ]
+    context = json.loads(paths["agent_context_c0001"].read_text(encoding="utf-8"))
+    spec_text = paths["rce_spec"].read_text(encoding="utf-8")
+    context_text = json.dumps(context, sort_keys=True).lower()
+
+    assert manifest["provider"] == "local-seed-stub"
+    assert manifest["network_access"] is False
+    assert manifest["counts"] == {"errors": 0, "sources": 2, "technique_packs": 2}
+    assert {source["id"] for source in sources} == {"s0001", "s0002"}
+    assert {technique["id"] for technique in techniques} == {"node-rce-config", "electron-ipc-rce"}
+    assert context["research"]["technique_summaries"][0]["id"] == "node-rce-config"
+    assert context["research"]["sources"][0]["citation"] == "[s0001]"
+    assert "research-technique:node-rce-config" in spec_text
+    assert "research-technique:node-rce-config citations:" not in spec_text
+    assert "electron-ipc-rce" not in context_text
+    assert "electron ipc" not in spec_text.lower()
+
+
+def test_app_mapper_research_requires_explicit_applicability_without_applies_to_all(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+    seed_path = tmp_path / "research-seed.json"
+    seed_path.write_text(
+        json.dumps(
+            {
+                "technique_packs": [
+                    {
+                        "id": "generic-rce-without-applicability",
+                        "title": "Generic RCE technique",
+                        "summary": "This should not be treated as matching every target or surface.",
+                        "vulnerability_pack": "rce",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    result.research = generate_research_artifacts(result, seed_paths=[seed_path])
+
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="strict-research-run",
+        write_specs=True,
+    )
+
+    context = json.loads(paths["agent_context_c0001"].read_text(encoding="utf-8"))
+    spec_text = paths["rce_spec"].read_text(encoding="utf-8")
+
+    assert context["research"]["technique_summaries"] == []
+    assert "generic-rce-without-applicability" not in spec_text
+
+
+def test_app_mapper_research_metadata_survives_dynamic_agent_conversion_without_citation_evidence_split(
+    tmp_path: Path,
+) -> None:
+    result = _one_candidate_result(tmp_path)
+    seed_path = tmp_path / "research-seed.json"
+    seed_path.write_text(
+        json.dumps(
+            {
+                "sources": [
+                    {"id": "S0001", "title": "First source", "url": "https://example.test/one"},
+                    {"id": "S0002", "title": "Second source", "url": "https://example.test/two"},
+                ],
+                "technique_packs": [
+                    {
+                        "id": "node-multisource-rce",
+                        "title": "Node multisource RCE",
+                        "summary": "Review attacker controlled config into child_process.",
+                        "vulnerability_pack": "rce",
+                        "target_pack_keys": ["node"],
+                        "applicable_surface_kinds": ["config", "process-exec"],
+                        "source_ids": ["S0001", "S0002"],
+                    }
+                ],
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    result.research = generate_research_artifacts(result, seed_paths=[seed_path])
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="research-metadata-run",
+        write_specs=True,
+    )
+    spec = parse_brainstorm_spec(paths["rce_spec"])
+    hypothesis = spec.hypotheses[0]
+    intent = hypothesis_to_agent_intents(spec, hypothesis)[0]
+
+    dynamic_spec = brainstorm_intent_to_dynamic_agent_spec(
+        intent,
+        program=spec.metadata["Program"],
+        version=spec.metadata["AppMap run id"],
+    )
+
+    assert "research-technique:node-multisource-rce" in hypothesis.evidence
+    assert "[s0001]" not in hypothesis.evidence
+    assert "[s0002]" not in hypothesis.evidence
+    assert dynamic_spec.brainstorm_metadata["appmap_research_technique_ids"] == ["node-multisource-rce"]
+    assert dynamic_spec.brainstorm_metadata["appmap_research_source_ids"] == ["s0001", "s0002"]
+    assert dynamic_spec.brainstorm_metadata["appmap_research_citations"] == ["[s0001]", "[s0002]"]
+    assert '"appmap_research_technique_ids": [' in dynamic_spec.agent_prompt_template
+    assert '"appmap_research_citations": [' in dynamic_spec.agent_prompt_template
+
+
+def test_app_mapper_research_seed_jsonl_preserves_valid_rows_and_records_normalization_errors(
+    tmp_path: Path,
+) -> None:
+    result = _one_candidate_result(tmp_path)
+    jsonl_seed = tmp_path / "research-seed.jsonl"
+    jsonl_seed.write_text(
+        "\n".join(
+            [
+                json.dumps({"type": "source", "id": "S0001", "title": "Valid source"}),
+                "{bad json",
+                json.dumps(
+                    {
+                        "type": "technique",
+                        "id": "duplicate-technique",
+                        "title": "First duplicate",
+                        "summary": "Valid JSONL technique should survive a bad neighboring row.",
+                        "vulnerability_pack": "rce",
+                        "target_pack_keys": ["node"],
+                        "applicable_surface_kinds": ["config"],
+                        "source_ids": ["S0001"],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "technique",
+                        "id": "duplicate-technique",
+                        "title": "Second duplicate",
+                        "summary": "Duplicate IDs should be made unique.",
+                        "vulnerability_pack": "rce",
+                        "target_pack_keys": ["node"],
+                        "applicable_surface_kinds": ["config"],
+                        "source_ids": ["missing-source"],
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    single_technique_seed = tmp_path / "single-technique.json"
+    single_technique_seed.write_text(
+        json.dumps(
+            {
+                "type": "technique",
+                "id": "single-dict-technique",
+                "title": "Single dict technique",
+                "summary": "A single dict root with type technique is a technique pack.",
+                "vulnerability_pack": "rce",
+                "target_pack_keys": ["node"],
+                "applicable_surface_kinds": ["config"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    research = generate_research_artifacts(result, seed_paths=[jsonl_seed, single_technique_seed])
+
+    assert research is not None
+    manifest = research["manifest"]
+    techniques = research["technique_packs"]
+    technique_ids = [technique["id"] for technique in techniques]
+    duplicate_ids = [technique_id for technique_id in technique_ids if technique_id.startswith("duplicate-technique")]
+    unresolved = next(technique for technique in techniques if technique["title"] == "Second duplicate")
+
+    assert manifest["counts"]["sources"] == 1
+    assert manifest["counts"]["technique_packs"] == 3
+    assert manifest["counts"]["errors"] == 2
+    assert any("line 2: invalid JSON" in error for error in manifest["errors"])
+    assert any("references unknown source id 'missing-source'" in error for error in manifest["errors"])
+    assert len(technique_ids) == len(set(technique_ids))
+    assert len(duplicate_ids) == 2
+    assert "single-dict-technique" in technique_ids
+    assert unresolved["source_ids"] == []
+    assert unresolved["citations"] == []
+
+
+def test_app_mapper_research_online_stub_writes_empty_artifacts_without_seed(tmp_path: Path) -> None:
+    target = tmp_path / "python-app"
+    _write(
+        target / "runner.py",
+        """
+import argparse
+import os
+import subprocess
+
+parser = argparse.ArgumentParser()
+args = parser.parse_args()
+root = os.getcwd()
+subprocess.run(args.command, shell=True)
+""".strip(),
+    )
+    output_root = tmp_path / "out"
+
+    assert (
+        app_mapper_main(
+            [
+                "python target",
+                str(target),
+                "--run-id",
+                "research-online-run",
+                "--output-root",
+                str(output_root),
+                "--write-specs",
+                "--research-online",
+            ]
+        )
+        == 0
+    )
+
+    research_root = output_root / "appmap" / "research-online-run" / "research"
+    manifest = json.loads((research_root / "research_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["online_requested"] is True
+    assert manifest["network_access"] is False
+    assert manifest["counts"]["sources"] == 0
+    assert (research_root / "sources.jsonl").read_text(encoding="utf-8") == ""
 
 
 def test_appmap_context_linkage_rejects_duplicate_and_multi_candidate_evidence(tmp_path: Path) -> None:

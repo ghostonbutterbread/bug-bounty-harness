@@ -9,7 +9,6 @@ import shlex
 import subprocess
 import sys
 import tempfile
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,24 +16,27 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.coverage_store import CoverageStore
 from agents.ledger import update_team_finding
 from agents.manual_hunter import (
     ManualHunter,
     ParsedFinding,
-    _append_report_section,
     _default_run_id,
     _derive_title,
     _infer_class,
     _infer_review_tier,
     _normalize_text,
-    _report_bucket,
 )
 from agents.report_paths import canonical_raw_reports_dir, discover_report_files, select_report_source
 from agents.report_checker import FindingRecord, _load_ledger_findings, _load_markdown_findings, _merge_findings
 from agents.source_roots import resolve_source_root
 from agents.verbosity import clamp_verbosity
+
+ensure_bounty_core_importable()
+
+from bounty_core.reports import refresh_report_navigation_from_ledger, write_finding_report  # noqa: E402
 
 
 FILE_HINT_RE = (
@@ -324,16 +326,9 @@ def _candidates_for_file(
 
 
 def _append_canonical_report(hunter: ManualHunter, finding: dict[str, Any]) -> Path:
-    bucket = _report_bucket(finding)
-    report_date = datetime.now().strftime("%d-%m-%Y")
-    target_dir = {
-        "confirmed": hunter.storage.reports_root / "confirmed" / report_date,
-        "dormant": hunter.storage.reports_root / "dormant" / report_date,
-        "novel": hunter.storage.reports_root / "novel" / report_date,
-    }[bucket]
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target_path = target_dir / "index.md"
-    _append_report_section(target_path, bucket, finding)
+    target_path = write_finding_report(hunter.storage, finding)
+    finding["report_path"] = str(target_path)
+    refresh_report_navigation_from_ledger(hunter.storage)
     return target_path
 
 
@@ -634,12 +629,12 @@ def main(argv: list[str] | None = None) -> int:
                 family=getattr(hunter, "family", None),
                 lane=getattr(hunter, "lane", None),
                 root_override=getattr(hunter, "storage_root", None),
-                write_report=False,
-                refresh=False,
+                write_report=True,
+                refresh=True,
                 update_current=False,
                 update_sighting=False,
             )
-            report_output = _append_canonical_report(hunter, finding)
+            report_output = Path(str(finding.get("report_path") or ""))
             coverage_relpath = None
             try:
                 coverage_relpath = _mark_coverage(hunter, finding, parsed)

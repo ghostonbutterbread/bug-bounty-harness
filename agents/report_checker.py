@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
+from urllib.parse import unquote
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -22,6 +23,7 @@ from agents.ledger import read_team_findings, update_team_finding
 from agents.source_roots import source_root_candidates
 from agents.storage_resolver import resolve_family_lane, resolve_storage
 from agents.report_paths import (
+    REPORT_NAV_GENERATED_MARKER,
     is_seeded_report_index,
     report_index_roots_for_read,
     status_report_path_for_read,
@@ -430,6 +432,50 @@ def _resolve_report_path(reports_root: Path, bucket: str, legacy_filename: str) 
     return status_report_path_for_read(reports_root, bucket, legacy_filename)
 
 
+def _markdown_link_destinations(text: str) -> list[str]:
+    destinations: list[str] = []
+    for match in re.finditer(r"\[[^\]]+\]\(([^)]*)\)", text):
+        raw = match.group(1).strip()
+        if not raw:
+            continue
+        if raw.startswith("<") and raw.endswith(">"):
+            raw = raw[1:-1].strip()
+        raw = raw.split("#", 1)[0].strip()
+        if raw:
+            destinations.append(unquote(raw))
+    return destinations
+
+
+def _load_linked_canonical_markdown_findings(
+    index_path: Path,
+    text: str,
+    *,
+    default_category: str,
+    default_status: str,
+) -> list[FindingRecord]:
+    if REPORT_NAV_GENERATED_MARKER not in text:
+        return []
+
+    findings: list[FindingRecord] = []
+    seen: set[Path] = set()
+    for raw_link in _markdown_link_destinations(text):
+        if raw_link.startswith(("http://", "https://", "mailto:")):
+            continue
+        target = (index_path.parent / raw_link).expanduser().resolve(strict=False)
+        if target in seen or not target.is_file():
+            continue
+        seen.add(target)
+        linked_text = target.read_text(encoding="utf-8", errors="replace")
+        findings.extend(
+            _load_markdown_findings_from_text(
+                linked_text,
+                default_category=default_category,
+                default_status=default_status,
+            )
+        )
+    return findings
+
+
 def _extract_markdown_field(block: str, label: str) -> str:
     match = re.search(re.escape(label) + r"\s*(.+?)(?:\n|$)", block)
     return match.group(1).strip() if match else ""
@@ -473,7 +519,7 @@ def _finding_record_from_block(
     )
     return FindingRecord.from_dict(
         {
-            "fid": "",
+            "fid": _extract_markdown_field_aliases(block, ("**FID:**", "FID:")),
             "title": title,
             "type": _extract_markdown_field_aliases(block, ("**Type:**", "Type:")) or title,
             "class_name": class_name,
@@ -615,6 +661,17 @@ def _load_markdown_findings(
                 if path is None:
                     continue
                 text = path.read_text(encoding="utf-8", errors="replace")
+                linked = _load_linked_canonical_markdown_findings(
+                    path,
+                    text,
+                    default_category=default_category,
+                    default_status=default_status,
+                )
+                if linked:
+                    findings.extend(linked)
+                    continue
+                if REPORT_NAV_GENERATED_MARKER in text:
+                    continue
                 findings.extend(
                     _load_markdown_findings_from_text(
                         text,
@@ -634,6 +691,17 @@ def _load_markdown_findings(
             continue
         default_category, default_status = _report_defaults_for_path(path)
         text = path.read_text(encoding="utf-8", errors="replace")
+        linked = _load_linked_canonical_markdown_findings(
+            path,
+            text,
+            default_category=default_category,
+            default_status=default_status,
+        )
+        if linked:
+            findings.extend(linked)
+            continue
+        if REPORT_NAV_GENERATED_MARKER in text:
+            continue
         findings.extend(
             _load_markdown_findings_from_text(
                 text,

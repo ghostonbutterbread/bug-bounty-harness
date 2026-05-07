@@ -63,6 +63,40 @@ def _markdown(title: str) -> str:
     ) + "\n"
 
 
+def _canonical_markdown(fid: str, title: str, file_value: str = "src/app.js:1") -> str:
+    return "\n".join(
+        [
+            "<!-- generated: bounty-core-finding-report -->",
+            f"# {title}",
+            "",
+            f"- **FID:** {fid}",
+            "- **Type:** DOM XSS",
+            "- **Status:** dormant",
+            "- **Review Tier:** DORMANT_ACTIVE",
+            "- **Category:** Renderer / Privileged Bridge",
+            "- **Severity:** HIGH",
+            "- **Class:** dom-xss",
+            f"- **File:** {file_value}",
+            "",
+            "## Summary",
+            "",
+            "Attacker controlled input reaches a browser DOM sink.",
+            "",
+            "## Source -> Sink",
+            "",
+            "Source: location.hash",
+            "Trust boundary: URL input to renderer",
+            "Flow: location.hash -> render -> sink",
+            "Sink: innerHTML",
+            "",
+            "## Blocking / Chain Requirements",
+            "",
+            "Blocked reason: Needs a reachable renderer entry point.",
+            "Chain requirements: Chain with a navigation primitive.",
+        ]
+    ) + "\n"
+
+
 class ReportCheckerRootTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -311,6 +345,71 @@ class ReportCheckerRootTests(unittest.TestCase):
         findings = report_checker._load_markdown_findings(self.program, "source")
 
         self.assertEqual([finding.title for finding in findings], ["Canonical non-date finding"])
+
+    def test_load_markdown_findings_follows_global_generated_links_to_canonical_bodies(self) -> None:
+        default_storage = self._storage()
+        canonical = (
+            default_storage.reports_root
+            / "findings"
+            / "dormant"
+            / "D01 - HIGH - Renderer bridge requires prior XSS.md"
+        )
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        canonical.write_text(
+            _canonical_markdown("D01", "Renderer bridge requires prior XSS"),
+            encoding="utf-8",
+        )
+        global_index = default_storage.reports_root / "dormant.md"
+        global_index.parent.mkdir(parents=True, exist_ok=True)
+        global_index.write_text(
+            "<!-- generated: bounty-core-report-navigation -->\n"
+            "# Dormant Findings\n\n"
+            "- [D01](<findings/dormant/D01%20-%20HIGH%20-%20Renderer%20bridge%20requires%20prior%20XSS.md>)"
+            " - Renderer bridge requires prior XSS\n",
+            encoding="utf-8",
+        )
+
+        findings = report_checker._load_markdown_findings(self.program, "source")
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].fid, "D01")
+        self.assertEqual(findings[0].title, "Renderer bridge requires prior XSS")
+        self.assertEqual(findings[0].source, "location.hash")
+
+    def test_load_markdown_findings_follows_daily_generated_links_to_canonical_bodies(self) -> None:
+        default_storage = self._storage()
+        canonical = default_storage.reports_root / "findings" / "dormant" / "D02 - HIGH - Daily body.md"
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        canonical.write_text(_canonical_markdown("D02", "Daily body"), encoding="utf-8")
+        daily_index = default_storage.reports_root / "daily" / "05-06-2026" / "dormant.md"
+        daily_index.parent.mkdir(parents=True, exist_ok=True)
+        daily_index.write_text(
+            "<!-- generated: bounty-core-report-navigation -->\n"
+            "# Dormant Findings - 05-06-2026\n\n"
+            "| FID | Title |\n"
+            "|---|---|\n"
+            "| [D02](<../../findings/dormant/D02%20-%20HIGH%20-%20Daily%20body.md>) | Daily body |\n",
+            encoding="utf-8",
+        )
+
+        findings = report_checker._load_markdown_findings(self.program, "source")
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].fid, "D02")
+        self.assertEqual(findings[0].title, "Daily body")
+
+    def test_generated_status_without_links_is_not_parsed_as_fake_finding(self) -> None:
+        default_storage = self._storage()
+        generated_index = default_storage.reports_root / "dormant.md"
+        generated_index.parent.mkdir(parents=True, exist_ok=True)
+        generated_index.write_text(
+            "<!-- generated: bounty-core-report-navigation -->\n# Dormant Findings\n\nCount: 0\n",
+            encoding="utf-8",
+        )
+
+        findings = report_checker._load_markdown_findings(self.program, "source")
+
+        self.assertEqual(findings, [])
 
     def test_source_root_candidates_explicit_override_wins(self) -> None:
         explicit_root = self.tmp / "explicit-source"

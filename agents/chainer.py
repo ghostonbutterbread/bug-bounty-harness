@@ -23,6 +23,7 @@ import textwrap
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import unquote
 
 from agents.report_paths import canonical_reports_root, report_index_roots_for_read, status_report_path_for_read
 from agents.storage_resolver import resolve_target_identity
@@ -59,11 +60,15 @@ def _load_dormant_findings(path: Path) -> list[ChainFinding]:
         return []
 
     text = path.read_text(encoding="utf-8", errors="replace")
+    linked = _load_linked_canonical_findings(path, text, is_novel=False)
+    if linked:
+        return linked
+
     findings: list[ChainFinding] = []
 
     blocks = re.split(r"\n##\s+\[", text)
     for block in blocks[1:]:
-        m = re.match(r"DORMANT\]\s+(.+?)(?:\n|$)", block, re.DOTALL)
+        m = re.match(r"DORMANT(?:_[A-Z]+)?\]\s+(.+?)(?:\n|$)", block, re.DOTALL)
         if not m:
             continue
         title = m.group(1).strip()
@@ -96,6 +101,10 @@ def _load_novel_findings(path: Path) -> list[ChainFinding]:
         return []
 
     text = path.read_text(encoding="utf-8", errors="replace")
+    linked = _load_linked_canonical_findings(path, text, is_novel=True)
+    if linked:
+        return linked
+
     findings: list[ChainFinding] = []
 
     blocks = re.split(r"\n##\s+\[", text)
@@ -162,6 +171,67 @@ def _load_json_findings(path: Path) -> list[ChainFinding]:
     return findings
 
 
+def _load_linked_canonical_findings(index_path: Path, text: str, *, is_novel: bool) -> list[ChainFinding]:
+    if "generated: bounty-core-report-navigation" not in text:
+        return []
+
+    findings: list[ChainFinding] = []
+    seen: set[Path] = set()
+    for raw_link in _markdown_link_destinations(text):
+        if raw_link.startswith(("http://", "https://", "mailto:")):
+            continue
+        target = (index_path.parent / raw_link).expanduser().resolve(strict=False)
+        if target in seen or not target.is_file():
+            continue
+        seen.add(target)
+        parsed = _load_canonical_markdown_finding(target, is_novel=is_novel, index=len(findings) + 1)
+        if parsed is not None:
+            findings.append(parsed)
+    return findings
+
+
+def _markdown_link_destinations(text: str) -> list[str]:
+    destinations: list[str] = []
+    for match in re.finditer(r"\[[^\]]+\]\(([^)]*)\)", text):
+        raw = match.group(1).strip()
+        if not raw:
+            continue
+        if raw.startswith("<") and raw.endswith(">"):
+            raw = raw[1:-1].strip()
+        raw = raw.split("#", 1)[0].strip()
+        if raw:
+            destinations.append(unquote(raw))
+    return destinations
+
+
+def _load_canonical_markdown_finding(path: Path, *, is_novel: bool, index: int) -> ChainFinding | None:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    title_match = re.search(r"^#\s+(.+?)\s*$", text, re.MULTILINE)
+    title = title_match.group(1).strip() if title_match else path.stem
+    if title.lower() in {"short vulnerability label", "short novel pattern label", "placeholder"}:
+        return None
+
+    fid = _extract_bullet_field(text, "FID") or f"{'N' if is_novel else 'D'}{index:02d}"
+    source_sink = _extract_heading_section(text, "Source -> Sink")
+    blocking = _extract_heading_section(text, "Blocking / Chain Requirements")
+    return ChainFinding(
+        fid=fid,
+        title=title,
+        vuln_class=_extract_bullet_field(text, "Class") or _extract_bullet_field(text, "Type") or "unknown",
+        file_ref=_extract_bullet_field(text, "File") or _extract_bullet_field(text, "Asset"),
+        description=_extract_heading_section(text, "Summary"),
+        source=_extract_field(source_sink, "Source:") or "",
+        sink=_extract_field(source_sink, "Sink:") or "",
+        trust_boundary=_extract_field(source_sink, "Trust boundary:") or "",
+        flow_path=_extract_field(source_sink, "Flow:") or "",
+        blocked_reason=_extract_field(blocking, "Blocked reason:") or "",
+        chain_requirements=_extract_field(blocking, "Chain requirements:") or "",
+        impact=_extract_heading_section(text, "Impact") or "",
+        remediation=_extract_heading_section(text, "Remediation") or "",
+        is_novel=is_novel,
+    )
+
+
 def _is_placeholder(block: str) -> bool:
     markers = (
         "path:123", "identified source", "dangerous sink category",
@@ -178,6 +248,16 @@ def _extract_field(block: str, label: str) -> str:
 
 def _extract_section(block: str, heading: str) -> str:
     m = re.search(re.escape(heading) + r"\n(.+?)(?=\n###\s|\n##\s|\Z)", block, re.DOTALL)
+    return m.group(1).strip() if m else ""
+
+
+def _extract_heading_section(block: str, heading: str) -> str:
+    m = re.search(rf"^##+\s+{re.escape(heading)}\s*\n(.+?)(?=\n##+\s|\Z)", block, re.DOTALL | re.MULTILINE)
+    return m.group(1).strip() if m else ""
+
+
+def _extract_bullet_field(block: str, label: str) -> str:
+    m = re.search(rf"^-\s+\*\*{re.escape(label)}:\*\*\s*(.+?)\s*$", block, re.MULTILINE)
     return m.group(1).strip() if m else ""
 
 

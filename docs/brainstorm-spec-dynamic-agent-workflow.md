@@ -439,8 +439,8 @@ AppMap research remains optional and must be no-network-by-default.
 - Prefer `--research-mode local|web|hybrid` and `--research-query WORD [WORD ...]`. Backward-compatible `--research-provider local-seed|web-fetch`, `--research-online`, and `--research-source-url` remain accepted where reasonable.
 - `--research-query electron xss` normalizes into raw terms, normalized terms, platform candidates, vulnerability candidates, a stable `query_key`, and categories for DB-ready artifacts.
 - `local` normalizes local `--research-seed` JSON/JSONL/text fixtures and must never perform network I/O, including when `--research-online` is present.
-- `web` is network-capable and may fetch only with `--research-online` plus repeatable, operator-supplied `--research-source-url` values.
-- `hybrid` processes local seeds/artifacts first, then performs the same explicit web-fetch phase only when online/source URLs are available. It must not perform autonomous search.
+- `web` is network-capable by definition and may fetch repeatable, operator-supplied `--research-source-url` values without requiring a separate `--research-online` flag.
+- `hybrid` processes local seeds/artifacts first, then performs the same explicit web-fetch phase only when `--research-online` and source URLs are available. It must not perform autonomous search.
 - Source URLs must be absolute HTTPS URLs; providers must not perform arbitrary search, crawl a target app, or probe discovered application endpoints.
 - Fetches must be bounded by conservative timeouts and maximum response bytes. Failures are non-fatal research errors recorded in the manifest.
 - Fetched pages are normalized into cited source records with URL, title, summary, content digest, retrieval metadata, and citation ID.

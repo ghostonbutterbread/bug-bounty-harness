@@ -2855,8 +2855,8 @@ def build_parser() -> argparse.ArgumentParser:
         choices=RESEARCH_MODES,
         default="local",
         help=(
-            "Research behavior. local reads only seed artifacts; web fetches explicit source URLs when "
-            "--research-online is set; hybrid reads local seeds first and then fetches explicit source URLs."
+            "Research behavior. local reads only seed artifacts; web fetches explicit source URLs; "
+            "hybrid reads local seeds first and fetches explicit source URLs only when --research-online is set."
         ),
     )
     parser.add_argument(
@@ -2893,7 +2893,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help=(
             "Explicit HTTPS source URL for --research-mode web|hybrid. Repeatable; no search, crawl, "
-            "or target probing is performed. Web fetch still requires --research-online."
+            "or target probing is performed. --research-mode web implies online fetch permission."
         ),
     )
     parser.add_argument(
@@ -3063,7 +3063,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         research_mode, research_provider = _resolve_research_provider(args, raw_argv)
         _validate_research_options(
-            research_online=args.research_online,
+            research_online=bool(args.research_online or research_mode == "web"),
             provider=research_provider,
             source_urls=args.research_source_url,
             research_mode=research_mode,
@@ -3090,7 +3090,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result.research = generate_research_artifacts(
             result,
-            research_online=args.research_online,
+            research_online=bool(args.research_online or research_mode == "web"),
             seed_paths=[Path(path) for path in args.research_seed],
             source_urls=args.research_source_url,
             research_mode=research_mode,

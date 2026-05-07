@@ -130,7 +130,7 @@ Research module contract:
 - Prefer `--research-mode local|web|hybrid` and `--research-query WORD [WORD ...]`. Compatibility flags `--research-provider local-seed|web-fetch`, `--research-online`, and `--research-source-url` remain accepted where reasonable.
 - `--research-query electron xss` is normalized into raw terms, normalized terms, platform candidates, vulnerability candidates, a stable `query_key`, and categories such as `platform:electron` and `vulnerability:xss`.
 - `local` reads only repeatable `--research-seed` JSON/JSONL/text fixtures and never performs network I/O, even with `--research-online`.
-- `web` fetches only repeatable, operator-supplied `--research-source-url` values and still requires `--research-online`.
+- `web` fetches only repeatable, operator-supplied `--research-source-url` values; `--research-mode web` inherently grants online fetch permission and does not require a separate `--research-online` flag.
 - `hybrid` processes local seeds first. It performs the web phase only when both `--research-online` and explicit source URLs are present; otherwise it remains offline and records the skipped web phase.
 - Each source URL must be absolute `https://`.
 - `web-fetch` performs no search engine scraping, no crawling, no target-app probing, and enforces bounded fetch size/timeouts.

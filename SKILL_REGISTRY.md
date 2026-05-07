@@ -71,6 +71,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **mental-map** | `/mental-map {program}` | `prompts/mental-map-playbook.md` |
 | **brainstorm-spec** | `/brainstorm-spec {program}` | `prompts/brainstorm-spec-playbook.md` |
 | **appmap** | `/appmap {program} {target_path}` | `prompts/appmap-playbook.md` |
+| **appmap-research-librarian** | `/appmap-research-librarian init {program}` | `prompts/appmap-research-librarian-playbook.md` |
 
 ---
 
@@ -88,6 +89,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /mental-map superdrug
 /brainstorm-spec canva --family binaries --lane exe --target-kind electron-exe
 /appmap canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --target-kind electron-exe --focus rce --write-specs
+/appmap-research-librarian init canva --category electron-ipc --research-query electron rce --target-kind electron-exe
 ```
 
 ### Agent Spawn

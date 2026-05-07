@@ -12,6 +12,7 @@ from agents.app_mapper import (
     PatternSpec,
     TARGET_PACKS,
     VULNERABILITY_PACKS,
+    HybridResearchProvider,
     TargetDetection,
     TargetPack,
     VulnerabilityPack,
@@ -36,6 +37,7 @@ from agents.app_mapper import (
     write_artifacts,
     write_agent_contexts,
 )
+from agents.appmap_research import normalize_research_query
 from agents.brainstorm_adapters import (
     brainstorm_intent_to_dynamic_agent_spec,
     brainstorm_intent_to_zero_day_profile,
@@ -1809,12 +1811,14 @@ def test_app_mapper_research_seed_jsonl_preserves_valid_rows_and_records_normali
 
     assert research is not None
     manifest = research["manifest"]
+    sources = research["sources"]
     techniques = research["technique_packs"]
     technique_ids = [technique["id"] for technique in techniques]
     duplicate_ids = [technique_id for technique_id in technique_ids if technique_id.startswith("duplicate-technique")]
     unresolved = next(technique for technique in techniques if technique["title"] == "Second duplicate")
 
     assert manifest["counts"]["sources"] == 1
+    assert sources[0]["source_type"] == "seed"
     assert manifest["counts"]["technique_packs"] == 3
     assert manifest["counts"]["errors"] == 2
     assert any("line 2: invalid JSON" in error for error in manifest["errors"])
@@ -1824,6 +1828,69 @@ def test_app_mapper_research_seed_jsonl_preserves_valid_rows_and_records_normali
     assert "single-dict-technique" in technique_ids
     assert unresolved["source_ids"] == []
     assert unresolved["citations"] == []
+
+
+def test_app_mapper_research_query_normalizes_simple_words() -> None:
+    query = normalize_research_query(["electron", "xss"], focus="rce", target_kind="electron-exe")
+
+    assert query.raw_terms == ("electron", "xss")
+    assert query.normalized_terms == ("electron", "xss")
+    assert query.platform_candidates == ("electron",)
+    assert query.vulnerability_candidates == ("xss", "rce")
+    assert query.query_key == "electron-xss"
+    assert "platform:electron" in query.categories
+    assert "vulnerability:xss" in query.categories
+
+
+def test_app_mapper_local_research_mode_writes_query_and_db_ready_fields(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+    seed_path = tmp_path / "research-seed.json"
+    seed_path.write_text(
+        json.dumps(
+            {
+                "sources": [{"id": "S0001", "title": "Electron XSS source"}],
+                "technique_packs": [
+                    {
+                        "id": "electron-xss-rce",
+                        "title": "Electron XSS to privileged sink",
+                        "summary": "Review renderer-controlled data reaching privileged execution.",
+                        "vulnerability_pack": "rce",
+                        "target_pack_keys": ["node"],
+                        "applicable_surface_kinds": ["config"],
+                        "source_ids": ["S0001"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result.research = generate_research_artifacts(
+        result,
+        seed_paths=[seed_path],
+        research_mode="local",
+        research_query_terms=["electron", "xss"],
+    )
+    paths = write_artifacts(result, output_root=tmp_path / "out", run_id="query-fields-run", write_specs=True)
+    manifest = json.loads(paths["research_manifest"].read_text(encoding="utf-8"))
+    source = json.loads(paths["research_sources"].read_text(encoding="utf-8").splitlines()[0])
+    technique = json.loads(paths["research_technique_packs"].read_text(encoding="utf-8").splitlines()[0])
+    run_manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+    context = json.loads(paths["agent_context_c0001"].read_text(encoding="utf-8"))
+
+    assert manifest["research_mode"] == "local"
+    assert manifest["research_query"]["query_key"] == "electron-xss"
+    assert manifest["validation_status"] == "unreviewed"
+    assert source["research_mode"] == "local"
+    assert source["research_query"] == "electron-xss"
+    assert source["validation_status"] == "unreviewed"
+    assert source["source_type"] == "seed"
+    assert 0.0 <= source["trust_score"] <= 1.0
+    assert technique["source_type"] == "technique-pack"
+    assert technique["validation_status"] == "unreviewed"
+    assert run_manifest["research_mode"] == "local"
+    assert context["research"]["research_query"]["query_key"] == "electron-xss"
+    assert context["research"]["technique_summaries"][0]["validation_status"] == "unreviewed"
 
 
 def test_app_mapper_default_research_writes_no_artifacts_without_flags(tmp_path: Path) -> None:
@@ -1873,7 +1940,7 @@ def test_app_mapper_seed_research_uses_local_provider_without_network(
     def fail_network(*_args: object, **_kwargs: object) -> object:
         raise AssertionError("seed provider must not use network")
 
-    monkeypatch.setattr("agents.app_mapper.urllib.request.urlopen", fail_network)
+    monkeypatch.setattr("agents.appmap_research.urllib.request.urlopen", fail_network)
 
     research = generate_research_artifacts(result, seed_paths=[seed_path])
 
@@ -1906,7 +1973,7 @@ subprocess.run(args.command, shell=True)
     def fail_network(*_args: object, **_kwargs: object) -> object:
         raise AssertionError("default local provider must not use network")
 
-    monkeypatch.setattr("agents.app_mapper.urllib.request.urlopen", fail_network)
+    monkeypatch.setattr("agents.appmap_research.urllib.request.urlopen", fail_network)
 
     assert (
         app_mapper_main(
@@ -2022,7 +2089,7 @@ def test_app_mapper_web_fetch_provider_records_sources_and_explicit_json_techniq
     result.research = generate_research_artifacts(
         result,
         research_online=True,
-        research_provider="web-fetch",
+        research_mode="web",
         source_urls=["https://research.example/metadata.json", "https://research.example/page"],
         provider=provider,
     )
@@ -2037,6 +2104,7 @@ def test_app_mapper_web_fetch_provider_records_sources_and_explicit_json_techniq
     ]
 
     assert manifest["provider"] == "web-fetch"
+    assert manifest["research_mode"] == "web"
     assert manifest["network_access"] is True
     assert manifest["source_urls"] == ["https://research.example/metadata.json", "https://research.example/page"]
     assert [item["status"] for item in manifest["fetched"]] == ["ok", "ok"]
@@ -2044,6 +2112,111 @@ def test_app_mapper_web_fetch_provider_records_sources_and_explicit_json_techniq
     assert any(source["title"] == "HTML source" and source["content_sha256"] for source in sources)
     assert techniques[0]["id"] == "json-technique"
     assert techniques[0]["source_ids"] == ["src1"]
+
+
+def test_app_mapper_hybrid_research_uses_local_seed_then_explicit_web_fetch(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+    seed_path = tmp_path / "research-seed.json"
+    seed_path.write_text(
+        json.dumps(
+            {
+                "sources": [{"id": "SRC1", "title": "Local source"}],
+                "technique_packs": [
+                    {
+                        "id": "local-technique",
+                        "title": "Local technique",
+                        "summary": "Local seed applies first.",
+                        "vulnerability_pack": "rce",
+                        "target_pack_keys": ["node"],
+                        "applicable_surface_kinds": ["config"],
+                        "source_ids": ["SRC1"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    metadata_body = json.dumps(
+        {
+            "sources": [{"id": "SRC1", "title": "Web metadata source"}],
+            "technique_packs": [
+                {
+                    "id": "web-technique",
+                    "title": "Web technique",
+                    "summary": "Explicit web metadata applies after local seed.",
+                    "vulnerability_pack": "rce",
+                    "target_pack_keys": ["node"],
+                    "applicable_surface_kinds": ["config"],
+                    "source_ids": ["SRC1"],
+                }
+            ],
+        }
+    ).encode("utf-8")
+    fetched: list[str] = []
+
+    def fake_open(request: object, timeout: float = 0.0) -> _FakeWebResponse:
+        fetched.append(getattr(request, "full_url"))
+        return _FakeWebResponse(getattr(request, "full_url"), metadata_body, "application/json; charset=utf-8")
+
+    result.research = generate_research_artifacts(
+        result,
+        research_mode="hybrid",
+        research_online=True,
+        seed_paths=[seed_path],
+        source_urls=["https://research.example/hybrid.json"],
+        research_query_terms=["electron", "xss"],
+        provider=HybridResearchProvider(opener=fake_open),
+    )
+    manifest = result.research["manifest"]
+    source_ids = [source["id"] for source in result.research["sources"]]
+    technique_ids = [technique["id"] for technique in result.research["technique_packs"]]
+
+    assert fetched == ["https://research.example/hybrid.json"]
+    assert manifest["research_mode"] == "hybrid"
+    assert manifest["network_access"] is True
+    assert manifest["counts"]["sources"] == 3
+    assert len(source_ids) == len(set(source_ids))
+    assert technique_ids == ["local-technique", "web-technique"]
+    assert all(technique["research_query"] == "electron-xss" for technique in result.research["technique_packs"])
+
+
+def test_app_mapper_hybrid_research_skips_web_without_online(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+
+    def fail_network(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("hybrid must not fetch without --research-online")
+
+    research = generate_research_artifacts(
+        result,
+        research_mode="hybrid",
+        source_urls=["https://research.example/skipped"],
+        provider=HybridResearchProvider(opener=fail_network),
+    )
+
+    assert research["manifest"]["provider"] == "hybrid"
+    assert research["manifest"]["research_mode"] == "hybrid"
+    assert research["manifest"]["network_access"] is False
+    assert research["manifest"]["counts"] == {"errors": 1, "sources": 0, "technique_packs": 0}
+    assert "skipped because --research-online was not set" in research["manifest"]["errors"][0]
+
+
+def test_app_mapper_direct_hybrid_provider_stamps_hybrid_records(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+
+    def fake_open(request: object, timeout: float = 0.0) -> _FakeWebResponse:
+        return _FakeWebResponse(getattr(request, "full_url"), b"<title>Hybrid</title><p>Electron XSS notes.</p>")
+
+    research = generate_research_artifacts(
+        result,
+        research_online=True,
+        research_provider="hybrid",
+        source_urls=["https://research.example/hybrid"],
+        provider=HybridResearchProvider(opener=fake_open),
+    )
+
+    assert research["manifest"]["provider"] == "hybrid"
+    assert research["manifest"]["research_mode"] == "hybrid"
+    assert research["sources"][0]["research_mode"] == "hybrid"
 
 
 def test_app_mapper_web_fetch_provider_records_failures_non_fatal(tmp_path: Path) -> None:
@@ -2197,7 +2370,7 @@ def test_app_mapper_cli_research_option_errors_before_mapping(
 
     monkeypatch.setattr("agents.app_mapper.map_application", fail_mapping)
 
-    with pytest.raises(SystemExit, match="--research-source-url requires --research-provider web-fetch"):
+    with pytest.raises(SystemExit, match="--research-source-url requires --research-mode web\\|hybrid or --research-provider web-fetch"):
         app_mapper_main(
             [
                 "demo",
@@ -2218,6 +2391,21 @@ def test_app_mapper_cli_research_option_errors_before_mapping(
                 "https://research.example/source",
             ]
         )
+
+    for mode_arg in (["--research-mode", "local"], ["--research-mode=local"]):
+        with pytest.raises(SystemExit, match="--research-provider is deprecated"):
+            app_mapper_main(
+                [
+                    "demo",
+                    str(tmp_path / "missing-target"),
+                    *mode_arg,
+                    "--research-provider",
+                    "web-fetch",
+                    "--research-online",
+                    "--research-source-url",
+                    "https://research.example/source",
+                ]
+            )
 
 
 def test_appmap_context_linkage_rejects_duplicate_and_multi_candidate_evidence(tmp_path: Path) -> None:

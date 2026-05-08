@@ -5,413 +5,380 @@ Owner: Ghost / Ryushe
 Canonical path: `docs/appmap-research-librarian-hypothesis-mode-spec.md`
 Supersedes: none
 Replaced by: none
-Implementation commit: pending
+Implementation commit: 1c6fd5c
 Last reviewed: 2026-05-07
 
 ## Purpose
 
-Add a hypothesis-generation layer between validated research and AppMap/Brainstorm dynamic-agent execution.
+Add a generic hypothesis-generation layer between validated Research Librarian seed data and AppMap/Brainstorm dynamic-agent execution.
 
-The current AppMap Research Librarian proves the gated research flow works:
+The current Research Librarian flow is:
 
 ```text
 research scout -> validator -> validated local seed -> AppMap -> promoted brainstorm spec -> dynamic agents
 ```
 
-However, broad categories like `electron + rce` produce broad technique packs and generic source/sink matches. For Electron targets, that misses the more realistic exploitation shape: renderer injection or XSS often becomes the first primitive, then chains into preload bridges, HostRpc/service methods, custom protocols, shell/file APIs, navigation confusion, or unsafe context isolation/node integration.
-
-Hypothesis Mode should turn:
+Hypothesis Mode inserts a deterministic local join step:
 
 ```text
-validated research + AppMap surfaces + target tech stack
+validated research + AppMap candidates/surfaces + vulnerability class/category
+  -> concrete, target-aware chain hypotheses
 ```
 
-into:
+The feature is vulnerability-class driven, not Electron/XSS-specific. For example, if the class is RCE and AppMap shows config, IPC, DLL/load, dynamic-code, deserialization, or executor surfaces, Hypothesis Mode should produce chain assignments such as:
 
-```text
-concrete, target-aware chain hypotheses that dynamic agents can hunt directly
-```
+- `config -> sanitization/load boundary -> process executor or DLL/load hijack check`
+- `IPC -> sender/schema validation boundary -> privileged executor`
+- `file path/custom protocol -> canonicalization boundary -> shell/open/file primitive`
+- `serialized payload -> type/signature boundary -> unsafe deserialization`
+- `template/config input -> transform boundary -> dynamic-code evaluation`
+
+Electron/XSS-to-RCE remains a useful category pack, but it is only one example of the generic model.
 
 ## Motivation
 
-The Canva Electron RCE workflow test on 2026-05-07 showed that the pipeline works end-to-end, but the initial RCE pass was too generic:
+Broad AppMap categories can produce correct but too-generic candidates. A candidate like `config source -> project-boundary -> process-exec sink` should not be handed to an agent as "hunt RCE" without preserving why the validated research says the chain matters.
 
-- AppMap generated 5 RCE-oriented candidates.
-- `zero_day_team.py --brainstorm-only` covered all 5.
-- No confirmed/dormant/novel findings were recorded.
-- The strongest process-exec-looking path was hardened: renderer-controlled input did not control command/path/argv/env/shell options and updater install was gated on verified downloaded update state.
+Hypothesis Mode turns broad evidence into manually enumerable assignments:
 
-This does not mean the target has no exploitable Electron chains. It means generic `process-exec` matching is not enough.
+- the concrete source/boundary/transform/sink shape AppMap observed
+- the validated technique pack(s) that make the shape interesting
+- the exact files and AppMap refs an agent should inspect
+- explicit gaps such as missing source control, missing sender validation review, missing canonicalization proof, or missing loader/DLL control
 
-Ryushe's manual research note: Electron XSS can be unusually high-impact because XSS in a renderer may chain into RCE or local privilege effects when the app exposes unsafe preload, IPC, protocol, shell, file, or navigation primitives.
+The goal is to give Ryushe and dynamic agents a short list of chain-shaped hypotheses rather than a broad vulnerability-class label.
 
 ## Design Goal
 
-Hypothesis Mode should help answer:
+Hypothesis Mode should answer:
 
-> Given this target's observed Electron surfaces and validated Electron/XSS/RCE research, what concrete XSS-to-privilege chains should agents test?
+> Given validated research for this vulnerability class and this target's AppMap mapping, what concrete chains should agents test?
 
-It should avoid asking agents to hunt "Electron RCE" broadly. Instead, it should create focused assignments such as:
+It should support generic vulnerability classes and target technologies by joining:
 
-- `XSS -> preload bridge abuse -> privileged IPC method`
-- `XSS -> custom protocol response/read/write -> local data exposure or file primitive`
-- `XSS -> shell.openExternal/openPath -> unsafe scheme/path launch`
-- `XSS -> navigation/window confusion -> privileged renderer context`
-- `XSS -> HostRpc/service method -> filesystem/auth/update/download action`
-- `XSS -> local import/export path confusion -> local file write/read primitive`
-- `XSS -> contextIsolation/nodeIntegration/preload mistake -> Node primitive access`
+- AppMap candidate source, boundary, transform, and sink kinds
+- AppMap surfaces when candidate chains are incomplete and low-confidence review is requested
+- validated `technique_packs`
+- validated research source IDs
+- campaign manifest category/focus and AppMap target profile
+
+The implementation should remain offline and replayable. It reads local campaign and AppMap artifacts only; it does not browse, search, crawl, execute the target, or probe external infrastructure.
 
 ## Non-goals
 
-- Do not make AppMap itself a crawler, browser, search engine, or live target tester.
+- Do not make AppMap a crawler, browser, search engine, or live target tester.
 - Do not feed raw web research directly to hunt agents without validator review.
-- Do not run target apps or perform live exploit testing as part of Hypothesis Mode.
-- Do not replace Brainstorm specs or the existing findings ledger.
-- Do not treat every XSS as confirmed RCE; each chain still needs source, boundary, flow, sink, and exploitability evidence.
+- Do not run target apps or exploit tests as part of Hypothesis Mode.
+- Do not replace Brainstorm specs or the findings ledger.
+- Do not mark generated hypotheses as confirmed vulnerabilities.
+- Do not hardcode the feature around Electron/XSS. Electron/XSS can be a category pack, not the architecture.
 
-## Proposed CLI
+## CLI
 
-Initial command shape:
+MVP command:
 
 ```bash
 python3 agents/appmap_research_librarian.py hypothesize \
-  /home/ryushe/Shared/appmap/canva/research-librarian/electron-xss-rce-YYYYMMDD \
-  --appmap-run /home/ryushe/Shared/binaries/canva/exe/appmap/<run_id> \
-  --target-path /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
-  --category xss-to-rce \
-  --output hypotheses.jsonl
+  <campaign> \
+  --appmap-run <run_root> \
+  [--category <name>] \
+  [--output <path>] \
+  [--markdown-output <path>] \
+  [--brainstorm-spec-out <path>] \
+  [--max-hypotheses N] \
+  [--surface-kind KIND] \
+  [--surface-kind KIND] \
+  [--require-appmap-ref] \
+  [--include-low-confidence] \
+  [--dry-run]
 ```
 
-Optional flags:
+Defaults:
 
-```text
---brainstorm-spec-out <path>       Write a promoted brainstorm spec directly.
---max-hypotheses <n>               Limit generated hypotheses.
---include-low-confidence           Include weak hypotheses for manual review.
---surface-kind <kind>              Restrict to ipc, protocol, navigation, preload, etc.
---require-appmap-ref               Only emit hypotheses with at least one AppMap surface ref.
---dry-run                          Print plan without writing artifacts.
-```
+- JSONL output: `<campaign>/hypotheses.jsonl`
+- Markdown report: `<campaign>/hypotheses.md`
+- Category: campaign focus/category, unless `--category` is supplied
+- Seed: `<campaign>/validated_research_seed.json`
+
+Gate semantics match `plan-appmap`: local seed validation must succeed and the seed must contain at least one source and one technique pack before hypotheses are written. `--dry-run` validates and previews generation without writing hypothesis outputs.
 
 ## Inputs
 
-### Required
+### Campaign
 
-1. Research Librarian campaign directory
-   - `manifest.json`
-   - `validated_research_seed.json`
-   - successful `validation_report.json`
+Required:
 
-2. AppMap run root
-   - `manifest.json`
-   - generated source/boundary/transform/sink/candidate artifacts
-   - `agent_contexts/` when available
+- `manifest.json`
+- `validated_research_seed.json`
 
-3. Target path/profile
-   - used only for static metadata and optional architecture summaries
-   - no execution of target app
+The validated seed must include reviewed local data:
 
-### Optional
+- `sources[]` with stable IDs and URLs or local paths
+- `technique_packs[]` with `vulnerability_pack`, `target_pack_keys` or `applies_to_all`, `applicable_surface_kinds` or `applies_to_all`, and `source_ids`
 
-- Existing brainstorm spec to merge/extend.
-- Prior coverage ledger to avoid duplicate hypothesis emission.
-- Prior findings/dormant reports to cite existing impact primitives.
+### AppMap Run
 
-## Outputs
+Read when present:
 
-### 1. Hypothesis JSONL
+- `manifest.json`
+- `candidates.jsonl`
+- `surfaces.jsonl`
+- `target_profile.json`
+- `architecture.md`
 
-Default artifact:
+Artifact paths may also be resolved through the AppMap run manifest's `artifacts` mapping.
 
-```text
-<campaign>/hypotheses.jsonl
-```
+### Execution Policy
 
-Each line:
+- No network access.
+- No target execution.
+- No browser automation.
+- No probing or crawling.
+- Candidate evidence is sufficient for the MVP; full code scanning belongs in AppMap or later agents.
+
+## Output Schema
+
+Each JSONL row is a hypothesis:
 
 ```json
 {
   "schema_version": 1,
-  "id": "XRCE001",
+  "id": "HYP001",
   "status": "draft",
-  "priority": "high",
-  "category": "xss-to-ipc-rce",
-  "title": "Renderer XSS may reach privileged HostRpc service methods through preload bridge",
-  "source": "renderer XSS or attacker-controlled renderer content",
-  "boundary": "preload/contextBridge/HostRpc renderer-to-main boundary",
-  "flow": "XSS -> exposed bridge method -> service registry dispatch -> privileged method",
-  "sink": "privileged IPC/HostRpc method with filesystem, shell, auth, update, download, or navigation impact",
-  "why_relevant": "AppMap observed IPC/service registry surfaces and validated research indicates unsafe preload/raw IPC bridges are common Electron RCE pivots.",
-  "appmap_surface_refs": ["S0166", "B0111"],
+  "category": "rce-config-to-exec",
+  "title": "Config-controlled value may reach process execution or unsafe loader",
+  "source": "attacker-influenced config, project file, environment, or update metadata",
+  "boundary": "config parse/load and sanitization boundary before privileged executor or loader code",
+  "flow": "config load -> validation/sanitization check -> command, argv, environment, working directory, or DLL/library load decision -> executor",
+  "sink": "process execution, updater/installer launch, unsafe load path, or DLL search-order hijack primitive",
+  "why_relevant": "Validated research and AppMap evidence explain why this chain matters.",
+  "appmap_refs": ["candidate:C0001", "surface:S0001"],
+  "appmap_surface_refs": ["S0001", "B0001", "K0001"],
   "appmap_candidate_refs": ["C0001"],
-  "research_refs": ["s0002", "s0003", "s0004", "s0008"],
-  "technique_pack_refs": ["electron-preload-bridge-raw-ipc-rce", "electron-ipc-handler-to-privileged-sink-rce"],
-  "focus_files": ["dist/main.js", "build_assets/page_preload/**/*.html"],
-  "suggested_agents": ["canva-xss-preload-hostrpc-chain"],
-  "agent_prompt": "Trace whether renderer script execution can invoke exposed preload/HostRpc methods that reach privileged sinks without origin/schema enforcement.",
-  "confidence": 0.78,
-  "gaps": ["Need concrete renderer XSS source", "Need method-level sender/origin validation review"]
+  "research_refs": ["S0001"],
+  "source_ids": ["S0001"],
+  "technique_pack_refs": ["node-rce-config"],
+  "focus_files": ["src/config.js"],
+  "suggested_agents": ["example-rce-config-to-exec-c0001"],
+  "agent_prompt": "Trace config parsing, sanitization, load-path construction, executor arguments, environment/cwd control, and DLL hijack or unsafe loader opportunities.",
+  "confidence": 0.84,
+  "gaps": ["Need proof config values control command, path, argv, env, cwd, or loader/DLL search behavior."],
+  "mapping_signature": "stable deterministic signature"
 }
 ```
 
-### 2. Hypothesis report markdown
+IDs are stable within a deterministic run order: `HYP001`, `HYP002`, and so on.
 
-Human-readable review file:
+## Markdown Report
 
-```text
-<campaign>/hypotheses.md
-```
+`hypotheses.md` should be concise and manually enumerable. It should include:
 
-Purpose:
+- run metadata and network policy
+- validated research sources and technique packs
+- each hypothesis title, chain, refs, focus files, suggested agent key, prompt, confidence, and gaps
+- enough context for Ryushe to see what agents will receive and what may be missing
 
-- Let Ryushe manually inspect generated chain ideas.
-- Show research citations and AppMap evidence in one place.
-- Make gaps explicit before agents run.
+## Brainstorm Spec Output
 
-### 3. Optional brainstorm spec
+When `--brainstorm-spec-out` is supplied, Hypothesis Mode writes a brainstorm-style markdown spec with `H001`, `H002`, and later blocks mapped from JSONL hypotheses.
 
-When `--brainstorm-spec-out` is supplied, Hypothesis Mode writes a normal Brainstorm spec that `zero_day_team.py` can consume:
+Each block should preserve:
 
-```text
-/home/ryushe/Shared/binaries/<program>/<lane>/brainstorm/appmap-<run_id>-<category>-hypotheses/spec.md
-```
-
-The spec should include:
-
-- target mental model
-- validated research summary
-- AppMap surface summary
-- hypotheses mapped to `### HNNN` blocks
-- impact primitives where applicable
+- AppMap candidate and surface refs in Evidence
+- research source refs in Evidence
+- technique pack refs in Evidence
+- original `HYPNNN` ID and mapping signature in Notes
 - focus files and suggested agents
+- the exact agent prompt or a close equivalent
 
-## Hypothesis Categories
+The command only writes the spec. It does not auto-run `zero_day_team.py`.
 
-Initial Electron categories:
+## Generic Chain Hints
 
-### XSS-to-preload/IPC
+MVP hinting is heuristic and based on AppMap source/sink/surface kinds. It should be easy to extend without changing CLI behavior.
 
-```text
-renderer XSS -> preload/contextBridge/raw IPC -> ipcMain/HostRpc/service sink
-```
-
-Research anchors:
-
-- Electron context isolation docs
-- Electron IPC docs
-- Electron contextBridge docs
-- Doyensec insecure preload writeup
-
-AppMap anchors:
-
-- preload files
-- IPC sources
-- renderer-to-main boundaries
-- service registry dispatches
-
-### XSS-to-custom-protocol
+### Config To Exec Or Load
 
 ```text
-renderer XSS -> custom protocol request/read/write -> local file/path/scheme primitive
+config/config-file -> validation/load boundary -> process-exec, unsafe load path, DLL/library search, updater/installer launch
 ```
 
-Look for:
+Review:
 
-- `protocol.handle/register*Protocol`
-- custom scheme URL parsing
-- file path transforms
-- response readability across origins
-- local blob/list endpoints
+- config parsing and schema validation
+- path normalization and allowlists
+- command, argv, env, cwd, and shell option construction
+- executable/library/DLL search paths
+- updater or installer launch conditions
 
-### XSS-to-shell/navigation
+### IPC To Exec
 
 ```text
-renderer XSS -> openExternal/openPath/navigation/window open -> unsafe URL/scheme/path launch or privileged context confusion
+ipc -> sender/origin/schema boundary -> privileged dispatch -> process-exec or dynamic-code
 ```
 
-Look for:
+Review:
 
-- `shell.openExternal`
-- `shell.openPath`
-- `BrowserWindow.loadURL`
-- popup pass/window trust records
-- allowlist gaps around `http`, `https`, custom schemes, `file`, `data`, and OS handlers
+- sender, origin, tenant, and privilege checks
+- schema validation and type confusion
+- dispatch tables and service method routing
+- executor arguments influenced by IPC fields
 
-### XSS-to-local-file/export/import
+### Path, Protocol, Shell, Custom Scheme
 
 ```text
-renderer XSS -> import/export/download/file-drop service -> local file read/write/path confusion
+file-path/protocol/custom-scheme/shell-open -> canonicalization boundary -> OS handler, file, shell, or navigation sink
 ```
 
-Look for:
+Review:
 
-- export filename/path controls
-- download destination controls
-- import parser trust assumptions
-- drag/drop or file-drop bridges
-- local temporary file handling
+- scheme allowlists
+- canonicalization and path traversal
+- custom protocol handlers
+- shell/open APIs
+- import/export/download destinations
 
-### XSS-to-node-primitive
+### Dynamic Code
 
 ```text
-renderer XSS -> nodeIntegration/contextIsolation/preload mistake -> Node/global/process/Buffer/require primitive
+input/template/config -> parser or transform boundary -> eval/Function/template/script compiler
 ```
 
-Look for:
+Review:
 
-- `nodeIntegration: true`
-- `contextIsolation: false`
-- leaked `require`, `process`, `Buffer`, `ipcRenderer`
-- overly broad contextBridge exposure
+- whether user input alters executable code
+- expression language restrictions
+- globals, imports, and sandbox behavior
+- template injection or script compilation paths
+
+### Deserialization
+
+```text
+serialized payload -> type/signature/allowlist boundary -> deserializer -> gadget-capable object path
+```
+
+Review:
+
+- parser mode and object reconstruction behavior
+- type allowlists and signatures before deserialization
+- gadget-capable classes or revivers in scope
+- privilege effects after object construction
+
+### Auth And Session
+
+```text
+token/cookie/session/account input -> authz/session boundary -> privileged state or data access
+```
+
+Review:
+
+- session binding
+- token origin and replay properties
+- ownership and tenant checks
+- privilege transitions after boundary crossing
+
+## Electron/XSS Example Category
+
+Electron/XSS-to-RCE can be modeled as one category using the same generic mechanism.
+
+Example chains:
+
+- `renderer XSS -> preload/contextBridge/raw IPC -> privileged IPC/HostRpc/service sink`
+- `renderer XSS -> custom protocol request/read/write -> local file/path/scheme primitive`
+- `renderer XSS -> shell.openExternal/openPath -> unsafe scheme/path launch`
+- `renderer XSS -> navigation/window confusion -> privileged renderer context`
+- `renderer XSS -> nodeIntegration/contextIsolation/preload mistake -> Node primitive access`
+
+This category should be implemented as data or hint logic layered on the generic source/boundary/sink model, not as the only hypothesis engine.
 
 ## Ranking Model
 
-Hypotheses should be prioritized by a transparent score:
+Transparent confidence should combine:
 
-```text
-score = source_likelihood + boundary_strength + sink_impact + appmap_confidence + research_confidence - missing_prerequisite_penalty
-```
+- AppMap candidate score or surface confidence
+- source, boundary, transform, and sink kind strength
+- validated research trust when available
+- class-specific hint confidence
+- penalties for missing candidate refs, incomplete chains, or missing prerequisites
 
-Suggested weights:
-
-- source likelihood: 0.0–0.2
-- boundary strength: 0.0–0.2
-- sink impact: 0.0–0.25
-- AppMap confidence: 0.0–0.2
-- research confidence: 0.0–0.15
-- missing prerequisite penalty: 0.0–0.3
-
-Important: a missing XSS source should not kill the hypothesis automatically, but it should be listed as a gap. This lets agents or Ryushe later connect a real XSS primitive to an already-mapped Electron impact path.
+Missing exploit prerequisites should reduce confidence and appear in `gaps`; they should not automatically suppress a useful manually reviewable chain when `--include-low-confidence` is set.
 
 ## Validator Role
 
-Hypothesis Mode should preserve the trust boundary introduced by the Research Librarian:
+Hypothesis Mode preserves the Research Librarian trust boundary:
 
 1. Scout collects candidate sources.
-2. Validator accepts/rejects/merges research into structured sources and technique packs.
-3. Hypothesis Mode uses only validated seed data plus local AppMap artifacts.
-4. Optional hypothesis-review step can mark hypotheses as:
-   - `accepted`
-   - `needs-manual-review`
-   - `too-generic`
-   - `blocked-missing-surface`
-   - `retired`
+2. Validator accepts, rejects, and merges sources into structured seed data.
+3. AppMap consumes only local validated seed data or explicitly validated source URLs.
+4. Hypothesis Mode consumes only validated seed data plus local AppMap artifacts.
+5. Optional later review can mark generated hypotheses as accepted, needs manual review, too generic, blocked, or retired.
 
-The validator may later be extended to review generated hypotheses before promotion to Brainstorm specs.
+## Coverage And Auditability
 
-## Brainstorm Integration
+Every hypothesis run should be reconstructable:
 
-Hypothesis Mode should emit normal Brainstorm-compatible hypotheses:
+- what validated sources were used
+- which technique packs matched
+- which AppMap candidates and surfaces caused emission
+- which files and prompts were handed to agents
+- which gaps remained at generation time
+- whether later agents found no issue, a gap-only primitive, or a vulnerability
 
-```md
-### H001 — Renderer XSS may reach HostRpc privileged service methods
-- Status: untested
-- Priority: high
-- Surface: preload-ipc-hostrpc
-- Entry point: renderer XSS or untrusted renderer content
-- Expected chain: renderer XSS -> preload/contextBridge -> HostRpc service dispatch -> privileged sink
-- Suggested agents:
-  - canva-xss-preload-hostrpc-chain
-- Focus files:
-  - dist/main.js
-  - build_assets/page_preload/**/*.html
-- Tags: xss, electron, preload, ipc, hostrpc, rce-chain
-- Evidence:
-  - appmap:S0166
-  - appmap:B0111
-  - research:s0002
-  - research:s0003
-  - research:s0004
-  - research:s0008
-- Notes: Missing prerequisite is a concrete renderer XSS source; agent should report either a full chain or an impact primitive with explicit gap.
-```
+Coverage ledger events should eventually distinguish:
 
-Dynamic agents spawned from these hypotheses must preserve:
-
-- `hypothesis_id`
-- `hypothesis_title`
-- `brainstorm_spec`
-- `brainstorm_agent_key`
-- `appmap_surface_refs`
-- `appmap_candidate_refs`
-- `research_refs`
-- `technique_pack_refs`
-
-## Coverage and Auditability
-
-Every hypothesis run should be reconstructable later:
-
-- What research sources were accepted?
-- What AppMap surfaces/candidates caused this hypothesis?
-- What prompt/context did the agent receive?
-- What did the agent conclude?
-- Did it find a vulnerability, impact primitive, or no finding?
-- What gaps remain for manual enumeration?
-
-Coverage ledger events should distinguish:
-
-- `tested_no_finding`: agent found no supported chain
-- `tested_gap_only`: agent found an impact primitive but source or exploitability gap remains
-- `tested_finding`: agent produced linked FIDs
-- `blocked_missing_source`: no XSS/source primitive known yet
-- `blocked_missing_surface`: AppMap has no relevant surface
-- `manual_review_needed`: hypothesis too ambiguous for autonomous run
+- `tested_no_finding`
+- `tested_gap_only`
+- `tested_finding`
+- `blocked_missing_source`
+- `blocked_missing_surface`
+- `manual_review_needed`
 
 ## Implementation Plan
 
-### Phase 1 — Spec and artifact model
+### Phase 1 - MVP
 
-- Add hypothesis schema/dataclass.
-- Add JSONL read/write helpers.
-- Add markdown report writer.
-- Add validation for required fields, IDs, refs, and safe paths.
-- Unit-test schema and deterministic output.
+- Add `hypothesize` to `agents/appmap_research_librarian.py`.
+- Keep CLI validation gate aligned with `plan-appmap`.
+- Add `agents/appmap_hypothesis.py` for artifact loading, joining, JSONL rendering, markdown rendering, and brainstorm spec rendering.
+- Generate generic hypotheses from AppMap candidates and validated technique packs.
+- Add focused tests for config-to-exec RCE, dry run, AppMap ref filtering, and brainstorm spec output.
 
-### Phase 2 — Surface/research joiner
+### Phase 2 - Better Surface Joins
 
-- Read validated research seed.
-- Read AppMap manifest/candidates/surfaces/context packets.
-- Join technique packs to AppMap surface kinds and target packs.
-- Produce draft hypotheses with transparent scoring.
+- Improve incomplete-chain handling from `surfaces.jsonl`.
+- Add richer low-confidence review outputs.
+- Add dedupe against prior hypotheses and coverage ledgers.
 
-### Phase 3 — Brainstorm promotion
+### Phase 3 - Category Packs
 
-- Convert hypotheses to Brainstorm spec blocks.
-- Preserve AppMap/research metadata in agent context packets.
-- Add `--brainstorm-spec-out` and validation tests.
+- Move hint logic into data or small pluggable packs if code-level heuristics grow.
+- Add explicit packs for Electron/XSS-to-RCE, unsafe deserialization, path/protocol abuse, auth/session, and dynamic-code chains.
 
-### Phase 4 — Review gate
+### Phase 4 - Review Gate
 
-- Add optional hypothesis-review status file.
-- Support manual accept/reject/retire edits.
-- Only promote accepted hypotheses when review file exists and strict mode is enabled.
+- Add optional hypothesis review status files.
+- Support accept/reject/retire edits.
+- Allow strict promotion of accepted hypotheses only.
 
-### Phase 5 — Electron XSS chain pack
-
-- Add first concrete category pack for `electron-xss-to-rce`.
-- Include categories from this spec.
-- Smoke-test against Canva Electron AppMap artifacts.
-
-## Maintenance check
+## Maintenance Check
 
 - Existing canonical artifact checked: `docs/brainstorm-spec-dynamic-agent-workflow.md`
-- Neighboring patterns checked: `agents/appmap_research_librarian.py`, `agents/appmap_research.py`, `docs/brainstorm-spec-dynamic-agent-workflow.md`, Research Librarian skill/playbook
+- Neighboring patterns checked: `agents/appmap_research_librarian.py`, `agents/appmap_research.py`, `agents/app_mapper.py`, Research Librarian skill/playbook
 - Duplicate logic/spec risk: medium
-- Merge/deprecation plan: create this as a focused extension spec because the existing brainstorm spec owns generic dynamic-agent execution, while this spec owns the pre-Brainstorm research/AppMap hypothesis-generation layer. Link from future Research Librarian docs/playbook when implemented.
+- Merge/deprecation plan: keep this as a focused extension spec because the Brainstorm spec owns dynamic-agent execution, while this spec owns pre-Brainstorm research/AppMap hypothesis generation.
 
 ## Open Questions
 
-1. Should Hypothesis Mode be part of `appmap_research_librarian.py`, or should it become a separate `appmap_hypothesis_builder.py` with a thin librarian command wrapper?
-2. Should generated hypotheses be editable JSONL first, or should markdown Brainstorm spec be the primary human-editable artifact?
-3. Should missing XSS source produce runnable hypotheses or manual-review-only hypotheses by default?
-4. How should prior findings/dormant impact primitives be pulled in without overfitting to stale reports?
-5. Should category packs live in code, YAML/JSON, or markdown playbooks?
+1. Should hint packs move to YAML/JSON once there are more than a few vulnerability classes?
+2. Should generated JSONL be the primary editable artifact, or should brainstorm markdown be primary?
+3. Should `--include-low-confidence` eventually emit surface-only hypotheses by default for classes where candidates are rare?
+4. How should prior findings and dormant primitives be pulled in without overfitting to stale reports?
+5. Should accepted hypothesis review become mandatory before `--brainstorm-spec-out` in strict mode?
 
 ## Success Criteria
 
-- Given a validated Electron/XSS/RCE research seed and AppMap run, Hypothesis Mode emits concrete chain hypotheses with AppMap and research refs.
-- The output is concise enough for Ryushe to manually inspect.
+- Given a validated RCE seed and AppMap config/process-exec candidate, Hypothesis Mode emits a concrete config-to-exec/load/DLL-hijack style hypothesis with AppMap and research refs.
+- Given other vulnerability classes and surface kinds, Hypothesis Mode emits category-appropriate chain prompts without Electron-specific assumptions.
+- The markdown report is concise enough for manual enumeration.
 - Generated Brainstorm specs can be consumed by `zero_day_team.py --brainstorm-spec --brainstorm-only` without custom runtime paths.
-- Agents receive focused chain prompts rather than broad `Electron RCE` instructions.
 - No raw unvalidated web research enters AppMap or agent prompts.
-- Coverage logs make it clear which chains were tested, which produced no findings, and which still need manual source enumeration.

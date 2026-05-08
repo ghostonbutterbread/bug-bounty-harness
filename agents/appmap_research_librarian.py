@@ -18,6 +18,7 @@ _PROJECT_ROOT = _AGENT_DIR.parent
 if _PROJECT_ROOT.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
     sys.path.insert(0, _PROJECT_ROOT.as_posix())
 
+from agents.appmap_hypothesis import HypothesisOptions, generate_hypotheses, write_jsonl
 from agents.appmap_research import generate_research_artifacts, normalize_research_query, sanitize_key
 
 
@@ -109,6 +110,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write command to this file. Defaults to <campaign>/plan_appmap_command.txt when omitted.",
     )
     plan.set_defaults(func=cmd_plan_appmap)
+
+    hypothesize = subparsers.add_parser("hypothesize", help="Generate generic research/AppMap chain hypotheses.")
+    hypothesize.add_argument("campaign", help="Campaign workspace directory.")
+    hypothesize.add_argument("--appmap-run", required=True, help="AppMap run root containing manifest/candidates/surfaces artifacts.")
+    hypothesize.add_argument("--seed", help="Seed path. Defaults to <campaign>/validated_research_seed.json.")
+    hypothesize.add_argument("--category", help="Vulnerability class/category override. Defaults to first campaign category, then focus.")
+    hypothesize.add_argument("--output", help="JSONL output path. Defaults to <campaign>/hypotheses.jsonl.")
+    hypothesize.add_argument("--markdown-output", help="Markdown report output path. Defaults to <campaign>/hypotheses.md.")
+    hypothesize.add_argument("--brainstorm-spec-out", help="Optional brainstorm-style markdown spec output path.")
+    hypothesize.add_argument("--max-hypotheses", type=int, help="Maximum hypotheses to emit.")
+    hypothesize.add_argument("--surface-kind", action="append", default=[], metavar="KIND", help="Restrict to a mapped surface kind. Repeatable.")
+    hypothesize.add_argument("--require-appmap-ref", action="store_true", help="Only emit hypotheses with AppMap candidate or surface refs.")
+    hypothesize.add_argument("--include-low-confidence", action="store_true", help="Include weak surface-only hypotheses for manual review.")
+    hypothesize.add_argument("--dry-run", action="store_true", help="Preview generation without writing output artifacts.")
+    hypothesize.set_defaults(func=cmd_hypothesize)
     return parser
 
 
@@ -208,6 +224,66 @@ def cmd_plan_appmap(args: argparse.Namespace) -> int:
     capture_path.write_text(command + "\n", encoding="utf-8")
     print(command)
     print(f"[appmap-research-librarian] plan: {capture_path}", file=sys.stderr)
+    return 0
+
+
+def cmd_hypothesize(args: argparse.Namespace) -> int:
+    campaign_root = Path(args.campaign).expanduser().resolve(strict=False)
+    manifest = _read_campaign_manifest(campaign_root)
+    seed_path = Path(args.seed).expanduser() if args.seed else campaign_root / "validated_research_seed.json"
+    validation_report = validate_seed(seed_path, manifest=manifest, campaign_root=campaign_root)
+    if not args.dry_run:
+        _write_json(campaign_root / "validation_report.json", validation_report)
+    if validation_report["status"] != "ok":
+        raise SystemExit(
+            "validated seed failed local validation; fix validation_report.json before generating hypotheses"
+        )
+    if validation_report["counts"]["sources"] == 0 or validation_report["counts"]["technique_packs"] == 0:
+        raise SystemExit("validated seed must contain at least one source and one technique_pack before generating hypotheses")
+    options = HypothesisOptions(
+        category=str(args.category or ""),
+        max_hypotheses=args.max_hypotheses,
+        surface_kinds=tuple(args.surface_kind or ()),
+        require_appmap_ref=bool(args.require_appmap_ref),
+        include_low_confidence=bool(args.include_low_confidence),
+    )
+    try:
+        result = generate_hypotheses(
+            campaign_root=campaign_root,
+            appmap_run_root=Path(args.appmap_run).expanduser().resolve(strict=False),
+            manifest=manifest,
+            seed_path=seed_path,
+            options=options,
+            brainstorm_spec=bool(args.brainstorm_spec_out),
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    jsonl_path = Path(args.output).expanduser() if args.output else campaign_root / "hypotheses.jsonl"
+    markdown_path = Path(args.markdown_output).expanduser() if args.markdown_output else campaign_root / "hypotheses.md"
+    brainstorm_path = Path(args.brainstorm_spec_out).expanduser() if args.brainstorm_spec_out else None
+    if brainstorm_path is not None and not result.hypotheses:
+        raise SystemExit("--brainstorm-spec-out requires at least one generated hypothesis")
+    if args.dry_run:
+        print(
+            "[appmap-research-librarian] "
+            f"dry-run hypotheses={len(result.hypotheses)} candidates={result.summary['candidate_count']} "
+            f"surfaces={result.summary['surface_count']} category={result.summary['category']}"
+        )
+        for hypothesis in result.hypotheses[:10]:
+            print(f"{hypothesis['id']} {hypothesis['category']}: {hypothesis['title']}")
+        return 0
+    write_jsonl(jsonl_path, result.hypotheses)
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(result.report, encoding="utf-8")
+    if brainstorm_path is not None and result.brainstorm_spec is not None:
+        brainstorm_path.parent.mkdir(parents=True, exist_ok=True)
+        brainstorm_path.write_text(result.brainstorm_spec, encoding="utf-8")
+    print(
+        "[appmap-research-librarian] "
+        f"hypotheses={len(result.hypotheses)} jsonl={jsonl_path} markdown={markdown_path}"
+    )
+    if brainstorm_path is not None:
+        print(f"[appmap-research-librarian] brainstorm_spec={brainstorm_path}")
     return 0
 
 

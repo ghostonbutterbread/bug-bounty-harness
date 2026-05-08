@@ -5,7 +5,7 @@ Owner: Ghost / Ryushe
 Canonical path: `docs/appmap-research-librarian-hypothesis-mode-spec.md`
 Supersedes: none
 Replaced by: none
-Implementation commit: 1c6fd5c
+Implementation commit: 9b80fb5
 Last reviewed: 2026-05-07
 
 ## Purpose

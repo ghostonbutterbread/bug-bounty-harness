@@ -52,6 +52,7 @@ from agents.base_team.review import stage2_ghost_review as shared_stage2_ghost_r
 from agents.base_team.storage import resolve_team_storage
 from agents.brainstorm_adapters import brainstorm_intent_to_dynamic_agent_spec
 from agents.bounty_core_bootstrap import ensure_bounty_core_importable
+from agents.hunting_policy import HuntingPolicy, coerce_hunting_policy, resolve_hunting_policy, resolve_policy_selection
 from agents.snapshot_identity import get_snapshot_identity
 from agents.verbosity import clamp_verbosity
 
@@ -708,6 +709,7 @@ def _build_prompt_base(
     class_context: str = "",
     repo_context: str = "",
     starting_entry: dict[str, Any] | None = None,
+    policy_snippet: str = "",
 ) -> str:
     entry_lines = "\n".join(f"- {question}" for question in profile.entry_questions)
     cross_lines = "\n".join(f"- {question}" for question in profile.cross_questions)
@@ -795,6 +797,8 @@ Low-priority ignore globs:
 Custom agent instructions:
 {profile.prompt_addendum or "None."}
 
+{policy_snippet.strip()}
+
 Output rules:
 - A class finding should identify the source, the trust boundary crossing, the flow, the dangerous sink category, and why exploitation is or is not realistically reachable.
 - If you discover a strong pattern that does NOT fit this class, record it as a NOVEL finding instead of forcing it into the current class.
@@ -860,6 +864,7 @@ def _spawn_agent(
     skip_ledger: bool = False,
     hunt_type: str = "source",
     coverage_path: Path | None = None,
+    policy_snippet: str = "",
 ) -> AgentSession:
     workspace = agents_root / f"{profile.key}_{int(time.time() * 1000)}"
     _ensure_directory(workspace)
@@ -875,6 +880,7 @@ def _spawn_agent(
         class_context=class_context,
         repo_context=repo_context,
         starting_entry=starting_entry,
+        policy_snippet=policy_snippet,
     )
     env["ZERO_DAY_TARGET_PATH"] = str(target_path)
     env["ZERO_DAY_AGENT_WORKDIR"] = str(workspace)
@@ -1217,10 +1223,38 @@ def _build_claude_review_prompt(
     target_path: Path,
     source_path: Optional[Path],
     excerpt: str,
+    policy: HuntingPolicy | dict[str, Any] | None = None,
+    policy_snippet: str = "",
 ) -> str:
     line_number = _finding_line_number(finding)
     resolved_file = str(source_path) if source_path is not None else "UNRESOLVED"
     excerpt_text = excerpt or "UNAVAILABLE"
+    policy_enabled = bool(getattr(policy, "enabled", False)) or (
+        isinstance(policy, dict) and bool(policy.get("enabled"))
+    ) or bool(policy_snippet.strip())
+    policy_schema_suffix = ""
+    policy_block = ""
+    policy_rules = ""
+    if policy_enabled:
+        policy_schema_suffix = (
+            ', "policy_id": "...", "finding_role": "entry|amplifier|chain|hardening", '
+            '"entry_status": "proven|plausible|missing|not_required", '
+            '"entry_vector": "full URL/file/protocol/context or null", '
+            '"impact_amplifiers": ["..."], "reportability": "submit|hold_for_chain|notes_only", '
+            '"payout_confidence": "high|medium|low"'
+        )
+        policy_block = f"""
+Policy context:
+{policy_snippet.strip()}
+"""
+        policy_rules = """
+Policy-aware review rules:
+- Policies guide priority and report framing; they do not hard-ban a surface unless an avoid rule explicitly says so.
+- Deprioritized surfaces are not forbidden. IPC, HostRpc, preload, and native bridge work is soft-deprioritized by default, not banned.
+- Amplifier-only or missing-entry findings should usually be held as chain material.
+- Standalone critical IPC/native impact is allowed when direct exploitability is proven.
+- Headline the application entry path when one exists; use IPC/native behavior as impact expansion.
+"""
 
     return f"""You are reviewing a single static-analysis security finding for exploitability and report quality.
 
@@ -1229,7 +1263,7 @@ IMPORTANT: If you do not find a real exploitable vulnerability, output exactly: 
 Do NOT output placeholder or template text.
 
 Required JSON schema:
-{{"tier": "CONFIRMED" or "DORMANT_ACTIVE" or "DORMANT_HYPOTHETICAL", "poc": "..." or null, "impact": "...", "cvss_vector": "...", "cvss_score": "...", "severity_label": "...", "vulnerability_name": "...", "blocked_reason": "..." or null, "chain_requirements": "..." or null, "remediation": "...", "review_notes": "..."}}
+{{"tier": "CONFIRMED" or "DORMANT_ACTIVE" or "DORMANT_HYPOTHETICAL", "poc": "..." or null, "impact": "...", "cvss_vector": "...", "cvss_score": "...", "severity_label": "...", "vulnerability_name": "...", "blocked_reason": "..." or null, "chain_requirements": "..." or null, "remediation": "...", "review_notes": "..."{policy_schema_suffix}}}
 
 Review rules:
 - Use "CONFIRMED" only when the code evidence supports a concrete exploitable issue with a working standalone PoC.
@@ -1239,9 +1273,11 @@ Review rules:
 - "impact" must explain the concrete security outcome if exploitation succeeds.
 - "review_notes" must summarize the code evidence and reasoning.
 - Base your answer on the supplied finding and source context, and you may read related files under the target directory if needed.
+{policy_rules}
 
 Target directory:
 {target_path}
+{policy_block}
 
 Exact finding:
 {json.dumps({
@@ -1410,12 +1446,25 @@ def _normalize_claude_review(
     reviewed["review_notes"] = review_notes
     reviewed["review_reason"] = review_notes
     reviewed["severity"] = severity_label
+    for key in (
+        "policy_id",
+        "finding_role",
+        "entry_status",
+        "entry_vector",
+        "impact_amplifiers",
+        "reportability",
+        "payout_confidence",
+    ):
+        if key in review_data:
+            reviewed[key] = review_data.get(key)
     return reviewed
 
 
 def _review_single_finding(
     finding: Dict[str, Any],
     target_path: Path,
+    policy: HuntingPolicy | dict[str, Any] | None = None,
+    policy_snippet: str = "",
 ) -> Tuple[str, Dict[str, Any], str]:
     source_path = _resolve_finding_source(target_path, finding.get("file", ""))
     excerpt = ""
@@ -1440,6 +1489,8 @@ def _review_single_finding(
         target_path=target_path,
         source_path=source_path,
         excerpt=excerpt,
+        policy=policy,
+        policy_snippet=policy_snippet,
     )
 
     def _call_claude(prompt: str, target_path: Path) -> tuple[str, str, str, int]:
@@ -1763,11 +1814,22 @@ def stage2_ghost_review(
     output_root: Path | None = None,
     *,
     write_reports: bool = True,
+    hunting_policy: HuntingPolicy | dict[str, Any] | None = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Compatibility wrapper for the shared BaseTeam Stage 2 review gate."""
+    policy_snippet = ""
+    if isinstance(hunting_policy, HuntingPolicy):
+        policy_snippet = hunting_policy.snippet("review")
+    elif isinstance(hunting_policy, dict) and hunting_policy.get("enabled"):
+        policy_snippet = coerce_hunting_policy(hunting_policy).snippet("review")
 
     def _legacy_review_single(finding: Dict[str, Any], review_target: Path) -> Dict[str, Any]:
-        _tier, reviewed, _reason = _review_single_finding(finding, review_target)
+        _tier, reviewed, _reason = _review_single_finding(
+            finding,
+            review_target,
+            policy=hunting_policy,
+            policy_snippet=policy_snippet,
+        )
         return reviewed
 
     # Historically this procedural zero-day path always wrote to the 0day
@@ -2459,6 +2521,7 @@ def _run_single_agent(
     fresh: bool = False,
     hunt_type: str = "source",
     coverage_path: Path | None = None,
+    policy_snippet: str = "",
 ) -> Tuple[VulnerabilityClassProfile, int]:
     session = _spawn_agent(
         profile=profile,
@@ -2471,6 +2534,7 @@ def _run_single_agent(
         starting_entry=starting_entry,
         skip_ledger=fresh,
         coverage_path=coverage_path,
+        policy_snippet=policy_snippet,
     )
     if session.process is not None:
         _append_brainstorm_coverage(
@@ -2902,6 +2966,10 @@ def orchestrate_zero_day_team(
     brainstorm_only: bool = False,
     brainstorm_hypothesis: str | None = None,
     brainstorm_cluster_size: int = 1,
+    hunting_policy: str | None = "auto",
+    triage_policy: str | None = None,
+    no_triage_policy: bool = False,
+    policy_config: str | None = None,
     verbose: int = 0,
 ) -> Dict[str, Any]:
     """Run one clean static-analysis agent per vulnerability class."""
@@ -2944,6 +3012,18 @@ def orchestrate_zero_day_team(
             _ZERO_DAY_TEAM_LOGGER = None
     _reset_findings_store(findings_path)
     target = _resolve_analysis_target(target_path, team_root=team_root, target_type=target_type)
+    policy_selection = resolve_policy_selection(
+        hunting_policy,
+        triage_policy=triage_policy,
+        no_triage_policy=no_triage_policy,
+    )
+    resolved_policy = resolve_hunting_policy(
+        policy_selection,
+        target_kind=target_kind or storage.lane,
+        target_path=target,
+        policy_config=policy_config,
+    )
+    agent_policy_snippet = resolved_policy.snippet("agent")
     snapshot_identity = get_snapshot_identity(target, version_label=version_label)
     ledger = create_team_ledger_from_storage(
         program_slug,
@@ -2962,6 +3042,7 @@ def orchestrate_zero_day_team(
     if verbosity.verbose:
         print(f"[orchestrator] ledger path={ledger.path}")
         print(f"[orchestrator] findings path={findings_path}")
+        print(f"[orchestrator] hunting_policy={resolved_policy.id} enabled={resolved_policy.enabled}")
     if verbosity.very_verbose:
         print(f"[orchestrator] target={target}")
         print(f"[orchestrator] context root={storage.context_root}")
@@ -3299,6 +3380,7 @@ def orchestrate_zero_day_team(
                         starting_entries_by_profile.get(profile.key),
                         fresh,
                         coverage_path=brainstorm_coverage_path,
+                        policy_snippet=agent_policy_snippet,
                     ): profile
                     for profile in active_profiles
                 }
@@ -3329,6 +3411,7 @@ def orchestrate_zero_day_team(
                 starting_entry=starting_entries_by_profile.get(profile.key),
                 fresh=fresh,
                 coverage_path=brainstorm_coverage_path,
+                policy_snippet=agent_policy_snippet,
             )
             print(f"[orchestrator] Finished {index}/{len(active_profiles)}: {profile.key}")
 
@@ -3343,6 +3426,7 @@ def orchestrate_zero_day_team(
         "web",
         output_root=resolved_storage_root_override,
         write_reports=False,
+        hunting_policy=resolved_policy,
     )
     promotion = promote_reviewed_findings(
         program=program_slug,
@@ -3439,6 +3523,8 @@ def orchestrate_zero_day_team(
         "keys": [profile.key for profile in dynamic_profiles],
         "version": dynamic_version,
     }
+    if resolved_policy.enabled:
+        summary["hunting_policy"] = resolved_policy.to_dict()
     if brainstorm_spec_paths:
         summary["brainstorm"] = {
             "spec": str(brainstorm_spec_paths[0]),
@@ -3582,6 +3668,22 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
         help="Optional natural-language task text used as routing evidence before path/artifact fallback.",
     )
     parser.add_argument(
+        "--hunting-policy",
+        default="auto",
+        help="Hunting policy id: auto, off, or electron-application-first-loose. Default: auto.",
+    )
+    parser.add_argument(
+        "--triage-policy",
+        dest="triage_policy",
+        help="Compatibility alias for --hunting-policy.",
+    )
+    parser.add_argument(
+        "--no-triage-policy",
+        action="store_true",
+        help="Compatibility flag that disables hunting policy injection.",
+    )
+    parser.add_argument("--policy-config", help="Optional JSON policy config override.")
+    parser.add_argument(
         "--brainstorm-spec",
         action="append",
         help="Path to a brainstorm spec markdown file to convert into additional procedural profiles.",
@@ -3645,6 +3747,10 @@ if __name__ == "__main__":
         brainstorm_only=args.brainstorm_only,
         brainstorm_hypothesis=args.brainstorm_hypothesis,
         brainstorm_cluster_size=args.brainstorm_cluster_size,
+        hunting_policy=args.hunting_policy,
+        triage_policy=args.triage_policy,
+        no_triage_policy=args.no_triage_policy,
+        policy_config=args.policy_config,
         verbose=args.verbose,
     )
     print(json.dumps(result, indent=2, sort_keys=True))

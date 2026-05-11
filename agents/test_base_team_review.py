@@ -14,7 +14,7 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from agents.base_team.reports import write_report_indexes  # noqa: E402
-from agents.base_team.review import _render_dormant_report, stage2_ghost_review  # noqa: E402
+from agents.base_team.review import _render_dormant_report, review_single_finding, stage2_ghost_review  # noqa: E402
 
 
 class BaseTeamReviewTests(unittest.TestCase):
@@ -125,6 +125,53 @@ class BaseTeamReviewTests(unittest.TestCase):
         self.assertTrue(dormant_path.is_file())
         self.assertIsNotNone(novel_path)
         self.assertTrue(novel_path.is_file())
+
+
+    def test_review_single_finding_normalizes_null_chain_requirements(self) -> None:
+        def run_review_cli(_cli_name: str, _prompt: str, timeout: int) -> str:
+            return """{
+                \"tier\": \"DORMANT_ACTIVE\",
+                \"safety_assumption\": \"Renderer input is trusted before reaching the bridge.\",
+                \"review_notes\": \"Needs a concrete entry vector.\",
+                \"chain_requirements\": null
+            }"""
+
+        reviewed = review_single_finding(
+            self._finding(),
+            self.target,
+            build_review_prompt=lambda _finding, _target: "prompt",
+            run_review_cli=run_review_cli,
+            extract_json_object=lambda output: __import__("json").loads(output),
+            normalize_review_tier=lambda tier: str(tier or "INCONCLUSIVE").upper(),
+            review_timeout=1,
+        )
+
+        self.assertEqual(reviewed["chain_requirements"], "")
+        report = _render_dormant_report([reviewed])
+        self.assertNotIn("\nNone\n", report)
+        self.assertIn("None provided.", report)
+
+    def test_review_single_finding_normalizes_chain_requirement_lists_without_none(self) -> None:
+        def run_review_cli(_cli_name: str, _prompt: str, timeout: int) -> str:
+            return """{
+                \"tier\": \"DORMANT_ACTIVE\",
+                \"safety_assumption\": \"Renderer input is trusted before reaching the bridge.\",
+                \"review_notes\": \"Needs a concrete entry vector.\",
+                \"chain_requirements\": [null, \"user-assisted renderer entry\"]
+            }"""
+
+        reviewed = review_single_finding(
+            self._finding(),
+            self.target,
+            build_review_prompt=lambda _finding, _target: "prompt",
+            run_review_cli=run_review_cli,
+            extract_json_object=lambda output: __import__("json").loads(output),
+            normalize_review_tier=lambda tier: str(tier or "INCONCLUSIVE").upper(),
+            review_timeout=1,
+        )
+
+        self.assertEqual(reviewed["chain_requirements"], "user-assisted renderer entry")
+        self.assertNotIn("None", reviewed["chain_requirements"])
 
     def test_report_renderer_groups_findings_by_surface_category(self) -> None:
         renderer = self._finding(

@@ -10,6 +10,7 @@ from typing import Any
 
 from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.dynamic_agent_builder import AgentSpec
+from agents.hunting_policy import extract_policy_artifact_metadata
 
 ensure_bounty_core_importable("bounty_core.brainstorm_spec")
 
@@ -29,6 +30,7 @@ def brainstorm_finding_metadata(intent: BrainstormAgentIntent) -> dict[str, Any]
         metadata["appmap_candidate_id"] = packet["candidate"]["id"]
         metadata["appmap_flow_id"] = packet["candidate"]["map_ids"]["flow_id"]
         metadata.update(_appmap_research_metadata(packet))
+        metadata.update(extract_policy_artifact_metadata(packet))
     return metadata
 
 
@@ -117,6 +119,10 @@ def _brainstorm_prompt_addendum(
             "appmap_research_technique_ids",
             "appmap_research_source_ids",
             "appmap_research_citations",
+            "hunting_policy",
+            "hunting_policy_id",
+            "hunting_policy_mode",
+            "hunting_policy_posture",
         )
         if key in metadata
     }

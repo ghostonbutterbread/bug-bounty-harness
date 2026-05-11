@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,12 +44,21 @@ from agents.brainstorm_adapters import (
     brainstorm_intent_to_zero_day_profile,
 )
 from agents.brainstorm_spec import hypothesis_to_agent_intents, parse_brainstorm_spec
+import agents.hunting_policy as hunting_policy_module
+from agents.hunting_policy import resolve_hunting_policy
 from agents.zero_day_team import _discover_brainstorm_spec_dir
 
 
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _suggested_summary_command(summary_text: str) -> str:
+    marker = "```bash\n"
+    start = summary_text.index(marker) + len(marker)
+    end = summary_text.index("\n```", start)
+    return summary_text[start:end]
 
 
 def test_static_app_mapper_classifies_electron_and_builds_rce_candidate(tmp_path: Path) -> None:
@@ -1209,6 +1219,18 @@ def test_appmap_handoff_cli_parse_and_modes(tmp_path: Path, capsys: pytest.Captu
     assert args.promotion_layout == "flat"
     category_args = parser.parse_args(["demo", "/tmp/target", "--promotion-layout", "category"])
     assert category_args.promotion_layout == "category"
+    policy_args = parser.parse_args(
+        [
+            "demo",
+            "/tmp/target",
+            "--triage-policy",
+            "electron-entry-first",
+            "--policy-config",
+            "/tmp/policy.json",
+        ]
+    )
+    assert policy_args.triage_policy == "electron-entry-first"
+    assert policy_args.policy_config == "/tmp/policy.json"
     list_args = parser.parse_args(["--list-handoffs", "--brainstorm-root", str(lane_root / "brainstorm")])
     assert list_args.program is None
     assert list_args.list_handoffs
@@ -1893,6 +1915,52 @@ def test_app_mapper_local_research_mode_writes_query_and_db_ready_fields(tmp_pat
     assert context["research"]["technique_summaries"][0]["validation_status"] == "unreviewed"
 
 
+def test_app_mapper_cli_auto_policy_writes_appmap_policy_metadata(tmp_path: Path) -> None:
+    target = tmp_path / "electron-cli-app"
+    _write(
+        target / "package.json",
+        '{"main":"src/main.js","dependencies":{"electron":"^30.0.0"}}',
+    )
+    _write(
+        target / "src" / "main.js",
+        """
+const { BrowserWindow } = require("electron");
+const child_process = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const configPath = path.join(process.cwd(), "project.json");
+const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+const win = new BrowserWindow({});
+child_process.exec(config.command);
+""".strip(),
+    )
+    output_root = tmp_path / "out"
+
+    assert (
+        app_mapper_main(
+            [
+                "electron target",
+                str(target),
+                "--run-id",
+                "policy-cli-run",
+                "--output-root",
+                str(output_root),
+                "--write-specs",
+            ]
+        )
+        == 0
+    )
+
+    run_root = output_root / "appmap" / "policy-cli-run"
+    manifest = json.loads((run_root / "manifest.json").read_text(encoding="utf-8"))
+    spec_text = (run_root / "generated_specs" / "rce-spec.md").read_text(encoding="utf-8")
+    context = json.loads(next((run_root / "agent_contexts").glob("*.json")).read_text(encoding="utf-8"))
+
+    assert manifest["hunting_policy_id"] == "electron-application-first-loose"
+    assert context["hunting_policy_id"] == "electron-application-first-loose"
+    assert "- Hunting policy: electron-application-first-loose" in spec_text
+
+
 def test_app_mapper_default_research_writes_no_artifacts_without_flags(tmp_path: Path) -> None:
     target = tmp_path / "python-app"
     _write(
@@ -2575,6 +2643,208 @@ def test_brainstorm_runtime_adapter_uses_appmap_packet_instead_of_full_spec_cont
 
 
 
+def test_app_mapper_policy_metadata_inherits_into_manifest_context_and_brainstorm_prompt(tmp_path: Path) -> None:
+    result = _one_candidate_electron_app_entry_result(tmp_path)
+    policy = resolve_hunting_policy(
+        "auto",
+        target_kind=result.profile.target_kind,
+        target_path=result.profile.target_path,
+    )
+
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="policy-run",
+        write_specs=True,
+        hunting_policy=policy,
+    )
+    manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+    context = json.loads(paths["agent_context_c0001"].read_text(encoding="utf-8"))
+    spec_text = paths["rce_spec"].read_text(encoding="utf-8")
+    spec = parse_brainstorm_spec(paths["rce_spec"])
+    intent = hypothesis_to_agent_intents(spec, spec.hypotheses[0])[0]
+    dynamic_spec = brainstorm_intent_to_dynamic_agent_spec(
+        intent,
+        program=spec.metadata["Program"],
+        version=spec.metadata["AppMap run id"],
+    )
+
+    assert manifest["hunting_policy_id"] == "electron-application-first-loose"
+    assert manifest["hunting_policy"]["hunt_posture"] == "application-first-loose"
+    assert "ipc" in manifest["hunting_policy"]["deprioritize"]
+    assert context["hunting_policy_id"] == "electron-application-first-loose"
+    assert context["hunting_policy"]["id"] == "electron-application-first-loose"
+    assert context["candidate"]["policy"]["policy_id"] == "electron-application-first-loose"
+    assert context["candidate"]["policy"]["reportability"] == "submit"
+    assert context["candidate"]["policy"]["finding_role"] == "entry"
+    assert context["candidate"]["policy"]["entry_status"] == "proven"
+    summary_text = paths["summary"].read_text(encoding="utf-8")
+    assert "--hunting-policy electron-application-first-loose" in summary_text
+    assert "- Hunting policy: electron-application-first-loose" in spec_text
+    assert "- Hunting posture: application-first-loose" in spec_text
+    assert dynamic_spec.brainstorm_metadata["hunting_policy_id"] == "electron-application-first-loose"
+    assert dynamic_spec.brainstorm_metadata["hunting_policy"]["id"] == "electron-application-first-loose"
+    assert '"hunting_policy_id": "electron-application-first-loose"' in dynamic_spec.agent_prompt_template
+
+
+def test_app_mapper_policy_on_holds_raw_ipc_candidate_and_preserves_raw_surfaces_and_flows(tmp_path: Path) -> None:
+    result = _one_candidate_electron_result(tmp_path)
+    raw_surface_count = len(result.surfaces)
+    raw_flow_count = len(result.flows)
+    policy = resolve_hunting_policy(
+        "auto",
+        target_kind=result.profile.target_kind,
+        target_path=result.profile.target_path,
+    )
+
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="policy-held-run",
+        write_specs=True,
+        hunting_policy=policy,
+    )
+    manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+    rejected = [
+        json.loads(line)
+        for line in paths["rejected_candidates"].read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    surfaces = [line for line in paths["surfaces"].read_text(encoding="utf-8").splitlines() if line]
+    flows = [line for line in paths["flows"].read_text(encoding="utf-8").splitlines() if line]
+
+    assert manifest["counts"]["surfaces"] == raw_surface_count
+    assert manifest["counts"]["flows"] == raw_flow_count
+    assert manifest["counts"]["candidates"] == 0
+    assert manifest["counts"]["rejected_candidates"] >= 1
+    assert len(surfaces) == raw_surface_count
+    assert len(flows) == raw_flow_count
+    assert "rce_spec" not in paths
+    assert "agent_contexts" not in paths
+    held = next(item for item in rejected if item.get("candidate_id") == "C0001")
+    assert held["policy_id"] == "electron-application-first-loose"
+    assert held["reportability"] == "hold_for_chain"
+    assert held["hold_for_chain"] is True
+    assert held["finding_role"] == "chain"
+    assert held["entry_status"] == "missing"
+    assert held["policy"]["reason_code"] == "deprioritized-source-without-app-entry"
+
+
+def test_app_mapper_summary_preserves_custom_policy_config_in_handoff_command(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+    policy_config = tmp_path / "policy configs" / "custom policy.json"
+    policy_config.parent.mkdir()
+    policy_config.write_text('{"id":"custom-policy","enabled":true}', encoding="utf-8")
+    policy = resolve_hunting_policy("custom-policy", target_path=result.profile.target_path, policy_config=policy_config)
+
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="custom-policy-summary-run",
+        write_specs=True,
+        hunting_policy=policy,
+        policy_config=policy_config,
+    )
+    summary_text = paths["summary"].read_text(encoding="utf-8")
+    manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=tmp_path / "brainstorm",
+        run_id="custom-policy-summary-run",
+    )
+    planned_command = plan_promoted_handoff_command(promotion.spec_paths[0], selected_hypothesis="H001")
+
+    summary_args = shlex.split(_suggested_summary_command(summary_text))
+    planned_args = shlex.split(planned_command)
+
+    assert manifest["hunting_policy_config"] == str(policy_config)
+    assert summary_args[summary_args.index("--hunting-policy") + 1] == "custom-policy"
+    assert summary_args[summary_args.index("--policy-config") + 1] == str(policy_config)
+    assert planned_args[planned_args.index("--hunting-policy") + 1] == "custom-policy"
+    assert planned_args[planned_args.index("--policy-config") + 1] == str(policy_config)
+
+
+def test_app_mapper_summary_preserves_named_config_policy_path_in_handoff_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _one_candidate_result(tmp_path)
+    config_dir = tmp_path / "policies"
+    config_dir.mkdir()
+    policy_config = config_dir / "strict-program-scope.json"
+    policy_config.write_text('{"id":"strict-program-scope","enabled":true}', encoding="utf-8")
+    monkeypatch.setattr(hunting_policy_module, "DEFAULT_POLICY_CONFIG_DIR", config_dir)
+    policy = resolve_hunting_policy("strict-program-scope", target_path=result.profile.target_path)
+
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="named-policy-summary-run",
+        write_specs=True,
+        hunting_policy=policy,
+    )
+    summary_text = paths["summary"].read_text(encoding="utf-8")
+    manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+    promotion = promote_appmap_handoff(
+        paths,
+        brainstorm_root=tmp_path / "brainstorm",
+        run_id="named-policy-summary-run",
+    )
+    planned_command = plan_promoted_handoff_command(promotion.spec_paths[0], selected_hypothesis="H001")
+
+    summary_args = shlex.split(_suggested_summary_command(summary_text))
+    planned_args = shlex.split(planned_command)
+
+    assert manifest["hunting_policy_config"] == str(policy_config)
+    assert summary_args[summary_args.index("--hunting-policy") + 1] == "strict-program-scope"
+    assert summary_args[summary_args.index("--policy-config") + 1] == str(policy_config)
+    assert planned_args[planned_args.index("--hunting-policy") + 1] == "strict-program-scope"
+    assert planned_args[planned_args.index("--policy-config") + 1] == str(policy_config)
+
+
+def test_app_mapper_policy_off_preserves_legacy_artifact_metadata(tmp_path: Path) -> None:
+    result = _one_candidate_electron_result(tmp_path)
+    policy_config = tmp_path / "disabled-policy-config.json"
+    policy_config.write_text('{"id":"custom-policy","enabled":true}', encoding="utf-8")
+    policy = resolve_hunting_policy(
+        "off",
+        target_kind=result.profile.target_kind,
+        target_path=result.profile.target_path,
+        policy_config=policy_config,
+    )
+
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="policy-off-run",
+        write_specs=True,
+        hunting_policy=policy,
+        policy_config=policy_config,
+    )
+    manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+    context = json.loads(paths["agent_context_c0001"].read_text(encoding="utf-8"))
+    spec_text = paths["rce_spec"].read_text(encoding="utf-8")
+    summary_text = paths["summary"].read_text(encoding="utf-8")
+
+    assert manifest["counts"]["candidates"] == 1
+    assert "hunting_policy" not in manifest
+    assert "hunting_policy_id" not in manifest
+    assert "policy" not in context["candidate"]
+    assert "hunting_policy" not in context
+    assert "hunting_policy_id" not in context
+    assert "- Hunting policy:" not in spec_text
+    assert "--hunting-policy" not in summary_text
+    assert "--policy-config" not in summary_text
+
+    stale_manifest = dict(manifest)
+    stale_manifest["hunting_policy_config"] = str(policy_config)
+    paths["manifest"].write_text(json.dumps(stale_manifest, sort_keys=True), encoding="utf-8")
+    promotion = promote_appmap_handoff(paths, brainstorm_root=tmp_path / "brainstorm", run_id="policy-off-run")
+    planned_command = plan_promoted_handoff_command(promotion.spec_paths[0], selected_hypothesis="H001")
+    assert "--hunting-policy" not in planned_command
+    assert "--policy-config" not in planned_command
+
+
 def test_brainstorm_runtime_adapter_handles_mixed_case_appmap_agent_key(tmp_path: Path) -> None:
     result = _one_candidate_result(tmp_path)
     spec_path = tmp_path / "generated_specs" / "rce-spec.md"
@@ -3007,6 +3277,67 @@ child_process.exec(config.command);
 """.strip(),
     )
     return map_application("one candidate", target, target_kind="node")
+
+
+def _one_candidate_electron_result(tmp_path: Path):
+    target = tmp_path / "one-candidate-electron"
+    _write(
+        target / "package.json",
+        """
+{
+  "main": "src/main.js",
+  "dependencies": {
+    "electron": "^30.0.0"
+  }
+}
+""".strip(),
+    )
+    _write(
+        target / "src" / "main.js",
+        """
+const { ipcMain } = require("electron");
+const child_process = require("child_process");
+const fs = require("fs");
+const path = require("path");
+
+ipcMain.handle("run-project-command", async () => {
+  const configPath = path.join(process.cwd(), "project.json");
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  return child_process.exec(config.command);
+});
+""".strip(),
+    )
+    return map_application("one candidate electron", target, target_kind="auto")
+
+
+def _one_candidate_electron_app_entry_result(tmp_path: Path):
+    target = tmp_path / "one-candidate-electron-app-entry"
+    _write(
+        target / "package.json",
+        """
+{
+  "main": "src/main.js",
+  "dependencies": {
+    "electron": "^30.0.0"
+  }
+}
+""".strip(),
+    )
+    _write(
+        target / "src" / "main.js",
+        """
+const { BrowserWindow } = require("electron");
+const child_process = require("child_process");
+const fs = require("fs");
+const path = require("path");
+
+const configPath = path.join(process.cwd(), "project.json");
+const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+const win = new BrowserWindow({});
+child_process.exec(config.command);
+""".strip(),
+    )
+    return map_application("one candidate electron app entry", target, target_kind="auto")
 
 
 def _two_candidate_result(tmp_path: Path):

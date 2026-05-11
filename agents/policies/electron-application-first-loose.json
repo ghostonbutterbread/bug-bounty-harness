@@ -1,0 +1,46 @@
+{
+  "id": "electron-application-first-loose",
+  "enabled": true,
+  "version": 1,
+  "mode": "on",
+  "hunt_posture": "application-first-loose",
+  "applies_to": {
+    "platforms": ["electron", "desktop"],
+    "target_kinds": ["electron-exe", "desktop", "app_asar", "mac-desktop"]
+  },
+  "prioritize": [
+    "rendering",
+    "navigation",
+    "protocol-handlers",
+    "auth-flows",
+    "file-ingestion",
+    "import-export",
+    "local-file-manipulation",
+    "plugin-template-systems",
+    "custom-url-handlers",
+    "parser-boundaries"
+  ],
+  "deprioritize": [
+    "ipc",
+    "hostrpc",
+    "preload",
+    "native-bridge",
+    "openExternal",
+    "download-save-reveal",
+    "media-access",
+    "auth-session-helpers",
+    "updater-relaunch",
+    "native-parsers"
+  ],
+  "avoid": [],
+  "allow_if_evidence": [
+    "deprioritized surface is reached from a proven app-level entry",
+    "deprioritized surface provides standalone critical impact",
+    "program explicitly accepts this class"
+  ],
+  "reporting_rules": {
+    "headline_entry_not_amplifier": true,
+    "hold_amplifier_without_entry": true,
+    "allow_standalone_critical_amplifier": true
+  }
+}

@@ -5,6 +5,7 @@ import pytest
 
 from agents.brainstorm_spec import parse_brainstorm_spec
 from agents.appmap_research_librarian import main, plan_appmap_command, validate_seed
+from agents.hunting_policy import policy_artifact_metadata, resolve_hunting_policy
 
 
 def test_librarian_init_writes_campaign_artifacts(tmp_path: Path) -> None:
@@ -465,6 +466,35 @@ def test_librarian_hypothesize_writes_brainstorm_spec(tmp_path: Path) -> None:
     parsed = parse_brainstorm_spec(spec, validate_paths=False)
     assert len(parsed.hypotheses) == 1
     assert parsed.hypotheses[0].id == "H001"
+
+
+def test_librarian_hypothesize_inherits_appmap_hunting_policy_metadata(tmp_path: Path) -> None:
+    campaign = _write_hypothesis_campaign(tmp_path)
+    appmap_run = _write_hypothesis_appmap_run(tmp_path)
+    spec = tmp_path / "brainstorm" / "policy-spec.md"
+    manifest_path = appmap_run / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    policy = resolve_hunting_policy("electron-application-first", target_path=tmp_path)
+    manifest.update(policy_artifact_metadata(policy))
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "hypothesize",
+                str(campaign),
+                "--appmap-run",
+                str(appmap_run),
+                "--brainstorm-spec-out",
+                str(spec),
+            ]
+        )
+        == 0
+    )
+
+    text = spec.read_text(encoding="utf-8")
+    assert "- Hunting policy: electron-application-first-loose" in text
+    assert "- Hunting posture: application-first-loose" in text
 
 
 def test_librarian_hypothesize_rejects_empty_brainstorm_spec_output(tmp_path: Path) -> None:

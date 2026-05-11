@@ -48,6 +48,15 @@ from agents.appmap_research import (
     provider_key_for_mode,
     validate_research_options as _validate_research_options,
 )
+from agents.hunting_policy import (
+    HuntingPolicy,
+    apply_appmap_promotion_policy,
+    inject_policy_metadata_into_markdown,
+    merge_policy_artifact_metadata,
+    policy_config_path_for_artifacts,
+    resolve_hunting_policy,
+    resolve_policy_selection,
+)
 from agents.storage_resolver import resolve_storage
 
 
@@ -1100,12 +1109,19 @@ def _candidate_score(
     return round(min(base, 0.98), 2)
 
 
-def map_application(program: str, target_path: Path, *, target_kind: str = "auto", focus: str = "rce") -> MapResult:
+def map_application(
+    program: str,
+    target_path: Path,
+    *,
+    target_kind: str = "auto",
+    focus: str = "rce",
+    hunting_policy: HuntingPolicy | dict[str, Any] | None = None,
+) -> MapResult:
     profile = classify_target(program, target_path, target_kind=target_kind)
     vuln_pack = VULNERABILITY_PACKS[focus]
     surfaces = scan_surfaces(target_path, focus=focus, target_profile=profile)
     flows, candidates, rejected = vuln_pack.build_flows(surfaces)
-    return MapResult(
+    result = MapResult(
         profile=profile,
         focus=focus,
         surfaces=surfaces,
@@ -1113,6 +1129,7 @@ def map_application(program: str, target_path: Path, *, target_kind: str = "auto
         candidates=candidates,
         rejected_candidates=rejected,
     )
+    return _apply_hunting_policy_to_map_result(result, hunting_policy)
 
 
 def default_output_root(program: str) -> Path:
@@ -1165,7 +1182,10 @@ def write_artifacts(
     run_id: str,
     write_specs: bool,
     output_mode: str = "standalone",
+    hunting_policy: HuntingPolicy | dict[str, Any] | None = None,
+    policy_config: str | Path | None = None,
 ) -> dict[str, Path]:
+    result = _apply_hunting_policy_to_map_result(result, hunting_policy)
     safe_run_id = validate_run_id(run_id)
     appmap_root = output_root.expanduser().resolve(strict=False) / "appmap"
     run_root = appmap_root / safe_run_id
@@ -1215,6 +1235,7 @@ def write_artifacts(
         spec_path = generated_specs / f"{focus_slug}-spec.md"
         rendered = VULNERABILITY_PACKS[result.focus].render_spec(result, safe_run_id)
         rendered = _with_appmap_run_root_metadata(rendered, run_root)
+        rendered = inject_policy_metadata_into_markdown(rendered, hunting_policy)
         spec_path.write_text(rendered, encoding="utf-8")
         spec = parse_brainstorm_spec(spec_path)
         paths["spec"] = spec_path
@@ -1227,6 +1248,7 @@ def write_artifacts(
             run_id=safe_run_id,
             spec_path=spec_path,
             parsed_spec=spec,
+            hunting_policy=hunting_policy,
         )
         if context_paths:
             paths["agent_contexts"] = run_root / "agent_contexts"
@@ -1237,11 +1259,43 @@ def write_artifacts(
                     paths.setdefault(f"agent_context_{candidate_id}", context_path)
                     paths[f"agent_context_{hypothesis_id}_{candidate_id}_{index}"] = context_path
 
-    manifest = render_run_manifest(result, paths, run_id=safe_run_id, output_mode=output_mode)
+    manifest = render_run_manifest(
+        result,
+        paths,
+        run_id=safe_run_id,
+        output_mode=output_mode,
+        hunting_policy=hunting_policy,
+        policy_config=policy_config,
+    )
     paths["manifest"].write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     _append_run_index(paths["index"], manifest)
-    paths["summary"].write_text(render_summary(result, paths, run_id=safe_run_id), encoding="utf-8")
+    paths["summary"].write_text(
+        render_summary(result, paths, run_id=safe_run_id, hunting_policy=hunting_policy, policy_config=policy_config),
+        encoding="utf-8",
+    )
     return paths
+
+
+def _apply_hunting_policy_to_map_result(
+    result: MapResult,
+    hunting_policy: HuntingPolicy | dict[str, Any] | None,
+) -> MapResult:
+    candidates, rejected = apply_appmap_promotion_policy(
+        result.candidates,
+        result.rejected_candidates,
+        hunting_policy,
+    )
+    if candidates == result.candidates and rejected == result.rejected_candidates:
+        return result
+    return MapResult(
+        profile=result.profile,
+        focus=result.focus,
+        surfaces=result.surfaces,
+        flows=result.flows,
+        candidates=candidates,
+        rejected_candidates=rejected,
+        research=result.research,
+    )
 
 
 def promote_appmap_handoff(
@@ -1673,14 +1727,16 @@ def plan_promoted_handoff_command(
     program = str(metadata.get("Program") or "").strip() or "program"
     target_path = str(metadata.get("Target path") or "").strip() or "."
     run_root = str(metadata.get("AppMap run root") or "").strip()
+    manifest: dict[str, Any] = {}
     if run_root:
         manifest_path = Path(run_root).expanduser() / "manifest.json"
         if manifest_path.is_file():
             try:
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                loaded_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
-                manifest = {}
-            if isinstance(manifest, dict) and str(manifest.get("target_path") or "").strip():
+                loaded_manifest = {}
+            manifest = loaded_manifest if isinstance(loaded_manifest, dict) else {}
+            if str(manifest.get("target_path") or "").strip():
                 target_path = str(manifest["target_path"])
 
     command = [
@@ -1692,6 +1748,12 @@ def plan_promoted_handoff_command(
         str(resolved_spec),
         "--brainstorm-only",
     ]
+    policy_id = str(manifest.get("hunting_policy_id") or "").strip()
+    if policy_id:
+        command.extend(["--hunting-policy", policy_id])
+    policy_config = str(manifest.get("hunting_policy_config") or "").strip()
+    if policy_id and policy_config:
+        command.extend(["--policy-config", policy_config])
     if selected_hypothesis:
         command.extend(["--brainstorm-hypothesis", selected_hypothesis])
     return shlex.join(command)
@@ -2215,6 +2277,8 @@ def render_run_manifest(
     *,
     run_id: str,
     output_mode: str,
+    hunting_policy: HuntingPolicy | dict[str, Any] | None = None,
+    policy_config: str | Path | None = None,
 ) -> dict[str, Any]:
     run_root = paths["run_root"]
     artifacts = {
@@ -2259,6 +2323,10 @@ def render_run_manifest(
         },
         "artifacts": artifacts,
     }
+    manifest = merge_policy_artifact_metadata(manifest, hunting_policy)
+    effective_policy_config = str(Path(policy_config).expanduser()) if policy_config else policy_config_path_for_artifacts(hunting_policy)
+    if effective_policy_config and manifest.get("hunting_policy_id"):
+        manifest["hunting_policy_config"] = effective_policy_config
     if result.research:
         research_manifest = result.research.get("manifest") or {}
         manifest.update(
@@ -2433,6 +2501,7 @@ def write_agent_contexts(
     run_id: str,
     spec_path: Path,
     parsed_spec: Any,
+    hunting_policy: HuntingPolicy | dict[str, Any] | None = None,
 ) -> list[Path]:
     """Write candidate-isolated handoff packets for generated hypotheses."""
 
@@ -2458,6 +2527,7 @@ def write_agent_contexts(
             spec_path=spec_path,
             run_root=run_root,
             hypothesis_linkage=linkage,
+            hunting_policy=hunting_policy,
         )
         context_path.write_text(json.dumps(context, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         written.append(context_path)
@@ -2473,6 +2543,7 @@ def render_agent_context(
     spec_path: Path,
     run_root: Path,
     hypothesis_linkage: dict[str, Any],
+    hunting_policy: HuntingPolicy | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     source = candidate["source"]
     boundary = candidate["boundary"]
@@ -2488,19 +2559,22 @@ def render_agent_context(
         "sink_id": sink["id"],
         "surface_id": candidate["surface_id"],
     }
-    return {
+    candidate_payload = {
+        "id": candidate["id"],
+        "priority": candidate["priority"],
+        "score": candidate["score"],
+        "question": candidate["question"],
+        "map_ids": map_ids,
+    }
+    if candidate.get("policy") is not None:
+        candidate_payload["policy"] = candidate.get("policy")
+    context = {
         "schema_version": 1,
         "run_id": run_id,
         "appmap_run_root": str(run_root),
         "program": result.profile.program,
         "focus": result.focus,
-        "candidate": {
-            "id": candidate["id"],
-            "priority": candidate["priority"],
-            "score": candidate["score"],
-            "question": candidate["question"],
-            "map_ids": map_ids,
-        },
+        "candidate": candidate_payload,
         "target_profile": _minimal_target_profile(result.profile, active_target_pack_keys),
         "active_target_packs": active_target_pack_keys,
         "active_vulnerability_pack": result.focus,
@@ -2522,6 +2596,7 @@ def render_agent_context(
             "Record findings or no-findings against the linked hypothesis ID, agent key, candidate ID, and flow ID.",
         ],
     }
+    return merge_policy_artifact_metadata(context, hunting_policy)
 
 
 def _strict_hypothesis_agent_links(
@@ -2779,7 +2854,14 @@ def _mental_model(result: MapResult) -> str:
     )
 
 
-def render_summary(result: MapResult, paths: dict[str, Path], *, run_id: str) -> str:
+def render_summary(
+    result: MapResult,
+    paths: dict[str, Path],
+    *,
+    run_id: str,
+    hunting_policy: HuntingPolicy | dict[str, Any] | None = None,
+    policy_config: str | Path | None = None,
+) -> str:
     lines = [
         f"# AppMap Summary: {result.profile.program}",
         "",
@@ -2803,6 +2885,12 @@ def render_summary(result: MapResult, paths: dict[str, Path], *, run_id: str) ->
         )
     if "spec" in paths:
         focus_label = result.focus.upper()
+        suggested_command = _summary_handoff_command(
+            result,
+            paths["spec"],
+            hunting_policy=hunting_policy,
+            policy_config=policy_config,
+        )
         lines.extend(
             [
                 f"- Generated {focus_label} spec: `{paths['spec']}`",
@@ -2810,7 +2898,7 @@ def render_summary(result: MapResult, paths: dict[str, Path], *, run_id: str) ->
                 "Suggested run command:",
                 "",
                 "```bash",
-                f"python3 agents/zero_day_team.py {sanitize_key(result.profile.program)} {result.profile.target_path} --brainstorm-spec {paths['spec']} --brainstorm-only",
+                suggested_command,
                 "```",
             ]
         )
@@ -2820,6 +2908,32 @@ def render_summary(result: MapResult, paths: dict[str, Path], *, run_id: str) ->
     else:
         lines.append(f"- Generated {result.focus.upper()} spec: none; no candidate met the MVP threshold.")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _summary_handoff_command(
+    result: MapResult,
+    spec_path: Path,
+    *,
+    hunting_policy: HuntingPolicy | dict[str, Any] | None = None,
+    policy_config: str | Path | None = None,
+) -> str:
+    command = [
+        "python3",
+        "agents/zero_day_team.py",
+        sanitize_key(result.profile.program),
+        result.profile.target_path,
+        "--brainstorm-spec",
+        str(spec_path),
+        "--brainstorm-only",
+    ]
+    policy_metadata = merge_policy_artifact_metadata({}, hunting_policy)
+    policy_id = str(policy_metadata.get("hunting_policy_id") or "").strip()
+    if policy_id:
+        command.extend(["--hunting-policy", policy_id])
+        effective_policy_config = str(Path(policy_config).expanduser()) if policy_config else policy_config_path_for_artifacts(hunting_policy)
+        if effective_policy_config:
+            command.extend(["--policy-config", effective_policy_config])
+    return shlex.join(command)
 
 
 _register_builtin_packs()
@@ -2850,6 +2964,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lane", help="Canonical Shared lane, for example exe or source.")
     parser.add_argument("--shared-root", help="Shared root for canonical output. Defaults to ~/Shared.")
     parser.add_argument("--run-id", help="Deterministic run id override for tests or repeatable workflows.")
+    parser.add_argument(
+        "--hunting-policy",
+        default="auto",
+        help="Shared hunting policy id. Defaults to auto; use off/none to disable.",
+    )
+    parser.add_argument(
+        "--triage-policy",
+        help="Alias/override for --hunting-policy used by triage-oriented workflows.",
+    )
+    parser.add_argument(
+        "--no-triage-policy",
+        action="store_true",
+        help="Disable shared hunting-policy metadata and prompt guidance for this AppMap run.",
+    )
+    parser.add_argument(
+        "--policy-config",
+        help="Path to a custom hunting-policy JSON config.",
+    )
     parser.add_argument(
         "--research-mode",
         choices=RESEARCH_MODES,
@@ -3086,7 +3218,28 @@ def main(argv: list[str] | None = None) -> int:
         )
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
-    result = map_application(args.program, target_path, target_kind=args.target_kind, focus=args.focus)
+    try:
+        policy_selection = resolve_policy_selection(
+            args.hunting_policy,
+            triage_policy=args.triage_policy,
+            no_triage_policy=args.no_triage_policy,
+        )
+        hunting_policy = resolve_hunting_policy(
+            policy_selection,
+            target_kind=args.target_kind,
+            target_path=target_path,
+            policy_config=args.policy_config,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    result = map_application(
+        args.program,
+        target_path,
+        target_kind=args.target_kind,
+        focus=args.focus,
+        hunting_policy=hunting_policy,
+    )
     try:
         result.research = generate_research_artifacts(
             result,
@@ -3105,6 +3258,8 @@ def main(argv: list[str] | None = None) -> int:
         run_id=run_id,
         write_specs=args.write_specs,
         output_mode=args.output_mode,
+        hunting_policy=hunting_policy,
+        policy_config=args.policy_config,
     )
     promotion: PromotionResult | None = None
     if args.promote_to_brainstorm:

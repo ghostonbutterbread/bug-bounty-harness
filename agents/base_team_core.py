@@ -52,6 +52,7 @@ from agents.base_team.runtime import (
     write_traces as shared_write_traces,
 )
 from agents.base_team.storage import resolve_team_storage
+from agents.hunting_policy import HuntingPolicy, coerce_hunting_policy, resolve_hunting_policy, resolve_policy_selection
 from agents.snapshot_identity import get_snapshot_identity
 from agents.storage_resolver import TargetIdentity, resolve_family_lane
 
@@ -159,6 +160,9 @@ class BaseTeam(abc.ABC):
         intent_text: str | None = None,
         target_identity: TargetIdentity | None = None,
         infer_target_identity: bool = False,
+        hunting_policy: str | None = "auto",
+        policy_config: str | Path | None = None,
+        resolved_policy: HuntingPolicy | dict[str, Any] | None = None,
     ) -> None:
         normalized_program = re.sub(r"[^A-Za-z0-9._-]+", "_", str(program or "").strip())
         if not normalized_program:
@@ -193,6 +197,17 @@ class BaseTeam(abc.ABC):
         )
         self.family, self.lane = self.storage.family, self.storage.lane
         self.output_root = self.storage.program_root
+        if resolved_policy is None:
+            self.hunting_policy = resolve_hunting_policy(
+                hunting_policy,
+                target_kind=target_kind or self.storage.lane,
+                target_path=resolved_target,
+                policy_config=policy_config,
+            )
+        elif isinstance(resolved_policy, HuntingPolicy):
+            self.hunting_policy = resolved_policy
+        else:
+            self.hunting_policy = coerce_hunting_policy(resolved_policy)
 
         self.team_dir = self.storage.lane_root
         self.agents_dir = self.team_dir / "agents"
@@ -531,8 +546,13 @@ class BaseTeam(abc.ABC):
             "notes_root": str(self.storage.notes_root),
             "working_root": str(self.storage.working_root),
             "shared_root": str(self.storage.shared_root),
+            "hunting_policy_id": self.hunting_policy.id,
+            "hunting_policy_snippet": self.hunting_policy.snippet("agent"),
         }
-        return spec.prompt_template.format(**context).rstrip() + "\n"
+        rendered = spec.prompt_template.format(**context).rstrip()
+        if self.hunting_policy.enabled and "{hunting_policy_snippet}" not in spec.prompt_template:
+            rendered = f"{rendered}\n\n{self.hunting_policy.snippet('agent')}"
+        return rendered.rstrip() + "\n"
 
     def _collect_agent_findings(self, spec: AgentSpec, log_path: Path | None) -> list[dict[str, Any]]:
         log_findings = self._extract_findings_from_log(log_path, default_agent=spec.key) if log_path else []
@@ -576,6 +596,8 @@ class BaseTeam(abc.ABC):
             resolve_source_path=self._resolve_source_path,
             source_excerpt=self._source_excerpt,
             safe_int=safe_int,
+            policy=self.hunting_policy,
+            policy_snippet=self.hunting_policy.snippet("review"),
         )
 
     def _normalize_review_tier(self, value: Any) -> str:
@@ -783,6 +805,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--lane", help="Explicit storage lane override, such as web, api, apk, exe, or mac.")
     parser.add_argument("--target-kind", help="Target kind hint, such as web, api, apk, exe, electron-exe, or mac.")
     parser.add_argument("--intent-text", help="Natural-language routing hint from the task or wrapper.")
+    parser.add_argument(
+        "--hunting-policy",
+        default="auto",
+        help="Hunting policy id: auto, off, or electron-application-first-loose. Default: auto.",
+    )
+    parser.add_argument(
+        "--triage-policy",
+        dest="triage_policy",
+        help="Compatibility alias for --hunting-policy.",
+    )
+    parser.add_argument(
+        "--no-triage-policy",
+        action="store_true",
+        help="Compatibility flag that disables hunting policy injection.",
+    )
+    parser.add_argument("--policy-config", help="Optional JSON policy config override.")
     parser.add_argument("--parallel", action=argparse.BooleanOptionalAction, default=True, help="Run agents in parallel.")
     parser.add_argument(
         "--agents",
@@ -807,6 +845,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     target_path = Path(args.target_path).expanduser()
     output_root = Path(args.output_root).expanduser() if args.output_root else None
+    policy_selection = resolve_policy_selection(
+        args.hunting_policy,
+        triage_policy=args.triage_policy,
+        no_triage_policy=args.no_triage_policy,
+    )
 
     if args.team_type == "0day_team":
         from agents.zero_day_team import ZeroDayTeam
@@ -821,6 +864,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             lane=args.lane,
             target_kind=args.target_kind,
             intent_text=args.intent_text,
+            hunting_policy=policy_selection,
+            policy_config=args.policy_config,
         )
     elif args.team_type == "apk":
         from agents.apk_team import APKTeam
@@ -836,26 +881,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             target_kind=args.target_kind,
             intent_text=args.intent_text,
             infer_target_identity=True,
+            hunting_policy=policy_selection,
+            policy_config=args.policy_config,
         )
     else:
         raise SystemExit("web team is not implemented yet")
 
     team.force_preflight = bool(args.force_preflight)
     confirmed, dormant, novel = team.orchestrate(parallel=args.parallel, agents_mode=args.agents)
-    print(
-        json.dumps(
-            {
-                "program": team.program,
-                "team_type": team.team_type,
-                "confirmed": len(confirmed),
-                "dormant": len(dormant),
-                "novel": len(novel),
-                "ledger_path": str(team.ledger_path),
-            },
-            indent=2,
-            sort_keys=True,
-        )
-    )
+    output = {
+        "program": team.program,
+        "team_type": team.team_type,
+        "confirmed": len(confirmed),
+        "dormant": len(dormant),
+        "novel": len(novel),
+        "ledger_path": str(team.ledger_path),
+    }
+    if team.hunting_policy.enabled:
+        output["hunting_policy"] = team.hunting_policy.to_dict()
+    print(json.dumps(output, indent=2, sort_keys=True))
     return 0
 
 

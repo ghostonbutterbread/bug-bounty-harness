@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from agents.appmap_research import sanitize_key
+from agents.hunting_policy import inject_policy_metadata_into_markdown
 
 SCHEMA_VERSION = 1
 
@@ -240,7 +241,7 @@ def render_brainstorm_spec(
             "",
         ]
     )
-    return "\n".join(lines)
+    return inject_policy_metadata_into_markdown("\n".join(lines), appmap.manifest)
 
 
 @dataclass(frozen=True)

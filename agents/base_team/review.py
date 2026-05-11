@@ -24,6 +24,18 @@ REVIEW_TIERS = {"CONFIRMED", "DORMANT", "DORMANT_ACTIVE", "DORMANT_HYPOTHETICAL"
 DEFAULT_REVIEW_MAX_WORKERS = 4
 SOURCE_EXCERPT_MAX_LINE_CHARS = 1200
 
+def _normalize_chain_requirements(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (list, tuple, set)):
+        normalized_items = [_normalize_chain_requirements(item) for item in value]
+        return "; ".join(item for item in normalized_items if item)
+    if isinstance(value, dict):
+        return json.dumps(value, sort_keys=True)
+    return str(value).strip()
+
 
 def stage2_review(
     findings: list[dict[str, Any]],
@@ -138,6 +150,21 @@ def review_single_finding(
     reviewed["assumption_break"] = break_text
     reviewed["intended_behavior_analysis"] = intendedness
     reviewed["exploit_path"] = exploit_path
+    for key in (
+        "policy_id",
+        "finding_role",
+        "entry_status",
+        "entry_vector",
+        "impact_amplifiers",
+        "chain_requirements",
+        "reportability",
+        "payout_confidence",
+    ):
+        if key in review_data:
+            value = review_data.get(key)
+            if key == "chain_requirements":
+                value = _normalize_chain_requirements(value)
+            reviewed[key] = value
     return reviewed
 
 
@@ -183,9 +210,41 @@ def build_review_prompt(
     resolve_source_path: ResolveSourcePathFn,
     source_excerpt: SourceExcerptFn,
     safe_int: Callable[[Any], int],
+    policy: Any | None = None,
+    policy_snippet: str | None = None,
 ) -> str:
     source_path = resolve_source_path(finding.get("file"))
     excerpt = source_excerpt(source_path, safe_int(finding.get("line"))) if source_path else "UNAVAILABLE"
+    policy_enabled = _policy_enabled(policy) or bool(str(policy_snippet or "").strip())
+    policy_block = ""
+    schema_suffix = ""
+    policy_rules = ""
+    if policy_enabled:
+        policy_id = _policy_id(policy)
+        snippet_text = str(policy_snippet or "").strip()
+        policy_block = f"""
+Policy context:
+{snippet_text or f"Active policy: {policy_id}"}
+"""
+        schema_suffix = (
+            ',"policy_id":"...",'
+            '"finding_role":"entry|amplifier|chain|hardening",'
+            '"entry_status":"proven|plausible|missing|not_required",'
+            '"entry_vector":"full URL/file/protocol/context or null",'
+            '"impact_amplifiers":["..."],'
+            '"chain_requirements":"specific prerequisite needed for exploitation, or empty string",'
+            '"reportability":"submit|hold_for_chain|notes_only",'
+            '"payout_confidence":"high|medium|low"'
+        )
+        policy_rules = """
+Policy-aware review rules:
+- Policies guide priority and report framing; they do not hard-ban a surface unless an avoid rule explicitly says so.
+- Deprioritized surfaces are not forbidden. IPC, HostRpc, preload, and native bridge work is soft-deprioritized by default, not banned.
+- Classify whether the finding is an application entry, an impact amplifier, chain material, or hardening.
+- Amplifier-only or missing-entry findings should usually be held as chain material.
+- Standalone critical impact is allowed when the evidence proves direct exploitability without assuming a separate entry primitive.
+- If an application entry exists, headline that entry path and treat IPC/native behavior as impact expansion.
+"""
     return f"""Review this single vulnerability-hunting finding.
 
 Return only one JSON object. No markdown and no prose outside JSON.
@@ -198,7 +257,7 @@ Core review doctrine:
 - Prefer INCONCLUSIVE over overstating a capability as a vulnerability.
 
 JSON schema:
-{{"tier":"CONFIRMED|DORMANT|NOVEL|INCONCLUSIVE","safety_assumption":"...","assumption_break":"...","intended_behavior_analysis":"...","exploit_path":"...","impact":"...","blocked_reason":"...","remediation":"...","review_notes":"...","model":"{{optional}}"}}
+{{"tier":"CONFIRMED|DORMANT|NOVEL|INCONCLUSIVE","safety_assumption":"...","assumption_break":"...","intended_behavior_analysis":"...","exploit_path":"...","impact":"...","blocked_reason":"...","remediation":"...","review_notes":"...","model":"{{optional}}"{schema_suffix}}}
 
 Review rules:
 - safety_assumption must name the assumption that makes the code appear safe, such as trusted origin, trusted caller, trusted file source, meaningful user friction, validated callback source, or trusted parser input.
@@ -209,9 +268,11 @@ Review rules:
 - Use DORMANT when something security-relevant may exist but the exploit path or boundary break is incomplete.
 - Use NOVEL when the pattern is genuinely interesting/new and likely security-relevant, but still be honest about whether the assumption break is proven.
 - Use INCONCLUSIVE when the behavior appears intended, the assumption break is weak, or the impact is not clearly security-relevant.
+{policy_rules}
 
 Target path: {target_path}
 Resolved source path: {source_path or "UNRESOLVED"}
+{policy_block}
 
 Finding:
 {json.dumps(finding, indent=2, sort_keys=True)}
@@ -219,6 +280,20 @@ Finding:
 Source excerpt:
 {excerpt}
 """
+
+
+def _policy_enabled(policy: Any | None) -> bool:
+    if policy is None:
+        return False
+    if isinstance(policy, dict):
+        return bool(policy.get("enabled"))
+    return bool(getattr(policy, "enabled", False))
+
+
+def _policy_id(policy: Any | None) -> str:
+    if isinstance(policy, dict):
+        return str(policy.get("id") or "unknown")
+    return str(getattr(policy, "id", "unknown"))
 
 
 def normalize_review_tier(value: Any) -> str:
@@ -277,7 +352,7 @@ def _ensure_report_fields(finding: dict[str, Any]) -> dict[str, Any]:
     reviewed.setdefault("cvss_vector", "")
     reviewed.setdefault("cvss_score", "")
     reviewed.setdefault("blocked_reason", "")
-    reviewed.setdefault("chain_requirements", "")
+    reviewed["chain_requirements"] = _normalize_chain_requirements(reviewed.get("chain_requirements"))
     reviewed.setdefault("remediation", "")
     reviewed.setdefault("review_notes", str(reviewed.get("decision_reason") or reviewed.get("review_reason") or ""))
     reviewed.setdefault("review_reason", str(reviewed.get("review_notes") or tier.lower()))

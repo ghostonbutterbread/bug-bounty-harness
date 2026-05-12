@@ -2966,8 +2966,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-id", help="Deterministic run id override for tests or repeatable workflows.")
     parser.add_argument(
         "--hunting-policy",
-        default="auto",
-        help="Shared hunting policy id. Defaults to auto; use off/none to disable.",
+        default="off",
+        help="Shared hunting policy id. Defaults to off; use auto or a named policy to enable.",
     )
     parser.add_argument(
         "--triage-policy",

@@ -260,6 +260,17 @@ Electron desktop target.
         parallel: bool = False,
         brainstorm_hypothesis: str | None = None,
         brainstorm_cluster_size: int = 1,
+        hunting_policy: str | None = "off",
+        triage_policy: str | None = None,
+        no_triage_policy: bool = False,
+        policy_config: str | None = None,
+        target_kind: str | None = None,
+        scheduler: str = "legacy",
+        agent_wave_size: int | str | None = "all",
+        max_per_surface_family: int = 2,
+        max_amplifier_family_first_wave: int = 3,
+        snapshot_id: str = "snap-1",
+        snapshot_version: str = "1.2.3",
     ) -> dict:
         ledger = SimpleNamespace(
             path=storage.ledgers_root / "ledger.json",
@@ -303,7 +314,7 @@ Electron desktop target.
             patch.object(
                 zero_day_team,
                 "get_snapshot_identity",
-                return_value={"snapshot_id": "snap-1", "version_label": "1.2.3", "channel": "stable"},
+                return_value={"snapshot_id": snapshot_id, "version_label": snapshot_version, "channel": "stable"},
             ),
             patch.object(zero_day_team, "create_team_ledger_from_storage", return_value=ledger),
             patch.object(zero_day_team, "DynamicAgentBuilder") as builder_cls,
@@ -325,7 +336,60 @@ Electron desktop target.
                 brainstorm_cluster_size=brainstorm_cluster_size,
                 fresh=fresh,
                 parallel=parallel,
+                hunting_policy=hunting_policy,
+                triage_policy=triage_policy,
+                no_triage_policy=no_triage_policy,
+                policy_config=policy_config,
+                target_kind=target_kind,
+                scheduler=scheduler,
+                agent_wave_size=agent_wave_size,
+                max_per_surface_family=max_per_surface_family,
+                max_amplifier_family_first_wave=max_amplifier_family_first_wave,
             )
+
+    def test_zero_day_summary_suppresses_hunting_policy_when_policy_disabled(self) -> None:
+        lane_root = self.tmp / "lane"
+        target = self.tmp / "electron-target"
+        target.mkdir()
+        spec_path = self.tmp / "specs" / "policy-off-spec.md"
+        spec_path.parent.mkdir()
+        spec_path.write_text(self._brainstorm_spec_text(), encoding="utf-8")
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            no_triage_policy=True,
+            target_kind="electron-exe",
+        )
+
+        self.assertNotIn("hunting_policy", result)
+
+    def test_zero_day_summary_includes_hunting_policy_when_enabled(self) -> None:
+        lane_root = self.tmp / "lane"
+        target = self.tmp / "electron-target"
+        target.mkdir()
+        spec_path = self.tmp / "specs" / "policy-on-spec.md"
+        spec_path.parent.mkdir()
+        spec_path.write_text(self._brainstorm_spec_text(), encoding="utf-8")
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            target_kind="electron-exe",
+            hunting_policy="auto",
+        )
+
+        self.assertEqual(result["hunting_policy"]["id"], "electron-application-first-loose")
 
     def test_shared_binaries_target_routes_to_binary_lane_storage(self) -> None:
         target = self.tmp / "Shared" / "binaries" / "canva" / "exe" / "input" / "app_asar"
@@ -1457,6 +1521,216 @@ Electron desktop target.
         self.assertEqual(zero_day_team.MAX_PARALLEL_AGENTS, 10)
         self.assertEqual(len(spawned_profiles), 12)
         self.assertEqual(len(result["classes_run"]), 12)
+
+    def test_policy_aware_scheduler_agent_wave_size_limits_spawned_profiles(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "static"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root, count=12)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            scheduler="policy-aware",
+            agent_wave_size=4,
+        )
+
+        self.assertEqual(len(spawned_profiles), 4)
+        self.assertEqual(len(result["classes_run"]), 4)
+        self.assertEqual(result["scheduler"]["mode"], "policy-aware")
+        self.assertEqual(result["scheduler"]["selected"], 4)
+        self.assertEqual(result["scheduler"]["deferred"], 8)
+        decisions_path = Path(result["scheduler"]["decisions_path"])
+        self.assertTrue(decisions_path.exists())
+        decisions = [json.loads(line) for line in decisions_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(sum(1 for row in decisions if row["event"] == "agent_selected"), 4)
+        self.assertEqual(sum(1 for row in decisions if row["event"] == "agent_deferred"), 8)
+
+    def test_policy_aware_scheduler_keeps_parallel_executor_cap_as_concurrency_only(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "static"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root, count=12)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+        executor_caps: list[int] = []
+        real_executor = zero_day_team.ThreadPoolExecutor
+
+        class CapturingExecutor(real_executor):
+            def __init__(self, *args, **kwargs):
+                if "max_workers" in kwargs:
+                    executor_caps.append(kwargs["max_workers"])
+                elif args:
+                    executor_caps.append(args[0])
+                super().__init__(*args, **kwargs)
+
+        with patch.object(zero_day_team, "ThreadPoolExecutor", CapturingExecutor):
+            result = self._run_appmap_brainstorm(
+                lane_root=lane_root,
+                target=target,
+                spec_path=spec_path,
+                storage=storage,
+                spawned_profiles=spawned_profiles,
+                parallel=True,
+                scheduler="policy-aware",
+                agent_wave_size=6,
+            )
+
+        self.assertEqual(executor_caps, [6])
+        self.assertEqual(zero_day_team.MAX_PARALLEL_AGENTS, 10)
+        self.assertEqual(len(spawned_profiles), 6)
+        self.assertEqual(len(result["classes_run"]), 6)
+
+    def test_policy_aware_scheduler_resumes_persisted_deferred_assignments(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "static"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root, count=4)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        first = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            scheduler="policy-aware",
+            agent_wave_size=2,
+        )
+        second = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            scheduler="policy-aware",
+            agent_wave_size=2,
+        )
+
+        self.assertEqual(first["scheduler"]["deferred"], 2)
+        coverage_rows = [
+            json.loads(line)
+            for line in (lane_root / "brainstorm" / "coverage.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        deferred_coverage = [row for row in coverage_rows if row.get("scheduler_event") == "agent_deferred"]
+        self.assertEqual(len(deferred_coverage), 2)
+        self.assertEqual({row.get("status") for row in deferred_coverage}, {"untested"})
+        self.assertNotIn("agent_key", deferred_coverage[0])
+        self.assertEqual(second["scheduler"]["selected"], 2)
+        decisions_path = Path(second["scheduler"]["decisions_path"])
+        decisions = [json.loads(line) for line in decisions_path.read_text(encoding="utf-8").splitlines()]
+        selected_second_wave = [
+            row for row in decisions if row.get("event") == "agent_selected" and "resumed from deferred" in row.get("decision_reason", "")
+        ]
+        self.assertGreaterEqual(len(selected_second_wave), 2)
+
+        fresh = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            scheduler="policy-aware",
+            agent_wave_size=2,
+            fresh=True,
+        )
+        self.assertEqual(fresh["classes_run"], ["canva-appmap-rce-1", "canva-appmap-rce-2"])
+
+    def test_policy_aware_scheduler_ignores_deferred_state_from_changed_snapshot(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "static"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root, count=4)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            scheduler="policy-aware",
+            agent_wave_size=2,
+            snapshot_id="old-snapshot",
+        )
+        changed = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            scheduler="policy-aware",
+            agent_wave_size=2,
+            snapshot_id="new-snapshot",
+        )
+
+        decisions = [
+            json.loads(line)
+            for line in Path(changed["scheduler"]["decisions_path"]).read_text(encoding="utf-8").splitlines()
+        ]
+        latest_selected = [row for row in decisions if row.get("scheduler_wave_id") == decisions[-1].get("scheduler_wave_id") and row.get("event") == "agent_selected"]
+        self.assertEqual({row.get("hypothesis_id") for row in latest_selected}, {"H001", "H002"})
+        self.assertTrue(all("resumed from deferred" not in row.get("decision_reason", "") for row in latest_selected))
+
+    def test_policy_aware_scheduler_cluster_events_expand_all_members_with_snapshot_identity(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "static"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root, count=2, shared_source_sink=True)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            brainstorm_cluster_size=2,
+            scheduler="policy-aware",
+            agent_wave_size="all",
+        )
+
+        self.assertEqual(len(result["classes_run"]), 1)
+        decisions = [
+            json.loads(line)
+            for line in Path(result["scheduler"]["decisions_path"]).read_text(encoding="utf-8").splitlines()
+        ]
+        selected = [row for row in decisions if row.get("event") == "agent_selected"]
+        self.assertEqual({row.get("hypothesis_id") for row in selected}, {"H001", "H002"})
+        self.assertEqual({row.get("scheduler_master_agent_key") for row in selected}, set(result["classes_run"]))
+        self.assertTrue(all(row.get("snapshot_id") == "snap-1" for row in selected))
+        self.assertTrue(all(row.get("snapshot_version") == "1.2.3" for row in selected))
+
+    def test_scheduler_cli_args_parse(self) -> None:
+        args = zero_day_team._parse_cli_args(
+            [
+                "canva",
+                "/tmp/target",
+                "--scheduler",
+                "policy-aware",
+                "--agent-wave-size",
+                "10",
+                "--max-per-surface-family",
+                "2",
+                "--max-amplifier-family-first-wave",
+                "1",
+                "--no-prefer-deferred",
+            ]
+        )
+
+        self.assertEqual(args.scheduler, "policy-aware")
+        self.assertEqual(args.agent_wave_size, "10")
+        self.assertEqual(args.max_per_surface_family, 2)
+        self.assertEqual(args.max_amplifier_family_first_wave, 1)
+        self.assertTrue(args.no_prefer_deferred)
 
     def test_brainstorm_profile_key_collision_fails_closed(self) -> None:
         builtin = next(iter(zero_day_team.CLASS_PROFILES.values()))

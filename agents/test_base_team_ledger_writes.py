@@ -65,6 +65,27 @@ class BaseTeamLedgerWriteTests(unittest.TestCase):
     def _payload(self) -> dict:
         return json.loads(self.team.ledger_path.read_text(encoding="utf-8"))
 
+    def _spec(
+        self,
+        key: str,
+        *,
+        surface: str = "android-ipc",
+        vuln_class: str | None = None,
+        metadata: dict | None = None,
+    ) -> AgentSpec:
+        return AgentSpec(
+            key=key,
+            vuln_class=vuln_class or key,
+            surface=surface,
+            prompt_template="Review {agent_key}",
+            focus_globs=["src/MainActivity.java"],
+            code_patterns=[],
+            program=self.team.program,
+            created_at="2026-01-01T00:00:00Z",
+            snapshot_id="snap-test",
+            metadata=dict(metadata or {}),
+        )
+
     def test_deduplicate_reserves_fid_through_canonical_ledger_at_explicit_root(self) -> None:
         reserved = self.team.deduplicate_findings([self._finding(), self._finding()], self.team.load_ledger())
 
@@ -250,6 +271,77 @@ class BaseTeamLedgerWriteTests(unittest.TestCase):
         self.assertEqual(confirmed, [reviewed])
         self.assertEqual(dormant, [])
         self.assertEqual(novel, [])
+
+
+    def test_base_team_scheduler_preserves_agent_spec_metadata_in_result_and_events(self) -> None:
+        scheduled_team = DummyTeam(
+            "Acme App",
+            "apk",
+            self.target,
+            output_root=self.output_root,
+            max_agents=1,
+            scheduler_mode="policy-aware",
+            scheduler_agent_wave_size=1,
+        )
+        spec = self._spec(
+            "custom-agent",
+            surface="Custom protocol deeplink",
+            vuln_class="deeplink",
+            metadata={
+                "hypothesis_id": "H777",
+                "source_spec_path": "/tmp/spec.md",
+                "custom_note": "preserve me",
+                "surface_family": "custom-protocol-deeplink",
+            },
+        )
+
+        selected = scheduled_team._select_specs([spec], [], agents_mode="all")
+
+        self.assertIs(selected[0], spec)
+        self.assertIs(scheduled_team.latest_scheduler_result.selected_assignments[0].profile, spec)
+        event = scheduled_team.latest_scheduler_result.decision_events[0]
+        self.assertEqual(event["hypothesis_id"], "H777")
+        self.assertEqual(event["source_spec_path"], "/tmp/spec.md")
+        self.assertEqual(event["agent_metadata"]["custom_note"], "preserve me")
+        self.assertEqual(event["agent_spec"]["key"], "custom-agent")
+
+    def test_base_team_scheduler_defaults_to_legacy_selection(self) -> None:
+        selected = self.team._select_specs(
+            [self._spec("static-a"), self._spec("static-b")],
+            [self._spec("dynamic-a")],
+            agents_mode="all",
+        )
+
+        self.assertEqual([spec.key for spec in selected], ["static-a"])
+        self.assertIsNone(self.team.latest_scheduler_result)
+        self.assertIsNone(self.team.latest_scheduler_summary)
+
+    def test_base_team_scheduler_opt_in_stores_latest_result(self) -> None:
+        scheduled_team = DummyTeam(
+            "Acme App",
+            "apk",
+            self.target,
+            output_root=self.output_root,
+            max_agents=2,
+            scheduler_mode="policy-aware",
+            scheduler_agent_wave_size=2,
+            scheduler_max_per_surface_family=1,
+        )
+
+        selected = scheduled_team._select_specs(
+            [
+                self._spec("hostrpc-a", surface="HostRpc bridge", vuln_class="hostrpc"),
+                self._spec("hostrpc-b", surface="HostRpc bridge", vuln_class="hostrpc"),
+            ],
+            [self._spec("download-entry", surface="Download export filesystem", vuln_class="download")],
+            agents_mode="all",
+        )
+
+        self.assertEqual(len(selected), 2)
+        self.assertIsNotNone(scheduled_team.latest_scheduler_result)
+        self.assertEqual(scheduled_team.latest_scheduler_summary["selected"], 2)
+        self.assertEqual(scheduled_team.latest_scheduler_summary["deferred"], 1)
+        self.assertEqual(set(scheduled_team.latest_scheduler_result.deferred_keys), {"hostrpc-b"})
 
 
 if __name__ == "__main__":

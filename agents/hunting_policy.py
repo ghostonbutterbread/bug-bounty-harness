@@ -141,7 +141,7 @@ def normalize_policy_id(policy_id: str | None) -> str:
 
 
 def resolve_policy_selection(
-    hunting_policy: str | None = "auto",
+    hunting_policy: str | None = "off",
     *,
     triage_policy: str | None = None,
     no_triage_policy: bool = False,
@@ -150,17 +150,17 @@ def resolve_policy_selection(
         return "off"
     if triage_policy is not None:
         return triage_policy
-    return hunting_policy if hunting_policy is not None else "auto"
+    return hunting_policy if hunting_policy is not None else "off"
 
 
 def resolve_hunting_policy(
-    policy_id: str | None = "auto",
+    policy_id: str | None = "off",
     *,
     target_kind: str | None = None,
     target_path: str | Path | None = None,
     policy_config: str | Path | None = None,
 ) -> HuntingPolicy:
-    requested_id = str(policy_id if policy_id is not None else "auto").strip()
+    requested_id = str(policy_id if policy_id is not None else "off").strip()
     if str(requested_id).strip().lower().replace("_", "-") in POLICY_OFF_ALIASES:
         return disabled_policy(requested_id=requested_id or "off")
 

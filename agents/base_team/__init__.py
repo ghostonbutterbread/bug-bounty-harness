@@ -23,6 +23,7 @@ from .review import (
 )
 from .reporting_compat import display_file_reference, is_placeholder_finding, split_file_reference
 from .runtime import install_signal_handlers, orchestrate, spawn_agent, wait_for_agents, write_traces
+from .scheduler import BaseTeamSchedulerOptions, BaseTeamSchedulerResult, schedule_profiles
 from .storage import resolve_team_storage
 
 # Compatibility re-export layer:
@@ -34,6 +35,8 @@ from agents.base_team_core import AgentSpec, BaseTeam  # type: ignore
 __all__ = [
     "AgentSpec",
     "BaseTeam",
+    "BaseTeamSchedulerOptions",
+    "BaseTeamSchedulerResult",
     "AgentSession",
     "build_review_prompt",
     "dated_report_index_paths",
@@ -58,6 +61,7 @@ __all__ = [
     "run_agent_session",
     "run_review_cli",
     "safe_int",
+    "schedule_profiles",
     "spawn_agent",
     "split_file_reference",
     "stage2_ghost_review",

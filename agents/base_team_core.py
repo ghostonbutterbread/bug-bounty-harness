@@ -15,7 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -121,6 +121,7 @@ class AgentSpec:
     program: str
     created_at: str
     snapshot_id: str
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "AgentSpec":
@@ -134,6 +135,7 @@ class AgentSpec:
             program=str(payload.get("program") or "").strip(),
             created_at=str(payload.get("created_at") or "").strip() or _timestamp_iso(),
             snapshot_id=str(payload.get("snapshot_id") or "").strip(),
+            metadata=dict(payload.get("metadata") or {}) if isinstance(payload.get("metadata"), dict) else {},
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -160,9 +162,16 @@ class BaseTeam(abc.ABC):
         intent_text: str | None = None,
         target_identity: TargetIdentity | None = None,
         infer_target_identity: bool = False,
-        hunting_policy: str | None = "auto",
+        hunting_policy: str | None = "off",
         policy_config: str | Path | None = None,
         resolved_policy: HuntingPolicy | dict[str, Any] | None = None,
+        scheduler_mode: str = "off",
+        scheduler_agent_wave_size: int | str | None = None,
+        scheduler_max_per_surface_family: int = 2,
+        scheduler_max_amplifier_family_first_wave: int = 3,
+        scheduler_prefer_deferred: bool = True,
+        scheduler_fresh: bool = False,
+        scheduler_wave_id: str | None = None,
     ) -> None:
         normalized_program = re.sub(r"[^A-Za-z0-9._-]+", "_", str(program or "").strip())
         if not normalized_program:
@@ -222,6 +231,17 @@ class BaseTeam(abc.ABC):
         self.review_timeout = DEFAULT_REVIEW_TIMEOUT_SECONDS
         self.run_id = _trace_timestamp()
         self.force_preflight = False
+        if scheduler_mode not in {"off", "legacy", "policy-aware"}:
+            raise ValueError("scheduler_mode must be one of: off, legacy, policy-aware")
+        self.scheduler_mode = scheduler_mode
+        self.scheduler_agent_wave_size = scheduler_agent_wave_size
+        self.scheduler_max_per_surface_family = scheduler_max_per_surface_family
+        self.scheduler_max_amplifier_family_first_wave = scheduler_max_amplifier_family_first_wave
+        self.scheduler_prefer_deferred = scheduler_prefer_deferred
+        self.scheduler_fresh = scheduler_fresh
+        self.scheduler_wave_id = scheduler_wave_id
+        self.latest_scheduler_result: Any | None = None
+        self.latest_scheduler_summary: dict[str, Any] | None = None
 
         self._sigterm_received = False
         self._active_handles: dict[str, subprocess.Popen[Any]] = {}
@@ -486,6 +506,23 @@ class BaseTeam(abc.ABC):
         *,
         agents_mode: str,
     ) -> list[AgentSpec]:
+        self.latest_scheduler_result = None
+        self.latest_scheduler_summary = None
+        if self.scheduler_mode == "policy-aware":
+            return self._select_specs_with_scheduler(
+                static_specs,
+                dynamic_specs,
+                agents_mode=agents_mode,
+            )
+        return self._select_specs_legacy(static_specs, dynamic_specs, agents_mode=agents_mode)
+
+    def _select_specs_legacy(
+        self,
+        static_specs: Sequence[AgentSpec],
+        dynamic_specs: Sequence[AgentSpec],
+        *,
+        agents_mode: str,
+    ) -> list[AgentSpec]:
         if agents_mode == "static":
             return list(static_specs)[: self.max_agents]
         if agents_mode == "dynamic":
@@ -503,6 +540,68 @@ class BaseTeam(abc.ABC):
                 pass
             if len(mixed) >= self.max_agents:
                 break
+            try:
+                mixed.append(next(dynamic_iter))
+                added = True
+            except StopIteration:
+                pass
+            if not added:
+                break
+        return mixed
+
+    def _select_specs_with_scheduler(
+        self,
+        static_specs: Sequence[AgentSpec],
+        dynamic_specs: Sequence[AgentSpec],
+        *,
+        agents_mode: str,
+    ) -> list[AgentSpec]:
+        from agents.base_team.scheduler import BaseTeamSchedulerOptions, schedule_profiles
+
+        candidates = self._scheduler_candidate_specs(static_specs, dynamic_specs, agents_mode=agents_mode)
+        wave_size = self.scheduler_agent_wave_size
+        if wave_size is None:
+            wave_size = self.max_agents
+        result = schedule_profiles(
+            candidates,
+            policy=self.hunting_policy,
+            options=BaseTeamSchedulerOptions(
+                mode="policy-aware",
+                agent_wave_size=wave_size,
+                max_per_surface_family=self.scheduler_max_per_surface_family,
+                max_amplifier_family_first_wave=self.scheduler_max_amplifier_family_first_wave,
+                prefer_deferred=self.scheduler_prefer_deferred,
+                fresh=self.scheduler_fresh,
+                scheduler_wave_id=self.scheduler_wave_id or self.run_id,
+                run_id=self.run_id,
+            ),
+            source=self.team_type,
+        )
+        self.latest_scheduler_result = result
+        self.latest_scheduler_summary = dict(result.summary)
+        return list(result.selected_profiles)
+
+    def _scheduler_candidate_specs(
+        self,
+        static_specs: Sequence[AgentSpec],
+        dynamic_specs: Sequence[AgentSpec],
+        *,
+        agents_mode: str,
+    ) -> list[AgentSpec]:
+        if agents_mode == "static":
+            return list(static_specs)
+        if agents_mode == "dynamic":
+            return list(dynamic_specs)
+        mixed: list[AgentSpec] = []
+        static_iter = iter(static_specs)
+        dynamic_iter = iter(dynamic_specs)
+        while True:
+            added = False
+            try:
+                mixed.append(next(static_iter))
+                added = True
+            except StopIteration:
+                pass
             try:
                 mixed.append(next(dynamic_iter))
                 added = True
@@ -807,8 +906,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--intent-text", help="Natural-language routing hint from the task or wrapper.")
     parser.add_argument(
         "--hunting-policy",
-        default="auto",
-        help="Hunting policy id: auto, off, or electron-application-first-loose. Default: auto.",
+        default="off",
+        help="Hunting policy id: off, auto, or electron-application-first-loose. Default: off.",
     )
     parser.add_argument(
         "--triage-policy",

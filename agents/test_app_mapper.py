@@ -1945,6 +1945,8 @@ child_process.exec(config.command);
                 "policy-cli-run",
                 "--output-root",
                 str(output_root),
+                "--hunting-policy",
+                "auto",
                 "--write-specs",
             ]
         )

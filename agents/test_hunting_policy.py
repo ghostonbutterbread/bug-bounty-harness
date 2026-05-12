@@ -29,6 +29,11 @@ class HuntingPolicyTests(unittest.TestCase):
         self.addCleanup(self.tempdir.cleanup)
         self.tmp = Path(self.tempdir.name)
 
+
+    def test_default_policy_selection_is_off_until_explicitly_enabled(self) -> None:
+        self.assertEqual(resolve_policy_selection(None), "off")
+        self.assertFalse(resolve_hunting_policy(target_kind="electron-exe", target_path=self.tmp).enabled)
+
     def test_auto_enables_for_electron_target_kind(self) -> None:
         policy = resolve_hunting_policy("auto", target_kind="electron-exe", target_path=self.tmp)
 
@@ -191,7 +196,7 @@ class HuntingPolicyTests(unittest.TestCase):
         self.assertEqual(zero_args.triage_policy, "electron-entry-first")
         self.assertEqual(zero_args.policy_config, str(self.tmp / "policy.json"))
         self.assertTrue(base_args.no_triage_policy)
-        self.assertEqual(base_args.hunting_policy, "auto")
+        self.assertEqual(base_args.hunting_policy, "off")
 
     def test_appmap_policy_holds_deprioritized_ipc_candidate_without_app_entry(self) -> None:
         policy = resolve_hunting_policy("electron-application-first", target_path=self.tmp)

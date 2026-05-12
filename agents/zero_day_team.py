@@ -10,7 +10,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Allow standalone execution from project root or agents/ subdirectory
@@ -53,6 +53,7 @@ from agents.base_team.storage import resolve_team_storage
 from agents.brainstorm_adapters import brainstorm_intent_to_dynamic_agent_spec
 from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.hunting_policy import HuntingPolicy, coerce_hunting_policy, resolve_hunting_policy, resolve_policy_selection
+from agents.base_team.scheduler import BaseTeamSchedulerOptions, schedule_profiles
 from agents.snapshot_identity import get_snapshot_identity
 from agents.verbosity import clamp_verbosity
 
@@ -2942,6 +2943,144 @@ def hypothesis_to_agent_intents_for_profile(spec: Any, hypothesis: Any) -> list[
     return hypothesis_to_agent_intents(spec, hypothesis)
 
 
+def _parse_agent_wave_size(value: int | str | None) -> int | str:
+    if value is None:
+        return "all"
+    if isinstance(value, int):
+        return max(0, value)
+    normalized = str(value).strip().lower()
+    if normalized in {"", "all", "none", "unlimited"}:
+        return "all"
+    parsed = int(normalized)
+    return max(0, parsed)
+
+
+def _scheduler_decisions_path(lane_root: Path) -> Path:
+    return lane_root / "brainstorm" / "scheduler_decisions.jsonl"
+
+
+def _write_scheduler_decisions(path: Path, events: Sequence[dict[str, Any]]) -> None:
+    if not events:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for event in events:
+            handle.write(json.dumps(event, sort_keys=True) + "\n")
+
+
+def _append_scheduler_events_to_coverage(coverage_path: Path | None, events: Sequence[dict[str, Any]]) -> None:
+    if coverage_path is None:
+        return
+    for event in events:
+        hypothesis_id = str(event.get("hypothesis_id") or "").strip()
+        agent_key = str(event.get("agent_key") or "").strip()
+        source_spec = str(event.get("source_spec_path") or event.get("brainstorm_spec") or "").strip()
+        if not hypothesis_id or not agent_key or not source_spec:
+            continue
+        coverage_event = dict(event)
+        scheduler_event = str(coverage_event.get("event") or "").strip()
+        coverage_event["scheduler_event"] = scheduler_event
+        coverage_event["scheduler_agent_key"] = coverage_event.pop("agent_key", "")
+        coverage_event["event"] = "coverage_status_changed"
+        if scheduler_event == "agent_selected":
+            coverage_event["status"] = "queued"
+        else:
+            # bounty_core currently has no durable "deferred"/"skipped" coverage status.
+            # Keep the scheduler-specific state in scheduler_event/scheduler_decisions.jsonl
+            # while preserving a valid non-terminal hypothesis coverage status.
+            coverage_event["status"] = "untested"
+        coverage_event.pop("coverage_status", None)
+        try:
+            append_coverage(coverage_path, coverage_event)
+        except Exception as exc:
+            print(f"[scheduler] coverage warning for {agent_key}: {exc}", flush=True)
+
+
+def _read_scheduler_decision_events(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if isinstance(row, dict):
+                rows.append(row)
+    except (OSError, json.JSONDecodeError):
+        return []
+    return rows
+
+
+def _scheduler_resume_key(metadata: dict[str, Any], *, default_agent_key: str = "") -> tuple[str, str, str, str, str] | None:
+    base = _brainstorm_metadata_key(metadata, default_agent_key=default_agent_key)
+    if base is None:
+        return None
+    snapshot_id = str(metadata.get("snapshot_id") or metadata.get("_snapshot_id") or "").strip()
+    snapshot_version = str(
+        metadata.get("snapshot_version")
+        or metadata.get("_snapshot_version")
+        or metadata.get("version_label")
+        or metadata.get("app_version")
+        or ""
+    ).strip()
+    return (*base, snapshot_id, snapshot_version)
+
+
+def _latest_scheduler_event_for_metadata(events: Sequence[dict[str, Any]], metadata: dict[str, Any], *, default_agent_key: str = "") -> str:
+    key = _scheduler_resume_key(metadata, default_agent_key=default_agent_key)
+    if key is None:
+        return ""
+    for event in reversed(events):
+        event_type = str(event.get("event") or "").strip()
+        if event_type not in {"agent_deferred", "agent_selected", "agent_skipped_policy_budget"}:
+            continue
+        event_key = _scheduler_resume_key(event, default_agent_key=default_agent_key)
+        if event_key == key:
+            return event_type
+    return ""
+
+
+def _annotate_scheduler_deferred_status(
+    profiles: Sequence[VulnerabilityClassProfile],
+    *,
+    coverage_path: Path | None,
+    scheduler_decisions_path: Path | None = None,
+) -> list[VulnerabilityClassProfile]:
+    events: list[dict[str, Any]] = []
+    if scheduler_decisions_path is not None:
+        events.extend(_read_scheduler_decision_events(scheduler_decisions_path))
+    if coverage_path is not None and coverage_path.exists():
+        try:
+            events.extend(read_coverage_jsonl(coverage_path))
+        except Exception:
+            pass
+    if not events:
+        return list(profiles)
+    for profile in profiles:
+        metadata = getattr(profile, "brainstorm_metadata", None)
+        if not isinstance(metadata, dict):
+            continue
+        latest_events = [
+            _latest_scheduler_event_for_metadata(events, assignment, default_agent_key=profile.key)
+            for assignment in _brainstorm_assignment_metadata(profile)
+        ]
+        if any(event == "agent_deferred" for event in latest_events):
+            metadata["coverage_status"] = "deferred"
+        elif metadata.get("coverage_status") == "deferred":
+            metadata.pop("coverage_status", None)
+    return list(profiles)
+
+
+def _scheduler_summary_line(summary: dict[str, Any], *, decisions_path: Path) -> str:
+    return (
+        f"[scheduler] mode={summary.get('mode')} wave_size={summary.get('wave_size')} "
+        f"selected={summary.get('selected')} deferred={summary.get('deferred')} "
+        f"skipped={summary.get('skipped')} families={len(summary.get('families') or [])} "
+        f"decisions={decisions_path}"
+    )
+
+
 def orchestrate_zero_day_team(
     program: str,
     target_path: str,
@@ -2966,10 +3105,15 @@ def orchestrate_zero_day_team(
     brainstorm_only: bool = False,
     brainstorm_hypothesis: str | None = None,
     brainstorm_cluster_size: int = 1,
-    hunting_policy: str | None = "auto",
+    hunting_policy: str | None = "off",
     triage_policy: str | None = None,
     no_triage_policy: bool = False,
     policy_config: str | None = None,
+    scheduler: str = "legacy",
+    agent_wave_size: int | str | None = "all",
+    max_per_surface_family: int = 2,
+    max_amplifier_family_first_wave: int = 3,
+    prefer_deferred: bool = True,
     verbose: int = 0,
 ) -> Dict[str, Any]:
     """Run one clean static-analysis agent per vulnerability class."""
@@ -3329,6 +3473,59 @@ def orchestrate_zero_day_team(
             f"{len(skipped_keys)} AppMap profile(s): {', '.join(skipped_keys)}"
         )
 
+    scheduler_decisions_path = _scheduler_decisions_path(storage.lane_root)
+    scheduler_events: list[dict[str, Any]] = []
+    scheduler_plan_summary: dict[str, Any] = {
+        "mode": scheduler,
+        "wave_size": _parse_agent_wave_size(agent_wave_size),
+        "selected": len(active_profiles),
+        "deferred": 0,
+        "skipped": 0,
+        "families": [],
+        "decisions_path": str(scheduler_decisions_path),
+    }
+    if scheduler not in {"off", "legacy", "policy-aware"}:
+        raise ValueError("--scheduler must be one of: off, legacy, policy-aware")
+    if scheduler == "policy-aware":
+        if not fresh:
+            active_profiles = _annotate_scheduler_deferred_status(
+                active_profiles,
+                coverage_path=brainstorm_coverage_path,
+                scheduler_decisions_path=scheduler_decisions_path,
+            )
+        scheduler_result = schedule_profiles(
+            active_profiles,
+            policy=resolved_policy,
+            options=BaseTeamSchedulerOptions(
+                mode="policy-aware",
+                agent_wave_size=_parse_agent_wave_size(agent_wave_size),
+                max_per_surface_family=max_per_surface_family,
+                max_amplifier_family_first_wave=max_amplifier_family_first_wave,
+                prefer_deferred=prefer_deferred,
+                fresh=fresh,
+                scheduler_wave_id=datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ"),
+                run_id=getattr(ledger, "run_id", None),
+            ),
+        )
+        active_profiles = list(scheduler_result.selected_profiles)
+        deferred_profile_keys = list(scheduler_result.deferred_keys)
+        skipped_profile_keys.extend(deferred_profile_keys)
+        scheduler_plan_summary = dict(scheduler_result.summary)
+        scheduler_plan_summary.update(
+            {
+                "wave_size": _parse_agent_wave_size(agent_wave_size),
+                "decisions_path": str(scheduler_decisions_path),
+            }
+        )
+        scheduler_events = list(scheduler_result.decision_events)
+        _write_scheduler_decisions(scheduler_decisions_path, scheduler_events)
+        _append_scheduler_events_to_coverage(brainstorm_coverage_path, scheduler_events)
+        print(_scheduler_summary_line(scheduler_plan_summary, decisions_path=scheduler_decisions_path))
+        if deferred_profile_keys:
+            preview = ", ".join(deferred_profile_keys[:8])
+            suffix = "..." if len(deferred_profile_keys) > 8 else ""
+            print(f"[scheduler] deferred {len(deferred_profile_keys)} profile(s): {preview}{suffix}")
+
     # Pre-assign DIVERSE entry points across all active profiles (no two profiles
     # get the same file if alternatives exist), so agents don't all start from
     # the same position in the codebase.
@@ -3486,6 +3683,7 @@ def orchestrate_zero_day_team(
     summary["raw_findings"] = len(raw_findings)
     summary["classes_run"] = [profile.key for profile in active_profiles]
     summary["classes_skipped"] = skipped_profile_keys
+    summary["scheduler"] = scheduler_plan_summary
     summary["by_tier"] = {
         "confirmed": len(confirmed_findings),
         "dormant": len(dormant_findings),
@@ -3669,8 +3867,8 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--hunting-policy",
-        default="auto",
-        help="Hunting policy id: auto, off, or electron-application-first-loose. Default: auto.",
+        default="off",
+        help="Hunting policy id: off, auto, or electron-application-first-loose. Default: off.",
     )
     parser.add_argument(
         "--triage-policy",
@@ -3709,6 +3907,34 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
             "Maximum AppMap brainstorm assignments to merge into one agent when they share "
             "the same focus files, source, and sink. Defaults to 1 (one agent per hypothesis)."
         ),
+    )
+    parser.add_argument(
+        "--scheduler",
+        choices=("off", "legacy", "policy-aware"),
+        default="legacy",
+        help="Runtime agent scheduler mode. Default: legacy preserves existing all-agent behavior.",
+    )
+    parser.add_argument(
+        "--agent-wave-size",
+        default="all",
+        help="Number of selected agents to spawn for the first scheduler wave, or 'all'.",
+    )
+    parser.add_argument(
+        "--max-per-surface-family",
+        type=int,
+        default=2,
+        help="Policy-aware scheduler cap per surface family when alternatives exist. Default: 2.",
+    )
+    parser.add_argument(
+        "--max-amplifier-family-first-wave",
+        type=int,
+        default=3,
+        help="Policy-aware first-wave cap for amplifier families when app-entry alternatives exist. Default: 3.",
+    )
+    parser.add_argument(
+        "--no-prefer-deferred",
+        action="store_true",
+        help="Do not prefer previously deferred agents when policy-aware scheduling is enabled.",
     )
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     return parser.parse_args(list(argv))
@@ -3751,6 +3977,11 @@ if __name__ == "__main__":
         triage_policy=args.triage_policy,
         no_triage_policy=args.no_triage_policy,
         policy_config=args.policy_config,
+        scheduler=args.scheduler,
+        agent_wave_size=args.agent_wave_size,
+        max_per_surface_family=args.max_per_surface_family,
+        max_amplifier_family_first_wave=args.max_amplifier_family_first_wave,
+        prefer_deferred=not args.no_prefer_deferred,
         verbose=args.verbose,
     )
     print(json.dumps(result, indent=2, sort_keys=True))

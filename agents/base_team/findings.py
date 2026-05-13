@@ -10,11 +10,19 @@ from agents.base_team.reporting_compat import is_placeholder_finding
 
 BRAINSTORM_METADATA_FIELDS = (
     "brainstorm_spec",
+    "source_spec_path",
     "hypothesis_id",
     "hypothesis_title",
     "brainstorm_agent_key",
     "brainstorm_surface",
     "brainstorm_tags",
+    "appmap_context_packet",
+    "appmap_candidate_id",
+    "appmap_flow_id",
+    "appmap_run_id",
+    "appmap_research_technique_ids",
+    "appmap_research_source_ids",
+    "appmap_research_citations",
 )
 
 

@@ -25,8 +25,8 @@ class DummyTeam(BaseTeam):
         return []
 
 
-def _packet() -> HypothesisAgentPacket:
-    return HypothesisAgentPacket(
+def _packet(**overrides) -> HypothesisAgentPacket:
+    payload = dict(
         id="HP-123",
         key="ipc-bridge-hp-123",
         title="Investigate IPC bridge trust boundary",
@@ -55,6 +55,8 @@ def _packet() -> HypothesisAgentPacket:
             "trace": {"appmap_run": "run-1", "candidate_id": "C0001"},
         },
     )
+    payload.update(overrides)
+    return HypothesisAgentPacket(**payload)
 
 
 def test_packet_to_base_team_agent_spec_maps_fields() -> None:
@@ -133,6 +135,35 @@ def test_base_team_prompt_template_renders_with_base_placeholders(tmp_path: Path
     assert "{target_path}" not in rendered
 
 
+def test_base_team_prompt_template_escapes_packet_braces(tmp_path: Path) -> None:
+    packet = _packet(
+        title="Investigate {renderer} bridge",
+        evidence_requirements=("Trace args like {payload}",),
+        reasons=("Generated from {policy} note",),
+        source_evidence=({"id": "S{1}", "kind": "ipc", "file": "src/{main}.ts"},),
+    )
+    spec = packet_to_base_team_agent_spec(packet, program="demo", snapshot_id="snapshot-1")
+    target = tmp_path / "target"
+    target.mkdir()
+
+    with patch.object(Path, "home", return_value=tmp_path):
+        team = DummyTeam(
+            "demo",
+            "0day_team",
+            target,
+            output_root=tmp_path / "out",
+            target_kind="api",
+            max_agents=1,
+        )
+
+    rendered = team._render_prompt(spec)
+
+    assert "Hypothesis title: Investigate {renderer} bridge" in rendered
+    assert "- Trace args like {payload}" in rendered
+    assert "- Generated from {policy} note" in rendered
+    assert "- S{1} | ipc | src/{main}.ts" in rendered
+
+
 def test_packet_to_dynamic_agent_builder_agent_spec_maps_legacy_shape() -> None:
     packet = _packet()
 
@@ -149,5 +180,6 @@ def test_packet_to_dynamic_agent_builder_agent_spec_maps_legacy_shape() -> None:
     assert spec.vuln_class == "ipc-bridge"
     assert spec.focus_files_glob == ["src/main/ipc.ts", "src/preload.ts"]
     assert spec.created_by == "hunt_pipeline"
+    assert spec.parent_keys == ["hunt-pipeline", "electron-overlay", "HP-123"]
     assert spec.version == "pipeline-v1"
     assert spec.created_at == "2026-05-13T12:00:00Z"

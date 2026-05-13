@@ -54,7 +54,7 @@ def packet_to_dynamic_agent_builder_agent_spec(
         focus_files_glob=list(packet.focus_files),
         ignore_files_glob=[],
         agent_prompt_template=_prompt_template(packet),
-        parent_keys=[],
+        parent_keys=["hunt-pipeline", packet.ruleset_id, packet.id],
         created_by="hunt_pipeline",
         version=str(version or packet.ruleset_id).strip(),
         created_at=created_at or _timestamp_iso(),
@@ -114,12 +114,12 @@ def _prompt_template(packet: HypothesisAgentPacket) -> str:
         "You are a hunt-pipeline handoff agent for {program}.\n\n"
         "Target path: {target_path}\n"
         "Agent key: {agent_key}\n"
-        f"Hypothesis ID: {packet.id}\n"
-        f"Hypothesis title: {packet.title}\n"
-        f"Role: {packet.role}\n"
-        f"Priority: {packet.priority}\n"
-        f"Target kind: {packet.target_kind}\n"
-        f"Ruleset: {packet.ruleset_id}\n\n"
+        f"Hypothesis ID: {_format_safe(packet.id)}\n"
+        f"Hypothesis title: {_format_safe(packet.title)}\n"
+        f"Role: {_format_safe(packet.role)}\n"
+        f"Priority: {_format_safe(packet.priority)}\n"
+        f"Target kind: {_format_safe(packet.target_kind)}\n"
+        f"Ruleset: {_format_safe(packet.ruleset_id)}\n\n"
         "Surface: {surface}\n"
         "Vulnerability class: {vuln_class}\n\n"
         "Focus files:\n"
@@ -147,6 +147,10 @@ def _description(packet: HypothesisAgentPacket) -> str:
     )
 
 
+def _format_safe(value: Any) -> str:
+    return str(value).replace("{", "{{").replace("}", "}}")
+
+
 def _code_patterns(packet: HypothesisAgentPacket) -> list[str]:
     patterns: list[str] = []
     for value in (
@@ -163,7 +167,7 @@ def _code_patterns(packet: HypothesisAgentPacket) -> list[str]:
 
 def _bullet_list(values: tuple[str, ...]) -> str:
     lines = [str(item).strip() for item in values if str(item).strip()]
-    return "\n".join(f"- {item}" for item in lines) or "- None provided"
+    return "\n".join(f"- {_format_safe(item)}" for item in lines) or "- None provided"
 
 
 def _source_evidence_lines(packet: HypothesisAgentPacket) -> str:
@@ -176,7 +180,7 @@ def _source_evidence_lines(packet: HypothesisAgentPacket) -> str:
         file_path = str(item.get("file") or item.get("path") or "").strip()
         parts = [part for part in (evidence_id, kind, file_path) if part]
         if parts:
-            lines.append("- " + " | ".join(parts))
+            lines.append("- " + _format_safe(" | ".join(parts)))
     return "\n".join(lines) or "- None provided"
 
 

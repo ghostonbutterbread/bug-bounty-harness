@@ -39,6 +39,9 @@ def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) ->
     assert payload == json.loads(json.dumps(artifact.to_dict(), sort_keys=True))
     assert payload["selected_rulesets"]["selected_rulesets"] == ["desktop-baseline", "electron-overlay"]
     assert payload["normalized_map"]["counts"]["surfaces"] == 2
+    assert [item["id"] for item in payload["normalized_map"]["surfaces"]] == ["S0001", "S0002"]
+    assert payload["normalized_map"]["flows"] == [{"id": "F0001", "source_id": "S0002", "sink_id": "S0001"}]
+    assert payload["normalized_map"]["legacy_candidates"][0]["pipeline_context"]["neutral_truth"] is False
     assert payload["normalized_map"]["legacy_policy_shaped"] is True
     assert {item["role"] for item in payload["hypotheses"]} == {"entry", "amplifier"}
     assert payload["runtime_adapter_availability"]["spawn_enabled"] is False

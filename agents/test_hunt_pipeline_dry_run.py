@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from agents.hunt_pipeline.dry_run import build_dry_run_plan, load_plan
+
+
+def _write_jsonl(path: Path, rows: list[dict]) -> None:
+    path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8")
+
+
+def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) -> None:
+    appmap = tmp_path / "appmap" / "run-1"
+    appmap.mkdir(parents=True)
+    (appmap / "manifest.json").write_text('{"run_id":"run-1"}\n', encoding="utf-8")
+    (appmap / "target_profile.json").write_text('{"program":"demo","target_kind":"electron"}\n', encoding="utf-8")
+    _write_jsonl(
+        appmap / "surfaces.jsonl",
+        [
+            {"id": "S0001", "kind": "ipc", "file": "src/main.js"},
+            {"id": "S0002", "kind": "rendering", "file": "src/view.js"},
+        ],
+    )
+    _write_jsonl(appmap / "flows.jsonl", [{"id": "F0001", "source_id": "S0002", "sink_id": "S0001"}])
+    _write_jsonl(appmap / "candidates.jsonl", [{"id": "C0001", "surface_id": "S0001"}])
+
+    artifact, plan_path = build_dry_run_plan(
+        program="demo",
+        target_path=tmp_path / "target",
+        target_kind="auto",
+        ruleset_id="auto",
+        appmap_run=appmap,
+        output_dir=tmp_path / "out",
+    )
+    payload = load_plan(plan_path)
+
+    assert plan_path.name == "pipeline_plan.json"
+    assert payload == json.loads(json.dumps(artifact.to_dict(), sort_keys=True))
+    assert payload["selected_rulesets"]["selected_rulesets"] == ["desktop-baseline", "electron-overlay"]
+    assert payload["normalized_map"]["counts"]["surfaces"] == 2
+    assert payload["normalized_map"]["legacy_policy_shaped"] is True
+    assert {item["role"] for item in payload["hypotheses"]} == {"entry", "amplifier"}
+    assert payload["runtime_adapter_availability"]["spawn_enabled"] is False
+    assert payload["safety"] == {
+        "dry_run_only": True,
+        "spawn_agents": False,
+        "live_dynamic_validation": False,
+        "ledger_writes": False,
+    }
+    assert payload["static_team_handoffs"]["enabled"] is False
+    assert payload["dynamic_validation_queue"]["enabled"] is False

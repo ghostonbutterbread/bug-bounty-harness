@@ -1,0 +1,69 @@
+{
+  "id": "desktop-baseline",
+  "version": 1,
+  "kind": "base",
+  "applies_to": {
+    "app_kinds": ["desktop"],
+    "target_kinds": ["desktop", "native-desktop", "source-tree"]
+  },
+  "surface_taxonomy": {
+    "prioritize": [
+      "file-ingestion-import",
+      "download-export-filesystem",
+      "custom-protocol-deeplink",
+      "ui-dialog-window",
+      "rendering-content-parser",
+      "auth-session-callback"
+    ],
+    "deprioritize": [],
+    "avoid": []
+  },
+  "hypothesis_guidance": {
+    "entry_surfaces": [
+      "file-ingestion-import",
+      "download-export-filesystem",
+      "custom-protocol-deeplink",
+      "ui-dialog-window",
+      "rendering-content-parser",
+      "auth-session-callback"
+    ],
+    "amplifier_surfaces": [],
+    "required_evidence": [
+      "identify attacker-controlled input or user-controlled local project state",
+      "tie the surface to a trust boundary, parser, file operation, navigation, auth, or execution sink"
+    ],
+    "chain_requirements": [
+      "prove an application-level entry reaches this lane before report framing"
+    ],
+    "surface_family_map": {
+      "config": "storage-cache-state",
+      "cli": "custom-protocol-deeplink",
+      "network-config": "network-fetch-ssrf",
+      "project-boundary": "file-ingestion-import",
+      "process-exec": "file-ingestion-import",
+      "rendering": "rendering-content-parser",
+      "file": "file-ingestion-import",
+      "download": "download-export-filesystem",
+      "auth": "auth-session-callback",
+      "protocol": "custom-protocol-deeplink",
+      "dialog": "ui-dialog-window"
+    }
+  },
+  "scheduler_guidance": {
+    "agent_wave_size": "all",
+    "max_per_surface_family": 2,
+    "max_amplifier_family_first_wave": 3,
+    "category_master_mode": false
+  },
+  "review_guidance": {
+    "reportability_rules": {
+      "headline_entry_surface": true
+    }
+  },
+  "policy_hints": {
+    "hunt_posture": "desktop-baseline"
+  },
+  "notes": {
+    "tags": ["desktop"]
+  }
+}

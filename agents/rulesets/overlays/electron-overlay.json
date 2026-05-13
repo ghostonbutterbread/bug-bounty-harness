@@ -1,0 +1,81 @@
+{
+  "id": "electron-overlay",
+  "version": 1,
+  "kind": "overlay",
+  "extends": ["desktop-baseline"],
+  "applies_to": {
+    "app_kinds": ["electron"],
+    "target_kinds": ["electron", "electron-exe", "app_asar"]
+  },
+  "surface_taxonomy": {
+    "prioritize": [
+      "navigation-popup",
+      "custom-protocol-deeplink",
+      "rendering-content-parser",
+      "auth-session-callback",
+      "file-ingestion-import",
+      "download-export-filesystem"
+    ],
+    "deprioritize": [
+      "ipc-bridge",
+      "hostrpc",
+      "preload-native-bridge",
+      "native-parser-addon",
+      "updater-installer-relaunch"
+    ],
+    "avoid": []
+  },
+  "hypothesis_guidance": {
+    "entry_surfaces": [
+      "navigation-popup",
+      "custom-protocol-deeplink",
+      "rendering-content-parser",
+      "auth-session-callback",
+      "file-ingestion-import",
+      "download-export-filesystem"
+    ],
+    "amplifier_surfaces": [
+      "ipc-bridge",
+      "hostrpc",
+      "preload-native-bridge",
+      "native-parser-addon",
+      "updater-installer-relaunch"
+    ],
+    "required_evidence": [
+      "preserve renderer or user-controlled entry evidence when it exists",
+      "mark raw IPC/preload/HostRpc as amplifier context unless app-entry evidence reaches it"
+    ],
+    "chain_requirements": [
+      "prove navigation, rendering, protocol, auth, file, or import/export entry into the privileged Electron lane"
+    ],
+    "surface_family_map": {
+      "ipc": "ipc-bridge",
+      "electron-ipc": "ipc-bridge",
+      "hostrpc": "hostrpc",
+      "preload": "preload-native-bridge",
+      "contextbridge": "preload-native-bridge",
+      "electron-boundary": "ipc-bridge",
+      "openexternal": "navigation-popup",
+      "navigation": "navigation-popup",
+      "deeplink": "custom-protocol-deeplink",
+      "protocol": "custom-protocol-deeplink"
+    }
+  },
+  "scheduler_guidance": {
+    "max_per_surface_family": 2,
+    "max_amplifier_family_first_wave": 2
+  },
+  "review_guidance": {
+    "reportability_rules": {
+      "headline_entry_not_amplifier": true,
+      "hold_amplifier_without_entry": true
+    }
+  },
+  "policy_hints": {
+    "policy_id": "electron-application-first-loose",
+    "hunt_posture": "application-first-loose"
+  },
+  "notes": {
+    "tags": ["electron"]
+  }
+}

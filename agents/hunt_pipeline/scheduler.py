@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Sequence
+
+from agents.agent_scheduler import SchedulerConfig, assignments_from_profiles, decision_events, plan_agent_wave
+from agents.hunt_pipeline.models import HypothesisAgentPacket, PipelineSchedulerPlan, ResolvedRuleset
+from agents.hunt_pipeline.rulesets import hunting_policy_view
+
+
+@dataclass(frozen=True, slots=True)
+class _PacketProfile:
+    key: str
+    description: str
+    sink_categories: tuple[str, ...] = ()
+    focus_globs: tuple[str, ...] = ()
+    ignore_globs: tuple[str, ...] = ()
+    brainstorm_metadata: dict[str, Any] = field(default_factory=dict)
+
+
+def plan_hypothesis_packets(
+    packets: Sequence[HypothesisAgentPacket],
+    *,
+    ruleset: ResolvedRuleset,
+    config: SchedulerConfig | None = None,
+) -> PipelineSchedulerPlan:
+    scheduler_config = config or _scheduler_config_from_ruleset(ruleset)
+    profiles = [_profile_for_packet(packet, index=index) for index, packet in enumerate(packets)]
+    plan = plan_agent_wave(
+        assignments_from_profiles(profiles, source="hunt_pipeline", policy=hunting_policy_view(ruleset)),
+        scheduler_config,
+    )
+    events = decision_events(plan, scheduler_wave_id="dry-run")
+    by_id = {event.get("hypothesis_id"): event for event in events if event.get("hypothesis_id")}
+    return PipelineSchedulerPlan(
+        mode=plan.mode,
+        selected=tuple(_decision_dict(item, by_id) for item in plan.selected),
+        deferred=tuple(_decision_dict(item, by_id) for item in plan.deferred),
+        skipped=tuple(_decision_dict(item, by_id) for item in plan.skipped),
+        summary=plan.summary(),
+        config={
+            "mode": scheduler_config.mode,
+            "agent_wave_size": scheduler_config.agent_wave_size,
+            "max_per_surface_family": scheduler_config.max_per_surface_family,
+            "max_amplifier_family_first_wave": scheduler_config.max_amplifier_family_first_wave,
+            "category_master_mode": scheduler_config.category_master_mode,
+        },
+    )
+
+
+def runtime_adapter_availability() -> dict[str, Any]:
+    return {
+        "base_team_agent_spec": True,
+        "dynamic_agent_builder_agent_spec": False,
+        "spawn_enabled": False,
+        "ledger_writes_enabled": False,
+        "notes": [
+            "dry-run slice only adapts packets into scheduler assignments",
+            "BaseTeam runtime conversion is reserved for the execution slice",
+        ],
+    }
+
+
+def _profile_for_packet(packet: HypothesisAgentPacket, *, index: int) -> _PacketProfile:
+    metadata = dict(packet.scheduler_metadata)
+    metadata.setdefault("hypothesis_id", packet.id)
+    metadata.setdefault("brainstorm_agent_key", packet.key)
+    metadata.setdefault("surface_family", packet.surface_family)
+    metadata.setdefault("secondary_families", list(packet.secondary_families))
+    metadata.setdefault("priority", packet.priority)
+    metadata.setdefault("finding_role", packet.role)
+    metadata.setdefault("brainstorm_tags", list(packet.tags))
+    metadata["input_index"] = index
+    return _PacketProfile(
+        key=packet.key,
+        description=packet.title,
+        sink_categories=(packet.surface_family, packet.role, *packet.tags),
+        focus_globs=tuple(packet.focus_files),
+        brainstorm_metadata=metadata,
+    )
+
+
+def _scheduler_config_from_ruleset(ruleset: ResolvedRuleset) -> SchedulerConfig:
+    guidance = ruleset.scheduler_guidance or {}
+    wave_size = guidance.get("agent_wave_size", "all")
+    if wave_size != "all":
+        wave_size = int(wave_size)
+    return SchedulerConfig(
+        mode="policy-aware",
+        agent_wave_size=wave_size,
+        max_per_surface_family=int(guidance.get("max_per_surface_family") or 2),
+        max_amplifier_family_first_wave=int(guidance.get("max_amplifier_family_first_wave") or 3),
+        category_master_mode=bool(guidance.get("category_master_mode", False)),
+    )
+
+
+def _decision_dict(item: Any, events_by_id: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    event = events_by_id.get(item.hypothesis_id, {})
+    return {
+        "decision": item.decision,
+        "reason": item.decision_reason,
+        "agent_key": item.key,
+        "hypothesis_id": item.hypothesis_id,
+        "surface_family": item.surface_family,
+        "family_role": item.family_role,
+        "priority": item.priority,
+        "final_score": item.final_score,
+        "event": event,
+    }

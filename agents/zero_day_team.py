@@ -94,6 +94,10 @@ MAX_PARALLEL_AGENTS = 10  # hard cap on concurrent sub-agents
 SOURCE_EXCERPT_MAX_LINE_CHARS = 1200
 _ZERO_DAY_TEAM_LOGGER = None
 
+
+def _timestamp_iso() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
 SOURCE_TRUST_CONTEXT_PROMPT = (
     "Treat sources conceptually as data originating outside the current trust "
     "context, not as a closed checklist. This includes but is not limited to: "
@@ -1921,6 +1925,118 @@ def _finding_dedupe_key(finding: Dict[str, Any]) -> Tuple[str, str, str, str, st
         str(finding.get("source", "")).strip().lower(),
         str(finding.get("sink", "")).strip().lower(),
     )
+
+
+def _canonical_text(value: Any) -> str:
+    return re.sub(r"[^a-z0-9_.:-]+", " ", str(value or "").casefold()).strip()
+
+
+def _canonical_source_family(finding: Dict[str, Any]) -> str:
+    text = _canonical_text(
+        " ".join(
+            str(finding.get(key, ""))
+            for key in ("source", "trust_boundary", "flow_path", "description", "context")
+        )
+    )
+    if "ipcmain" in text or "ipc renderer" in text or "ipc message" in text or " ipc " in f" {text} ":
+        return "electron-ipc"
+    if "protocol" in text or "deeplink" in text or "deep link" in text:
+        return "custom-protocol"
+    if "file" in text or "path" in text:
+        return "filesystem"
+    if "http" in text or "url" in text or "fetch" in text:
+        return "network-url"
+    return text[:120]
+
+
+def _canonical_sink_family(finding: Dict[str, Any]) -> str:
+    text = _canonical_text(
+        " ".join(
+            str(finding.get(key, ""))
+            for key in ("sink", "type", "description", "context", "flow_path")
+        )
+    )
+    if "child_process.exec" in text or "exec " in f" {text} " or "process execution" in text:
+        return "process-exec"
+    if "readfilesync" in text or "writefilesync" in text or "path traversal" in text:
+        return "filesystem-path"
+    if "innerhtml" in text or "eval" in text or "document.write" in text:
+        return "dom-code-html"
+    if "fetch" in text or "http" in text or "request" in text:
+        return "server-side-request"
+    return text[:120]
+
+
+def _canonical_finding_root_key(finding: Dict[str, Any]) -> tuple[str, str, str]:
+    file_path = str(_split_file_reference(finding.get("file", ""))[0]).strip().casefold()
+    return (file_path, _canonical_source_family(finding), _canonical_sink_family(finding))
+
+
+def _canonical_owner_class(finding: Dict[str, Any]) -> str | None:
+    source_family = _canonical_source_family(finding)
+    sink_family = _canonical_sink_family(finding)
+    if sink_family == "process-exec":
+        return "exec-sink-reachability"
+    if source_family == "electron-ipc":
+        return "ipc-trust-boundary"
+    if sink_family == "filesystem-path":
+        return "path-traversal"
+    if sink_family == "dom-code-html":
+        return "dom-xss"
+    if sink_family == "server-side-request":
+        return "ssrf"
+    return None
+
+
+def _finding_reported_class(finding: Dict[str, Any]) -> str:
+    class_name = str(finding.get("class_name") or "").strip()
+    if class_name and class_name.casefold() not in {"novel", "unknown"}:
+        return class_name
+    return str(finding.get("agent") or class_name or "").strip()
+
+
+def _is_class_owned_finding(finding: Dict[str, Any]) -> bool:
+    reported = _finding_reported_class(finding).casefold()
+    category = str(finding.get("category") or "").strip().casefold()
+    return bool(reported and reported != "novel" and category != "novel")
+
+
+def _triage_canonical_ownership(
+    confirmed: Sequence[Dict[str, Any]],
+    dormant: Sequence[Dict[str, Any]],
+    novel: Sequence[Dict[str, Any]],
+) -> tuple[list[Dict[str, Any]], list[Dict[str, Any]], list[Dict[str, Any]], list[Dict[str, Any]]]:
+    """Suppress off-owner duplicates once the canonical owner reported the same root cause."""
+    owner_keys: set[tuple[str, str, str]] = set()
+    for finding in [*confirmed, *dormant, *novel]:
+        owner = (_canonical_owner_class(finding) or "").casefold()
+        reported = _finding_reported_class(finding).casefold()
+        if owner and reported == owner and _is_class_owned_finding(finding):
+            owner_keys.add(_canonical_finding_root_key(finding))
+
+    def split_tier(items: Sequence[Dict[str, Any]]) -> tuple[list[Dict[str, Any]], list[Dict[str, Any]]]:
+        kept: list[Dict[str, Any]] = []
+        demoted_items: list[Dict[str, Any]] = []
+        for finding in items:
+            reported = _finding_reported_class(finding).casefold()
+            owner = (_canonical_owner_class(finding) or "").casefold()
+            root_key = _canonical_finding_root_key(finding)
+            if owner and reported != owner and root_key in owner_keys:
+                updated = dict(finding)
+                updated["canonical_owner_class"] = owner
+                updated["canonical_root_key"] = "|".join(root_key)
+                updated["rejected_reason"] = (
+                    "off-category duplicate: canonical root cause is owned by " f"{owner}"
+                )
+                demoted_items.append(updated)
+            else:
+                kept.append(finding)
+        return kept, demoted_items
+
+    kept_confirmed, demoted_confirmed = split_tier(confirmed)
+    kept_dormant, demoted_dormant = split_tier(dormant)
+    kept_novel, demoted_novel = split_tier(novel)
+    return kept_confirmed, kept_dormant, kept_novel, [*demoted_confirmed, *demoted_dormant, *demoted_novel]
 
 
 def stage2_ghost_review(
@@ -3853,6 +3969,16 @@ def orchestrate_zero_day_team(
         write_reports=False,
         hunting_policy=resolved_policy,
     )
+    ownership_demoted_findings: list[Dict[str, Any]] = []
+    confirmed_findings, dormant_findings, novel_findings, ownership_demoted_findings = (
+        _triage_canonical_ownership(confirmed_findings, dormant_findings, novel_findings)
+    )
+    if ownership_demoted_findings:
+        print(
+            "[triage] demoted "
+            f"{len(ownership_demoted_findings)} off-category duplicate finding(s) via canonical ownership",
+            flush=True,
+        )
     promotion = promote_reviewed_findings(
         program=program_slug,
         storage=storage,

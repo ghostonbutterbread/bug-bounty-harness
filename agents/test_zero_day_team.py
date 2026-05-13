@@ -79,6 +79,7 @@ Electron desktop target.
         count: int = 1,
         *,
         agent_prefix: str = "canva-appmap-rce",
+        static_agent_key: str | None = None,
         run_id: str = "appmap-run-1",
     ) -> str:
         primitives = []
@@ -86,7 +87,7 @@ Electron desktop target.
         for index in range(1, count + 1):
             hypothesis_id = f"H{index:03d}"
             candidate_id = f"C{index:04d}"
-            agent_key = f"{agent_prefix}-{index}"
+            agent_key = static_agent_key or f"{agent_prefix}-{index}"
             primitives.append(
                 "\n".join(
                     [
@@ -128,7 +129,8 @@ Electron desktop target.
             "- Target kind: electron-exe\n"
             "- Target path: input/app_asar\n"
             "- Status: active\n"
-            f"- AppMap run id: {run_id}\n\n"
+            + ("- Agent granularity: category-master\n" if static_agent_key else "")
+            + f"- AppMap run id: {run_id}\n\n"
             "## Target mental model\n"
             "Static AppMap target.\n\n"
             "## Impact primitives\n"
@@ -149,13 +151,19 @@ Electron desktop target.
         *,
         spec_path: Path | None = None,
         agent_prefix: str = "canva-appmap-rce",
+        static_agent_key: str | None = None,
         run_id: str = "appmap-run-1",
         shared_source_sink: bool = False,
     ) -> Path:
         spec_path = spec_path or lane_root / "brainstorm" / "appmap-rce-spec.md"
         spec_path.parent.mkdir(parents=True, exist_ok=True)
         spec_path.write_text(
-            self._appmap_brainstorm_spec_text(count=count, agent_prefix=agent_prefix, run_id=run_id),
+            self._appmap_brainstorm_spec_text(
+                count=count,
+                agent_prefix=agent_prefix,
+                static_agent_key=static_agent_key,
+                run_id=run_id,
+            ),
             encoding="utf-8",
         )
         contexts_dir = spec_path.parent / "agent_contexts"
@@ -163,7 +171,7 @@ Electron desktop target.
         for index in range(1, count + 1):
             hypothesis_id = f"H{index:03d}"
             candidate_id = f"C{index:04d}"
-            agent_key = f"{agent_prefix}-{index}"
+            agent_key = static_agent_key or f"{agent_prefix}-{index}"
             packet = {
                 "schema_version": 1,
                 "run_id": run_id,
@@ -260,6 +268,7 @@ Electron desktop target.
         parallel: bool = False,
         brainstorm_hypothesis: str | None = None,
         brainstorm_cluster_size: int = 1,
+        brainstorm_only: bool = True,
         hunting_policy: str | None = "off",
         triage_policy: str | None = None,
         no_triage_policy: bool = False,
@@ -269,6 +278,8 @@ Electron desktop target.
         agent_wave_size: int | str | None = "all",
         max_per_surface_family: int = 2,
         max_amplifier_family_first_wave: int = 3,
+        category_master_mode: bool = False,
+        max_hypotheses_per_master_agent: int = 6,
         snapshot_id: str = "snap-1",
         snapshot_version: str = "1.2.3",
     ) -> dict:
@@ -331,7 +342,7 @@ Electron desktop target.
                 no_shared_brain=True,
                 brainstorm_spec=spec_path,
                 brainstorm_spec_dir=spec_dir,
-                brainstorm_only=True,
+                brainstorm_only=brainstorm_only,
                 brainstorm_hypothesis=brainstorm_hypothesis,
                 brainstorm_cluster_size=brainstorm_cluster_size,
                 fresh=fresh,
@@ -345,6 +356,8 @@ Electron desktop target.
                 agent_wave_size=agent_wave_size,
                 max_per_surface_family=max_per_surface_family,
                 max_amplifier_family_first_wave=max_amplifier_family_first_wave,
+                category_master_mode=category_master_mode,
+                max_hypotheses_per_master_agent=max_hypotheses_per_master_agent,
             )
 
     def test_zero_day_summary_suppresses_hunting_policy_when_policy_disabled(self) -> None:
@@ -1244,6 +1257,85 @@ Electron desktop target.
         self.assertEqual([row["hypothesis_id"] for row in queued], ["H001", "H002"])
         self.assertTrue(all(row.get("brainstorm_cluster_id") for row in queued))
 
+    def test_category_master_spec_groups_static_category_agent_without_scheduler_mode(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "category-master-spec"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(
+            lane_root,
+            count=2,
+            static_agent_key="exec-sink-reachability",
+        )
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            scheduler="legacy",
+        )
+
+        self.assertEqual(result["classes_run"], ["exec-sink-reachability"])
+        self.assertEqual(len(spawned_profiles), 1)
+        master = spawned_profiles[0]
+        self.assertEqual(master.key, "exec-sink-reachability")
+        self.assertEqual(master.entry_questions, zero_day_team.CLASS_PROFILES["exec-sink-reachability"].entry_questions)
+        self.assertTrue(master.brainstorm_metadata["category_master"])
+        self.assertEqual(
+            {item["hypothesis_id"] for item in master.brainstorm_metadata["brainstorm_cluster_assignments"]},
+            {"H001", "H002"},
+        )
+        self.assertIn("Category-master member metadata", master.prompt_addendum)
+        rows = [
+            json.loads(line)
+            for line in (lane_root / "brainstorm" / "coverage.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        queued = [row for row in rows if row.get("event") == "agent_queued"]
+        self.assertEqual({row.get("hypothesis_id") for row in queued}, {"H001", "H002"})
+        self.assertEqual({row.get("agent_key") for row in queued}, {"exec-sink-reachability"})
+
+    def test_category_master_spec_merges_into_static_profile_in_full_run(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "category-master-full-run"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(
+            lane_root,
+            count=2,
+            static_agent_key="exec-sink-reachability",
+        )
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            brainstorm_only=False,
+            scheduler="legacy",
+        )
+
+        self.assertIn("exec-sink-reachability", result["classes_run"])
+        self.assertEqual(result["classes_run"].count("exec-sink-reachability"), 1)
+        merged = [profile for profile in spawned_profiles if profile.key == "exec-sink-reachability"]
+        self.assertEqual(len(merged), 1)
+        self.assertTrue(merged[0].brainstorm_metadata["category_master"])
+        self.assertEqual(
+            {item["hypothesis_id"] for item in result["brainstorm"]["profile_assignments"]},
+            {"H001", "H002"},
+        )
+        queued = [
+            json.loads(line)
+            for line in (lane_root / "brainstorm" / "coverage.jsonl").read_text(encoding="utf-8").splitlines()
+            if json.loads(line).get("event") == "agent_queued"
+        ]
+        self.assertEqual({row.get("hypothesis_id") for row in queued}, {"H001", "H002"})
+        self.assertEqual({row.get("agent_key") for row in queued}, {"exec-sink-reachability"})
+
     def test_selected_hypothesis_across_multiple_specs(self) -> None:
         lane_root = self.tmp / "Shared" / "appmap" / "canva" / "selected"
         target = lane_root / "input" / "app_asar"
@@ -1709,6 +1801,99 @@ Electron desktop target.
         self.assertTrue(all(row.get("snapshot_id") == "snap-1" for row in selected))
         self.assertTrue(all(row.get("snapshot_version") == "1.2.3" for row in selected))
 
+    def test_policy_aware_category_master_mode_builds_generic_master_profile(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "static"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root, count=4)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            scheduler="policy-aware",
+            agent_wave_size="all",
+            category_master_mode=True,
+            max_hypotheses_per_master_agent=6,
+        )
+
+        self.assertEqual(len(spawned_profiles), 1)
+        master = spawned_profiles[0]
+        self.assertTrue(master.key.endswith("-master"))
+        self.assertEqual(result["classes_run"], [master.key])
+        metadata = master.brainstorm_metadata
+        self.assertTrue(metadata["scheduler_category_master"])
+        self.assertEqual(len(metadata["brainstorm_cluster_assignments"]), 4)
+        self.assertEqual(
+            {item["hypothesis_id"] for item in metadata["brainstorm_cluster_assignments"]},
+            {"H001", "H002", "H003", "H004"},
+        )
+        self.assertIn("Category-master assignment metadata", master.prompt_addendum)
+        self.assertIn("H004", master.prompt_addendum)
+
+        decisions = [
+            json.loads(line)
+            for line in Path(result["scheduler"]["decisions_path"]).read_text(encoding="utf-8").splitlines()
+        ]
+        selected = [row for row in decisions if row.get("event") == "agent_selected"]
+        self.assertEqual({row.get("hypothesis_id") for row in selected}, {"H001", "H002", "H003", "H004"})
+        self.assertEqual({row.get("scheduler_master_agent_key") for row in selected}, {master.key})
+        self.assertTrue(result["scheduler"]["category_master_mode"])
+
+    def test_category_master_mode_is_explicit_and_legacy_default_is_unchanged(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "static"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root, count=4)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        result = self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            scheduler="legacy",
+            category_master_mode=True,
+        )
+
+        self.assertEqual(len(spawned_profiles), 4)
+        self.assertEqual(result["classes_run"], [f"canva-appmap-rce-{index}" for index in range(1, 5)])
+        self.assertNotIn("category_master_mode", result["scheduler"])
+
+    def test_category_master_mode_respects_max_hypotheses_per_master_agent(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "static"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root, count=5)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+
+        self._run_appmap_brainstorm(
+            lane_root=lane_root,
+            target=target,
+            spec_path=spec_path,
+            storage=storage,
+            spawned_profiles=spawned_profiles,
+            scheduler="policy-aware",
+            agent_wave_size="all",
+            category_master_mode=True,
+            max_hypotheses_per_master_agent=2,
+        )
+
+        self.assertEqual(len(spawned_profiles), 3)
+        self.assertEqual(
+            [len(profile.brainstorm_metadata.get("brainstorm_cluster_assignments", [])) for profile in spawned_profiles],
+            [2, 2, 0],
+        )
+        self.assertTrue(all(profile.key.endswith("-master") for profile in spawned_profiles[:2]))
+        self.assertEqual(spawned_profiles[2].key, "canva-appmap-rce-5")
+
     def test_scheduler_cli_args_parse(self) -> None:
         args = zero_day_team._parse_cli_args(
             [
@@ -1722,6 +1907,9 @@ Electron desktop target.
                 "2",
                 "--max-amplifier-family-first-wave",
                 "1",
+                "--category-master-mode",
+                "--max-hypotheses-per-master-agent",
+                "4",
                 "--no-prefer-deferred",
             ]
         )
@@ -1730,6 +1918,8 @@ Electron desktop target.
         self.assertEqual(args.agent_wave_size, "10")
         self.assertEqual(args.max_per_surface_family, 2)
         self.assertEqual(args.max_amplifier_family_first_wave, 1)
+        self.assertTrue(args.category_master_mode)
+        self.assertEqual(args.max_hypotheses_per_master_agent, 4)
         self.assertTrue(args.no_prefer_deferred)
 
     def test_brainstorm_profile_key_collision_fails_closed(self) -> None:

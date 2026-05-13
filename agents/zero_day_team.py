@@ -50,7 +50,11 @@ from agents.coverage_store import CoverageStore
 from agents.base_team.promotion import promote_reviewed_findings
 from agents.base_team.review import stage2_ghost_review as shared_stage2_ghost_review
 from agents.base_team.storage import resolve_team_storage
-from agents.brainstorm_adapters import brainstorm_intent_to_dynamic_agent_spec
+from agents.brainstorm_adapters import (
+    brainstorm_intents_to_dynamic_agent_specs,
+    spec_uses_category_master_agents,
+)
+from agents.brainstorm_spec import parse_brainstorm_spec
 from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.hunting_policy import HuntingPolicy, coerce_hunting_policy, resolve_hunting_policy, resolve_policy_selection
 from agents.base_team.scheduler import BaseTeamSchedulerOptions, schedule_profiles
@@ -67,7 +71,6 @@ from bounty_core.brainstorm_spec import (  # noqa: E402
     append_coverage,
     appmap_assignment_identity,
     is_appmap_assignment_covered,
-    parse_brainstorm_spec,
     read_coverage_jsonl,
 )
 
@@ -657,8 +660,26 @@ def _profile_from_agent_spec(spec: Any) -> VulnerabilityClassProfile:
         f"Prioritize {vuln_class} paths on the {surface} surface, stay inside the focus globs first, "
         "and treat ignore globs as low-priority unless a strong cross-file flow forces expansion."
     )
+    key = str(getattr(spec, "key", "")).strip()
+    brainstorm_metadata = dict(getattr(spec, "brainstorm_metadata", {}) or {})
+    static_profile = CLASS_PROFILES.get(key) if brainstorm_metadata.get("category_master") else None
+    if static_profile is not None:
+        return VulnerabilityClassProfile(
+            key=static_profile.key,
+            description=str(getattr(spec, "description", "")).strip() or static_profile.description,
+            entry_questions=static_profile.entry_questions,
+            cross_questions=static_profile.cross_questions,
+            sink_categories=static_profile.sink_categories,
+            reasoning=static_profile.reasoning,
+            display_name=str(getattr(spec, "name", "")).strip() or static_profile.display_name,
+            prompt_addendum=str(getattr(spec, "agent_prompt_template", "")).rstrip(),
+            focus_globs=focus_globs or static_profile.focus_globs,
+            ignore_globs=ignore_globs or static_profile.ignore_globs,
+            brainstorm_metadata=brainstorm_metadata,
+        )
+
     return VulnerabilityClassProfile(
-        key=str(getattr(spec, "key", "")).strip(),
+        key=key,
         description=str(getattr(spec, "description", "")).strip(),
         entry_questions=entry_questions,
         cross_questions=cross_questions,
@@ -668,7 +689,7 @@ def _profile_from_agent_spec(spec: Any) -> VulnerabilityClassProfile:
         prompt_addendum=str(getattr(spec, "agent_prompt_template", "")).rstrip(),
         focus_globs=focus_globs,
         ignore_globs=ignore_globs,
-        brainstorm_metadata=dict(getattr(spec, "brainstorm_metadata", {}) or {}),
+        brainstorm_metadata=brainstorm_metadata,
     )
 
 
@@ -689,8 +710,12 @@ def _select_from_profiles(
 def _select_profiles(
     selected_class: Optional[str],
     extra_profiles: Sequence[VulnerabilityClassProfile] = (),
+    excluded_builtin_keys: Sequence[str] = (),
 ) -> List[VulnerabilityClassProfile]:
-    ordered_profiles = list(CLASS_PROFILES.values()) + list(extra_profiles)
+    excluded = {str(key).casefold() for key in excluded_builtin_keys}
+    ordered_profiles = [
+        profile for profile in CLASS_PROFILES.values() if profile.key.casefold() not in excluded
+    ] + list(extra_profiles)
     if not selected_class:
         return ordered_profiles
 
@@ -700,6 +725,97 @@ def _select_profiles(
         known = ", ".join(sorted({profile.key.casefold() for profile in ordered_profiles}))
         raise ValueError(f"Unknown class {selected_class!r}. Expected one of: {known}")
     return matches
+
+
+def _merge_brainstorm_profiles_into_builtin(
+    base: VulnerabilityClassProfile,
+    brainstorm_profiles: Sequence[VulnerabilityClassProfile],
+) -> VulnerabilityClassProfile:
+    """Return a builtin category profile enriched with AppMap/brainstorm assignments."""
+    prompt_sections: list[str] = []
+    if str(base.prompt_addendum or "").strip():
+        prompt_sections.append(str(base.prompt_addendum).strip())
+    assignments: list[dict[str, Any]] = []
+    focus_globs: list[str] = list(base.focus_globs)
+    ignore_globs: list[str] = list(base.ignore_globs)
+    for profile in brainstorm_profiles:
+        profile_prompt = str(getattr(profile, "prompt_addendum", "") or "").strip()
+        if profile_prompt:
+            prompt_sections.append(
+                f"## AppMap/brainstorm assignment for {profile.key}\n{profile_prompt}"
+            )
+        for item in _brainstorm_assignment_metadata(profile):
+            assignments.append(dict(item))
+        for pattern in getattr(profile, "focus_globs", ()) or ():
+            if pattern not in focus_globs:
+                focus_globs.append(pattern)
+        for pattern in getattr(profile, "ignore_globs", ()) or ():
+            if pattern not in ignore_globs:
+                ignore_globs.append(pattern)
+
+    metadata = dict(getattr(base, "brainstorm_metadata", {}) or {})
+    if assignments:
+        metadata.update(
+            {
+                "category_master": True,
+                "scheduler_category_master": True,
+                "brainstorm_cluster_size": len(assignments),
+                "brainstorm_cluster_assignments": assignments,
+                "scheduler_master_agent_key": base.key,
+                "member_agent_keys": sorted(
+                    {
+                        str(item.get("brainstorm_agent_key") or item.get("agent_key") or base.key).strip()
+                        for item in assignments
+                        if str(item.get("brainstorm_agent_key") or item.get("agent_key") or base.key).strip()
+                    }
+                ),
+                "member_hypothesis_ids": [
+                    str(item.get("hypothesis_id") or "").strip()
+                    for item in assignments
+                    if str(item.get("hypothesis_id") or "").strip()
+                ],
+            }
+        )
+
+    return VulnerabilityClassProfile(
+        key=base.key,
+        description=(
+            f"{base.description} Includes {len(assignments)} AppMap/brainstorm assignment(s) "
+            "for per-hypothesis attribution."
+        ),
+        entry_questions=base.entry_questions,
+        cross_questions=base.cross_questions,
+        sink_categories=base.sink_categories,
+        reasoning=base.reasoning,
+        display_name=base.display_name,
+        prompt_addendum="\n\n".join(prompt_sections),
+        focus_globs=tuple(focus_globs),
+        ignore_globs=tuple(ignore_globs),
+        brainstorm_metadata=metadata,
+    )
+
+
+def _merge_brainstorm_profiles_with_builtins(
+    brainstorm_profiles: Sequence[VulnerabilityClassProfile],
+) -> tuple[list[VulnerabilityClassProfile], list[str]]:
+    """Merge AppMap category-master specs into matching static category profiles."""
+    builtin_key_lookup = {key.casefold(): key for key in CLASS_PROFILES}
+    by_builtin_key: dict[str, list[VulnerabilityClassProfile]] = {}
+    passthrough: list[VulnerabilityClassProfile] = []
+    for profile in brainstorm_profiles:
+        normalized = profile.key.casefold()
+        if normalized in builtin_key_lookup:
+            by_builtin_key.setdefault(normalized, []).append(profile)
+        else:
+            passthrough.append(profile)
+
+    merged: list[VulnerabilityClassProfile] = []
+    excluded: list[str] = []
+    for normalized_key, profiles in by_builtin_key.items():
+        base_key = builtin_key_lookup[normalized_key]
+        merged.append(_merge_brainstorm_profiles_into_builtin(CLASS_PROFILES[base_key], profiles))
+        excluded.append(base_key)
+    return [*passthrough, *merged], excluded
 
 
 def _build_prompt_base(
@@ -1923,11 +2039,16 @@ def _filter_appmap_profiles_by_coverage(
     active: list[VulnerabilityClassProfile] = []
     skipped: list[VulnerabilityClassProfile] = []
     for profile in profiles:
-        identity = _appmap_coverage_identity(profile)
-        if identity is None:
+        identities = [
+            identity
+            for metadata in _brainstorm_assignment_metadata(profile)
+            for identity in [appmap_assignment_identity(metadata, default_agent_key=profile.key)]
+            if identity is not None
+        ]
+        if not identities:
             active.append(profile)
             continue
-        if is_appmap_assignment_covered(identity, events):
+        if all(is_appmap_assignment_covered(identity, events) for identity in identities):
             skipped.append(profile)
         else:
             active.append(profile)
@@ -2194,16 +2315,20 @@ def _brainstorm_assignment_metadata(profile: VulnerabilityClassProfile) -> list[
     return [dict(item) for item in assignments] or [metadata]
 
 
-def _brainstorm_profile_assignment(profile: VulnerabilityClassProfile) -> dict[str, str]:
-    metadata = dict(getattr(profile, "brainstorm_metadata", {}) or {})
-    return {
-        "profile": profile.key,
-        "hypothesis_id": str(metadata.get("hypothesis_id") or "").strip(),
-        "agent_key": str(metadata.get("brainstorm_agent_key") or profile.key).strip(),
-        "source_spec_path": _normalize_brainstorm_source_spec_path(
-            metadata.get("source_spec_path") or metadata.get("brainstorm_spec")
-        ),
-    }
+def _brainstorm_profile_assignments(profile: VulnerabilityClassProfile) -> list[dict[str, str]]:
+    assignments: list[dict[str, str]] = []
+    for metadata in _brainstorm_assignment_metadata(profile):
+        assignments.append(
+            {
+                "profile": profile.key,
+                "hypothesis_id": str(metadata.get("hypothesis_id") or "").strip(),
+                "agent_key": str(metadata.get("brainstorm_agent_key") or metadata.get("agent_key") or profile.key).strip(),
+                "source_spec_path": _normalize_brainstorm_source_spec_path(
+                    metadata.get("source_spec_path") or metadata.get("brainstorm_spec")
+                ),
+            }
+        )
+    return assignments
 
 
 def _brainstorm_hypothesis_assignment(hypothesis: Any) -> dict[str, str]:
@@ -2721,10 +2846,94 @@ def _cluster_brainstorm_profiles(
                 {
                     "cluster_id": cluster_id,
                     "profile": clustered_profile.key,
-                    "members": [_brainstorm_profile_assignment(item) for item in chunk],
+                    "members": [
+                        assignment
+                        for item in chunk
+                        for assignment in _brainstorm_profile_assignments(item)
+                    ],
                 }
             )
     return [*passthrough, *clustered], summaries
+
+
+def _category_master_profile_from_assignment(assignment: Any) -> VulnerabilityClassProfile:
+    """Build a runtime profile for a scheduler-created category master.
+
+    The pure scheduler decides *whether* hypotheses should be bundled. The
+    zero-day runtime owns the concrete prompt/profile shape because coverage and
+    finding attribution are brainstorm-specific here.
+    """
+
+    metadata = dict(getattr(assignment, "scheduler_metadata", {}) or {})
+    if not metadata.get("category_master"):
+        return assignment.profile
+
+    first = assignment.profile
+    assignments = [
+        dict(item)
+        for item in (getattr(assignment, "assigned_hypotheses", ()) or ())
+        if isinstance(item, dict)
+    ]
+    if len(assignments) <= 1:
+        return first
+
+    master_key = str(getattr(assignment, "key", "") or getattr(first, "key", "") or "category-master").strip()
+    family = str(getattr(assignment, "surface_family", "") or metadata.get("surface_family") or "unknown").strip()
+    member_keys = [str(item).strip() for item in metadata.get("member_agent_keys", []) if str(item).strip()]
+    member_ids = [str(item).strip() for item in metadata.get("member_hypothesis_ids", []) if str(item).strip()]
+    prompt_sections = [
+        "Category-master brainstorm assignment: evaluate each assigned hypothesis independently, "
+        "but use one broad surface-family agent so related hypotheses can share context and avoid duplicate spawns.",
+        f"Surface family: {family}",
+        f"Member agents: {', '.join(member_keys) if member_keys else '(unknown)'}",
+        f"Member hypotheses: {', '.join(member_ids) if member_ids else '(unknown)'}",
+        "Emit findings separately with the exact source_spec_path, hypothesis_id, and brainstorm_agent_key for the matching member. "
+        "If no member has a real issue, output exactly {}.",
+        "Category-master assignment metadata:",
+        json.dumps(assignments, indent=2, sort_keys=True),
+    ]
+    first_addendum = str(getattr(first, "prompt_addendum", "") or "").strip()
+    if first_addendum:
+        prompt_sections.extend(["Seed prompt from the first bundled hypothesis:", first_addendum])
+
+    master_metadata = dict(getattr(first, "brainstorm_metadata", {}) or {})
+    master_metadata.update(
+        {
+            "category_master": True,
+            "scheduler_category_master": True,
+            "surface_family": family,
+            "brainstorm_cluster_id": _cluster_slug(master_key),
+            "brainstorm_cluster_size": len(assignments),
+            "brainstorm_cluster_assignments": assignments,
+            "scheduler_master_agent_key": master_key,
+            "member_agent_keys": member_keys,
+            "member_hypothesis_ids": member_ids,
+        }
+    )
+
+    return VulnerabilityClassProfile(
+        key=master_key,
+        description=(
+            f"Category-master brainstorm agent for {len(assignments)} {family or 'unknown'} hypotheses. "
+            "Explores a generic surface category while preserving per-hypothesis attribution."
+        ),
+        entry_questions=getattr(first, "entry_questions", ()),
+        cross_questions=getattr(first, "cross_questions", ()),
+        sink_categories=getattr(first, "sink_categories", ()),
+        reasoning=getattr(first, "reasoning", ""),
+        display_name=f"{family or 'Category'} Master ({len(assignments)} hypotheses)",
+        prompt_addendum="\n\n".join(prompt_sections),
+        focus_globs=getattr(first, "focus_globs", ()),
+        ignore_globs=getattr(first, "ignore_globs", ()),
+        brainstorm_metadata=master_metadata,
+    )
+
+
+def _profiles_from_scheduler_result(result: Any) -> list[VulnerabilityClassProfile]:
+    assignments = list(getattr(result, "selected_assignments", ()) or ())
+    if not assignments:
+        return list(getattr(result, "selected_profiles", ()) or ())
+    return [_category_master_profile_from_assignment(assignment) for assignment in assignments]
 
 
 def _reject_brainstorm_profile_collisions(
@@ -2781,22 +2990,29 @@ def _load_brainstorm_profiles(
         raise ValueError(f"brainstorm hypothesis {selected_id!r} was not found or is retired")
 
     profiles: list[VulnerabilityClassProfile] = []
+    intents: list[Any] = []
     for hypothesis in selected_hypotheses:
         for intent in hypothesis_to_agent_intents_for_profile(spec, hypothesis):
-            dynamic_spec = brainstorm_intent_to_dynamic_agent_spec(
-                intent,
-                program=program_slug,
-                version=version,
-            )
-            profile = _profile_from_agent_spec(dynamic_spec)
-            appmap_run_id = str(
-                spec.metadata.get("AppMap run id")
-                or spec.metadata.get("appmap_run_id")
-                or ""
-            ).strip()
-            if appmap_run_id and _is_appmap_brainstorm_profile(profile):
-                profile.brainstorm_metadata.setdefault("appmap_run_id", appmap_run_id)
-            profiles.append(profile)
+            intents.append(intent)
+    dynamic_specs = brainstorm_intents_to_dynamic_agent_specs(
+        intents,
+        program=program_slug,
+        version=version,
+        category_master=spec_uses_category_master_agents(spec),
+    )
+    appmap_run_id = str(
+        spec.metadata.get("AppMap run id")
+        or spec.metadata.get("appmap_run_id")
+        or ""
+    ).strip()
+    for dynamic_spec in dynamic_specs:
+        profile = _profile_from_agent_spec(dynamic_spec)
+        if appmap_run_id and _is_appmap_brainstorm_profile(profile):
+            profile.brainstorm_metadata.setdefault("appmap_run_id", appmap_run_id)
+            for assignment in profile.brainstorm_metadata.get("brainstorm_cluster_assignments") or []:
+                if isinstance(assignment, dict):
+                    assignment.setdefault("appmap_run_id", appmap_run_id)
+        profiles.append(profile)
     return profiles, selected_hypotheses, spec.path
 
 
@@ -3113,6 +3329,8 @@ def orchestrate_zero_day_team(
     agent_wave_size: int | str | None = "all",
     max_per_surface_family: int = 2,
     max_amplifier_family_first_wave: int = 3,
+    category_master_mode: bool = False,
+    max_hypotheses_per_master_agent: int = 6,
     prefer_deferred: bool = True,
     verbose: int = 0,
 ) -> Dict[str, Any]:
@@ -3197,6 +3415,7 @@ def orchestrate_zero_day_team(
     brainstorm_hypotheses: list[Any] = []
     brainstorm_spec_paths: list[Path] = []
     brainstorm_coverage_path: Path | None = None
+    merged_brainstorm_builtin_keys: list[str] = []
     dynamic_version = (
         str(snapshot_identity.get("version_label") or "").strip()
         or str(snapshot_identity.get("snapshot_id") or "").strip()
@@ -3308,9 +3527,13 @@ def orchestrate_zero_day_team(
             version=dynamic_version,
             selected_hypothesis=brainstorm_hypothesis,
         )
+        if not brainstorm_only:
+            brainstorm_profiles, merged_brainstorm_builtin_keys = _merge_brainstorm_profiles_with_builtins(
+                brainstorm_profiles
+            )
         _reject_brainstorm_profile_collisions(
             brainstorm_profiles,
-            [*CLASS_PROFILES.values(), *dynamic_profiles],
+            [] if brainstorm_only else dynamic_profiles,
         )
         for profile in brainstorm_profiles:
             profile.brainstorm_metadata["_coverage_path"] = str(brainstorm_coverage_path)
@@ -3338,6 +3561,7 @@ def orchestrate_zero_day_team(
         profiles = _select_profiles(
             selected_class,
             extra_profiles=[*dynamic_profiles, *brainstorm_profiles],
+            excluded_builtin_keys=merged_brainstorm_builtin_keys,
         )
     shared_brain_index = None
 
@@ -3501,13 +3725,15 @@ def orchestrate_zero_day_team(
                 agent_wave_size=_parse_agent_wave_size(agent_wave_size),
                 max_per_surface_family=max_per_surface_family,
                 max_amplifier_family_first_wave=max_amplifier_family_first_wave,
+                category_master_mode=category_master_mode,
+                max_hypotheses_per_master_agent=max_hypotheses_per_master_agent,
                 prefer_deferred=prefer_deferred,
                 fresh=fresh,
                 scheduler_wave_id=datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ"),
                 run_id=getattr(ledger, "run_id", None),
             ),
         )
-        active_profiles = list(scheduler_result.selected_profiles)
+        active_profiles = _profiles_from_scheduler_result(scheduler_result)
         deferred_profile_keys = list(scheduler_result.deferred_keys)
         skipped_profile_keys.extend(deferred_profile_keys)
         scheduler_plan_summary = dict(scheduler_result.summary)
@@ -3515,6 +3741,8 @@ def orchestrate_zero_day_team(
             {
                 "wave_size": _parse_agent_wave_size(agent_wave_size),
                 "decisions_path": str(scheduler_decisions_path),
+                "category_master_mode": category_master_mode,
+                "max_hypotheses_per_master_agent": max_hypotheses_per_master_agent,
             }
         )
         scheduler_events = list(scheduler_result.decision_events)
@@ -3730,7 +3958,9 @@ def orchestrate_zero_day_team(
             "coverage": str(brainstorm_coverage_path),
             "profiles": [profile.key for profile in brainstorm_profiles],
             "profile_assignments": [
-                _brainstorm_profile_assignment(profile) for profile in brainstorm_profiles
+                assignment
+                for profile in brainstorm_profiles
+                for assignment in _brainstorm_profile_assignments(profile)
             ],
             "hypotheses": [hypothesis.id for hypothesis in brainstorm_hypotheses],
             "hypothesis_assignments": [
@@ -3739,7 +3969,9 @@ def orchestrate_zero_day_team(
             "only": brainstorm_only,
             "coverage_skipped": [profile.key for profile in appmap_coverage_skipped_profiles],
             "coverage_skipped_assignments": [
-                _brainstorm_profile_assignment(profile) for profile in appmap_coverage_skipped_profiles
+                assignment
+                for profile in appmap_coverage_skipped_profiles
+                for assignment in _brainstorm_profile_assignments(profile)
             ],
             "cluster_size": brainstorm_cluster_size,
             "clusters": brainstorm_clusters,
@@ -3932,6 +4164,20 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
         help="Policy-aware first-wave cap for amplifier families when app-entry alternatives exist. Default: 3.",
     )
     parser.add_argument(
+        "--category-master-mode",
+        action="store_true",
+        help=(
+            "When policy-aware scheduling is enabled, bundle related hypotheses into explicit "
+            "generic category-master agents that preserve per-hypothesis metadata."
+        ),
+    )
+    parser.add_argument(
+        "--max-hypotheses-per-master-agent",
+        type=int,
+        default=6,
+        help="Maximum hypotheses to feed into one category-master agent. Default: 6.",
+    )
+    parser.add_argument(
         "--no-prefer-deferred",
         action="store_true",
         help="Do not prefer previously deferred agents when policy-aware scheduling is enabled.",
@@ -3981,6 +4227,8 @@ if __name__ == "__main__":
         agent_wave_size=args.agent_wave_size,
         max_per_surface_family=args.max_per_surface_family,
         max_amplifier_family_first_wave=args.max_amplifier_family_first_wave,
+        category_master_mode=args.category_master_mode,
+        max_hypotheses_per_master_agent=args.max_hypotheses_per_master_agent,
         prefer_deferred=not args.no_prefer_deferred,
         verbose=args.verbose,
     )

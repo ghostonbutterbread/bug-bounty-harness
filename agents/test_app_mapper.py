@@ -45,6 +45,7 @@ from agents.brainstorm_adapters import (
 )
 from agents.brainstorm_spec import hypothesis_to_agent_intents, parse_brainstorm_spec
 import agents.hunting_policy as hunting_policy_module
+from agents import zero_day_team
 from agents.hunting_policy import resolve_hunting_policy
 from agents.zero_day_team import _discover_brainstorm_spec_dir
 
@@ -268,6 +269,52 @@ subprocess.run(config_path, shell=True)
     ]
     assert surfaces
     assert candidates
+
+
+def test_app_mapper_default_generated_specs_use_category_master(tmp_path: Path) -> None:
+    result = _two_candidate_result(tmp_path)
+
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="default-granularity-run",
+        write_specs=True,
+    )
+
+    spec = parse_brainstorm_spec(paths["rce_spec"])
+    agent_keys = [hypothesis.suggested_agents[0] for hypothesis in spec.hypotheses]
+    assert spec.metadata["Agent granularity"] == "category-master"
+    assert agent_keys == ["exec-sink-reachability", "exec-sink-reachability"]
+
+
+def test_app_mapper_narrow_specs_use_per_hypothesis_keys(tmp_path: Path) -> None:
+    result = _two_candidate_result(tmp_path)
+
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="narrow-granularity-run",
+        write_specs=True,
+        agent_granularity="narrow",
+    )
+
+    spec = parse_brainstorm_spec(paths["rce_spec"])
+    agent_keys = [hypothesis.suggested_agents[0] for hypothesis in spec.hypotheses]
+    assert spec.metadata["Agent granularity"] == "per-hypothesis"
+    assert len(agent_keys) == 2
+    assert len(set(agent_keys)) == 2
+    assert all(key.startswith("two-candidate-appmap-rce-") for key in agent_keys)
+    context_paths = sorted(paths["agent_contexts"].glob("*.json"))
+    for hypothesis, candidate, agent_key in zip(spec.hypotheses, result.candidates, agent_keys):
+        assert f"appmap-context:{hypothesis.id}:{candidate['id']}:{agent_key}" in hypothesis.evidence
+        context_path = next(
+            path
+            for path in context_paths
+            if path.name == f"{hypothesis.id}-{candidate['id']}-{agent_key}.json"
+        )
+        packet = json.loads(context_path.read_text(encoding="utf-8"))
+        assert packet["hypothesis_linkage"]["hypothesis_id"] == hypothesis.id
+        assert packet["hypothesis_linkage"]["agent_key"] == agent_key
 
 
 def test_app_mapper_resolves_and_writes_canonical_lane_appmap_root(tmp_path: Path) -> None:
@@ -1219,6 +1266,10 @@ def test_appmap_handoff_cli_parse_and_modes(tmp_path: Path, capsys: pytest.Captu
     assert args.promotion_layout == "flat"
     category_args = parser.parse_args(["demo", "/tmp/target", "--promotion-layout", "category"])
     assert category_args.promotion_layout == "category"
+    granularity_args = parser.parse_args(["demo", "/tmp/target", "--agent-granularity", "narrow"])
+    assert granularity_args.agent_granularity == "narrow"
+    shortcut_args = parser.parse_args(["demo", "/tmp/target", "--category-master-agents"])
+    assert shortcut_args.category_master_agents
     policy_args = parser.parse_args(
         [
             "demo",

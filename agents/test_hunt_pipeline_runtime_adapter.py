@@ -1,0 +1,153 @@
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import patch
+
+from agents.base_team import AgentSpec, BaseTeam
+from agents.dynamic_agent_builder import AgentSpec as DynamicBuilderAgentSpec
+from agents.hunt_pipeline.models import HypothesisAgentPacket
+from agents.hunt_pipeline.runtime_adapter import (
+    packet_to_base_team_agent_spec,
+    packet_to_dynamic_agent_builder_agent_spec,
+)
+
+
+class DummyTeam(BaseTeam):
+    def get_static_profiles(self) -> list[AgentSpec]:
+        return []
+
+    def generate_dynamic_from_surfaces(
+        self,
+        surfaces: list[dict],
+        *,
+        snapshot_id: str,
+    ) -> list[AgentSpec]:
+        return []
+
+
+def _packet() -> HypothesisAgentPacket:
+    return HypothesisAgentPacket(
+        id="HP-123",
+        key="ipc-bridge-hp-123",
+        title="Investigate IPC bridge trust boundary",
+        role="entry",
+        surface_family="ipc-bridge",
+        priority="high",
+        target_kind="electron",
+        ruleset_id="electron-overlay",
+        source_evidence=(
+            {
+                "id": "S0001",
+                "kind": "ipc",
+                "file": "src/main/ipc.ts",
+                "trace": {"appmap_run": "run-1", "candidate_id": "C0001"},
+            },
+        ),
+        secondary_families=("rendering-content-parser",),
+        evidence_requirements=("Identify exposed IPC channel", "Trace renderer-controlled args"),
+        chain_requirements=("Prove preload reachability",),
+        focus_files=("src/main/ipc.ts", "src/preload.ts"),
+        tags=("desktop", "electron"),
+        reasons=("Surface was selected by policy-shaped AppMap evidence",),
+        scheduler_metadata={
+            "hypothesis_id": "HP-123",
+            "brainstorm_agent_key": "ipc-bridge-hp-123",
+            "trace": {"appmap_run": "run-1", "candidate_id": "C0001"},
+        },
+    )
+
+
+def test_packet_to_base_team_agent_spec_maps_fields() -> None:
+    packet = _packet()
+
+    spec = packet_to_base_team_agent_spec(
+        packet,
+        program="demo",
+        snapshot_id="snapshot-1",
+        created_at="2026-05-13T12:00:00Z",
+    )
+
+    assert spec.key == "ipc-bridge-hp-123"
+    assert spec.program == "demo"
+    assert spec.snapshot_id == "snapshot-1"
+    assert spec.created_at == "2026-05-13T12:00:00Z"
+    assert spec.surface == "ipc-bridge"
+    assert spec.vuln_class == "ipc-bridge"
+    assert spec.focus_globs == ["src/main/ipc.ts", "src/preload.ts"]
+    assert spec.code_patterns == [
+        "Identify exposed IPC channel",
+        "Trace renderer-controlled args",
+        "Prove preload reachability",
+        "desktop",
+        "electron",
+        "rendering-content-parser",
+    ]
+    assert spec.metadata["hypothesis_id"] == "HP-123"
+    assert spec.metadata["runtime_handoff"]["spawn_enabled"] is False
+    assert spec.metadata["runtime_handoff"]["ledger_writes_enabled"] is False
+
+
+def test_packet_trace_metadata_is_preserved_by_value() -> None:
+    packet = _packet()
+    spec = packet_to_base_team_agent_spec(packet, program="demo", snapshot_id="snapshot-1")
+
+    packet.scheduler_metadata["trace"]["appmap_run"] = "mutated"
+    packet.source_evidence[0]["trace"]["candidate_id"] = "mutated"
+
+    assert spec.metadata["scheduler_metadata"]["trace"] == {
+        "appmap_run": "run-1",
+        "candidate_id": "C0001",
+    }
+    assert spec.metadata["source_evidence"][0]["trace"] == {
+        "appmap_run": "run-1",
+        "candidate_id": "C0001",
+    }
+    assert spec.metadata["packet"]["scheduler_metadata"]["trace"]["appmap_run"] == "run-1"
+
+
+def test_base_team_prompt_template_renders_with_base_placeholders(tmp_path: Path) -> None:
+    packet = _packet()
+    spec = packet_to_base_team_agent_spec(packet, program="demo", snapshot_id="snapshot-1")
+    target = tmp_path / "target"
+    target.mkdir()
+
+    with patch.object(Path, "home", return_value=tmp_path):
+        team = DummyTeam(
+            "demo",
+            "0day_team",
+            target,
+            output_root=tmp_path / "out",
+            target_kind="api",
+            max_agents=1,
+        )
+
+    rendered = team._render_prompt(spec)
+
+    assert "You are a hunt-pipeline handoff agent for demo." in rendered
+    assert f"Target path: {target}" in rendered
+    assert "Agent key: ipc-bridge-hp-123" in rendered
+    assert "Hypothesis title: Investigate IPC bridge trust boundary" in rendered
+    assert "- src/main/ipc.ts" in rendered
+    assert "- Identify exposed IPC channel" in rendered
+    assert "{program}" not in rendered
+    assert "{target_path}" not in rendered
+
+
+def test_packet_to_dynamic_agent_builder_agent_spec_maps_legacy_shape() -> None:
+    packet = _packet()
+
+    spec = packet_to_dynamic_agent_builder_agent_spec(
+        packet,
+        version="pipeline-v1",
+        created_at="2026-05-13T12:00:00Z",
+    )
+
+    assert isinstance(spec, DynamicBuilderAgentSpec)
+    assert spec.key == "ipc-bridge-hp-123"
+    assert spec.name == "Investigate IPC bridge trust boundary"
+    assert spec.surface_type == "ipc-bridge"
+    assert spec.vuln_class == "ipc-bridge"
+    assert spec.focus_files_glob == ["src/main/ipc.ts", "src/preload.ts"]
+    assert spec.created_by == "hunt_pipeline"
+    assert spec.version == "pipeline-v1"
+    assert spec.created_at == "2026-05-13T12:00:00Z"

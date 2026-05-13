@@ -5,6 +5,7 @@ from typing import Any, Sequence
 
 from agents.agent_scheduler import SchedulerConfig, assignments_from_profiles, decision_events, plan_agent_wave
 from agents.hunt_pipeline.models import HypothesisAgentPacket, PipelineSchedulerPlan, ResolvedRuleset
+from agents.hunt_pipeline.runtime_adapter import runtime_adapter_availability
 from agents.hunt_pipeline.rulesets import hunting_policy_view
 
 
@@ -46,19 +47,6 @@ def plan_hypothesis_packets(
             "category_master_mode": scheduler_config.category_master_mode,
         },
     )
-
-
-def runtime_adapter_availability() -> dict[str, Any]:
-    return {
-        "base_team_agent_spec": True,
-        "dynamic_agent_builder_agent_spec": False,
-        "spawn_enabled": False,
-        "ledger_writes_enabled": False,
-        "notes": [
-            "dry-run slice only adapts packets into scheduler assignments",
-            "BaseTeam runtime conversion is reserved for the execution slice",
-        ],
-    }
 
 
 def _profile_for_packet(packet: HypothesisAgentPacket, *, index: int) -> _PacketProfile:

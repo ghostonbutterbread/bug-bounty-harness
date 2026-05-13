@@ -28,6 +28,27 @@ class ZeroDayTeamOutputRootTests(unittest.TestCase):
         self.addCleanup(self.tempdir.cleanup)
         self.tmp = Path(self.tempdir.name)
 
+    def test_direct_static_profile_generation_uses_timestamp_helper(self) -> None:
+        target = self.tmp / "target"
+        target.mkdir()
+        team = zero_day_team.ZeroDayTeam(
+            program="demo",
+            team_type="0day_team",
+            target_path=target,
+            output_root=self.tmp / "storage",
+            max_agents=3,
+            family="binaries",
+            lane="exe",
+            target_kind="electron-exe",
+            hunting_policy="off",
+        )
+
+        profiles = team.get_static_profiles()
+
+        self.assertGreater(len(profiles), 0)
+        self.assertTrue(all(profile.created_at.endswith("Z") for profile in profiles))
+        self.assertIn("dom-xss", {profile.key for profile in profiles})
+
     def _brainstorm_spec_text(self) -> str:
         return """# Brainstorm Spec: Canva Desktop EXE
 
@@ -1296,6 +1317,73 @@ Electron desktop target.
         queued = [row for row in rows if row.get("event") == "agent_queued"]
         self.assertEqual({row.get("hypothesis_id") for row in queued}, {"H001", "H002"})
         self.assertEqual({row.get("agent_key") for row in queued}, {"exec-sink-reachability"})
+
+    def test_canonical_ownership_demotes_off_category_novel_duplicates(self) -> None:
+        owner = {
+            "category": "class",
+            "class_name": "exec-sink-reachability",
+            "agent": "exec-sink-reachability",
+            "file": "src/main.js",
+            "source": "userCommand from ipcMain.handle('run-tool')",
+            "sink": "child_process.exec(userCommand)",
+            "type": "IPC command execution reaches child_process.exec",
+        }
+        off_category = {
+            "category": "novel",
+            "class_name": "novel",
+            "agent": "ssrf",
+            "file": "src/main.js",
+            "source": "renderer IPC message userCommand",
+            "sink": "OS command execution via child_process.exec",
+            "type": "IPC command injection to child_process.exec",
+        }
+        off_owner_class = {
+            "category": "class",
+            "class_name": "ipc-trust-boundary",
+            "agent": "ipc-trust-boundary",
+            "file": "src/main.js",
+            "source": "renderer IPC message userCommand",
+            "sink": "OS command execution via child_process.exec",
+            "type": "renderer IPC command execution",
+        }
+        distinct = {
+            "category": "novel",
+            "class_name": "novel",
+            "agent": "ssrf",
+            "file": "src/net.js",
+            "source": "URL import parameter",
+            "sink": "server-side HTTP request",
+            "type": "SSRF via import URL",
+        }
+
+        confirmed, dormant, novel, demoted = zero_day_team._triage_canonical_ownership(
+            [owner, off_owner_class], [], [off_category, distinct]
+        )
+
+        self.assertEqual(confirmed, [owner])
+        self.assertEqual(dormant, [])
+        self.assertEqual(novel, [distinct])
+        self.assertEqual(len(demoted), 2)
+        self.assertEqual({item["canonical_owner_class"] for item in demoted}, {"exec-sink-reachability"})
+        self.assertTrue(all("off-category duplicate" in item["rejected_reason"] for item in demoted))
+
+    def test_canonical_ownership_keeps_novel_when_owner_class_did_not_report(self) -> None:
+        off_category = {
+            "category": "novel",
+            "class_name": "novel",
+            "agent": "ssrf",
+            "file": "src/main.js",
+            "source": "renderer IPC message userCommand",
+            "sink": "OS command execution via child_process.exec",
+            "type": "IPC command injection to child_process.exec",
+        }
+
+        _confirmed, _dormant, novel, demoted = zero_day_team._triage_canonical_ownership(
+            [], [], [off_category]
+        )
+
+        self.assertEqual(novel, [off_category])
+        self.assertEqual(demoted, [])
 
     def test_category_master_spec_merges_into_static_profile_in_full_run(self) -> None:
         lane_root = self.tmp / "Shared" / "appmap" / "canva" / "category-master-full-run"

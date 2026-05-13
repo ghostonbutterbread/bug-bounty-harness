@@ -5,7 +5,7 @@ from typing import Any, Sequence
 
 from agents.agent_scheduler import SchedulerConfig, assignments_from_profiles, decision_events, plan_agent_wave
 from agents.hunt_pipeline.models import HypothesisAgentPacket, PipelineSchedulerPlan, ResolvedRuleset
-from agents.hunt_pipeline.runtime_adapter import runtime_adapter_availability
+from agents.hunt_pipeline.runtime_adapter import runtime_adapter_availability, runtime_handoff_boundary
 from agents.hunt_pipeline.rulesets import hunting_policy_view
 
 

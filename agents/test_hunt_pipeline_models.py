@@ -39,6 +39,7 @@ def test_hunt_pipeline_models_render_schema_friendly_dicts() -> None:
         hypotheses=(packet.to_dict(),),
         scheduler_plan={"selected": []},
         runtime_adapter_availability={"spawn_enabled": False},
+        runtime_handoff_boundary={"status": "explicit-non-live-boundary"},
         static_team_handoffs={"enabled": False},
         dynamic_validation_queue={"enabled": False},
         safety={"dry_run_only": True},

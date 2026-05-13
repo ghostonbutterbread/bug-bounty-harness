@@ -49,6 +49,9 @@ def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) ->
     assert payload["runtime_adapter_availability"]["conversion_only"] is True
     assert payload["runtime_adapter_availability"]["base_team_agent_spec"] is True
     assert payload["runtime_adapter_availability"]["dynamic_agent_builder_agent_spec"] is True
+    assert payload["runtime_handoff_boundary"]["status"] == "explicit-non-live-boundary"
+    assert "spawn BaseTeam/zero_day_team/apk_team/electron_team agents" in payload["runtime_handoff_boundary"]["prohibited_actions"]
+    assert "operator approval of the runtime handoff contract" in payload["runtime_handoff_boundary"]["required_before_live_execution"]
     assert payload["safety"] == {
         "dry_run_only": True,
         "spawn_agents": False,

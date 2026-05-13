@@ -75,6 +75,39 @@ def runtime_adapter_availability() -> dict[str, Any]:
     }
 
 
+def runtime_handoff_boundary() -> dict[str, Any]:
+    """Document the current non-live handoff contract in dry-run artifacts."""
+
+    return {
+        "schema_version": ADAPTER_SCHEMA_VERSION,
+        "status": "explicit-non-live-boundary",
+        "allowed_actions": [
+            "build HypothesisAgentPacket records from normalized AppMap artifacts",
+            "plan scheduler selected/deferred/skipped decisions",
+            "convert packets into passive BaseTeam AgentSpec objects",
+            "convert packets into legacy dynamic_agent_builder AgentSpec objects",
+            "write dry-run plan artifacts for human inspection",
+        ],
+        "prohibited_actions": [
+            "spawn BaseTeam/zero_day_team/apk_team/electron_team agents",
+            "write findings ledgers or coverage state",
+            "enqueue dynamic validation",
+            "mutate vendor/customer/live target data",
+            "treat legacy candidates as neutral truth",
+        ],
+        "required_before_live_execution": [
+            "operator approval of the runtime handoff contract",
+            "reviewed mapping from scheduler decisions to selected runtime profiles",
+            "explicit ledger/review/coverage owner path",
+            "tests proving disabled dry-run flags cannot spawn agents",
+        ],
+        "adapter_outputs": {
+            "base_team_agent_spec": "passive conversion only",
+            "dynamic_agent_builder_agent_spec": "legacy compatibility conversion only",
+        },
+    }
+
+
 def _trace_metadata(packet: HypothesisAgentPacket) -> dict[str, Any]:
     return {
         "adapter": "agents.hunt_pipeline.runtime_adapter",

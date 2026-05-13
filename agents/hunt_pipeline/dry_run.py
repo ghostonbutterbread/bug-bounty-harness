@@ -9,7 +9,7 @@ from agents.hunt_pipeline.appmap_loader import load_appmap_run
 from agents.hunt_pipeline.hypothesis_builder import build_hypothesis_packets
 from agents.hunt_pipeline.models import PipelineDryRunArtifact
 from agents.hunt_pipeline.rulesets import resolve_ruleset
-from agents.hunt_pipeline.scheduler import plan_hypothesis_packets, runtime_adapter_availability
+from agents.hunt_pipeline.scheduler import plan_hypothesis_packets, runtime_adapter_availability, runtime_handoff_boundary
 from agents.hunt_pipeline.target_classifier import classify_target_kind
 from agents.hunting_policy import disabled_policy
 
@@ -76,6 +76,7 @@ def build_dry_run_plan(
         hypotheses=tuple(packet.to_dict() for packet in packets),
         scheduler_plan=scheduler_plan.to_dict(),
         runtime_adapter_availability=runtime_adapter_availability(),
+        runtime_handoff_boundary=runtime_handoff_boundary(),
         static_team_handoffs={
             "enabled": False,
             "planned": [],

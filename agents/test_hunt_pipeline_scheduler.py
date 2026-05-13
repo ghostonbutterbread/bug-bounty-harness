@@ -45,3 +45,76 @@ def test_scheduler_adapter_reuses_agent_scheduler_decisions_without_spawn() -> N
     assert any(item["decision"] == "defer" and item["surface_family"] == "ipc-bridge" for item in plan.deferred)
     assert runtime_adapter_availability()["spawn_enabled"] is False
     assert runtime_adapter_availability()["ledger_writes_enabled"] is False
+
+
+def test_category_master_mode_preserves_member_hypothesis_events() -> None:
+    ruleset = resolve_ruleset("electron-overlay")
+    packets = [
+        _packet("HP-1", "rendering-content-parser", "entry"),
+        _packet("HP-2", "rendering-content-parser", "entry"),
+    ]
+
+    plan = plan_hypothesis_packets(
+        packets,
+        ruleset=ruleset,
+        config=SchedulerConfig(mode="policy-aware", agent_wave_size="all", category_master_mode=True),
+    )
+
+    assert plan.summary["selected"] == 1
+    selected = plan.selected[0]
+    assert selected["agent_key"] == "rendering-content-parser-master"
+    assert selected["hypothesis_id"] is None
+    assert selected["member_hypothesis_ids"] == ["HP-1", "HP-2"]
+    assert [event["hypothesis_id"] for event in selected["member_events"]] == ["HP-1", "HP-2"]
+    assert selected["event"]["member_hypothesis_ids"] == ["HP-1", "HP-2"]
+    assert [event["event"] for event in selected["event"]["member_events"]] == ["agent_selected", "agent_selected"]
+
+
+def test_non_master_decision_does_not_emit_member_fields() -> None:
+    ruleset = resolve_ruleset("desktop-baseline")
+    packets = [_packet("HP-1", "file-ingestion-import", "entry")]
+
+    plan = plan_hypothesis_packets(
+        packets,
+        ruleset=ruleset,
+        config=SchedulerConfig(mode="policy-aware", agent_wave_size="all", category_master_mode=False),
+    )
+
+    selected = plan.selected[0]
+    assert selected["hypothesis_id"] == "HP-1"
+    assert "member_hypothesis_ids" not in selected
+    assert "member_events" not in selected
+
+
+def test_notes_only_packet_role_overrides_application_entry_family_role() -> None:
+    ruleset = resolve_ruleset("desktop-baseline")
+    packets = [_packet("HP-1", "file-ingestion-import", "notes_only")]
+
+    plan = plan_hypothesis_packets(
+        packets,
+        ruleset=ruleset,
+        config=SchedulerConfig(mode="policy-aware", agent_wave_size="all"),
+    )
+
+    selected = plan.selected[0]
+    assert selected["surface_family"] == "file-ingestion-import"
+    assert selected["family_role"] == "notes_only"
+    assert selected["event"]["family_role"] == "notes_only"
+    assert "application-entry family" not in selected["reason"]
+
+
+def test_entry_packet_role_overrides_amplifier_family_role() -> None:
+    ruleset = resolve_ruleset("electron-overlay")
+    packets = [_packet("HP-1", "ipc-bridge", "entry")]
+
+    plan = plan_hypothesis_packets(
+        packets,
+        ruleset=ruleset,
+        config=SchedulerConfig(mode="policy-aware", agent_wave_size="all"),
+    )
+
+    selected = plan.selected[0]
+    assert selected["surface_family"] == "ipc-bridge"
+    assert selected["family_role"] == "application-entry"
+    assert selected["event"]["family_role"] == "application-entry"
+    assert "application-entry family" in selected["reason"]

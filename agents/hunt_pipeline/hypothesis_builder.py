@@ -42,7 +42,14 @@ def _packet_for_surface(
     family = _surface_family(surface, ruleset)
     family_role = family_role_for(family)
     explicit_entry = bool(surface.get("app_entry_evidence") or surface.get("proven_app_entry"))
-    role = "entry" if explicit_entry or family_role == "application-entry" else "amplifier" if family_role == "amplifier" else "notes_only"
+    standalone_sink = _is_standalone_sink_surface(surface, normalized)
+    role = (
+        "entry"
+        if explicit_entry or (family_role == "application-entry" and not standalone_sink)
+        else "amplifier"
+        if family_role == "amplifier"
+        else "notes_only"
+    )
     priority = "high" if role == "entry" else "medium" if role == "amplifier" else "low"
     surface_id = _text(surface.get("id")) or _stable_id("surface", surface)[:10]
     focus_files = _focus_files(surface)
@@ -50,7 +57,7 @@ def _packet_for_surface(
     key = _key_for(family, surface_id)
     evidence = (_surface_evidence(surface),)
     requirements = tuple(_guidance_list(ruleset, "required_evidence"))
-    chain_requirements = tuple(_guidance_list(ruleset, "chain_requirements") if role == "amplifier" else ())
+    chain_requirements = tuple(_guidance_list(ruleset, "chain_requirements") if role != "entry" else ())
     reasons = [
         f"neutral AppMap surface kind={kind}",
         f"ruleset mapped surface to {family}",
@@ -128,6 +135,22 @@ def _surface_family(surface: dict[str, Any], ruleset: ResolvedRuleset) -> str:
         )
     )
     return infer_surface_family(profile=None, metadata={"brainstorm_tags": [kind], "expected_chain": profile_text})[0]
+
+
+def _is_standalone_sink_surface(surface: dict[str, Any], normalized: NormalizedMapResult) -> bool:
+    if _text(surface.get("role")).lower() != "sink":
+        return False
+    surface_id = _text(surface.get("id"))
+    if not surface_id:
+        return True
+    for flow in normalized.flows:
+        sink_refs = {
+            _text(flow.get("sink_id")),
+            *(_text(item) for item in _string_list(flow.get("sink_ids"))),
+        }
+        if surface_id in sink_refs:
+            return False
+    return True
 
 
 def _secondary_families(surface: dict[str, Any], primary: str) -> list[str]:

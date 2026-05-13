@@ -96,7 +96,21 @@ def _scheduler_config_from_ruleset(ruleset: ResolvedRuleset) -> SchedulerConfig:
 
 def _decision_dict(item: Any, events_by_id: dict[str, dict[str, Any]]) -> dict[str, Any]:
     event = events_by_id.get(item.hypothesis_id, {})
-    return {
+    member_hypothesis_ids = [
+        str(hypothesis.get("hypothesis_id") or "").strip()
+        for hypothesis in getattr(item, "assigned_hypotheses", ())
+        if str(hypothesis.get("hypothesis_id") or "").strip()
+    ]
+    member_events = [events_by_id[hypothesis_id] for hypothesis_id in member_hypothesis_ids if hypothesis_id in events_by_id]
+    is_category_master = item.hypothesis_id is None and len(member_hypothesis_ids) > 1
+    if is_category_master and not event and member_events:
+        event = {
+            "event": "category_master_decision",
+            "agent_key": item.key,
+            "member_hypothesis_ids": member_hypothesis_ids,
+            "member_events": member_events,
+        }
+    record = {
         "decision": item.decision,
         "reason": item.decision_reason,
         "agent_key": item.key,
@@ -107,3 +121,7 @@ def _decision_dict(item: Any, events_by_id: dict[str, dict[str, Any]]) -> dict[s
         "final_score": item.final_score,
         "event": event,
     }
+    if is_category_master:
+        record["member_hypothesis_ids"] = member_hypothesis_ids
+        record["member_events"] = member_events
+    return record

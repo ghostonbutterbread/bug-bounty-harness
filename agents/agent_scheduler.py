@@ -219,7 +219,7 @@ def assignment_from_profile(profile: Any, *, source: str | None = None, policy: 
     inferred_source = source or _infer_source(metadata)
     priority = _string(metadata.get("priority") or metadata.get("severity")) or None
     family, secondary = infer_surface_family(profile, metadata=metadata)
-    family_role = family_role_for(family)
+    family_role = _assignment_family_role(family, metadata)
     priority_score = _priority_score(priority)
     policy_rank = _policy_rank_for(family, policy=policy)
     novelty_score = _float(metadata.get("novelty_score"), 0.0)
@@ -288,6 +288,19 @@ def infer_surface_family(profile: Any | None = None, *, metadata: dict[str, Any]
         primary = _choose_primary_family(matches, metadata)
         return primary, tuple(dict.fromkeys([item for item in matches if item != primary]))
     return "unknown", tuple(dict.fromkeys(secondary))
+
+
+def _assignment_family_role(surface_family: str, metadata: dict[str, Any]) -> str:
+    finding_role = _normalize_token(metadata.get("finding_role"))
+    if finding_role == "notes-only":
+        return "notes_only"
+    if finding_role == "entry":
+        return "application-entry"
+    if finding_role in {"chain", "hardening"}:
+        return finding_role
+    if finding_role == "amplifier":
+        return "amplifier"
+    return family_role_for(surface_family)
 
 
 def family_role_for(surface_family: str) -> str:

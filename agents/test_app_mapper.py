@@ -6,6 +6,7 @@ import shlex
 import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -53,6 +54,14 @@ from agents.zero_day_team import _discover_brainstorm_spec_dir
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _jsonl(path: Path) -> list[dict]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 def _suggested_summary_command(summary_text: str) -> str:
@@ -3409,3 +3418,297 @@ child_process.exec(config.command);
 """.strip(),
         )
     return map_application("two candidate", target, target_kind="node")
+
+
+def test_appmap_promoted_handoff_to_zero_day_report_pipeline_is_non_live_e2e(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_shared = Path.home() / "Shared"
+    fake_home = tmp_path / "fake-home"
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+
+    program = "appmap-e2e"
+    run_id = "e2e-run"
+    shared_root = tmp_path / "Shared"
+    lane_root = shared_root / "binaries" / program / "exe"
+    target = lane_root / "input" / "demo"
+    _write(
+        target / "package.json",
+        """
+{
+  "main": "src/main.js",
+  "dependencies": {
+    "electron": "^30.0.0"
+  }
+}
+""".strip(),
+    )
+    _write(
+        target / "src" / "main.js",
+        """
+const { ipcMain } = require("electron");
+const child_process = require("child_process");
+const fs = require("fs");
+const path = require("path");
+
+ipcMain.handle("run-project-command", async () => {
+  const configPath = path.join(process.cwd(), "project.json");
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  return child_process.exec(config.command);
+});
+""".strip(),
+    )
+    _write(
+        target / "src" / "worker.js",
+        """
+const child_process = require("child_process");
+const fs = require("fs");
+const path = require("path");
+
+function runHook() {
+  const hookPath = path.join(process.cwd(), "hooks.json");
+  const hooks = JSON.parse(fs.readFileSync(hookPath, "utf8"));
+  return child_process.exec(hooks.postInstall);
+}
+module.exports = { runHook };
+""".strip(),
+    )
+    assert not target.resolve(strict=False).is_relative_to(Path.cwd().resolve())
+
+    assert (
+        app_mapper_main(
+            [
+                program,
+                str(target),
+                "--target-kind",
+                "auto",
+                "--focus",
+                "rce",
+                "--write-specs",
+                "--output-mode",
+                "canonical",
+                "--family",
+                "binaries",
+                "--lane",
+                "exe",
+                "--shared-root",
+                str(shared_root),
+                "--run-id",
+                run_id,
+                "--promote-to-brainstorm",
+                "--promotion-layout",
+                "category",
+                "--no-triage-policy",
+            ]
+        )
+        == 0
+    )
+
+    run_root = lane_root / "appmap" / run_id
+    promoted_spec = lane_root / "brainstorm" / f"appmap-{run_id}" / "rce" / "rce-spec.md"
+    promoted_context_root = promoted_spec.parent / "agent_contexts"
+    manifest = json.loads((run_root / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["target_path"] == str(target.resolve(strict=False))
+    assert manifest["agent_granularity"] == "category-master"
+    assert manifest["counts"]["candidates"] == 2
+    assert promoted_spec.is_file()
+    assert len(list(promoted_context_root.glob("*.json"))) == 2
+
+    context_packets = [json.loads(path.read_text(encoding="utf-8")) for path in sorted(promoted_context_root.glob("*.json"))]
+    assert {packet["candidate"]["id"] for packet in context_packets} == {"C0001", "C0002"}
+    assert {packet["hypothesis_linkage"]["hypothesis_id"] for packet in context_packets} == {"H001", "H002"}
+    assert all(packet["run_id"] == run_id for packet in context_packets)
+    assert all(packet["appmap_run_root"] == str(run_root) for packet in context_packets)
+
+    handoffs = list_promoted_handoffs(lane_root / "brainstorm")
+    assert [handoff.spec_path for handoff in handoffs] == [promoted_spec.resolve(strict=False)]
+    validation = validate_promoted_handoff(promoted_spec)
+    assert validation.ok, validation.errors
+    assert validation.counts["appmap_hypotheses"] == 2
+    assert validation.counts["packets"] == 2
+    planned = plan_promoted_handoff_command(promoted_spec, selected_hypothesis="H001")
+    assert "agents/zero_day_team.py" in planned
+    assert "--brainstorm-spec" in planned
+    assert "--brainstorm-only" in planned
+    assert "--appmap" not in planned
+    assert str(target.resolve(strict=False)) in planned
+
+    spawned_profiles: list = []
+    update_log = lane_root / "ledgers" / "ledger_updates.jsonl"
+
+    class FakeProcess:
+        pid = 31337
+
+        def wait(self, timeout=None) -> int:
+            return 0
+
+    class FakeLedger:
+        path = lane_root / "ledgers" / "ledger.json"
+        run_id = "zero-day-e2e-run"
+        root_override = shared_root
+
+        def get_class_context(self, _class_name: str) -> str:
+            return ""
+
+        def check(self, finding: dict) -> tuple[bool, str, dict]:
+            return False, "ZDT-E2E-001", {**finding, "fid": "ZDT-E2E-001"}
+
+    def fake_spawn(*, profile, agents_root, coverage_path=None, **_kwargs):
+        spawned_profiles.append(profile)
+        agents_root.mkdir(parents=True, exist_ok=True)
+        log_path = agents_root / f"agent_{profile.key}_e2e.log"
+        assignments = profile.brainstorm_metadata.get("brainstorm_cluster_assignments") or [
+            profile.brainstorm_metadata
+        ]
+        first_assignment = {**profile.brainstorm_metadata, **dict(assignments[0])}
+        raw_finding = {
+            **first_assignment,
+            "agent": first_assignment["brainstorm_agent_key"],
+            "category": "class",
+            "class_name": "exec-sink-reachability",
+            "type": "Project config command reaches child_process.exec",
+            "file": "src/main.js",
+            "line": 9,
+            "description": "The mocked AppMap handoff follows project config into child_process.exec.",
+            "severity": "HIGH",
+            "context": "child_process.exec(config.command)",
+            "source": "project.json command",
+            "trust_boundary": "project config crosses into Electron main process",
+            "flow_path": "project.json -> JSON.parse -> child_process.exec",
+            "sink": "child_process.exec(config.command)",
+            "exploitability": "Synthetic non-live finding emitted by the test harness.",
+        }
+        log_path.write_text(json.dumps(raw_finding, sort_keys=True) + "\n", encoding="utf-8")
+        return zero_day_team.AgentSession(
+            profile=profile,
+            workspace=agents_root / profile.key,
+            log_path=log_path,
+            process=FakeProcess(),
+            coverage_path=coverage_path,
+        )
+
+    def fake_review(findings, *_args, **_kwargs):
+        return ([{**finding, "review_tier": "CONFIRMED", "tier": "CONFIRMED"} for finding in findings], [], [])
+
+    def fake_update_team_finding(program_slug, finding, **kwargs):
+        root_override = Path(kwargs["root_override"]).resolve(strict=False)
+        assert root_override == shared_root.resolve(strict=False)
+        update_log.parent.mkdir(parents=True, exist_ok=True)
+        updated = {
+            **finding,
+            "program": program_slug,
+            "family": kwargs["family"],
+            "lane": kwargs["lane"],
+            "snapshot_id": kwargs["snapshot_id"],
+            "version_label": kwargs["version_label"],
+        }
+        with update_log.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(updated, sort_keys=True) + "\n")
+        return updated
+
+    monkeypatch.setattr(zero_day_team, "SubagentLogger", None)
+    monkeypatch.setattr(
+        zero_day_team,
+        "DynamicAgentBuilder",
+        lambda *args, **kwargs: SimpleNamespace(
+            registry=SimpleNamespace(reg_dir=tmp_path / "dynamic-agent-registry"),
+            run=lambda *a, **k: [],
+        ),
+    )
+    monkeypatch.setattr(
+        zero_day_team,
+        "get_snapshot_identity",
+        lambda *_args, **_kwargs: {
+            "snapshot_id": "snap-e2e",
+            "version_label": "1.0.0-test",
+            "channel": "stable",
+        },
+    )
+    monkeypatch.setattr(zero_day_team, "create_team_ledger_from_storage", lambda *args, **kwargs: FakeLedger())
+    monkeypatch.setattr(zero_day_team, "_spawn_agent", fake_spawn)
+    monkeypatch.setattr(zero_day_team, "stage2_ghost_review", fake_review)
+    monkeypatch.setattr(zero_day_team, "update_team_finding", fake_update_team_finding)
+    monkeypatch.setattr(zero_day_team, "_pretty_print_findings", lambda *_args, **_kwargs: None)
+
+    summary = zero_day_team.orchestrate_zero_day_team(
+        program,
+        str(target),
+        no_preflight=True,
+        no_shared_brain=True,
+        brainstorm_spec=str(promoted_spec),
+        brainstorm_only=True,
+        output_root=str(shared_root),
+        hunting_policy="off",
+        scheduler="policy-aware",
+        agent_wave_size="all",
+    )
+
+    assert summary["classes_run"] == ["exec-sink-reachability"]
+    assert summary["by_tier"]["confirmed"] == 1
+    assert summary["brainstorm"]["hypotheses"] == ["H001", "H002"]
+    assert len(spawned_profiles) == 1
+    spawned = spawned_profiles[0]
+    assert spawned.brainstorm_metadata["category_master"] is True
+    assert {item["hypothesis_id"] for item in spawned.brainstorm_metadata["brainstorm_cluster_assignments"]} == {
+        "H001",
+        "H002",
+    }
+    assert "Use this AppMap context packet" in spawned.prompt_addendum
+
+    coverage_path = lane_root / "brainstorm" / "coverage.jsonl"
+    coverage_rows = _jsonl(coverage_path)
+    coverage_events = [row["event"] for row in coverage_rows]
+    assert coverage_events.count("hypothesis_loaded") == 2
+    assert coverage_events.count("agent_queued") == 2
+    assert coverage_events.count("agent_spawned") == 2
+    assert "agent_completed_with_raw_findings" in coverage_events
+    assert "agent_completed_no_finding" in coverage_events
+    assert "review_promoted" in coverage_events
+    assert all(
+        row.get("appmap_context_packet", "").startswith(str(promoted_context_root))
+        for row in coverage_rows
+        if row.get("appmap_context_packet")
+    )
+
+    scheduler_path = lane_root / "brainstorm" / "scheduler_decisions.jsonl"
+    scheduler_rows = _jsonl(scheduler_path)
+    assert scheduler_rows
+    assert {row["event"] for row in scheduler_rows} == {"agent_selected"}
+    assert {row["hypothesis_id"] for row in scheduler_rows} == {"H001", "H002"}
+    assert {row["scheduler_master_agent_key"] for row in scheduler_rows} == {"exec-sink-reachability"}
+
+    findings_path = lane_root / "ledgers" / zero_day_team.FINDINGS_FILENAME
+    findings = _jsonl(findings_path)
+    assert len(findings) == 1
+    assert findings[0]["fid"] == "ZDT-E2E-001"
+    assert findings[0]["appmap_candidate_id"] == "C0001"
+    assert findings[0]["appmap_context_packet"].startswith(str(promoted_context_root))
+    ledger_updates = _jsonl(update_log)
+    assert len(ledger_updates) == 1
+    assert ledger_updates[0]["fid"] == "ZDT-E2E-001"
+
+    reports = summary["reports"]
+    assert Path(reports["daily_confirmed"]).is_file()
+    assert Path(reports["daily_index"]).is_file()
+    finding_reports = list(Path(reports["findings_root"]).rglob("*.md"))
+    assert finding_reports
+    assert all(path.resolve(strict=False).is_relative_to(tmp_path.resolve()) for path in finding_reports)
+
+    status = campaign_status(lane_root / "brainstorm")
+    assert status["handoff_count"] == 1
+    assert status["status_counts"]["complete"] == 1
+    assert status["specs"][0]["assignments"]["covered"] == 2
+    assert status["specs"][0]["coverage_events"]["review_promoted"] == 1
+
+    generated_roots = [
+        run_root,
+        lane_root / "brainstorm",
+        lane_root / "agents",
+        lane_root / "ledgers",
+        lane_root / "reports",
+    ]
+    for root in generated_roots:
+        assert root.resolve(strict=False).is_relative_to(tmp_path.resolve())
+        assert not root.resolve(strict=False).is_relative_to(real_shared.resolve(strict=False))
+    assert not (fake_home / "Shared").exists()

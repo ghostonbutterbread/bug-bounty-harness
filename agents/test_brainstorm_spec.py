@@ -172,6 +172,27 @@ def test_parse_rejects_duplicate_suggested_agent_keys_across_active_hypotheses(
         parse_brainstorm_spec(path)
 
 
+def test_parse_allows_duplicate_active_agent_keys_for_category_master_specs(
+    tmp_path: Path,
+) -> None:
+    text = _valid_spec_text().replace(
+        "- Status: active\n",
+        "- Status: active\n- Agent granularity: category-master\n",
+        1,
+    ).replace(
+        "canva-open-redirect-deeplink-chain",
+        "canva-svg-import-xss",
+    )
+
+    spec = parse_brainstorm_spec(_write_spec(tmp_path, text))
+
+    assert spec.metadata["Agent granularity"] == "category-master"
+    assert [hypothesis.suggested_agents[0] for hypothesis in spec.hypotheses] == [
+        "canva-svg-import-xss",
+        "canva-svg-import-xss",
+    ]
+
+
 def test_parse_rejects_case_insensitive_suggested_agent_key_collisions(
     tmp_path: Path,
 ) -> None:

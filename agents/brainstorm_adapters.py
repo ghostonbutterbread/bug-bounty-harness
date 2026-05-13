@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Sequence
 
 from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.dynamic_agent_builder import AgentSpec
@@ -56,6 +56,128 @@ def brainstorm_intent_to_dynamic_agent_spec(
         created_by="brainstorm-spec",
         version=version,
         created_at=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+    )
+    spec.brainstorm_metadata = metadata
+    spec.program = program
+    return spec
+
+
+def spec_uses_category_master_agents(spec: Any) -> bool:
+    metadata = getattr(spec, "metadata", {}) or {}
+    agent_granularity = str(metadata.get("Agent granularity") or "").strip().lower()
+    category_master_agents = str(metadata.get("Category master agents") or "").strip().lower()
+    return agent_granularity == "category-master" or category_master_agents in {"1", "true", "yes", "category-master"}
+
+
+def brainstorm_intents_to_dynamic_agent_specs(
+    intents: Sequence[BrainstormAgentIntent],
+    *,
+    program: str,
+    version: str,
+    category_master: bool = False,
+) -> list[AgentSpec]:
+    if not category_master:
+        return [
+            brainstorm_intent_to_dynamic_agent_spec(intent, program=program, version=version)
+            for intent in intents
+        ]
+
+    groups: dict[str, list[BrainstormAgentIntent]] = {}
+    for intent in intents:
+        groups.setdefault(intent.agent_key, []).append(intent)
+
+    specs: list[AgentSpec] = []
+    for _agent_key, group in groups.items():
+        if len(group) == 1:
+            spec = brainstorm_intent_to_dynamic_agent_spec(group[0], program=program, version=version)
+            spec.brainstorm_metadata["agent_granularity"] = "category-master"
+            spec.brainstorm_metadata["category_master"] = True
+            specs.append(spec)
+            continue
+        specs.append(
+            _brainstorm_category_master_dynamic_agent_spec(
+                group,
+                program=program,
+                version=version,
+            )
+        )
+    return specs
+
+
+def _brainstorm_category_master_dynamic_agent_spec(
+    intents: Sequence[BrainstormAgentIntent],
+    *,
+    program: str,
+    version: str,
+) -> AgentSpec:
+    first = intents[0]
+    created_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    member_metadata = [brainstorm_finding_metadata(intent) for intent in intents]
+    prompt_sections = [
+        "Category-master brainstorm assignment:",
+        f"- Static category agent key: {first.agent_key}",
+        f"- Assigned hypotheses: {', '.join(metadata['hypothesis_id'] for metadata in member_metadata)}",
+        "",
+        "Evaluate every assigned hypothesis independently. Use the matching AppMap context packet for each hypothesis. "
+        "When emitting a finding, preserve that member's source_spec_path, hypothesis_id, and brainstorm_agent_key exactly. "
+        "If none of the assigned hypotheses has a real issue, output exactly {}.",
+        "",
+        "Category-master member metadata:",
+        json.dumps(member_metadata, indent=2, sort_keys=True),
+    ]
+    for intent, metadata in zip(intents, member_metadata):
+        prompt_sections.extend(
+            [
+                "",
+                f"### Member {intent.hypothesis_id}: {intent.hypothesis_title}",
+                _brainstorm_prompt_addendum(intent, metadata),
+            ]
+        )
+
+    focus_files = _ordered_unique(
+        glob
+        for intent in intents
+        for glob in intent.focus_files_glob
+    )
+    ignore_files = _ordered_unique(
+        glob
+        for intent in intents
+        for glob in intent.ignore_files_glob
+    )
+    patterns = _ordered_unique(
+        item
+        for intent in intents
+        for item in [intent.expected_chain, *intent.evidence, *intent.tags]
+    )
+    metadata = dict(member_metadata[0])
+    metadata.update(
+        {
+            "agent_granularity": "category-master",
+            "category_master": True,
+            "brainstorm_cluster_id": _appmap_packet_file_key(first.agent_key),
+            "brainstorm_cluster_size": len(member_metadata),
+            "brainstorm_cluster_assignments": member_metadata,
+            "member_agent_keys": _ordered_unique(metadata["brainstorm_agent_key"] for metadata in member_metadata),
+            "member_hypothesis_ids": [metadata["hypothesis_id"] for metadata in member_metadata],
+        }
+    )
+    spec = AgentSpec(
+        key=first.agent_key,
+        name=f"{first.name} Category Master",
+        description=(
+            f"Category-master brainstorm agent for {len(intents)} {first.agent_key} hypotheses. "
+            "Explores one static zero_day_team vulnerability category while preserving per-hypothesis attribution."
+        ),
+        surface_type=first.surface,
+        vuln_class=first.agent_key,
+        patterns=patterns,
+        focus_files_glob=focus_files,
+        ignore_files_glob=ignore_files,
+        agent_prompt_template="\n".join(prompt_sections).rstrip(),
+        parent_keys=["brainstorm-spec", "category-master", first.agent_key, *[intent.hypothesis_id for intent in intents]],
+        created_by="brainstorm-spec-category-master",
+        version=version,
+        created_at=created_at,
     )
     spec.brainstorm_metadata = metadata
     spec.program = program
@@ -292,6 +414,18 @@ def _stable_unique(values: Any) -> list[str]:
             continue
         seen.add(value)
         unique.append(value)
+    return unique
+
+
+def _ordered_unique(values: Iterable[Any]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        unique.append(item)
     return unique
 
 

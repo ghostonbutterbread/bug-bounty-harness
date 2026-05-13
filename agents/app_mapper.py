@@ -198,6 +198,19 @@ class HandoffValidationResult:
 
 TARGET_PACKS: dict[str, TargetPack] = {}
 VULNERABILITY_PACKS: dict[str, VulnerabilityPack] = {}
+AGENT_GRANULARITIES = {"default", "narrow", "category-master", "per-hypothesis"}
+STATIC_CATEGORY_AGENT_KEYS = {
+    "dom-xss",
+    "exec-sink-reachability",
+    "ssrf",
+    "path-traversal",
+    "prototype-pollution",
+    "unsafe-deserialization",
+    "native-module-abuse",
+    "memory-unsafe-parser",
+    "ipc-trust-boundary",
+    "node-integration",
+}
 
 
 def _compile(pattern: str) -> re.Pattern[str]:
@@ -1184,9 +1197,11 @@ def write_artifacts(
     output_mode: str = "standalone",
     hunting_policy: HuntingPolicy | dict[str, Any] | None = None,
     policy_config: str | Path | None = None,
+    agent_granularity: str = "default",
 ) -> dict[str, Path]:
     result = _apply_hunting_policy_to_map_result(result, hunting_policy)
     safe_run_id = validate_run_id(run_id)
+    safe_agent_granularity = normalize_agent_granularity(agent_granularity)
     appmap_root = output_root.expanduser().resolve(strict=False) / "appmap"
     run_root = appmap_root / safe_run_id
     if not run_root.resolve(strict=False).is_relative_to(appmap_root):
@@ -1233,7 +1248,11 @@ def write_artifacts(
     if write_specs and result.candidates:
         focus_slug = sanitize_key(result.focus, fallback="focus")
         spec_path = generated_specs / f"{focus_slug}-spec.md"
-        rendered = VULNERABILITY_PACKS[result.focus].render_spec(result, safe_run_id)
+        rendered = render_spec_for_granularity(
+            result,
+            run_id=safe_run_id,
+            agent_granularity=safe_agent_granularity,
+        )
         rendered = _with_appmap_run_root_metadata(rendered, run_root)
         rendered = inject_policy_metadata_into_markdown(rendered, hunting_policy)
         spec_path.write_text(rendered, encoding="utf-8")
@@ -1266,6 +1285,7 @@ def write_artifacts(
         output_mode=output_mode,
         hunting_policy=hunting_policy,
         policy_config=policy_config,
+        agent_granularity=safe_agent_granularity,
     )
     paths["manifest"].write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     _append_run_index(paths["index"], manifest)
@@ -1274,6 +1294,34 @@ def write_artifacts(
         encoding="utf-8",
     )
     return paths
+
+
+def normalize_agent_granularity(value: str | None) -> str:
+    normalized = str(value or "default").strip().lower()
+    aliases = {
+        "default": "category-master",
+        "categories": "category-master",
+        "category": "category-master",
+        "category-master": "category-master",
+        "narrow": "per-hypothesis",
+        "per-hypothesis": "per-hypothesis",
+    }
+    if normalized not in aliases:
+        expected = ", ".join(sorted(AGENT_GRANULARITIES))
+        raise ValueError(f"agent_granularity must be one of: {expected}")
+    return aliases[normalized]
+
+
+def render_spec_for_granularity(
+    result: MapResult,
+    *,
+    run_id: str,
+    agent_granularity: str,
+) -> str:
+    safe_agent_granularity = normalize_agent_granularity(agent_granularity)
+    if result.focus == "rce":
+        return render_rce_spec(result, run_id=run_id, agent_granularity=safe_agent_granularity)
+    return VULNERABILITY_PACKS[result.focus].render_spec(result, run_id)
 
 
 def _apply_hunting_policy_to_map_result(
@@ -2279,6 +2327,7 @@ def render_run_manifest(
     output_mode: str,
     hunting_policy: HuntingPolicy | dict[str, Any] | None = None,
     policy_config: str | Path | None = None,
+    agent_granularity: str = "default",
 ) -> dict[str, Any]:
     run_root = paths["run_root"]
     artifacts = {
@@ -2307,6 +2356,7 @@ def render_run_manifest(
         "program": result.profile.program,
         "program_slug": sanitize_key(result.profile.program),
         "focus": result.focus,
+        "agent_granularity": normalize_agent_granularity(agent_granularity),
         "output_mode": output_mode,
         "run_root": str(run_root),
         "target_path": result.profile.target_path,
@@ -2400,7 +2450,14 @@ def render_architecture(result: MapResult) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def render_rce_spec(result: MapResult, *, run_id: str, max_hypotheses: int = MAX_GENERATED_HYPOTHESES) -> str:
+def render_rce_spec(
+    result: MapResult,
+    *,
+    run_id: str,
+    max_hypotheses: int = MAX_GENERATED_HYPOTHESES,
+    agent_granularity: str = "default",
+) -> str:
+    safe_agent_granularity = normalize_agent_granularity(agent_granularity)
     program_slug = sanitize_key(result.profile.program)
     created = datetime.now(timezone.utc).date().isoformat()
     candidates = result.candidates[:max_hypotheses]
@@ -2414,7 +2471,8 @@ def render_rce_spec(result: MapResult, *, run_id: str, max_hypotheses: int = MAX
         boundary = candidate["boundary"]
         transform = candidate.get("transform")
         sink = candidate["sink"]
-        agent_key = _stable_agent_key(program_slug, candidate)
+        agent_key = _agent_key_for_candidate(program_slug, candidate, agent_granularity=safe_agent_granularity)
+        category_tags = [agent_key] if safe_agent_granularity == "category-master" else []
         research_summaries = _candidate_research_summaries(result, candidate)
         research_notes = _research_notes(research_summaries)
         primitives.append(
@@ -2456,7 +2514,8 @@ def render_rce_spec(result: MapResult, *, run_id: str, max_hypotheses: int = MAX
                     f"  - {agent_key}",
                     "- Focus files:",
                     *[f"  - {glob}" for glob in focus_files],
-                    "- Tags: rce, appmap, static, " + source["kind"] + ", " + sink["kind"],
+                    "- Tags: rce, appmap, static, "
+                    + ", ".join([*category_tags, source["kind"], sink["kind"]]),
                     "- Evidence:",
                     f"  - appmap-{candidate['id']}",
                     f"  - appmap-context:{hypothesis_id}:{candidate['id']}:{agent_key}",
@@ -2479,6 +2538,7 @@ def render_rce_spec(result: MapResult, *, run_id: str, max_hypotheses: int = MAX
         "- Target path: .\n"
         f"- Created: {created}\n"
         "- Status: active\n"
+        f"- Agent granularity: {safe_agent_granularity}\n"
         f"- AppMap run id: {run_id}\n\n"
         "## Target mental model\n"
         f"{mental_model}\n\n"
@@ -2706,6 +2766,41 @@ def _relative_to(path: Path, base: Path) -> str:
         return path.relative_to(base).as_posix()
     except ValueError:
         return str(path)
+
+
+def _agent_key_for_candidate(
+    program_slug: str,
+    candidate: dict[str, Any],
+    *,
+    agent_granularity: str,
+) -> str:
+    if normalize_agent_granularity(agent_granularity) == "category-master":
+        return _static_category_agent_key(candidate)
+    return _stable_agent_key(program_slug, candidate)
+
+
+def _static_category_agent_key(candidate: dict[str, Any]) -> str:
+    sink = candidate.get("sink") if isinstance(candidate.get("sink"), dict) else {}
+    source = candidate.get("source") if isinstance(candidate.get("source"), dict) else {}
+    boundary = candidate.get("boundary") if isinstance(candidate.get("boundary"), dict) else {}
+    transform = candidate.get("transform") if isinstance(candidate.get("transform"), dict) else {}
+    kinds = {
+        str(item.get("kind") or "").strip().lower()
+        for item in (source, boundary, transform, sink)
+        if isinstance(item, dict)
+    }
+    sink_kind = str(sink.get("kind") or "").strip().lower()
+    if sink_kind == "unsafe-deserialization" or "deserialization" in kinds:
+        category = "unsafe-deserialization"
+    elif sink_kind in {"process-exec", "dynamic-code", "dynamic-module"}:
+        category = "exec-sink-reachability"
+    elif "ipc" in kinds or "electron-boundary" in kinds:
+        category = "ipc-trust-boundary"
+    else:
+        category = "exec-sink-reachability"
+    if category not in STATIC_CATEGORY_AGENT_KEYS:
+        raise ValueError(f"unknown static category agent key: {category}")
+    return category
 
 
 def _stable_agent_key(program_slug: str, candidate: dict[str, Any]) -> str:
@@ -2953,6 +3048,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-kind", default="auto", type=_target_kind_arg, help="Target kind hint; defaults to auto.")
     parser.add_argument("--focus", default="rce", choices=sorted(VULNERABILITY_PACKS), help="Vulnerability focus for Phase 2.")
     parser.add_argument("--write-specs", action="store_true", help="Write and validate generated brainstorm specs.")
+    parser.add_argument(
+        "--agent-granularity",
+        choices=sorted(AGENT_GRANULARITIES),
+        default="default",
+        help=(
+            "Generated brainstorm agent assignment shape. default uses static zero_day_team category keys; "
+            "narrow keeps one unique agent per hypothesis. Compatibility aliases: category-master, per-hypothesis."
+        ),
+    )
+    parser.add_argument(
+        "--category-master-agents",
+        action="store_true",
+        help="Compatibility shortcut for --agent-granularity category-master.",
+    )
     parser.add_argument("--output-root", help="Output root. Defaults to ~/Shared/appmap/<program>/static.")
     parser.add_argument(
         "--output-mode",
@@ -3208,6 +3317,7 @@ def main(argv: list[str] | None = None) -> int:
 
     run_id = args.run_id or f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{int(time.time())}"
     try:
+        agent_granularity = "category-master" if args.category_master_agents else normalize_agent_granularity(args.agent_granularity)
         output_root = resolve_output_root(
             args.program,
             output_mode=args.output_mode,
@@ -3260,6 +3370,7 @@ def main(argv: list[str] | None = None) -> int:
         output_mode=args.output_mode,
         hunting_policy=hunting_policy,
         policy_config=args.policy_config,
+        agent_granularity=agent_granularity,
     )
     promotion: PromotionResult | None = None
     if args.promote_to_brainstorm:

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["id", "version", "kind"],
+  "properties": {
+    "id": {"type": "string"},
+    "version": {"type": "integer"},
+    "kind": {"enum": ["base", "overlay"]},
+    "extends": {"type": "array", "items": {"type": "string"}},
+    "applies_to": {"type": "object"},
+    "surface_taxonomy": {"type": "object"},
+    "hypothesis_guidance": {"type": "object"},
+    "scheduler_guidance": {"type": "object"},
+    "review_guidance": {"type": "object"},
+    "policy_hints": {"type": "object"},
+    "notes": {"type": "object"}
+  },
+  "additionalProperties": true
+}

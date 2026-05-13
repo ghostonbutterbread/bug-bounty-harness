@@ -1,0 +1,25 @@
+{
+  "aliases": {
+    "electron-application-first-loose": {
+      "rulesets": ["desktop-baseline", "electron-overlay"],
+      "policy_hints": {
+        "policy_id": "electron-application-first-loose",
+        "hunt_posture": "application-first-loose"
+      }
+    },
+    "electron-application-first": {
+      "rulesets": ["desktop-baseline", "electron-overlay"],
+      "policy_hints": {
+        "policy_id": "electron-application-first-loose",
+        "hunt_posture": "application-first-loose"
+      }
+    },
+    "electron-entry-first": {
+      "rulesets": ["desktop-baseline", "electron-overlay"],
+      "policy_hints": {
+        "policy_id": "electron-application-first-loose",
+        "hunt_posture": "application-first-loose"
+      }
+    }
+  }
+}

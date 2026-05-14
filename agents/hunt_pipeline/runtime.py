@@ -167,6 +167,7 @@ def execute_next_wave(
     max_agents: int | None = None,
     concurrent_agents: int | None = None,
     execute_live: bool = False,
+    live_testing_enabled: bool | None = None,
     adapter: PipelineRuntimeAdapter | None = None,
 ) -> dict[str, Any]:
     resolved_plan_path = Path(plan_path).expanduser().resolve(strict=False)
@@ -183,6 +184,7 @@ def execute_next_wave(
         if execute_live and promotion_decision.get("promoted") is not True:
             return _blocked_live_execution_result(plan, resolved_plan_path, promotion_decision)
         state = recover_running_agents(initialize_run_state(resolved_plan_path, plan))
+        state["run_config"] = _resolved_run_config(state, live_testing_enabled=live_testing_enabled)
         save_run_state(state, run_state_path_for_plan(resolved_plan_path))
         wave = next_wave_records(plan, state, max_agents=max_agents, concurrent_agents=concurrent_agents)
         if not wave:
@@ -258,6 +260,7 @@ def execute_next_wave(
             "agent_keys": [record["agent_key"] for record in wave],
             "specs_path": str(specs_path),
             "live_execution": bool(execute_live),
+            "live_testing_enabled": bool(state["run_config"].get("live_testing_enabled", False)),
             "execution_mode": execution_mode,
         }
         state = _preserve_control_flags(state, run_state_path_for_plan(resolved_plan_path))
@@ -358,3 +361,18 @@ def _snapshot_id(plan: Mapping[str, Any], plan_path: Path) -> str:
     if run_root:
         return Path(run_root).name
     return plan_path.parent.name
+
+
+def _resolved_run_config(
+    state: Mapping[str, Any],
+    *,
+    live_testing_enabled: bool | None,
+) -> dict[str, Any]:
+    current = state.get("run_config") if isinstance(state.get("run_config"), Mapping) else {}
+    return {
+        "live_testing_enabled": (
+            bool(live_testing_enabled)
+            if live_testing_enabled is not None
+            else bool(current.get("live_testing_enabled", False))
+        ),
+    }

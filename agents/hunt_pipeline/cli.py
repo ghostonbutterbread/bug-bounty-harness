@@ -222,6 +222,7 @@ def _normalize_legacy_argv(argv: list[str]) -> list[str]:
 
 def _format_status_text(summary: dict[str, object]) -> str:
     contract = summary.get("runtime_handoff_contract") if isinstance(summary.get("runtime_handoff_contract"), dict) else {}
+    protocol = summary.get("runtime_promotion_protocol") if isinstance(summary.get("runtime_promotion_protocol"), dict) else {}
     return (
         f"pipeline_plan={summary.get('pipeline_plan')} "
         f"run_state={summary.get('run_state')} "
@@ -232,7 +233,9 @@ def _format_status_text(summary: dict[str, object]) -> str:
         f"pause_requested={str(bool(summary.get('pause_requested'))).lower()} "
         f"stopped_requested={str(bool(summary.get('stopped_requested'))).lower()} "
         f"runtime_contract_status={contract.get('status')} "
-        f"promotion_allowed={str(bool(contract.get('promotion_allowed'))).lower()}"
+        f"promotion_allowed={str(bool(contract.get('promotion_allowed'))).lower()} "
+        f"promotion_protocol_status={protocol.get('status')} "
+        f"promotion_enabled={str(bool(protocol.get('promotion_enabled'))).lower()}"
     )
 
 

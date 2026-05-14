@@ -5,6 +5,8 @@ from typing import Any, Callable, Mapping, Sequence
 
 CONTRACT_SCHEMA_VERSION = 1
 CONTRACT_STATUS_BLOCKED = "blocked"
+PROMOTION_PROTOCOL_SCHEMA_VERSION = 1
+PROMOTION_PROTOCOL_STATUS_DRAFT = "draft"
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +32,22 @@ class RuntimeHandoffContract:
     required_gates: tuple[dict[str, Any], ...]
     gate_results: tuple[dict[str, Any], ...]
     promotion_allowed: bool = False
+    notes: tuple[str, ...] = field(default_factory=tuple)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimePromotionProtocol:
+    schema_version: int
+    status: str
+    promotion_enabled: bool
+    required_approvals: tuple[dict[str, Any], ...]
+    adapter_ownership_boundaries: tuple[dict[str, Any], ...]
+    ledger_review_ownership_boundaries: tuple[dict[str, Any], ...]
+    rollback_stop_semantics: dict[str, Any]
+    future_promotion_steps: tuple[dict[str, Any], ...]
     notes: tuple[str, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
@@ -62,6 +80,10 @@ def default_runtime_handoff_gates() -> tuple[RuntimeHandoffGate, ...]:
             "dry-run safety flags disable spawning, live validation, and ledger writes",
         ),
         RuntimeHandoffGate(
+            "promotion_protocol_non_live",
+            "runtime promotion protocol is present, draft-only, and cannot enable live execution",
+        ),
+        RuntimeHandoffGate(
             "explicit_contract_promotion",
             "future operator promotion has explicitly enabled live execution",
         ),
@@ -88,10 +110,86 @@ def build_runtime_handoff_contract(
     )
 
 
+def build_runtime_promotion_protocol(
+    *,
+    status: str = PROMOTION_PROTOCOL_STATUS_DRAFT,
+    promotion_enabled: bool = False,
+    required_approvals: Sequence[Mapping[str, Any]] | None = None,
+    adapter_ownership_boundaries: Sequence[Mapping[str, Any]] | None = None,
+    ledger_review_ownership_boundaries: Sequence[Mapping[str, Any]] | None = None,
+    rollback_stop_semantics: Mapping[str, Any] | None = None,
+    future_promotion_steps: Sequence[Mapping[str, Any]] | None = None,
+    notes: Sequence[str] | None = None,
+) -> RuntimePromotionProtocol:
+    """Build the design-only protocol artifact for a future live promotion."""
+
+    return RuntimePromotionProtocol(
+        schema_version=PROMOTION_PROTOCOL_SCHEMA_VERSION,
+        status=str(status or PROMOTION_PROTOCOL_STATUS_DRAFT).strip() or PROMOTION_PROTOCOL_STATUS_DRAFT,
+        promotion_enabled=bool(promotion_enabled is True),
+        required_approvals=tuple(dict(item) for item in (required_approvals or _default_required_approvals())),
+        adapter_ownership_boundaries=tuple(
+            dict(item) for item in (adapter_ownership_boundaries or _default_adapter_ownership_boundaries())
+        ),
+        ledger_review_ownership_boundaries=tuple(
+            dict(item) for item in (ledger_review_ownership_boundaries or _default_ledger_review_boundaries())
+        ),
+        rollback_stop_semantics=dict(rollback_stop_semantics or _default_rollback_stop_semantics()),
+        future_promotion_steps=tuple(dict(item) for item in (future_promotion_steps or _default_future_promotion_steps())),
+        notes=tuple(str(item) for item in (notes or _default_promotion_protocol_notes())),
+    )
+
+
 def evaluate_runtime_handoff_contract(plan: Mapping[str, Any]) -> dict[str, Any]:
     """Return current gate results from the plan without trusting stored results."""
 
     return build_runtime_handoff_contract(plan).to_dict()
+
+
+def evaluate_runtime_promotion_protocol(plan: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a conservative summary of the stored promotion protocol artifact."""
+
+    protocol = plan.get("runtime_promotion_protocol")
+    if not isinstance(protocol, Mapping):
+        return {
+            "schema_version": 0,
+            "status": "missing",
+            "promotion_enabled": False,
+            "valid": False,
+            "details": "runtime_promotion_protocol is missing",
+        }
+    schema_version = _schema_version(protocol.get("schema_version"))
+    required_approvals = protocol.get("required_approvals")
+    adapter_boundaries = protocol.get("adapter_ownership_boundaries")
+    ledger_review_boundaries = protocol.get("ledger_review_ownership_boundaries")
+    rollback = protocol.get("rollback_stop_semantics")
+    future_steps = protocol.get("future_promotion_steps")
+    status = str(protocol.get("status") or "").strip()
+    promotion_enabled = bool(protocol.get("promotion_enabled") is True)
+    valid = (
+        schema_version >= PROMOTION_PROTOCOL_SCHEMA_VERSION
+        and status in {"draft", "blocked"}
+        and promotion_enabled is False
+        and _non_empty_mapping_sequence(required_approvals)
+        and _non_empty_mapping_sequence(adapter_boundaries)
+        and _non_empty_mapping_sequence(ledger_review_boundaries)
+        and isinstance(rollback, Mapping)
+        and _non_empty_mapping_sequence(future_steps)
+    )
+    if valid:
+        details = "runtime_promotion_protocol is design-only and promotion_enabled is false"
+    elif promotion_enabled:
+        details = "runtime_promotion_protocol cannot enable promotion in this slice"
+    else:
+        details = "runtime_promotion_protocol is missing required draft-only structure"
+    return {
+        "schema_version": schema_version,
+        "status": status or "malformed",
+        "promotion_enabled": False,
+        "stored_promotion_enabled": promotion_enabled,
+        "valid": valid,
+        "details": details,
+    }
 
 
 def promotion_allowed(plan: Mapping[str, Any]) -> bool:
@@ -115,6 +213,7 @@ def _evaluate_gate(gate: RuntimeHandoffGate, plan: Mapping[str, Any]) -> Runtime
         "static_team_invocation_disabled": _gate_static_team_invocation_disabled,
         "dynamic_validation_disabled": _gate_dynamic_validation_disabled,
         "safety_flags_non_live": _gate_safety_flags_non_live,
+        "promotion_protocol_non_live": _gate_promotion_protocol_non_live,
         "explicit_contract_promotion": _gate_explicit_contract_promotion,
     }
     evaluator = evaluators.get(gate.id)
@@ -219,6 +318,18 @@ def _gate_safety_flags_non_live(plan: Mapping[str, Any]) -> RuntimeHandoffGateRe
     )
 
 
+def _gate_promotion_protocol_non_live(plan: Mapping[str, Any]) -> RuntimeHandoffGateResult:
+    protocol = evaluate_runtime_promotion_protocol(plan)
+    passed = bool(protocol.get("valid") is True and protocol.get("promotion_enabled") is False)
+    return _result(
+        "promotion_protocol_non_live",
+        passed,
+        "promotion protocol is present and draft-only"
+        if passed
+        else str(protocol.get("details") or "promotion protocol is not a valid draft-only artifact"),
+    )
+
+
 def _gate_explicit_contract_promotion(plan: Mapping[str, Any]) -> RuntimeHandoffGateResult:
     stored = plan.get("runtime_handoff_contract") if isinstance(plan.get("runtime_handoff_contract"), Mapping) else {}
     requested = bool(stored.get("promotion_requested") is True or stored.get("promotion_allowed") is True)
@@ -250,3 +361,108 @@ def _result(gate_id: str, passed: bool, details: str) -> RuntimeHandoffGateResul
         status="passed" if passed else "failed",
         details=details,
     )
+
+
+def _default_required_approvals() -> tuple[dict[str, Any], ...]:
+    return (
+        {
+            "approval": "operator_live_execution_approval",
+            "owner": "human-operator",
+            "required": True,
+            "evidence": "explicit command/config change outside the non-live slice",
+        },
+        {
+            "approval": "runtime_contract_update_review",
+            "owner": "hunt-pipeline-maintainer",
+            "required": True,
+            "evidence": "runtime_handoff_contract gates updated and reviewed",
+        },
+        {
+            "approval": "ledger_review_owner_assignment",
+            "owner": "findings-review-owner",
+            "required": True,
+            "evidence": "ledger, review, and report ownership documented before writes",
+        },
+    )
+
+
+def _default_adapter_ownership_boundaries() -> tuple[dict[str, Any], ...]:
+    return (
+        {
+            "owner": "hunt_pipeline.runtime_adapter",
+            "owns": ["packet-to-spec conversion", "scheduler-decision-to-spec conversion"],
+            "does_not_own": ["agent spawning", "live target mutation", "ledger writes"],
+        },
+        {
+            "owner": "future live runtime adapter",
+            "owns": ["spawn orchestration after promotion", "bounded execution status collection"],
+            "activation": "must be introduced in a future slice with tests and explicit approval",
+        },
+    )
+
+
+def _default_ledger_review_boundaries() -> tuple[dict[str, Any], ...]:
+    return (
+        {
+            "owner": "base_team.review",
+            "owns": ["finding review semantics", "review tier decisions"],
+            "activation": "review-only until live ledger write path is promoted",
+        },
+        {
+            "owner": "base_team.promotion/findings ledger",
+            "owns": ["confirmed/dormant/novel report promotion", "durable ledger writes"],
+            "activation": "disabled in this slice; requires explicit future owner handoff",
+        },
+    )
+
+
+def _default_rollback_stop_semantics() -> dict[str, Any]:
+    return {
+        "stop_command": "hunt_pipeline stop",
+        "pause_command": "hunt_pipeline pause",
+        "rollback_behavior": "disable future live waves, preserve existing artifacts for review, do not delete ledgers",
+        "active_wave_behavior": "future implementation must define whether active subprocesses are drained or killed",
+        "default_on_protocol_error": "block promotion and keep execute-live rejected",
+    }
+
+
+def _default_future_promotion_steps() -> tuple[dict[str, Any], ...]:
+    return (
+        {
+            "step": "land_live_runtime_adapter",
+            "status": "future",
+            "requires": ["adapter ownership boundaries", "spawn tests", "stop/pause behavior tests"],
+        },
+        {
+            "step": "wire_static_team_invocation",
+            "status": "future",
+            "requires": ["operator approval", "bounded team allowlist", "no implicit static bundle execution"],
+        },
+        {
+            "step": "wire_dynamic_validation",
+            "status": "future",
+            "requires": ["queue ownership", "transport policy", "target safety review"],
+        },
+        {
+            "step": "wire_ledger_writes",
+            "status": "future",
+            "requires": ["review owner", "report promotion owner", "rollback semantics"],
+        },
+        {
+            "step": "flip_promotion_enabled",
+            "status": "blocked",
+            "requires": ["all prior steps", "runtime_handoff_contract promotion gate update"],
+        },
+    )
+
+
+def _default_promotion_protocol_notes() -> tuple[str, ...]:
+    return (
+        "This artifact is a promotion design protocol only.",
+        "promotion_enabled=false is required; malformed or missing protocol data cannot imply promotion.",
+        "--execute-live remains blocked by runtime_handoff_contract.",
+    )
+
+
+def _non_empty_mapping_sequence(value: Any) -> bool:
+    return isinstance(value, list | tuple) and bool(value) and all(isinstance(item, Mapping) for item in value)

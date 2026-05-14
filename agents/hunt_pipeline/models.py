@@ -122,6 +122,7 @@ class PipelineDryRunArtifact:
     runtime_adapter_availability: dict[str, Any]
     runtime_handoff_boundary: dict[str, Any]
     runtime_handoff_contract: dict[str, Any]
+    runtime_promotion_protocol: dict[str, Any]
     static_team_handoffs: dict[str, Any]
     dynamic_validation_queue: dict[str, Any]
     safety: dict[str, Any]

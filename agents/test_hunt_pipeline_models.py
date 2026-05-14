@@ -42,6 +42,7 @@ def test_hunt_pipeline_models_render_schema_friendly_dicts() -> None:
         runtime_adapter_availability={"spawn_enabled": False},
         runtime_handoff_boundary={"status": "explicit-non-live-boundary"},
         runtime_handoff_contract={"schema_version": 1, "status": "blocked", "promotion_allowed": False},
+        runtime_promotion_protocol={"schema_version": 1, "status": "draft", "promotion_enabled": False},
         static_team_handoffs={"enabled": False},
         dynamic_validation_queue={"enabled": False},
         safety={"dry_run_only": True},

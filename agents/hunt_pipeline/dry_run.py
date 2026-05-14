@@ -17,7 +17,9 @@ from agents.hunt_pipeline.promotion_readiness import (
     non_live_readiness_stub,
 )
 from agents.hunt_pipeline.promotion_request_packet import build_runtime_promotion_request_packet
+from agents.hunt_pipeline.runtime_action_policy import build_runtime_action_policy
 from agents.hunt_pipeline.runtime_contract import build_runtime_handoff_contract, build_runtime_promotion_protocol
+from agents.hunt_pipeline.runtime_environment_approval import build_runtime_environment_approval
 from agents.hunt_pipeline.rulesets import resolve_ruleset
 from agents.hunt_pipeline.scheduler import plan_hypothesis_packets, runtime_adapter_availability, runtime_handoff_boundary
 from agents.hunt_pipeline.target_classifier import classify_target_kind
@@ -110,9 +112,24 @@ def build_dry_run_plan(
     ).to_dict()
     runtime_promotion_protocol = build_runtime_promotion_protocol().to_dict()
     plan_path = output_root / "pipeline_plan.json"
+    plan_context = {
+        "program": str(program),
+        "target_path": str(target),
+        "target_kind": resolved_target_kind,
+        "selected_rulesets": ruleset.to_dict(),
+        "appmap_source": appmap_source,
+    }
+    runtime_environment_approval = build_runtime_environment_approval(plan_path, plan=plan_context).to_dict()
+    runtime_action_policy = build_runtime_action_policy(plan_path, plan=plan_context).to_dict()
+    artifact_context = {
+        **plan_context,
+        "runtime_environment_approval": runtime_environment_approval,
+        "runtime_action_policy": runtime_action_policy,
+    }
     readiness_seed = non_live_readiness_stub()
     runtime_handoff_contract = build_runtime_handoff_contract(
         {
+            **artifact_context,
             "runtime_handoff_contract": {"schema_version": 1},
             "runtime_promotion_protocol": runtime_promotion_protocol,
             "runtime_promotion_readiness": readiness_seed,
@@ -120,12 +137,15 @@ def build_dry_run_plan(
             "static_team_handoffs": static_team_handoffs,
             "dynamic_validation_queue": dynamic_validation_queue,
             "live_testing_playbook": live_testing_playbook,
+            "runtime_environment_approval": runtime_environment_approval,
+            "runtime_action_policy": runtime_action_policy,
             "safety": safety,
         }
     ).to_dict()
     runtime_promotion_readiness = build_runtime_promotion_readiness_checklist(
         plan_path,
         plan={
+            **artifact_context,
             "runtime_handoff_contract": runtime_handoff_contract,
             "runtime_promotion_protocol": runtime_promotion_protocol,
             "runtime_promotion_readiness": readiness_seed,
@@ -133,23 +153,29 @@ def build_dry_run_plan(
             "static_team_handoffs": static_team_handoffs,
             "dynamic_validation_queue": dynamic_validation_queue,
             "live_testing_playbook": live_testing_playbook,
+            "runtime_environment_approval": runtime_environment_approval,
+            "runtime_action_policy": runtime_action_policy,
             "safety": safety,
         },
     ).to_dict()
     runtime_operator_approval_schema = build_runtime_operator_approval_schema(
         plan_path,
         plan={
+            **artifact_context,
             "runtime_handoff_contract": runtime_handoff_contract,
             "runtime_promotion_protocol": runtime_promotion_protocol,
             "runtime_promotion_readiness": runtime_promotion_readiness,
             "runtime_adapter_availability": runtime_adapter,
             "static_team_handoffs": static_team_handoffs,
             "dynamic_validation_queue": dynamic_validation_queue,
+            "runtime_environment_approval": runtime_environment_approval,
+            "runtime_action_policy": runtime_action_policy,
             "safety": safety,
         },
     ).to_dict()
     runtime_handoff_contract = build_runtime_handoff_contract(
         {
+            **artifact_context,
             "runtime_handoff_contract": {"schema_version": 1},
             "runtime_promotion_protocol": runtime_promotion_protocol,
             "runtime_promotion_readiness": runtime_promotion_readiness,
@@ -158,12 +184,15 @@ def build_dry_run_plan(
             "static_team_handoffs": static_team_handoffs,
             "dynamic_validation_queue": dynamic_validation_queue,
             "live_testing_playbook": live_testing_playbook,
+            "runtime_environment_approval": runtime_environment_approval,
+            "runtime_action_policy": runtime_action_policy,
             "safety": safety,
         }
     ).to_dict()
     runtime_promotion_request_packet = build_runtime_promotion_request_packet(
         plan_path,
         plan={
+            **artifact_context,
             "runtime_handoff_contract": runtime_handoff_contract,
             "runtime_promotion_protocol": runtime_promotion_protocol,
             "runtime_promotion_readiness": runtime_promotion_readiness,
@@ -172,6 +201,8 @@ def build_dry_run_plan(
             "static_team_handoffs": static_team_handoffs,
             "dynamic_validation_queue": dynamic_validation_queue,
             "live_testing_playbook": live_testing_playbook,
+            "runtime_environment_approval": runtime_environment_approval,
+            "runtime_action_policy": runtime_action_policy,
             "safety": safety,
         },
     ).to_dict()
@@ -201,6 +232,8 @@ def build_dry_run_plan(
         dynamic_validation_queue=dynamic_validation_queue,
         safety=safety,
         live_testing_playbook=live_testing_playbook,
+        runtime_environment_approval=runtime_environment_approval,
+        runtime_action_policy=runtime_action_policy,
     )
     _write_json_artifact(plan_path, artifact.to_dict())
     return artifact, plan_path

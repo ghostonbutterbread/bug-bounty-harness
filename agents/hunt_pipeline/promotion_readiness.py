@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from agents.hunt_pipeline.preflight_report import build_runtime_preflight_report
+from agents.hunt_pipeline.runtime_action_policy import evaluate_runtime_action_policy
 from agents.hunt_pipeline.runtime_contract import (
     PROMOTION_READINESS_SCHEMA_VERSION,
     evaluate_runtime_handoff_contract,
@@ -14,6 +15,7 @@ from agents.hunt_pipeline.runtime_contract import (
     evaluate_runtime_promotion_readiness,
     failed_required_gates,
 )
+from agents.hunt_pipeline.runtime_environment_approval import evaluate_runtime_environment_approval
 
 READINESS_FILENAME = "runtime_promotion_readiness.json"
 
@@ -31,6 +33,8 @@ class RuntimePromotionReadinessChecklist:
     blockers: tuple[dict[str, Any], ...]
     gates: dict[str, Any]
     preflight_states: dict[str, Any]
+    runtime_environment_approval: dict[str, Any]
+    runtime_action_policy: dict[str, Any]
     runtime_promotion_protocol: dict[str, Any]
     run_status: dict[str, Any] = field(default_factory=dict)
     notes: tuple[str, ...] = field(default_factory=tuple)
@@ -53,6 +57,8 @@ def build_runtime_promotion_readiness_checklist(
     protocol = evaluate_runtime_promotion_protocol(payload)
     stored_readiness = evaluate_runtime_promotion_readiness(payload)
     preflight = build_runtime_preflight_report(resolved_plan_path, plan=payload)
+    environment_approval = evaluate_runtime_environment_approval(payload, plan_path=resolved_plan_path)
+    action_policy = evaluate_runtime_action_policy(payload, plan_path=resolved_plan_path)
     failed_gates = failed_required_gates(contract)
     approvals = _required_approvals(payload)
     blockers = _dedupe_blockers(
@@ -61,6 +67,8 @@ def build_runtime_promotion_readiness_checklist(
             *_preflight_blockers(preflight),
             *_protocol_blockers(protocol),
             *_stored_readiness_blockers(stored_readiness),
+            *_environment_approval_blockers(environment_approval),
+            *_action_policy_blockers(action_policy),
             *_approval_blockers(approvals),
         ]
     )
@@ -87,9 +95,24 @@ def build_runtime_promotion_readiness_checklist(
         preflight_states={
             "status": str(preflight.get("status") or "unknown"),
             "promotion_enabled": False,
+            "runtime_environment_approval": preflight.get("runtime_environment_approval") or {},
+            "runtime_action_policy": preflight.get("runtime_action_policy") or {},
             "static_team_handoffs": preflight.get("static_team_handoffs") or {},
             "dynamic_validation_queue": preflight.get("dynamic_validation_queue") or {},
             "live_testing_playbook": preflight.get("live_testing_playbook") or {},
+        },
+        runtime_environment_approval={
+            "status": str(environment_approval.get("status") or "unknown"),
+            "valid": bool(environment_approval.get("valid") is True),
+            "approved": bool(environment_approval.get("approved") is True),
+            "details": str(environment_approval.get("details") or ""),
+        },
+        runtime_action_policy={
+            "status": str(action_policy.get("status") or "unknown"),
+            "valid": bool(action_policy.get("valid") is True),
+            "active": bool(action_policy.get("active") is True),
+            "default_classification": str(action_policy.get("default_classification") or ""),
+            "details": str(action_policy.get("details") or ""),
         },
         runtime_promotion_protocol={
             "status": str(protocol.get("status") or "unknown"),
@@ -236,6 +259,41 @@ def _approval_blockers(approvals: Sequence[Mapping[str, Any]]) -> list[dict[str,
             }
         )
     return blockers
+
+
+def _environment_approval_blockers(environment_approval: Mapping[str, Any]) -> list[dict[str, Any]]:
+    if environment_approval.get("valid") is not True:
+        return [
+            {
+                "source": "runtime_environment_approval",
+                "id": "runtime_environment_approval",
+                "details": str(environment_approval.get("details") or "runtime_environment_approval is not valid"),
+            }
+        ]
+    if environment_approval.get("approved") is True:
+        return []
+    return [
+        {
+            "source": "runtime_environment_approval",
+            "id": "runtime_environment_approval_approval_required",
+            "details": str(
+                environment_approval.get("details")
+                or "runtime_environment_approval must be approved for live execution"
+            ),
+        }
+    ]
+
+
+def _action_policy_blockers(action_policy: Mapping[str, Any]) -> list[dict[str, Any]]:
+    if action_policy.get("valid") is True:
+        return []
+    return [
+        {
+            "source": "runtime_action_policy",
+            "id": "runtime_action_policy",
+            "details": str(action_policy.get("details") or "runtime_action_policy is not valid"),
+        }
+    ]
 
 
 def _run_status_snapshot(status_summary: Mapping[str, Any] | None) -> dict[str, Any]:

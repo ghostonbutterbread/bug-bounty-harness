@@ -56,6 +56,29 @@ def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) ->
     assert payload["runtime_handoff_boundary"]["status"] == "explicit-non-live-boundary"
     assert "spawn BaseTeam/zero_day_team/apk_team/electron_team agents" in payload["runtime_handoff_boundary"]["prohibited_actions"]
     assert "operator approval of the runtime handoff contract" in payload["runtime_handoff_boundary"]["required_before_live_execution"]
+    environment_approval = payload["runtime_environment_approval"]
+    assert environment_approval["schema_version"] == 1
+    assert environment_approval["status"] == "approval_required"
+    assert environment_approval["scope"]["program"] == "demo"
+    assert environment_approval["scope"]["run_intent"] == "hunt-pipeline-live-testing"
+    assert environment_approval["route_policy"]["denied_routes_override_allowed_routes"] is True
+    assert environment_approval["surface_policy"]["default_decision"] == "allow_in_environment"
+    assert environment_approval["surface_policy"]["allowed_by_default"] == [
+        "ghidra-mcp",
+        "mcp",
+        "cdp",
+        "ssh-local",
+        "target-local-process",
+        "localhost-tunnel-binding",
+    ]
+    action_policy = payload["runtime_action_policy"]
+    assert action_policy["schema_version"] == 1
+    assert action_policy["status"] == "active"
+    assert action_policy["policy_id"] == "private-by-default-v1"
+    assert action_policy["default_classification"] == "approval_required"
+    assert action_policy["scope"]["program"] == "demo"
+    assert "payment" not in action_policy["classifications"]["allowed_private"]["action_tags"]
+    assert "payment" in action_policy["classifications"]["approval_required"]["action_tags"]
     protocol = payload["runtime_promotion_protocol"]
     assert protocol["schema_version"] == 1
     assert protocol["status"] == "draft"
@@ -101,6 +124,12 @@ def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) ->
     assert readiness["promotion_enabled"] is False
     assert readiness["live_execution_ready"] is False
     assert readiness["gates"]["promotion_allowed"] is False
+    assert readiness["runtime_environment_approval"]["status"] == "approval_required"
+    assert readiness["runtime_environment_approval"]["approved"] is False
+    assert readiness["runtime_action_policy"]["status"] == "active"
+    assert readiness["runtime_action_policy"]["valid"] is True
+    assert readiness["preflight_states"]["runtime_environment_approval"]["status"] == "approval_required"
+    assert readiness["preflight_states"]["runtime_action_policy"]["status"] == "active"
     assert readiness["preflight_states"]["static_team_handoffs"]["state"] == "planned-only"
     assert readiness["preflight_states"]["dynamic_validation_queue"]["state"] == "disabled"
     assert readiness["preflight_states"]["live_testing_playbook"]["state"] == "planned-only"

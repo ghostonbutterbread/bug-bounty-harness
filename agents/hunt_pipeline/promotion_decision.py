@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from agents.hunt_pipeline.live_testing import summarize_live_testing_playbook
+from agents.hunt_pipeline.runtime_action_policy import evaluate_runtime_action_policy
+from agents.hunt_pipeline.runtime_environment_approval import evaluate_runtime_environment_approval
 
 DECISION_SCHEMA_VERSION = 1
 DECISION_FILENAME = "runtime_promotion_decision.json"
@@ -99,6 +101,40 @@ def evaluate_runtime_promotion_decision(
         )
 
     live_testing = summarize_live_testing_playbook(plan)
+    environment_approval = evaluate_runtime_environment_approval(plan, plan_path=resolved_plan_path, now=current_time)
+    if environment_approval.get("valid") is not True:
+        return _blocked(
+            str(environment_approval.get("status") or "malformed"),
+            source=source,
+            schema_version=schema_version,
+            details=str(environment_approval.get("details") or "runtime_environment_approval is not valid"),
+            stored_promotion_enabled=promoted_flag,
+            expires_at=_timestamp_text(decision.get("expires_at")),
+        )
+    if environment_approval.get("approved") is not True:
+        return _blocked(
+            "approval_required",
+            source=source,
+            schema_version=schema_version,
+            details=str(
+                environment_approval.get("details")
+                or "runtime_environment_approval must be approved for live execution"
+            ),
+            stored_promotion_enabled=promoted_flag,
+            expires_at=_timestamp_text(decision.get("expires_at")),
+        )
+
+    action_policy = evaluate_runtime_action_policy(plan, plan_path=resolved_plan_path, now=current_time)
+    if action_policy.get("valid") is not True:
+        return _blocked(
+            str(action_policy.get("status") or "malformed"),
+            source=source,
+            schema_version=schema_version,
+            details=str(action_policy.get("details") or "runtime_action_policy is not valid"),
+            stored_promotion_enabled=promoted_flag,
+            expires_at=_timestamp_text(decision.get("expires_at")),
+        )
+
     control_errors = [*_control_errors(controls), *_live_testing_errors(live_testing)]
     if control_errors:
         return _blocked(
@@ -123,6 +159,8 @@ def evaluate_runtime_promotion_decision(
         "expires_at": _timestamp_text(decision.get("expires_at")),
         "scope": dict(scope),
         "controls": dict(controls),
+        "runtime_environment_approval": dict(environment_approval),
+        "runtime_action_policy": dict(action_policy),
         "details": "runtime promotion decision record is valid for this plan",
     }
 

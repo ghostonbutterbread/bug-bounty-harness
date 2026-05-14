@@ -24,6 +24,8 @@ from agents.hunt_pipeline.promotion_request_packet import (
     evaluate_runtime_promotion_request_packet,
     write_runtime_promotion_request_packet,
 )
+from agents.hunt_pipeline.runtime_action_policy import build_runtime_action_policy
+from agents.hunt_pipeline.runtime_environment_approval import build_runtime_environment_approval
 from agents.hunt_pipeline.run_state import (
     initialize_run_state,
     request_pause,
@@ -140,6 +142,7 @@ def _write_plan(tmp_path: Path, *, selected_count: int, deferred_count: int, con
 
 def _add_valid_runtime_promotion_decision(plan_path: Path, tmp_path: Path) -> dict:
     payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload = _add_phase20_safety_artifacts(plan_path, payload, approved_environment=True)
     payload.setdefault(
         "live_testing_playbook",
         build_live_testing_playbook(target_kind="electron", ruleset_id="electron-overlay").to_dict(),
@@ -171,6 +174,34 @@ def _add_valid_runtime_promotion_decision(plan_path: Path, tmp_path: Path) -> di
     return payload["runtime_promotion_decision"]
 
 
+def _add_phase20_safety_artifacts(
+    plan_path: Path,
+    payload: dict,
+    *,
+    approved_environment: bool,
+) -> dict:
+    environment_approval = build_runtime_environment_approval(plan_path, plan=payload).to_dict()
+    if approved_environment:
+        environment_approval.update(
+            {
+                "status": "approved",
+                "environment_id": "aitestvm-1",
+                "environment_type": "linux-vm",
+                "approval_owner": "operator@example.test",
+                "approved_at": "2026-05-13T12:00:00Z",
+                "expires_at": "2999-01-01T00:00:00Z",
+            }
+        )
+        environment_approval["route_policy"]["approved_route_roots"] = [
+            {"kind": "hostname", "route": "vm.internal", "description": "approved VM control plane"},
+            {"kind": "loopback", "route": "127.0.0.1:9222", "description": "approved CDP endpoint"},
+            {"kind": "loopback", "route": "127.0.0.1:3300", "description": "approved MCP endpoint"},
+        ]
+    payload["runtime_environment_approval"] = environment_approval
+    payload["runtime_action_policy"] = build_runtime_action_policy(plan_path, plan=payload).to_dict()
+    return payload
+
+
 def _add_non_live_contract_sections(plan_path: Path) -> dict:
     payload = json.loads(plan_path.read_text(encoding="utf-8"))
     payload["runtime_adapter_availability"] = {
@@ -198,6 +229,7 @@ def _add_non_live_contract_sections(plan_path: Path) -> dict:
     }
     payload["runtime_promotion_protocol"] = build_runtime_promotion_protocol().to_dict()
     payload["runtime_promotion_readiness"] = non_live_readiness_stub()
+    payload = _add_phase20_safety_artifacts(plan_path, payload, approved_environment=False)
     payload["runtime_handoff_contract"] = build_runtime_handoff_contract(
         {**payload, "runtime_handoff_contract": {"schema_version": 1}}
     ).to_dict()
@@ -608,6 +640,10 @@ def test_status_text_exposes_runtime_contract_promotion_state(tmp_path: Path, ca
     assert "live_execution_ready=false" in output
     assert "promotion_decision_status=missing" in output
     assert "promotion_decision_promoted=false" in output
+    assert "environment_approval_status=approval_required" in output
+    assert "environment_approval_approved=false" in output
+    assert "action_policy_status=active" in output
+    assert "action_policy_valid=true" in output
     assert "execution_mode=blocked" in output
     assert "default_execution_mode=blocked" in output
     assert "preflight_status=blocked" in output
@@ -632,6 +668,11 @@ def test_preflight_report_summarizes_non_live_runtime_sections(tmp_path: Path) -
     assert report["runtime_promotion_protocol"]["status"] == "draft"
     assert report["runtime_promotion_protocol"]["promotion_enabled"] is False
     assert report["runtime_promotion_protocol"]["valid"] is True
+    assert report["runtime_environment_approval"]["status"] == "approval_required"
+    assert report["runtime_environment_approval"]["valid"] is True
+    assert report["runtime_environment_approval"]["approved"] is False
+    assert report["runtime_action_policy"]["status"] == "active"
+    assert report["runtime_action_policy"]["valid"] is True
     assert report["static_team_handoffs"]["state"] == "planned-only"
     assert report["static_team_handoffs"]["planned_teams"] == ["zero_day_team"]
     assert report["dynamic_validation_queue"]["state"] == "disabled"
@@ -639,6 +680,7 @@ def test_preflight_report_summarizes_non_live_runtime_sections(tmp_path: Path) -
     assert report["live_testing_playbook"]["attachment_surfaces"] == ["cdp", "ghidra", "mcp", "ssh"]
     blocker_ids = {item["id"] for item in report["blockers_before_future_promotion"]}
     assert "explicit_contract_promotion" in blocker_ids
+    assert "runtime_environment_approval_approval_required" in blocker_ids
     assert "operator_live_execution_approval" in blocker_ids
     assert "flip_promotion_enabled" in blocker_ids
 
@@ -684,6 +726,10 @@ def test_status_can_write_readiness_checklist_artifact_without_runtime_side_effe
     assert checklist["promoted"] is False
     assert checklist["promotion_enabled"] is False
     assert checklist["live_execution_ready"] is False
+    assert checklist["runtime_environment_approval"]["status"] == "approval_required"
+    assert checklist["runtime_environment_approval"]["approved"] is False
+    assert checklist["runtime_action_policy"]["status"] == "active"
+    assert checklist["runtime_action_policy"]["valid"] is True
     assert checklist["preflight_states"]["static_team_handoffs"]["state"] == "planned-only"
     assert checklist["preflight_states"]["dynamic_validation_queue"]["state"] == "disabled"
     assert checklist["preflight_states"]["live_testing_playbook"]["state"] == "planned-only"
@@ -1307,6 +1353,74 @@ def test_execute_live_rejected_when_required_gate_fails_and_adapter_not_called(t
     failed_gate_ids = {gate["gate_id"] for gate in result["failed_gates"]}
     assert "static_team_invocation_disabled" in failed_gate_ids
     assert "explicit_contract_promotion" in failed_gate_ids
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+
+
+def test_execute_live_rejected_when_environment_approval_missing_before_writes(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    _add_valid_runtime_promotion_decision(plan_path, tmp_path)
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload.pop("runtime_environment_approval")
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+
+    assert result["ok"] is False
+    assert result["executed"] == 0
+    assert result["runtime_promotion_decision"]["status"] == "missing"
+    assert "runtime_environment_approval is missing" in result["runtime_promotion_decision"]["details"]
+    assert not run_state_path_for_plan(plan_path).exists()
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+
+
+def test_execute_live_rejected_when_environment_approval_expired_before_writes(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    _add_valid_runtime_promotion_decision(plan_path, tmp_path)
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload["runtime_environment_approval"]["expires_at"] = "2000-01-01T00:00:00Z"
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+
+    assert result["ok"] is False
+    assert result["executed"] == 0
+    assert result["runtime_promotion_decision"]["status"] == "expired"
+    assert "runtime_environment_approval has expired" in result["runtime_promotion_decision"]["details"]
+    assert not run_state_path_for_plan(plan_path).exists()
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+
+
+def test_execute_live_rejected_when_environment_approval_scope_mismatches_before_writes(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    _add_valid_runtime_promotion_decision(plan_path, tmp_path)
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload["runtime_environment_approval"]["scope"]["program"] = "other-program"
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+
+    assert result["ok"] is False
+    assert result["executed"] == 0
+    assert result["runtime_promotion_decision"]["status"] == "wrong_scope"
+    assert "scope.program does not match this plan" in result["runtime_promotion_decision"]["details"]
+    assert not run_state_path_for_plan(plan_path).exists()
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+
+
+def test_execute_live_rejected_when_action_policy_allows_payment_by_default_before_writes(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    _add_valid_runtime_promotion_decision(plan_path, tmp_path)
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload["runtime_action_policy"]["classifications"]["allowed_private"]["action_tags"].append("payment")
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+
+    assert result["ok"] is False
+    assert result["executed"] == 0
+    assert result["runtime_promotion_decision"]["status"] == "risky_default"
+    assert "allows risky public/payment/message actions by default" in result["runtime_promotion_decision"]["details"]
+    assert not run_state_path_for_plan(plan_path).exists()
     assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
 
 

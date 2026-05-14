@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from agents.hunt_pipeline.live_testing import summarize_live_testing_playbook
+from agents.hunt_pipeline.runtime_action_policy import evaluate_runtime_action_policy
+from agents.hunt_pipeline.runtime_environment_approval import evaluate_runtime_environment_approval
 from agents.hunt_pipeline.runtime_contract import (
     evaluate_runtime_handoff_contract,
     evaluate_runtime_promotion_protocol,
@@ -31,11 +33,15 @@ def build_runtime_preflight_report(
     static_handoffs = _summarize_static_team_handoffs(payload)
     dynamic_queue = _summarize_dynamic_validation_queue(payload)
     live_testing = summarize_live_testing_playbook(payload)
+    environment_approval = evaluate_runtime_environment_approval(payload, plan_path=resolved_plan_path)
+    action_policy = evaluate_runtime_action_policy(payload, plan_path=resolved_plan_path)
     blockers = _blockers_before_future_promotion(
         failed_gates=failed_gates,
         protocol=protocol,
         plan=payload,
         live_testing=live_testing,
+        environment_approval=environment_approval,
+        action_policy=action_policy,
     )
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
@@ -55,6 +61,8 @@ def build_runtime_preflight_report(
             "valid": bool(protocol.get("valid") is True),
             "details": str(protocol.get("details") or ""),
         },
+        "runtime_environment_approval": environment_approval,
+        "runtime_action_policy": action_policy,
         "static_team_handoffs": static_handoffs,
         "dynamic_validation_queue": dynamic_queue,
         "live_testing_playbook": live_testing,
@@ -143,6 +151,8 @@ def _blockers_before_future_promotion(
     protocol: Mapping[str, Any],
     plan: Mapping[str, Any],
     live_testing: Mapping[str, Any],
+    environment_approval: Mapping[str, Any],
+    action_policy: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = [
         {
@@ -211,6 +221,33 @@ def _blockers_before_future_promotion(
                     "details": str(detail or "live_testing_playbook is malformed"),
                 }
             )
+    if bool(environment_approval.get("valid") is not True):
+        blockers.append(
+            {
+                "source": "runtime_environment_approval",
+                "id": "runtime_environment_approval",
+                "details": str(environment_approval.get("details") or "runtime_environment_approval is not valid"),
+            }
+        )
+    elif bool(environment_approval.get("approved") is not True):
+        blockers.append(
+            {
+                "source": "runtime_environment_approval",
+                "id": "runtime_environment_approval_approval_required",
+                "details": str(
+                    environment_approval.get("details")
+                    or "runtime_environment_approval must be approved for live execution"
+                ),
+            }
+        )
+    if bool(action_policy.get("valid") is not True):
+        blockers.append(
+            {
+                "source": "runtime_action_policy",
+                "id": "runtime_action_policy",
+                "details": str(action_policy.get("details") or "runtime_action_policy is not valid"),
+            }
+        )
     return blockers
 
 

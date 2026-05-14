@@ -26,11 +26,17 @@ from agents.hunt_pipeline.run_state import (
 from agents.hunt_pipeline.promotion_decision import evaluate_runtime_promotion_decision
 from agents.hunt_pipeline.runtime import execute_next_wave
 
-COMMANDS = {"plan", "status", "run", "resume", "pause", "stop"}
+COMMANDS = {"plan", "status", "run", "resume", "live", "pause", "stop"}
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Plan and control bounded AppMap hunt-pipeline runs.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Plan and control bounded AppMap hunt-pipeline runs. "
+            "Live execution is opt-in and still requires a valid runtime promotion decision, "
+            "an approved runtime environment, and a valid runtime action policy."
+        )
+    )
     subparsers = parser.add_subparsers(dest="command", metavar="command")
 
     plan_parser = subparsers.add_parser("plan", help="write pipeline_plan.json and scheduler decision JSONLs")
@@ -69,13 +75,37 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--promotion-request-packet-path", help="optional path for --write-promotion-request-packet")
     status_parser.set_defaults(func=_cmd_status)
 
-    run_parser = subparsers.add_parser("run", help="execute the next wave; promoted plans default to live execution")
+    run_parser = subparsers.add_parser(
+        "run",
+        help=(
+            "plan if needed, then execute the next wave; default is dry-run, "
+            "use --live for promoted live execution"
+        ),
+    )
     _add_runtime_args(run_parser, allow_plan_inputs=True)
     run_parser.set_defaults(func=_cmd_run)
 
-    resume_parser = subparsers.add_parser("resume", help="continue from durable selected/deferred state")
+    resume_parser = subparsers.add_parser(
+        "resume",
+        help=(
+            "continue from durable selected/deferred state; default is dry-run, "
+            "use --live for promoted live execution"
+        ),
+    )
     _add_runtime_args(resume_parser, allow_plan_inputs=False)
     resume_parser.set_defaults(func=_cmd_resume)
+
+    live_parser = subparsers.add_parser(
+        "live",
+        help=(
+            "execute the next selected wave from an existing plan/output path; "
+            "requires promotion decision, approved environment, and valid action policy"
+        ),
+    )
+    _add_state_locator_args(live_parser)
+    live_parser.add_argument("--concurrent-agents", type=_positive_int)
+    live_parser.add_argument("--max-agents", type=_non_negative_int)
+    live_parser.set_defaults(func=_cmd_live)
 
     pause_parser = subparsers.add_parser("pause", help="request that no new waves start")
     _add_state_locator_args(pause_parser)
@@ -156,13 +186,17 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 def _cmd_resume(args: argparse.Namespace) -> int:
     plan_path = _plan_path_from_args(args)
-    if args.dry_run:
+    if not _execute_live_requested(args):
         clear_pause(plan_path)
     else:
         plan = load_pipeline_plan(plan_path)
         if evaluate_runtime_promotion_decision(plan, plan_path=plan_path).get("promoted") is True:
             clear_pause(plan_path)
     return _execute_and_print(args, plan_path)
+
+
+def _cmd_live(args: argparse.Namespace) -> int:
+    return _execute_and_print_live(args, _plan_path_from_args(args))
 
 
 def _cmd_pause(args: argparse.Namespace) -> int:
@@ -187,17 +221,8 @@ def _cmd_stop(args: argparse.Namespace) -> int:
 
 
 def _execute_and_print(args: argparse.Namespace, plan_path: Path) -> int:
-    if args.dry_run and args.execute_live:
-        raise SystemExit("--dry-run cannot be combined with --execute-live")
-    if not args.dry_run:
-        result = execute_next_wave(
-            plan_path,
-            max_agents=args.max_agents,
-            concurrent_agents=args.concurrent_agents,
-            execute_live=True,
-        )
-        print(json.dumps(result, sort_keys=True))
-        return 0 if result.get("ok") is True else 2
+    if _execute_live_requested(args):
+        return _execute_and_print_live(args, plan_path)
     result = execute_next_wave(
         plan_path,
         max_agents=args.max_agents,
@@ -206,6 +231,17 @@ def _execute_and_print(args: argparse.Namespace, plan_path: Path) -> int:
     )
     print(json.dumps(result, sort_keys=True))
     return 0
+
+
+def _execute_and_print_live(args: argparse.Namespace, plan_path: Path) -> int:
+    result = execute_next_wave(
+        plan_path,
+        max_agents=args.max_agents,
+        concurrent_agents=args.concurrent_agents,
+        execute_live=True,
+    )
+    print(json.dumps(result, sort_keys=True))
+    return 0 if result.get("ok") is True else 2
 
 
 def _build_plan_from_args(args: argparse.Namespace):
@@ -273,8 +309,18 @@ def _add_runtime_args(parser: argparse.ArgumentParser, *, allow_plan_inputs: boo
         _add_state_locator_args(parser)
     parser.add_argument("--concurrent-agents", type=_positive_int)
     parser.add_argument("--max-agents", type=_non_negative_int)
-    parser.add_argument("--dry-run", action="store_true", help="simulate execution with the dry-run BaseTeam adapter")
-    parser.add_argument("--execute-live", action="store_true", help="compatibility flag; live is the default after promotion")
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument("--dry-run", action="store_true", help="simulate execution with the dry-run BaseTeam adapter")
+    mode_group.add_argument(
+        "--live",
+        "--execute-live",
+        dest="live",
+        action="store_true",
+        help=(
+            "request promoted live execution; still requires a valid runtime promotion decision, "
+            "an approved runtime environment, and a valid runtime action policy"
+        ),
+    )
 
 
 def _normalize_legacy_argv(argv: list[str]) -> list[str]:
@@ -286,6 +332,10 @@ def _normalize_legacy_argv(argv: list[str]) -> list[str]:
         return argv
     normalized = [item for item in argv if item != "--dry-run"]
     return ["plan", *normalized]
+
+
+def _execute_live_requested(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "live", False))
 
 
 def _format_status_text(summary: dict[str, object]) -> str:
@@ -353,6 +403,7 @@ def _format_status_text(summary: dict[str, object]) -> str:
         f"request_packet_promoted={str(bool(request_packet.get('promoted'))).lower()} "
         f"promotion_decision_status={promotion_decision.get('status')} "
         f"promotion_decision_promoted={str(bool(promotion_decision.get('promoted'))).lower()} "
+        f"live_requirements=promotion_decision+environment_approval+action_policy "
         f"execution_mode={execution.get('mode')} "
         f"default_execution_mode={execution.get('default_mode')} "
         f"preflight_status={report.get('status')} "

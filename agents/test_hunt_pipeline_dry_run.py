@@ -103,6 +103,18 @@ def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) ->
     assert readiness["gates"]["promotion_allowed"] is False
     assert readiness["preflight_states"]["static_team_handoffs"]["state"] == "planned-only"
     assert readiness["preflight_states"]["dynamic_validation_queue"]["state"] == "disabled"
+    approval_schema = payload["runtime_operator_approval_schema"]
+    assert approval_schema["schema_version"] == 1
+    assert approval_schema["status"] == "blocked"
+    assert approval_schema["promotion_enabled"] is False
+    assert approval_schema["promoted"] is False
+    assert approval_schema["explicit_status"]["not_promoted"] is True
+    assert list(approval_schema["required_approval_ids"]) == [
+        "operator_live_execution_approval",
+        "runtime_contract_update_review",
+        "ledger_review_owner_assignment",
+    ]
+    assert {record["decision"] for record in approval_schema["approval_records"]} == {"missing"}
     assert payload["safety"] == {
         "dry_run_only": True,
         "spawn_agents": False,

@@ -10,6 +10,7 @@ from agents.app_mapper import map_application, write_artifacts
 from agents.hunt_pipeline.appmap_loader import load_appmap_run
 from agents.hunt_pipeline.hypothesis_builder import build_hypothesis_packets
 from agents.hunt_pipeline.models import PipelineDryRunArtifact
+from agents.hunt_pipeline.operator_approval_schema import build_runtime_operator_approval_schema
 from agents.hunt_pipeline.promotion_readiness import (
     build_runtime_promotion_readiness_checklist,
     non_live_readiness_stub,
@@ -127,11 +128,24 @@ def build_dry_run_plan(
             "safety": safety,
         },
     ).to_dict()
+    runtime_operator_approval_schema = build_runtime_operator_approval_schema(
+        plan_path,
+        plan={
+            "runtime_handoff_contract": runtime_handoff_contract,
+            "runtime_promotion_protocol": runtime_promotion_protocol,
+            "runtime_promotion_readiness": runtime_promotion_readiness,
+            "runtime_adapter_availability": runtime_adapter,
+            "static_team_handoffs": static_team_handoffs,
+            "dynamic_validation_queue": dynamic_validation_queue,
+            "safety": safety,
+        },
+    ).to_dict()
     runtime_handoff_contract = build_runtime_handoff_contract(
         {
             "runtime_handoff_contract": {"schema_version": 1},
             "runtime_promotion_protocol": runtime_promotion_protocol,
             "runtime_promotion_readiness": runtime_promotion_readiness,
+            "runtime_operator_approval_schema": runtime_operator_approval_schema,
             "runtime_adapter_availability": runtime_adapter,
             "static_team_handoffs": static_team_handoffs,
             "dynamic_validation_queue": dynamic_validation_queue,
@@ -158,6 +172,7 @@ def build_dry_run_plan(
         runtime_handoff_contract=runtime_handoff_contract,
         runtime_promotion_protocol=runtime_promotion_protocol,
         runtime_promotion_readiness=runtime_promotion_readiness,
+        runtime_operator_approval_schema=runtime_operator_approval_schema,
         static_team_handoffs=static_team_handoffs,
         dynamic_validation_queue=dynamic_validation_queue,
         safety=safety,

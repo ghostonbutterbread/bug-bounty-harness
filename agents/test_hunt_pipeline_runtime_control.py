@@ -7,6 +7,11 @@ import pytest
 
 from agents.base_team import AgentSpec
 from agents.hunt_pipeline.cli import build_parser
+from agents.hunt_pipeline.operator_approval_schema import (
+    build_runtime_operator_approval_schema,
+    evaluate_runtime_operator_approval_schema,
+    write_runtime_operator_approval_schema,
+)
 from agents.hunt_pipeline.preflight_report import build_runtime_preflight_report, write_runtime_preflight_report
 from agents.hunt_pipeline.promotion_readiness import (
     build_runtime_promotion_readiness_checklist,
@@ -154,6 +159,10 @@ def _add_non_live_contract_sections(plan_path: Path) -> dict:
         {**payload, "runtime_handoff_contract": {"schema_version": 1}}
     ).to_dict()
     payload["runtime_promotion_readiness"] = build_runtime_promotion_readiness_checklist(
+        plan_path,
+        plan=payload,
+    ).to_dict()
+    payload["runtime_operator_approval_schema"] = build_runtime_operator_approval_schema(
         plan_path,
         plan=payload,
     ).to_dict()
@@ -623,6 +632,118 @@ def test_status_can_write_readiness_checklist_artifact_without_runtime_side_effe
     assert not (plan_path.parent / "ledgers").exists()
 
 
+def test_operator_approval_schema_documents_required_records_without_promotion(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    payload = _add_non_live_contract_sections(plan_path)
+
+    schema, schema_path = write_runtime_operator_approval_schema(plan_path)
+    payload["runtime_operator_approval_schema"] = schema
+    evaluated = evaluate_runtime_operator_approval_schema(payload)
+
+    assert schema_path == plan_path.parent / "runtime_operator_approval_schema.json"
+    assert schema["schema_version"] == 1
+    assert schema["status"] == "blocked"
+    assert schema["promotion_enabled"] is False
+    assert schema["promoted"] is False
+    assert schema["explicit_status"]["not_promoted"] is True
+    assert list(schema["approval_record_fields"]) == [
+        "approval_id",
+        "approver",
+        "timestamp",
+        "scope",
+        "evidence",
+        "decision",
+    ]
+    assert list(schema["required_approval_ids"]) == [
+        "operator_live_execution_approval",
+        "runtime_contract_update_review",
+        "ledger_review_owner_assignment",
+    ]
+    assert {record["decision"] for record in schema["approval_records"]} == {"missing"}
+    assert list(schema["missing_approval_ids"]) == list(schema["required_approval_ids"])
+    assert evaluated["promotion_enabled"] is False
+    assert evaluated["promoted"] is False
+    assert evaluated["valid"] is True
+    assert list(evaluated["missing_approval_ids"]) == list(schema["required_approval_ids"])
+
+
+def test_operator_approval_schema_missing_malformed_or_claimed_approved_cannot_promote(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    payload = _add_non_live_contract_sections(plan_path)
+
+    payload.pop("runtime_operator_approval_schema")
+    missing = evaluate_runtime_operator_approval_schema(payload)
+
+    assert missing["status"] == "missing"
+    assert missing["promotion_enabled"] is False
+    assert missing["promoted"] is False
+    assert missing["valid"] is False
+
+    payload["runtime_operator_approval_schema"] = {
+        "schema_version": "not-an-int",
+        "status": "promoted",
+        "promotion_enabled": True,
+        "promoted": True,
+        "required_approval_ids": "operator",
+        "approval_record_fields": ["approval_id"],
+        "approval_records": [{"approval_id": "operator_live_execution_approval", "decision": "approved"}],
+        "blockers": {},
+        "explicit_status": {"promoted": True, "promotion_enabled": True, "not_promoted": False},
+    }
+    malformed = evaluate_runtime_operator_approval_schema(payload)
+
+    assert malformed["promotion_enabled"] is False
+    assert malformed["stored_promotion_enabled"] is True
+    assert malformed["promoted"] is False
+    assert malformed["stored_promoted"] is True
+    assert malformed["valid"] is False
+
+    approved_schema = build_runtime_operator_approval_schema(plan_path, plan=payload).to_dict()
+    approved_schema["status"] = "draft"
+    approved_schema["approval_records"] = [
+        {
+            **record,
+            "approver": "operator@example.test",
+            "timestamp": "2026-05-13T12:00:00Z",
+            "decision": "approved",
+        }
+        for record in approved_schema["approval_records"]
+    ]
+    approved_schema["missing_approval_ids"] = []
+    approved_schema["blockers"] = []
+    payload["runtime_operator_approval_schema"] = approved_schema
+    claimed = evaluate_runtime_operator_approval_schema(payload)
+
+    assert set(claimed["claimed_approved_ids"]) == set(approved_schema["required_approval_ids"])
+    assert claimed["promotion_enabled"] is False
+    assert claimed["promoted"] is False
+
+
+def test_status_can_write_operator_approval_schema_without_runtime_side_effects(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    _add_non_live_contract_sections(plan_path)
+
+    code = main(["status", "--pipeline-plan", str(plan_path), "--write-operator-approval-schema"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    schema_path = Path(payload["runtime_operator_approval_schema_path"])
+    assert schema_path == plan_path.parent / "runtime_operator_approval_schema.json"
+    assert schema_path.exists()
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    assert schema["status"] == "blocked"
+    assert schema["promotion_enabled"] is False
+    assert schema["promoted"] is False
+    assert not run_state_path_for_plan(plan_path).exists()
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+    assert not (plan_path.parent / "ledgers").exists()
+
+
 def test_preflight_report_blocks_missing_or_malformed_protocol(tmp_path: Path) -> None:
     plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
     payload = _add_non_live_contract_sections(plan_path)
@@ -826,6 +947,41 @@ def test_execute_live_rejected_when_readiness_claims_enabled_before_state_or_ada
     failed_gate_ids = {gate["gate_id"] for gate in result["failed_gates"]}
     assert "promotion_readiness_non_live" in failed_gate_ids
     assert "explicit_contract_promotion" in failed_gate_ids
+    assert not run_state_path_for_plan(plan_path).exists()
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+    assert not (plan_path.parent / "ledgers").exists()
+
+
+def test_execute_live_rejected_when_operator_approval_schema_claims_approved_before_writes(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    payload = _add_non_live_contract_sections(plan_path)
+    claimed_schema = build_runtime_operator_approval_schema(plan_path, plan=payload).to_dict()
+    claimed_schema["status"] = "draft"
+    claimed_schema["approval_records"] = [
+        {
+            **record,
+            "approver": "operator@example.test",
+            "timestamp": "2026-05-13T12:00:00Z",
+            "decision": "approved",
+        }
+        for record in claimed_schema["approval_records"]
+    ]
+    claimed_schema["missing_approval_ids"] = []
+    claimed_schema["blockers"] = []
+    payload["runtime_operator_approval_schema"] = claimed_schema
+    payload["runtime_handoff_contract"] = build_runtime_handoff_contract(payload).to_dict()
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+
+    assert result["ok"] is False
+    assert result["executed"] == 0
+    assert result["promotion_allowed"] is False
+    assert result["runtime_operator_approval_schema"]["promotion_enabled"] is False
+    assert result["runtime_operator_approval_schema"]["promoted"] is False
+    assert set(result["runtime_operator_approval_schema"]["claimed_approved_ids"]) == set(
+        claimed_schema["required_approval_ids"]
+    )
     assert not run_state_path_for_plan(plan_path).exists()
     assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
     assert not (plan_path.parent / "ledgers").exists()

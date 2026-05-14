@@ -16,12 +16,14 @@ from agents.hunt_pipeline.promotion_readiness import write_runtime_promotion_rea
 from agents.hunt_pipeline.promotion_request_packet import write_runtime_promotion_request_packet
 from agents.hunt_pipeline.run_state import (
     clear_pause,
+    load_pipeline_plan,
     request_pause,
     request_stop,
     resolve_pipeline_plan_path,
     run_state_path_for_plan,
     summarize_run,
 )
+from agents.hunt_pipeline.promotion_decision import evaluate_runtime_promotion_decision
 from agents.hunt_pipeline.runtime import execute_next_wave
 
 COMMANDS = {"plan", "status", "run", "resume", "pause", "stop"}
@@ -67,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--promotion-request-packet-path", help="optional path for --write-promotion-request-packet")
     status_parser.set_defaults(func=_cmd_status)
 
-    run_parser = subparsers.add_parser("run", help="execute the next wave through the dry-run-safe runtime adapter")
+    run_parser = subparsers.add_parser("run", help="execute the next wave; promoted plans default to live execution")
     _add_runtime_args(run_parser, allow_plan_inputs=True)
     run_parser.set_defaults(func=_cmd_run)
 
@@ -154,9 +156,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 def _cmd_resume(args: argparse.Namespace) -> int:
     plan_path = _plan_path_from_args(args)
-    if args.execute_live:
-        return _execute_and_print(args, plan_path)
-    clear_pause(plan_path)
+    if args.dry_run:
+        clear_pause(plan_path)
+    else:
+        plan = load_pipeline_plan(plan_path)
+        if evaluate_runtime_promotion_decision(plan, plan_path=plan_path).get("promoted") is True:
+            clear_pause(plan_path)
     return _execute_and_print(args, plan_path)
 
 
@@ -182,7 +187,9 @@ def _cmd_stop(args: argparse.Namespace) -> int:
 
 
 def _execute_and_print(args: argparse.Namespace, plan_path: Path) -> int:
-    if args.execute_live:
+    if args.dry_run and args.execute_live:
+        raise SystemExit("--dry-run cannot be combined with --execute-live")
+    if not args.dry_run:
         result = execute_next_wave(
             plan_path,
             max_agents=args.max_agents,
@@ -190,7 +197,7 @@ def _execute_and_print(args: argparse.Namespace, plan_path: Path) -> int:
             execute_live=True,
         )
         print(json.dumps(result, sort_keys=True))
-        return 2
+        return 0 if result.get("ok") is True else 2
     result = execute_next_wave(
         plan_path,
         max_agents=args.max_agents,
@@ -266,7 +273,8 @@ def _add_runtime_args(parser: argparse.ArgumentParser, *, allow_plan_inputs: boo
         _add_state_locator_args(parser)
     parser.add_argument("--concurrent-agents", type=_positive_int)
     parser.add_argument("--max-agents", type=_non_negative_int)
-    parser.add_argument("--execute-live", action="store_true", help="explicit live-execution gate; currently rejected")
+    parser.add_argument("--dry-run", action="store_true", help="simulate execution with the dry-run BaseTeam adapter")
+    parser.add_argument("--execute-live", action="store_true", help="compatibility flag; live is the default after promotion")
 
 
 def _normalize_legacy_argv(argv: list[str]) -> list[str]:
@@ -299,6 +307,12 @@ def _format_status_text(summary: dict[str, object]) -> str:
         if isinstance(summary.get("runtime_promotion_request_packet"), dict)
         else {}
     )
+    promotion_decision = (
+        summary.get("runtime_promotion_decision")
+        if isinstance(summary.get("runtime_promotion_decision"), dict)
+        else {}
+    )
+    execution = summary.get("runtime_execution") if isinstance(summary.get("runtime_execution"), dict) else {}
     static_handoffs = report.get("static_team_handoffs") if isinstance(report.get("static_team_handoffs"), dict) else {}
     dynamic_queue = report.get("dynamic_validation_queue") if isinstance(report.get("dynamic_validation_queue"), dict) else {}
     return (
@@ -322,6 +336,10 @@ def _format_status_text(summary: dict[str, object]) -> str:
         f"request_packet_status={request_packet.get('status')} "
         f"request_packet_action={request_packet.get('requested_action')} "
         f"request_packet_promoted={str(bool(request_packet.get('promoted'))).lower()} "
+        f"promotion_decision_status={promotion_decision.get('status')} "
+        f"promotion_decision_promoted={str(bool(promotion_decision.get('promoted'))).lower()} "
+        f"execution_mode={execution.get('mode')} "
+        f"default_execution_mode={execution.get('default_mode')} "
         f"preflight_status={report.get('status')} "
         f"failed_required_gates={contract.get('failed_required_gate_count', len(report.get('failed_required_gates', [])))} "
         f"static_team_handoffs={static_handoffs.get('state')} "

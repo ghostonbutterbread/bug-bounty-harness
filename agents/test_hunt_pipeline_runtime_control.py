@@ -137,6 +137,34 @@ def _write_plan(tmp_path: Path, *, selected_count: int, deferred_count: int, con
     return plan_path
 
 
+def _add_valid_runtime_promotion_decision(plan_path: Path, tmp_path: Path) -> dict:
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload["runtime_promotion_decision"] = {
+        "schema_version": 1,
+        "decision_id": "runtime-promotion-test",
+        "decision": "promote-runtime",
+        "status": "approved",
+        "promotion_enabled": True,
+        "execution_mode": "live",
+        "approved_by": "operator@example.test",
+        "approved_at": "2026-05-13T12:00:00Z",
+        "expires_at": "2999-01-01T00:00:00Z",
+        "scope": {
+            "pipeline_plan": str(plan_path.resolve(strict=False)),
+            "program": "demo",
+            "target_path": str((tmp_path / "target").resolve(strict=False)),
+            "appmap_run": str((tmp_path / "appmap" / "run-1").resolve(strict=False)),
+        },
+        "controls": {
+            "bounded_live_execution": True,
+            "use_base_team_primitives": True,
+            "scope_and_wave_controls": True,
+        },
+    }
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload["runtime_promotion_decision"]
+
+
 def _add_non_live_contract_sections(plan_path: Path) -> dict:
     payload = json.loads(plan_path.read_text(encoding="utf-8"))
     payload["runtime_adapter_availability"] = {
@@ -410,6 +438,7 @@ def test_cli_help_exposes_subcommands_and_runtime_flags(capsys: pytest.CaptureFi
     assert "plan" in help_text
     assert "status" in help_text
     assert "resume" in help_text
+    assert "--dry-run" in run_help
     assert "--execute-live" in run_help
     assert "--write-hypotheses" in run_help
 
@@ -420,7 +449,7 @@ def test_resume_clears_pause_and_executes_next_wave(tmp_path: Path) -> None:
 
     from agents.hunt_pipeline.cli import main
 
-    code = main(["resume", "--pipeline-plan", str(plan_path), "--concurrent-agents", "2"])
+    code = main(["resume", "--pipeline-plan", str(plan_path), "--concurrent-agents", "2", "--dry-run"])
 
     assert code == 0
     summary = summarize_run(plan_path, concurrent_agents=2)
@@ -504,6 +533,9 @@ def test_status_json_is_default_format(tmp_path: Path, capsys: pytest.CaptureFix
     assert payload["runtime_promotion_readiness"]["promoted"] is False
     assert payload["runtime_promotion_readiness"]["promotion_enabled"] is False
     assert payload["runtime_promotion_readiness"]["live_execution_ready"] is False
+    assert payload["runtime_promotion_decision"]["status"] == "missing"
+    assert payload["runtime_promotion_decision"]["promoted"] is False
+    assert payload["runtime_execution"]["mode"] == "blocked"
     failed_gate_ids = {
         result["gate_id"]
         for result in payload["runtime_handoff_contract"]["gate_results"]
@@ -532,6 +564,7 @@ def test_run_planning_inputs_accept_write_hypotheses_without_live_execution(tmp_
             "--output-dir",
             str(out),
             "--write-hypotheses",
+            "--dry-run",
         ]
     )
 
@@ -563,6 +596,10 @@ def test_status_text_exposes_runtime_contract_promotion_state(tmp_path: Path, ca
     assert "readiness_status=not_ready" in output
     assert "readiness_promoted=false" in output
     assert "live_execution_ready=false" in output
+    assert "promotion_decision_status=missing" in output
+    assert "promotion_decision_promoted=false" in output
+    assert "execution_mode=blocked" in output
+    assert "default_execution_mode=blocked" in output
     assert "preflight_status=blocked" in output
     assert "static_team_handoffs=planned-only" in output
     assert "dynamic_validation_queue=disabled" in output
@@ -948,6 +985,198 @@ def test_execute_live_rejected_when_contract_missing_and_adapter_not_called(tmp_
     assert "runtime handoff contract" in result["error"]
     assert "runtime_handoff_contract_present" in {gate["gate_id"] for gate in result["failed_gates"]}
     assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+
+
+def test_missing_decision_default_run_blocked_before_adapter_or_spec_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline import runtime
+    from agents.hunt_pipeline.cli import main
+
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+
+    def fail_if_called(self, specs):
+        raise AssertionError("adapter must not be called")
+
+    monkeypatch.setattr(runtime.LiveBaseTeamAdapter, "execute", fail_if_called)
+    monkeypatch.setattr(runtime.DryRunBaseTeamAdapter, "execute", fail_if_called)
+
+    code = main(["run", "--pipeline-plan", str(plan_path)])
+
+    assert code == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is False
+    assert result["executed"] == 0
+    assert result["runtime_promotion_decision"]["status"] == "missing"
+    assert result["execution_mode"] == "blocked"
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+    assert not run_state_path_for_plan(plan_path).exists()
+
+
+def test_default_run_dry_run_flag_still_uses_dry_run_adapter(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+
+    code = main(["run", "--pipeline-plan", str(plan_path), "--dry-run"])
+
+    assert code == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is True
+    assert result["executed"] == 1
+    assert result["execution_mode"] == "dry-run"
+    state = json.loads(run_state_path_for_plan(plan_path).read_text(encoding="utf-8"))
+    assert state["agents"]["agent-1"]["details"]["adapter"] == "dry-run"
+
+
+def test_valid_decision_default_run_calls_live_adapter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline import runtime
+    from agents.hunt_pipeline.cli import main
+
+    (tmp_path / "target").mkdir()
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    _add_valid_runtime_promotion_decision(plan_path, tmp_path)
+    called = {}
+
+    def fake_live_execute(self, specs):
+        called["keys"] = [spec.key for spec in specs]
+        return {spec.key: "completed" for spec in specs}
+
+    monkeypatch.setattr(runtime.LiveBaseTeamAdapter, "execute", fake_live_execute)
+
+    code = main(["run", "--pipeline-plan", str(plan_path)])
+
+    assert code == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is True
+    assert result["execution_mode"] == "live"
+    assert result["runtime_promotion_decision"]["status"] == "promoted"
+    assert called["keys"] == ["agent-1"]
+    state = json.loads(run_state_path_for_plan(plan_path).read_text(encoding="utf-8"))
+    assert state["agents"]["agent-1"]["details"]["adapter"] == "live"
+
+
+
+def test_live_decision_is_rechecked_inside_runtime_lock_before_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agents.hunt_pipeline import runtime
+
+    (tmp_path / "target").mkdir()
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    valid = _add_valid_runtime_promotion_decision(plan_path, tmp_path)
+    calls = {"count": 0}
+
+    def flip_after_first_check(plan, *, plan_path):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return {**valid, "status": "promoted", "promoted": True, "valid": True, "promotion_allowed": True}
+        return {
+            "schema_version": 1,
+            "status": "expired",
+            "valid": False,
+            "promoted": False,
+            "promotion_allowed": False,
+            "execution_mode": "blocked",
+            "decision_source": "pipeline_plan.runtime_promotion_decision",
+            "details": "runtime promotion decision record has expired",
+        }
+
+    def fail_if_called(self, specs):
+        raise AssertionError("adapter must not be called")
+
+    monkeypatch.setattr(runtime, "evaluate_runtime_promotion_decision", flip_after_first_check)
+    monkeypatch.setattr(runtime.LiveBaseTeamAdapter, "execute", fail_if_called)
+
+    result = execute_next_wave(plan_path, execute_live=True)
+
+    assert result["ok"] is False
+    assert result["executed"] == 0
+    assert result["runtime_promotion_decision"]["status"] == "expired"
+    assert calls["count"] == 2
+    assert not run_state_path_for_plan(plan_path).exists()
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+
+
+def test_malformed_claimed_decision_default_run_blocked_before_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline import runtime
+    from agents.hunt_pipeline.cli import main
+
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload["runtime_promotion_decision"] = {
+        "schema_version": 1,
+        "status": "promoted",
+        "promotion_enabled": True,
+        "execution_mode": "live",
+    }
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    def fail_if_called(self, specs):
+        raise AssertionError("adapter must not be called")
+
+    monkeypatch.setattr(runtime.LiveBaseTeamAdapter, "execute", fail_if_called)
+
+    code = main(["run", "--pipeline-plan", str(plan_path)])
+
+    assert code == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is False
+    assert result["runtime_promotion_decision"]["status"] == "claimed"
+    assert result["runtime_promotion_decision"]["promoted"] is False
+    assert not run_state_path_for_plan(plan_path).exists()
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+
+
+def test_resume_default_uses_same_promotion_rules(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline import runtime
+    from agents.hunt_pipeline.cli import main
+
+    blocked_root = tmp_path / "blocked"
+    blocked_root.mkdir()
+    blocked_plan = _write_plan(blocked_root, selected_count=1, deferred_count=0)
+
+    blocked_code = main(["resume", "--pipeline-plan", str(blocked_plan)])
+
+    assert blocked_code == 2
+    blocked = json.loads(capsys.readouterr().out)
+    assert blocked["runtime_promotion_decision"]["status"] == "missing"
+    assert not run_state_path_for_plan(blocked_plan).exists()
+
+    live_root = tmp_path / "live"
+    live_root.mkdir()
+    (live_root / "target").mkdir()
+    live_plan = _write_plan(live_root, selected_count=1, deferred_count=0)
+    _add_valid_runtime_promotion_decision(live_plan, live_root)
+    called = {}
+
+    def fake_live_execute(self, specs):
+        called["keys"] = [spec.key for spec in specs]
+        return {spec.key: "completed" for spec in specs}
+
+    monkeypatch.setattr(runtime.LiveBaseTeamAdapter, "execute", fake_live_execute)
+
+    live_code = main(["resume", "--pipeline-plan", str(live_plan)])
+
+    assert live_code == 0
+    live = json.loads(capsys.readouterr().out)
+    assert live["execution_mode"] == "live"
+    assert called["keys"] == ["agent-1"]
 
 
 def test_cli_execute_live_rejected_before_adapter_or_state_writes(

@@ -30,6 +30,7 @@ def build_dry_run_plan(
     max_hypotheses: int | None = None,
     max_agents: int | None = None,
     concurrent_agents: int | None = None,
+    write_hypotheses: bool = False,
 ) -> tuple[PipelineDryRunArtifact, Path]:
     output_root = Path(output_dir).expanduser().resolve(strict=False)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -73,6 +74,10 @@ def build_dry_run_plan(
     scheduler_plan_payload = scheduler_plan.to_dict()
     decision_artifacts = _write_decision_artifacts(output_root, scheduler_plan_payload)
     scheduler_plan_payload["decision_artifacts"] = decision_artifacts
+    hypotheses_payload = tuple(packet.to_dict() for packet in packets)
+    artifact_metadata: dict[str, Any] = {}
+    if write_hypotheses:
+        artifact_metadata["hypotheses"] = _write_jsonl_artifact(output_root / "hypotheses.jsonl", list(hypotheses_payload))
     artifact = PipelineDryRunArtifact(
         schema_version=SCHEMA_VERSION,
         program=str(program),
@@ -85,7 +90,8 @@ def build_dry_run_plan(
             "legacy_compatibility_artifacts": ["candidates.jsonl", "rejected_candidates.jsonl"],
         },
         normalized_map=normalized.to_dict(),
-        hypotheses=tuple(packet.to_dict() for packet in packets),
+        hypotheses=hypotheses_payload,
+        artifact_metadata=artifact_metadata,
         scheduler_plan=scheduler_plan_payload,
         runtime_adapter_availability=runtime_adapter_availability(),
         runtime_handoff_boundary=runtime_handoff_boundary(),

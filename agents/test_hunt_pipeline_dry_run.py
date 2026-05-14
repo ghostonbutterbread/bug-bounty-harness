@@ -112,3 +112,36 @@ def test_dry_run_writes_scheduler_decision_jsonl_artifacts(tmp_path: Path) -> No
     assert deferred_rows[0]["status"] == "deferred"
     assert deferred_rows[0]["reason"] == "max agents cap reached"
     assert selected_rows[0]["status"] == "selected"
+
+
+def test_write_hypotheses_option_writes_jsonl_artifact_metadata(tmp_path: Path) -> None:
+    appmap = tmp_path / "appmap" / "run-1"
+    appmap.mkdir(parents=True)
+    (appmap / "manifest.json").write_text('{"run_id":"run-1"}\n', encoding="utf-8")
+    (appmap / "target_profile.json").write_text('{"program":"demo","target_kind":"electron"}\n', encoding="utf-8")
+    _write_jsonl(
+        appmap / "surfaces.jsonl",
+        [
+            {"id": "S0001", "kind": "ipc", "file": "src/main.js"},
+            {"id": "S0002", "kind": "rendering", "file": "src/view.js"},
+        ],
+    )
+
+    _, plan_path = build_dry_run_plan(
+        program="demo",
+        target_path=tmp_path / "target",
+        target_kind="auto",
+        ruleset_id="auto",
+        appmap_run=appmap,
+        output_dir=tmp_path / "out",
+        write_hypotheses=True,
+    )
+    payload = load_plan(plan_path)
+    metadata = payload["artifact_metadata"]["hypotheses"]
+    rows = _read_jsonl(Path(metadata["path"]))
+
+    assert Path(metadata["path"]).name == "hypotheses.jsonl"
+    assert Path(metadata["path"]).parent == plan_path.parent
+    assert metadata["count"] == len(payload["hypotheses"]) == len(rows) == 2
+    assert [row["id"] for row in rows] == [item["id"] for item in payload["hypotheses"]]
+    assert metadata["sha256"]

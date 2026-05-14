@@ -189,6 +189,7 @@ def test_cli_help_exposes_subcommands_and_runtime_flags(capsys: pytest.CaptureFi
     assert "status" in help_text
     assert "resume" in help_text
     assert "--execute-live" in run_help
+    assert "--write-hypotheses" in run_help
 
 
 def test_resume_clears_pause_and_executes_next_wave(tmp_path: Path) -> None:
@@ -238,6 +239,74 @@ def test_cli_main_none_reads_sys_argv(monkeypatch: pytest.MonkeyPatch, capsys: p
 
     assert exc.value.code == 0
     assert "Plan and control bounded AppMap" in capsys.readouterr().out
+
+
+def test_status_text_format_includes_counts_and_control_flags(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    plan_path = _write_plan(tmp_path, selected_count=2, deferred_count=1, concurrent_agents=2)
+    state = initialize_run_state(plan_path)
+    state["agents"]["agent-1"]["status"] = "completed"
+    state["pause_requested"] = True
+    save_run_state(state, run_state_path_for_plan(plan_path))
+
+    code = main(["status", "--pipeline-plan", str(plan_path), "--format", "text", "--concurrent-agents", "2"])
+
+    assert code == 0
+    output = capsys.readouterr().out.strip()
+    assert "completed=1" in output
+    assert "unrun=2" in output
+    assert "next_wave=0" in output
+    assert "pause_requested=true" in output
+    assert "stopped_requested=false" in output
+
+
+def test_status_json_is_default_format(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+
+    code = main(["status", "--pipeline-plan", str(plan_path)])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["completed"] == 0
+    assert payload["unrun"] == 1
+    assert payload["pause_requested"] is False
+
+
+def test_run_planning_inputs_accept_write_hypotheses_without_live_execution(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    appmap = tmp_path / "appmap" / "run-1"
+    appmap.mkdir(parents=True)
+    (appmap / "manifest.json").write_text('{"run_id":"run-1"}\n', encoding="utf-8")
+    (appmap / "target_profile.json").write_text('{"program":"demo","target_kind":"electron"}\n', encoding="utf-8")
+    _write_jsonl(appmap / "surfaces.jsonl", [{"id": "S0001", "kind": "ipc", "file": "src/main.js"}])
+    out = tmp_path / "out"
+
+    code = main(
+        [
+            "run",
+            "demo",
+            str(tmp_path / "target"),
+            "--from-appmap-run",
+            str(appmap),
+            "--output-dir",
+            str(out),
+            "--write-hypotheses",
+        ]
+    )
+
+    assert code == 0
+    result = json.loads(capsys.readouterr().out)
+    payload = json.loads((out / "pipeline_plan.json").read_text(encoding="utf-8"))
+    metadata = payload["artifact_metadata"]["hypotheses"]
+    rows = [json.loads(line) for line in (out / "hypotheses.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert result["executed"] == 1
+    assert result["summary"]["completed"] == 1
+    assert metadata["path"] == str(out / "hypotheses.jsonl")
+    assert metadata["count"] == len(rows) == 1
 
 
 def test_resume_recovers_stale_running_agents_after_interrupted_process(tmp_path: Path) -> None:

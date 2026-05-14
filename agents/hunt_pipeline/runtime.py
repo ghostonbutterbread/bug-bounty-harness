@@ -18,6 +18,7 @@ from agents.hunt_pipeline.run_state import (
     summarize_run,
     update_agent_statuses,
 )
+from agents.hunt_pipeline.operator_approval_schema import evaluate_runtime_operator_approval_schema
 from agents.hunt_pipeline.runtime_contract import (
     evaluate_runtime_handoff_contract,
     evaluate_runtime_promotion_protocol,
@@ -59,6 +60,7 @@ def execute_next_wave(
             "runtime_handoff_contract": contract,
             "runtime_promotion_protocol": evaluate_runtime_promotion_protocol(plan),
             "runtime_promotion_readiness": evaluate_runtime_promotion_readiness(plan),
+            "runtime_operator_approval_schema": evaluate_runtime_operator_approval_schema(plan),
             "failed_gates": failed_required_gates(contract),
         }
 

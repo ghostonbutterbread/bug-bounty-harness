@@ -10,6 +10,7 @@ from typing import Any, Iterator, Mapping, Sequence
 import fcntl
 
 from agents.hunt_pipeline.preflight_report import build_runtime_preflight_report
+from agents.hunt_pipeline.operator_approval_schema import build_runtime_operator_approval_schema
 from agents.hunt_pipeline.promotion_readiness import build_runtime_promotion_readiness_checklist
 from agents.hunt_pipeline.runtime_contract import evaluate_runtime_handoff_contract, evaluate_runtime_promotion_protocol
 
@@ -159,6 +160,7 @@ def summarize_run(plan_path: str | Path, *, max_agents: int | None = None, concu
             plan=plan,
             status_summary=status_snapshot,
         ).to_dict(),
+        "runtime_operator_approval_schema": build_runtime_operator_approval_schema(plan_path, plan=plan).to_dict(),
         "pipeline_plan": str(Path(plan_path).expanduser().resolve(strict=False)),
         "run_state": str(run_state_path_for_plan(plan_path)),
     }

@@ -82,6 +82,7 @@ def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) ->
         "dynamic_validation_disabled",
         "safety_flags_non_live",
         "promotion_protocol_non_live",
+        "promotion_readiness_non_live",
         "explicit_contract_promotion",
     }
     gate_results = {result["gate_id"]: result for result in contract["gate_results"]}
@@ -91,7 +92,17 @@ def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) ->
     assert gate_results["dynamic_validation_disabled"]["passed"] is True
     assert gate_results["safety_flags_non_live"]["passed"] is True
     assert gate_results["promotion_protocol_non_live"]["passed"] is True
+    assert gate_results["promotion_readiness_non_live"]["passed"] is True
     assert gate_results["explicit_contract_promotion"]["passed"] is False
+    readiness = payload["runtime_promotion_readiness"]
+    assert readiness["schema_version"] == 1
+    assert readiness["status"] == "not_ready"
+    assert readiness["promoted"] is False
+    assert readiness["promotion_enabled"] is False
+    assert readiness["live_execution_ready"] is False
+    assert readiness["gates"]["promotion_allowed"] is False
+    assert readiness["preflight_states"]["static_team_handoffs"]["state"] == "planned-only"
+    assert readiness["preflight_states"]["dynamic_validation_queue"]["state"] == "disabled"
     assert payload["safety"] == {
         "dry_run_only": True,
         "spawn_agents": False,

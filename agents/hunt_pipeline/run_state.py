@@ -10,6 +10,7 @@ from typing import Any, Iterator, Mapping, Sequence
 import fcntl
 
 from agents.hunt_pipeline.preflight_report import build_runtime_preflight_report
+from agents.hunt_pipeline.promotion_readiness import build_runtime_promotion_readiness_checklist
 from agents.hunt_pipeline.runtime_contract import evaluate_runtime_handoff_contract, evaluate_runtime_promotion_protocol
 
 RUN_STATE_SCHEMA_VERSION = 1
@@ -138,6 +139,12 @@ def summarize_run(plan_path: str | Path, *, max_agents: int | None = None, concu
     }
     counts["unrun"] = sum(1 for item in agents if item.get("status") in RUNNABLE_STATUSES)
     next_wave = next_wave_records(plan, state, max_agents=max_agents, concurrent_agents=concurrent_agents)
+    status_snapshot = {
+        **counts,
+        "pause_requested": bool(state.get("pause_requested", False)),
+        "stopped_requested": bool(state.get("stopped", False)),
+        "next_wave_count": len(next_wave),
+    }
     return {
         **counts,
         "pause_requested": bool(state.get("pause_requested", False)),
@@ -147,6 +154,11 @@ def summarize_run(plan_path: str | Path, *, max_agents: int | None = None, concu
         "runtime_handoff_contract": evaluate_runtime_handoff_contract(plan),
         "runtime_promotion_protocol": evaluate_runtime_promotion_protocol(plan),
         "runtime_preflight_report": build_runtime_preflight_report(plan_path, plan=plan),
+        "runtime_promotion_readiness": build_runtime_promotion_readiness_checklist(
+            plan_path,
+            plan=plan,
+            status_summary=status_snapshot,
+        ).to_dict(),
         "pipeline_plan": str(Path(plan_path).expanduser().resolve(strict=False)),
         "run_state": str(run_state_path_for_plan(plan_path)),
     }

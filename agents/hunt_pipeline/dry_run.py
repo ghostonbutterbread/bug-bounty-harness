@@ -10,6 +10,10 @@ from agents.app_mapper import map_application, write_artifacts
 from agents.hunt_pipeline.appmap_loader import load_appmap_run
 from agents.hunt_pipeline.hypothesis_builder import build_hypothesis_packets
 from agents.hunt_pipeline.models import PipelineDryRunArtifact
+from agents.hunt_pipeline.promotion_readiness import (
+    build_runtime_promotion_readiness_checklist,
+    non_live_readiness_stub,
+)
 from agents.hunt_pipeline.runtime_contract import build_runtime_handoff_contract, build_runtime_promotion_protocol
 from agents.hunt_pipeline.rulesets import resolve_ruleset
 from agents.hunt_pipeline.scheduler import plan_hypothesis_packets, runtime_adapter_availability, runtime_handoff_boundary
@@ -98,10 +102,36 @@ def build_dry_run_plan(
         "ledger_writes": False,
     }
     runtime_promotion_protocol = build_runtime_promotion_protocol().to_dict()
+    plan_path = output_root / "pipeline_plan.json"
+    readiness_seed = non_live_readiness_stub()
     runtime_handoff_contract = build_runtime_handoff_contract(
         {
             "runtime_handoff_contract": {"schema_version": 1},
             "runtime_promotion_protocol": runtime_promotion_protocol,
+            "runtime_promotion_readiness": readiness_seed,
+            "runtime_adapter_availability": runtime_adapter,
+            "static_team_handoffs": static_team_handoffs,
+            "dynamic_validation_queue": dynamic_validation_queue,
+            "safety": safety,
+        }
+    ).to_dict()
+    runtime_promotion_readiness = build_runtime_promotion_readiness_checklist(
+        plan_path,
+        plan={
+            "runtime_handoff_contract": runtime_handoff_contract,
+            "runtime_promotion_protocol": runtime_promotion_protocol,
+            "runtime_promotion_readiness": readiness_seed,
+            "runtime_adapter_availability": runtime_adapter,
+            "static_team_handoffs": static_team_handoffs,
+            "dynamic_validation_queue": dynamic_validation_queue,
+            "safety": safety,
+        },
+    ).to_dict()
+    runtime_handoff_contract = build_runtime_handoff_contract(
+        {
+            "runtime_handoff_contract": {"schema_version": 1},
+            "runtime_promotion_protocol": runtime_promotion_protocol,
+            "runtime_promotion_readiness": runtime_promotion_readiness,
             "runtime_adapter_availability": runtime_adapter,
             "static_team_handoffs": static_team_handoffs,
             "dynamic_validation_queue": dynamic_validation_queue,
@@ -127,11 +157,11 @@ def build_dry_run_plan(
         runtime_handoff_boundary=handoff_boundary,
         runtime_handoff_contract=runtime_handoff_contract,
         runtime_promotion_protocol=runtime_promotion_protocol,
+        runtime_promotion_readiness=runtime_promotion_readiness,
         static_team_handoffs=static_team_handoffs,
         dynamic_validation_queue=dynamic_validation_queue,
         safety=safety,
     )
-    plan_path = output_root / "pipeline_plan.json"
     _write_json_artifact(plan_path, artifact.to_dict())
     return artifact, plan_path
 

@@ -11,6 +11,7 @@ if _PROJECT_ROOT.as_posix() not in (Path(item).as_posix() for item in sys.path i
 
 from agents.hunt_pipeline.dry_run import build_dry_run_plan
 from agents.hunt_pipeline.preflight_report import write_runtime_preflight_report
+from agents.hunt_pipeline.promotion_readiness import write_runtime_promotion_readiness_checklist
 from agents.hunt_pipeline.run_state import (
     clear_pause,
     request_pause,
@@ -44,6 +45,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="write runtime_preflight_report.json beside the plan without invoking runtime adapters",
     )
     status_parser.add_argument("--preflight-report-path", help="optional path for --write-preflight-report")
+    status_parser.add_argument(
+        "--write-readiness-checklist",
+        action="store_true",
+        help="write runtime_promotion_readiness.json beside the plan without enabling live execution",
+    )
+    status_parser.add_argument("--readiness-checklist-path", help="optional path for --write-readiness-checklist")
     status_parser.set_defaults(func=_cmd_status)
 
     run_parser = subparsers.add_parser("run", help="execute the next wave through the dry-run-safe runtime adapter")
@@ -91,6 +98,14 @@ def _cmd_status(args: argparse.Namespace) -> int:
         )
         summary["runtime_preflight_report"] = report
         summary["runtime_preflight_report_path"] = str(report_path)
+    if args.write_readiness_checklist:
+        checklist, checklist_path = write_runtime_promotion_readiness_checklist(
+            plan_path,
+            output_path=args.readiness_checklist_path,
+            status_summary=summary,
+        )
+        summary["runtime_promotion_readiness"] = checklist
+        summary["runtime_promotion_readiness_path"] = str(checklist_path)
     if args.format == "text":
         print(_format_status_text(summary))
     else:
@@ -240,6 +255,11 @@ def _format_status_text(summary: dict[str, object]) -> str:
     contract = summary.get("runtime_handoff_contract") if isinstance(summary.get("runtime_handoff_contract"), dict) else {}
     protocol = summary.get("runtime_promotion_protocol") if isinstance(summary.get("runtime_promotion_protocol"), dict) else {}
     report = summary.get("runtime_preflight_report") if isinstance(summary.get("runtime_preflight_report"), dict) else {}
+    readiness = (
+        summary.get("runtime_promotion_readiness")
+        if isinstance(summary.get("runtime_promotion_readiness"), dict)
+        else {}
+    )
     static_handoffs = report.get("static_team_handoffs") if isinstance(report.get("static_team_handoffs"), dict) else {}
     dynamic_queue = report.get("dynamic_validation_queue") if isinstance(report.get("dynamic_validation_queue"), dict) else {}
     return (
@@ -255,6 +275,9 @@ def _format_status_text(summary: dict[str, object]) -> str:
         f"promotion_allowed={str(bool(contract.get('promotion_allowed'))).lower()} "
         f"promotion_protocol_status={protocol.get('status')} "
         f"promotion_enabled={str(bool(protocol.get('promotion_enabled'))).lower()} "
+        f"readiness_status={readiness.get('status')} "
+        f"readiness_promoted={str(bool(readiness.get('promoted'))).lower()} "
+        f"live_execution_ready={str(bool(readiness.get('live_execution_ready'))).lower()} "
         f"preflight_status={report.get('status')} "
         f"failed_required_gates={contract.get('failed_required_gate_count', len(report.get('failed_required_gates', [])))} "
         f"static_team_handoffs={static_handoffs.get('state')} "

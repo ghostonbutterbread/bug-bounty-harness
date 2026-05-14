@@ -718,7 +718,7 @@ class BaseTeam(abc.ABC):
         return normalize_finding(raw, default_agent=default_agent, default_class=default_class)
 
     def _resolve_source_path(self, file_value: Any) -> Path | None:
-        relpath = _normalize_relpath(file_value)
+        relpath = normalize_relpath(file_value)
         if not relpath:
             return None
         candidate = self.target_path / relpath

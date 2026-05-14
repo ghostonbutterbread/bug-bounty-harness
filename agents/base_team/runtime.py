@@ -62,8 +62,8 @@ def spawn_agent(
         prompt_file = Path(handle.name)
 
     command = (
-        "codex exec -s danger-full-access --skip-git-repo-check "
-        f"-C {shlex.quote(str(workdir))} < {shlex.quote(str(prompt_file))}"
+        "codex exec -s read-only --skip-git-repo-check "
+        f"--cd {shlex.quote(str(workdir))} < {shlex.quote(str(prompt_file))}"
     )
 
     log_handle = log_path.open("ab")

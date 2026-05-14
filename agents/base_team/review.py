@@ -176,9 +176,9 @@ def run_review_cli(cli_name: str, prompt: str, timeout: int, *, workdir: Path) -
             "codex",
             "exec",
             "-s",
-            "danger-full-access",
+            "read-only",
             "--skip-git-repo-check",
-            "-C",
+            "--cd",
             str(workdir),
         ]
     else:

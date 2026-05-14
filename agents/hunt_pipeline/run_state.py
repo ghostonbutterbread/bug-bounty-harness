@@ -13,10 +13,15 @@ from agents.hunt_pipeline.preflight_report import build_runtime_preflight_report
 from agents.hunt_pipeline.operator_approval_schema import build_runtime_operator_approval_schema
 from agents.hunt_pipeline.promotion_readiness import build_runtime_promotion_readiness_checklist
 from agents.hunt_pipeline.promotion_request_packet import build_runtime_promotion_request_packet
+from agents.hunt_pipeline.promotion_decision import (
+    evaluate_runtime_promotion_decision,
+    runtime_execution_mode,
+)
 from agents.hunt_pipeline.runtime_contract import evaluate_runtime_handoff_contract, evaluate_runtime_promotion_protocol
 
 RUN_STATE_SCHEMA_VERSION = 1
 RUN_STATE_FILENAME = "run_state.json"
+CONTROL_FILENAME = "run_control.json"
 PLAN_FILENAME = "pipeline_plan.json"
 
 RUNNABLE_STATUSES = {"selected", "deferred"}
@@ -45,6 +50,10 @@ def run_state_path_for_plan(plan_path: str | Path) -> Path:
     return Path(plan_path).expanduser().resolve(strict=False).parent / RUN_STATE_FILENAME
 
 
+def control_state_path_for_plan(plan_path: str | Path) -> Path:
+    return Path(plan_path).expanduser().resolve(strict=False).parent / CONTROL_FILENAME
+
+
 def load_run_state(path: str | Path) -> dict[str, Any]:
     state_path = Path(path)
     if not state_path.exists():
@@ -59,17 +68,74 @@ def initialize_run_state(plan_path: str | Path, plan: Mapping[str, Any] | None =
     resolved_plan_path = Path(plan_path).expanduser().resolve(strict=False)
     plan_payload = dict(plan or load_pipeline_plan(resolved_plan_path))
     existing = load_run_state(run_state_path_for_plan(resolved_plan_path))
+    control_flags = load_control_flags(resolved_plan_path)
     agents = _merge_agent_records(plan_payload, existing.get("agents") if isinstance(existing.get("agents"), dict) else {})
     return {
         "schema_version": RUN_STATE_SCHEMA_VERSION,
         "run_id": str(plan_payload.get("appmap_source", {}).get("run_root") or plan_payload.get("program") or "hunt-pipeline"),
         "pipeline_plan": str(resolved_plan_path),
-        "pause_requested": bool(existing.get("pause_requested", False)),
-        "stopped": bool(existing.get("stopped", False)),
+        "pause_requested": bool(existing.get("pause_requested", False) or control_flags.get("pause_requested", False)),
+        "stopped": bool(existing.get("stopped", False) or control_flags.get("stopped", False)),
         "updated_at": _timestamp_iso(),
         "agents": agents,
         "last_wave": existing.get("last_wave") if isinstance(existing.get("last_wave"), dict) else {},
     }
+
+
+def load_control_flags(plan_path: str | Path) -> dict[str, bool]:
+    path = control_state_path_for_plan(plan_path)
+    if not path.exists():
+        return {"pause_requested": False, "stopped": False}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"pause_requested": False, "stopped": False}
+    if not isinstance(payload, dict):
+        return {"pause_requested": False, "stopped": False}
+    return {
+        "pause_requested": bool(payload.get("pause_requested", False)),
+        "stopped": bool(payload.get("stopped", False)),
+    }
+
+
+def save_control_flags(plan_path: str | Path, flags: Mapping[str, Any]) -> Path:
+    path = control_state_path_for_plan(plan_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.parent / ".hunt_pipeline_control.lock"
+    with lock_path.open("w", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            existing = load_control_flags(plan_path)
+            payload = {
+                "schema_version": RUN_STATE_SCHEMA_VERSION,
+                "pause_requested": bool(flags.get("pause_requested", existing.get("pause_requested", False))),
+                "stopped": bool(flags.get("stopped", existing.get("stopped", False))),
+                "updated_at": _timestamp_iso(),
+            }
+            tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+            tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            tmp_path.replace(path)
+            return path
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _try_persist_control_flags_to_run_state(plan_path: str | Path) -> dict[str, Any]:
+    resolved_plan_path = Path(plan_path).expanduser().resolve(strict=False)
+    state_path = run_state_path_for_plan(resolved_plan_path)
+    lock_path = state_path.parent / ".hunt_pipeline_runtime.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("w", encoding="utf-8") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return initialize_run_state(resolved_plan_path)
+        try:
+            state = initialize_run_state(resolved_plan_path)
+            save_run_state(state, state_path)
+            return state
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def save_run_state(state: Mapping[str, Any], path: str | Path) -> Path:
@@ -99,24 +165,19 @@ def pipeline_runtime_lock(plan_path: str | Path) -> Iterator[None]:
 
 
 def request_pause(plan_path: str | Path) -> dict[str, Any]:
-    with pipeline_runtime_lock(plan_path):
-        state = initialize_run_state(plan_path)
-        state["pause_requested"] = True
-        save_run_state(state, run_state_path_for_plan(plan_path))
-        return state
+    save_control_flags(plan_path, {"pause_requested": True})
+    return _try_persist_control_flags_to_run_state(plan_path)
 
 
 def request_stop(plan_path: str | Path) -> dict[str, Any]:
-    with pipeline_runtime_lock(plan_path):
-        state = initialize_run_state(plan_path)
-        state["stopped"] = True
-        save_run_state(state, run_state_path_for_plan(plan_path))
-        return state
+    save_control_flags(plan_path, {"stopped": True})
+    return _try_persist_control_flags_to_run_state(plan_path)
 
 
 def clear_pause(plan_path: str | Path) -> dict[str, Any]:
     """Clear a previously requested pause while preserving all agent state."""
 
+    save_control_flags(plan_path, {"pause_requested": False})
     with pipeline_runtime_lock(plan_path):
         state = initialize_run_state(plan_path)
         state["pause_requested"] = False
@@ -167,6 +228,8 @@ def summarize_run(plan_path: str | Path, *, max_agents: int | None = None, concu
             plan=plan,
             status_summary=status_snapshot,
         ).to_dict(),
+        "runtime_promotion_decision": evaluate_runtime_promotion_decision(plan, plan_path=plan_path),
+        "runtime_execution": runtime_execution_mode(plan, plan_path=plan_path),
         "pipeline_plan": str(Path(plan_path).expanduser().resolve(strict=False)),
         "run_state": str(run_state_path_for_plan(plan_path)),
     }

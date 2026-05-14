@@ -9,6 +9,7 @@ from typing import Any, Iterator, Mapping, Sequence
 
 import fcntl
 
+from agents.hunt_pipeline.preflight_report import build_runtime_preflight_report
 from agents.hunt_pipeline.runtime_contract import evaluate_runtime_handoff_contract, evaluate_runtime_promotion_protocol
 
 RUN_STATE_SCHEMA_VERSION = 1
@@ -145,6 +146,7 @@ def summarize_run(plan_path: str | Path, *, max_agents: int | None = None, concu
         "next_wave_agent_keys": [item["agent_key"] for item in next_wave],
         "runtime_handoff_contract": evaluate_runtime_handoff_contract(plan),
         "runtime_promotion_protocol": evaluate_runtime_promotion_protocol(plan),
+        "runtime_preflight_report": build_runtime_preflight_report(plan_path, plan=plan),
         "pipeline_plan": str(Path(plan_path).expanduser().resolve(strict=False)),
         "run_state": str(run_state_path_for_plan(plan_path)),
     }

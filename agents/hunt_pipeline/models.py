@@ -117,6 +117,7 @@ class PipelineDryRunArtifact:
     appmap_source: dict[str, Any]
     normalized_map: dict[str, Any]
     hypotheses: tuple[dict[str, Any], ...]
+    artifact_metadata: dict[str, Any]
     scheduler_plan: dict[str, Any]
     runtime_adapter_availability: dict[str, Any]
     runtime_handoff_boundary: dict[str, Any]

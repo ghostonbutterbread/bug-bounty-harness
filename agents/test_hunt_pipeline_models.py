@@ -37,6 +37,7 @@ def test_hunt_pipeline_models_render_schema_friendly_dicts() -> None:
         appmap_source={"mode": "loaded-existing"},
         normalized_map=normalized.to_dict(),
         hypotheses=(packet.to_dict(),),
+        artifact_metadata={},
         scheduler_plan={"selected": []},
         runtime_adapter_availability={"spawn_enabled": False},
         runtime_handoff_boundary={"status": "explicit-non-live-boundary"},

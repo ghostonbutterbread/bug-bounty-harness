@@ -36,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_state_locator_args(status_parser)
     status_parser.add_argument("--max-agents", type=_non_negative_int)
     status_parser.add_argument("--concurrent-agents", type=_positive_int)
+    status_parser.add_argument("--format", choices=("json", "text"), default="json", help="output format; default: json")
     status_parser.set_defaults(func=_cmd_status)
 
     run_parser = subparsers.add_parser("run", help="execute the next wave through the dry-run-safe runtime adapter")
@@ -75,7 +76,11 @@ def _cmd_plan(args: argparse.Namespace) -> int:
 
 def _cmd_status(args: argparse.Namespace) -> int:
     plan_path = _plan_path_from_args(args)
-    print(json.dumps(summarize_run(plan_path, max_agents=args.max_agents, concurrent_agents=args.concurrent_agents), sort_keys=True))
+    summary = summarize_run(plan_path, max_agents=args.max_agents, concurrent_agents=args.concurrent_agents)
+    if args.format == "text":
+        print(_format_status_text(summary))
+    else:
+        print(json.dumps(summary, sort_keys=True))
     return 0
 
 
@@ -148,6 +153,7 @@ def _build_plan_from_args(args: argparse.Namespace):
         max_hypotheses=args.max_hypotheses,
         max_agents=args.max_agents,
         concurrent_agents=args.concurrent_agents,
+        write_hypotheses=bool(getattr(args, "write_hypotheses", False)),
     )
 
 
@@ -175,6 +181,7 @@ def _add_plan_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-hypotheses", type=int)
     parser.add_argument("--concurrent-agents", type=_positive_int)
     parser.add_argument("--max-agents", type=_non_negative_int)
+    parser.add_argument("--write-hypotheses", action="store_true", help="write hypotheses.jsonl beside pipeline_plan.json")
 
 
 def _add_state_locator_args(parser: argparse.ArgumentParser) -> None:
@@ -194,6 +201,7 @@ def _add_runtime_args(parser: argparse.ArgumentParser, *, allow_plan_inputs: boo
         parser.add_argument("--max-hypotheses", type=int)
         parser.add_argument("--pipeline-plan")
         parser.add_argument("--output-dir", default="hunt_pipeline_out")
+        parser.add_argument("--write-hypotheses", action="store_true", help="write hypotheses.jsonl when planning from inputs")
     else:
         _add_state_locator_args(parser)
     parser.add_argument("--concurrent-agents", type=_positive_int)
@@ -210,6 +218,19 @@ def _normalize_legacy_argv(argv: list[str]) -> list[str]:
         return argv
     normalized = [item for item in argv if item != "--dry-run"]
     return ["plan", *normalized]
+
+
+def _format_status_text(summary: dict[str, object]) -> str:
+    return (
+        f"pipeline_plan={summary.get('pipeline_plan')} "
+        f"run_state={summary.get('run_state')} "
+        f"total={summary.get('total')} "
+        f"completed={summary.get('completed')} "
+        f"unrun={summary.get('unrun')} "
+        f"next_wave={summary.get('next_wave_count')} "
+        f"pause_requested={str(bool(summary.get('pause_requested'))).lower()} "
+        f"stopped_requested={str(bool(summary.get('stopped_requested'))).lower()}"
+    )
 
 
 def _positive_int(value: str) -> int:

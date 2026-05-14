@@ -10,6 +10,7 @@ if _PROJECT_ROOT.as_posix() not in (Path(item).as_posix() for item in sys.path i
     sys.path.insert(0, _PROJECT_ROOT.as_posix())
 
 from agents.hunt_pipeline.dry_run import build_dry_run_plan
+from agents.hunt_pipeline.preflight_report import write_runtime_preflight_report
 from agents.hunt_pipeline.run_state import (
     clear_pause,
     request_pause,
@@ -37,6 +38,12 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--max-agents", type=_non_negative_int)
     status_parser.add_argument("--concurrent-agents", type=_positive_int)
     status_parser.add_argument("--format", choices=("json", "text"), default="json", help="output format; default: json")
+    status_parser.add_argument(
+        "--write-preflight-report",
+        action="store_true",
+        help="write runtime_preflight_report.json beside the plan without invoking runtime adapters",
+    )
+    status_parser.add_argument("--preflight-report-path", help="optional path for --write-preflight-report")
     status_parser.set_defaults(func=_cmd_status)
 
     run_parser = subparsers.add_parser("run", help="execute the next wave through the dry-run-safe runtime adapter")
@@ -77,6 +84,13 @@ def _cmd_plan(args: argparse.Namespace) -> int:
 def _cmd_status(args: argparse.Namespace) -> int:
     plan_path = _plan_path_from_args(args)
     summary = summarize_run(plan_path, max_agents=args.max_agents, concurrent_agents=args.concurrent_agents)
+    if args.write_preflight_report:
+        report, report_path = write_runtime_preflight_report(
+            plan_path,
+            output_path=args.preflight_report_path,
+        )
+        summary["runtime_preflight_report"] = report
+        summary["runtime_preflight_report_path"] = str(report_path)
     if args.format == "text":
         print(_format_status_text(summary))
     else:
@@ -96,6 +110,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 def _cmd_resume(args: argparse.Namespace) -> int:
     plan_path = _plan_path_from_args(args)
+    if args.execute_live:
+        return _execute_and_print(args, plan_path)
     clear_pause(plan_path)
     return _execute_and_print(args, plan_path)
 
@@ -223,6 +239,9 @@ def _normalize_legacy_argv(argv: list[str]) -> list[str]:
 def _format_status_text(summary: dict[str, object]) -> str:
     contract = summary.get("runtime_handoff_contract") if isinstance(summary.get("runtime_handoff_contract"), dict) else {}
     protocol = summary.get("runtime_promotion_protocol") if isinstance(summary.get("runtime_promotion_protocol"), dict) else {}
+    report = summary.get("runtime_preflight_report") if isinstance(summary.get("runtime_preflight_report"), dict) else {}
+    static_handoffs = report.get("static_team_handoffs") if isinstance(report.get("static_team_handoffs"), dict) else {}
+    dynamic_queue = report.get("dynamic_validation_queue") if isinstance(report.get("dynamic_validation_queue"), dict) else {}
     return (
         f"pipeline_plan={summary.get('pipeline_plan')} "
         f"run_state={summary.get('run_state')} "
@@ -235,7 +254,11 @@ def _format_status_text(summary: dict[str, object]) -> str:
         f"runtime_contract_status={contract.get('status')} "
         f"promotion_allowed={str(bool(contract.get('promotion_allowed'))).lower()} "
         f"promotion_protocol_status={protocol.get('status')} "
-        f"promotion_enabled={str(bool(protocol.get('promotion_enabled'))).lower()}"
+        f"promotion_enabled={str(bool(protocol.get('promotion_enabled'))).lower()} "
+        f"preflight_status={report.get('status')} "
+        f"failed_required_gates={contract.get('failed_required_gate_count', len(report.get('failed_required_gates', [])))} "
+        f"static_team_handoffs={static_handoffs.get('state')} "
+        f"dynamic_validation_queue={dynamic_queue.get('state')}"
     )
 
 

@@ -7,6 +7,7 @@ import pytest
 
 from agents.base_team import AgentSpec
 from agents.hunt_pipeline.cli import build_parser
+from agents.hunt_pipeline.preflight_report import build_runtime_preflight_report, write_runtime_preflight_report
 from agents.hunt_pipeline.run_state import (
     initialize_run_state,
     request_pause,
@@ -363,6 +364,8 @@ def test_status_json_is_default_format(tmp_path: Path, capsys: pytest.CaptureFix
     assert payload["runtime_handoff_contract"]["promotion_allowed"] is False
     assert payload["runtime_promotion_protocol"]["promotion_enabled"] is False
     assert payload["runtime_promotion_protocol"]["status"] == "missing"
+    assert payload["runtime_preflight_report"]["promotion_enabled"] is False
+    assert payload["runtime_preflight_report"]["status"] == "blocked"
     failed_gate_ids = {
         result["gate_id"]
         for result in payload["runtime_handoff_contract"]["gate_results"]
@@ -419,6 +422,87 @@ def test_status_text_exposes_runtime_contract_promotion_state(tmp_path: Path, ca
     assert "promotion_allowed=false" in output
     assert "promotion_protocol_status=draft" in output
     assert "promotion_enabled=false" in output
+    assert "preflight_status=blocked" in output
+    assert "static_team_handoffs=planned-only" in output
+    assert "dynamic_validation_queue=disabled" in output
+
+
+def test_preflight_report_summarizes_non_live_runtime_sections(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    _add_non_live_contract_sections(plan_path)
+
+    report, report_path = write_runtime_preflight_report(plan_path)
+
+    assert report_path == plan_path.parent / "runtime_preflight_report.json"
+    assert json.loads(report_path.read_text(encoding="utf-8")) == report
+    assert report["status"] == "blocked"
+    assert report["promotion_enabled"] is False
+    assert report["runtime_handoff_contract"]["status"] == "blocked"
+    assert report["runtime_handoff_contract"]["promotion_allowed"] is False
+    assert [gate["gate_id"] for gate in report["failed_required_gates"]] == ["explicit_contract_promotion"]
+    assert report["runtime_promotion_protocol"]["status"] == "draft"
+    assert report["runtime_promotion_protocol"]["promotion_enabled"] is False
+    assert report["runtime_promotion_protocol"]["valid"] is True
+    assert report["static_team_handoffs"]["state"] == "planned-only"
+    assert report["static_team_handoffs"]["planned_teams"] == ["zero_day_team"]
+    assert report["dynamic_validation_queue"]["state"] == "disabled"
+    blocker_ids = {item["id"] for item in report["blockers_before_future_promotion"]}
+    assert "explicit_contract_promotion" in blocker_ids
+    assert "operator_live_execution_approval" in blocker_ids
+    assert "flip_promotion_enabled" in blocker_ids
+
+
+def test_status_can_write_preflight_report_artifact(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    _add_non_live_contract_sections(plan_path)
+
+    code = main(["status", "--pipeline-plan", str(plan_path), "--write-preflight-report"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    report_path = Path(payload["runtime_preflight_report_path"])
+    assert report_path == plan_path.parent / "runtime_preflight_report.json"
+    assert report_path.exists()
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["promotion_enabled"] is False
+    assert report["static_team_handoffs"]["state"] == "planned-only"
+    assert report["dynamic_validation_queue"]["state"] == "disabled"
+
+
+def test_preflight_report_blocks_missing_or_malformed_protocol(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    payload = _add_non_live_contract_sections(plan_path)
+
+    payload.pop("runtime_promotion_protocol")
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    missing_report = build_runtime_preflight_report(plan_path)
+
+    assert missing_report["runtime_promotion_protocol"]["status"] == "missing"
+    assert missing_report["runtime_promotion_protocol"]["promotion_enabled"] is False
+    assert "promotion_protocol_non_live" in {gate["gate_id"] for gate in missing_report["failed_required_gates"]}
+    assert "runtime_promotion_protocol" in {item["id"] for item in missing_report["blockers_before_future_promotion"]}
+
+    payload["runtime_promotion_protocol"] = {
+        "schema_version": "not-an-int",
+        "status": "promoted",
+        "promotion_enabled": True,
+        "required_approvals": "operator",
+        "future_promotion_steps": 7,
+    }
+    payload["runtime_handoff_contract"] = build_runtime_handoff_contract(payload).to_dict()
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    malformed_report = build_runtime_preflight_report(plan_path)
+
+    assert malformed_report["runtime_promotion_protocol"]["status"] == "promoted"
+    assert malformed_report["runtime_promotion_protocol"]["stored_promotion_enabled"] is True
+    assert malformed_report["runtime_promotion_protocol"]["promotion_enabled"] is False
+    assert malformed_report["runtime_promotion_protocol"]["valid"] is False
+    assert "promotion_protocol_non_live" in {gate["gate_id"] for gate in malformed_report["failed_required_gates"]}
+    blocker_ids = {item["id"] for item in malformed_report["blockers_before_future_promotion"]}
+    assert "required_approvals" in blocker_ids
+    assert "future_promotion_steps" in blocker_ids
 
 
 def test_execute_live_rejected_when_contract_missing_and_adapter_not_called(tmp_path: Path) -> None:
@@ -432,6 +516,60 @@ def test_execute_live_rejected_when_contract_missing_and_adapter_not_called(tmp_
     assert "runtime handoff contract" in result["error"]
     assert "runtime_handoff_contract_present" in {gate["gate_id"] for gate in result["failed_gates"]}
     assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+
+
+def test_cli_execute_live_rejected_before_adapter_or_state_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline import runtime
+    from agents.hunt_pipeline.cli import main
+
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+
+    def fail_if_called(self, specs):
+        raise AssertionError("adapter must not be called")
+
+    monkeypatch.setattr(runtime.DryRunBaseTeamAdapter, "execute", fail_if_called)
+
+    code = main(["run", "--pipeline-plan", str(plan_path), "--execute-live"])
+
+    assert code == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is False
+    assert result["executed"] == 0
+    assert result["promotion_allowed"] is False
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+    assert not run_state_path_for_plan(plan_path).exists()
+    assert not (plan_path.parent / "ledgers").exists()
+
+
+def test_cli_resume_execute_live_rejected_before_clearing_pause_or_state_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline import runtime
+    from agents.hunt_pipeline.cli import main
+
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+
+    def fail_if_called(self, specs):
+        raise AssertionError("adapter must not be called")
+
+    monkeypatch.setattr(runtime.DryRunBaseTeamAdapter, "execute", fail_if_called)
+
+    code = main(["resume", "--pipeline-plan", str(plan_path), "--execute-live"])
+
+    assert code == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is False
+    assert result["executed"] == 0
+    assert result["promotion_allowed"] is False
+    assert not run_state_path_for_plan(plan_path).exists()
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+    assert not (plan_path.parent / "ledgers").exists()
 
 
 def test_execute_live_rejected_when_required_gate_fails_and_adapter_not_called(tmp_path: Path) -> None:

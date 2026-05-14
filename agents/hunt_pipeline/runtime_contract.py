@@ -7,6 +7,7 @@ CONTRACT_SCHEMA_VERSION = 1
 CONTRACT_STATUS_BLOCKED = "blocked"
 PROMOTION_PROTOCOL_SCHEMA_VERSION = 1
 PROMOTION_PROTOCOL_STATUS_DRAFT = "draft"
+PROMOTION_READINESS_SCHEMA_VERSION = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +83,10 @@ def default_runtime_handoff_gates() -> tuple[RuntimeHandoffGate, ...]:
         RuntimeHandoffGate(
             "promotion_protocol_non_live",
             "runtime promotion protocol is present, draft-only, and cannot enable live execution",
+        ),
+        RuntimeHandoffGate(
+            "promotion_readiness_non_live",
+            "runtime promotion readiness checklist is present, not-ready, and cannot enable live execution",
         ),
         RuntimeHandoffGate(
             "explicit_contract_promotion",
@@ -192,6 +197,97 @@ def evaluate_runtime_promotion_protocol(plan: Mapping[str, Any]) -> dict[str, An
     }
 
 
+def evaluate_runtime_promotion_readiness(plan: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a conservative summary of the stored non-live readiness artifact."""
+
+    checklist = _stored_readiness_artifact(plan)
+    if not isinstance(checklist, Mapping):
+        return {
+            "schema_version": 0,
+            "status": "missing",
+            "promotion_enabled": False,
+            "promoted": False,
+            "live_execution_ready": False,
+            "valid": False,
+            "details": "runtime_promotion_readiness is missing",
+        }
+    schema_version = _schema_version(checklist.get("schema_version"))
+    status = str(checklist.get("status") or "").strip()
+    stored_promotion_enabled = bool(checklist.get("promotion_enabled") is True)
+    stored_promoted = bool(checklist.get("promoted") is True)
+    explicit_status = checklist.get("explicit_status")
+    stored_explicit_ready = _nested_true(explicit_status, "ready")
+    stored_explicit_promoted = _nested_true(explicit_status, "promoted")
+    stored_live_ready = bool(
+        checklist.get("live_execution_ready") is True
+        or checklist.get("ready") is True
+        or checklist.get("promotion_ready") is True
+        or stored_explicit_ready
+    )
+    readiness_flag_shapes_valid = all(
+        isinstance(checklist.get(key), bool)
+        for key in ("promotion_enabled", "promoted", "live_execution_ready")
+    ) and all(
+        _optional_bool(value)
+        for value in (
+            checklist.get("ready"),
+            checklist.get("promotion_ready"),
+        )
+    )
+    explicit_status_valid = isinstance(explicit_status, Mapping) and all(
+        isinstance(explicit_status.get(key), bool)
+        for key in ("ready", "promoted")
+    )
+    required_approvals = checklist.get("required_approvals")
+    blockers = checklist.get("blockers")
+    gates = checklist.get("gates")
+    preflight_states = checklist.get("preflight_states")
+    nested_promotion_claim = (
+        _nested_true(gates, "promotion_allowed")
+        or _nested_true(preflight_states, "promotion_enabled")
+        or stored_explicit_promoted
+    )
+    nested_flag_shapes_valid = (
+        _optional_nested_bool(gates, "promotion_allowed")
+        and _optional_nested_bool(preflight_states, "promotion_enabled")
+        and explicit_status_valid
+    )
+    valid = (
+        schema_version >= PROMOTION_READINESS_SCHEMA_VERSION
+        and status in {"not_ready", "blocked"}
+        and stored_promotion_enabled is False
+        and stored_promoted is False
+        and stored_live_ready is False
+        and readiness_flag_shapes_valid
+        and nested_promotion_claim is False
+        and nested_flag_shapes_valid
+        and _non_empty_mapping_sequence(required_approvals)
+        and isinstance(blockers, list | tuple)
+        and isinstance(gates, Mapping)
+        and isinstance(preflight_states, Mapping)
+    )
+    if valid:
+        details = "runtime_promotion_readiness is non-live and explicitly not ready"
+    elif stored_promotion_enabled or stored_promoted or stored_live_ready or nested_promotion_claim:
+        details = "runtime_promotion_readiness cannot claim promotion or live readiness in this slice"
+    elif not readiness_flag_shapes_valid or not nested_flag_shapes_valid:
+        details = "runtime_promotion_readiness readiness flags must be JSON booleans"
+    else:
+        details = "runtime_promotion_readiness is missing required not-ready structure"
+    return {
+        "schema_version": schema_version,
+        "status": status or "malformed",
+        "promotion_enabled": False,
+        "stored_promotion_enabled": stored_promotion_enabled,
+        "promoted": False,
+        "stored_promoted": stored_promoted,
+        "live_execution_ready": False,
+        "stored_live_execution_ready": stored_live_ready,
+        "valid": valid,
+        "details": details,
+    }
+
+
 def promotion_allowed(plan: Mapping[str, Any]) -> bool:
     return bool(evaluate_runtime_handoff_contract(plan).get("promotion_allowed") is True)
 
@@ -214,6 +310,7 @@ def _evaluate_gate(gate: RuntimeHandoffGate, plan: Mapping[str, Any]) -> Runtime
         "dynamic_validation_disabled": _gate_dynamic_validation_disabled,
         "safety_flags_non_live": _gate_safety_flags_non_live,
         "promotion_protocol_non_live": _gate_promotion_protocol_non_live,
+        "promotion_readiness_non_live": _gate_promotion_readiness_non_live,
         "explicit_contract_promotion": _gate_explicit_contract_promotion,
     }
     evaluator = evaluators.get(gate.id)
@@ -327,6 +424,18 @@ def _gate_promotion_protocol_non_live(plan: Mapping[str, Any]) -> RuntimeHandoff
         "promotion protocol is present and draft-only"
         if passed
         else str(protocol.get("details") or "promotion protocol is not a valid draft-only artifact"),
+    )
+
+
+def _gate_promotion_readiness_non_live(plan: Mapping[str, Any]) -> RuntimeHandoffGateResult:
+    readiness = evaluate_runtime_promotion_readiness(plan)
+    passed = bool(readiness.get("valid") is True and readiness.get("promotion_enabled") is False)
+    return _result(
+        "promotion_readiness_non_live",
+        passed,
+        "promotion readiness checklist is present and explicitly not ready"
+        if passed
+        else str(readiness.get("details") or "promotion readiness checklist is not a valid non-live artifact"),
     )
 
 
@@ -466,3 +575,24 @@ def _default_promotion_protocol_notes() -> tuple[str, ...]:
 
 def _non_empty_mapping_sequence(value: Any) -> bool:
     return isinstance(value, list | tuple) and bool(value) and all(isinstance(item, Mapping) for item in value)
+
+
+def _stored_readiness_artifact(plan: Mapping[str, Any]) -> Any:
+    readiness = plan.get("runtime_promotion_readiness")
+    if readiness is None:
+        readiness = plan.get("promotion_readiness_checklist")
+    return readiness
+
+
+def _optional_bool(value: Any) -> bool:
+    return value is None or isinstance(value, bool)
+
+
+def _optional_nested_bool(mapping: Any, key: str) -> bool:
+    if not isinstance(mapping, Mapping) or key not in mapping:
+        return True
+    return isinstance(mapping.get(key), bool)
+
+
+def _nested_true(mapping: Any, key: str) -> bool:
+    return isinstance(mapping, Mapping) and mapping.get(key) is True

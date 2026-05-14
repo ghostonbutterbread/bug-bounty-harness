@@ -8,6 +8,11 @@ import pytest
 from agents.base_team import AgentSpec
 from agents.hunt_pipeline.cli import build_parser
 from agents.hunt_pipeline.preflight_report import build_runtime_preflight_report, write_runtime_preflight_report
+from agents.hunt_pipeline.promotion_readiness import (
+    build_runtime_promotion_readiness_checklist,
+    non_live_readiness_stub,
+    write_runtime_promotion_readiness_checklist,
+)
 from agents.hunt_pipeline.run_state import (
     initialize_run_state,
     request_pause,
@@ -22,6 +27,7 @@ from agents.hunt_pipeline.runtime_contract import (
     build_runtime_promotion_protocol,
     evaluate_runtime_handoff_contract,
     evaluate_runtime_promotion_protocol,
+    evaluate_runtime_promotion_readiness,
 )
 from agents.hunt_pipeline.runtime_adapter import selected_decision_to_base_team_agent_spec
 
@@ -143,6 +149,14 @@ def _add_non_live_contract_sections(plan_path: Path) -> dict:
         "ledger_writes": False,
     }
     payload["runtime_promotion_protocol"] = build_runtime_promotion_protocol().to_dict()
+    payload["runtime_promotion_readiness"] = non_live_readiness_stub()
+    payload["runtime_handoff_contract"] = build_runtime_handoff_contract(
+        {**payload, "runtime_handoff_contract": {"schema_version": 1}}
+    ).to_dict()
+    payload["runtime_promotion_readiness"] = build_runtime_promotion_readiness_checklist(
+        plan_path,
+        plan=payload,
+    ).to_dict()
     payload["runtime_handoff_contract"] = build_runtime_handoff_contract(
         {**payload, "runtime_handoff_contract": {"schema_version": 1}}
     ).to_dict()
@@ -195,6 +209,108 @@ def test_runtime_contract_treats_missing_or_malformed_protocol_as_not_promoted(t
     assert malformed_protocol["valid"] is False
     assert "promotion_protocol_non_live" in malformed_failed_gate_ids
     assert malformed_contract["promotion_allowed"] is False
+
+
+def test_runtime_contract_treats_missing_malformed_or_enabled_readiness_as_not_promoted(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    payload = _add_non_live_contract_sections(plan_path)
+
+    payload.pop("runtime_promotion_readiness")
+    missing_contract = evaluate_runtime_handoff_contract(payload)
+    missing_readiness = evaluate_runtime_promotion_readiness(payload)
+    missing_failed_gate_ids = {gate["gate_id"] for gate in missing_contract["gate_results"] if not gate["passed"]}
+
+    assert missing_readiness["status"] == "missing"
+    assert missing_readiness["promotion_enabled"] is False
+    assert missing_readiness["promoted"] is False
+    assert "promotion_readiness_non_live" in missing_failed_gate_ids
+    assert missing_contract["promotion_allowed"] is False
+
+    payload["runtime_promotion_readiness"] = {
+        "schema_version": "not-an-int",
+        "status": "ready",
+        "promotion_enabled": True,
+        "promoted": True,
+        "live_execution_ready": True,
+        "required_approvals": "operator",
+    }
+    malformed_contract = evaluate_runtime_handoff_contract(payload)
+    malformed_readiness = evaluate_runtime_promotion_readiness(payload)
+    malformed_failed_gate_ids = {gate["gate_id"] for gate in malformed_contract["gate_results"] if not gate["passed"]}
+
+    assert malformed_readiness["promotion_enabled"] is False
+    assert malformed_readiness["stored_promotion_enabled"] is True
+    assert malformed_readiness["promoted"] is False
+    assert malformed_readiness["stored_promoted"] is True
+    assert malformed_readiness["live_execution_ready"] is False
+    assert malformed_readiness["stored_live_execution_ready"] is True
+    assert malformed_readiness["valid"] is False
+    assert "promotion_readiness_non_live" in malformed_failed_gate_ids
+    assert malformed_contract["promotion_allowed"] is False
+
+    payload["runtime_promotion_readiness"] = {
+        "schema_version": 1,
+        "status": "not_ready",
+        "promotion_enabled": "true",
+        "promoted": 1,
+        "live_execution_ready": "false",
+        "required_approvals": [{"approval": "operator", "required": True}],
+        "blockers": [],
+        "gates": {"status": "blocked", "promotion_allowed": True},
+        "preflight_states": {"status": "blocked", "promotion_enabled": "true"},
+    }
+    stringy_contract = evaluate_runtime_handoff_contract(payload)
+    stringy_readiness = evaluate_runtime_promotion_readiness(payload)
+    stringy_failed_gate_ids = {gate["gate_id"] for gate in stringy_contract["gate_results"] if not gate["passed"]}
+
+    assert stringy_readiness["promotion_enabled"] is False
+    assert stringy_readiness["promoted"] is False
+    assert stringy_readiness["live_execution_ready"] is False
+    assert stringy_readiness["valid"] is False
+    assert "promotion_readiness_non_live" in stringy_failed_gate_ids
+    assert stringy_contract["promotion_allowed"] is False
+
+    payload["runtime_promotion_readiness"] = {
+        "schema_version": 1,
+        "status": "not_ready",
+        "required_approvals": [{"approval": "operator", "required": True}],
+        "blockers": [],
+        "gates": {"status": "blocked", "promotion_allowed": False},
+        "preflight_states": {"status": "blocked", "promotion_enabled": False},
+        "explicit_status": {"ready": False, "promoted": False},
+    }
+    missing_flags_contract = evaluate_runtime_handoff_contract(payload)
+    missing_flags_readiness = evaluate_runtime_promotion_readiness(payload)
+    missing_flags_failed_gate_ids = {
+        gate["gate_id"] for gate in missing_flags_contract["gate_results"] if not gate["passed"]
+    }
+
+    assert missing_flags_readiness["valid"] is False
+    assert "promotion_readiness_non_live" in missing_flags_failed_gate_ids
+    assert missing_flags_contract["promotion_allowed"] is False
+
+    payload["runtime_promotion_readiness"] = {
+        "schema_version": 1,
+        "status": "not_ready",
+        "promotion_enabled": False,
+        "promoted": False,
+        "live_execution_ready": False,
+        "required_approvals": [{"approval": "operator", "required": True}],
+        "blockers": [],
+        "gates": {"status": "blocked", "promotion_allowed": False},
+        "preflight_states": {"status": "blocked", "promotion_enabled": False},
+        "explicit_status": {"ready": True, "promoted": True},
+    }
+    explicit_claim_contract = evaluate_runtime_handoff_contract(payload)
+    explicit_claim_readiness = evaluate_runtime_promotion_readiness(payload)
+    explicit_claim_failed_gate_ids = {
+        gate["gate_id"] for gate in explicit_claim_contract["gate_results"] if not gate["passed"]
+    }
+
+    assert explicit_claim_readiness["valid"] is False
+    assert explicit_claim_readiness["live_execution_ready"] is False
+    assert "promotion_readiness_non_live" in explicit_claim_failed_gate_ids
+    assert explicit_claim_contract["promotion_allowed"] is False
 
 
 def test_status_summary_counts_completed_and_unrun_from_plan_state(tmp_path: Path) -> None:
@@ -366,6 +482,10 @@ def test_status_json_is_default_format(tmp_path: Path, capsys: pytest.CaptureFix
     assert payload["runtime_promotion_protocol"]["status"] == "missing"
     assert payload["runtime_preflight_report"]["promotion_enabled"] is False
     assert payload["runtime_preflight_report"]["status"] == "blocked"
+    assert payload["runtime_promotion_readiness"]["status"] == "not_ready"
+    assert payload["runtime_promotion_readiness"]["promoted"] is False
+    assert payload["runtime_promotion_readiness"]["promotion_enabled"] is False
+    assert payload["runtime_promotion_readiness"]["live_execution_ready"] is False
     failed_gate_ids = {
         result["gate_id"]
         for result in payload["runtime_handoff_contract"]["gate_results"]
@@ -422,6 +542,9 @@ def test_status_text_exposes_runtime_contract_promotion_state(tmp_path: Path, ca
     assert "promotion_allowed=false" in output
     assert "promotion_protocol_status=draft" in output
     assert "promotion_enabled=false" in output
+    assert "readiness_status=not_ready" in output
+    assert "readiness_promoted=false" in output
+    assert "live_execution_ready=false" in output
     assert "preflight_status=blocked" in output
     assert "static_team_handoffs=planned-only" in output
     assert "dynamic_validation_queue=disabled" in output
@@ -471,6 +594,35 @@ def test_status_can_write_preflight_report_artifact(tmp_path: Path, capsys: pyte
     assert report["dynamic_validation_queue"]["state"] == "disabled"
 
 
+def test_status_can_write_readiness_checklist_artifact_without_runtime_side_effects(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    _add_non_live_contract_sections(plan_path)
+
+    code = main(["status", "--pipeline-plan", str(plan_path), "--write-readiness-checklist"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    checklist_path = Path(payload["runtime_promotion_readiness_path"])
+    assert checklist_path == plan_path.parent / "runtime_promotion_readiness.json"
+    assert checklist_path.exists()
+    checklist = json.loads(checklist_path.read_text(encoding="utf-8"))
+    assert checklist["status"] == "not_ready"
+    assert checklist["promoted"] is False
+    assert checklist["promotion_enabled"] is False
+    assert checklist["live_execution_ready"] is False
+    assert checklist["preflight_states"]["static_team_handoffs"]["state"] == "planned-only"
+    assert checklist["preflight_states"]["dynamic_validation_queue"]["state"] == "disabled"
+    assert checklist["run_status"]["total"] == 1
+    assert not run_state_path_for_plan(plan_path).exists()
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+    assert not (plan_path.parent / "ledgers").exists()
+
+
 def test_preflight_report_blocks_missing_or_malformed_protocol(tmp_path: Path) -> None:
     plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
     payload = _add_non_live_contract_sections(plan_path)
@@ -503,6 +655,39 @@ def test_preflight_report_blocks_missing_or_malformed_protocol(tmp_path: Path) -
     blocker_ids = {item["id"] for item in malformed_report["blockers_before_future_promotion"]}
     assert "required_approvals" in blocker_ids
     assert "future_promotion_steps" in blocker_ids
+
+
+def test_readiness_checklist_blocks_missing_protocol_and_enabled_checklist_claim(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    payload = _add_non_live_contract_sections(plan_path)
+
+    payload.pop("runtime_promotion_protocol")
+    payload["runtime_promotion_readiness"] = {
+        "schema_version": 1,
+        "status": "ready",
+        "promotion_enabled": True,
+        "promoted": True,
+        "live_execution_ready": True,
+        "required_approvals": [{"approval": "operator", "required": True}],
+        "blockers": [],
+        "gates": {"status": "passed", "promotion_allowed": True},
+        "preflight_states": {"status": "passed", "promotion_enabled": True},
+    }
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    checklist, checklist_path = write_runtime_promotion_readiness_checklist(plan_path)
+
+    assert checklist_path == plan_path.parent / "runtime_promotion_readiness.json"
+    assert checklist["status"] == "not_ready"
+    assert checklist["promoted"] is False
+    assert checklist["promotion_enabled"] is False
+    assert checklist["live_execution_ready"] is False
+    assert checklist["runtime_promotion_protocol"]["status"] == "missing"
+    assert checklist["runtime_promotion_protocol"]["promotion_enabled"] is False
+    blocker_ids = {item["id"] for item in checklist["blockers"]}
+    assert "runtime_promotion_protocol" in blocker_ids
+    assert "runtime_promotion_readiness" in blocker_ids
+    assert "promotion_readiness_non_live" in blocker_ids
 
 
 def test_execute_live_rejected_when_contract_missing_and_adapter_not_called(tmp_path: Path) -> None:
@@ -608,6 +793,42 @@ def test_execute_live_rejected_when_protocol_claims_enabled_and_adapter_not_call
     assert "promotion_protocol_non_live" in failed_gate_ids
     assert "explicit_contract_promotion" in failed_gate_ids
     assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+
+
+def test_execute_live_rejected_when_readiness_claims_enabled_before_state_or_adapter_writes(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    payload = _add_non_live_contract_sections(plan_path)
+    payload["runtime_promotion_readiness"] = {
+        "schema_version": 1,
+        "status": "ready",
+        "promotion_enabled": True,
+        "promoted": True,
+        "live_execution_ready": True,
+        "required_approvals": [{"approval": "operator", "required": True}],
+        "blockers": [],
+        "gates": {"status": "passed", "promotion_allowed": True},
+        "preflight_states": {"status": "passed", "promotion_enabled": True},
+    }
+    payload["runtime_handoff_contract"] = build_runtime_handoff_contract(payload).to_dict()
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+
+    assert result["ok"] is False
+    assert result["executed"] == 0
+    assert result["promotion_allowed"] is False
+    assert result["runtime_promotion_readiness"]["promotion_enabled"] is False
+    assert result["runtime_promotion_readiness"]["stored_promotion_enabled"] is True
+    assert result["runtime_promotion_readiness"]["promoted"] is False
+    assert result["runtime_promotion_readiness"]["stored_promoted"] is True
+    assert result["runtime_promotion_readiness"]["live_execution_ready"] is False
+    assert result["runtime_promotion_readiness"]["stored_live_execution_ready"] is True
+    failed_gate_ids = {gate["gate_id"] for gate in result["failed_gates"]}
+    assert "promotion_readiness_non_live" in failed_gate_ids
+    assert "explicit_contract_promotion" in failed_gate_ids
+    assert not run_state_path_for_plan(plan_path).exists()
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+    assert not (plan_path.parent / "ledgers").exists()
 
 
 def test_resume_recovers_stale_running_agents_after_interrupted_process(tmp_path: Path) -> None:

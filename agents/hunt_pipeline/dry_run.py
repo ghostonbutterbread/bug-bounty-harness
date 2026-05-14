@@ -95,11 +95,11 @@ def build_dry_run_plan(
         scheduler_plan=scheduler_plan_payload,
         runtime_adapter_availability=runtime_adapter_availability(),
         runtime_handoff_boundary=runtime_handoff_boundary(),
-        static_team_handoffs={
-            "enabled": False,
-            "planned": [],
-            "placeholder": "static team handoffs are not invoked in the dry-run slice",
-        },
+        static_team_handoffs=_static_team_handoffs(
+            target_kind=resolved_target_kind,
+            ruleset_id=ruleset.id,
+            selected_rulesets=ruleset.selected_rulesets,
+        ),
         dynamic_validation_queue={
             "enabled": False,
             "queued": [],
@@ -122,6 +122,48 @@ def load_plan(path: str | Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"pipeline plan must be a JSON object: {path}")
     return payload
+
+
+def _static_team_handoffs(*, target_kind: str, ruleset_id: str, selected_rulesets: tuple[str, ...]) -> dict[str, Any]:
+    """Describe compatible static-team bundles without invoking them."""
+
+    normalized_kind = str(target_kind or "").strip().lower()
+    planned: list[dict[str, Any]] = []
+    if "electron" in normalized_kind or "electron-overlay" in selected_rulesets:
+        planned.append(
+            {
+                "team": "electron_team",
+                "entrypoint": "agents/electron_team.py",
+                "reason": "Electron overlay selected; use only as an explicit static coverage bundle after reviewing the dynamic plan.",
+                "invocation_status": "planned-only",
+            }
+        )
+    if normalized_kind in {"apk", "android", "mobile"}:
+        planned.append(
+            {
+                "team": "apk_team",
+                "entrypoint": "agents/apk_team.py",
+                "reason": "Mobile/APK target kind selected; use only as an explicit static coverage bundle.",
+                "invocation_status": "planned-only",
+            }
+        )
+    if normalized_kind in {"desktop", "native-desktop", "source-tree", "electron", "electron-exe", "app_asar"}:
+        planned.append(
+            {
+                "team": "zero_day_team",
+                "entrypoint": "agents/zero_day_team.py",
+                "reason": "Desktop/source baseline available as a legacy static bundle for coverage gaps.",
+                "invocation_status": "planned-only",
+            }
+        )
+    return {
+        "enabled": False,
+        "invocation_enabled": False,
+        "ruleset_id": ruleset_id,
+        "target_kind": target_kind,
+        "planned": planned,
+        "placeholder": "static team handoffs are metadata only in this slice; no static team is invoked",
+    }
 
 
 def _write_decision_artifacts(output_root: Path, scheduler_plan: dict[str, Any]) -> dict[str, Any]:

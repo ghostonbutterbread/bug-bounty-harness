@@ -63,6 +63,9 @@ def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) ->
         "ledger_writes": False,
     }
     assert payload["static_team_handoffs"]["enabled"] is False
+    assert payload["static_team_handoffs"]["invocation_enabled"] is False
+    assert [item["team"] for item in payload["static_team_handoffs"]["planned"]] == ["electron_team", "zero_day_team"]
+    assert {item["invocation_status"] for item in payload["static_team_handoffs"]["planned"]} == {"planned-only"}
     assert payload["dynamic_validation_queue"]["enabled"] is False
 
 

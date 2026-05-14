@@ -15,6 +15,7 @@ from agents.hunt_pipeline.promotion_readiness import (
     build_runtime_promotion_readiness_checklist,
     non_live_readiness_stub,
 )
+from agents.hunt_pipeline.promotion_request_packet import build_runtime_promotion_request_packet
 from agents.hunt_pipeline.runtime_contract import build_runtime_handoff_contract, build_runtime_promotion_protocol
 from agents.hunt_pipeline.rulesets import resolve_ruleset
 from agents.hunt_pipeline.scheduler import plan_hypothesis_packets, runtime_adapter_availability, runtime_handoff_boundary
@@ -152,6 +153,19 @@ def build_dry_run_plan(
             "safety": safety,
         }
     ).to_dict()
+    runtime_promotion_request_packet = build_runtime_promotion_request_packet(
+        plan_path,
+        plan={
+            "runtime_handoff_contract": runtime_handoff_contract,
+            "runtime_promotion_protocol": runtime_promotion_protocol,
+            "runtime_promotion_readiness": runtime_promotion_readiness,
+            "runtime_operator_approval_schema": runtime_operator_approval_schema,
+            "runtime_adapter_availability": runtime_adapter,
+            "static_team_handoffs": static_team_handoffs,
+            "dynamic_validation_queue": dynamic_validation_queue,
+            "safety": safety,
+        },
+    ).to_dict()
     artifact = PipelineDryRunArtifact(
         schema_version=SCHEMA_VERSION,
         program=str(program),
@@ -173,6 +187,7 @@ def build_dry_run_plan(
         runtime_promotion_protocol=runtime_promotion_protocol,
         runtime_promotion_readiness=runtime_promotion_readiness,
         runtime_operator_approval_schema=runtime_operator_approval_schema,
+        runtime_promotion_request_packet=runtime_promotion_request_packet,
         static_team_handoffs=static_team_handoffs,
         dynamic_validation_queue=dynamic_validation_queue,
         safety=safety,

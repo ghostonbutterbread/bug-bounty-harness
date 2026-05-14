@@ -128,6 +128,7 @@ class PipelineDryRunArtifact:
     safety: dict[str, Any]
     runtime_promotion_readiness: dict[str, Any] = field(default_factory=dict)
     runtime_operator_approval_schema: dict[str, Any] = field(default_factory=dict)
+    runtime_promotion_request_packet: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

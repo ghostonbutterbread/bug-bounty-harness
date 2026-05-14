@@ -71,6 +71,7 @@ def initialize_run_state(plan_path: str | Path, plan: Mapping[str, Any] | None =
     plan_payload = dict(plan or load_pipeline_plan(resolved_plan_path))
     existing = load_run_state(run_state_path_for_plan(resolved_plan_path))
     control_flags = load_control_flags(resolved_plan_path)
+    run_config = _normalized_run_config(existing.get("run_config"))
     agents = _merge_agent_records(plan_payload, existing.get("agents") if isinstance(existing.get("agents"), dict) else {})
     return {
         "schema_version": RUN_STATE_SCHEMA_VERSION,
@@ -80,6 +81,7 @@ def initialize_run_state(plan_path: str | Path, plan: Mapping[str, Any] | None =
         "stopped": bool(existing.get("stopped", False) or control_flags.get("stopped", False)),
         "updated_at": _timestamp_iso(),
         "agents": agents,
+        "run_config": run_config,
         "last_wave": existing.get("last_wave") if isinstance(existing.get("last_wave"), dict) else {},
     }
 
@@ -190,6 +192,7 @@ def clear_pause(plan_path: str | Path) -> dict[str, Any]:
 def summarize_run(plan_path: str | Path, *, max_agents: int | None = None, concurrent_agents: int | None = None) -> dict[str, Any]:
     plan = load_pipeline_plan(plan_path)
     state = initialize_run_state(plan_path, plan)
+    run_config = _normalized_run_config(state.get("run_config"))
     agents = _agent_list(state)
     counts = {
         "total": len(agents),
@@ -216,6 +219,8 @@ def summarize_run(plan_path: str | Path, *, max_agents: int | None = None, concu
         **counts,
         "pause_requested": bool(state.get("pause_requested", False)),
         "stopped_requested": bool(state.get("stopped", False)),
+        "run_config": run_config,
+        "live_testing_enabled": bool(run_config.get("live_testing_enabled", False)),
         "next_wave_count": len(next_wave),
         "next_wave_agent_keys": [item["agent_key"] for item in next_wave],
         "runtime_handoff_contract": evaluate_runtime_handoff_contract(plan),
@@ -483,3 +488,10 @@ def _hypothesis_ids(record: Mapping[str, Any]) -> list[str]:
 
 def _timestamp_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _normalized_run_config(config: Any) -> dict[str, Any]:
+    payload = config if isinstance(config, Mapping) else {}
+    return {
+        "live_testing_enabled": bool(payload.get("live_testing_enabled", False)),
+    }

@@ -17,6 +17,7 @@ from agents.hunt_pipeline.promotion_request_packet import write_runtime_promotio
 from agents.hunt_pipeline.run_state import (
     clear_pause,
     load_pipeline_plan,
+    load_run_state,
     request_pause,
     request_stop,
     resolve_pipeline_plan_path,
@@ -26,15 +27,16 @@ from agents.hunt_pipeline.run_state import (
 from agents.hunt_pipeline.promotion_decision import evaluate_runtime_promotion_decision
 from agents.hunt_pipeline.runtime import execute_next_wave
 
-COMMANDS = {"plan", "status", "run", "resume", "live", "pause", "stop"}
+COMMANDS = {"plan", "status", "run", "resume", "live", "live-test", "pause", "stop"}
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Plan and control bounded AppMap hunt-pipeline runs. "
-            "Live execution is opt-in and still requires a valid runtime promotion decision, "
-            "an approved runtime environment, and a valid runtime action policy."
+            "Run and resume execute through the approved runtime path by default unless --dry-run is used. "
+            "Live execution still requires a valid runtime promotion decision, an approved runtime environment, "
+            "and a valid runtime action policy."
         )
     )
     subparsers = parser.add_subparsers(dest="command", metavar="command")
@@ -78,8 +80,13 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser(
         "run",
         help=(
-            "plan if needed, then execute the next wave; default is dry-run, "
-            "use --live for promoted live execution"
+            "plan if needed, then execute the next wave through the approved runtime path by default; "
+            "use --dry-run to simulate only"
+        ),
+        description=(
+            "Plan if needed, then execute the next wave through the approved runtime path by default. "
+            "Live execution still requires a valid runtime promotion decision, an approved runtime environment, "
+            "and a valid runtime action policy. Use --dry-run to simulate only."
         ),
     )
     _add_runtime_args(run_parser, allow_plan_inputs=True)
@@ -88,8 +95,13 @@ def build_parser() -> argparse.ArgumentParser:
     resume_parser = subparsers.add_parser(
         "resume",
         help=(
-            "continue from durable selected/deferred state; default is dry-run, "
-            "use --live for promoted live execution"
+            "continue from durable selected/deferred state through the approved runtime path by default; "
+            "use --dry-run to simulate only"
+        ),
+        description=(
+            "Continue from durable selected/deferred state through the approved runtime path by default. "
+            "Live execution still requires a valid runtime promotion decision, an approved runtime environment, "
+            "and a valid runtime action policy. Use --dry-run to simulate only."
         ),
     )
     _add_runtime_args(resume_parser, allow_plan_inputs=False)
@@ -97,8 +109,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     live_parser = subparsers.add_parser(
         "live",
+        aliases=["live-test"],
         help=(
-            "execute the next selected wave from an existing plan/output path; "
+            "execute the next selected wave with live-testing mode enabled from an existing plan/output path; "
             "requires promotion decision, approved environment, and valid action policy"
         ),
     )
@@ -221,24 +234,32 @@ def _cmd_stop(args: argparse.Namespace) -> int:
 
 
 def _execute_and_print(args: argparse.Namespace, plan_path: Path) -> int:
+    live_testing_enabled = _live_testing_enabled_for_args(args, plan_path)
     if _execute_live_requested(args):
-        return _execute_and_print_live(args, plan_path)
+        return _execute_and_print_live(args, plan_path, live_testing_enabled=live_testing_enabled)
     result = execute_next_wave(
         plan_path,
         max_agents=args.max_agents,
         concurrent_agents=args.concurrent_agents,
         execute_live=False,
+        live_testing_enabled=live_testing_enabled,
     )
     print(json.dumps(result, sort_keys=True))
     return 0
 
 
-def _execute_and_print_live(args: argparse.Namespace, plan_path: Path) -> int:
+def _execute_and_print_live(
+    args: argparse.Namespace,
+    plan_path: Path,
+    *,
+    live_testing_enabled: bool = True,
+) -> int:
     result = execute_next_wave(
         plan_path,
         max_agents=args.max_agents,
         concurrent_agents=args.concurrent_agents,
         execute_live=True,
+        live_testing_enabled=live_testing_enabled,
     )
     print(json.dumps(result, sort_keys=True))
     return 0 if result.get("ok") is True else 2
@@ -309,17 +330,22 @@ def _add_runtime_args(parser: argparse.ArgumentParser, *, allow_plan_inputs: boo
         _add_state_locator_args(parser)
     parser.add_argument("--concurrent-agents", type=_positive_int)
     parser.add_argument("--max-agents", type=_non_negative_int)
-    mode_group = parser.add_mutually_exclusive_group()
-    mode_group.add_argument("--dry-run", action="store_true", help="simulate execution with the dry-run BaseTeam adapter")
-    mode_group.add_argument(
+    parser.add_argument("--dry-run", action="store_true", help="simulate execution with the dry-run BaseTeam adapter")
+    parser.add_argument(
+        "--live-testing",
         "--live",
-        "--execute-live",
-        dest="live",
+        dest="live_testing",
         action="store_true",
         help=(
-            "request promoted live execution; still requires a valid runtime promotion decision, "
-            "an approved runtime environment, and a valid runtime action policy"
+            "enable live-testing mode metadata for this run; agent spawning still follows the normal "
+            "approved runtime path unless --dry-run is used"
         ),
+    )
+    parser.add_argument(
+        "--execute-live",
+        dest="execute_live_compat",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
 
 
@@ -335,7 +361,17 @@ def _normalize_legacy_argv(argv: list[str]) -> list[str]:
 
 
 def _execute_live_requested(args: argparse.Namespace) -> bool:
-    return bool(getattr(args, "live", False))
+    return not bool(getattr(args, "dry_run", False))
+
+
+def _live_testing_enabled_for_args(args: argparse.Namespace, plan_path: Path) -> bool:
+    if bool(getattr(args, "live_testing", False)):
+        return True
+    if getattr(args, "command", None) in {"live", "live-test"}:
+        return True
+    state = load_run_state(run_state_path_for_plan(plan_path))
+    config = state.get("run_config") if isinstance(state.get("run_config"), dict) else {}
+    return bool(config.get("live_testing_enabled", False))
 
 
 def _format_status_text(summary: dict[str, object]) -> str:
@@ -373,6 +409,7 @@ def _format_status_text(summary: dict[str, object]) -> str:
         else {}
     )
     execution = summary.get("runtime_execution") if isinstance(summary.get("runtime_execution"), dict) else {}
+    run_config = summary.get("run_config") if isinstance(summary.get("run_config"), dict) else {}
     static_handoffs = report.get("static_team_handoffs") if isinstance(report.get("static_team_handoffs"), dict) else {}
     dynamic_queue = report.get("dynamic_validation_queue") if isinstance(report.get("dynamic_validation_queue"), dict) else {}
     live_testing = report.get("live_testing_playbook") if isinstance(report.get("live_testing_playbook"), dict) else {}
@@ -398,6 +435,7 @@ def _format_status_text(summary: dict[str, object]) -> str:
         f"environment_approval_approved={str(bool(environment_approval.get('approved'))).lower()} "
         f"action_policy_status={action_policy.get('status')} "
         f"action_policy_valid={str(bool(action_policy.get('valid'))).lower()} "
+        f"live_testing_enabled={str(bool(run_config.get('live_testing_enabled'))).lower()} "
         f"request_packet_status={request_packet.get('status')} "
         f"request_packet_action={request_packet.get('requested_action')} "
         f"request_packet_promoted={str(bool(request_packet.get('promoted'))).lower()} "

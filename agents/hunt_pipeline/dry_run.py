@@ -10,7 +10,7 @@ from agents.app_mapper import map_application, write_artifacts
 from agents.hunt_pipeline.appmap_loader import load_appmap_run
 from agents.hunt_pipeline.hypothesis_builder import build_hypothesis_packets
 from agents.hunt_pipeline.models import PipelineDryRunArtifact
-from agents.hunt_pipeline.runtime_contract import build_runtime_handoff_contract
+from agents.hunt_pipeline.runtime_contract import build_runtime_handoff_contract, build_runtime_promotion_protocol
 from agents.hunt_pipeline.rulesets import resolve_ruleset
 from agents.hunt_pipeline.scheduler import plan_hypothesis_packets, runtime_adapter_availability, runtime_handoff_boundary
 from agents.hunt_pipeline.target_classifier import classify_target_kind
@@ -97,9 +97,11 @@ def build_dry_run_plan(
         "live_dynamic_validation": False,
         "ledger_writes": False,
     }
+    runtime_promotion_protocol = build_runtime_promotion_protocol().to_dict()
     runtime_handoff_contract = build_runtime_handoff_contract(
         {
             "runtime_handoff_contract": {"schema_version": 1},
+            "runtime_promotion_protocol": runtime_promotion_protocol,
             "runtime_adapter_availability": runtime_adapter,
             "static_team_handoffs": static_team_handoffs,
             "dynamic_validation_queue": dynamic_validation_queue,
@@ -124,6 +126,7 @@ def build_dry_run_plan(
         runtime_adapter_availability=runtime_adapter,
         runtime_handoff_boundary=handoff_boundary,
         runtime_handoff_contract=runtime_handoff_contract,
+        runtime_promotion_protocol=runtime_promotion_protocol,
         static_team_handoffs=static_team_handoffs,
         dynamic_validation_queue=dynamic_validation_queue,
         safety=safety,

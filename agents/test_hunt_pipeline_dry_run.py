@@ -56,6 +56,21 @@ def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) ->
     assert payload["runtime_handoff_boundary"]["status"] == "explicit-non-live-boundary"
     assert "spawn BaseTeam/zero_day_team/apk_team/electron_team agents" in payload["runtime_handoff_boundary"]["prohibited_actions"]
     assert "operator approval of the runtime handoff contract" in payload["runtime_handoff_boundary"]["required_before_live_execution"]
+    protocol = payload["runtime_promotion_protocol"]
+    assert protocol["schema_version"] == 1
+    assert protocol["status"] == "draft"
+    assert protocol["promotion_enabled"] is False
+    assert [item["approval"] for item in protocol["required_approvals"]] == [
+        "operator_live_execution_approval",
+        "runtime_contract_update_review",
+        "ledger_review_owner_assignment",
+    ]
+    assert protocol["adapter_ownership_boundaries"][0]["owner"] == "hunt_pipeline.runtime_adapter"
+    assert "agent spawning" in protocol["adapter_ownership_boundaries"][0]["does_not_own"]
+    assert protocol["ledger_review_ownership_boundaries"][0]["owner"] == "base_team.review"
+    assert protocol["rollback_stop_semantics"]["default_on_protocol_error"] == "block promotion and keep execute-live rejected"
+    assert protocol["future_promotion_steps"][-1]["step"] == "flip_promotion_enabled"
+    assert protocol["future_promotion_steps"][-1]["status"] == "blocked"
     contract = payload["runtime_handoff_contract"]
     assert contract["schema_version"] == 1
     assert contract["status"] == "blocked"
@@ -66,6 +81,7 @@ def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) ->
         "static_team_invocation_disabled",
         "dynamic_validation_disabled",
         "safety_flags_non_live",
+        "promotion_protocol_non_live",
         "explicit_contract_promotion",
     }
     gate_results = {result["gate_id"]: result for result in contract["gate_results"]}
@@ -74,6 +90,7 @@ def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) ->
     assert gate_results["static_team_invocation_disabled"]["passed"] is True
     assert gate_results["dynamic_validation_disabled"]["passed"] is True
     assert gate_results["safety_flags_non_live"]["passed"] is True
+    assert gate_results["promotion_protocol_non_live"]["passed"] is True
     assert gate_results["explicit_contract_promotion"]["passed"] is False
     assert payload["safety"] == {
         "dry_run_only": True,

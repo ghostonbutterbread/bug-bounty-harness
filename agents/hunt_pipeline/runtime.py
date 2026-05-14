@@ -18,7 +18,11 @@ from agents.hunt_pipeline.run_state import (
     summarize_run,
     update_agent_statuses,
 )
-from agents.hunt_pipeline.runtime_contract import evaluate_runtime_handoff_contract, failed_required_gates
+from agents.hunt_pipeline.runtime_contract import (
+    evaluate_runtime_handoff_contract,
+    evaluate_runtime_promotion_protocol,
+    failed_required_gates,
+)
 from agents.hunt_pipeline.runtime_adapter import selected_decisions_to_base_team_agent_specs
 
 
@@ -52,6 +56,7 @@ def execute_next_wave(
             "executed": 0,
             "promotion_allowed": False,
             "runtime_handoff_contract": contract,
+            "runtime_promotion_protocol": evaluate_runtime_promotion_protocol(plan),
             "failed_gates": failed_required_gates(contract),
         }
 

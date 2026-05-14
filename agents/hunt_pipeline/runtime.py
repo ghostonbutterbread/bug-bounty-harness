@@ -18,6 +18,7 @@ from agents.hunt_pipeline.run_state import (
     summarize_run,
     update_agent_statuses,
 )
+from agents.hunt_pipeline.runtime_contract import evaluate_runtime_handoff_contract, failed_required_gates
 from agents.hunt_pipeline.runtime_adapter import selected_decisions_to_base_team_agent_specs
 
 
@@ -41,14 +42,19 @@ def execute_next_wave(
     execute_live: bool = False,
     adapter: PipelineRuntimeAdapter | None = None,
 ) -> dict[str, Any]:
+    resolved_plan_path = Path(plan_path).expanduser().resolve(strict=False)
     if execute_live:
+        plan = load_pipeline_plan(resolved_plan_path)
+        contract = evaluate_runtime_handoff_contract(plan)
         return {
             "ok": False,
-            "error": "live AppMap hunt execution is not enabled in this runtime-control pass",
+            "error": "live AppMap hunt execution is blocked by the runtime handoff contract",
             "executed": 0,
+            "promotion_allowed": False,
+            "runtime_handoff_contract": contract,
+            "failed_gates": failed_required_gates(contract),
         }
 
-    resolved_plan_path = Path(plan_path).expanduser().resolve(strict=False)
     with pipeline_runtime_lock(resolved_plan_path):
         plan = load_pipeline_plan(resolved_plan_path)
         state = recover_running_agents(initialize_run_state(resolved_plan_path, plan))

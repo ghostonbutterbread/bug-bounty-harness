@@ -17,6 +17,8 @@ from agents.hunt_pipeline.promotion_decision import (
     evaluate_runtime_promotion_decision,
     runtime_execution_mode,
 )
+from agents.hunt_pipeline.runtime_action_policy import evaluate_runtime_action_policy
+from agents.hunt_pipeline.runtime_environment_approval import evaluate_runtime_environment_approval
 from agents.hunt_pipeline.runtime_contract import evaluate_runtime_handoff_contract, evaluate_runtime_promotion_protocol
 
 RUN_STATE_SCHEMA_VERSION = 1
@@ -208,6 +210,8 @@ def summarize_run(plan_path: str | Path, *, max_agents: int | None = None, concu
         "stopped_requested": bool(state.get("stopped", False)),
         "next_wave_count": len(next_wave),
     }
+    environment_approval = evaluate_runtime_environment_approval(plan, plan_path=plan_path)
+    action_policy = evaluate_runtime_action_policy(plan, plan_path=plan_path)
     return {
         **counts,
         "pause_requested": bool(state.get("pause_requested", False)),
@@ -222,6 +226,8 @@ def summarize_run(plan_path: str | Path, *, max_agents: int | None = None, concu
             plan=plan,
             status_summary=status_snapshot,
         ).to_dict(),
+        "runtime_environment_approval": environment_approval,
+        "runtime_action_policy": action_policy,
         "runtime_operator_approval_schema": build_runtime_operator_approval_schema(plan_path, plan=plan).to_dict(),
         "runtime_promotion_request_packet": build_runtime_promotion_request_packet(
             plan_path,

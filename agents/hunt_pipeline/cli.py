@@ -302,6 +302,16 @@ def _format_status_text(summary: dict[str, object]) -> str:
         if isinstance(summary.get("runtime_operator_approval_schema"), dict)
         else {}
     )
+    environment_approval = (
+        summary.get("runtime_environment_approval")
+        if isinstance(summary.get("runtime_environment_approval"), dict)
+        else {}
+    )
+    action_policy = (
+        summary.get("runtime_action_policy")
+        if isinstance(summary.get("runtime_action_policy"), dict)
+        else {}
+    )
     request_packet = (
         summary.get("runtime_promotion_request_packet")
         if isinstance(summary.get("runtime_promotion_request_packet"), dict)
@@ -334,6 +344,10 @@ def _format_status_text(summary: dict[str, object]) -> str:
         f"live_execution_ready={str(bool(readiness.get('live_execution_ready'))).lower()} "
         f"operator_approval_status={approval_schema.get('status')} "
         f"operator_approval_promoted={str(bool(approval_schema.get('promoted'))).lower()} "
+        f"environment_approval_status={environment_approval.get('status')} "
+        f"environment_approval_approved={str(bool(environment_approval.get('approved'))).lower()} "
+        f"action_policy_status={action_policy.get('status')} "
+        f"action_policy_valid={str(bool(action_policy.get('valid'))).lower()} "
         f"request_packet_status={request_packet.get('status')} "
         f"request_packet_action={request_packet.get('requested_action')} "
         f"request_packet_promoted={str(bool(request_packet.get('promoted'))).lower()} "

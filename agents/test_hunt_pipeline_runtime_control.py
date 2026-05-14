@@ -16,6 +16,7 @@ from agents.hunt_pipeline.run_state import (
     summarize_run,
 )
 from agents.hunt_pipeline.runtime import execute_next_wave
+from agents.hunt_pipeline.runtime_contract import build_runtime_handoff_contract, evaluate_runtime_handoff_contract
 from agents.hunt_pipeline.runtime_adapter import selected_decision_to_base_team_agent_spec
 
 
@@ -29,6 +30,11 @@ class MissingResultAdapter:
 class RaisingAdapter:
     def execute(self, specs):
         raise RuntimeError("adapter exploded")
+
+
+class FailingIfCalledAdapter:
+    def execute(self, specs):
+        raise AssertionError("adapter must not be called")
 
 
 def _decision(index: int, status: str = "selected") -> dict:
@@ -107,6 +113,50 @@ def _write_plan(tmp_path: Path, *, selected_count: int, deferred_count: int, con
     plan_path = out / "pipeline_plan.json"
     plan_path.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return plan_path
+
+
+def _add_non_live_contract_sections(plan_path: Path) -> dict:
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload["runtime_adapter_availability"] = {
+        "base_team_agent_spec": True,
+        "dynamic_agent_builder_agent_spec": True,
+        "conversion_only": True,
+        "spawn_enabled": False,
+        "ledger_writes_enabled": False,
+    }
+    payload["static_team_handoffs"] = {
+        "enabled": False,
+        "invocation_enabled": False,
+        "planned": [{"team": "zero_day_team", "invocation_status": "planned-only"}],
+    }
+    payload["dynamic_validation_queue"] = {"enabled": False, "queued": []}
+    payload["safety"] = {
+        "dry_run_only": True,
+        "spawn_agents": False,
+        "live_dynamic_validation": False,
+        "ledger_writes": False,
+    }
+    payload["runtime_handoff_contract"] = build_runtime_handoff_contract(
+        {**payload, "runtime_handoff_contract": {"schema_version": 1}}
+    ).to_dict()
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
+def test_runtime_contract_treats_malformed_gate_shapes_as_failed(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    payload = _add_non_live_contract_sections(plan_path)
+    payload["runtime_handoff_contract"]["schema_version"] = "not-an-int"
+    payload["static_team_handoffs"]["planned"] = "planned-only"
+    payload["dynamic_validation_queue"]["queued"] = "agent-key"
+
+    contract = evaluate_runtime_handoff_contract(payload)
+
+    failed_gate_ids = {gate["gate_id"] for gate in contract["gate_results"] if not gate["passed"]}
+    assert "runtime_handoff_contract_present" in failed_gate_ids
+    assert "static_team_invocation_disabled" in failed_gate_ids
+    assert "dynamic_validation_disabled" in failed_gate_ids
+    assert contract["promotion_allowed"] is False
 
 
 def test_status_summary_counts_completed_and_unrun_from_plan_state(tmp_path: Path) -> None:
@@ -273,6 +323,13 @@ def test_status_json_is_default_format(tmp_path: Path, capsys: pytest.CaptureFix
     assert payload["completed"] == 0
     assert payload["unrun"] == 1
     assert payload["pause_requested"] is False
+    assert payload["runtime_handoff_contract"]["promotion_allowed"] is False
+    failed_gate_ids = {
+        result["gate_id"]
+        for result in payload["runtime_handoff_contract"]["gate_results"]
+        if not result["passed"]
+    }
+    assert "runtime_handoff_contract_present" in failed_gate_ids
 
 
 def test_run_planning_inputs_accept_write_hypotheses_without_live_execution(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -307,6 +364,50 @@ def test_run_planning_inputs_accept_write_hypotheses_without_live_execution(tmp_
     assert result["summary"]["completed"] == 1
     assert metadata["path"] == str(out / "hypotheses.jsonl")
     assert metadata["count"] == len(rows) == 1
+
+
+def test_status_text_exposes_runtime_contract_promotion_state(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    _add_non_live_contract_sections(plan_path)
+
+    code = main(["status", "--pipeline-plan", str(plan_path), "--format", "text"])
+
+    assert code == 0
+    output = capsys.readouterr().out.strip()
+    assert "runtime_contract_status=blocked" in output
+    assert "promotion_allowed=false" in output
+
+
+def test_execute_live_rejected_when_contract_missing_and_adapter_not_called(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+
+    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+
+    assert result["ok"] is False
+    assert result["executed"] == 0
+    assert result["promotion_allowed"] is False
+    assert "runtime handoff contract" in result["error"]
+    assert "runtime_handoff_contract_present" in {gate["gate_id"] for gate in result["failed_gates"]}
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+
+
+def test_execute_live_rejected_when_required_gate_fails_and_adapter_not_called(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    payload = _add_non_live_contract_sections(plan_path)
+    payload["static_team_handoffs"]["invocation_enabled"] = True
+    payload["runtime_handoff_contract"] = build_runtime_handoff_contract(payload).to_dict()
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+
+    assert result["ok"] is False
+    assert result["executed"] == 0
+    failed_gate_ids = {gate["gate_id"] for gate in result["failed_gates"]}
+    assert "static_team_invocation_disabled" in failed_gate_ids
+    assert "explicit_contract_promotion" in failed_gate_ids
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
 
 
 def test_resume_recovers_stale_running_agents_after_interrupted_process(tmp_path: Path) -> None:

@@ -9,6 +9,8 @@ from typing import Any, Iterator, Mapping, Sequence
 
 import fcntl
 
+from agents.hunt_pipeline.runtime_contract import evaluate_runtime_handoff_contract
+
 RUN_STATE_SCHEMA_VERSION = 1
 RUN_STATE_FILENAME = "run_state.json"
 PLAN_FILENAME = "pipeline_plan.json"
@@ -141,6 +143,7 @@ def summarize_run(plan_path: str | Path, *, max_agents: int | None = None, concu
         "stopped_requested": bool(state.get("stopped", False)),
         "next_wave_count": len(next_wave),
         "next_wave_agent_keys": [item["agent_key"] for item in next_wave],
+        "runtime_handoff_contract": evaluate_runtime_handoff_contract(plan),
         "pipeline_plan": str(Path(plan_path).expanduser().resolve(strict=False)),
         "run_state": str(run_state_path_for_plan(plan_path)),
     }

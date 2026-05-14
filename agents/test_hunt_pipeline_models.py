@@ -41,6 +41,7 @@ def test_hunt_pipeline_models_render_schema_friendly_dicts() -> None:
         scheduler_plan={"selected": []},
         runtime_adapter_availability={"spawn_enabled": False},
         runtime_handoff_boundary={"status": "explicit-non-live-boundary"},
+        runtime_handoff_contract={"schema_version": 1, "status": "blocked", "promotion_allowed": False},
         static_team_handoffs={"enabled": False},
         dynamic_validation_queue={"enabled": False},
         safety={"dry_run_only": True},

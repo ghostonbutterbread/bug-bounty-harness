@@ -13,6 +13,7 @@ from agents.hunt_pipeline.dry_run import build_dry_run_plan
 from agents.hunt_pipeline.operator_approval_schema import write_runtime_operator_approval_schema
 from agents.hunt_pipeline.preflight_report import write_runtime_preflight_report
 from agents.hunt_pipeline.promotion_readiness import write_runtime_promotion_readiness_checklist
+from agents.hunt_pipeline.promotion_request_packet import write_runtime_promotion_request_packet
 from agents.hunt_pipeline.run_state import (
     clear_pause,
     request_pause,
@@ -58,6 +59,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="write runtime_operator_approval_schema.json beside the plan without enabling live execution",
     )
     status_parser.add_argument("--operator-approval-schema-path", help="optional path for --write-operator-approval-schema")
+    status_parser.add_argument(
+        "--write-promotion-request-packet",
+        action="store_true",
+        help="write runtime_promotion_request_packet.json beside the plan for human review only",
+    )
+    status_parser.add_argument("--promotion-request-packet-path", help="optional path for --write-promotion-request-packet")
     status_parser.set_defaults(func=_cmd_status)
 
     run_parser = subparsers.add_parser("run", help="execute the next wave through the dry-run-safe runtime adapter")
@@ -120,6 +127,14 @@ def _cmd_status(args: argparse.Namespace) -> int:
         )
         summary["runtime_operator_approval_schema"] = schema
         summary["runtime_operator_approval_schema_path"] = str(schema_path)
+    if args.write_promotion_request_packet:
+        packet, packet_path = write_runtime_promotion_request_packet(
+            plan_path,
+            output_path=args.promotion_request_packet_path,
+            status_summary=summary,
+        )
+        summary["runtime_promotion_request_packet"] = packet
+        summary["runtime_promotion_request_packet_path"] = str(packet_path)
     if args.format == "text":
         print(_format_status_text(summary))
     else:
@@ -279,6 +294,11 @@ def _format_status_text(summary: dict[str, object]) -> str:
         if isinstance(summary.get("runtime_operator_approval_schema"), dict)
         else {}
     )
+    request_packet = (
+        summary.get("runtime_promotion_request_packet")
+        if isinstance(summary.get("runtime_promotion_request_packet"), dict)
+        else {}
+    )
     static_handoffs = report.get("static_team_handoffs") if isinstance(report.get("static_team_handoffs"), dict) else {}
     dynamic_queue = report.get("dynamic_validation_queue") if isinstance(report.get("dynamic_validation_queue"), dict) else {}
     return (
@@ -299,6 +319,9 @@ def _format_status_text(summary: dict[str, object]) -> str:
         f"live_execution_ready={str(bool(readiness.get('live_execution_ready'))).lower()} "
         f"operator_approval_status={approval_schema.get('status')} "
         f"operator_approval_promoted={str(bool(approval_schema.get('promoted'))).lower()} "
+        f"request_packet_status={request_packet.get('status')} "
+        f"request_packet_action={request_packet.get('requested_action')} "
+        f"request_packet_promoted={str(bool(request_packet.get('promoted'))).lower()} "
         f"preflight_status={report.get('status')} "
         f"failed_required_gates={contract.get('failed_required_gate_count', len(report.get('failed_required_gates', [])))} "
         f"static_team_handoffs={static_handoffs.get('state')} "

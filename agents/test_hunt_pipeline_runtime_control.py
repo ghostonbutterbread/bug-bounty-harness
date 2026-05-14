@@ -18,6 +18,11 @@ from agents.hunt_pipeline.promotion_readiness import (
     non_live_readiness_stub,
     write_runtime_promotion_readiness_checklist,
 )
+from agents.hunt_pipeline.promotion_request_packet import (
+    build_runtime_promotion_request_packet,
+    evaluate_runtime_promotion_request_packet,
+    write_runtime_promotion_request_packet,
+)
 from agents.hunt_pipeline.run_state import (
     initialize_run_state,
     request_pause,
@@ -168,6 +173,10 @@ def _add_non_live_contract_sections(plan_path: Path) -> dict:
     ).to_dict()
     payload["runtime_handoff_contract"] = build_runtime_handoff_contract(
         {**payload, "runtime_handoff_contract": {"schema_version": 1}}
+    ).to_dict()
+    payload["runtime_promotion_request_packet"] = build_runtime_promotion_request_packet(
+        plan_path,
+        plan=payload,
     ).to_dict()
     plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return payload
@@ -744,6 +753,123 @@ def test_status_can_write_operator_approval_schema_without_runtime_side_effects(
     assert not (plan_path.parent / "ledgers").exists()
 
 
+def test_promotion_request_packet_bundles_review_evidence_without_promotion(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    payload = _add_non_live_contract_sections(plan_path)
+
+    packet, packet_path = write_runtime_promotion_request_packet(plan_path)
+    payload["runtime_promotion_request_packet"] = packet
+    evaluated = evaluate_runtime_promotion_request_packet(payload)
+
+    assert packet_path == plan_path.parent / "runtime_promotion_request_packet.json"
+    assert packet["schema_version"] == 1
+    assert packet["status"] == "blocked"
+    assert packet["requested_action"] == "review_only"
+    assert packet["promotion_enabled"] is False
+    assert packet["promoted"] is False
+    assert packet["explicit_status"]["not_promoted"] is True
+    assert set(packet["evidence_paths"]) == {
+        "runtime_handoff_contract",
+        "runtime_promotion_protocol",
+        "runtime_preflight_report",
+        "runtime_promotion_readiness",
+        "runtime_operator_approval_schema",
+    }
+    assert set(packet["evidence_sections"]) == set(packet["evidence_paths"])
+    assert list(packet["missing_approvals"]) == [
+        "operator_live_execution_approval",
+        "runtime_contract_update_review",
+        "ledger_review_owner_assignment",
+    ]
+    assert "explicit_contract_promotion" in {item["id"] for item in packet["blocker_summary"]}
+    assert evaluated["promotion_enabled"] is False
+    assert evaluated["promoted"] is False
+    assert evaluated["valid"] is True
+
+
+def test_promotion_request_packet_missing_malformed_or_claimed_promoted_cannot_promote(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    payload = _add_non_live_contract_sections(plan_path)
+
+    payload.pop("runtime_promotion_request_packet")
+    missing = evaluate_runtime_promotion_request_packet(payload)
+
+    assert missing["status"] == "missing"
+    assert missing["promotion_enabled"] is False
+    assert missing["promoted"] is False
+    assert missing["valid"] is False
+
+    payload["runtime_promotion_request_packet"] = {
+        "schema_version": "not-an-int",
+        "status": "promoted",
+        "requested_action": "execute_live",
+        "promotion_enabled": True,
+        "promoted": True,
+        "evidence_paths": [],
+        "evidence_sections": {},
+        "blocker_summary": {},
+        "missing_approvals": "none",
+        "next_review_steps": "execute",
+        "explicit_status": {
+            "promoted": True,
+            "promotion_enabled": True,
+            "not_promoted": False,
+            "review_only": False,
+        },
+    }
+    malformed = evaluate_runtime_promotion_request_packet(payload)
+
+    assert malformed["promotion_enabled"] is False
+    assert malformed["stored_promotion_enabled"] is True
+    assert malformed["promoted"] is False
+    assert malformed["stored_promoted"] is True
+    assert malformed["valid"] is False
+
+    claimed_packet = build_runtime_promotion_request_packet(plan_path, plan=payload).to_dict()
+    claimed_packet["status"] = "draft"
+    claimed_packet["promotion_enabled"] = True
+    claimed_packet["promoted"] = True
+    claimed_packet["requested_action"] = "execute_live"
+    claimed_packet["explicit_status"] = {
+        "promoted": True,
+        "promotion_enabled": True,
+        "not_promoted": False,
+        "review_only": False,
+    }
+    payload["runtime_promotion_request_packet"] = claimed_packet
+    claimed = evaluate_runtime_promotion_request_packet(payload)
+
+    assert claimed["promotion_enabled"] is False
+    assert claimed["promoted"] is False
+    assert claimed["valid"] is False
+
+
+def test_status_can_write_promotion_request_packet_without_runtime_side_effects(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    _add_non_live_contract_sections(plan_path)
+
+    code = main(["status", "--pipeline-plan", str(plan_path), "--write-promotion-request-packet"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    packet_path = Path(payload["runtime_promotion_request_packet_path"])
+    assert packet_path == plan_path.parent / "runtime_promotion_request_packet.json"
+    assert packet_path.exists()
+    packet = json.loads(packet_path.read_text(encoding="utf-8"))
+    assert packet["status"] == "blocked"
+    assert packet["requested_action"] == "review_only"
+    assert packet["promotion_enabled"] is False
+    assert packet["promoted"] is False
+    assert not run_state_path_for_plan(plan_path).exists()
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+    assert not (plan_path.parent / "ledgers").exists()
+
+
 def test_preflight_report_blocks_missing_or_malformed_protocol(tmp_path: Path) -> None:
     plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
     payload = _add_non_live_contract_sections(plan_path)
@@ -982,6 +1108,39 @@ def test_execute_live_rejected_when_operator_approval_schema_claims_approved_bef
     assert set(result["runtime_operator_approval_schema"]["claimed_approved_ids"]) == set(
         claimed_schema["required_approval_ids"]
     )
+    assert not run_state_path_for_plan(plan_path).exists()
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+    assert not (plan_path.parent / "ledgers").exists()
+
+
+def test_execute_live_rejected_when_request_packet_claims_promoted_before_writes(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    payload = _add_non_live_contract_sections(plan_path)
+    claimed_packet = build_runtime_promotion_request_packet(plan_path, plan=payload).to_dict()
+    claimed_packet["status"] = "promoted"
+    claimed_packet["requested_action"] = "execute_live"
+    claimed_packet["promotion_enabled"] = True
+    claimed_packet["promoted"] = True
+    claimed_packet["explicit_status"] = {
+        "promoted": True,
+        "promotion_enabled": True,
+        "not_promoted": False,
+        "review_only": False,
+    }
+    payload["runtime_promotion_request_packet"] = claimed_packet
+    payload["runtime_handoff_contract"] = build_runtime_handoff_contract(payload).to_dict()
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+
+    assert result["ok"] is False
+    assert result["executed"] == 0
+    assert result["promotion_allowed"] is False
+    assert result["runtime_promotion_request_packet"]["promotion_enabled"] is False
+    assert result["runtime_promotion_request_packet"]["stored_promotion_enabled"] is True
+    assert result["runtime_promotion_request_packet"]["promoted"] is False
+    assert result["runtime_promotion_request_packet"]["stored_promoted"] is True
+    assert result["runtime_promotion_request_packet"]["valid"] is False
     assert not run_state_path_for_plan(plan_path).exists()
     assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
     assert not (plan_path.parent / "ledgers").exists()

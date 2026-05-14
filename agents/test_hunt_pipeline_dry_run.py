@@ -115,6 +115,20 @@ def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) ->
         "ledger_review_owner_assignment",
     ]
     assert {record["decision"] for record in approval_schema["approval_records"]} == {"missing"}
+    request_packet = payload["runtime_promotion_request_packet"]
+    assert request_packet["schema_version"] == 1
+    assert request_packet["status"] == "blocked"
+    assert request_packet["requested_action"] == "review_only"
+    assert request_packet["promotion_enabled"] is False
+    assert request_packet["promoted"] is False
+    assert request_packet["explicit_status"]["not_promoted"] is True
+    assert set(request_packet["evidence_sections"]) == {
+        "runtime_handoff_contract",
+        "runtime_promotion_protocol",
+        "runtime_preflight_report",
+        "runtime_promotion_readiness",
+        "runtime_operator_approval_schema",
+    }
     assert payload["safety"] == {
         "dry_run_only": True,
         "spawn_agents": False,

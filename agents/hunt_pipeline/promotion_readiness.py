@@ -89,6 +89,7 @@ def build_runtime_promotion_readiness_checklist(
             "promotion_enabled": False,
             "static_team_handoffs": preflight.get("static_team_handoffs") or {},
             "dynamic_validation_queue": preflight.get("dynamic_validation_queue") or {},
+            "live_testing_playbook": preflight.get("live_testing_playbook") or {},
         },
         runtime_promotion_protocol={
             "status": str(protocol.get("status") or "unknown"),

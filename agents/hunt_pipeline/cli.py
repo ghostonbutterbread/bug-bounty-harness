@@ -315,6 +315,7 @@ def _format_status_text(summary: dict[str, object]) -> str:
     execution = summary.get("runtime_execution") if isinstance(summary.get("runtime_execution"), dict) else {}
     static_handoffs = report.get("static_team_handoffs") if isinstance(report.get("static_team_handoffs"), dict) else {}
     dynamic_queue = report.get("dynamic_validation_queue") if isinstance(report.get("dynamic_validation_queue"), dict) else {}
+    live_testing = report.get("live_testing_playbook") if isinstance(report.get("live_testing_playbook"), dict) else {}
     return (
         f"pipeline_plan={summary.get('pipeline_plan')} "
         f"run_state={summary.get('run_state')} "
@@ -343,7 +344,8 @@ def _format_status_text(summary: dict[str, object]) -> str:
         f"preflight_status={report.get('status')} "
         f"failed_required_gates={contract.get('failed_required_gate_count', len(report.get('failed_required_gates', [])))} "
         f"static_team_handoffs={static_handoffs.get('state')} "
-        f"dynamic_validation_queue={dynamic_queue.get('state')}"
+        f"dynamic_validation_queue={dynamic_queue.get('state')} "
+        f"live_testing={live_testing.get('state')}"
     )
 
 

@@ -103,6 +103,7 @@ def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) ->
     assert readiness["gates"]["promotion_allowed"] is False
     assert readiness["preflight_states"]["static_team_handoffs"]["state"] == "planned-only"
     assert readiness["preflight_states"]["dynamic_validation_queue"]["state"] == "disabled"
+    assert readiness["preflight_states"]["live_testing_playbook"]["state"] == "planned-only"
     approval_schema = payload["runtime_operator_approval_schema"]
     assert approval_schema["schema_version"] == 1
     assert approval_schema["status"] == "blocked"
@@ -140,6 +141,12 @@ def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) ->
     assert [item["team"] for item in payload["static_team_handoffs"]["planned"]] == ["electron_team", "zero_day_team"]
     assert {item["invocation_status"] for item in payload["static_team_handoffs"]["planned"]} == {"planned-only"}
     assert payload["dynamic_validation_queue"]["enabled"] is False
+    live_testing = payload["live_testing_playbook"]
+    assert live_testing["status"] == "planned-only"
+    assert live_testing["enabled"] is False
+    assert live_testing["execution_enabled"] is False
+    assert live_testing["environment_requirements"]["startup_policy"]["pipeline_target_launch_enabled"] is False
+    assert [item["surface"] for item in live_testing["attachment_surfaces"]] == ["cdp", "ghidra", "mcp", "ssh"]
 
 
 def test_dry_run_writes_scheduler_decision_jsonl_artifacts(tmp_path: Path) -> None:

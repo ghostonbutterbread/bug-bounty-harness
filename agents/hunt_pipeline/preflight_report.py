@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
+from agents.hunt_pipeline.live_testing import summarize_live_testing_playbook
 from agents.hunt_pipeline.runtime_contract import (
     evaluate_runtime_handoff_contract,
     evaluate_runtime_promotion_protocol,
@@ -29,10 +30,12 @@ def build_runtime_preflight_report(
     failed_gates = failed_required_gates(contract)
     static_handoffs = _summarize_static_team_handoffs(payload)
     dynamic_queue = _summarize_dynamic_validation_queue(payload)
+    live_testing = summarize_live_testing_playbook(payload)
     blockers = _blockers_before_future_promotion(
         failed_gates=failed_gates,
         protocol=protocol,
         plan=payload,
+        live_testing=live_testing,
     )
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
@@ -54,6 +57,7 @@ def build_runtime_preflight_report(
         },
         "static_team_handoffs": static_handoffs,
         "dynamic_validation_queue": dynamic_queue,
+        "live_testing_playbook": live_testing,
         "blockers_before_future_promotion": blockers,
     }
 
@@ -138,6 +142,7 @@ def _blockers_before_future_promotion(
     failed_gates: list[dict[str, Any]],
     protocol: Mapping[str, Any],
     plan: Mapping[str, Any],
+    live_testing: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = [
         {
@@ -197,6 +202,15 @@ def _blockers_before_future_promotion(
                 "details": str(protocol.get("details") or "runtime_promotion_protocol is missing"),
             }
         )
+    if str(live_testing.get("state") or "") != "planned-only":
+        for detail in live_testing.get("blockers", ()):
+            blockers.append(
+                {
+                    "source": "live_testing_playbook",
+                    "id": "live_testing_playbook",
+                    "details": str(detail or "live_testing_playbook is malformed"),
+                }
+            )
     return blockers
 
 

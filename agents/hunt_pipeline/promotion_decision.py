@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
+from agents.hunt_pipeline.live_testing import summarize_live_testing_playbook
+
 DECISION_SCHEMA_VERSION = 1
 DECISION_FILENAME = "runtime_promotion_decision.json"
 
@@ -96,7 +98,8 @@ def evaluate_runtime_promotion_decision(
             expires_at=_timestamp_text(decision.get("expires_at")),
         )
 
-    control_errors = _control_errors(controls)
+    live_testing = summarize_live_testing_playbook(plan)
+    control_errors = [*_control_errors(controls), *_live_testing_errors(live_testing)]
     if control_errors:
         return _blocked(
             "claimed",
@@ -200,6 +203,21 @@ def _control_errors(controls: Mapping[str, Any]) -> list[str]:
         errors.append("controls.use_base_team_primitives must be true")
     if controls.get("scope_and_wave_controls") is not True:
         errors.append("controls.scope_and_wave_controls must be true")
+    if controls.get("live_testing_playbook_reviewed") is not True:
+        errors.append("controls.live_testing_playbook_reviewed must be true")
+    return errors
+
+
+def _live_testing_errors(live_testing: Mapping[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if live_testing.get("state") != "planned-only":
+        blockers = live_testing.get("blockers")
+        if isinstance(blockers, list | tuple) and blockers:
+            errors.extend(str(item) for item in blockers)
+        else:
+            errors.append("live_testing_playbook must be planned-only and valid")
+    if live_testing.get("execution_enabled") is True:
+        errors.append("live_testing_playbook.execution_enabled must remain false")
     return errors
 
 

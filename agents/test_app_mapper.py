@@ -219,6 +219,106 @@ subprocess.run(args.command, shell=True)
     assert ("boundary", "project-boundary", "runner.py") in matched
 
 
+def test_app_mapper_filters_generated_js_and_caps_config_file_surfaces(tmp_path: Path) -> None:
+    target = tmp_path / "generated-noise"
+    _write(
+        target / "package.json",
+        """
+{
+  "main": "runner.js",
+  "scripts": {
+    "start": "node runner.js"
+  }
+}
+""".strip(),
+    )
+    _write(
+        target / "src" / "en.strings.js",
+        """
+!function(){var data = JSON.parse("{\\"ok\\":true}"); var match = /x/.exec(data.value); deserialize(data);}
+""".strip(),
+    )
+    _write(
+        target / "dist" / "stats.json",
+        "{\n" + ",\n".join(f'  "asset{i}": "bundle{i}.js"' for i in range(30)) + "\n}",
+    )
+
+    result = map_application("generated noise", target, target_kind="node")
+
+    noisy_surfaces = [surface for surface in result.surfaces if surface["file"] == "src/en.strings.js"]
+    assert noisy_surfaces == []
+    stats_surfaces = [surface for surface in result.surfaces if surface["file"] == "dist/stats.json"]
+    assert len(stats_surfaces) <= 1
+    assert all(surface["kind"] == "config-file" for surface in stats_surfaces)
+    package_config_surfaces = [
+        surface
+        for surface in result.surfaces
+        if surface["file"] == "package.json" and surface["kind"] == "config-file"
+    ]
+    assert len(package_config_surfaces) == 1
+    assert package_config_surfaces[0]["line"] == 1
+
+
+def test_app_mapper_avoids_lowercase_function_and_member_exec_false_positives(tmp_path: Path) -> None:
+    target = tmp_path / "js-false-positives"
+    _write(
+        target / "runner.js",
+        """
+!function wrapper() {
+  const match = /run/.exec(input);
+  service.exec(input);
+}
+""".strip(),
+    )
+
+    result = map_application("js false positives", target, target_kind="node")
+    runner_surfaces = [surface for surface in result.surfaces if surface["file"] == "runner.js"]
+
+    assert not any(surface["kind"] == "dynamic-code" for surface in runner_surfaces)
+    assert not any(surface["kind"] == "process-exec" for surface in runner_surfaces)
+
+
+def test_app_mapper_maps_child_process_exec_variable_candidate(tmp_path: Path) -> None:
+    target = tmp_path / "child-process-candidate"
+    _write(
+        target / "runner.js",
+        """
+const fs = require("fs");
+const path = require("path");
+const child_process = require("child_process");
+
+const configPath = path.join(process.cwd(), "project.json");
+const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+child_process.exec(config.command);
+""".strip(),
+    )
+
+    result = map_application("child process candidate", target, target_kind="node")
+
+    assert result.candidates
+    assert result.candidates[0]["sink"]["kind"] == "process-exec"
+
+
+def test_app_mapper_maps_direct_child_process_require_exec(tmp_path: Path) -> None:
+    target = tmp_path / "direct-require-candidate"
+    _write(
+        target / "runner.js",
+        """
+const fs = require("fs");
+const path = require("path");
+
+const configPath = path.join(process.cwd(), "project.json");
+const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+require("child_process").exec(config.command);
+""".strip(),
+    )
+
+    result = map_application("direct require candidate", target, target_kind="node")
+
+    assert result.candidates
+    assert result.candidates[0]["sink"]["kind"] == "process-exec"
+
+
 def test_write_specs_generates_parser_valid_rce_spec_and_artifacts(tmp_path: Path) -> None:
     target = tmp_path / "python-app"
     _write(

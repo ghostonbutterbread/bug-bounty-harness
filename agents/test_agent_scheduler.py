@@ -399,3 +399,17 @@ def test_base_team_scheduler_adapter_returns_profiles_summary_and_events() -> No
     assert set(result.deferred_keys) <= {profile.key for profile in profiles}
     assert {event["scheduler_wave_id"] for event in result.decision_events} == {"wave-adapter"}
     assert {event["run_id"] for event in result.decision_events} == {"run-adapter"}
+
+
+def test_scheduler_off_respects_explicit_max_agents_safety_cap() -> None:
+    profiles = [
+        _profile("hostrpc-a", metadata={"surface_family": "hostrpc"}),
+        _profile("download-a", metadata={"surface_family": "download-export-filesystem"}),
+        _profile("hostrpc-b", metadata={"surface_family": "hostrpc"}),
+    ]
+
+    plan = plan_agent_wave(assignments_from_profiles(profiles), SchedulerConfig(mode="off", max_agents=2))
+
+    assert [item.key for item in plan.selected] == ["hostrpc-a", "download-a"]
+    assert [item.key for item in plan.deferred] == ["hostrpc-b"]
+    assert plan.deferred[0].decision_reason == "max agents cap reached"

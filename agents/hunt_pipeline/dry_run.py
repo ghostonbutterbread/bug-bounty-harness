@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +28,8 @@ def build_dry_run_plan(
     output_dir: str | Path,
     run_id: str = "pipeline-dry-run",
     max_hypotheses: int | None = None,
+    max_agents: int | None = None,
+    concurrent_agents: int | None = None,
 ) -> tuple[PipelineDryRunArtifact, Path]:
     output_root = Path(output_dir).expanduser().resolve(strict=False)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -60,7 +64,15 @@ def build_dry_run_plan(
         target_kind=resolved_target_kind,
         max_packets=max_hypotheses,
     )
-    scheduler_plan = plan_hypothesis_packets(packets, ruleset=ruleset)
+    scheduler_plan = plan_hypothesis_packets(
+        packets,
+        ruleset=ruleset,
+        max_agents=max_agents,
+        concurrent_agents=concurrent_agents,
+    )
+    scheduler_plan_payload = scheduler_plan.to_dict()
+    decision_artifacts = _write_decision_artifacts(output_root, scheduler_plan_payload)
+    scheduler_plan_payload["decision_artifacts"] = decision_artifacts
     artifact = PipelineDryRunArtifact(
         schema_version=SCHEMA_VERSION,
         program=str(program),
@@ -74,7 +86,7 @@ def build_dry_run_plan(
         },
         normalized_map=normalized.to_dict(),
         hypotheses=tuple(packet.to_dict() for packet in packets),
-        scheduler_plan=scheduler_plan.to_dict(),
+        scheduler_plan=scheduler_plan_payload,
         runtime_adapter_availability=runtime_adapter_availability(),
         runtime_handoff_boundary=runtime_handoff_boundary(),
         static_team_handoffs={
@@ -95,7 +107,7 @@ def build_dry_run_plan(
         },
     )
     plan_path = output_root / "pipeline_plan.json"
-    plan_path.write_text(json.dumps(artifact.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_json_artifact(plan_path, artifact.to_dict())
     return artifact, plan_path
 
 
@@ -104,3 +116,51 @@ def load_plan(path: str | Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"pipeline plan must be a JSON object: {path}")
     return payload
+
+
+def _write_decision_artifacts(output_root: Path, scheduler_plan: dict[str, Any]) -> dict[str, Any]:
+    selected = [_decision_log_record(item, "selected") for item in scheduler_plan.get("selected", ())]
+    deferred = [_decision_log_record(item, "deferred") for item in scheduler_plan.get("deferred", ())]
+    skipped = [_decision_log_record(item, "skipped") for item in scheduler_plan.get("skipped", ())]
+    unrun = [*deferred, *skipped]
+    artifacts = {
+        "selected_agents": _write_jsonl_artifact(output_root / "selected_agents.jsonl", selected),
+        "deferred_agents": _write_jsonl_artifact(output_root / "deferred_agents.jsonl", deferred),
+        "skipped_agents": _write_jsonl_artifact(output_root / "skipped_agents.jsonl", skipped),
+        "unrun_agents": _write_jsonl_artifact(output_root / "unrun_agents.jsonl", unrun),
+    }
+    summary = scheduler_plan.setdefault("summary", {})
+    summary["selected"] = artifacts["selected_agents"]["count"]
+    summary["deferred"] = artifacts["deferred_agents"]["count"]
+    summary["skipped"] = artifacts["skipped_agents"]["count"]
+    summary["unrun"] = artifacts["unrun_agents"]["count"]
+    return artifacts
+
+
+def _decision_log_record(decision: dict[str, Any], status: str) -> dict[str, Any]:
+    return {
+        **decision,
+        "status": status,
+        "reason": decision.get("reason") or decision.get("event", {}).get("decision_reason"),
+    }
+
+
+def _write_jsonl_artifact(path: Path, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    text = "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows)
+    _atomic_write_text(path, text)
+    return {
+        "path": str(path),
+        "count": len(rows),
+        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+    }
+
+
+def _write_json_artifact(path: Path, payload: dict[str, Any]) -> None:
+    _atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp_path.write_text(text, encoding="utf-8")
+    tmp_path.replace(path)

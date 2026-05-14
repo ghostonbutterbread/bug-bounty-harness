@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Sequence
 
 from agents.agent_scheduler import SchedulerConfig, assignments_from_profiles, decision_events, plan_agent_wave
@@ -24,8 +24,17 @@ def plan_hypothesis_packets(
     *,
     ruleset: ResolvedRuleset,
     config: SchedulerConfig | None = None,
+    max_agents: int | None = None,
+    concurrent_agents: int | None = None,
 ) -> PipelineSchedulerPlan:
     scheduler_config = config or _scheduler_config_from_ruleset(ruleset)
+    overrides: dict[str, Any] = {}
+    if max_agents is not None:
+        overrides["max_agents"] = max(0, int(max_agents))
+    if concurrent_agents is not None:
+        overrides["concurrent_agents"] = max(1, int(concurrent_agents))
+    if overrides:
+        scheduler_config = replace(scheduler_config, **overrides)
     profiles = [_profile_for_packet(packet, index=index) for index, packet in enumerate(packets)]
     plan = plan_agent_wave(
         assignments_from_profiles(profiles, source="hunt_pipeline", policy=hunting_policy_view(ruleset)),
@@ -33,15 +42,20 @@ def plan_hypothesis_packets(
     )
     events = decision_events(plan, scheduler_wave_id="dry-run")
     by_id = {event.get("hypothesis_id"): event for event in events if event.get("hypothesis_id")}
+    summary = plan.summary()
+    summary["unrun"] = len(plan.deferred) + len(plan.skipped)
     return PipelineSchedulerPlan(
         mode=plan.mode,
         selected=tuple(_decision_dict(item, by_id) for item in plan.selected),
         deferred=tuple(_decision_dict(item, by_id) for item in plan.deferred),
         skipped=tuple(_decision_dict(item, by_id) for item in plan.skipped),
-        summary=plan.summary(),
+        selected_batches=_selected_batches(plan.selected, scheduler_config.concurrent_agents),
+        summary=summary,
         config={
             "mode": scheduler_config.mode,
             "agent_wave_size": scheduler_config.agent_wave_size,
+            "max_agents": scheduler_config.max_agents,
+            "concurrent_agents": scheduler_config.concurrent_agents,
             "max_per_surface_family": scheduler_config.max_per_surface_family,
             "max_amplifier_family_first_wave": scheduler_config.max_amplifier_family_first_wave,
             "category_master_mode": scheduler_config.category_master_mode,
@@ -76,10 +90,66 @@ def _scheduler_config_from_ruleset(ruleset: ResolvedRuleset) -> SchedulerConfig:
     return SchedulerConfig(
         mode="policy-aware",
         agent_wave_size=wave_size,
+        max_agents=_optional_int(guidance.get("max_agents")),
+        concurrent_agents=_optional_positive_int(guidance.get("concurrent_agents")),
         max_per_surface_family=int(guidance.get("max_per_surface_family") or 2),
         max_amplifier_family_first_wave=int(guidance.get("max_amplifier_family_first_wave") or 3),
         category_master_mode=bool(guidance.get("category_master_mode", False)),
     )
+
+
+def _optional_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    return max(0, int(value))
+
+
+def _optional_positive_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    return max(1, int(value))
+
+
+def _selected_batches(selected: Sequence[Any], concurrent_agents: int | None) -> tuple[dict[str, Any], ...]:
+    if not selected:
+        return ()
+    if concurrent_agents is None:
+        return ()
+    max_concurrent = max(1, int(concurrent_agents))
+    batches: list[dict[str, Any]] = []
+    for index, offset in enumerate(range(0, len(selected), max_concurrent), start=1):
+        chunk = selected[offset : offset + max_concurrent]
+        agents = [_batch_agent(item) for item in chunk]
+        batches.append(
+            {
+                "batch_index": index,
+                "max_concurrent": max_concurrent,
+                "agent_keys": [agent["agent_key"] for agent in agents],
+                "hypothesis_ids": [
+                    hypothesis_id
+                    for agent in agents
+                    for hypothesis_id in agent.get("hypothesis_ids", ())
+                ],
+                "agents": agents,
+            }
+        )
+    return tuple(batches)
+
+
+def _batch_agent(item: Any) -> dict[str, Any]:
+    member_hypothesis_ids = [
+        str(hypothesis.get("hypothesis_id") or "").strip()
+        for hypothesis in getattr(item, "assigned_hypotheses", ())
+        if str(hypothesis.get("hypothesis_id") or "").strip()
+    ]
+    hypothesis_ids = member_hypothesis_ids or ([item.hypothesis_id] if item.hypothesis_id else [])
+    record = {
+        "agent_key": item.key,
+        "hypothesis_ids": hypothesis_ids,
+    }
+    if member_hypothesis_ids:
+        record["member_hypothesis_ids"] = member_hypothesis_ids
+    return record
 
 
 def _decision_dict(item: Any, events_by_id: dict[str, dict[str, Any]]) -> dict[str, Any]:

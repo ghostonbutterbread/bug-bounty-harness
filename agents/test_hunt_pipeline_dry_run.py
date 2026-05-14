@@ -10,6 +10,10 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
     path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8")
 
 
+def _read_jsonl(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
 def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) -> None:
     appmap = tmp_path / "appmap" / "run-1"
     appmap.mkdir(parents=True)
@@ -60,3 +64,51 @@ def test_dry_run_writes_pipeline_plan_without_spawn_or_ledger(tmp_path: Path) ->
     }
     assert payload["static_team_handoffs"]["enabled"] is False
     assert payload["dynamic_validation_queue"]["enabled"] is False
+
+
+def test_dry_run_writes_scheduler_decision_jsonl_artifacts(tmp_path: Path) -> None:
+    appmap = tmp_path / "appmap" / "run-1"
+    appmap.mkdir(parents=True)
+    (appmap / "manifest.json").write_text('{"run_id":"run-1"}\n', encoding="utf-8")
+    (appmap / "target_profile.json").write_text('{"program":"demo","target_kind":"electron"}\n', encoding="utf-8")
+    _write_jsonl(
+        appmap / "surfaces.jsonl",
+        [
+            {"id": "S0001", "kind": "ipc", "file": "src/main.js"},
+            {"id": "S0002", "kind": "rendering", "file": "src/view.js"},
+        ],
+    )
+    _write_jsonl(appmap / "flows.jsonl", [{"id": "F0001", "source_id": "S0002", "sink_id": "S0001"}])
+
+    artifact, plan_path = build_dry_run_plan(
+        program="demo",
+        target_path=tmp_path / "target",
+        target_kind="auto",
+        ruleset_id="auto",
+        appmap_run=appmap,
+        output_dir=tmp_path / "out",
+        max_agents=1,
+        concurrent_agents=1,
+    )
+    payload = load_plan(plan_path)
+
+    assert len(artifact.hypotheses) == 2
+    assert payload["scheduler_plan"]["summary"]["selected"] == 1
+    assert payload["scheduler_plan"]["summary"]["deferred"] == 1
+    assert payload["scheduler_plan"]["summary"]["skipped"] == 0
+    assert payload["scheduler_plan"]["summary"]["unrun"] == 1
+    assert payload["scheduler_plan"]["selected_batches"][0]["max_concurrent"] == 1
+    artifacts = payload["scheduler_plan"]["decision_artifacts"]
+    selected_rows = _read_jsonl(Path(artifacts["selected_agents"]["path"]))
+    deferred_rows = _read_jsonl(Path(artifacts["deferred_agents"]["path"]))
+    skipped_rows = _read_jsonl(Path(artifacts["skipped_agents"]["path"]))
+    unrun_rows = _read_jsonl(Path(artifacts["unrun_agents"]["path"]))
+
+    assert artifacts["selected_agents"]["count"] == len(selected_rows) == 1
+    assert artifacts["deferred_agents"]["count"] == len(deferred_rows) == 1
+    assert artifacts["skipped_agents"]["count"] == len(skipped_rows) == 0
+    assert artifacts["unrun_agents"]["count"] == len(unrun_rows) == 1
+    assert deferred_rows == unrun_rows
+    assert deferred_rows[0]["status"] == "deferred"
+    assert deferred_rows[0]["reason"] == "max agents cap reached"
+    assert selected_rows[0]["status"] == "selected"

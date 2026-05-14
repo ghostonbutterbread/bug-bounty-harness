@@ -213,8 +213,9 @@ STATIC_CATEGORY_AGENT_KEYS = {
 }
 
 
-def _compile(pattern: str) -> re.Pattern[str]:
-    return re.compile(pattern, re.IGNORECASE)
+def _compile(pattern: str, *, ignore_case: bool = True) -> re.Pattern[str]:
+    flags = re.IGNORECASE if ignore_case else 0
+    return re.compile(pattern, flags)
 
 
 JS_SOURCE_PATTERNS = [
@@ -378,7 +379,14 @@ TRANSFORM_PATTERNS = [
 JS_SINK_PATTERNS = [
     PatternSpec(
         "node-process-exec",
-        _compile(r"\b(child_process\.(exec|execFile|spawn|fork)|exec\(|execFile\(|spawn\(|shelljs\.|execa\()"),
+        _compile(
+            r"\b(?:child_process|childProcess)\.(?:exec|execFile|spawn|fork)\s*\("
+            r"|\brequire\(\s*['\"](?:node:)?child_process['\"]\s*\)\.(?:exec|execFile|spawn|fork)\s*\("
+            r"|\bshelljs\.exec\s*\("
+            r"|\bexeca(?:Command|Sync)?\s*\("
+            r"|\bexeca\.(?:command|commandSync|node|sync)\s*\(",
+            ignore_case=False,
+        ),
         "sink",
         "process-exec",
         "Node process execution sink",
@@ -388,7 +396,14 @@ JS_SINK_PATTERNS = [
     ),
     PatternSpec(
         "node-dynamic-code",
-        _compile(r"\b(eval\(|new Function\(|Function\(|vm\.(runIn|Script)|setTimeout\([^,]+,|setInterval\([^,]+,)"),
+        _compile(
+            r"(?<![\w$.])eval\s*\("
+            r"|\bnew\s+Function\s*\("
+            r"|(?<![\w$.])Function\s*\("
+            r"|\bvm\.(?:runIn\w*|Script)\s*\("
+            r"|\b(?:setTimeout|setInterval)\s*\(\s*['\"`]",
+            ignore_case=False,
+        ),
         "sink",
         "dynamic-code",
         "JavaScript dynamic code execution sink",
@@ -546,6 +561,16 @@ def _config_like(path: Path) -> bool:
     return path.suffix.lower() in {".json", ".yaml", ".yml", ".toml", ".ini", ".env"} or path.name in _all_special_filenames()
 
 
+def _generated_or_noise_surface_file(path: Path) -> bool:
+    name = path.name.lower()
+    return (
+        name.endswith(".strings.js")
+        or name.endswith(".mapping.json")
+        or name == "stats.json"
+        or path.suffix.lower() == ".map"
+    )
+
+
 def _node_source_patterns(path: Path) -> tuple[PatternSpec, ...]:
     if not _js_like(path):
         return ()
@@ -578,9 +603,91 @@ def _electron_boundary_patterns(path: Path) -> tuple[PatternSpec, ...]:
     return tuple(ELECTRON_BOUNDARY_PATTERNS)
 
 
+JS_IDENTIFIER_PATTERN = r"[A-Za-z_$][A-Za-z0-9_$]*"
+CHILD_PROCESS_METHODS = ("exec", "execFile", "spawn", "fork")
+
+
+def _split_child_process_call_imports(value: str) -> Iterable[str]:
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if ":" in item:
+            imported, local = (part.strip() for part in item.rsplit(":", 1))
+        elif " as " in item:
+            imported, local = (part.strip() for part in item.rsplit(" as ", 1))
+        else:
+            imported = local = item
+        if imported in CHILD_PROCESS_METHODS and re.fullmatch(JS_IDENTIFIER_PATTERN, local):
+            yield local
+
+
+def _js_module_aliases(text: str, module_pattern: str) -> set[str]:
+    aliases: set[str] = set()
+    patterns = (
+        rf"\b(?:const|let|var)\s+({JS_IDENTIFIER_PATTERN})\s*=\s*require\(\s*{module_pattern}\s*\)",
+        rf"\bimport\s+\*\s+as\s+({JS_IDENTIFIER_PATTERN})\s+from\s+{module_pattern}",
+        rf"\bimport\s+({JS_IDENTIFIER_PATTERN})\s+from\s+{module_pattern}",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, text):
+            aliases.add(match.group(1))
+    return aliases
+
+
+def _js_process_exec_import_patterns(path: Path) -> tuple[PatternSpec, ...]:
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return ()
+
+    direct_child_process_calls: set[str] = set()
+    quoted_child_process = r"['\"](?:node:)?child_process['\"]"
+    for match in re.finditer(rf"\b(?:const|let|var)\s*\{{([^}}]+)\}}\s*=\s*require\(\s*{quoted_child_process}\s*\)", text):
+        direct_child_process_calls.update(_split_child_process_call_imports(match.group(1)))
+    for match in re.finditer(rf"\bimport\s*\{{([^}}]+)\}}\s*from\s+{quoted_child_process}", text):
+        direct_child_process_calls.update(_split_child_process_call_imports(match.group(1)))
+
+    parts: list[str] = []
+    child_process_aliases = _js_module_aliases(text, quoted_child_process)
+    member_aliases = sorted(child_process_aliases - {"child_process", "childProcess"})
+    direct_calls = sorted(direct_child_process_calls)
+    if member_aliases:
+        aliases = "|".join(re.escape(alias) for alias in member_aliases)
+        parts.append(rf"\b(?:{aliases})\.(?:exec|execFile|spawn|fork)\s*\(")
+    if direct_calls:
+        calls = "|".join(re.escape(call) for call in direct_calls)
+        parts.append(rf"(?<![\w$.])(?:{calls})\s*\(")
+    shelljs_aliases = _js_module_aliases(text, r"['\"]shelljs['\"]")
+    shell_aliases = sorted(shelljs_aliases - {"shelljs"})
+    if shell_aliases:
+        aliases = "|".join(re.escape(alias) for alias in shell_aliases)
+        parts.append(rf"\b(?:{aliases})\.exec\s*\(")
+    execa_aliases = _js_module_aliases(text, r"['\"]execa['\"]")
+    execa_aliases = sorted(execa_aliases - {"execa"})
+    if execa_aliases:
+        aliases = "|".join(re.escape(alias) for alias in execa_aliases)
+        parts.append(rf"(?<![\w$.])(?:{aliases})\s*\(|\b(?:{aliases})\.(?:command|commandSync|node|sync)\s*\(")
+    if not parts:
+        return ()
+
+    return (
+        PatternSpec(
+            "node-process-exec-import",
+            _compile("|".join(parts), ignore_case=False),
+            "sink",
+            "process-exec",
+            "Node process execution sink imported from child_process, shelljs, or execa",
+            "privileged-local",
+            "unknown",
+            0.9,
+        ),
+    )
+
+
 def _rce_sink_patterns(path: Path) -> tuple[PatternSpec, ...]:
     if _js_like(path):
-        return tuple(JS_SINK_PATTERNS)
+        return (*JS_SINK_PATTERNS, *_js_process_exec_import_patterns(path))
     if path.suffix.lower() == ".py":
         return tuple(PY_SINK_PATTERNS)
     return ()
@@ -844,7 +951,36 @@ def scan_surfaces(target_path: Path, *, focus: str = "rce", target_profile: Targ
     vuln_pack = VULNERABILITY_PACKS[focus]
     target_packs = _active_target_packs(target_profile)
 
+    def emit_surface(
+        spec: PatternSpec,
+        target_pack_keys: tuple[str, ...],
+        *,
+        rel: str,
+        line_no: int,
+        snippet: str,
+    ) -> None:
+        counters[spec.role] = counters.get(spec.role, 0) + 1
+        surface_id = f"{spec.role[:1].upper()}{counters[spec.role]:04d}"
+        surfaces.append(
+            {
+                "id": surface_id,
+                "role": spec.role,
+                "kind": spec.family,
+                "name": spec.name,
+                "description": spec.description,
+                "file": rel,
+                "line": line_no,
+                "snippet": snippet[:240],
+                "trust_level": spec.trust_level,
+                "attacker_control": spec.attacker_control,
+                "confidence": spec.confidence,
+                "target_pack_keys": list(target_pack_keys),
+            }
+        )
+
     for path in iter_source_files(target_path):
+        if _generated_or_noise_surface_file(path):
+            continue
         patterns: list[tuple[PatternSpec, tuple[str, ...]]] = []
         for pack in target_packs:
             for spec in pack.source_patterns_for_file(path):
@@ -862,6 +998,21 @@ def scan_surfaces(target_path: Path, *, focus: str = "rce", target_profile: Targ
             continue
 
         rel = path.relative_to(target_path).as_posix()
+        if _config_like(path):
+            remaining_patterns: list[tuple[PatternSpec, tuple[str, ...]]] = []
+            for spec, target_pack_keys in patterns:
+                if spec.name != CONFIG_FILE_SOURCE_PATTERN.name:
+                    remaining_patterns.append((spec, target_pack_keys))
+                    continue
+                for line_no, line in enumerate(lines, start=1):
+                    stripped = line.strip()
+                    if stripped:
+                        emit_surface(spec, target_pack_keys, rel=rel, line_no=line_no, snippet=stripped)
+                        break
+            patterns = remaining_patterns
+            if not patterns:
+                continue
+
         for line_no, line in enumerate(lines, start=1):
             stripped = line.strip()
             if not stripped:
@@ -869,24 +1020,7 @@ def scan_surfaces(target_path: Path, *, focus: str = "rce", target_profile: Targ
             for spec, target_pack_keys in patterns:
                 if not spec.regex.search(stripped):
                     continue
-                counters[spec.role] = counters.get(spec.role, 0) + 1
-                surface_id = f"{spec.role[:1].upper()}{counters[spec.role]:04d}"
-                surfaces.append(
-                    {
-                        "id": surface_id,
-                        "role": spec.role,
-                        "kind": spec.family,
-                        "name": spec.name,
-                        "description": spec.description,
-                        "file": rel,
-                        "line": line_no,
-                        "snippet": stripped[:240],
-                        "trust_level": spec.trust_level,
-                        "attacker_control": spec.attacker_control,
-                        "confidence": spec.confidence,
-                        "target_pack_keys": list(target_pack_keys),
-                    }
-                )
+                emit_surface(spec, target_pack_keys, rel=rel, line_no=line_no, snippet=stripped)
     return surfaces
 
 

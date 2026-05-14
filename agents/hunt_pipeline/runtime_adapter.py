@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 from dataclasses import asdict
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Mapping, Sequence
 
 from agents.base_team import AgentSpec as BaseTeamAgentSpec
 from agents.dynamic_agent_builder import AgentSpec as DynamicBuilderAgentSpec
@@ -36,6 +36,55 @@ def packet_to_base_team_agent_spec(
     )
 
 
+def selected_decision_to_base_team_agent_spec(
+    decision: Mapping[str, Any],
+    packets_by_id: Mapping[str, HypothesisAgentPacket | Mapping[str, Any]],
+    *,
+    program: str,
+    snapshot_id: str,
+    created_at: str | None = None,
+) -> BaseTeamAgentSpec:
+    """Convert a scheduler decision plus packet evidence into a passive BaseTeam AgentSpec."""
+
+    packet = _packet_for_decision(decision, packets_by_id)
+    spec = packet_to_base_team_agent_spec(packet, program=program, snapshot_id=snapshot_id, created_at=created_at)
+    decision_hypothesis_ids = _decision_hypothesis_ids(decision)
+    agent_key = str(decision.get("agent_key") or packet.key).strip()
+    spec.key = agent_key
+    spec.metadata = {
+        **spec.metadata,
+        "scheduler_decision": copy.deepcopy(dict(decision)),
+        "selected_agent_key": agent_key,
+        "selected_hypothesis_ids": decision_hypothesis_ids or [packet.id],
+        "runtime_handoff": {
+            **spec.metadata.get("runtime_handoff", {}),
+            "decision_to_agent_spec": True,
+        },
+    }
+    return spec
+
+
+def selected_decisions_to_base_team_agent_specs(
+    decisions: Sequence[Mapping[str, Any]],
+    packets: Sequence[HypothesisAgentPacket | Mapping[str, Any]],
+    *,
+    program: str,
+    snapshot_id: str,
+    created_at: str | None = None,
+) -> list[BaseTeamAgentSpec]:
+    packets_by_id = {_coerce_packet(packet).id: _coerce_packet(packet) for packet in packets}
+    return [
+        selected_decision_to_base_team_agent_spec(
+            decision,
+            packets_by_id,
+            program=program,
+            snapshot_id=snapshot_id,
+            created_at=created_at,
+        )
+        for decision in decisions
+    ]
+
+
 def packet_to_dynamic_agent_builder_agent_spec(
     packet: HypothesisAgentPacket,
     *,
@@ -61,6 +110,29 @@ def packet_to_dynamic_agent_builder_agent_spec(
     )
 
 
+def packet_from_dict(payload: Mapping[str, Any]) -> HypothesisAgentPacket:
+    return HypothesisAgentPacket(
+        id=str(payload.get("id") or "").strip(),
+        key=str(payload.get("key") or "").strip(),
+        title=str(payload.get("title") or "").strip(),
+        role=str(payload.get("role") or "entry").strip(),  # type: ignore[arg-type]
+        surface_family=str(payload.get("surface_family") or "").strip(),
+        priority=str(payload.get("priority") or "").strip(),
+        target_kind=str(payload.get("target_kind") or "").strip(),
+        ruleset_id=str(payload.get("ruleset_id") or "").strip(),
+        source_evidence=tuple(item for item in payload.get("source_evidence") or () if isinstance(item, dict)),
+        secondary_families=tuple(str(item) for item in payload.get("secondary_families") or ()),
+        evidence_requirements=tuple(str(item) for item in payload.get("evidence_requirements") or ()),
+        chain_requirements=tuple(str(item) for item in payload.get("chain_requirements") or ()),
+        focus_files=tuple(str(item) for item in payload.get("focus_files") or ()),
+        tags=tuple(str(item) for item in payload.get("tags") or ()),
+        reasons=tuple(str(item) for item in payload.get("reasons") or ()),
+        scheduler_metadata=dict(payload.get("scheduler_metadata") or {})
+        if isinstance(payload.get("scheduler_metadata"), dict)
+        else {},
+    )
+
+
 def runtime_adapter_availability() -> dict[str, Any]:
     return {
         "base_team_agent_spec": True,
@@ -70,6 +142,7 @@ def runtime_adapter_availability() -> dict[str, Any]:
         "ledger_writes_enabled": False,
         "notes": [
             "hunt-pipeline packets can be converted into passive AgentSpec shapes",
+            "scheduler decisions can be converted into passive BaseTeam AgentSpec shapes",
             "runtime execution, agent spawning, and ledger writes remain disabled in this slice",
         ],
     }
@@ -85,6 +158,7 @@ def runtime_handoff_boundary() -> dict[str, Any]:
             "build HypothesisAgentPacket records from normalized AppMap artifacts",
             "plan scheduler selected/deferred/skipped decisions",
             "convert packets into passive BaseTeam AgentSpec objects",
+            "convert selected scheduler decisions into passive BaseTeam AgentSpec objects",
             "convert packets into legacy dynamic_agent_builder AgentSpec objects",
             "write dry-run plan artifacts for human inspection",
         ],
@@ -135,6 +209,34 @@ def _trace_metadata(packet: HypothesisAgentPacket) -> dict[str, Any]:
         "scheduler_metadata": copy.deepcopy(packet.scheduler_metadata),
         "packet": asdict(packet),
     }
+
+
+def _packet_for_decision(
+    decision: Mapping[str, Any],
+    packets_by_id: Mapping[str, HypothesisAgentPacket | Mapping[str, Any]],
+) -> HypothesisAgentPacket:
+    for hypothesis_id in _decision_hypothesis_ids(decision):
+        if hypothesis_id in packets_by_id:
+            return _coerce_packet(packets_by_id[hypothesis_id])
+    raise KeyError(f"no hypothesis packet found for decision agent {decision.get('agent_key')!r}")
+
+
+def _decision_hypothesis_ids(decision: Mapping[str, Any]) -> list[str]:
+    values: list[str] = []
+    hypothesis_id = str(decision.get("hypothesis_id") or "").strip()
+    if hypothesis_id:
+        values.append(hypothesis_id)
+    for item in decision.get("member_hypothesis_ids") or ():
+        cleaned = str(item).strip()
+        if cleaned and cleaned not in values:
+            values.append(cleaned)
+    return values
+
+
+def _coerce_packet(packet: HypothesisAgentPacket | Mapping[str, Any]) -> HypothesisAgentPacket:
+    if isinstance(packet, HypothesisAgentPacket):
+        return packet
+    return packet_from_dict(packet)
 
 
 def _prompt_template(packet: HypothesisAgentPacket) -> str:

@@ -98,8 +98,10 @@ class PipelineSchedulerPlan:
     selected: tuple[dict[str, Any], ...] = ()
     deferred: tuple[dict[str, Any], ...] = ()
     skipped: tuple[dict[str, Any], ...] = ()
+    selected_batches: tuple[dict[str, Any], ...] = ()
     summary: dict[str, Any] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
+    decision_artifacts: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

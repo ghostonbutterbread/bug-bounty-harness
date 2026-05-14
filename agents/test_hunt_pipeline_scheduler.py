@@ -47,6 +47,42 @@ def test_scheduler_adapter_reuses_agent_scheduler_decisions_without_spawn() -> N
     assert runtime_adapter_availability()["ledger_writes_enabled"] is False
 
 
+def test_scheduler_max_agents_caps_selected_and_concurrent_batches() -> None:
+    ruleset = resolve_ruleset("desktop-baseline")
+    packets = [
+        _packet("HP-1", "rendering-content-parser", "entry"),
+        _packet("HP-2", "file-ingestion-import", "entry"),
+        _packet("HP-3", "navigation-popup", "entry"),
+        _packet("HP-4", "auth-session-callback", "entry"),
+        _packet("HP-5", "storage-cache-state", "entry"),
+    ]
+
+    plan = plan_hypothesis_packets(
+        packets,
+        ruleset=ruleset,
+        config=SchedulerConfig(
+            mode="policy-aware",
+            agent_wave_size="all",
+            max_agents=3,
+            concurrent_agents=2,
+            max_per_surface_family=10,
+            max_amplifier_family_first_wave=10,
+        ),
+    )
+
+    assert plan.summary["selected"] == 3
+    assert plan.summary["deferred"] == 2
+    assert plan.summary["unrun"] == 2
+    assert plan.config["max_agents"] == 3
+    assert plan.config["concurrent_agents"] == 2
+    assert {item["reason"] for item in plan.deferred} == {"max agents cap reached"}
+    assert [batch["batch_index"] for batch in plan.selected_batches] == [1, 2]
+    assert [batch["max_concurrent"] for batch in plan.selected_batches] == [2, 2]
+    assert plan.selected_batches[0]["agent_keys"] == [item["agent_key"] for item in plan.selected[:2]]
+    assert plan.selected_batches[1]["agent_keys"] == [plan.selected[2]["agent_key"]]
+    assert plan.selected_batches[0]["hypothesis_ids"] == [item["hypothesis_id"] for item in plan.selected[:2]]
+
+
 def test_category_master_mode_preserves_member_hypothesis_events() -> None:
     ruleset = resolve_ruleset("electron-overlay")
     packets = [

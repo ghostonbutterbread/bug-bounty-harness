@@ -175,6 +175,8 @@ class AgentAssignment:
 class SchedulerConfig:
     mode: SchedulerMode = "policy-aware"
     agent_wave_size: int | Literal["all"] = "all"
+    max_agents: int | None = None
+    concurrent_agents: int | None = None
     max_per_surface_family: int = 2
     max_amplifier_family_first_wave: int = 3
     max_hypotheses_per_master_agent: int = 6
@@ -387,6 +389,17 @@ def plan_agent_wave(assignments: Sequence[AgentAssignment], config: SchedulerCon
 
     if config.mode in {"off", "legacy"}:
         selected = tuple(item.with_decision("spawn", "scheduler disabled; preserving legacy order") for item in normalized)
+        if config.max_agents is not None:
+            limit = max(0, int(config.max_agents))
+            deferred = tuple(item.with_decision("defer", "max agents cap reached") for item in normalized[limit:])
+            selected = selected[:limit]
+            return SchedulerPlan(
+                selected=selected,
+                deferred=deferred,
+                skipped=(),
+                all_assignments=tuple(selected + deferred),
+                mode=config.mode,
+            )
         return SchedulerPlan(selected=selected, deferred=(), skipped=(), all_assignments=selected, mode=config.mode)
 
     skipped: list[AgentAssignment] = []
@@ -398,7 +411,9 @@ def plan_agent_wave(assignments: Sequence[AgentAssignment], config: SchedulerCon
             eligible.append(item)
 
     wave_size = len(eligible) if config.agent_wave_size == "all" else max(0, int(config.agent_wave_size))
-    if wave_size >= len(eligible):
+    max_agents = None if config.max_agents is None else max(0, int(config.max_agents))
+    selection_limit = wave_size if max_agents is None else min(wave_size, max_agents)
+    if selection_limit >= len(eligible):
         selected = [
             item.with_decision("spawn", _selection_reason(item, 1))
             for item in _ranked(eligible, prefer_deferred=config.prefer_deferred)
@@ -417,7 +432,7 @@ def plan_agent_wave(assignments: Sequence[AgentAssignment], config: SchedulerCon
     amplifier_selected = 0
     remaining = _ranked(eligible, prefer_deferred=config.prefer_deferred)
 
-    while remaining and len(selected) < wave_size:
+    while remaining and len(selected) < selection_limit:
         choice_index = _next_selectable_index(
             remaining,
             family_counts=family_counts,
@@ -433,7 +448,18 @@ def plan_agent_wave(assignments: Sequence[AgentAssignment], config: SchedulerCon
         selected.append(item.with_decision("spawn", _selection_reason(item, family_counts[item.surface_family])))
 
     for item in remaining:
-        deferred.append(item.with_decision("defer", _defer_reason(item, family_counts, amplifier_selected, config)))
+        deferred.append(
+            item.with_decision(
+                "defer",
+                _defer_reason(
+                    item,
+                    family_counts,
+                    amplifier_selected,
+                    config,
+                    selected_count=len(selected),
+                ),
+            )
+        )
 
     return SchedulerPlan(
         selected=tuple(selected),
@@ -585,7 +611,12 @@ def _defer_reason(
     family_counts: dict[str, int],
     amplifier_selected: int,
     config: SchedulerConfig,
+    *,
+    selected_count: int | None = None,
 ) -> str:
+    max_agents = None if config.max_agents is None else max(0, int(config.max_agents))
+    if max_agents is not None and selected_count is not None and selected_count >= max_agents:
+        return "max agents cap reached"
     if item.family_role == "amplifier" and amplifier_selected >= config.max_amplifier_family_first_wave and not _is_standalone_critical(item):
         return "first-wave amplifier family cap reached"
     if family_counts.get(item.surface_family, 0) >= config.max_per_surface_family and not _is_standalone_critical(item):

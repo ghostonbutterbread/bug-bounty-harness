@@ -7,6 +7,7 @@ import pytest
 
 from agents.base_team import AgentSpec
 from agents.hunt_pipeline.cli import build_parser
+from agents.hunt_pipeline.live_testing import build_live_testing_playbook
 from agents.hunt_pipeline.operator_approval_schema import (
     build_runtime_operator_approval_schema,
     evaluate_runtime_operator_approval_schema,
@@ -139,6 +140,10 @@ def _write_plan(tmp_path: Path, *, selected_count: int, deferred_count: int, con
 
 def _add_valid_runtime_promotion_decision(plan_path: Path, tmp_path: Path) -> dict:
     payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload.setdefault(
+        "live_testing_playbook",
+        build_live_testing_playbook(target_kind="electron", ruleset_id="electron-overlay").to_dict(),
+    )
     payload["runtime_promotion_decision"] = {
         "schema_version": 1,
         "decision_id": "runtime-promotion-test",
@@ -159,6 +164,7 @@ def _add_valid_runtime_promotion_decision(plan_path: Path, tmp_path: Path) -> di
             "bounded_live_execution": True,
             "use_base_team_primitives": True,
             "scope_and_wave_controls": True,
+            "live_testing_playbook_reviewed": True,
         },
     }
     plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -180,6 +186,10 @@ def _add_non_live_contract_sections(plan_path: Path) -> dict:
         "planned": [{"team": "zero_day_team", "invocation_status": "planned-only"}],
     }
     payload["dynamic_validation_queue"] = {"enabled": False, "queued": []}
+    payload["live_testing_playbook"] = build_live_testing_playbook(
+        target_kind="electron",
+        ruleset_id="electron-overlay",
+    ).to_dict()
     payload["safety"] = {
         "dry_run_only": True,
         "spawn_agents": False,
@@ -603,6 +613,7 @@ def test_status_text_exposes_runtime_contract_promotion_state(tmp_path: Path, ca
     assert "preflight_status=blocked" in output
     assert "static_team_handoffs=planned-only" in output
     assert "dynamic_validation_queue=disabled" in output
+    assert "live_testing=planned-only" in output
 
 
 def test_preflight_report_summarizes_non_live_runtime_sections(tmp_path: Path) -> None:
@@ -624,6 +635,8 @@ def test_preflight_report_summarizes_non_live_runtime_sections(tmp_path: Path) -
     assert report["static_team_handoffs"]["state"] == "planned-only"
     assert report["static_team_handoffs"]["planned_teams"] == ["zero_day_team"]
     assert report["dynamic_validation_queue"]["state"] == "disabled"
+    assert report["live_testing_playbook"]["state"] == "planned-only"
+    assert report["live_testing_playbook"]["attachment_surfaces"] == ["cdp", "ghidra", "mcp", "ssh"]
     blocker_ids = {item["id"] for item in report["blockers_before_future_promotion"]}
     assert "explicit_contract_promotion" in blocker_ids
     assert "operator_live_execution_approval" in blocker_ids
@@ -647,6 +660,7 @@ def test_status_can_write_preflight_report_artifact(tmp_path: Path, capsys: pyte
     assert report["promotion_enabled"] is False
     assert report["static_team_handoffs"]["state"] == "planned-only"
     assert report["dynamic_validation_queue"]["state"] == "disabled"
+    assert report["live_testing_playbook"]["state"] == "planned-only"
 
 
 def test_status_can_write_readiness_checklist_artifact_without_runtime_side_effects(
@@ -672,10 +686,25 @@ def test_status_can_write_readiness_checklist_artifact_without_runtime_side_effe
     assert checklist["live_execution_ready"] is False
     assert checklist["preflight_states"]["static_team_handoffs"]["state"] == "planned-only"
     assert checklist["preflight_states"]["dynamic_validation_queue"]["state"] == "disabled"
+    assert checklist["preflight_states"]["live_testing_playbook"]["state"] == "planned-only"
     assert checklist["run_status"]["total"] == 1
     assert not run_state_path_for_plan(plan_path).exists()
     assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
     assert not (plan_path.parent / "ledgers").exists()
+
+
+def test_preflight_report_blocks_malformed_live_testing_playbook(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    payload = _add_non_live_contract_sections(plan_path)
+    payload["live_testing_playbook"]["execution_enabled"] = True
+
+    report = build_runtime_preflight_report(plan_path, plan=payload)
+
+    assert report["live_testing_playbook"]["state"] == "blocking"
+    assert "live_testing_playbook.enabled must remain false" not in report["live_testing_playbook"]["blockers"]
+    assert "live_testing_playbook.execution_enabled must remain false" in report["live_testing_playbook"]["blockers"]
+    blocker_sources = {item["source"] for item in report["blockers_before_future_promotion"]}
+    assert "live_testing_playbook" in blocker_sources
 
 
 def test_operator_approval_schema_documents_required_records_without_promotion(tmp_path: Path) -> None:
@@ -1137,6 +1166,37 @@ def test_malformed_claimed_decision_default_run_blocked_before_writes(
     assert result["runtime_promotion_decision"]["promoted"] is False
     assert not run_state_path_for_plan(plan_path).exists()
     assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+
+
+def test_malformed_live_testing_playbook_blocks_promoted_default_run_before_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline import runtime
+    from agents.hunt_pipeline.cli import main
+
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    _add_valid_runtime_promotion_decision(plan_path, tmp_path)
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload["live_testing_playbook"]["execution_enabled"] = True
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    def fail_if_called(self, specs):
+        raise AssertionError("adapter must not be called")
+
+    monkeypatch.setattr(runtime.LiveBaseTeamAdapter, "execute", fail_if_called)
+
+    code = main(["run", "--pipeline-plan", str(plan_path)])
+
+    assert code == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is False
+    assert result["runtime_promotion_decision"]["status"] == "claimed"
+    assert "live_testing_playbook.execution_enabled must remain false" in result["runtime_promotion_decision"]["details"]
+    assert not run_state_path_for_plan(plan_path).exists()
+    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+
 
 
 def test_resume_default_uses_same_promotion_rules(

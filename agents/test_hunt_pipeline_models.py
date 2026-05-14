@@ -46,6 +46,7 @@ def test_hunt_pipeline_models_render_schema_friendly_dicts() -> None:
         static_team_handoffs={"enabled": False},
         dynamic_validation_queue={"enabled": False},
         safety={"dry_run_only": True},
+        live_testing_playbook={"status": "planned-only"},
     )
 
     rendered = artifact.to_dict()
@@ -54,3 +55,4 @@ def test_hunt_pipeline_models_render_schema_friendly_dicts() -> None:
     assert rendered["normalized_map"]["counts"]["surfaces"] == 1
     assert rendered["normalized_map"]["legacy_policy_shaped"] is True
     assert rendered["hypotheses"][0]["id"] == "HP-1"
+    assert rendered["live_testing_playbook"]["status"] == "planned-only"

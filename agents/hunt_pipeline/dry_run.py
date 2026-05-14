@@ -9,6 +9,7 @@ from typing import Any
 from agents.app_mapper import map_application, write_artifacts
 from agents.hunt_pipeline.appmap_loader import load_appmap_run
 from agents.hunt_pipeline.hypothesis_builder import build_hypothesis_packets
+from agents.hunt_pipeline.live_testing import build_live_testing_playbook
 from agents.hunt_pipeline.models import PipelineDryRunArtifact
 from agents.hunt_pipeline.operator_approval_schema import build_runtime_operator_approval_schema
 from agents.hunt_pipeline.promotion_readiness import (
@@ -103,6 +104,10 @@ def build_dry_run_plan(
         "live_dynamic_validation": False,
         "ledger_writes": False,
     }
+    live_testing_playbook = build_live_testing_playbook(
+        target_kind=resolved_target_kind,
+        ruleset_id=ruleset.id,
+    ).to_dict()
     runtime_promotion_protocol = build_runtime_promotion_protocol().to_dict()
     plan_path = output_root / "pipeline_plan.json"
     readiness_seed = non_live_readiness_stub()
@@ -114,6 +119,7 @@ def build_dry_run_plan(
             "runtime_adapter_availability": runtime_adapter,
             "static_team_handoffs": static_team_handoffs,
             "dynamic_validation_queue": dynamic_validation_queue,
+            "live_testing_playbook": live_testing_playbook,
             "safety": safety,
         }
     ).to_dict()
@@ -126,6 +132,7 @@ def build_dry_run_plan(
             "runtime_adapter_availability": runtime_adapter,
             "static_team_handoffs": static_team_handoffs,
             "dynamic_validation_queue": dynamic_validation_queue,
+            "live_testing_playbook": live_testing_playbook,
             "safety": safety,
         },
     ).to_dict()
@@ -150,6 +157,7 @@ def build_dry_run_plan(
             "runtime_adapter_availability": runtime_adapter,
             "static_team_handoffs": static_team_handoffs,
             "dynamic_validation_queue": dynamic_validation_queue,
+            "live_testing_playbook": live_testing_playbook,
             "safety": safety,
         }
     ).to_dict()
@@ -163,6 +171,7 @@ def build_dry_run_plan(
             "runtime_adapter_availability": runtime_adapter,
             "static_team_handoffs": static_team_handoffs,
             "dynamic_validation_queue": dynamic_validation_queue,
+            "live_testing_playbook": live_testing_playbook,
             "safety": safety,
         },
     ).to_dict()
@@ -191,6 +200,7 @@ def build_dry_run_plan(
         static_team_handoffs=static_team_handoffs,
         dynamic_validation_queue=dynamic_validation_queue,
         safety=safety,
+        live_testing_playbook=live_testing_playbook,
     )
     _write_json_artifact(plan_path, artifact.to_dict())
     return artifact, plan_path

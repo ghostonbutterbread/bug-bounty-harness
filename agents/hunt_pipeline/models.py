@@ -126,6 +126,7 @@ class PipelineDryRunArtifact:
     static_team_handoffs: dict[str, Any]
     dynamic_validation_queue: dict[str, Any]
     safety: dict[str, Any]
+    live_testing_playbook: dict[str, Any] = field(default_factory=dict)
     runtime_promotion_readiness: dict[str, Any] = field(default_factory=dict)
     runtime_operator_approval_schema: dict[str, Any] = field(default_factory=dict)
     runtime_promotion_request_packet: dict[str, Any] = field(default_factory=dict)

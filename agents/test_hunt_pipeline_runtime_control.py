@@ -97,6 +97,21 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
     path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8")
 
 
+def _write_appmap_run(tmp_path: Path, *, surface_count: int) -> Path:
+    appmap = tmp_path / "appmap" / "run-1"
+    appmap.mkdir(parents=True)
+    (appmap / "manifest.json").write_text('{"run_id":"run-1"}\n', encoding="utf-8")
+    (appmap / "target_profile.json").write_text('{"program":"demo","target_kind":"electron"}\n', encoding="utf-8")
+    _write_jsonl(
+        appmap / "surfaces.jsonl",
+        [
+            {"id": f"S{index:04d}", "kind": "ipc", "file": f"src/ipc{index}.js"}
+            for index in range(1, surface_count + 1)
+        ],
+    )
+    return appmap
+
+
 def _write_plan(tmp_path: Path, *, selected_count: int, deferred_count: int, concurrent_agents: int = 2) -> Path:
     out = tmp_path / "out"
     out.mkdir()
@@ -450,6 +465,26 @@ def test_resume_executes_next_deferred_wave_without_remapping(tmp_path: Path) ->
     assert specs[0]["metadata"]["scheduler_decision"]["reason"] == "max agents cap reached"
 
 
+def test_runtime_collapses_duplicate_source_groups_and_marks_member_records_completed(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=2, deferred_count=0, concurrent_agents=2)
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload["hypotheses"][1]["source_evidence"] = [{"id": "S0001", "kind": "ipc", "file": "src/ipc1.ts"}]
+    payload["hypotheses"][1]["focus_files"] = ["src/ipc1.ts"]
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = execute_next_wave(plan_path, max_agents=2, concurrent_agents=2)
+
+    assert result["ok"] is True
+    assert result["executed"] == 2
+    state = json.loads(run_state_path_for_plan(plan_path).read_text(encoding="utf-8"))
+    assert state["agents"]["agent-1"]["status"] == "completed"
+    assert state["agents"]["agent-2"]["status"] == "completed"
+    assert state["last_wave"]["spec_metrics"]["collapsed_groups"] == 1
+    specs = [json.loads(line) for line in Path(result["specs_path"]).read_text(encoding="utf-8").splitlines()]
+    assert len(specs) == 1
+    assert specs[0]["metadata"]["source_group"]["decision_agent_keys"] == ["agent-1", "agent-2"]
+
+
 def test_selected_decision_to_base_team_agent_spec_preserves_appmap_metadata() -> None:
     packet = _packet(1)
     decision = _decision(1)
@@ -480,12 +515,18 @@ def test_cli_help_exposes_subcommands_and_runtime_flags(capsys: pytest.CaptureFi
     assert "plan" in help_text
     assert "status" in help_text
     assert "resume" in help_text
+    assert "runs" in help_text
+    assert "list-runs" in help_text
     assert "live" in help_text
     assert "live-test" in help_text
     assert "--dry-run" in run_help
     assert "--live-testing" in run_help
     assert "--live" in run_help
+    assert "--run-hypotheses" in run_help
+    assert "--max-agents" in run_help
     assert "--write-hypotheses" in run_help
+    assert "--no-write-hypotheses" in run_help
+    assert "--no-ledger" in run_help
     assert "approved runtime" in run_help
     assert "environment" in run_help
 
@@ -591,14 +632,10 @@ def test_status_json_is_default_format(tmp_path: Path, capsys: pytest.CaptureFix
     assert "runtime_handoff_contract_present" in failed_gate_ids
 
 
-def test_run_planning_inputs_accept_write_hypotheses_without_live_execution(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_run_planning_inputs_write_hypotheses_by_default_without_live_execution(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     from agents.hunt_pipeline.cli import main
 
-    appmap = tmp_path / "appmap" / "run-1"
-    appmap.mkdir(parents=True)
-    (appmap / "manifest.json").write_text('{"run_id":"run-1"}\n', encoding="utf-8")
-    (appmap / "target_profile.json").write_text('{"program":"demo","target_kind":"electron"}\n', encoding="utf-8")
-    _write_jsonl(appmap / "surfaces.jsonl", [{"id": "S0001", "kind": "ipc", "file": "src/main.js"}])
+    appmap = _write_appmap_run(tmp_path, surface_count=1)
     out = tmp_path / "out"
 
     code = main(
@@ -610,7 +647,6 @@ def test_run_planning_inputs_accept_write_hypotheses_without_live_execution(tmp_
             str(appmap),
             "--output-dir",
             str(out),
-            "--write-hypotheses",
             "--dry-run",
         ]
     )
@@ -624,6 +660,271 @@ def test_run_planning_inputs_accept_write_hypotheses_without_live_execution(tmp_
     assert result["summary"]["completed"] == 1
     assert metadata["path"] == str(out / "hypotheses.jsonl")
     assert metadata["count"] == len(rows) == 1
+
+
+def test_plan_defaults_to_run_hypotheses_cap_10_and_writes_hypotheses(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    appmap = _write_appmap_run(tmp_path, surface_count=12)
+    out = tmp_path / "out"
+
+    code = main(["plan", "demo", str(tmp_path / "target"), "--from-appmap-run", str(appmap), "--output-dir", str(out)])
+
+    assert code == 0
+    result = json.loads(capsys.readouterr().out)
+    payload = json.loads(Path(result["pipeline_plan"]).read_text(encoding="utf-8"))
+    assert len(payload["hypotheses"]) == 12
+    assert payload["scheduler_plan"]["summary"]["selected"] == 10
+    assert payload["scheduler_plan"]["summary"]["deferred"] == 2
+    assert payload["scheduler_plan"]["config"]["max_agents"] == 10
+    assert Path(payload["artifact_metadata"]["hypotheses"]["path"]).exists()
+
+
+def test_plan_run_hypotheses_n_and_all_control_selected_count(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    appmap = _write_appmap_run(tmp_path, surface_count=12)
+    out_n = tmp_path / "out-n"
+    out_all = tmp_path / "out-all"
+
+    code_n = main(
+        [
+            "plan",
+            "demo",
+            str(tmp_path / "target"),
+            "--from-appmap-run",
+            str(appmap),
+            "--output-dir",
+            str(out_n),
+            "--run-hypotheses",
+            "3",
+        ]
+    )
+    assert code_n == 0
+    payload_n = json.loads((out_n / "pipeline_plan.json").read_text(encoding="utf-8"))
+    assert payload_n["scheduler_plan"]["summary"]["selected"] == 3
+    assert payload_n["scheduler_plan"]["summary"]["deferred"] == 9
+    assert payload_n["scheduler_plan"]["config"]["max_agents"] == 3
+
+    capsys.readouterr()
+    code_all = main(
+        [
+            "plan",
+            "demo",
+            str(tmp_path / "target"),
+            "--from-appmap-run",
+            str(appmap),
+            "--output-dir",
+            str(out_all),
+            "--run-hypotheses",
+            "all",
+        ]
+    )
+    assert code_all == 0
+    payload_all = json.loads((out_all / "pipeline_plan.json").read_text(encoding="utf-8"))
+    assert payload_all["scheduler_plan"]["summary"]["selected"] == 12
+    assert payload_all["scheduler_plan"]["summary"]["deferred"] == 0
+    assert payload_all["scheduler_plan"]["config"]["max_agents"] is None
+
+
+def test_plan_tmp_uses_isolated_tmp_output_dir(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    appmap = _write_appmap_run(tmp_path, surface_count=1)
+
+    code = main(["plan", "demo", str(tmp_path / "target"), "--from-appmap-run", str(appmap), "--tmp"])
+
+    assert code == 0
+    result = json.loads(capsys.readouterr().out)
+    plan_path = Path(result["pipeline_plan"])
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    assert plan_path.parent != tmp_path / "hunt_pipeline_out"
+    assert str(plan_path.parent).startswith("/tmp/")
+    assert payload["artifact_metadata"]["tmp_output"]["enabled"] is True
+    assert payload["artifact_metadata"]["tmp_output"]["root"] == str(plan_path.parent)
+    assert Path(payload["artifact_metadata"]["hypotheses"]["path"]).parent == plan_path.parent
+
+
+def test_default_plan_creates_unique_durable_run_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    monkeypatch.chdir(tmp_path)
+    appmap = _write_appmap_run(tmp_path, surface_count=1)
+
+    first_code = main(["plan", "demo", str(tmp_path / "target"), "--from-appmap-run", str(appmap)])
+    assert first_code == 0
+    first = json.loads(capsys.readouterr().out)
+    second_code = main(["plan", "demo", str(tmp_path / "target"), "--from-appmap-run", str(appmap)])
+    assert second_code == 0
+    second = json.loads(capsys.readouterr().out)
+
+    first_plan = Path(first["pipeline_plan"])
+    second_plan = Path(second["pipeline_plan"])
+    assert first["run_id"] == first_plan.parent.name
+    assert second["run_id"] == second_plan.parent.name
+    first_payload = json.loads(first_plan.read_text(encoding="utf-8"))
+    second_payload = json.loads(second_plan.read_text(encoding="utf-8"))
+    assert first_plan.parent.parent == tmp_path / "hunt_pipeline_out"
+    assert second_plan.parent.parent == tmp_path / "hunt_pipeline_out"
+    assert first_plan.parent != second_plan.parent
+    assert first_payload["run_id"] == first_plan.parent.name
+    assert second_payload["run_id"] == second_plan.parent.name
+    assert Path(first_payload["artifact_metadata"]["hypotheses"]["path"]).parent == first_plan.parent
+    assert Path(second_payload["artifact_metadata"]["hypotheses"]["path"]).parent == second_plan.parent
+
+
+def test_run_id_status_runs_listing_and_latest_resume(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    monkeypatch.chdir(tmp_path)
+    appmap = _write_appmap_run(tmp_path, surface_count=2)
+
+    assert main(["plan", "demo", str(tmp_path / "target"), "--from-appmap-run", str(appmap), "--run-id", "run-aaa"]) == 0
+    capsys.readouterr()
+    assert main(["plan", "demo", str(tmp_path / "target"), "--from-appmap-run", str(appmap), "--run-id", "run-zzz"]) == 0
+    capsys.readouterr()
+
+    status_code = main(["status", "--run-id", "run-aaa", "--concurrent-agents", "2"])
+    assert status_code == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["run_id"] == "run-aaa"
+    assert status["pipeline_plan"].endswith("hunt_pipeline_out/run-aaa/pipeline_plan.json")
+
+    runs_code = main(["runs", "--limit", "5"])
+    assert runs_code == 0
+    runs = json.loads(capsys.readouterr().out)["runs"]
+    assert [row["run_id"] for row in runs[:2]] == ["run-zzz", "run-aaa"]
+    assert {"program", "target_kind", "selected", "completed", "unrun", "next_wave", "path", "updated_at"}.issubset(runs[0])
+
+    resume_code = main(["resume", "--dry-run", "--concurrent-agents", "2"])
+    assert resume_code == 0
+    resumed = json.loads(capsys.readouterr().out)
+    assert resumed["summary"]["pipeline_plan"].endswith("hunt_pipeline_out/run-zzz/pipeline_plan.json")
+    assert resumed["summary"]["completed"] == 2
+
+
+def test_runs_excludes_tmp_and_latest_resume_ignores_tmp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    monkeypatch.chdir(tmp_path)
+    appmap = _write_appmap_run(tmp_path, surface_count=1)
+
+    assert main(["plan", "demo", str(tmp_path / "target"), "--from-appmap-run", str(appmap), "--run-id", "durable-run"]) == 0
+    durable_plan = Path(json.loads(capsys.readouterr().out)["pipeline_plan"])
+
+    assert main(["plan", "demo", str(tmp_path / "target"), "--from-appmap-run", str(appmap), "--tmp"]) == 0
+    tmp_plan = Path(json.loads(capsys.readouterr().out)["pipeline_plan"])
+    tmp_state = initialize_run_state(tmp_plan)
+    tmp_state["updated_at"] = "2999-01-01T00:00:00Z"
+    run_state_path_for_plan(tmp_plan).write_text(json.dumps(tmp_state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    runs_code = main(["runs"])
+    assert runs_code == 0
+    runs = json.loads(capsys.readouterr().out)["runs"]
+    assert [row["run_id"] for row in runs] == ["durable-run"]
+
+    resume_code = main(["resume", "--dry-run"])
+    assert resume_code == 0
+    resumed = json.loads(capsys.readouterr().out)
+    assert Path(resumed["summary"]["pipeline_plan"]) == durable_plan
+    assert resumed["summary"]["completed"] == 1
+    assert summarize_run(tmp_plan)["completed"] == 0
+
+
+def test_pause_stop_and_run_existing_plan_support_run_id_locator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    monkeypatch.chdir(tmp_path)
+    appmap = _write_appmap_run(tmp_path, surface_count=1)
+
+    assert main(["plan", "demo", str(tmp_path / "target"), "--from-appmap-run", str(appmap), "--run-id", "run-locator"]) == 0
+    capsys.readouterr()
+
+    pause_code = main(["pause", "--run-id", "run-locator"])
+    assert pause_code == 0
+    pause_payload = json.loads(capsys.readouterr().out)
+    assert pause_payload["pause_requested"] is True
+
+    stop_code = main(["stop", "--run-id", "run-locator"])
+    assert stop_code == 0
+    stop_payload = json.loads(capsys.readouterr().out)
+    assert stop_payload["stopped"] is True
+
+    assert main(["plan", "demo", str(tmp_path / "target"), "--from-appmap-run", str(appmap), "--run-id", "run-exec"]) == 0
+    capsys.readouterr()
+
+    run_code = main(["run", "--run-id", "run-exec", "--dry-run"])
+    assert run_code == 0
+    run_payload = json.loads(capsys.readouterr().out)
+    assert run_payload["summary"]["run_id"] == "run-exec"
+    assert run_payload["executed"] == 1
+
+
+def test_live_supports_run_id_locator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline import runtime
+    from agents.hunt_pipeline.cli import main
+
+    monkeypatch.chdir(tmp_path)
+    appmap = _write_appmap_run(tmp_path, surface_count=1)
+    (tmp_path / "target").mkdir()
+
+    assert main(["plan", "demo", str(tmp_path / "target"), "--from-appmap-run", str(appmap), "--run-id", "live-locator"]) == 0
+    plan_path = Path(json.loads(capsys.readouterr().out)["pipeline_plan"])
+    _add_valid_runtime_promotion_decision(plan_path, tmp_path)
+
+    def fake_live_execute(self, specs):
+        return {spec.key: "completed" for spec in specs}
+
+    monkeypatch.setattr(runtime.LiveBaseTeamAdapter, "execute", fake_live_execute)
+
+    code = main(["live", "--run-id", "live-locator"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["execution_mode"] == "live"
+    assert payload["summary"]["run_id"] == "live-locator"
+
+
+def test_status_run_hypotheses_caps_next_wave(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from agents.hunt_pipeline.cli import main
+
+    plan_path = _write_plan(tmp_path, selected_count=12, deferred_count=0, concurrent_agents=12)
+
+    code = main(
+        [
+            "status",
+            "--pipeline-plan",
+            str(plan_path),
+            "--concurrent-agents",
+            "12",
+            "--run-hypotheses",
+            "4",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["next_wave_count"] == 4
 
 
 def test_status_text_exposes_runtime_contract_promotion_state(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -1054,10 +1355,15 @@ def test_readiness_checklist_blocks_missing_protocol_and_enabled_checklist_claim
     assert "promotion_readiness_non_live" in blocker_ids
 
 
-def test_execute_live_rejected_when_contract_missing_and_adapter_not_called(tmp_path: Path) -> None:
+def test_live_testing_rejected_when_contract_missing_and_adapter_not_called(tmp_path: Path) -> None:
     plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
 
-    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+    result = execute_next_wave(
+        plan_path,
+        execute_live=True,
+        live_testing_enabled=True,
+        adapter=FailingIfCalledAdapter(),
+    )
 
     assert result["ok"] is False
     assert result["executed"] == 0
@@ -1067,7 +1373,7 @@ def test_execute_live_rejected_when_contract_missing_and_adapter_not_called(tmp_
     assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
 
 
-def test_default_run_blocks_without_approval_before_adapter_or_spec_writes(
+def test_default_run_executes_source_hunt_without_live_approval(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1075,24 +1381,32 @@ def test_default_run_blocks_without_approval_before_adapter_or_spec_writes(
     from agents.hunt_pipeline import runtime
     from agents.hunt_pipeline.cli import main
 
+    (tmp_path / "target").mkdir()
     plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    called = {}
 
-    def fail_if_called(self, specs):
-        raise AssertionError("adapter must not be called")
+    def fail_dry_run_execute(self, specs):
+        raise AssertionError("dry-run adapter must not be called without --dry-run")
 
-    monkeypatch.setattr(runtime.LiveBaseTeamAdapter, "execute", fail_if_called)
-    monkeypatch.setattr(runtime.DryRunBaseTeamAdapter, "execute", fail_if_called)
+    def fake_source_execute(self, specs):
+        called["keys"] = [spec.key for spec in specs]
+        return {spec.key: "completed" for spec in specs}
+
+    monkeypatch.setattr(runtime.LiveBaseTeamAdapter, "execute", fake_source_execute)
+    monkeypatch.setattr(runtime.DryRunBaseTeamAdapter, "execute", fail_dry_run_execute)
 
     code = main(["run", "--pipeline-plan", str(plan_path)])
 
-    assert code == 2
+    assert code == 0
     result = json.loads(capsys.readouterr().out)
-    assert result["ok"] is False
-    assert result["executed"] == 0
+    assert result["ok"] is True
+    assert result["executed"] == 1
     assert result["runtime_promotion_decision"]["status"] == "missing"
-    assert result["execution_mode"] == "blocked"
-    assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
-    assert not run_state_path_for_plan(plan_path).exists()
+    assert result["execution_mode"] == "source-hunt"
+    assert called["keys"] == ["agent-1"]
+    assert (plan_path.parent / "runtime_agent_specs.jsonl").exists()
+    state = json.loads(run_state_path_for_plan(plan_path).read_text(encoding="utf-8"))
+    assert state["agents"]["agent-1"]["details"]["adapter"] == "source-hunt"
 
 
 def test_default_run_dry_run_flag_still_uses_dry_run_adapter(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -1112,7 +1426,7 @@ def test_default_run_dry_run_flag_still_uses_dry_run_adapter(tmp_path: Path, cap
     assert state["run_config"]["live_testing_enabled"] is False
 
 
-def test_valid_decision_default_run_calls_live_adapter(
+def test_default_source_hunt_run_calls_source_adapter_even_with_valid_decision(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1140,12 +1454,46 @@ def test_valid_decision_default_run_calls_live_adapter(
     assert code == 0
     result = json.loads(capsys.readouterr().out)
     assert result["ok"] is True
-    assert result["execution_mode"] == "live"
+    assert result["execution_mode"] == "source-hunt"
     assert result["runtime_promotion_decision"]["status"] == "promoted"
     assert called["keys"] == ["agent-1"]
     state = json.loads(run_state_path_for_plan(plan_path).read_text(encoding="utf-8"))
-    assert state["agents"]["agent-1"]["details"]["adapter"] == "live"
+    assert state["agents"]["agent-1"]["details"]["adapter"] == "source-hunt"
     assert state["run_config"]["live_testing_enabled"] is False
+
+
+def test_no_ledger_reaches_live_adapter_without_real_codex(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline import runtime
+    from agents.hunt_pipeline.cli import main
+
+    (tmp_path / "target").mkdir()
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+    _add_valid_runtime_promotion_decision(plan_path, tmp_path)
+    captured = {}
+
+    def fake_init(self, **kwargs):
+        captured["no_ledger"] = kwargs["no_ledger"]
+
+    def fake_execute(self, specs):
+        captured["spec_keys"] = [spec.key for spec in specs]
+        return {spec.key: "completed" for spec in specs}
+
+    monkeypatch.setattr(runtime.LiveBaseTeamAdapter, "__init__", fake_init)
+    monkeypatch.setattr(runtime.LiveBaseTeamAdapter, "execute", fake_execute)
+
+    code = main(["run", "--pipeline-plan", str(plan_path), "--no-ledger"])
+
+    assert code == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is True
+    assert captured == {"no_ledger": True, "spec_keys": ["agent-1"]}
+    state = json.loads(run_state_path_for_plan(plan_path).read_text(encoding="utf-8"))
+    assert state["run_config"]["no_ledger"] is True
+    assert state["last_wave"]["no_ledger"] is True
 
 
 def test_valid_decision_run_dry_run_uses_dry_run_adapter(
@@ -1216,7 +1564,7 @@ def test_live_decision_is_rechecked_inside_runtime_lock_before_writes(
     monkeypatch.setattr(runtime, "evaluate_runtime_promotion_decision", flip_after_first_check)
     monkeypatch.setattr(runtime.LiveBaseTeamAdapter, "execute", fail_if_called)
 
-    result = execute_next_wave(plan_path, execute_live=True)
+    result = execute_next_wave(plan_path, execute_live=True, live_testing_enabled=True)
 
     assert result["ok"] is False
     assert result["executed"] == 0
@@ -1226,7 +1574,7 @@ def test_live_decision_is_rechecked_inside_runtime_lock_before_writes(
     assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
 
 
-def test_malformed_claimed_decision_default_run_blocked_before_writes(
+def test_malformed_claimed_decision_live_testing_run_blocked_before_writes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1249,7 +1597,7 @@ def test_malformed_claimed_decision_default_run_blocked_before_writes(
 
     monkeypatch.setattr(runtime.LiveBaseTeamAdapter, "execute", fail_if_called)
 
-    code = main(["run", "--pipeline-plan", str(plan_path)])
+    code = main(["run", "--pipeline-plan", str(plan_path), "--live-testing"])
 
     assert code == 2
     result = json.loads(capsys.readouterr().out)
@@ -1260,7 +1608,7 @@ def test_malformed_claimed_decision_default_run_blocked_before_writes(
     assert not (plan_path.parent / "runtime_agent_specs.jsonl").exists()
 
 
-def test_malformed_live_testing_playbook_blocks_promoted_default_run_before_writes(
+def test_malformed_live_testing_playbook_blocks_promoted_live_testing_run_before_writes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1279,7 +1627,7 @@ def test_malformed_live_testing_playbook_blocks_promoted_default_run_before_writ
 
     monkeypatch.setattr(runtime.LiveBaseTeamAdapter, "execute", fail_if_called)
 
-    code = main(["run", "--pipeline-plan", str(plan_path)])
+    code = main(["run", "--pipeline-plan", str(plan_path), "--live-testing"])
 
     assert code == 2
     result = json.loads(capsys.readouterr().out)
@@ -1291,7 +1639,7 @@ def test_malformed_live_testing_playbook_blocks_promoted_default_run_before_writ
 
 
 
-def test_resume_without_flags_uses_same_promotion_rules(
+def test_resume_without_flags_uses_source_hunt_and_live_testing_uses_promotion_rules(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1301,14 +1649,24 @@ def test_resume_without_flags_uses_same_promotion_rules(
 
     blocked_root = tmp_path / "blocked"
     blocked_root.mkdir()
+    (blocked_root / "target").mkdir()
     blocked_plan = _write_plan(blocked_root, selected_count=1, deferred_count=0)
+    blocked_called = {}
+
+    def fake_source_execute(self, specs):
+        blocked_called["keys"] = [spec.key for spec in specs]
+        return {spec.key: "completed" for spec in specs}
+
+    monkeypatch.setattr(runtime.LiveBaseTeamAdapter, "execute", fake_source_execute)
 
     blocked_code = main(["resume", "--pipeline-plan", str(blocked_plan)])
 
-    assert blocked_code == 2
+    assert blocked_code == 0
     blocked = json.loads(capsys.readouterr().out)
     assert blocked["runtime_promotion_decision"]["status"] == "missing"
-    assert not run_state_path_for_plan(blocked_plan).exists()
+    assert blocked["execution_mode"] == "source-hunt"
+    assert blocked_called["keys"] == ["agent-1"]
+    assert run_state_path_for_plan(blocked_plan).exists()
 
     live_root = tmp_path / "live"
     live_root.mkdir()
@@ -1327,7 +1685,7 @@ def test_resume_without_flags_uses_same_promotion_rules(
 
     assert live_code == 0
     live = json.loads(capsys.readouterr().out)
-    assert live["execution_mode"] == "live"
+    assert live["execution_mode"] == "source-hunt"
     assert called["keys"] == ["agent-1"]
 
 
@@ -1470,7 +1828,7 @@ def test_execute_live_rejected_when_required_gate_fails_and_adapter_not_called(t
     payload["runtime_handoff_contract"] = build_runtime_handoff_contract(payload).to_dict()
     plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+    result = execute_next_wave(plan_path, execute_live=True, live_testing_enabled=True, adapter=FailingIfCalledAdapter())
 
     assert result["ok"] is False
     assert result["executed"] == 0
@@ -1487,7 +1845,7 @@ def test_execute_live_rejected_when_environment_approval_missing_before_writes(t
     payload.pop("runtime_environment_approval")
     plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+    result = execute_next_wave(plan_path, execute_live=True, live_testing_enabled=True, adapter=FailingIfCalledAdapter())
 
     assert result["ok"] is False
     assert result["executed"] == 0
@@ -1504,7 +1862,7 @@ def test_execute_live_rejected_when_environment_approval_expired_before_writes(t
     payload["runtime_environment_approval"]["expires_at"] = "2000-01-01T00:00:00Z"
     plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+    result = execute_next_wave(plan_path, execute_live=True, live_testing_enabled=True, adapter=FailingIfCalledAdapter())
 
     assert result["ok"] is False
     assert result["executed"] == 0
@@ -1521,7 +1879,7 @@ def test_execute_live_rejected_when_environment_approval_scope_mismatches_before
     payload["runtime_environment_approval"]["scope"]["program"] = "other-program"
     plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+    result = execute_next_wave(plan_path, execute_live=True, live_testing_enabled=True, adapter=FailingIfCalledAdapter())
 
     assert result["ok"] is False
     assert result["executed"] == 0
@@ -1538,7 +1896,7 @@ def test_execute_live_rejected_when_action_policy_allows_payment_by_default_befo
     payload["runtime_action_policy"]["classifications"]["allowed_private"]["action_tags"].append("payment")
     plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+    result = execute_next_wave(plan_path, execute_live=True, live_testing_enabled=True, adapter=FailingIfCalledAdapter())
 
     assert result["ok"] is False
     assert result["executed"] == 0
@@ -1556,7 +1914,7 @@ def test_execute_live_rejected_when_protocol_claims_enabled_and_adapter_not_call
     payload["runtime_handoff_contract"] = build_runtime_handoff_contract(payload).to_dict()
     plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+    result = execute_next_wave(plan_path, execute_live=True, live_testing_enabled=True, adapter=FailingIfCalledAdapter())
 
     assert result["ok"] is False
     assert result["executed"] == 0
@@ -1586,7 +1944,7 @@ def test_execute_live_rejected_when_readiness_claims_enabled_before_state_or_ada
     payload["runtime_handoff_contract"] = build_runtime_handoff_contract(payload).to_dict()
     plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+    result = execute_next_wave(plan_path, execute_live=True, live_testing_enabled=True, adapter=FailingIfCalledAdapter())
 
     assert result["ok"] is False
     assert result["executed"] == 0
@@ -1625,7 +1983,7 @@ def test_execute_live_rejected_when_operator_approval_schema_claims_approved_bef
     payload["runtime_handoff_contract"] = build_runtime_handoff_contract(payload).to_dict()
     plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+    result = execute_next_wave(plan_path, execute_live=True, live_testing_enabled=True, adapter=FailingIfCalledAdapter())
 
     assert result["ok"] is False
     assert result["executed"] == 0
@@ -1658,7 +2016,7 @@ def test_execute_live_rejected_when_request_packet_claims_promoted_before_writes
     payload["runtime_handoff_contract"] = build_runtime_handoff_contract(payload).to_dict()
     plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    result = execute_next_wave(plan_path, execute_live=True, adapter=FailingIfCalledAdapter())
+    result = execute_next_wave(plan_path, execute_live=True, live_testing_enabled=True, adapter=FailingIfCalledAdapter())
 
     assert result["ok"] is False
     assert result["executed"] == 0

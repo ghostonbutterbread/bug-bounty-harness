@@ -7,6 +7,7 @@ from agents.base_team import AgentSpec, BaseTeam
 from agents.dynamic_agent_builder import AgentSpec as DynamicBuilderAgentSpec
 from agents.hunt_pipeline.models import HypothesisAgentPacket
 from agents.hunt_pipeline.runtime_adapter import (
+    grouped_decisions_to_base_team_agent_specs,
     packet_to_base_team_agent_spec,
     packet_to_dynamic_agent_builder_agent_spec,
 )
@@ -57,6 +58,42 @@ def _packet(**overrides) -> HypothesisAgentPacket:
     )
     payload.update(overrides)
     return HypothesisAgentPacket(**payload)
+
+
+def _group_packet(
+    *,
+    hypothesis_id: str,
+    source_id: str,
+    file_path: str,
+    surface_family: str = "ipc-bridge",
+    kind: str = "ipc",
+    priority: str = "high",
+    role: str = "entry",
+    title: str | None = None,
+) -> HypothesisAgentPacket:
+    return HypothesisAgentPacket(
+        id=hypothesis_id,
+        key=f"{surface_family}-{hypothesis_id.lower()}",
+        title=title or f"{surface_family} {hypothesis_id}",
+        role=role,
+        surface_family=surface_family,
+        priority=priority,
+        target_kind="electron",
+        ruleset_id="electron-overlay",
+        source_evidence=(
+            {
+                "id": source_id,
+                "kind": kind,
+                "file": file_path,
+            },
+        ),
+        evidence_requirements=("trace renderer-controlled entry",),
+        chain_requirements=("check adjacent branch when code evidence supports it",),
+        focus_files=(file_path, "src/preload.ts"),
+        tags=("desktop", surface_family),
+        reasons=(f"selected from {source_id}",),
+        scheduler_metadata={"hypothesis_id": hypothesis_id},
+    )
 
 
 def test_packet_to_base_team_agent_spec_maps_fields() -> None:
@@ -183,3 +220,105 @@ def test_packet_to_dynamic_agent_builder_agent_spec_maps_legacy_shape() -> None:
     assert spec.parent_keys == ["hunt-pipeline", "electron-overlay", "HP-123"]
     assert spec.version == "pipeline-v1"
     assert spec.created_at == "2026-05-13T12:00:00Z"
+
+
+def test_grouped_decisions_collapse_duplicates_rank_under_cap_and_report_coverage(tmp_path: Path) -> None:
+    packets = [
+        _group_packet(hypothesis_id="HP-1", source_id="S0001", file_path="src/ipc/a.ts"),
+        _group_packet(
+            hypothesis_id="HP-2",
+            source_id="S0001",
+            file_path="src/ipc/a.ts",
+            title="duplicate source same family should collapse",
+        ),
+        _group_packet(
+            hypothesis_id="HP-3",
+            source_id="S0002",
+            file_path="src/preload/b.ts",
+            surface_family="preload-native-bridge",
+            kind="preload",
+            role="amplifier",
+        ),
+        _group_packet(
+            hypothesis_id="HP-4",
+            source_id="S0003",
+            file_path="src/render/c.ts",
+            surface_family="rendering-content-parser",
+            kind="rendering",
+            priority="medium",
+        ),
+    ]
+    scheduler_plan = {
+        "selected": [{"hypothesis_id": "HP-1", "agent_key": "agent-1"}],
+        "deferred": [{"hypothesis_id": "HP-3", "agent_key": "agent-3"}],
+        "skipped": [],
+    }
+
+    specs, summary = grouped_decisions_to_base_team_agent_specs(
+        scheduler_plan,
+        packets,
+        program="demo",
+        snapshot_id="snapshot-1",
+        max_agents=2,
+        created_at="2026-05-13T12:00:00Z",
+    )
+
+    assert summary["input_hypotheses"] == 4
+    assert summary["collapsed_groups"] == 3
+    assert summary["selected_groups"] == 2
+    assert summary["deferred_groups"] == 1
+    assert summary["skipped_groups"] == 0
+    assert summary["agent_specs_created"] == 2
+    assert summary["top_source_coverage"][0]["source"] == "S0001|src/ipc/a.ts"
+    assert summary["top_source_coverage"][0]["hypotheses"] == 2
+    assert summary["hypothesis_counts"] == {"selected": 1, "deferred": 1, "skipped": 0, "candidate": 2}
+    assert len(specs) == 2
+    assert any("HP-1" in spec.prompt_template and "HP-2" in spec.prompt_template for spec in specs)
+    assert all(spec.metadata["adapter"] == "agents.hunt_pipeline.runtime_adapter" for spec in specs)
+    assert all(spec.metadata["runtime_handoff"]["spawn_enabled"] is False for spec in specs)
+
+    target = tmp_path / "target"
+    target.mkdir()
+    with patch.object(Path, "home", return_value=tmp_path):
+        team = DummyTeam("demo", "0day_team", target, output_root=tmp_path / "out", max_agents=2)
+    rendered = [team._render_prompt(spec) for spec in specs]
+    assert any("starting point, not a hard gate" in prompt for prompt in rendered)
+
+
+def test_grouped_decisions_include_adjacent_same_source_hypotheses_in_prompt(tmp_path: Path) -> None:
+    packets = [
+        _group_packet(hypothesis_id="HP-1", source_id="S0001", file_path="src/ipc/a.ts"),
+        _group_packet(
+            hypothesis_id="HP-2",
+            source_id="S0001",
+            file_path="src/preload/b.ts",
+            surface_family="preload-native-bridge",
+            kind="preload",
+            title="same source adjacent preload branch",
+        ),
+    ]
+    scheduler_plan = {
+        "selected": [{"hypothesis_id": "HP-1", "agent_key": "agent-1"}],
+        "deferred": [{"hypothesis_id": "HP-2", "agent_key": "agent-2"}],
+        "skipped": [],
+    }
+
+    specs, _summary = grouped_decisions_to_base_team_agent_specs(
+        scheduler_plan,
+        packets,
+        program="demo",
+        snapshot_id="snapshot-1",
+        max_agents=1,
+    )
+
+    target = tmp_path / "target"
+    target.mkdir()
+    with patch.object(Path, "home", return_value=tmp_path):
+        team = DummyTeam("demo", "0day_team", target, output_root=tmp_path / "out", max_agents=1)
+    [prompt] = [team._render_prompt(spec) for spec in specs]
+
+    assert len(specs) == 1
+    assert "HP-1" in prompt
+    assert "Adjacent source-backed hypotheses not assigned to this exact group:" in prompt
+    assert "HP-2" in prompt
+    assert "same source adjacent preload branch" in prompt

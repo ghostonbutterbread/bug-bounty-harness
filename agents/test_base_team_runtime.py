@@ -121,6 +121,54 @@ def test_spawn_agent_uses_read_only_codex_with_prompt_file_stdin(tmp_path: Path)
         log_handle.close()
 
 
+def test_spawn_agent_artifact_write_mode_scopes_codex_to_artifact_dir(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    team_dir = tmp_path / "team"
+    team_dir.mkdir()
+    workdir = tmp_path / "repo"
+    workdir.mkdir()
+    artifacts = tmp_path / "artifacts"
+    log_path = tmp_path / "logs" / "agent.log"
+    traces: list[dict[str, object]] = []
+    active_handles: dict[str, _FakeSpawnProcess] = {}
+    captured: dict[str, object] = {}
+    fake_process = _FakeSpawnProcess()
+
+    def fake_popen(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return fake_process
+
+    with patch("agents.base_team.runtime.subprocess.Popen", side_effect=fake_popen):
+        process = spawn_agent(
+            "prompt body",
+            "poc-writer",
+            log_path,
+            ensure_parent=lambda path: path.parent.mkdir(parents=True, exist_ok=True),
+            team_dir=team_dir,
+            workdir=workdir,
+            target_path=target,
+            active_handles=active_handles,
+            write_traces=lambda events: traces.extend(events),
+            slug=lambda value: value.replace("-", "_"),
+            sandbox_mode="artifact-write",
+            writable_artifact_dir=artifacts,
+        )
+
+    assert process is fake_process
+    shell_command = str(captured["command"][2])
+    assert "codex exec -s workspace-write --skip-git-repo-check --cd" in shell_command
+    assert str(artifacts) in shell_command
+    assert "danger-full-access" not in shell_command
+    assert artifacts.is_dir()
+    assert traces[0]["command"] == shell_command
+
+    log_handle = getattr(fake_process, "_bbh_log_handle", None)
+    if log_handle is not None:
+        log_handle.close()
+
+
 def test_base_team_review_prompt_uses_shared_normalize_relpath(tmp_path: Path) -> None:
     target = tmp_path / "target"
     src = target / "src"

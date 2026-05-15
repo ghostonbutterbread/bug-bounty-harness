@@ -30,6 +30,7 @@ def test_hunt_pipeline_models_render_schema_friendly_dicts() -> None:
     )
     artifact = PipelineDryRunArtifact(
         schema_version=1,
+        run_id="hunt-20260514T000000Z-model",
         program="demo",
         target_path="/tmp/demo",
         target_kind="desktop",
@@ -54,6 +55,7 @@ def test_hunt_pipeline_models_render_schema_friendly_dicts() -> None:
     rendered = artifact.to_dict()
 
     assert rendered["schema_version"] == 1
+    assert rendered["run_id"] == "hunt-20260514T000000Z-model"
     assert rendered["normalized_map"]["counts"]["surfaces"] == 1
     assert rendered["normalized_map"]["legacy_policy_shaped"] is True
     assert rendered["hypotheses"][0]["id"] == "HP-1"

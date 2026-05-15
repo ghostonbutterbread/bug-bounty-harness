@@ -8,7 +8,8 @@ from typing import Any, Mapping, Sequence
 
 from agents.base_team import AgentSpec as BaseTeamAgentSpec
 from agents.dynamic_agent_builder import AgentSpec as DynamicBuilderAgentSpec
-from agents.hunt_pipeline.models import HypothesisAgentPacket
+from agents.hunt_pipeline.category_pack_planner import pack_verdict_options, plan_category_packs
+from agents.hunt_pipeline.models import CategoryPack, CategoryPackPlan, HypothesisAgentPacket
 
 ADAPTER_SCHEMA_VERSION = 1
 ADAPTER_NAME = "agents.hunt_pipeline.runtime_adapter"
@@ -186,6 +187,75 @@ def selected_decisions_to_base_team_agent_specs(
             created_at=created_at,
         )
         for decision in decisions
+    ]
+
+
+def category_pack_to_base_team_agent_spec(
+    pack: CategoryPack,
+    packets_by_id: Mapping[str, HypothesisAgentPacket | Mapping[str, Any]],
+    *,
+    program: str,
+    snapshot_id: str,
+    created_at: str | None = None,
+) -> BaseTeamAgentSpec:
+    packet_map = {packet_id: _coerce_packet(packet) for packet_id, packet in packets_by_id.items()}
+    missing_hypothesis_ids = [hypothesis_id for hypothesis_id in pack.hypothesis_ids if hypothesis_id not in packet_map]
+    if missing_hypothesis_ids:
+        raise KeyError(
+            f"category pack {pack.pack_id!r} references unresolved hypothesis ids: "
+            f"{', '.join(missing_hypothesis_ids)}"
+        )
+    members = [packet_map[hypothesis_id] for hypothesis_id in pack.hypothesis_ids]
+    created = created_at or _timestamp_iso()
+    focus_globs = list(pack.source_files) or list(dict.fromkeys(item for packet in members for item in packet.focus_files))
+    metadata = {
+        "adapter": ADAPTER_NAME,
+        "adapter_schema_version": ADAPTER_SCHEMA_VERSION,
+        "runtime_handoff": {
+            "conversion_only": True,
+            "spawn_enabled": False,
+            "ledger_writes_enabled": False,
+        },
+        "category_pack": pack.to_dict(),
+        "category_pack_id": pack.pack_id,
+        "category_pack_hypothesis_ids": list(pack.hypothesis_ids),
+        "category_pack_evidence_ids": list(pack.evidence_ids),
+        "source_files": list(pack.source_files),
+        "selected_hypothesis_ids": list(pack.hypothesis_ids),
+        "surface_family": pack.surface_family,
+        "source_path_kind": "pipeline-category-pack",
+    }
+    return BaseTeamAgentSpec(
+        key=pack.pack_id,
+        vuln_class=pack.vuln_class,
+        surface=pack.surface_family,
+        prompt_template=_category_pack_prompt(pack, members),
+        focus_globs=focus_globs,
+        code_patterns=_group_code_patterns_from_packets(members),
+        program=str(program).strip(),
+        created_at=created,
+        snapshot_id=str(snapshot_id).strip(),
+        metadata=metadata,
+    )
+
+
+def category_packs_to_base_team_agent_specs(
+    plan: CategoryPackPlan,
+    packets_by_id: Mapping[str, HypothesisAgentPacket | Mapping[str, Any]],
+    *,
+    program: str,
+    snapshot_id: str,
+    created_at: str | None = None,
+) -> list[BaseTeamAgentSpec]:
+    return [
+        category_pack_to_base_team_agent_spec(
+            pack,
+            packets_by_id,
+            program=program,
+            snapshot_id=snapshot_id,
+            created_at=created_at,
+        )
+        for pack in plan.packs
     ]
 
 
@@ -506,6 +576,8 @@ def _group_to_base_team_agent_spec(
     primary = group.primary_packet
     source_files = _source_files(group)
     focus_globs = source_files or list(dict.fromkeys(primary.focus_files))
+    category_pack_plan = plan_category_packs(group.packets)
+    category_packs = [pack.to_dict() for pack in category_pack_plan.packs]
     metadata = {
         "adapter": ADAPTER_NAME,
         "adapter_schema_version": ADAPTER_SCHEMA_VERSION,
@@ -531,10 +603,15 @@ def _group_to_base_team_agent_spec(
         "scheduler_decision": copy.deepcopy(group.decisions[0]) if group.decisions else {},
         "scheduler_decisions": copy.deepcopy(group.decisions),
         "grouped_evidence": _grouped_evidence(group),
+        "category_pack_plan": category_pack_plan.to_dict(),
+        "category_packs": category_packs,
+        "category_pack_ids": [pack["pack_id"] for pack in category_packs],
         "source_files": source_files,
         "adjacent_hypothesis_ids": [packet.id for packet in group.adjacent_packets],
         "source_path_kind": "pipeline-hypothesis-plan",
     }
+    if len(category_packs) == 1:
+        metadata["category_pack"] = category_packs[0]
     return BaseTeamAgentSpec(
         key=group.decision_agent_keys[0] if len(group.member_ids) == 1 and group.decision_agent_keys else _group_key(group),
         vuln_class=group.family_key,
@@ -551,6 +628,7 @@ def _group_to_base_team_agent_spec(
 
 def _group_prompt(group: _GroupedPacketSet) -> str:
     primary = group.primary_packet
+    category_pack_plan = plan_category_packs(group.packets)
     member_lines = []
     for packet in sorted(group.packets, key=lambda item: item.id):
         member_lines.append(
@@ -590,10 +668,15 @@ def _group_prompt(group: _GroupedPacketSet) -> str:
         + "\n".join(reason_lines)
         + "\n\nFocus globs:\n{focus_globs}\n\n"
         "Relevant code patterns:\n{code_patterns}\n\n"
+        "Category-pack planning:\n"
+        + _category_pack_prompt_section(category_pack_plan, group.packets)
+        + "\n\n"
         "Rules:\n"
         "- This group is a starting point, not a hard gate. If adjacent source-backed branches look strong, pursue them and document how they branch from this evidence cluster.\n"
         "- Stay anchored to grouped evidence, source files, and the target's trust boundaries before widening scope.\n"
         "- Treat stale or ambiguous branches as hypotheses until code evidence proves reachability.\n"
+        "- This agent evaluates multiple hypotheses. Emit a per-hypothesis verdict for every listed hypothesis before closing the task.\n"
+        "- Optional specialist follow-up requests are allowed only when static evidence justifies them.\n"
         "- If there is no real issue, print exactly: {{}}\n"
         "- When you find an issue, append a single-line JSON object to {findings_path} and print the same JSON line to stdout.\n"
         "- Use keys: agent, category, class_name, type, file, line, description, severity, context, source, trust_boundary, flow_path, sink, exploitability.\n\n"
@@ -730,8 +813,12 @@ def _group_key(group: _GroupedPacketSet) -> str:
 
 
 def _group_code_patterns(group: _GroupedPacketSet) -> list[str]:
+    return _group_code_patterns_from_packets(group.packets)
+
+
+def _group_code_patterns_from_packets(packets: Sequence[HypothesisAgentPacket]) -> list[str]:
     values: list[str] = []
-    for packet in group.packets:
+    for packet in packets:
         for item in (*packet.evidence_requirements, *packet.chain_requirements, *packet.tags, *packet.secondary_families):
             cleaned = str(item).strip()
             if cleaned and cleaned not in values:
@@ -799,6 +886,119 @@ def _source_coverage(groups: Sequence[_GroupedPacketSet]) -> list[dict[str, Any]
         item["groups"] += 1
         item["hypotheses"] += len(group.member_ids)
     return sorted(coverage.values(), key=lambda item: (-int(item["groups"]), -int(item["hypotheses"]), item["source"]))
+
+
+def _category_pack_prompt(
+    pack: CategoryPack,
+    packets: Sequence[HypothesisAgentPacket],
+) -> str:
+    member_lines = []
+    for packet in sorted(packets, key=lambda item: item.id):
+        member_lines.append(
+            f"- {_format_safe(packet.id)} | role={_format_safe(packet.role)} | "
+            f"priority={_format_safe(packet.priority)} | {_format_safe(packet.title)}"
+        )
+    evidence_lines = [f"- {_format_safe(item)}" for item in pack.evidence_ids] or ["- None provided"]
+    source_files = [f"- {_format_safe(item)}" for item in pack.source_files] or ["- None provided"]
+    route_keys = [f"- {_format_safe(item)}" for item in pack.route_or_endpoint_keys] or ["- None provided"]
+    sink_types = [f"- {_format_safe(item)}" for item in pack.sink_types] or ["- None provided"]
+    entry_paths = [f"- {_format_safe(item)}" for item in pack.entry_paths] or ["- None provided"]
+    expected_outputs = [f"- {_format_safe(item)}" for item in pack.expected_outputs] or ["- None provided"]
+    verdicts = [f"- {_format_safe(item)}" for item in pack_verdict_options()]
+    policy_id = _format_safe(pack.policy_id or "None")
+    guardrail = _category_pack_guardrail(pack)
+    return (
+        f'You are a hunt-pipeline category-pack agent for "{_format_safe(pack.vuln_class)}".\n\n'
+        "Program: {program}\n"
+        "BaseTeam storage team_type: {team_type}\n"
+        "Family/lane: {family}/{lane}\n"
+        "Target path: {target_path}\n"
+        "Snapshot id: {snapshot_id}\n"
+        "Shared brain index: {shared_brain_index}\n"
+        "Append-only findings file: {findings_path}\n"
+        "Ledger path: {ledger_path}\n"
+        "Reports root: {reports_root}\n"
+        "Notes root: {notes_root}\n"
+        "Traces root: {traces_dir}\n\n"
+        f"Category pack id: {_format_safe(pack.pack_id)}\n"
+        f"Vulnerability class: {_format_safe(pack.vuln_class)}\n"
+        f"Subclass: {_format_safe(pack.subclass)}\n"
+        f"Surface family: {_format_safe(pack.surface_family)}\n"
+        f"Context cluster: {_format_safe(pack.context_cluster_id)}\n"
+        f"Policy id: {policy_id}\n"
+        f"Specialist follow-up allowed: {_format_safe(str(pack.specialist_followup_allowed).lower())}\n\n"
+        "Hypotheses in this pack:\n"
+        + "\n".join(member_lines)
+        + "\n\nEvidence ids:\n"
+        + "\n".join(evidence_lines)
+        + "\n\nSource files:\n"
+        + "\n".join(source_files)
+        + "\n\nRoute or endpoint keys:\n"
+        + "\n".join(route_keys)
+        + "\n\nSink types:\n"
+        + "\n".join(sink_types)
+        + "\n\nEntry paths:\n"
+        + "\n".join(entry_paths)
+        + "\n\nExpected outputs:\n"
+        + "\n".join(expected_outputs)
+        + "\n\nPer-hypothesis verdicts are required for every listed hypothesis.\n"
+        "Allowed verdict values:\n"
+        + "\n".join(verdicts)
+        + "\n\nOptional specialist follow-up requests must be evidence-based and scoped to concrete hypothesis ids.\n"
+        + guardrail
+        + "\nFocus globs:\n{focus_globs}\n\n"
+        "Relevant code patterns:\n{code_patterns}\n\n"
+        "Hunting policy:\n"
+        "{hunting_policy_snippet}"
+    )
+
+
+def _category_pack_prompt_section(
+    plan: CategoryPackPlan,
+    packets: Sequence[HypothesisAgentPacket],
+) -> str:
+    packet_map = {packet.id: packet for packet in packets}
+    sections: list[str] = []
+    for pack in plan.packs:
+        sections.append(
+            f"- Pack {_format_safe(pack.pack_id)} | class={_format_safe(pack.vuln_class)} | "
+            f"subclass={_format_safe(pack.subclass)} | context={_format_safe(pack.context_cluster_id)} | "
+            f"hypotheses={_format_safe(', '.join(pack.hypothesis_ids))}"
+        )
+        if pack.evidence_ids:
+            sections.append(f"  Evidence ids: {_format_safe(', '.join(pack.evidence_ids))}")
+        if pack.route_or_endpoint_keys:
+            sections.append(f"  Route keys: {_format_safe(', '.join(pack.route_or_endpoint_keys))}")
+        if pack.sink_types:
+            sections.append(f"  Sink types: {_format_safe(', '.join(pack.sink_types))}")
+        if pack.entry_paths:
+            sections.append(f"  Entry paths: {_format_safe(', '.join(pack.entry_paths))}")
+        if pack.specialist_followup_allowed:
+            sections.append("  Specialist follow-up requests are allowed when static evidence supports them.")
+        guardrail = _category_pack_guardrail(pack)
+        if guardrail:
+            sections.append(f"  {_format_safe(guardrail.strip())}")
+        for hypothesis_id in pack.hypothesis_ids:
+            packet = packet_map.get(hypothesis_id)
+            if packet is None:
+                continue
+            sections.append(
+                f"  - {_format_safe(packet.id)} => {_format_safe(packet.title)} "
+                f"(role={_format_safe(packet.role)}, priority={_format_safe(packet.priority)})"
+            )
+    verdict_lines = ", ".join(pack_verdict_options())
+    sections.append(f"- Per-hypothesis verdict values: {_format_safe(verdict_lines)}")
+    sections.append("- Optional specialist follow-up requests must cite hypothesis ids and concrete static evidence.")
+    return "\n".join(sections) or "- None provided"
+
+
+def _category_pack_guardrail(pack: CategoryPack) -> str:
+    if pack.vuln_class != "ipc":
+        return ""
+    return (
+        "\nIPC/HostRpc bridge-only or dangerous-method evidence is amplifier-only and non-reportable "
+        "unless attacker-controlled renderer, deeplink, file, or import entry-path evidence exists.\n"
+    )
 
 
 def _packet_signature(packet: HypothesisAgentPacket) -> tuple[Any, ...]:

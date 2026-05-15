@@ -3,10 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from agents.base_team import AgentSpec, BaseTeam
 from agents.dynamic_agent_builder import AgentSpec as DynamicBuilderAgentSpec
+from agents.hunt_pipeline.category_pack_planner import plan_category_packs
 from agents.hunt_pipeline.models import HypothesisAgentPacket
 from agents.hunt_pipeline.runtime_adapter import (
+    category_pack_to_base_team_agent_spec,
     grouped_decisions_to_base_team_agent_specs,
     packet_to_base_team_agent_spec,
     packet_to_dynamic_agent_builder_agent_spec,
@@ -322,3 +326,233 @@ def test_grouped_decisions_include_adjacent_same_source_hypotheses_in_prompt(tmp
     assert "Adjacent source-backed hypotheses not assigned to this exact group:" in prompt
     assert "HP-2" in prompt
     assert "same source adjacent preload branch" in prompt
+
+
+def test_category_pack_conversion_preserves_pack_metadata_and_prompt(tmp_path: Path) -> None:
+    packets = [
+        _group_packet(
+            hypothesis_id="HP-1",
+            source_id="S0001",
+            file_path="src/render/editor.ts",
+            surface_family="rendering-content-parser",
+            kind="rendering",
+            title="stored rich text import",
+        ),
+        _group_packet(
+            hypothesis_id="HP-2",
+            source_id="S0002",
+            file_path="src/render/editor.ts",
+            surface_family="rendering-content-parser",
+            kind="rendering",
+            title="stored rich text import variant",
+        ),
+    ]
+    packets = [
+        HypothesisAgentPacket(
+            **{
+                **packet.to_dict(),
+                "tags": ("rich-text", "stored"),
+                "scheduler_metadata": {"route": "/editor/import", "entry_path": "rich-text-import"},
+            }
+        )
+        for packet in packets
+    ]
+    plan = plan_category_packs(packets)
+
+    spec = category_pack_to_base_team_agent_spec(
+        plan.packs[0],
+        {packet.id: packet for packet in packets},
+        program="demo",
+        snapshot_id="snapshot-1",
+        created_at="2026-05-13T12:00:00Z",
+    )
+
+    assert spec.key == plan.packs[0].pack_id
+    assert spec.metadata["category_pack"]["pack_id"] == plan.packs[0].pack_id
+    assert spec.metadata["category_pack"]["subclass"] == "rich-text-renderer-xss"
+    assert "Per-hypothesis verdicts are required" in spec.prompt_template
+    assert "Optional specialist follow-up requests must be evidence-based" in spec.prompt_template
+
+    target = tmp_path / "target"
+    target.mkdir()
+    with patch.object(Path, "home", return_value=tmp_path):
+        team = DummyTeam("demo", "0day_team", target, output_root=tmp_path / "out", max_agents=1)
+    rendered = team._render_prompt(spec)
+    assert "Category pack id:" in rendered
+    assert "rich-text-renderer-xss" in rendered
+
+
+def test_category_pack_conversion_raises_for_unresolved_hypothesis_ids() -> None:
+    packets = [
+        _group_packet(
+            hypothesis_id="HP-1",
+            source_id="S0001",
+            file_path="src/main/ipc.ts",
+            surface_family="ipc-bridge",
+            kind="ipc",
+            title="filesystem ipc branch",
+        ),
+        _group_packet(
+            hypothesis_id="HP-2",
+            source_id="S0002",
+            file_path="src/main/ipc.ts",
+            surface_family="ipc-bridge",
+            kind="ipc",
+            title="filesystem ipc branch variant",
+        ),
+    ]
+    packets = [
+        HypothesisAgentPacket(
+            **{
+                **packet.to_dict(),
+                "tags": ("filesystem", "openfile"),
+                "scheduler_metadata": {"policy_id": "electron-application-first-loose"},
+            }
+        )
+        for packet in packets
+    ]
+    [pack] = plan_category_packs(packets).packs
+
+    with pytest.raises(KeyError, match="unresolved hypothesis ids: HP-2"):
+        category_pack_to_base_team_agent_spec(
+            pack,
+            {"HP-1": packets[0]},
+            program="demo",
+            snapshot_id="snapshot-1",
+        )
+
+
+def test_ipc_category_pack_prompt_includes_bridge_only_guardrail(tmp_path: Path) -> None:
+    packets = [
+        HypothesisAgentPacket(
+            **{
+                **_group_packet(
+                    hypothesis_id="HP-1",
+                    source_id="S0001",
+                    file_path="src/main/ipc.ts",
+                    surface_family="ipc-bridge",
+                    kind="ipc",
+                    title="filesystem ipc branch",
+                    role="amplifier",
+                ).to_dict(),
+                "tags": ("filesystem", "openfile"),
+                "scheduler_metadata": {"policy_id": "electron-application-first-loose"},
+            }
+        )
+    ]
+    [pack] = plan_category_packs(packets).packs
+
+    spec = category_pack_to_base_team_agent_spec(
+        pack,
+        {packet.id: packet for packet in packets},
+        program="demo",
+        snapshot_id="snapshot-1",
+        created_at="2026-05-13T12:00:00Z",
+    )
+
+    assert "bridge-only or dangerous-method evidence is amplifier-only and non-reportable" in spec.prompt_template
+
+    target = tmp_path / "target"
+    target.mkdir()
+    with patch.object(Path, "home", return_value=tmp_path):
+        team = DummyTeam("demo", "0day_team", target, output_root=tmp_path / "out", max_agents=1)
+    rendered = team._render_prompt(spec)
+
+    assert "IPC/HostRpc bridge-only or dangerous-method evidence is amplifier-only and non-reportable" in rendered
+    assert "attacker-controlled renderer, deeplink, file, or import entry-path evidence exists" in rendered
+
+
+def test_non_ipc_electron_file_import_pack_does_not_include_bridge_only_guardrail(tmp_path: Path) -> None:
+    packets = [
+        HypothesisAgentPacket(
+            **{
+                **_group_packet(
+                    hypothesis_id="HP-IMPORT-1",
+                    source_id="S0101",
+                    file_path="src/import/project.ts",
+                    surface_family="file-ingestion-import",
+                    kind="file-import",
+                    title="project import parser handoff",
+                    role="entry",
+                ).to_dict(),
+                "tags": ("project", "config"),
+                "scheduler_metadata": {"entry_path": "imported-project-file"},
+            }
+        )
+    ]
+    [pack] = plan_category_packs(packets).packs
+
+    assert pack.vuln_class == "file-import"
+    assert pack.policy_id == "electron-policy"
+
+    spec = category_pack_to_base_team_agent_spec(
+        pack,
+        {packet.id: packet for packet in packets},
+        program="demo",
+        snapshot_id="snapshot-1",
+        created_at="2026-05-13T12:00:00Z",
+    )
+
+    assert "bridge-only or dangerous-method evidence is amplifier-only and non-reportable" not in spec.prompt_template
+
+    target = tmp_path / "target"
+    target.mkdir()
+    with patch.object(Path, "home", return_value=tmp_path):
+        team = DummyTeam("demo", "0day_team", target, output_root=tmp_path / "out", max_agents=1)
+    rendered = team._render_prompt(spec)
+
+    assert "IPC/HostRpc bridge-only or dangerous-method evidence is amplifier-only and non-reportable" not in rendered
+
+
+def test_grouped_decisions_surface_category_pack_plan_in_metadata_and_prompt(tmp_path: Path) -> None:
+    packets = [
+        _group_packet(
+            hypothesis_id="HP-1",
+            source_id="S0001",
+            file_path="src/main/ipc.ts",
+            surface_family="ipc-bridge",
+            kind="ipc",
+            title="filesystem ipc branch",
+        ),
+        _group_packet(
+            hypothesis_id="HP-2",
+            source_id="S0001",
+            file_path="src/main/ipc.ts",
+            surface_family="ipc-bridge",
+            kind="ipc",
+            title="window navigation ipc branch",
+        ),
+    ]
+    packets = [
+        HypothesisAgentPacket(
+            **{
+                **packet.to_dict(),
+                "tags": ("filesystem", "openfile") if packet.id == "HP-1" else ("window", "loadurl"),
+                "scheduler_metadata": {"policy_id": "electron-application-first-loose"},
+            }
+        )
+        for packet in packets
+    ]
+
+    specs, _summary = grouped_decisions_to_base_team_agent_specs(
+        {"selected": [{"hypothesis_id": "HP-1", "agent_key": "agent-1"}], "deferred": [], "skipped": []},
+        packets,
+        program="demo",
+        snapshot_id="snapshot-1",
+        max_agents=1,
+    )
+
+    [spec] = specs
+    assert len(spec.metadata["category_pack_plan"]["packs"]) == 2
+    assert spec.metadata["category_pack_ids"]
+
+    target = tmp_path / "target"
+    target.mkdir()
+    with patch.object(Path, "home", return_value=tmp_path):
+        team = DummyTeam("demo", "0day_team", target, output_root=tmp_path / "out", max_agents=1)
+    rendered = team._render_prompt(spec)
+
+    assert "Category-pack planning:" in rendered
+    assert "Per-hypothesis verdict values:" in rendered
+    assert "bridge-only or dangerous-method evidence is amplifier-only and non-reportable" in rendered
+    assert "specialist follow-up requests" in rendered.lower()

@@ -93,6 +93,41 @@ class HypothesisAgentPacket:
 
 
 @dataclass(frozen=True, slots=True)
+class CategoryPack:
+    pack_id: str
+    vuln_class: str
+    subclass: str
+    surface_family: str
+    context_cluster_id: str
+    source_files: tuple[str, ...] = ()
+    route_or_endpoint_keys: tuple[str, ...] = ()
+    sink_types: tuple[str, ...] = ()
+    entry_paths: tuple[str, ...] = ()
+    policy_id: str | None = None
+    hypothesis_ids: tuple[str, ...] = ()
+    evidence_ids: tuple[str, ...] = ()
+    priority_score: float = 0.0
+    reason: str = ""
+    expected_outputs: tuple[str, ...] = ()
+    specialist_followup_allowed: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class CategoryPackPlan:
+    packs: tuple[CategoryPack, ...] = ()
+    hypothesis_to_pack_id: dict[str, str] = field(default_factory=dict)
+    pack_to_hypothesis_ids: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    mode: str = "auto"
+    max_pack_size: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class PipelineSchedulerPlan:
     mode: str
     selected: tuple[dict[str, Any], ...] = ()

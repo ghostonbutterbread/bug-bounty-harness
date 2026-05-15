@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from agents.hunt_pipeline.models import HypothesisAgentPacket, NormalizedMapResult, PipelineDryRunArtifact, ResolvedRuleset
+from agents.hunt_pipeline.models import (
+    CategoryPack,
+    CategoryPackPlan,
+    HypothesisAgentPacket,
+    NormalizedMapResult,
+    PipelineDryRunArtifact,
+    ResolvedRuleset,
+)
 
 
 def test_hunt_pipeline_models_render_schema_friendly_dicts() -> None:
@@ -62,3 +69,39 @@ def test_hunt_pipeline_models_render_schema_friendly_dicts() -> None:
     assert rendered["live_testing_playbook"]["status"] == "planned-only"
     assert rendered["runtime_environment_approval"]["status"] == "approval_required"
     assert rendered["runtime_action_policy"]["status"] == "active"
+
+
+def test_category_pack_models_render_schema_friendly_dicts() -> None:
+    pack = CategoryPack(
+        pack_id="ipc.family-ipc-bridge.ipc-filesystem.src-main-ipc-ts.pack001",
+        vuln_class="ipc",
+        subclass="ipc-filesystem",
+        surface_family="ipc-bridge",
+        context_cluster_id="src/main/ipc.ts",
+        source_files=("src/main/ipc.ts",),
+        route_or_endpoint_keys=("dialog:openProject",),
+        sink_types=("filesystem",),
+        entry_paths=("renderer-ipc",),
+        policy_id="electron-policy",
+        hypothesis_ids=("HP-1", "HP-2"),
+        evidence_ids=("S0001", "S0002"),
+        priority_score=35.0,
+        reason="Packed same-file Electron IPC hypotheses",
+        expected_outputs=("per-hypothesis verdicts",),
+        specialist_followup_allowed=True,
+    )
+    plan = CategoryPackPlan(
+        packs=(pack,),
+        hypothesis_to_pack_id={"HP-1": pack.pack_id, "HP-2": pack.pack_id},
+        pack_to_hypothesis_ids={pack.pack_id: ("HP-1", "HP-2")},
+        mode="auto",
+        max_pack_size=10,
+    )
+
+    rendered = plan.to_dict()
+
+    assert rendered["packs"][0]["pack_id"] == pack.pack_id
+    assert rendered["packs"][0]["subclass"] == "ipc-filesystem"
+    assert rendered["hypothesis_to_pack_id"]["HP-1"] == pack.pack_id
+    assert rendered["pack_to_hypothesis_ids"][pack.pack_id] == ("HP-1", "HP-2")
+    assert rendered["max_pack_size"] == 10

@@ -45,8 +45,15 @@ def spawn_agent(
     active_handles: dict[str, subprocess.Popen[Any]],
     write_traces: WriteTracesFn,
     slug: SlugFn,
+    sandbox_mode: str = "read-only",
+    writable_artifact_dir: Path | None = None,
 ) -> subprocess.Popen[Any]:
-    """Spawn a codex subprocess and capture its output to the provided log."""
+    """Spawn a codex subprocess and capture its output to the provided log.
+
+    Default BaseTeam agents are read-only. Pipeline source-hunting waves may opt
+    into a scoped artifact-write mode so agents can save PoCs/notes under the
+    team artifact directory while still treating the target source as read-only.
+    """
     ensure_parent(log_path)
 
     with tempfile.NamedTemporaryFile(
@@ -61,10 +68,20 @@ def spawn_agent(
         handle.write("\n")
         prompt_file = Path(handle.name)
 
-    command = (
-        "codex exec -s read-only --skip-git-repo-check "
-        f"--cd {shlex.quote(str(workdir))} < {shlex.quote(str(prompt_file))}"
-    )
+    if sandbox_mode == "read-only":
+        command = (
+            "codex exec -s read-only --skip-git-repo-check "
+            f"--cd {shlex.quote(str(workdir))} < {shlex.quote(str(prompt_file))}"
+        )
+    elif sandbox_mode == "artifact-write":
+        artifact_dir = Path(writable_artifact_dir or team_dir).expanduser().resolve(strict=False)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        command = (
+            "codex exec -s workspace-write --skip-git-repo-check "
+            f"--cd {shlex.quote(str(artifact_dir))} < {shlex.quote(str(prompt_file))}"
+        )
+    else:
+        raise ValueError("sandbox_mode must be read-only or artifact-write")
 
     log_handle = log_path.open("ab")
     process = subprocess.Popen(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +26,7 @@ RUN_STATE_SCHEMA_VERSION = 1
 RUN_STATE_FILENAME = "run_state.json"
 CONTROL_FILENAME = "run_control.json"
 PLAN_FILENAME = "pipeline_plan.json"
+RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 RUNNABLE_STATUSES = {"selected", "deferred"}
 TERMINAL_STATUSES = {"completed", "failed", "skipped"}
@@ -39,6 +41,75 @@ def resolve_pipeline_plan_path(*, output_dir: str | Path | None = None, pipeline
     if output_dir is None:
         raise ValueError("either output_dir or pipeline_plan is required")
     return Path(output_dir).expanduser().resolve(strict=False) / PLAN_FILENAME
+
+
+def validate_run_id(run_id: str) -> str:
+    safe = str(run_id or "").strip()
+    if not safe or safe in {".", ".."} or not RUN_ID_RE.fullmatch(safe):
+        raise ValueError(
+            "run_id must be 1-128 ASCII letters, digits, dots, underscores, or hyphens; "
+            "it must start with a letter or digit and must not contain path separators"
+        )
+    return safe
+
+
+def discover_durable_runs(base_output_root: str | Path, *, limit: int | None = None) -> list[dict[str, Any]]:
+    root = Path(base_output_root).expanduser().resolve(strict=False)
+    if not root.exists() or not root.is_dir():
+        return []
+    runs: list[dict[str, Any]] = []
+    for plan_path in root.rglob(PLAN_FILENAME):
+        if not plan_path.is_file():
+            continue
+        try:
+            plan = load_pipeline_plan(plan_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if _is_tmp_output_plan(plan):
+            continue
+        summary = summarize_run(plan_path)
+        runs.append(
+            {
+                "run_id": _stored_run_id(plan, plan_path),
+                "program": str(plan.get("program") or ""),
+                "target_kind": str(plan.get("target_kind") or ""),
+                "selected": int(summary.get("selected") or 0),
+                "completed": int(summary.get("completed") or 0),
+                "unrun": int(summary.get("unrun") or 0),
+                "next_wave": int(summary.get("next_wave_count") or 0),
+                "path": str(plan_path.parent),
+                "pipeline_plan": str(plan_path),
+                "updated_at": _run_updated_at(plan_path, summary=summary, plan=plan),
+            }
+        )
+    runs.sort(key=_run_listing_sort_key, reverse=True)
+    if limit is not None:
+        return runs[: max(0, int(limit))]
+    return runs
+
+
+def resolve_durable_run_plan(
+    base_output_root: str | Path,
+    *,
+    run_id: str | None = None,
+    most_recent: bool = False,
+) -> Path:
+    root = Path(base_output_root).expanduser().resolve(strict=False)
+    if run_id:
+        safe_run_id = validate_run_id(run_id)
+        direct = root / safe_run_id / PLAN_FILENAME
+        if direct.is_file():
+            return direct.resolve(strict=False)
+        matches = [item for item in discover_durable_runs(root) if item.get("run_id") == safe_run_id]
+        if matches:
+            return Path(matches[0]["pipeline_plan"]).expanduser().resolve(strict=False)
+        raise FileNotFoundError(f"no durable hunt-pipeline run {safe_run_id!r} found under {root}")
+    if most_recent:
+        recent = discover_durable_runs(root, limit=1)
+        if recent:
+            return Path(recent[0]["pipeline_plan"]).expanduser().resolve(strict=False)
+        raise FileNotFoundError(f"no durable hunt-pipeline runs found under {root}")
+    raise ValueError("either run_id or most_recent=True is required")
 
 
 def load_pipeline_plan(path: str | Path) -> dict[str, Any]:
@@ -75,7 +146,8 @@ def initialize_run_state(plan_path: str | Path, plan: Mapping[str, Any] | None =
     agents = _merge_agent_records(plan_payload, existing.get("agents") if isinstance(existing.get("agents"), dict) else {})
     return {
         "schema_version": RUN_STATE_SCHEMA_VERSION,
-        "run_id": str(plan_payload.get("appmap_source", {}).get("run_root") or plan_payload.get("program") or "hunt-pipeline"),
+        "run_id": _stored_run_id(plan_payload, resolved_plan_path)
+        or str(plan_payload.get("appmap_source", {}).get("run_root") or plan_payload.get("program") or "hunt-pipeline"),
         "pipeline_plan": str(resolved_plan_path),
         "pause_requested": bool(existing.get("pause_requested", False) or control_flags.get("pause_requested", False)),
         "stopped": bool(existing.get("stopped", False) or control_flags.get("stopped", False)),
@@ -217,6 +289,8 @@ def summarize_run(plan_path: str | Path, *, max_agents: int | None = None, concu
     action_policy = evaluate_runtime_action_policy(plan, plan_path=plan_path)
     return {
         **counts,
+        "run_id": str(state.get("run_id") or _stored_run_id(plan, plan_path)),
+        "updated_at": _run_updated_at(plan_path, state=state, plan=plan),
         "pause_requested": bool(state.get("pause_requested", False)),
         "stopped_requested": bool(state.get("stopped", False)),
         "run_config": run_config,
@@ -494,4 +568,61 @@ def _normalized_run_config(config: Any) -> dict[str, Any]:
     payload = config if isinstance(config, Mapping) else {}
     return {
         "live_testing_enabled": bool(payload.get("live_testing_enabled", False)),
+        "no_ledger": bool(payload.get("no_ledger", False)),
     }
+
+
+def _stored_run_id(plan: Mapping[str, Any], plan_path: str | Path | None = None) -> str:
+    candidates = [
+        plan.get("run_id"),
+        ((plan.get("artifact_metadata") or {}).get("run") if isinstance(plan.get("artifact_metadata"), Mapping) else {}).get("run_id"),
+    ]
+    if plan_path is not None:
+        candidates.append(Path(plan_path).expanduser().resolve(strict=False).parent.name)
+    for candidate in candidates:
+        try:
+            return validate_run_id(str(candidate or "").strip())
+        except ValueError:
+            continue
+    return ""
+
+
+def _is_tmp_output_plan(plan: Mapping[str, Any]) -> bool:
+    metadata = plan.get("artifact_metadata") if isinstance(plan.get("artifact_metadata"), Mapping) else {}
+    tmp_output = metadata.get("tmp_output") if isinstance(metadata.get("tmp_output"), Mapping) else {}
+    return bool(tmp_output.get("enabled", False))
+
+
+def _run_updated_at(
+    plan_path: str | Path,
+    *,
+    state: Mapping[str, Any] | None = None,
+    summary: Mapping[str, Any] | None = None,
+    plan: Mapping[str, Any] | None = None,
+) -> str:
+    state_payload = load_run_state(run_state_path_for_plan(plan_path))
+    updated_at = str(state_payload.get("updated_at") or "").strip()
+    if updated_at:
+        return updated_at
+    plan_payload = plan if isinstance(plan, Mapping) else load_pipeline_plan(plan_path)
+    metadata = plan_payload.get("artifact_metadata") if isinstance(plan_payload.get("artifact_metadata"), Mapping) else {}
+    run_metadata = metadata.get("run") if isinstance(metadata.get("run"), Mapping) else {}
+    created_at = str(run_metadata.get("created_at") or "").strip()
+    if created_at:
+        return created_at
+    for payload in (summary, state):
+        if isinstance(payload, Mapping):
+            updated_at = str(payload.get("updated_at") or "").strip()
+            if updated_at:
+                return updated_at
+    stat = Path(plan_path).expanduser().resolve(strict=False).stat()
+    return datetime.fromtimestamp(stat.st_mtime, tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _run_listing_sort_key(item: Mapping[str, Any]) -> tuple[float, str]:
+    updated_at = str(item.get("updated_at") or "").strip()
+    try:
+        stamp = datetime.fromisoformat(updated_at.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        stamp = 0.0
+    return (stamp, str(item.get("pipeline_plan") or item.get("path") or ""))

@@ -110,6 +110,7 @@ class PipelineSchedulerPlan:
 @dataclass(frozen=True, slots=True)
 class PipelineDryRunArtifact:
     schema_version: int
+    run_id: str
     program: str
     target_path: str
     target_kind: str

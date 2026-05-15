@@ -285,6 +285,8 @@ class BaseTeam(abc.ABC):
             active_handles=self._active_handles,
             write_traces=self.write_traces,
             slug=lambda value: _slug(value, separator="_"),
+            sandbox_mode=str(getattr(self, "agent_sandbox_mode", "read-only")),
+            writable_artifact_dir=getattr(self, "writable_artifact_dir", None),
         )
 
     def wait_for_agents(

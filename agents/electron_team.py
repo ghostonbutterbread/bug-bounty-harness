@@ -17,10 +17,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from agents.base_team import AgentSpec, BaseTeam  # noqa: E402
-from agents.electron_hypothesis_adapter import (  # noqa: E402
-    build_electron_hypothesis_specs,
-    load_hypothesis_plan,
-)
 from agents.electron_profiles import BUILTIN_PROFILES, PROFILE_BY_KEY, ElectronHuntProfile  # noqa: E402
 from agents.hunting_policy import resolve_policy_selection  # noqa: E402
 
@@ -191,8 +187,6 @@ class ElectronTeam(BaseTeam):
     ) -> None:
         self.profile_keys = _normalize_profile_keys(profile_keys)
         self.research_contexts = list(research_contexts or [])
-        self.hypothesis_specs: list[AgentSpec] | None = None
-        self.hypothesis_summary: dict[str, Any] | None = None
         self.fresh = bool(fresh)
 
         super().__init__(
@@ -210,8 +204,6 @@ class ElectronTeam(BaseTeam):
         )
 
     def get_static_profiles(self) -> list[AgentSpec]:
-        if self.hypothesis_specs is not None:
-            return list(self.hypothesis_specs)
         snapshot_id = self._snapshot_id() or "unspecified"
         created_at = _timestamp_iso()
         return [
@@ -480,15 +472,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--fresh", action="store_true", help="Tell profiles to start fresh while preserving storage paths.")
     parser.add_argument("--hunting-policy", default="off", help="Hunting policy id: off, auto, or a configured policy id.")
     parser.add_argument("--policy-config", help="Optional JSON hunting policy config override.")
-    handoff_group = parser.add_mutually_exclusive_group()
-    handoff_group.add_argument(
-        "--hypotheses",
-        help="Optional JSON/JSONL hypothesis packet input to collapse into grouped Electron static AgentSpecs.",
-    )
-    handoff_group.add_argument(
-        "--pipeline-plan",
-        help="Optional hunt-pipeline plan path to collapse selected Electron hypotheses into grouped static AgentSpecs.",
-    )
     parser.add_argument(
         "--agents",
         choices=("static", "dynamic", "all"),
@@ -502,20 +485,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def build_team_from_args(args: argparse.Namespace) -> ElectronTeam:
-    loaded_plan = None
     program = args.program
     target_path = args.target_path
-    if args.hypotheses or args.pipeline_plan:
-        loaded_plan = load_hypothesis_plan(
-            hypotheses_path=args.hypotheses,
-            pipeline_plan_path=args.pipeline_plan,
-        )
-        if not program:
-            program = loaded_plan.program
-        if not target_path:
-            target_path = loaded_plan.target_path
-        if args.agents != "static":
-            raise ValueError("hypothesis-backed Electron handoff supports only --agents static")
     if not program or not target_path:
         raise ValueError("program and target_path are required unless --list-profiles is used")
     contexts = load_research_contexts(
@@ -540,23 +511,6 @@ def build_team_from_args(args: argparse.Namespace) -> ElectronTeam:
     if args.timeout is not None:
         team.agent_timeout = max(1, int(args.timeout))
     team.force_preflight = bool(args.force_preflight)
-    if loaded_plan is not None:
-        specs, summary = build_electron_hypothesis_specs(
-            loaded_plan.packets,
-            program=team.program,
-            snapshot_id=team._snapshot_id() or "unspecified",
-            max_agents=team.max_agents,
-            selected_ids=loaded_plan.selected_ids,
-            deferred_ids=loaded_plan.deferred_ids,
-            skipped_ids=loaded_plan.skipped_ids,
-        )
-        summary["source_path"] = loaded_plan.source_path
-        if args.pipeline_plan:
-            summary["pipeline_plan"] = loaded_plan.source_path
-        if args.hypotheses:
-            summary["hypotheses_path"] = loaded_plan.source_path
-        team.hypothesis_specs = specs
-        team.hypothesis_summary = summary
     return team
 
 
@@ -592,15 +546,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "base_team_type": team.team_type,
         "family": team.family,
         "lane": team.lane,
-        "profiles": team.profile_keys if team.hypothesis_specs is None else [],
+        "profiles": team.profile_keys,
         "confirmed": len(confirmed),
         "dormant": len(dormant),
         "novel": len(novel),
         "ledger_path": str(team.ledger_path),
         "findings_path": str(team.findings_path),
     }
-    if team.hypothesis_summary is not None:
-        output["hypothesis_summary"] = team.hypothesis_summary
     if team.hunting_policy.enabled:
         output["hunting_policy"] = team.hunting_policy.to_dict()
     print(json.dumps(output, indent=2, sort_keys=True))

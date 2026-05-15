@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -11,8 +10,6 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from agents import electron_team  # noqa: E402
-from agents.electron_hypothesis_adapter import build_electron_hypothesis_specs, load_hypothesis_plan  # noqa: E402
-from agents.hunt_pipeline.models import HypothesisAgentPacket  # noqa: E402
 
 
 def _target(tmp_path: Path) -> Path:
@@ -30,42 +27,6 @@ def _target(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return target
-
-
-def _packet(
-    *,
-    hypothesis_id: str,
-    source_id: str,
-    file_path: str,
-    surface_family: str = "ipc-bridge",
-    kind: str = "ipc",
-    priority: str = "high",
-    role: str = "entry",
-    title: str | None = None,
-) -> HypothesisAgentPacket:
-    return HypothesisAgentPacket(
-        id=hypothesis_id,
-        key=f"{surface_family}-{hypothesis_id.lower()}",
-        title=title or f"{surface_family} {hypothesis_id}",
-        role=role,
-        surface_family=surface_family,
-        priority=priority,
-        target_kind="electron",
-        ruleset_id="electron-overlay",
-        source_evidence=(
-            {
-                "id": source_id,
-                "kind": kind,
-                "file": file_path,
-            },
-        ),
-        evidence_requirements=("trace renderer-controlled entry",),
-        chain_requirements=("check adjacent bridge branch when code evidence supports it",),
-        focus_files=(file_path, "src/preload.ts"),
-        tags=("electron", surface_family),
-        reasons=(f"selected from {source_id}",),
-        scheduler_metadata={"hypothesis_id": hypothesis_id},
-    )
 
 
 def test_builtin_profiles_are_discoverable() -> None:
@@ -236,198 +197,14 @@ def test_unknown_profile_is_rejected() -> None:
         electron_team._normalize_profile_keys(["missing-profile"])
 
 
-def test_hypothesis_adapter_collapses_duplicates_respects_group_limit_and_keeps_adjacent_branch_instruction(
-    tmp_path: Path,
-) -> None:
-    packets = [
-        _packet(hypothesis_id="HP-1", source_id="S0001", file_path="src/ipc/a.ts"),
-        _packet(
-            hypothesis_id="HP-2",
-            source_id="S0001",
-            file_path="src/ipc/a.ts",
-            title="duplicate source same family should collapse",
-        ),
-        _packet(
-            hypothesis_id="HP-3",
-            source_id="S0002",
-            file_path="src/preload/b.ts",
-            surface_family="preload-native-bridge",
-            kind="preload",
-            role="amplifier",
-        ),
-        _packet(
-            hypothesis_id="HP-4",
-            source_id="S0003",
-            file_path="src/render/c.ts",
-            surface_family="rendering-content-parser",
-            kind="rendering",
-            priority="medium",
-        ),
-    ]
+def test_electron_team_cli_has_no_hypothesis_pipeline_handoff_flags(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as help_exit:
+        electron_team.parse_args(["--help"])
 
-    specs, summary = build_electron_hypothesis_specs(
-        packets,
-        program="demo",
-        snapshot_id="snapshot-1",
-        max_agents=2,
-    )
-    team = electron_team.ElectronTeam(
-        program="demo",
-        target_path=_target(tmp_path),
-        output_root=tmp_path / "storage",
-        hunting_policy="off",
-    )
-    team.hypothesis_specs = specs
-    rendered = team.render_prompts()
+    assert help_exit.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--pipeline-plan" not in help_text
+    assert "--hypotheses" not in help_text
 
-    assert summary["input_hypotheses"] == 4
-    assert summary["collapsed_groups"] == 3
-    assert summary["selected_groups"] == 2
-    assert summary["deferred_groups"] == 1
-    assert summary["skipped_groups"] == 0
-    assert summary["agent_specs_created"] == 2
-    assert summary["top_source_coverage"][0]["source"] == "S0001|src/ipc/a.ts"
-    assert summary["top_source_coverage"][0]["hypotheses"] == 2
-    assert len(specs) == 2
-    assert any("HP-1" in spec.prompt_template and "HP-2" in spec.prompt_template for spec in specs)
-    assert any("starting point, not a hard gate" in prompt for prompt in rendered.values())
-    assert any("adjacent source-backed branches" in prompt for prompt in rendered.values())
-
-
-def test_hypothesis_adapter_carries_adjacent_same_source_context_without_requiring_exact_group_selection(
-    tmp_path: Path,
-) -> None:
-    packets = [
-        _packet(hypothesis_id="HP-1", source_id="S0001", file_path="src/ipc/a.ts"),
-        _packet(
-            hypothesis_id="HP-2",
-            source_id="S0001",
-            file_path="src/preload/b.ts",
-            surface_family="preload-native-bridge",
-            kind="preload",
-            title="same source adjacent preload branch",
-        ),
-    ]
-
-    specs, _summary = build_electron_hypothesis_specs(
-        packets,
-        program="demo",
-        snapshot_id="snapshot-1",
-        max_agents=1,
-        selected_ids=frozenset({"HP-1"}),
-        deferred_ids=frozenset({"HP-2"}),
-    )
-    team = electron_team.ElectronTeam(
-        program="demo",
-        target_path=_target(tmp_path),
-        output_root=tmp_path / "storage",
-        hunting_policy="off",
-    )
-    team.hypothesis_specs = specs
-    [prompt] = team.render_prompts().values()
-
-    assert len(specs) == 1
-    assert "HP-1" in prompt
-    assert "Adjacent source-backed hypotheses not assigned to this exact group:" in prompt
-    assert "HP-2" in prompt
-    assert "same source adjacent preload branch" in prompt
-
-
-def test_pipeline_plan_loader_prefers_selected_groups_and_tracks_deferred_and_skipped(tmp_path: Path) -> None:
-    target = _target(tmp_path)
-    plan_path = tmp_path / "pipeline_plan.json"
-    payload = {
-        "program": "demo",
-        "target_path": str(target),
-        "hypotheses": [
-            _packet(hypothesis_id="HP-1", source_id="S0001", file_path="src/ipc/a.ts").to_dict(),
-            _packet(
-                hypothesis_id="HP-2",
-                source_id="S0002",
-                file_path="src/preload/b.ts",
-                surface_family="preload-native-bridge",
-                kind="preload",
-            ).to_dict(),
-            _packet(
-                hypothesis_id="HP-3",
-                source_id="S0003",
-                file_path="src/render/c.ts",
-                surface_family="rendering-content-parser",
-                kind="rendering",
-                priority="low",
-            ).to_dict(),
-        ],
-        "scheduler_plan": {
-            "selected": [{"hypothesis_id": "HP-1", "agent_key": "agent-1"}],
-            "deferred": [{"hypothesis_id": "HP-2", "agent_key": "agent-2"}],
-            "skipped": [{"hypothesis_id": "HP-3", "agent_key": "agent-3"}],
-        },
-    }
-    plan_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-
-    loaded = load_hypothesis_plan(pipeline_plan_path=plan_path)
-    specs, summary = build_electron_hypothesis_specs(
-        loaded.packets,
-        program=loaded.program or "demo",
-        snapshot_id="snapshot-1",
-        max_agents=3,
-        selected_ids=loaded.selected_ids,
-        deferred_ids=loaded.deferred_ids,
-        skipped_ids=loaded.skipped_ids,
-    )
-
-    assert loaded.program == "demo"
-    assert loaded.target_path == str(target)
-    assert loaded.selected_ids == frozenset({"HP-1"})
-    assert loaded.deferred_ids == frozenset({"HP-2"})
-    assert loaded.skipped_ids == frozenset({"HP-3"})
-    assert [spec.metadata["source_group"]["status"] for spec in specs] == ["selected", "deferred"]
-    assert summary["selected_groups"] == 2
-    assert summary["deferred_groups"] == 0
-    assert summary["skipped_groups"] == 1
-
-
-def test_cli_pipeline_plan_can_supply_program_and_target_for_dry_run(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    target = _target(tmp_path)
-    plan_path = tmp_path / "pipeline_plan.json"
-    payload = {
-        "program": "Canva Desktop",
-        "target_path": str(target),
-        "hypotheses": [
-            _packet(hypothesis_id="HP-1", source_id="S0001", file_path="src/ipc/a.ts").to_dict(),
-            _packet(
-                hypothesis_id="HP-2",
-                source_id="S0001",
-                file_path="src/ipc/a.ts",
-                title="duplicate path collapsed into same grouped prompt",
-            ).to_dict(),
-        ],
-        "scheduler_plan": {
-            "selected": [{"hypothesis_id": "HP-1", "agent_key": "agent-1"}],
-            "deferred": [],
-            "skipped": [],
-        },
-    }
-    plan_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-
-    rc = electron_team.main(
-        [
-            "--pipeline-plan",
-            str(plan_path),
-            "--output-dir",
-            str(tmp_path / "storage"),
-            "--dry-run-prompts",
-            "--hunting-policy",
-            "off",
-        ]
-    )
-    captured = capsys.readouterr()
-
-    assert rc == 0
-    assert "Grouped evidence:" in captured.out
-    assert "Source files for this group:" in captured.out
-    assert "starting point, not a hard gate" in captured.out
-    assert "duplicate path collapsed into same grouped prompt" in captured.out
+    with pytest.raises(SystemExit):
+        electron_team.parse_args(["--pipeline-plan", "pipeline_plan.json"])

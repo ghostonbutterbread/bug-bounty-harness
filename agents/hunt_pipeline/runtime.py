@@ -6,10 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
 from agents.base_team import AgentSpec, BaseTeam
-from agents.hunt_pipeline.promotion_decision import (
-    evaluate_runtime_promotion_decision,
-    runtime_execution_mode,
-)
+from agents.hunt_pipeline.promotion_decision import evaluate_runtime_promotion_decision
 from agents.hunt_pipeline.run_state import (
     initialize_run_state,
     load_pipeline_plan,
@@ -31,7 +28,7 @@ from agents.hunt_pipeline.runtime_contract import (
     evaluate_runtime_promotion_readiness,
     failed_required_gates,
 )
-from agents.hunt_pipeline.runtime_adapter import selected_decisions_to_base_team_agent_specs
+from agents.hunt_pipeline.runtime_adapter import grouped_decisions_to_base_team_agent_specs
 
 
 class PipelineRuntimeAdapter(Protocol):
@@ -60,11 +57,12 @@ class _HuntPipelineBaseTeam(BaseTeam):
 
 
 class LiveBaseTeamAdapter:
-    """Live execution boundary for promoted plans.
+    """Source-hunting execution boundary for selected dynamic pipeline waves.
 
     This adapter deliberately executes only the already-selected bounded wave it is
-    handed. It renders prompts and spawns through BaseTeam methods, which delegate
-    to the shared BaseTeam runtime primitives.
+    handed. It renders prompts and spawns through BaseTeam methods. The target
+    source remains read-only by convention; generated PoCs/notes should be written
+    under the scoped pipeline artifacts directory.
     """
 
     def __init__(
@@ -75,7 +73,10 @@ class LiveBaseTeamAdapter:
         output_root: str | Path,
         max_agents: int,
         target_kind: str | None = None,
+        no_ledger: bool = False,
     ) -> None:
+        self.no_ledger = bool(no_ledger)
+        self.artifacts_dir = Path(output_root) / "agent_artifacts"
         self.team = _HuntPipelineBaseTeam(
             program,
             "0day_team",
@@ -84,6 +85,8 @@ class LiveBaseTeamAdapter:
             max_agents=max(1, int(max_agents)),
             target_kind=target_kind,
         )
+        self.team.agent_sandbox_mode = "artifact-write"
+        self.team.writable_artifact_dir = self.artifacts_dir
 
     def execute(self, specs: Sequence[AgentSpec]) -> dict[str, str]:
         handles = {}
@@ -91,19 +94,34 @@ class LiveBaseTeamAdapter:
         specs_by_key = {spec.key: spec for spec in specs}
         try:
             for spec in specs:
-                prompt = self.team._render_prompt(spec)
+                prompt = self._render_source_hunt_prompt(spec)
                 log_path = self.team.agents_dir / f"{_safe_name(spec.key)}.log"
                 log_paths[spec.key] = log_path
                 handles[spec.key] = self.team.spawn_agent(prompt, spec.key, log_path)
         except Exception:
-            _terminate_live_handles(self.team, handles)
+            _terminate_live_handles(self.team, handles, write_traces=not self.no_ledger)
             raise
         completed = self.team.wait_for_agents(handles, self.team.agent_timeout)
-        self._persist_findings(specs_by_key, log_paths)
+        if not self.no_ledger:
+            self._persist_findings(specs_by_key, log_paths)
         return {
             key: "completed" if completed.get(key, ("", 1))[1] == 0 else "failed"
             for key in (spec.key for spec in specs)
         }
+
+    def _render_source_hunt_prompt(self, spec: AgentSpec) -> str:
+        prompt = self.team._render_prompt(spec)
+        artifact_dir = self.artifacts_dir / _safe_name(spec.key)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        return (
+            f"{prompt}\n\n"
+            "Hunt-pipeline source-only execution rules:\n"
+            "- Treat the target source tree as read-only. Do not modify vendor/source files.\n"
+            f"- You may write PoCs, repro notes, scratch files, and evidence only under: {artifact_dir}\n"
+            "- Do not launch the target app, browse live vendor services, send network traffic to Canva, "
+            "or perform VM/live-testing actions unless a separate live-testing approval is present.\n"
+            "- If you produce a PoC, keep it benign and local/source-backed, and include a short README or notes file.\n"
+        )
 
     def _persist_findings(self, specs_by_key: Mapping[str, AgentSpec], log_paths: Mapping[str, Path]) -> None:
         raw_findings: list[dict[str, Any]] = []
@@ -138,7 +156,7 @@ class LiveBaseTeamAdapter:
 
 
 
-def _terminate_live_handles(team: BaseTeam, handles: Mapping[str, Any]) -> None:
+def _terminate_live_handles(team: BaseTeam, handles: Mapping[str, Any], *, write_traces: bool = True) -> None:
     for key, handle in handles.items():
         try:
             if handle.poll() is None:
@@ -155,10 +173,11 @@ def _terminate_live_handles(team: BaseTeam, handles: Mapping[str, Any]) -> None:
                 team._cleanup_handle(handle)
             except Exception:
                 pass
-            try:
-                team.write_traces([{"event": "spawn_cleanup", "agent_name": str(key)}])
-            except Exception:
-                pass
+            if write_traces:
+                try:
+                    team.write_traces([{"event": "spawn_cleanup", "agent_name": str(key)}])
+                except Exception:
+                    pass
 
 
 def execute_next_wave(
@@ -168,23 +187,29 @@ def execute_next_wave(
     concurrent_agents: int | None = None,
     execute_live: bool = False,
     live_testing_enabled: bool | None = None,
+    no_ledger: bool | None = None,
     adapter: PipelineRuntimeAdapter | None = None,
 ) -> dict[str, Any]:
     resolved_plan_path = Path(plan_path).expanduser().resolve(strict=False)
-    if execute_live:
-        plan = load_pipeline_plan(resolved_plan_path)
+    plan = load_pipeline_plan(resolved_plan_path)
+    live_testing_requested = bool(live_testing_enabled)
+    if execute_live and live_testing_requested:
         decision = evaluate_runtime_promotion_decision(plan, plan_path=resolved_plan_path)
         if decision.get("promoted") is not True:
             return _blocked_live_execution_result(plan, resolved_plan_path, decision)
 
     with pipeline_runtime_lock(resolved_plan_path):
         plan = load_pipeline_plan(resolved_plan_path)
-        execution_mode = "live" if execute_live else "dry-run"
+        execution_mode = "live" if execute_live and live_testing_requested else ("source-hunt" if execute_live else "dry-run")
         promotion_decision = evaluate_runtime_promotion_decision(plan, plan_path=resolved_plan_path)
-        if execute_live and promotion_decision.get("promoted") is not True:
+        if execute_live and live_testing_requested and promotion_decision.get("promoted") is not True:
             return _blocked_live_execution_result(plan, resolved_plan_path, promotion_decision)
         state = recover_running_agents(initialize_run_state(resolved_plan_path, plan))
-        state["run_config"] = _resolved_run_config(state, live_testing_enabled=live_testing_enabled)
+        state["run_config"] = _resolved_run_config(
+            state,
+            live_testing_enabled=live_testing_enabled,
+            no_ledger=no_ledger,
+        )
         save_run_state(state, run_state_path_for_plan(resolved_plan_path))
         wave = next_wave_records(plan, state, max_agents=max_agents, concurrent_agents=concurrent_agents)
         if not wave:
@@ -203,11 +228,13 @@ def execute_next_wave(
 
         specs_path: Path | None = None
         try:
-            specs = selected_decisions_to_base_team_agent_specs(
+            specs, spec_metrics = grouped_decisions_to_base_team_agent_specs(
                 [record["decision"] for record in wave],
                 plan.get("hypotheses") or (),
                 program=str(plan.get("program") or "").strip(),
                 snapshot_id=_snapshot_id(plan, resolved_plan_path),
+                max_agents=len(wave),
+                include_candidate_packets=False,
             )
             specs_path = _append_runtime_specs(resolved_plan_path.parent / "runtime_agent_specs.jsonl", specs)
             runtime_adapter = adapter or _default_adapter(
@@ -215,6 +242,7 @@ def execute_next_wave(
                 plan=plan,
                 plan_path=resolved_plan_path,
                 wave_size=len(wave),
+                no_ledger=bool(state["run_config"].get("no_ledger", False)),
             )
             result = runtime_adapter.execute(specs)
         except Exception as exc:  # keep durable state resumable after adapter/conversion failures
@@ -236,8 +264,9 @@ def execute_next_wave(
                 "summary": summarize_run(resolved_plan_path, max_agents=max_agents, concurrent_agents=concurrent_agents),
             }
 
-        completed = [record for record in wave if result.get(record["agent_key"]) == "completed"]
-        failed = [record for record in wave if result.get(record["agent_key"]) != "completed"]
+        record_statuses = _record_statuses_from_grouped_specs(wave, specs, result)
+        completed = [record for record in wave if record_statuses.get(record["agent_key"]) == "completed"]
+        failed = [record for record in wave if record_statuses.get(record["agent_key"]) != "completed"]
         if completed:
             state = update_agent_statuses(
                 state,
@@ -253,15 +282,18 @@ def execute_next_wave(
                 details={
                     "adapter": execution_mode,
                     "specs_path": str(specs_path),
-                    "adapter_status": result.get(record["agent_key"], "missing"),
+                    "adapter_status": record_statuses.get(record["agent_key"], "missing"),
                 },
             )
         state["last_wave"] = {
             "agent_keys": [record["agent_key"] for record in wave],
             "specs_path": str(specs_path),
-            "live_execution": bool(execute_live),
+            "source_hunt_execution": bool(execute_live),
+            "live_execution": bool(execute_live and live_testing_requested),
             "live_testing_enabled": bool(state["run_config"].get("live_testing_enabled", False)),
+            "no_ledger": bool(state["run_config"].get("no_ledger", False)),
             "execution_mode": execution_mode,
+            "spec_metrics": spec_metrics,
         }
         state = _preserve_control_flags(state, run_state_path_for_plan(resolved_plan_path))
         save_run_state(state, run_state_path_for_plan(resolved_plan_path))
@@ -312,6 +344,7 @@ def _default_adapter(
     plan: Mapping[str, Any],
     plan_path: Path,
     wave_size: int,
+    no_ledger: bool = False,
 ) -> PipelineRuntimeAdapter:
     if not execute_live:
         return DryRunBaseTeamAdapter()
@@ -321,6 +354,7 @@ def _default_adapter(
         output_root=plan_path.parent,
         max_agents=wave_size,
         target_kind=str(plan.get("target_kind") or "").strip() or None,
+        no_ledger=no_ledger,
     )
 
 
@@ -355,6 +389,28 @@ def _append_runtime_specs(path: Path, specs: Sequence[AgentSpec]) -> Path:
     return path
 
 
+def _record_statuses_from_grouped_specs(
+    wave: Sequence[Mapping[str, Any]],
+    specs: Sequence[AgentSpec],
+    result: Mapping[str, str],
+) -> dict[str, str]:
+    spec_key_by_record_key: dict[str, str] = {}
+    for spec in specs:
+        source_group = spec.metadata.get("source_group") if isinstance(spec.metadata, Mapping) else {}
+        decision_agent_keys = source_group.get("decision_agent_keys") if isinstance(source_group, Mapping) else []
+        for agent_key in decision_agent_keys or ():
+            cleaned = str(agent_key or "").strip()
+            if cleaned:
+                spec_key_by_record_key[cleaned] = spec.key
+        spec_key_by_record_key.setdefault(spec.key, spec.key)
+    statuses: dict[str, str] = {}
+    for record in wave:
+        agent_key = str(record.get("agent_key") or "").strip()
+        spec_key = spec_key_by_record_key.get(agent_key, agent_key)
+        statuses[agent_key] = result.get(spec_key, result.get(agent_key, "missing"))
+    return statuses
+
+
 def _snapshot_id(plan: Mapping[str, Any], plan_path: Path) -> str:
     source = plan.get("appmap_source") if isinstance(plan.get("appmap_source"), dict) else {}
     run_root = str(source.get("run_root") or "").strip()
@@ -367,6 +423,7 @@ def _resolved_run_config(
     state: Mapping[str, Any],
     *,
     live_testing_enabled: bool | None,
+    no_ledger: bool | None,
 ) -> dict[str, Any]:
     current = state.get("run_config") if isinstance(state.get("run_config"), Mapping) else {}
     return {
@@ -374,5 +431,10 @@ def _resolved_run_config(
             bool(live_testing_enabled)
             if live_testing_enabled is not None
             else bool(current.get("live_testing_enabled", False))
+        ),
+        "no_ledger": (
+            bool(no_ledger)
+            if no_ledger is not None
+            else bool(current.get("no_ledger", False))
         ),
     }

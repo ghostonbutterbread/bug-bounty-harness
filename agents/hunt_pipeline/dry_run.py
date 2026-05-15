@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+import uuid
 
 from agents.app_mapper import map_application, write_artifacts
 from agents.hunt_pipeline.appmap_loader import load_appmap_run
@@ -20,6 +22,7 @@ from agents.hunt_pipeline.promotion_request_packet import build_runtime_promotio
 from agents.hunt_pipeline.runtime_action_policy import build_runtime_action_policy
 from agents.hunt_pipeline.runtime_contract import build_runtime_handoff_contract, build_runtime_promotion_protocol
 from agents.hunt_pipeline.runtime_environment_approval import build_runtime_environment_approval
+from agents.hunt_pipeline.run_state import validate_run_id
 from agents.hunt_pipeline.rulesets import resolve_ruleset
 from agents.hunt_pipeline.scheduler import plan_hypothesis_packets, runtime_adapter_availability, runtime_handoff_boundary
 from agents.hunt_pipeline.target_classifier import classify_target_kind
@@ -36,22 +39,25 @@ def build_dry_run_plan(
     ruleset_id: str | None = "auto",
     appmap_run: str | Path | None = None,
     output_dir: str | Path,
-    run_id: str = "pipeline-dry-run",
+    run_id: str | None = None,
     max_hypotheses: int | None = None,
     max_agents: int | None = None,
     concurrent_agents: int | None = None,
-    write_hypotheses: bool = False,
+    write_hypotheses: bool = True,
+    tmp_output: bool = False,
 ) -> tuple[PipelineDryRunArtifact, Path]:
     output_root = Path(output_dir).expanduser().resolve(strict=False)
     output_root.mkdir(parents=True, exist_ok=True)
     target = Path(target_path).expanduser().resolve(strict=False)
+    resolved_run_id = validate_run_id(str(run_id or _default_run_id()))
+    created_at = _timestamp_iso()
 
     if appmap_run is None:
         map_result = map_application(program, target, target_kind=target_kind or "auto")
         paths = write_artifacts(
             map_result,
             output_root=output_root,
-            run_id=run_id,
+            run_id=resolved_run_id,
             write_specs=False,
             hunting_policy=disabled_policy(),
             agent_granularity="category-master",
@@ -85,7 +91,19 @@ def build_dry_run_plan(
     decision_artifacts = _write_decision_artifacts(output_root, scheduler_plan_payload)
     scheduler_plan_payload["decision_artifacts"] = decision_artifacts
     hypotheses_payload = tuple(packet.to_dict() for packet in packets)
-    artifact_metadata: dict[str, Any] = {}
+    artifact_metadata: dict[str, Any] = {
+        "run": {
+            "run_id": resolved_run_id,
+            "created_at": created_at,
+            "output_dir": str(output_root),
+        }
+    }
+    if tmp_output:
+        artifact_metadata["tmp_output"] = {
+            "enabled": True,
+            "root": str(output_root),
+            "parent": str(output_root.parent),
+        }
     if write_hypotheses:
         artifact_metadata["hypotheses"] = _write_jsonl_artifact(output_root / "hypotheses.jsonl", list(hypotheses_payload))
     runtime_adapter = runtime_adapter_availability()
@@ -208,6 +226,7 @@ def build_dry_run_plan(
     ).to_dict()
     artifact = PipelineDryRunArtifact(
         schema_version=SCHEMA_VERSION,
+        run_id=resolved_run_id,
         program=str(program),
         target_path=str(target),
         target_kind=resolved_target_kind,
@@ -237,6 +256,14 @@ def build_dry_run_plan(
     )
     _write_json_artifact(plan_path, artifact.to_dict())
     return artifact, plan_path
+
+
+def _default_run_id() -> str:
+    return f"hunt-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:6]}"
+
+
+def _timestamp_iso() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def load_plan(path: str | Path) -> dict[str, Any]:

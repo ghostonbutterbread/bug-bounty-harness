@@ -20,6 +20,7 @@ from agents.hunt_pipeline.run_state import (
     summarize_run,
     update_agent_statuses,
 )
+from agents.hunt_pipeline.efficiency_logging import finalize_efficiency_logging, initialize_efficiency_logging
 from agents.hunt_pipeline.operator_approval_schema import evaluate_runtime_operator_approval_schema
 from agents.hunt_pipeline.promotion_request_packet import evaluate_runtime_promotion_request_packet
 from agents.hunt_pipeline.runtime_contract import (
@@ -39,7 +40,11 @@ class PipelineRuntimeAdapter(Protocol):
 class DryRunBaseTeamAdapter:
     """Mockable execution boundary that never spawns Codex or touches live targets."""
 
+    def __init__(self) -> None:
+        self.last_execution_details: dict[str, dict[str, Any]] = {}
+
     def execute(self, specs: Sequence[AgentSpec]) -> dict[str, str]:
+        self.last_execution_details = {spec.key: {"cwd": "", "prompt_marker": _prompt_marker(spec)} for spec in specs}
         return {spec.key: "completed" for spec in specs}
 
 
@@ -87,21 +92,38 @@ class LiveBaseTeamAdapter:
         )
         self.team.agent_sandbox_mode = "artifact-write"
         self.team.writable_artifact_dir = self.artifacts_dir
+        self.last_execution_details: dict[str, dict[str, Any]] = {}
 
     def execute(self, specs: Sequence[AgentSpec]) -> dict[str, str]:
         handles = {}
         log_paths: dict[str, Path] = {}
+        artifact_dirs: dict[str, Path] = {}
+        prompts: dict[str, str] = {}
         specs_by_key = {spec.key: spec for spec in specs}
+        self.last_execution_details = {}
         try:
             for spec in specs:
                 prompt = self._render_source_hunt_prompt(spec)
+                prompts[spec.key] = prompt
                 log_path = self.team.agents_dir / f"{_safe_name(spec.key)}.log"
+                artifact_dir = self.artifacts_dir / _safe_name(spec.key)
+                artifact_dirs[spec.key] = artifact_dir
                 log_paths[spec.key] = log_path
                 handles[spec.key] = self.team.spawn_agent(prompt, spec.key, log_path)
         except Exception:
             _terminate_live_handles(self.team, handles, write_traces=not self.no_ledger)
             raise
         completed = self.team.wait_for_agents(handles, self.team.agent_timeout)
+        self.last_execution_details = {
+            key: {
+                "log_path": str(log_paths.get(key) or ""),
+                "prompt_path": str(getattr(handles.get(key), "_bbh_prompt_path", "") or ""),
+                "artifact_dir": str(artifact_dirs.get(key) or ""),
+                "prompt_marker": _prompt_marker(specs_by_key[key]),
+                "cwd": str(artifact_dirs.get(key) or self.team.workdir),
+            }
+            for key in specs_by_key
+        }
         if not self.no_ledger:
             self._persist_findings(specs_by_key, log_paths)
         return {
@@ -113,8 +135,12 @@ class LiveBaseTeamAdapter:
         prompt = self.team._render_prompt(spec)
         artifact_dir = self.artifacts_dir / _safe_name(spec.key)
         artifact_dir.mkdir(parents=True, exist_ok=True)
+        marker = _prompt_marker(spec)
         return (
             f"{prompt}\n\n"
+            f"{marker}\n"
+            f"Category pack id: {spec.metadata.get('category_pack_id') or spec.key}\n"
+            f"Agent key: {spec.key}\n\n"
             "Hunt-pipeline source-only execution rules:\n"
             "- Treat the target source tree as read-only. Do not modify vendor/source files.\n"
             f"- You may write PoCs, repro notes, scratch files, and evidence only under: {artifact_dir}\n"
@@ -236,7 +262,21 @@ def execute_next_wave(
                 max_agents=len(wave),
                 include_candidate_packets=False,
             )
+            specs = _annotate_runtime_specs(
+                specs,
+                run_id=str(state.get("run_id") or "").strip() or resolved_plan_path.parent.name,
+                plan_path=resolved_plan_path,
+            )
             specs_path = _append_runtime_specs(resolved_plan_path.parent / "runtime_agent_specs.jsonl", specs)
+            efficiency_dir = initialize_efficiency_logging(
+                resolved_plan_path,
+                plan,
+                specs=specs,
+                wave=wave,
+                spec_metrics=spec_metrics,
+                execution_mode=execution_mode,
+                selected_wave=_selected_wave_number(state),
+            )
             runtime_adapter = adapter or _default_adapter(
                 execute_live=execute_live,
                 plan=plan,
@@ -285,15 +325,25 @@ def execute_next_wave(
                     "adapter_status": record_statuses.get(record["agent_key"], "missing"),
                 },
             )
+        execution_details = getattr(runtime_adapter, "last_execution_details", {})
+        efficiency_dir = finalize_efficiency_logging(
+            resolved_plan_path,
+            plan,
+            specs=specs,
+            result=result,
+            execution_details=execution_details if isinstance(execution_details, Mapping) else {},
+        )
         state["last_wave"] = {
             "agent_keys": [record["agent_key"] for record in wave],
             "specs_path": str(specs_path),
+            "efficiency_dir": str(efficiency_dir),
             "source_hunt_execution": bool(execute_live),
             "live_execution": bool(execute_live and live_testing_requested),
             "live_testing_enabled": bool(state["run_config"].get("live_testing_enabled", False)),
             "no_ledger": bool(state["run_config"].get("no_ledger", False)),
             "execution_mode": execution_mode,
             "spec_metrics": spec_metrics,
+            "selected_wave": _selected_wave_number(state),
         }
         state = _preserve_control_flags(state, run_state_path_for_plan(resolved_plan_path))
         save_run_state(state, run_state_path_for_plan(resolved_plan_path))
@@ -305,6 +355,7 @@ def execute_next_wave(
             "execution_mode": execution_mode,
             "runtime_promotion_decision": promotion_decision,
             "summary": summarize_run(resolved_plan_path, max_agents=max_agents, concurrent_agents=concurrent_agents),
+            "efficiency_dir": str(efficiency_dir),
         }
 
 
@@ -361,6 +412,45 @@ def _default_adapter(
 def _safe_name(value: str) -> str:
     cleaned = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in str(value or "").strip())
     return cleaned or "agent"
+
+
+
+def _prompt_marker(spec: AgentSpec) -> str:
+    tracking = spec.metadata.get("runtime_tracking") if isinstance(spec.metadata, Mapping) else {}
+    run_id = str(tracking.get("run_id") or "").strip() or "unknown"
+    agent_key = str(tracking.get("agent_key") or spec.key).strip() or spec.key
+    return f"Hunt pipeline run id: {run_id} | agent key: {agent_key}"
+
+
+
+def _annotate_runtime_specs(
+    specs: Sequence[AgentSpec],
+    *,
+    run_id: str,
+    plan_path: Path,
+) -> list[AgentSpec]:
+    annotated: list[AgentSpec] = []
+    for spec in specs:
+        metadata = dict(spec.metadata or {})
+        metadata["runtime_tracking"] = {
+            "run_id": run_id,
+            "pipeline_plan": str(plan_path),
+            "category_pack_id": str(metadata.get("category_pack_id") or spec.key).strip(),
+            "agent_key": spec.key,
+        }
+        spec.metadata = metadata
+        annotated.append(spec)
+    return annotated
+
+
+
+def _selected_wave_number(state: Mapping[str, Any]) -> int | None:
+    last_wave = state.get("last_wave") if isinstance(state.get("last_wave"), Mapping) else {}
+    try:
+        previous = int(last_wave.get("selected_wave") or 0)
+    except (TypeError, ValueError):
+        previous = 0
+    return previous + 1 if previous else 1
 
 
 

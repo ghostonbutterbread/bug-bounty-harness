@@ -1,6 +1,8 @@
 """Dry-run hunt pipeline primitives."""
 
 from agents.hunt_pipeline.models import (
+    CategoryPack,
+    CategoryPackPlan,
     HypothesisAgentPacket,
     NormalizedMapResult,
     PipelineDryRunArtifact,
@@ -9,6 +11,8 @@ from agents.hunt_pipeline.models import (
 )
 
 __all__ = [
+    "CategoryPack",
+    "CategoryPackPlan",
     "HypothesisAgentPacket",
     "NormalizedMapResult",
     "PipelineDryRunArtifact",

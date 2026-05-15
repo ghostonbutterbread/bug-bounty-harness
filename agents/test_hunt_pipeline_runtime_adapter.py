@@ -462,6 +462,56 @@ def test_ipc_category_pack_prompt_includes_bridge_only_guardrail(tmp_path: Path)
     assert "attacker-controlled renderer, deeplink, file, or import entry-path evidence exists" in rendered
 
 
+def test_category_pack_prompt_includes_bounded_context_and_specialist_schema(tmp_path: Path) -> None:
+    packets = [
+        HypothesisAgentPacket(
+            **{
+                **_group_packet(
+                    hypothesis_id="HP-1",
+                    source_id="S0001",
+                    file_path="src/main/ipc.ts",
+                    surface_family="ipc-bridge",
+                    kind="ipc",
+                    title="filesystem ipc branch",
+                    role="amplifier",
+                ).to_dict(),
+                "tags": ("filesystem", "openfile"),
+                "scheduler_metadata": {
+                    "policy_id": "electron-application-first-loose",
+                    "route": "dialog:openProject",
+                    "entry_path": "renderer-dom-xss",
+                },
+            }
+        )
+    ]
+    [pack] = plan_category_packs(packets).packs
+    spec = category_pack_to_base_team_agent_spec(
+        pack,
+        {packet.id: packet for packet in packets},
+        program="demo",
+        snapshot_id="snapshot-1",
+        created_at="2026-05-13T12:00:00Z",
+    )
+
+    target = tmp_path / "target"
+    target.mkdir()
+    with patch.object(Path, "home", return_value=tmp_path):
+        team = DummyTeam("demo", "0day_team", target, output_root=tmp_path / "out", max_agents=1)
+    rendered = team._render_prompt(spec)
+
+    assert "Bounded context section:" in rendered
+    assert f"Pack identity: {pack.pack_id}" in rendered
+    assert "Hypothesis ids in scope: HP-1" in rendered
+    assert "Evidence ids in scope: S0001" in rendered
+    assert "Context budget rule: build one local map for this source/route cluster" in rendered
+    assert "Specialist request schema:" in rendered
+    assert "specialist_requests.jsonl" in rendered
+    assert "request_type='specialist_followup'" in rendered
+    assert "parent_pack_id" in rendered
+    assert "required_context" in rendered
+    assert "safety_gate" in rendered
+
+
 def test_non_ipc_electron_file_import_pack_does_not_include_bridge_only_guardrail(tmp_path: Path) -> None:
     packets = [
         HypothesisAgentPacket(
@@ -554,5 +604,7 @@ def test_grouped_decisions_surface_category_pack_plan_in_metadata_and_prompt(tmp
 
     assert "Category-pack planning:" in rendered
     assert "Per-hypothesis verdict values:" in rendered
+    assert "Bounded context: use listed source files/routes/sinks/entry paths first" in rendered
+    assert "Specialist request schema: request_type, parent_pack_id, reason" in rendered
     assert "bridge-only or dangerous-method evidence is amplifier-only and non-reportable" in rendered
     assert "specialist follow-up requests" in rendered.lower()

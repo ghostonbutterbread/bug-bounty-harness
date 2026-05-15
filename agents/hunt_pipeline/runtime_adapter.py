@@ -907,6 +907,8 @@ def _category_pack_prompt(
     verdicts = [f"- {_format_safe(item)}" for item in pack_verdict_options()]
     policy_id = _format_safe(pack.policy_id or "None")
     guardrail = _category_pack_guardrail(pack)
+    bounded_context = _category_pack_bounded_context_section(pack, packets)
+    specialist_schema = _category_pack_specialist_request_schema(pack)
     return (
         f'You are a hunt-pipeline category-pack agent for "{_format_safe(pack.vuln_class)}".\n\n'
         "Program: {program}\n"
@@ -941,9 +943,13 @@ def _category_pack_prompt(
         + "\n".join(entry_paths)
         + "\n\nExpected outputs:\n"
         + "\n".join(expected_outputs)
+        + "\n\nBounded context section:\n"
+        + bounded_context
         + "\n\nPer-hypothesis verdicts are required for every listed hypothesis.\n"
         "Allowed verdict values:\n"
         + "\n".join(verdicts)
+        + "\n\nSpecialist request schema:\n"
+        + specialist_schema
         + "\n\nOptional specialist follow-up requests must be evidence-based and scoped to concrete hypothesis ids.\n"
         + guardrail
         + "\nFocus globs:\n{focus_globs}\n\n"
@@ -973,8 +979,10 @@ def _category_pack_prompt_section(
             sections.append(f"  Sink types: {_format_safe(', '.join(pack.sink_types))}")
         if pack.entry_paths:
             sections.append(f"  Entry paths: {_format_safe(', '.join(pack.entry_paths))}")
+        sections.append("  Bounded context: use listed source files/routes/sinks/entry paths first; avoid broad repo scans unless needed to resolve these hypotheses.")
         if pack.specialist_followup_allowed:
             sections.append("  Specialist follow-up requests are allowed when static evidence supports them.")
+            sections.append("  Specialist request schema: request_type, parent_pack_id, reason, recommended_agent, hypothesis_ids, required_context, estimated_value, safety_gate.")
         guardrail = _category_pack_guardrail(pack)
         if guardrail:
             sections.append(f"  {_format_safe(guardrail.strip())}")
@@ -990,6 +998,41 @@ def _category_pack_prompt_section(
     sections.append(f"- Per-hypothesis verdict values: {_format_safe(verdict_lines)}")
     sections.append("- Optional specialist follow-up requests must cite hypothesis ids and concrete static evidence.")
     return "\n".join(sections) or "- None provided"
+
+
+def _category_pack_bounded_context_section(
+    pack: CategoryPack,
+    packets: Sequence[HypothesisAgentPacket],
+) -> str:
+    hypothesis_ids = ", ".join(_format_safe(item) for item in pack.hypothesis_ids) or "None"
+    evidence_ids = ", ".join(_format_safe(item) for item in pack.evidence_ids) or "None"
+    source_files = ", ".join(_format_safe(item) for item in pack.source_files) or "None"
+    route_keys = ", ".join(_format_safe(item) for item in pack.route_or_endpoint_keys) or "None"
+    entry_paths = ", ".join(_format_safe(item) for item in pack.entry_paths) or "None"
+    packet_files = ", ".join(
+        _format_safe(item)
+        for item in dict.fromkeys(file_path for packet in packets for file_path in packet.focus_files)
+    ) or "None"
+    return (
+        f"- Pack identity: {_format_safe(pack.pack_id)}\n"
+        f"- Hypothesis ids in scope: {hypothesis_ids}\n"
+        f"- Evidence ids in scope: {evidence_ids}\n"
+        f"- Primary source files: {source_files}\n"
+        f"- Packet focus files: {packet_files}\n"
+        f"- Route/endpoint keys: {route_keys}\n"
+        f"- Entry paths: {entry_paths}\n"
+        "- Context budget rule: build one local map for this source/route cluster; prefer capped line windows, symbol/module extraction, and rg/head/sed limits over broad full-repo or full-bundle dumps."
+    )
+
+
+def _category_pack_specialist_request_schema(pack: CategoryPack) -> str:
+    allowed = "true" if pack.specialist_followup_allowed else "false"
+    return (
+        "Write specialist_requests.jsonl only when specialist_followup_allowed is true and static evidence justifies extra spend. "
+        f"specialist_followup_allowed={allowed}. JSONL object fields: "
+        "request_type='specialist_followup', parent_pack_id, reason, recommended_agent, hypothesis_ids, "
+        "required_context, estimated_value, safety_gate. Each request must cite concrete hypothesis_ids from this pack and the minimal required_context."
+    )
 
 
 def _category_pack_guardrail(pack: CategoryPack) -> str:

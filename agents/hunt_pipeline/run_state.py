@@ -317,6 +317,11 @@ def summarize_run(plan_path: str | Path, *, max_agents: int | None = None, concu
         "runtime_execution": runtime_execution_mode(plan, plan_path=plan_path),
         "pipeline_plan": str(Path(plan_path).expanduser().resolve(strict=False)),
         "run_state": str(run_state_path_for_plan(plan_path)),
+        "map_reuse_decision": (
+            plan.get("appmap_source", {}).get("map_reuse_decision")
+            if isinstance(plan.get("appmap_source"), dict)
+            else {}
+        ),
     }
 
 

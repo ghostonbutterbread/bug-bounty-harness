@@ -465,6 +465,23 @@ def test_resume_executes_next_deferred_wave_without_remapping(tmp_path: Path) ->
     assert specs[0]["metadata"]["scheduler_decision"]["reason"] == "max agents cap reached"
 
 
+def test_execute_next_wave_writes_efficiency_artifacts(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=0)
+
+    result = execute_next_wave(plan_path)
+
+    assert result["ok"] is True
+    efficiency_dir = Path(result["efficiency_dir"])
+    assert efficiency_dir.exists()
+    assert (efficiency_dir / "pack_plan.jsonl").exists()
+    assert (efficiency_dir / "spawn_decisions.jsonl").exists()
+    assert (efficiency_dir / "agent_usage.jsonl").exists()
+    assert (efficiency_dir / "summary.json").exists()
+    state = json.loads(run_state_path_for_plan(plan_path).read_text(encoding="utf-8"))
+    assert state["last_wave"]["efficiency_dir"] == str(efficiency_dir)
+
+
+
 def test_runtime_collapses_duplicate_source_groups_and_marks_member_records_completed(tmp_path: Path) -> None:
     plan_path = _write_plan(tmp_path, selected_count=2, deferred_count=0, concurrent_agents=2)
     payload = json.loads(plan_path.read_text(encoding="utf-8"))
@@ -524,6 +541,8 @@ def test_cli_help_exposes_subcommands_and_runtime_flags(capsys: pytest.CaptureFi
     assert "--live" in run_help
     assert "--run-hypotheses" in run_help
     assert "--max-agents" in run_help
+    assert "--remap" in run_help
+    assert "--diff" in run_help
     assert "--write-hypotheses" in run_help
     assert "--no-write-hypotheses" in run_help
     assert "--no-ledger" in run_help

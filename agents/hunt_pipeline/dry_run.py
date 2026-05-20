@@ -12,6 +12,15 @@ from agents.app_mapper import map_application, write_artifacts
 from agents.hunt_pipeline.appmap_loader import load_appmap_run
 from agents.hunt_pipeline.hypothesis_builder import build_hypothesis_packets
 from agents.hunt_pipeline.live_testing import build_live_testing_playbook
+from agents.hunt_pipeline.map_cache import (
+    DEFAULT_STALE_AFTER_DAYS,
+    MAP_DIFF_FILENAME,
+    AppMapResolution,
+    MapReuseDecision,
+    resolve_appmap_run,
+    write_map_cache_metadata,
+    write_map_diff,
+)
 from agents.hunt_pipeline.models import PipelineDryRunArtifact
 from agents.hunt_pipeline.operator_approval_schema import build_runtime_operator_approval_schema
 from agents.hunt_pipeline.promotion_readiness import (
@@ -45,6 +54,10 @@ def build_dry_run_plan(
     concurrent_agents: int | None = None,
     write_hypotheses: bool = True,
     tmp_output: bool = False,
+    remap: bool = False,
+    diff: bool = False,
+    cache_search_root: str | Path | None = None,
+    stale_after_days: int = DEFAULT_STALE_AFTER_DAYS,
 ) -> tuple[PipelineDryRunArtifact, Path]:
     output_root = Path(output_dir).expanduser().resolve(strict=False)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -52,7 +65,19 @@ def build_dry_run_plan(
     resolved_run_id = validate_run_id(str(run_id or _default_run_id()))
     created_at = _timestamp_iso()
 
-    if appmap_run is None:
+    appmap_resolution = resolve_appmap_run(
+        appmap_run=appmap_run,
+        program=program,
+        target_path=target,
+        target_kind=target_kind,
+        output_root=output_root,
+        run_id=resolved_run_id,
+        cache_search_root=cache_search_root,
+        force_remap=remap,
+        stale_after_days=stale_after_days,
+    )
+
+    if appmap_resolution.source_mode == "generated-neutral":
         map_result = map_application(program, target, target_kind=target_kind or "auto")
         paths = write_artifacts(
             map_result,
@@ -63,12 +88,36 @@ def build_dry_run_plan(
             agent_granularity="category-master",
         )
         appmap_root = paths["run_root"]
-        appmap_source = {"mode": "generated-neutral", "run_root": str(appmap_root)}
+        manifest = json.loads((appmap_root / "manifest.json").read_text(encoding="utf-8"))
+        appmap_metadata = {**appmap_resolution.metadata, "mapped_at": str(manifest.get("created_at") or created_at)}
+        write_map_cache_metadata(appmap_root, appmap_metadata)
     else:
-        appmap_root = Path(appmap_run).expanduser().resolve(strict=False)
-        appmap_source = {"mode": "loaded-existing", "run_root": str(appmap_root)}
+        appmap_root = appmap_resolution.appmap_root
+        appmap_metadata = appmap_resolution.metadata
 
     normalized = load_appmap_run(appmap_root)
+    map_diff_path: Path | None = None
+    appmap_resolution = _with_diff_path(appmap_resolution, None)
+    if bool(diff) and bool(remap) and appmap_resolution.previous_appmap_root and appmap_resolution.source_mode == "generated-neutral":
+        map_diff_path = write_map_diff(
+            previous_appmap_root=appmap_resolution.previous_appmap_root,
+            current_appmap_root=appmap_root,
+            output_path=output_root / MAP_DIFF_FILENAME,
+            previous_metadata=appmap_resolution.previous_metadata,
+            current_metadata=appmap_metadata,
+        )
+        appmap_resolution = _with_diff_path(appmap_resolution, map_diff_path)
+
+    appmap_source = {
+        "mode": appmap_resolution.source_mode,
+        "run_root": str(appmap_root),
+        "map_cache_metadata": appmap_metadata,
+        "map_reuse_decision": appmap_resolution.decision.to_dict(),
+    }
+    if appmap_resolution.previous_appmap_root is not None:
+        appmap_source["previous_run_root"] = str(appmap_resolution.previous_appmap_root)
+    if map_diff_path is not None:
+        appmap_source["map_diff_path"] = str(map_diff_path)
     resolved_target_kind = classify_target_kind(
         target,
         requested_kind=target_kind,
@@ -106,6 +155,12 @@ def build_dry_run_plan(
         }
     if write_hypotheses:
         artifact_metadata["hypotheses"] = _write_jsonl_artifact(output_root / "hypotheses.jsonl", list(hypotheses_payload))
+    artifact_metadata["appmap"] = {
+        "run_root": str(appmap_root),
+        "map_cache_path": str(appmap_root / "map_cache.json"),
+        "decision": appmap_resolution.decision.to_dict(),
+        "diff_path": str(map_diff_path) if map_diff_path else "",
+    }
     runtime_adapter = runtime_adapter_availability()
     handoff_boundary = runtime_handoff_boundary()
     static_team_handoffs = _static_team_handoffs(
@@ -361,3 +416,14 @@ def _atomic_write_text(path: Path, text: str) -> None:
     tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     tmp_path.write_text(text, encoding="utf-8")
     tmp_path.replace(path)
+
+
+def _with_diff_path(resolution: AppMapResolution, diff_path: Path | None) -> AppMapResolution:
+    return AppMapResolution(
+        appmap_root=resolution.appmap_root,
+        source_mode=resolution.source_mode,
+        decision=MapReuseDecision(**{**resolution.decision.to_dict(), "diff_path": str(diff_path) if diff_path else None}),
+        metadata=resolution.metadata,
+        previous_appmap_root=resolution.previous_appmap_root,
+        previous_metadata=resolution.previous_metadata,
+    )

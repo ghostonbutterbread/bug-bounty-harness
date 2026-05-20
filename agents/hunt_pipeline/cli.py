@@ -324,6 +324,9 @@ def _build_plan_from_args(args: argparse.Namespace):
         concurrent_agents=args.concurrent_agents,
         write_hypotheses=_write_hypotheses_enabled(args),
         tmp_output=bool(getattr(args, "tmp", False)),
+        remap=bool(getattr(args, "remap", False)),
+        diff=bool(getattr(args, "diff", False)),
+        cache_search_root=_map_cache_search_root(args),
     )
 
 
@@ -363,6 +366,8 @@ def _add_plan_args(parser: argparse.ArgumentParser) -> None:
         help="explicit run output directory; defaults to hunt_pipeline_out/<generated-run-id> for durable runs",
     )
     parser.add_argument("--tmp", action="store_true", help="write plan artifacts to an isolated temporary directory under /tmp")
+    parser.add_argument("--remap", action="store_true", help="force a fresh AppMap run even if a recent matching map exists")
+    parser.add_argument("--diff", action="store_true", help="when used with --remap, emit a diff artifact against the previous map if one exists")
     parser.add_argument("--run-id", help="durable run id override; defaults to a generated timestamp-like id")
     parser.add_argument("--max-hypotheses", type=int)
     parser.add_argument("--concurrent-agents", type=_positive_int)
@@ -401,6 +406,8 @@ def _add_runtime_args(parser: argparse.ArgumentParser, *, allow_plan_inputs: boo
             ),
         )
         parser.add_argument("--tmp", action="store_true", help="write plan artifacts to an isolated temporary directory under /tmp")
+        parser.add_argument("--remap", action="store_true", help="force a fresh AppMap run even if a recent matching map exists")
+        parser.add_argument("--diff", action="store_true", help="when used with --remap, emit a diff artifact against the previous map if one exists")
         _add_hypotheses_write_args(parser)
     else:
         _add_state_locator_args(parser)
@@ -497,6 +504,14 @@ def _output_dir_for_plan(args: argparse.Namespace, *, run_id: str) -> str | Path
     if getattr(args, "output_dir", None):
         return args.output_dir
     return DEFAULT_OUTPUT_ROOT / run_id
+
+
+def _map_cache_search_root(args: argparse.Namespace) -> Path:
+    if bool(getattr(args, "tmp", False)):
+        return DEFAULT_OUTPUT_ROOT
+    if getattr(args, "output_dir", None):
+        return Path(args.output_dir).expanduser().resolve(strict=False).parent
+    return DEFAULT_OUTPUT_ROOT
 
 
 def _add_runs_args(parser: argparse.ArgumentParser) -> None:

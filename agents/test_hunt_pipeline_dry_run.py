@@ -226,6 +226,61 @@ def test_dry_run_writes_scheduler_decision_jsonl_artifacts(tmp_path: Path) -> No
     assert selected_rows[0]["status"] == "selected"
 
 
+def test_dry_run_reuses_prior_map_without_remapping(tmp_path: Path, monkeypatch) -> None:
+    prior_appmap = tmp_path / "hunt_pipeline_out" / "run-old" / "appmap" / "run-old"
+    prior_appmap.mkdir(parents=True)
+    target = tmp_path / "target.js"
+    target.write_text("console.log('v1')\n", encoding="utf-8")
+    (prior_appmap / "manifest.json").write_text(
+        json.dumps({"run_id": "run-old", "created_at": "2099-05-15T22:00:00Z", "target_path": str(target), "target_kind": "electron"}) + "\n",
+        encoding="utf-8",
+    )
+    (prior_appmap / "target_profile.json").write_text(
+        json.dumps({"program": "demo", "target_kind": "electron", "target_path": str(target)}) + "\n",
+        encoding="utf-8",
+    )
+    _write_jsonl(prior_appmap / "surfaces.jsonl", [{"id": "S0001", "kind": "ipc", "file": "src/main.js"}])
+    _write_jsonl(prior_appmap / "flows.jsonl", [])
+    prior_plan = tmp_path / "hunt_pipeline_out" / "run-old" / "pipeline_plan.json"
+    prior_plan.write_text(
+        json.dumps(
+            {
+                "program": "demo",
+                "target_path": str(target),
+                "appmap_source": {
+                    "mode": "generated-neutral",
+                    "run_root": str(prior_appmap),
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def _unexpected_map_application(*args, **kwargs):
+        raise AssertionError("map_application should not run when a fresh prior map is reusable")
+
+    monkeypatch.setattr("agents.hunt_pipeline.dry_run.map_application", _unexpected_map_application)
+
+    _, plan_path = build_dry_run_plan(
+        program="demo",
+        target_path=target,
+        target_kind="auto",
+        ruleset_id="auto",
+        output_dir=tmp_path / "hunt_pipeline_out" / "run-new",
+        cache_search_root=tmp_path / "hunt_pipeline_out",
+    )
+    payload = load_plan(plan_path)
+
+    assert payload["appmap_source"]["mode"] == "reused-cache"
+    assert payload["appmap_source"]["run_root"] == str(prior_appmap)
+    assert payload["appmap_source"]["map_reuse_decision"]["action"] == "reuse"
+    assert payload["artifact_metadata"]["appmap"]["decision"]["reason"] == "reused prior fresh map"
+
+
+
 def test_write_hypotheses_option_writes_jsonl_artifact_metadata(tmp_path: Path) -> None:
     appmap = tmp_path / "appmap" / "run-1"
     appmap.mkdir(parents=True)

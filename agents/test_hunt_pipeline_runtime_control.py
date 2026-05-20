@@ -541,6 +541,8 @@ def test_cli_help_exposes_subcommands_and_runtime_flags(capsys: pytest.CaptureFi
     assert "--live" in run_help
     assert "--run-hypotheses" in run_help
     assert "--max-agents" in run_help
+    assert "--remap" in run_help
+    assert "--diff" in run_help
     assert "--write-hypotheses" in run_help
     assert "--no-write-hypotheses" in run_help
     assert "--no-ledger" in run_help

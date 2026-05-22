@@ -382,6 +382,17 @@ def packet_from_dict(payload: Mapping[str, Any]) -> HypothesisAgentPacket:
         scheduler_metadata=dict(payload.get("scheduler_metadata") or {})
         if isinstance(payload.get("scheduler_metadata"), dict)
         else {},
+        entry_status=str(payload.get("entry_status") or "unknown").strip(),
+        attacker_influence_score=_safe_float(payload.get("attacker_influence_score")),
+        context_privilege_score=_safe_float(payload.get("context_privilege_score")),
+        incremental_impact_score=_safe_float(payload.get("incremental_impact_score")),
+        entry_reportability_score=_safe_float(payload.get("entry_reportability_score")),
+        chain_unlock_score=_safe_float(payload.get("chain_unlock_score")),
+        ingestion_path=str(payload.get("ingestion_path") or "unknown").strip(),
+        required_entry_primitives=tuple(str(item) for item in payload.get("required_entry_primitives") or ()),
+        context_tags=tuple(str(item) for item in payload.get("context_tags") or ()),
+        unlocked_amplifiers=tuple(str(item) for item in payload.get("unlocked_amplifiers") or ()),
+        reportability=str(payload.get("reportability") or "unknown").strip(),
     )
 
 
@@ -680,6 +691,8 @@ def _group_prompt(group: _GroupedPacketSet) -> str:
         "- If there is no real issue, print exactly: {{}}\n"
         "- When you find an issue, append a single-line JSON object to {findings_path} and print the same JSON line to stdout.\n"
         "- Use keys: agent, category, class_name, type, file, line, description, severity, context, source, trust_boundary, flow_path, sink, exploitability.\n\n"
+        + _phased_output_schema_prompt()
+        + "\n\n"
         "Hunting policy:\n"
         "{hunting_policy_snippet}"
     )
@@ -709,6 +722,17 @@ def _trace_metadata(packet: HypothesisAgentPacket) -> dict[str, Any]:
         "focus_files": list(packet.focus_files),
         "tags": list(packet.tags),
         "reasons": list(packet.reasons),
+        "entry_status": packet.entry_status,
+        "attacker_influence_score": packet.attacker_influence_score,
+        "context_privilege_score": packet.context_privilege_score,
+        "incremental_impact_score": packet.incremental_impact_score,
+        "entry_reportability_score": packet.entry_reportability_score,
+        "chain_unlock_score": packet.chain_unlock_score,
+        "ingestion_path": packet.ingestion_path,
+        "required_entry_primitives": list(packet.required_entry_primitives),
+        "context_tags": list(packet.context_tags),
+        "unlocked_amplifiers": list(packet.unlocked_amplifiers),
+        "reportability": packet.reportability,
         "scheduler_metadata": copy.deepcopy(packet.scheduler_metadata),
         "packet": asdict(packet),
     }
@@ -774,8 +798,33 @@ def _prompt_template(packet: HypothesisAgentPacket) -> str:
         "- Notes root: {notes_root}\n"
         "- Traces root: {traces_dir}\n\n"
         "Hunting policy:\n"
-        "{hunting_policy_snippet}"
+        "{hunting_policy_snippet}\n\n"
+        + _phased_output_schema_prompt()
     )
+
+
+def _phased_output_schema_prompt() -> str:
+    return (
+        "Required phased-testing output fields for every non-empty finding JSON:\n"
+        "- finding_role: entry|amplifier|chain|hardening\n"
+        "- entry_status: proven|plausible|missing|not_required\n"
+        "- ingestion_path: shared design|file import|collaboration sync|deeplink|uploaded media|link preview|external URL|unknown\n"
+        "- unlocked_context: renderer/window/WebView/native context reached by the entry\n"
+        "- chain_handles: list of focused follow-up handles, e.g. HostRpc.DownloadService or canva-recording://read\n"
+        "- required_entry_primitives: list such as renderer_xss, webview_js, malicious_file_import, deeplink_control, auth_callback_control\n"
+        "- unlocked_amplifiers: list of matching amplifier families or sinks\n"
+        "- reportability: submit|validate_entry|hold_for_chain|notes_only\n"
+        "- payout_confidence: high|medium|low\n"
+        "If the issue requires a prior renderer/WebView/native execution bug and does not prove standalone critical impact, "
+        "set finding_role=amplifier, entry_status=missing, reportability=hold_for_chain."
+    )
+
+
+def _safe_float(value: Any, *, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _description(packet: HypothesisAgentPacket) -> str:

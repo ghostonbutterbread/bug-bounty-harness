@@ -59,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_state_locator_args(status_parser)
     _add_run_hypotheses_args(status_parser)
     status_parser.add_argument("--concurrent-agents", type=_positive_int)
+    _add_chain_mode_args(status_parser)
     status_parser.add_argument("--format", choices=("json", "text"), default="json", help="output format; default: json")
     status_parser.add_argument(
         "--write-preflight-report",
@@ -135,6 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_state_locator_args(live_parser)
     live_parser.add_argument("--concurrent-agents", type=_positive_int)
     _add_run_hypotheses_args(live_parser)
+    _add_chain_mode_args(live_parser)
+    _add_trigger_chain_args(live_parser)
     live_parser.add_argument("--no-ledger", action="store_true", help="skip live BaseTeam ledger/review/persistence writes")
     live_parser.set_defaults(func=_cmd_live)
 
@@ -173,7 +176,12 @@ def _cmd_plan(args: argparse.Namespace) -> int:
 def _cmd_status(args: argparse.Namespace) -> int:
     plan_path = _plan_path_from_args(args)
     run_cap = _run_hypotheses_cap(args)
-    summary = summarize_run(plan_path, max_agents=run_cap, concurrent_agents=args.concurrent_agents)
+    summary = summarize_run(
+        plan_path,
+        max_agents=run_cap,
+        concurrent_agents=args.concurrent_agents,
+        skip_chain=bool(getattr(args, "skip_chain", False)),
+    )
     if args.write_preflight_report:
         report, report_path = write_runtime_preflight_report(
             plan_path,
@@ -281,6 +289,8 @@ def _execute_and_print(args: argparse.Namespace, plan_path: Path) -> int:
         plan_path,
         max_agents=run_cap,
         concurrent_agents=args.concurrent_agents,
+        skip_chain=bool(getattr(args, "skip_chain", False)),
+        trigger_entry_ids=tuple(getattr(args, "trigger_entry_id", None) or ()),
         execute_live=False,
         live_testing_enabled=live_testing_enabled,
         no_ledger=bool(getattr(args, "no_ledger", False)),
@@ -300,6 +310,8 @@ def _execute_and_print_live(
         plan_path,
         max_agents=run_cap,
         concurrent_agents=args.concurrent_agents,
+        skip_chain=bool(getattr(args, "skip_chain", False)),
+        trigger_entry_ids=tuple(getattr(args, "trigger_entry_id", None) or ()),
         execute_live=True,
         live_testing_enabled=live_testing_enabled,
         no_ledger=bool(getattr(args, "no_ledger", False)),
@@ -413,6 +425,8 @@ def _add_runtime_args(parser: argparse.ArgumentParser, *, allow_plan_inputs: boo
         _add_state_locator_args(parser)
     parser.add_argument("--concurrent-agents", type=_positive_int)
     _add_run_hypotheses_args(parser)
+    _add_chain_mode_args(parser)
+    _add_trigger_chain_args(parser)
     parser.add_argument("--no-ledger", action="store_true", help="skip live BaseTeam ledger/review/persistence writes")
     parser.add_argument("--dry-run", action="store_true", help="simulate execution with the dry-run BaseTeam adapter")
     parser.add_argument(
@@ -462,6 +476,30 @@ def _add_run_hypotheses_args(parser: argparse.ArgumentParser) -> None:
         "--max-agents",
         type=_non_negative_int,
         help="compatibility alias for --run-hypotheses N",
+    )
+
+
+def _add_chain_mode_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--skip-chain",
+        action="store_true",
+        help=(
+            "lighter run mode: omit pure chain/amplifier hypotheses from this wave without marking them skipped, "
+            "so a later normal resume can still validate them"
+        ),
+    )
+
+
+def _add_trigger_chain_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--trigger-entry-id",
+        action="append",
+        default=[],
+        metavar="HP-ID",
+        help=(
+            "run a focused chain wave for amplifier hypotheses unlocked by this entry id/key "
+            "from chain_activation_index.json; may be repeated"
+        ),
     )
 
 

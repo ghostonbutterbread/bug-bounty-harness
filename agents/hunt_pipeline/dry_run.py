@@ -155,6 +155,23 @@ def build_dry_run_plan(
         }
     if write_hypotheses:
         artifact_metadata["hypotheses"] = _write_jsonl_artifact(output_root / "hypotheses.jsonl", list(hypotheses_payload))
+    amplifier_hypotheses = _amplifier_hypotheses(hypotheses_payload)
+    artifact_metadata["amplifier_hypotheses"] = _write_jsonl_artifact(
+        output_root / "amplifier_hypotheses.jsonl",
+        amplifier_hypotheses,
+    )
+    chain_activation_index = _chain_activation_index(hypotheses_payload, amplifier_hypotheses)
+    artifact_metadata["chain_activation_index"] = _write_json_artifact_with_metadata(
+        output_root / "chain_activation_index.json",
+        chain_activation_index,
+    )
+    artifact_metadata["amplifier_report"] = _write_amplifier_report_artifact(
+        output_root / "reports" / "findings" / "amplifier.md",
+        amplifier_hypotheses,
+        program=str(program),
+        target_kind=resolved_target_kind,
+        run_id=resolved_run_id,
+    )
     artifact_metadata["appmap"] = {
         "run_root": str(appmap_root),
         "map_cache_path": str(appmap_root / "map_cache.json"),
@@ -389,6 +406,264 @@ def _write_decision_artifacts(output_root: Path, scheduler_plan: dict[str, Any])
     return artifacts
 
 
+def _amplifier_hypotheses(hypotheses: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for hypothesis in hypotheses:
+        if str(hypothesis.get("role") or "").strip().lower() not in {"amplifier", "chain"}:
+            continue
+        scheduler_metadata = hypothesis.get("scheduler_metadata") if isinstance(hypothesis.get("scheduler_metadata"), dict) else {}
+        rows.append(
+            {
+                "id": hypothesis.get("id"),
+                "key": hypothesis.get("key"),
+                "title": hypothesis.get("title"),
+                "role": hypothesis.get("role"),
+                "surface_family": hypothesis.get("surface_family"),
+                "priority": hypothesis.get("priority"),
+                "target_kind": hypothesis.get("target_kind"),
+                "ruleset_id": hypothesis.get("ruleset_id"),
+                "required_entry_primitives": list(
+                    hypothesis.get("required_entry_primitives") or hypothesis.get("chain_requirements") or ()
+                ),
+                "context_tags": list(hypothesis.get("context_tags") or hypothesis.get("tags") or ()),
+                "focus_files": list(hypothesis.get("focus_files") or ()),
+                "source_evidence": list(hypothesis.get("source_evidence") or ()),
+                "ingestion_path": hypothesis.get("ingestion_path") or "requires prior entry",
+                "chain_unlock_score": float(hypothesis.get("chain_unlock_score") or 0.0),
+                "unlocked_amplifiers": list(hypothesis.get("unlocked_amplifiers") or ()),
+                "expected_chain": scheduler_metadata.get("expected_chain", ""),
+                "reportability": hypothesis.get("reportability") or "hold_for_chain",
+                "entry_status": hypothesis.get("entry_status") or "missing",
+            }
+        )
+    return rows
+
+
+def _chain_activation_index(
+    hypotheses: tuple[dict[str, Any], ...],
+    amplifier_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    entry_rows = [
+        _entry_activation_row(hypothesis)
+        for hypothesis in hypotheses
+        if str(hypothesis.get("role") or "").strip().lower() == "entry"
+    ]
+    entries_by_id = {str(row["id"]): row for row in entry_rows if row.get("id")}
+    matched_amplifier_ids: set[str] = set()
+    activations: list[dict[str, Any]] = []
+
+    for entry in entry_rows:
+        unlocked = []
+        for amplifier in amplifier_rows:
+            reasons = _activation_match_reasons(entry, amplifier)
+            if not reasons:
+                continue
+            amplifier_id = str(amplifier.get("id") or "").strip()
+            if amplifier_id:
+                matched_amplifier_ids.add(amplifier_id)
+            unlocked.append(
+                {
+                    "id": amplifier.get("id"),
+                    "key": amplifier.get("key"),
+                    "title": amplifier.get("title"),
+                    "role": amplifier.get("role"),
+                    "surface_family": amplifier.get("surface_family"),
+                    "priority": amplifier.get("priority"),
+                    "match_reasons": reasons,
+                    "required_entry_primitives": list(amplifier.get("required_entry_primitives") or ()),
+                    "expected_chain": amplifier.get("expected_chain") or "",
+                }
+            )
+        if unlocked:
+            activations.append(
+                {
+                    **entry,
+                    "unlocked_amplifiers": unlocked,
+                }
+            )
+
+    return {
+        "schema_version": 1,
+        "activation_model": "entry_to_matching_amplifiers",
+        "entry_count": len(entry_rows),
+        "amplifier_count": len(amplifier_rows),
+        "matched_entry_count": len(activations),
+        "matched_amplifier_count": len(matched_amplifier_ids),
+        "activations": activations,
+        "unmatched_amplifiers": [
+            row for row in amplifier_rows if str(row.get("id") or "").strip() not in matched_amplifier_ids
+        ],
+        "notes": [
+            "This is a planning index only; it does not spawn chain validation agents.",
+            "Use it after an entry is proven or promising to select a small second-wave amplifier validation set.",
+        ],
+        "entry_ids": list(entries_by_id),
+    }
+
+
+def _entry_activation_row(hypothesis: dict[str, Any]) -> dict[str, Any]:
+    scheduler_metadata = hypothesis.get("scheduler_metadata") if isinstance(hypothesis.get("scheduler_metadata"), dict) else {}
+    return {
+        "id": hypothesis.get("id"),
+        "key": hypothesis.get("key"),
+        "title": hypothesis.get("title"),
+        "role": hypothesis.get("role"),
+        "surface_family": hypothesis.get("surface_family"),
+        "priority": hypothesis.get("priority"),
+        "focus_files": list(hypothesis.get("focus_files") or ()),
+        "context_tags": list(hypothesis.get("context_tags") or hypothesis.get("tags") or ()),
+        "source_evidence": list(hypothesis.get("source_evidence") or ()),
+        "ingestion_path": hypothesis.get("ingestion_path") or "unknown",
+        "entry_status": hypothesis.get("entry_status") or "plausible",
+        "entry_reportability_score": float(hypothesis.get("entry_reportability_score") or 0.0),
+        "unlocked_amplifiers": list(hypothesis.get("unlocked_amplifiers") or ()),
+        "expected_entry": scheduler_metadata.get("expected_chain", ""),
+    }
+
+
+def _activation_match_reasons(entry: dict[str, Any], amplifier: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    entry_files = set(_string_set(entry.get("focus_files"))) | _evidence_files(entry.get("source_evidence"))
+    amplifier_files = set(_string_set(amplifier.get("focus_files"))) | _evidence_files(amplifier.get("source_evidence"))
+    shared_files = sorted(entry_files & amplifier_files)
+    if shared_files:
+        reasons.append(f"shared_focus_file:{shared_files[0]}")
+
+    entry_family = str(entry.get("surface_family") or "").strip()
+    unlocked_families = set(_string_set(entry.get("unlocked_amplifiers")))
+    amplifier_family = str(amplifier.get("surface_family") or "").strip()
+    if amplifier_family and amplifier_family in unlocked_families:
+        reasons.append(f"entry_unlocks_family:{amplifier_family}")
+
+    required = " ".join(_string_set(amplifier.get("required_entry_primitives"))).lower()
+    if entry_family and entry_family.lower() in required:
+        reasons.append(f"required_entry_mentions_family:{entry_family}")
+
+    shared_tags = sorted(
+        set(_meaningful_context_tags(entry.get("context_tags")))
+        & set(_meaningful_context_tags(amplifier.get("context_tags")))
+    )
+    if shared_tags:
+        reasons.append(f"shared_context_tag:{shared_tags[0]}")
+    return reasons
+
+
+def _meaningful_context_tags(value: Any) -> list[str]:
+    noisy = {
+        "hunt-pipeline",
+        "entry",
+        "amplifier",
+        "chain",
+        "hardening",
+        "notes_only",
+        "desktop",
+        "electron",
+        "electron-exe",
+        "apk",
+        "mobile",
+    }
+    return [
+        item
+        for item in _string_set(value)
+        if item not in noisy
+        and not item.startswith("ruleset-")
+        and "electron" not in item
+        and "desktop" not in item
+    ]
+
+
+def _evidence_files(value: Any) -> set[str]:
+    files: set[str] = set()
+    if not isinstance(value, (list, tuple)):
+        return files
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        file_name = str(item.get("file") or "").strip()
+        if file_name:
+            files.add(file_name)
+    return files
+
+
+def _string_set(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return list(dict.fromkeys(str(item or "").strip() for item in value if str(item or "").strip()))
+
+
+def _write_amplifier_report_artifact(
+    path: Path,
+    rows: list[dict[str, Any]],
+    *,
+    program: str,
+    target_kind: str,
+    run_id: str,
+) -> dict[str, Any]:
+    text = _render_amplifier_report(rows, program=program, target_kind=target_kind, run_id=run_id)
+    _atomic_write_text(path, text)
+    return {
+        "path": str(path),
+        "count": len(rows),
+        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+    }
+
+
+def _render_amplifier_report(
+    rows: list[dict[str, Any]],
+    *,
+    program: str,
+    target_kind: str,
+    run_id: str,
+) -> str:
+    lines = [
+        "# Amplifier Hypotheses",
+        "",
+        f"- Program: `{_md_inline(program)}`",
+        f"- Target kind: `{_md_inline(target_kind)}`",
+        f"- Run ID: `{_md_inline(run_id)}`",
+        f"- Count: {len(rows)}",
+        "",
+        "These are chain/amplifier hypotheses held for later validation. They should not be treated as standalone active findings until a realistic entry primitive is proven or they demonstrate major standalone incremental impact.",
+        "",
+    ]
+    if not rows:
+        lines.extend(["No amplifier hypotheses were generated for this plan.", ""])
+        return "\n".join(lines)
+    for index, row in enumerate(rows, start=1):
+        lines.extend(
+            [
+                f"## {index}. {_md_text(str(row.get('title') or row.get('key') or row.get('id') or 'Untitled amplifier'))}",
+                "",
+                f"- ID: `{_md_inline(row.get('id'))}`",
+                f"- Role: `{_md_inline(row.get('role'))}`",
+                f"- Surface family: `{_md_inline(row.get('surface_family'))}`",
+                f"- Priority: `{_md_inline(row.get('priority'))}`",
+                f"- Reportability: `{_md_inline(row.get('reportability'))}`",
+                f"- Entry status: `{_md_inline(row.get('entry_status'))}`",
+                f"- Expected chain: {_md_text(str(row.get('expected_chain') or 'Not specified'))}",
+                f"- Required entry primitives: {_md_list(row.get('required_entry_primitives'))}",
+                f"- Context tags: {_md_list(row.get('context_tags'))}",
+                f"- Focus files: {_md_list(row.get('focus_files'))}",
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _md_list(value: Any) -> str:
+    if not isinstance(value, (list, tuple)) or not value:
+        return "none"
+    return ", ".join(f"`{_md_inline(item)}`" for item in value if str(item or "").strip()) or "none"
+
+
+def _md_inline(value: Any) -> str:
+    return str(value or "").replace("`", "'").strip()
+
+
+def _md_text(value: str) -> str:
+    return value.replace("\r", " ").replace("\n", " ").strip()
+
+
 def _decision_log_record(decision: dict[str, Any], status: str) -> dict[str, Any]:
     return {
         **decision,
@@ -409,6 +684,16 @@ def _write_jsonl_artifact(path: Path, rows: list[dict[str, Any]]) -> dict[str, A
 
 def _write_json_artifact(path: Path, payload: dict[str, Any]) -> None:
     _atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def _write_json_artifact_with_metadata(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    _atomic_write_text(path, text)
+    return {
+        "path": str(path),
+        "count": int(payload.get("matched_entry_count") or 0),
+        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+    }
 
 
 def _atomic_write_text(path: Path, text: str) -> None:

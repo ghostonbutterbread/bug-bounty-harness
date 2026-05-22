@@ -25,6 +25,21 @@ BRAINSTORM_METADATA_FIELDS = (
     "appmap_research_citations",
 )
 
+PHASED_TESTING_FIELDS = (
+    "finding_role",
+    "entry_status",
+    "entry_vector",
+    "ingestion_path",
+    "unlocked_context",
+    "chain_handles",
+    "required_entry_primitives",
+    "unlocked_amplifiers",
+    "impact_amplifiers",
+    "chain_requirements",
+    "reportability",
+    "payout_confidence",
+)
+
 
 def safe_int(value: Any, default: int = 0) -> int:
     try:
@@ -101,7 +116,7 @@ def normalize_finding(
         "sink": str(raw.get("sink") or "").strip(),
         "exploitability": str(raw.get("exploitability") or "").strip(),
     }
-    for key in BRAINSTORM_METADATA_FIELDS:
+    for key in (*BRAINSTORM_METADATA_FIELDS, *PHASED_TESTING_FIELDS):
         if key in raw:
             normalized[key] = raw[key]
     if is_placeholder_finding(raw) or is_placeholder_finding(normalized):

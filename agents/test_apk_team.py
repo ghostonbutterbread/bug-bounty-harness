@@ -16,6 +16,7 @@ if str(_project_root) not in sys.path:
 
 from agents import apk_team  # noqa: E402
 from agents.base_team.apk_compat import load_findings, run_agent_session  # noqa: E402
+from agents.base_team.findings import extract_findings_from_log  # noqa: E402
 
 
 class FakeProcess:
@@ -143,6 +144,41 @@ class ApkTeamOutputRootTests(unittest.TestCase):
         queued = findings_path.read_text(encoding="utf-8")
         self.assertIn('"fid": "D01"', queued)
         self.assertFalse(hasattr(ledger, "add_or_update"))
+
+    def test_apk_agent_session_accepts_shared_extract_findings_callback(self) -> None:
+        findings_path = self.tmp / "findings.jsonl"
+        raw = {
+            "class_name": "provider",
+            "description": "Reviewed finding.",
+            "file": "AndroidManifest.xml",
+            "severity": "HIGH",
+            "type": "exported-provider",
+        }
+        reserved = {**raw, "fid": "D01", "snapshot_id": "snap-1"}
+        ledger = SimpleNamespace(check=Mock(return_value=(False, "D01", reserved)))
+        session = SimpleNamespace(
+            process=FakeProcess(),
+            log_path=self.tmp / "agent.log",
+            profile=SimpleNamespace(key="provider-agent"),
+            workspace=self.tmp / "workspace",
+            skip_ledger=False,
+        )
+        session.log_path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+        session.workspace.mkdir()
+
+        exit_code = run_agent_session(
+            session,
+            findings_path,
+            ledger,
+            extract_findings_from_log=extract_findings_from_log,
+        )
+
+        self.assertEqual(exit_code, 0)
+        ledger.check.assert_called_once()
+        queued = load_findings(findings_path)
+        self.assertEqual(len(queued), 1)
+        self.assertEqual(queued[0]["agent"], "provider-agent")
+        self.assertEqual(queued[0]["fid"], "D01")
 
     def test_chainer_invocation_uses_canonical_reports_output(self) -> None:
         storage = SimpleNamespace(

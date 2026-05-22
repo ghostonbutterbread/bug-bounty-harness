@@ -43,14 +43,17 @@ def run_agent_session(
     findings_path: Path,
     ledger: Any,
     *,
-    extract_findings_from_log: Callable[[Path, str], list[dict[str, Any]]],
+    extract_findings_from_log: Callable[..., list[dict[str, Any]]],
     maybe_log_span: Callable[..., None] | None = None,
 ) -> int:
     if session.process is None:
         return 1
 
     exit_code = session.process.wait()
-    session_findings = extract_findings_from_log(session.log_path, session.profile.key)
+    session_findings = extract_findings_from_log(
+        session.log_path,
+        default_agent=session.profile.key,
+    )
     findings_to_queue: list[dict[str, Any]] = []
     if session_findings and not session.skip_ledger:
         for finding in session_findings:

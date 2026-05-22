@@ -76,7 +76,7 @@ class ScopeManager:
         for domain in self.domains:
             if domain.startswith("*."):
                 base = domain[2:]
-                if host.endswith(base) or host == base:
+                if host == base or host.endswith(f".{base}"):
                     return True
         
         # Check if URL is in scope

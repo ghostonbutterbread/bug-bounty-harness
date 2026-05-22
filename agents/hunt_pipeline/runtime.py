@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict
 from pathlib import Path
@@ -234,9 +235,26 @@ def _split_amplifier_hold_findings(findings: Sequence[Mapping[str, Any]]) -> tup
 
 def _append_run_amplifier_findings(reports_root: Path, findings: Sequence[Mapping[str, Any]]) -> Path:
     path = reports_root / "findings" / "amplifier.md"
+    jsonl_path = reports_root / "findings" / "amplifier_findings.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
-    existing = path.read_text(encoding="utf-8") if path.exists() else "# Amplifier Findings\n\n"
-    blocks = []
+    existing_rows = _read_jsonl_records(jsonl_path)
+    rows_by_key = {_amplifier_finding_key(row): dict(row) for row in existing_rows}
+    for finding in findings:
+        row = dict(finding)
+        row["reportability"] = str(row.get("reportability") or "hold_for_chain").strip() or "hold_for_chain"
+        row["entry_status"] = str(row.get("entry_status") or "missing").strip() or "missing"
+        rows_by_key[_amplifier_finding_key(row)] = row
+    rows = list(rows_by_key.values())
+    _write_jsonl_records(jsonl_path, rows)
+    path.write_text(_render_amplifier_findings_report(rows), encoding="utf-8")
+    return path
+
+
+def _render_amplifier_findings_report(findings: Sequence[Mapping[str, Any]]) -> str:
+    blocks = ["# Amplifier Findings", ""]
+    if not findings:
+        blocks.extend(["No held amplifier findings have been recorded.", ""])
+        return "\n".join(blocks)
     for finding in findings:
         title = str(finding.get("description") or finding.get("type") or finding.get("class_name") or "Untitled amplifier").strip()
         blocks.extend(
@@ -253,8 +271,44 @@ def _append_run_amplifier_findings(reports_root: Path, findings: Sequence[Mappin
                 "",
             ]
         )
-    path.write_text(existing.rstrip() + "\n\n" + "\n".join(blocks).rstrip() + "\n", encoding="utf-8")
-    return path
+    return "\n".join(blocks).rstrip() + "\n"
+
+
+def _amplifier_finding_key(finding: Mapping[str, Any]) -> str:
+    parts = (
+        finding.get("hypothesis_id"),
+        finding.get("agent"),
+        finding.get("type"),
+        finding.get("file"),
+        finding.get("line"),
+        finding.get("sink"),
+    )
+    return hashlib.sha256(
+        "\x1f".join(str(part or "").strip().lower() for part in parts).encode("utf-8")
+    ).hexdigest()
+
+
+def _read_jsonl_records(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            payload = json.loads(line)
+            if isinstance(payload, dict):
+                rows.append(payload)
+    except (OSError, json.JSONDecodeError):
+        return []
+    return rows
+
+
+def _write_jsonl_records(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
+    path.write_text(
+        "".join(json.dumps(dict(row), sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
 
 
 def _promising_entry_trigger_ids(findings: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:

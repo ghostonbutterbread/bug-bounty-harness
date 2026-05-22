@@ -34,7 +34,7 @@ from agents.hunt_pipeline.run_state import (
     save_run_state,
     summarize_run,
 )
-from agents.hunt_pipeline.runtime import _split_amplifier_hold_findings, execute_next_wave
+from agents.hunt_pipeline.runtime import _append_run_amplifier_findings, _split_amplifier_hold_findings, execute_next_wave
 from agents.hunt_pipeline.runtime_contract import (
     build_runtime_handoff_contract,
     build_runtime_promotion_protocol,
@@ -676,6 +676,35 @@ def test_amplifier_hold_findings_are_split_from_reviewable_findings() -> None:
 
     assert [item["type"] for item in amplifier] == ["hostrpc branch"]
     assert [item["type"] for item in reviewable] == ["import xss"]
+
+
+def test_amplifier_findings_report_merges_duplicate_entries(tmp_path: Path) -> None:
+    reports_root = tmp_path / "reports"
+    finding = {
+        "agent": "agent-1",
+        "type": "hostrpc branch",
+        "finding_role": "amplifier",
+        "entry_status": "missing",
+        "reportability": "hold_for_chain",
+        "file": "src/main.js",
+        "line": 7,
+        "required_entry_primitives": ["renderer_xss"],
+        "chain_handles": ["HostRpc.download"],
+    }
+
+    report_path = _append_run_amplifier_findings(reports_root, [finding])
+    _append_run_amplifier_findings(reports_root, [finding])
+
+    rows = [
+        json.loads(line)
+        for line in (reports_root / "findings" / "amplifier_findings.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    report = report_path.read_text(encoding="utf-8")
+
+    assert len(rows) == 1
+    assert rows[0]["type"] == "hostrpc branch"
+    assert report.count("## hostrpc branch") == 1
 
 
 def test_execute_next_wave_writes_efficiency_artifacts(tmp_path: Path) -> None:

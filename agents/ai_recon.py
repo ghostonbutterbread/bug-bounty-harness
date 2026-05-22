@@ -28,6 +28,7 @@ import httpx
 from datetime import datetime, timezone
 from pathlib import Path
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
 sys.path.insert(0, "/home/ryushe/projects/bounty-tools")
 try:
@@ -136,7 +137,7 @@ class AIReconAgent:
 
     def __init__(self, program: str, domains: list[str], results_dir: str = None):
         self.program = program
-        self.domains = domains
+        self.domains = [self._normalize_scope_domain(domain) for domain in domains if self._normalize_scope_domain(domain)]
         self.primary_domain = domains[0] if domains else ""
 
         if results_dir:
@@ -163,9 +164,40 @@ class AIReconAgent:
 
     def is_in_scope(self, url: str) -> bool:
         """Check if URL is in scope. Skip if no scope loaded."""
-        if not self.scope:
-            return True
-        return self.scope.is_in_scope(url)
+        if self.scope:
+            return self.scope.is_in_scope(url)
+        return self._matches_configured_scope(url)
+
+    @staticmethod
+    def _normalize_scope_domain(value: str) -> str:
+        return str(value or "").strip().lower().lstrip(".")
+
+    @classmethod
+    def _extract_hostname(cls, value: str) -> str:
+        candidate = str(value or "").strip()
+        if not candidate:
+            return ""
+        parsed = urlparse(candidate if "://" in candidate else f"//{candidate}")
+        return cls._normalize_scope_domain(parsed.hostname or "")
+
+    @classmethod
+    def _matches_scope_domain(cls, candidate: str, scope_domain: str) -> bool:
+        host = cls._extract_hostname(candidate)
+        domain = cls._normalize_scope_domain(scope_domain)
+        if not host or not domain:
+            return False
+        return host == domain or host.endswith(f".{domain}")
+
+    def _matches_configured_scope(self, candidate: str) -> bool:
+        return any(self._matches_scope_domain(candidate, domain) for domain in self.domains)
+
+    def _dork_targets_configured_scope(self, dork: str) -> bool:
+        dork_lower = str(dork or "").lower()
+        for domain in self.domains:
+            escaped = re.escape(domain)
+            if re.search(rf"(?<![a-z0-9-])(?:[a-z0-9-]+\.)*{escaped}(?![a-z0-9.-])", dork_lower):
+                return True
+        return False
 
     def run(self, max_dorks: int = 20) -> ReconReport:
         """Run the full AI recon workflow."""
@@ -345,7 +377,7 @@ Try running with PERPLEXITY_API_KEY set for full AI-powered recon.
 
         for dork in dorks[:max_dorks]:
             # Check if dork is for our domains
-            if not any(d in dork.lower() for d in self.domains):
+            if not self._dork_targets_configured_scope(dork):
                 continue
 
             try:
@@ -379,7 +411,7 @@ Try running with PERPLEXITY_API_KEY set for full AI-powered recon.
                 for result in data.get("results", []):
                     url = result.get("url", "")
                     # Verify it's from our domains
-                    if not any(d in url.lower() for d in self.domains):
+                    if not self._matches_configured_scope(url):
                         continue
                     if not self.is_in_scope(url):
                         print(f"  [SKIP] Out of scope: {url}")
@@ -485,7 +517,7 @@ If no results, say NONE."""
                 for line in content.split("\n"):
                     if line.startswith("URL:"):
                         url = line[4:].strip()
-                        if any(d in url for d in self.domains):
+                        if self._matches_configured_scope(url) and self.is_in_scope(url):
                             findings.append(ReconFinding(
                                 url=url,
                                 source="perplexity",
@@ -526,7 +558,7 @@ If no results, say NONE."""
     def _which_domain(self, url: str) -> str:
         """Which of our domains does this URL belong to?"""
         for d in self.domains:
-            if d in url.lower():
+            if self._matches_scope_domain(url, d):
                 return d
         return self.primary_domain
 

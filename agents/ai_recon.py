@@ -16,21 +16,33 @@ Usage:
     findings = agent.run()
 """
 
-import sys
-sys.path.insert(0, "/home/ryushe/workspace/bug_bounty_harness")
-
 import json
 import math
 import os
-import time
 import re
+import sys
+import time
 import httpx
 from datetime import datetime, timezone
 from pathlib import Path
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
-sys.path.insert(0, "/home/ryushe/projects/bounty-tools")
+_AGENT_DIR = Path(__file__).resolve().parent
+_PROJECT_ROOT = _AGENT_DIR.parent
+_DEFAULT_BOUNTY_TOOLS = _PROJECT_ROOT.parent / "bounty-tools"
+
+for _path in (_AGENT_DIR, _PROJECT_ROOT):
+    _path_str = str(_path)
+    if _path_str not in sys.path:
+        sys.path.insert(0, _path_str)
+
+_helper_root = Path(os.getenv("BOUNTY_TOOLS_PATH", str(_DEFAULT_BOUNTY_TOOLS))).expanduser()
+if _helper_root.is_dir():
+    _helper_root_str = str(_helper_root)
+    if _helper_root_str not in sys.path:
+        sys.path.insert(0, _helper_root_str)
+
 try:
     from subagent_logger import SubagentLogger, compute_pte_lite
 except ImportError:  # pragma: no cover

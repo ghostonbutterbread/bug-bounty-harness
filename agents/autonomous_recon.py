@@ -62,6 +62,7 @@ URL_RE = re.compile(r'https?://[^\s\'"<>()\[\]{}]+', re.IGNORECASE)
 JS_URL_RE = re.compile(r'["\'](?P<path>/[a-zA-Z0-9_\-/\.]+\.js(?:\?[^"\']*)?)["\']')
 PARAM_RE = re.compile(r'[?&]([a-zA-Z0-9_\-]+)=', re.IGNORECASE)
 FORM_ACTION_RE = re.compile(r'<form[^>]*action=["\']?([^"\'>\s]+)', re.IGNORECASE)
+FORM_BLOCK_RE = re.compile(r'<form\b[^>]*>.*?</form>', re.IGNORECASE | re.DOTALL)
 INPUT_NAME_RE = re.compile(r'<input[^>]*name=["\']([^"\']+)["\']', re.IGNORECASE)
 HREF_RE = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
 SRC_RE = re.compile(r'src=["\']([^"\']+\.js(?:\?[^"\']*)?)["\']', re.IGNORECASE)
@@ -539,9 +540,12 @@ def _try_playwright_crawl(
 
 
 def _extract_forms(html: str, base_url: str, result: ReconResult) -> None:
-    for m in FORM_ACTION_RE.finditer(html):
-        action = _normalize_url(m.group(1), base_url) or m.group(1)
-        inputs = INPUT_NAME_RE.findall(html)
+    for form_html in FORM_BLOCK_RE.findall(html):
+        action_match = FORM_ACTION_RE.search(form_html)
+        if not action_match:
+            continue
+        action = _normalize_url(action_match.group(1), base_url) or action_match.group(1)
+        inputs = INPUT_NAME_RE.findall(form_html)
         form = {"action": action, "inputs": inputs}
         # Avoid exact duplicates
         if form not in result.forms:

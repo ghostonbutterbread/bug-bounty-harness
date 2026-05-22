@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -101,6 +102,19 @@ class BrainstormMetadataSurvivalTests(unittest.TestCase):
     def _ledger_payload(self) -> dict:
         return json.loads(self.team.ledger_path.read_text(encoding="utf-8"))
 
+    def _reviewed_finding(self, finding: dict, *, note: str) -> dict:
+        return {
+            **finding,
+            "review_tier": "CONFIRMED",
+            "tier": "CONFIRMED",
+            "safety_assumption": "Imported SVG content is sanitized before renderer preview.",
+            "assumption_break": "The preview path reaches script-capable renderer code.",
+            "intended_behavior_analysis": "Script execution from imported assets is unintended.",
+            "exploit_path": "Victim imports attacker SVG and preview executes renderer script.",
+            "impact": "Renderer script execution can reach privileged bridge calls.",
+            "review_notes": note,
+        }
+
     def test_brainstorm_agent_intent_metadata_survives_normal_finding_lifecycle(self) -> None:
         expected_metadata = self._metadata()
         raw_finding = {
@@ -137,17 +151,10 @@ class BrainstormMetadataSurvivalTests(unittest.TestCase):
             self.team.program,
             self.team.team_type,
             output_root=self.output_root,
-            review_single=lambda finding, _target: {
-                **finding,
-                "review_tier": "CONFIRMED",
-                "tier": "CONFIRMED",
-                "safety_assumption": "Imported SVG content is sanitized before renderer preview.",
-                "assumption_break": "The preview path reaches script-capable renderer code.",
-                "intended_behavior_analysis": "Script execution from imported assets is unintended.",
-                "exploit_path": "Victim imports attacker SVG and preview executes renderer script.",
-                "impact": "Renderer script execution can reach privileged bridge calls.",
-                "review_notes": "Confirmed for metadata survival test.",
-            },
+            review_single=lambda finding, _target: self._reviewed_finding(
+                finding,
+                note="Confirmed for metadata survival test.",
+            ),
             max_workers=1,
             write_reports=False,
         )
@@ -176,6 +183,71 @@ class BrainstormMetadataSurvivalTests(unittest.TestCase):
         stored = self._ledger_payload()["findings"][0]
         for key, value in expected_metadata.items():
             self.assertEqual(stored[key], value)
+
+    def test_brainstorm_metadata_survives_parallel_review_with_staggered_completion(self) -> None:
+        expected_metadata = self._metadata()
+        raw_findings = [
+            {
+                **expected_metadata,
+                "agent": expected_metadata["brainstorm_agent_key"],
+                "category": "class",
+                "class_name": "xss",
+                "type": "SVG import renderer script execution",
+                "file": "dist/renderer.js",
+                "line": 1,
+                "description": "SVG preview rendering reaches script-capable renderer code.",
+                "severity": "HIGH",
+                "source": "user-supplied SVG import",
+                "trust_boundary": "imported file to renderer preview",
+                "flow_path": "import -> preview -> renderer",
+                "sink": "renderSvg(uploaded)",
+                "exploitability": "Attacker shares an SVG/design asset that the victim imports.",
+            },
+            {
+                **expected_metadata,
+                "agent": expected_metadata["brainstorm_agent_key"],
+                "category": "class",
+                "class_name": "xss",
+                "type": "Pasted SVG renderer script execution",
+                "file": "dist/renderer.js",
+                "line": 1,
+                "description": "Pasted SVG preview rendering reaches script-capable renderer code.",
+                "severity": "HIGH",
+                "source": "user-pasted SVG import",
+                "trust_boundary": "pasted file to renderer preview",
+                "flow_path": "paste -> preview -> renderer",
+                "sink": "renderSvg(uploaded)",
+                "exploitability": "Attacker convinces the victim to paste an SVG payload.",
+            },
+        ]
+
+        reserved = self.team.deduplicate_findings(raw_findings, self.team.load_ledger())
+        self.assertEqual([finding["fid"] for finding in reserved], ["D01", "D02"])
+
+        def review_single(finding: dict, _target: Path) -> dict:
+            if finding["fid"] == "D01":
+                time.sleep(0.05)
+            return self._reviewed_finding(finding, note="Confirmed for parallel metadata survival test.")
+
+        confirmed, dormant, novel = stage2_ghost_review(
+            reserved,
+            self.target,
+            self.team.program,
+            self.team.team_type,
+            output_root=self.output_root,
+            review_single=review_single,
+            max_workers=2,
+            write_reports=False,
+        )
+
+        self.assertEqual(len(confirmed), 2)
+        self.assertEqual(dormant, [])
+        self.assertEqual(novel, [])
+        by_fid = {finding["fid"]: finding for finding in confirmed}
+        self.assertEqual(set(by_fid), {"D01", "D02"})
+        for finding in by_fid.values():
+            for key, value in expected_metadata.items():
+                self.assertEqual(finding[key], value)
 
 
 if __name__ == "__main__":

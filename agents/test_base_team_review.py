@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -72,6 +73,47 @@ class BaseTeamReviewTests(unittest.TestCase):
         self.assertEqual(reviewed_inputs[0]["fid"], "D01")
         self.assertEqual([finding["fid"] for finding in confirmed], ["D01"])
         self.assertEqual(confirmed[0]["copy_id"], "later-with-fid")
+        self.assertEqual(dormant, [])
+        self.assertEqual(novel, [])
+
+    def test_parallel_review_keeps_fid_bearing_duplicate_despite_staggered_completion(self) -> None:
+        reviewed_inputs: list[dict[str, Any]] = []
+
+        def review_single(finding: dict[str, Any], _target: Path) -> dict[str, Any]:
+            reviewed_inputs.append(dict(finding))
+            if finding["copy_id"] == "later-with-fid":
+                time.sleep(0.05)
+            return {
+                **finding,
+                "review_tier": "CONFIRMED",
+                "tier": "CONFIRMED",
+                "review_notes": "Confirmed for parallel duplicate replacement regression.",
+            }
+
+        first_without_fid = self._finding(copy_id="first-without-fid")
+        later_with_fid = self._finding(copy_id="later-with-fid", fid="D01")
+        unrelated = self._finding(
+            copy_id="unrelated",
+            fid="D02",
+            type="query reaches html sink",
+            source="location.search",
+        )
+
+        confirmed, dormant, novel = stage2_ghost_review(
+            [first_without_fid, later_with_fid, unrelated],
+            self.target,
+            "Example Program",
+            "0day_team",
+            output_root=self.tmp / "out",
+            review_single=review_single,
+            max_workers=2,
+            write_reports=False,
+        )
+
+        self.assertEqual({finding["copy_id"] for finding in reviewed_inputs}, {"later-with-fid", "unrelated"})
+        by_fid = {finding["fid"]: finding for finding in confirmed}
+        self.assertEqual(set(by_fid), {"D01", "D02"})
+        self.assertEqual(by_fid["D01"]["copy_id"], "later-with-fid")
         self.assertEqual(dormant, [])
         self.assertEqual(novel, [])
 

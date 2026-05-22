@@ -88,6 +88,12 @@ def _manifest_hash(target_root: Path) -> str:
             continue
         relpath = path.relative_to(target_root).as_posix()
         digest.update(f"{relpath}:{stat.st_size}\n".encode("utf-8"))
+        try:
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError:
+            continue
     return digest.hexdigest()
 
 

@@ -8,6 +8,9 @@ Supports:
   - CIDR ranges:           10.0.0.0/8, 192.168.1.0/24
 
 Scope files are loaded from standard locations:
+  ~/Shared/scopes/{program}/in-scope.txt
+  ~/Shared/scopes/{program}/rules-of-engagement.json
+  Legacy fallback:
   ~/Shared/bounty_recon/{program}/scope/in-scope.txt
   ~/Shared/bounty_recon/{program}/scope/domains.txt
 
@@ -22,6 +25,7 @@ Usage:
 """
 
 import ipaddress
+import json
 import re
 from pathlib import Path
 from typing import Optional
@@ -163,8 +167,9 @@ class ScopeValidator:
     Validates targets against bug bounty program scope.
 
     Loads scope from:
-      ~/Shared/bounty_recon/{program}/scope/in-scope.txt
-      ~/Shared/bounty_recon/{program}/scope/domains.txt
+      ~/Shared/scopes/{program}/in-scope.txt
+      ~/Shared/scopes/{program}/rules-of-engagement.json
+      legacy fallback: ~/Shared/bounty_recon/{program}/scope/
 
     Supports: exact domains, wildcards (*.example.com), URL patterns,
     CIDR ranges, and inline comments (#).
@@ -175,7 +180,8 @@ class ScopeValidator:
                   Defaults to True.
     """
 
-    RECON_BASE = Path.home() / "Shared" / "bounty_recon"
+    SCOPES_BASE = Path.home() / "Shared" / "scopes"
+    LEGACY_RECON_BASE = Path.home() / "Shared" / "bounty_recon"
 
     # Standard scope file locations (tried in order)
     SCOPE_FILE_NAMES = [
@@ -188,6 +194,11 @@ class ScopeValidator:
     def __init__(self, program: str, strict: bool = True):
         self.program = program
         self.strict = strict
+        self.policy: dict = {}
+        self.platform = "unknown"
+        self.source_url = None
+        self.source_brief_url = None
+        self.blocked_or_sensitive_classes: list[str] = []
         self._entries: list[_ScopeEntry] = []
         self._out_of_scope: list[_ScopeEntry] = []
         self.load_scope()
@@ -199,10 +210,11 @@ class ScopeValidator:
         Load scope entries from standard file locations.
         Silently skips missing files — call add_domain() to add manually.
         """
-        program_dir = self.RECON_BASE / self.program
+        canonical_dir = self.SCOPES_BASE / self.program
+        legacy_program_dir = self.LEGACY_RECON_BASE / self.program
+        self._load_policy(canonical_dir / "rules-of-engagement.json")
         loaded = False
-        for rel in self.SCOPE_FILE_NAMES:
-            path = program_dir / rel
+        for path in [canonical_dir / "in-scope.txt", *(legacy_program_dir / rel for rel in self.SCOPE_FILE_NAMES)]:
             if path.exists():
                 self._load_file(path, is_out_of_scope=False)
                 loaded = True
@@ -210,13 +222,28 @@ class ScopeValidator:
 
         # Also check for out-of-scope file
         out_of_scope_candidates = [
-            program_dir / "scope/out-of-scope.txt",
-            program_dir / "scope/excluded.txt",
+            canonical_dir / "out-of-scope.txt",
+            canonical_dir / "excluded.txt",
+            legacy_program_dir / "scope/out-of-scope.txt",
+            legacy_program_dir / "scope/excluded.txt",
         ]
         for path in out_of_scope_candidates:
             if path.exists():
                 self._load_file(path, is_out_of_scope=True)
                 break
+
+    def _load_policy(self, path: Path) -> None:
+        """Load normalized platform/rules metadata when present."""
+        if not path.exists():
+            return
+        try:
+            self.policy = json.loads(path.read_text())
+            self.platform = self.policy.get("platform", "unknown")
+            self.source_url = self.policy.get("source_url")
+            self.source_brief_url = self.policy.get("source_brief_url")
+            self.blocked_or_sensitive_classes = self.policy.get("blocked_or_sensitive_classes", [])
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"[scope_validator] Warning: could not read policy metadata {path}: {e}")
 
     def _load_file(self, path: Path, is_out_of_scope: bool = False) -> None:
         """Parse a scope file and add its entries."""

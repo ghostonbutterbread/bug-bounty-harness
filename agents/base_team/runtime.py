@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import signal
 import subprocess
@@ -32,6 +33,19 @@ TimestampIsoFn = Callable[[], str]
 TraceTimestampFn = Callable[[], str]
 SlugFn = Callable[[str], str]
 EnsureParentFn = Callable[[Path], None]
+
+
+def _codex_subprocess_env() -> dict[str, str]:
+    """Run spawned Codex agents with the user's normal CLI auth store.
+
+    OpenClaw sessions may set CODEX_HOME to an isolated agent directory. Raw
+    `codex exec` subprocesses should not inherit that value because it makes
+    them ignore the user's normal ~/.codex login.
+    """
+
+    env = os.environ.copy()
+    env.pop("CODEX_HOME", None)
+    return env
 
 
 def spawn_agent(
@@ -88,6 +102,7 @@ def spawn_agent(
     process = subprocess.Popen(
         ["bash", "-lc", command],
         cwd=str(workdir),
+        env=_codex_subprocess_env(),
         stdin=subprocess.DEVNULL,
         stdout=log_handle,
         stderr=subprocess.STDOUT,

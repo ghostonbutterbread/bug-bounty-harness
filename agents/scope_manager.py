@@ -2,6 +2,7 @@
 """Scope manager for bug bounty programs."""
 
 import argparse
+import json
 from pathlib import Path
 from textwrap import dedent
 from urllib.parse import urlparse
@@ -10,31 +11,51 @@ from urllib.parse import urlparse
 class ScopeManager:
     """Load and validate scope for a bug bounty program."""
     
-    RECON_BASE = Path.home() / "Shared" / "bounty_recon"
+    SCOPES_BASE = Path.home() / "Shared" / "scopes"
+    LEGACY_RECON_BASE = Path.home() / "Shared" / "bounty_recon"
     
     def __init__(self, program: str):
         self.program = program
-        self.scope_dir = self.RECON_BASE / program / "scope"
+        self.scope_dir = self.SCOPES_BASE / program
+        self.legacy_scope_dir = self.LEGACY_RECON_BASE / program / "scope"
+        self.policy = self._load_policy()
+        self.platform = self.policy.get("platform", "unknown")
+        self.source_url = self.policy.get("source_url")
+        self.source_brief_url = self.policy.get("source_brief_url")
+        self.blocked_or_sensitive_classes = self.policy.get("blocked_or_sensitive_classes", [])
         self.domains = self._load_domains()
         self.urls = self._load_urls()
+
+    def _candidate_files(self, names: list[str]) -> list[Path]:
+        paths = [self.scope_dir / name for name in names]
+        paths.extend(self.legacy_scope_dir / name for name in names)
+        return paths
+
+    def _load_policy(self) -> dict:
+        """Load normalized rules/platform metadata when available."""
+        path = self.scope_dir / "rules-of-engagement.json"
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return {}
     
     def _load_domains(self) -> set:
         """Load domains from scope files."""
         domains = set()
-        for fname in ["in-scope.txt", "domains.txt", "scope.txt"]:
-            fpath = self.scope_dir / fname
+        for fpath in self._candidate_files(["in-scope.txt", "domains.txt", "scope.txt"]):
             if fpath.exists():
                 for line in fpath.read_text().splitlines():
                     line = line.strip()
-                    if line and not line.startswith("#"):
+                    if line and not line.startswith("#") and not line.startswith("http"):
                         domains.add(line)
         return domains
     
     def _load_urls(self) -> set:
         """Load URLs from scope files."""
         urls = set()
-        for fname in ["in-scope.txt", "scope.txt"]:
-            fpath = self.scope_dir / fname
+        for fpath in self._candidate_files(["in-scope.txt", "scope.txt"]):
             if fpath.exists():
                 for line in fpath.read_text().splitlines():
                     line = line.strip()
@@ -97,7 +118,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
               python3 agents/scope_manager.py adobe
 
             Output:
-              Reads from ~/Shared/bounty_recon/<program>/scope/
+              Reads from ~/Shared/scopes/<program>/ with legacy fallback.
             """
         ),
     )
@@ -110,6 +131,7 @@ def main() -> int:
 
     mgr = ScopeManager(args.program)
     print(f"Program: {mgr.program}")
+    print(f"Platform: {mgr.platform}")
     print(f"Domains: {len(mgr.domains)}")
     print(f"URLs: {len(mgr.urls)}")
     if mgr.domains:

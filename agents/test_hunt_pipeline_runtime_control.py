@@ -62,6 +62,14 @@ class FailingIfCalledAdapter:
         raise AssertionError("adapter must not be called")
 
 
+class PromisingEntryAdapter:
+    def __init__(self, *entry_ids: str) -> None:
+        self.last_promising_entry_ids = entry_ids
+
+    def execute(self, specs):
+        return {spec.key: "completed" for spec in specs}
+
+
 def _decision(index: int, status: str = "selected") -> dict:
     return {
         "decision": "spawn" if status == "selected" else "defer",
@@ -588,6 +596,50 @@ def test_trigger_entry_id_overrides_skip_chain_for_focused_chain_runs(tmp_path: 
     assert result["ok"] is True
     assert result["agent_keys"] == ["agent-2"]
     assert result["skip_chain"] is True
+
+
+def test_promising_entry_queues_next_resume_chain_wave(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=1, concurrent_agents=2)
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload["hypotheses"][0] = _packet(1, role="entry")
+    payload["hypotheses"][1] = _packet(2, role="amplifier")
+    activation_path = plan_path.parent / "chain_activation_index.json"
+    activation_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "activations": [{"id": "HP-1", "unlocked_amplifiers": [{"id": "HP-2"}]}],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    payload["artifact_metadata"] = {
+        "run": {"run_id": "auto-trigger-test"},
+        "chain_activation_index": {"path": str(activation_path)},
+    }
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    entry_result = execute_next_wave(
+        plan_path,
+        max_agents=1,
+        concurrent_agents=1,
+        adapter=PromisingEntryAdapter("HP-1"),
+    )
+    state = json.loads(run_state_path_for_plan(plan_path).read_text(encoding="utf-8"))
+
+    assert entry_result["agent_keys"] == ["agent-1"]
+    assert entry_result["queued_trigger_entry_ids"] == ["HP-1"]
+    assert state["pending_trigger_entry_ids"] == ["HP-1"]
+
+    chain_result = execute_next_wave(plan_path, max_agents=2, concurrent_agents=2)
+    state = json.loads(run_state_path_for_plan(plan_path).read_text(encoding="utf-8"))
+
+    assert chain_result["agent_keys"] == ["agent-2"]
+    assert chain_result["auto_trigger_entry_ids"] == ["HP-1"]
+    assert chain_result["triggered_hypothesis_ids"] == ["HP-2"]
+    assert state["pending_trigger_entry_ids"] == []
 
 
 def test_runtime_parser_accepts_skip_chain_for_light_runs() -> None:

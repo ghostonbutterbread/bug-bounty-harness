@@ -154,6 +154,7 @@ def initialize_run_state(plan_path: str | Path, plan: Mapping[str, Any] | None =
         "updated_at": _timestamp_iso(),
         "agents": agents,
         "run_config": run_config,
+        "pending_trigger_entry_ids": _normalized_string_list(existing.get("pending_trigger_entry_ids")),
         "last_wave": existing.get("last_wave") if isinstance(existing.get("last_wave"), dict) else {},
     }
 
@@ -308,6 +309,7 @@ def summarize_run(
         "run_config": run_config,
         "live_testing_enabled": bool(run_config.get("live_testing_enabled", False)),
         "skip_chain": bool(skip_chain),
+        "pending_trigger_entry_ids": _normalized_string_list(state.get("pending_trigger_entry_ids")),
         "next_wave_count": len(next_wave),
         "next_wave_agent_keys": [item["agent_key"] for item in next_wave],
         "runtime_handoff_contract": evaluate_runtime_handoff_contract(plan),
@@ -637,6 +639,21 @@ def _normalized_run_config(config: Any) -> dict[str, Any]:
         "no_ledger": bool(payload.get("no_ledger", False)),
         "skip_chain": bool(payload.get("skip_chain", False)),
     }
+
+
+def _normalized_string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, Sequence):
+        items = list(value)
+    else:
+        items = []
+    normalized: list[str] = []
+    for item in items:
+        cleaned = str(item).strip()
+        if cleaned and cleaned not in normalized:
+            normalized.append(cleaned)
+    return normalized
 
 
 def _stored_run_id(plan: Mapping[str, Any], plan_path: str | Path | None = None) -> str:

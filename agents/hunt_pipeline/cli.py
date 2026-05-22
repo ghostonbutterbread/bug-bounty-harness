@@ -13,6 +13,7 @@ if _PROJECT_ROOT.as_posix() not in (Path(item).as_posix() for item in sys.path i
     sys.path.insert(0, _PROJECT_ROOT.as_posix())
 
 from agents.hunt_pipeline.dry_run import build_dry_run_plan
+from agents.hunt_pipeline.plan_clone import clone_pipeline_plan
 from agents.hunt_pipeline.operator_approval_schema import write_runtime_operator_approval_schema
 from agents.hunt_pipeline.preflight_report import write_runtime_preflight_report
 from agents.hunt_pipeline.promotion_readiness import write_runtime_promotion_readiness_checklist
@@ -33,7 +34,7 @@ from agents.hunt_pipeline.run_state import (
 from agents.hunt_pipeline.promotion_decision import evaluate_runtime_promotion_decision
 from agents.hunt_pipeline.runtime import execute_next_wave
 
-COMMANDS = {"plan", "status", "runs", "list-runs", "run", "resume", "live", "live-test", "pause", "stop"}
+COMMANDS = {"plan", "clone-plan", "status", "runs", "list-runs", "run", "resume", "live", "live-test", "pause", "stop"}
 DEFAULT_RUN_HYPOTHESES = 10
 DEFAULT_OUTPUT_ROOT = Path("hunt_pipeline_out")
 DEFAULT_RECENT_RUN_LIMIT = 10
@@ -54,6 +55,25 @@ def build_parser() -> argparse.ArgumentParser:
     _add_plan_args(plan_parser)
     plan_parser.add_argument("--dry-run", action="store_true", help="compatibility alias; planning is always dry-run safe")
     plan_parser.set_defaults(func=_cmd_plan)
+
+    clone_parser = subparsers.add_parser(
+        "clone-plan",
+        help="clone an existing plan into a fresh sampled run with regenerated scoped runtime policy artifacts",
+    )
+    clone_parser.add_argument("source", help="source pipeline_plan.json path or source run output directory")
+    clone_parser.add_argument("--output-dir", required=True, help="new clone output directory")
+    clone_parser.add_argument("--run-id", required=True, help="new durable run id for the clone")
+    clone_parser.add_argument(
+        "--sample-agents",
+        "--sample",
+        dest="sample_agents",
+        type=_non_negative_int,
+        required=True,
+        help="number of runnable selected/deferred agents to select in the clone",
+    )
+    clone_parser.add_argument("--concurrent-agents", type=_positive_int)
+    clone_parser.add_argument("--force", action="store_true", help="overwrite clone artifacts in an existing output directory")
+    clone_parser.set_defaults(func=_cmd_clone_plan)
 
     status_parser = subparsers.add_parser("status", help="summarize a pipeline plan or output directory")
     _add_state_locator_args(status_parser)
@@ -167,6 +187,32 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     print(
         json.dumps(
             {"run_id": artifact.run_id, "pipeline_plan": str(Path(plan_path)), "hypotheses": len(artifact.hypotheses)},
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _cmd_clone_plan(args: argparse.Namespace) -> int:
+    source_path = resolve_pipeline_plan_path(output_dir=args.source) if Path(args.source).expanduser().is_dir() else resolve_pipeline_plan_path(pipeline_plan=args.source)
+    artifact, plan_path = clone_pipeline_plan(
+        source_path,
+        output_dir=args.output_dir,
+        run_id=args.run_id,
+        sample_agents=args.sample_agents,
+        concurrent_agents=args.concurrent_agents,
+        force=bool(args.force),
+    )
+    print(
+        json.dumps(
+            {
+                "run_id": artifact.run_id,
+                "pipeline_plan": str(Path(plan_path)),
+                "source_pipeline_plan": str(Path(source_path)),
+                "hypotheses": len(artifact.hypotheses),
+                "selected": artifact.scheduler_plan.get("summary", {}).get("selected"),
+                "deferred": artifact.scheduler_plan.get("summary", {}).get("deferred"),
+            },
             sort_keys=True,
         )
     )

@@ -23,6 +23,7 @@ Thumbs.db
 # Local config
 config.local.py
 *.local.py
+.clawpatch/
 
 # Campaign data (large)
 campaigns/*.json

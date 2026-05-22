@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
@@ -121,6 +122,43 @@ class HuntingPolicyTests(unittest.TestCase):
         self.assertEqual(policy.id, "strict-program-scope")
         self.assertEqual(policy.hunt_posture, "scope-strict")
         self.assertEqual(policy.config_path, str(config_dir / "strict-program-scope.json"))
+
+    def test_named_policy_prefers_ai_policies_package_root(self) -> None:
+        ai_root = self.tmp / "ai-policies" / "policies"
+        package_dir = ai_root / "bug-bounty"
+        package_dir.mkdir(parents=True)
+        package_path = package_dir / "desktop-entry-first.json"
+        package_path.write_text(
+            '{"id":"desktop-entry-first","enabled":true,"hunt_posture":"repo-packaged"}',
+            encoding="utf-8",
+        )
+
+        with patch.dict("os.environ", {"AI_POLICIES_ROOT": str(ai_root)}):
+            policy = resolve_hunting_policy("desktop-entry-first", target_kind="electron-exe", target_path=self.tmp)
+
+        self.assertTrue(policy.enabled)
+        self.assertEqual(policy.id, "desktop-entry-first")
+        self.assertEqual(policy.hunt_posture, "repo-packaged")
+        self.assertEqual(policy.config_path, str(package_path))
+
+    def test_auto_electron_policy_can_resolve_from_ai_policies_package_root(self) -> None:
+        ai_root = self.tmp / "ai-policies" / "policies"
+        package_dir = ai_root / "bug-bounty"
+        package_dir.mkdir(parents=True)
+        package_path = package_dir / "electron-application-first-loose.json"
+        package_path.write_text(
+            '{"id":"electron-application-first-loose","enabled":true,"hunt_posture":"repo-packaged"}',
+            encoding="utf-8",
+        )
+
+        with patch.dict("os.environ", {"AI_POLICIES_ROOT": str(ai_root)}):
+            policy = resolve_hunting_policy("auto", target_kind="electron-exe", target_path=self.tmp)
+
+        self.assertTrue(policy.enabled)
+        self.assertEqual(policy.id, "electron-application-first-loose")
+        self.assertEqual(policy.mode, "auto")
+        self.assertEqual(policy.hunt_posture, "repo-packaged")
+        self.assertEqual(policy.config_path, str(package_path))
 
     def test_prompt_snippet_uses_soft_deprioritization_language(self) -> None:
         policy = resolve_hunting_policy("electron-application-first", target_path=self.tmp)

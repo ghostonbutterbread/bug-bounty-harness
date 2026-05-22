@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -13,6 +14,7 @@ POLICY_OFF_ALIASES = {"off", "none", "disabled", "disable", "false", "0", ""}
 POLICY_AUTO_ALIASES = {"auto", "default"}
 ELECTRON_POLICY_ID = "electron-application-first-loose"
 DEFAULT_POLICY_CONFIG_DIR = Path(__file__).resolve().parent / "policies"
+AI_POLICIES_ROOT_ENV = "AI_POLICIES_ROOT"
 POLICY_ARTIFACT_KEYS = (
     "hunting_policy",
     "hunting_policy_id",
@@ -173,23 +175,67 @@ def resolve_hunting_policy(
 
     if normalized_id == "auto":
         if _looks_like_electron_target(target_kind=target_kind, target_path=target_path):
-            return _electron_application_first_policy(mode="auto", requested_id=requested_id or "auto")
+            return _electron_policy_from_package_or_builtin(mode="auto", requested_id=requested_id or "auto")
         return disabled_policy(requested_id=requested_id or "auto")
 
-    named_config = _policy_config_path(normalized_id)
-    if named_config.exists():
+    named_config = _first_existing_policy_config_path(normalized_id)
+    if named_config is not None:
         return _load_policy_config(named_config, requested_id=requested_id or normalized_id)
     if normalized_id == ELECTRON_POLICY_ID:
-        return _electron_application_first_policy(mode="on", requested_id=requested_id or normalized_id)
+        return _electron_policy_from_package_or_builtin(mode="on", requested_id=requested_id or normalized_id)
     raise ValueError(
         f"unsupported hunting policy {policy_id!r}; expected auto, off, an Electron policy alias, "
-        f"or a JSON config at {named_config}"
+        f"or a JSON config in {_policy_config_search_description(normalized_id)}"
     )
 
 
 def _policy_config_path(policy_id: str) -> Path:
     safe_id = str(policy_id).strip().lower().replace("_", "-")
     return DEFAULT_POLICY_CONFIG_DIR / f"{safe_id}.json"
+
+
+def _first_existing_policy_config_path(policy_id: str) -> Path | None:
+    for candidate in _policy_config_paths(policy_id):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _policy_config_paths(policy_id: str) -> list[Path]:
+    safe_id = str(policy_id).strip().lower().replace("_", "-")
+    paths: list[Path] = []
+    env_root = str(os.environ.get(AI_POLICIES_ROOT_ENV) or "").strip()
+    ai_roots = [Path(env_root).expanduser()] if env_root else [Path.home() / "projects" / "ai-policies" / "policies"]
+    for root in ai_roots:
+        paths.extend(
+            [
+                root / "bug-bounty" / f"{safe_id}.json",
+                root / "hunting" / f"{safe_id}.json",
+                root / f"{safe_id}.json",
+            ]
+        )
+    paths.append(_policy_config_path(safe_id))
+    deduped: list[Path] = []
+    for path in paths:
+        resolved = path.expanduser()
+        if resolved not in deduped:
+            deduped.append(resolved)
+    return deduped
+
+
+def _policy_config_search_description(policy_id: str) -> str:
+    return ", ".join(str(path) for path in _policy_config_paths(policy_id))
+
+
+def _electron_policy_from_package_or_builtin(*, mode: str, requested_id: str) -> HuntingPolicy:
+    config_path = _first_existing_policy_config_path(ELECTRON_POLICY_ID)
+    if config_path is None:
+        return _electron_application_first_policy(mode=mode, requested_id=requested_id)
+    loaded = _load_policy_config(config_path, requested_id=requested_id)
+    data = loaded.to_dict()
+    data["mode"] = mode
+    data["requested_id"] = requested_id
+    return HuntingPolicy(**{field_name: data.get(field_name) for field_name in HuntingPolicy.__dataclass_fields__})
 
 
 def _load_policy_config(policy_config: str | Path, *, requested_id: str) -> HuntingPolicy:

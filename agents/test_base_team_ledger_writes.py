@@ -2,15 +2,10 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
 
 import agents.base_team as base_team_package
 import agents.base_team.ledger as base_team_ledger

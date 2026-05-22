@@ -3,20 +3,15 @@
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
-from agents import apk_team  # noqa: E402
-from agents.base_team.apk_compat import load_findings, run_agent_session  # noqa: E402
-from agents.base_team.findings import extract_findings_from_log  # noqa: E402
+from agents import apk_team
+from agents.base_team.apk_compat import load_findings, run_agent_session
+from agents.base_team.findings import extract_findings_from_log
 
 
 class FakeProcess:
@@ -62,6 +57,7 @@ class ApkTeamOutputRootTests(unittest.TestCase):
             "file": "src/Main.java",
             "description": "Reviewed finding.",
         }
+        original_finding = dict(finding)
 
         with (
             patch.object(apk_team, "SubagentLogger", None),
@@ -99,7 +95,10 @@ class ApkTeamOutputRootTests(unittest.TestCase):
         self.assertEqual(resolve_mock.call_args.kwargs["target_path"], str(self.tmp / "example.apk"))
         self.assertEqual(review_mock.call_args.kwargs["output_root"], expected_root)
         update_mock.assert_called_once()
-        self.assertEqual(update_mock.call_args.args[:2], ("Example_Program", finding))
+        self.assertEqual(update_mock.call_args.args[0], "Example_Program")
+        updated_finding = update_mock.call_args.args[1]
+        for key, value in original_finding.items():
+            self.assertEqual(updated_finding[key], value)
         self.assertEqual(update_mock.call_args.kwargs["root_override"], expected_root)
         self.assertEqual(update_mock.call_args.kwargs["family"], "binaries")
         self.assertEqual(update_mock.call_args.kwargs["lane"], "apk")

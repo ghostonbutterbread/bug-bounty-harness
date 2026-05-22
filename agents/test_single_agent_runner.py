@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
 
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
-from agents import single_agent_runner as runner  # noqa: E402
+from agents import single_agent_runner as runner
 
 
 def _target(tmp_path: Path) -> Path:

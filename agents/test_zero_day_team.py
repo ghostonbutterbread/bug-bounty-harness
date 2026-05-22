@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import tempfile
 import unittest
 import json
@@ -10,11 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
-from agents import zero_day_team  # noqa: E402
+from agents import zero_day_team
 
 
 class FakeProcess:

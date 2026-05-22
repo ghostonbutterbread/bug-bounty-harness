@@ -2,18 +2,13 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
-from agents.base_team import AgentSpec, BaseTeam  # noqa: E402
-from agents.base_team.findings import normalize_finding  # noqa: E402
-from agents.base_team.review import run_review_cli  # noqa: E402
-from agents.base_team.runtime import spawn_agent  # noqa: E402
+from agents.base_team import AgentSpec, BaseTeam
+from agents.base_team.findings import normalize_finding
+from agents.base_team.review import run_review_cli
+from agents.base_team.runtime import spawn_agent
 
 
 class DummyTeam(BaseTeam):

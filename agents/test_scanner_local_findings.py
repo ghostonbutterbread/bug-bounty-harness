@@ -7,17 +7,12 @@ canonical ledger writes must stay in the team orchestration layer after review.
 from __future__ import annotations
 
 import ast
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
-from agents import secrets_finder, zero_day_hunter  # noqa: E402
+from agents import secrets_finder, zero_day_hunter
 
 
 CANONICAL_LEDGER_MODULES = {

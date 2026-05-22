@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
 
 from agents.base_team.review import build_review_prompt  # noqa: E402
 from agents.base_team_core import parse_args as parse_base_team_args  # noqa: E402
@@ -30,6 +27,17 @@ class HuntingPolicyTests(unittest.TestCase):
         self.addCleanup(self.tempdir.cleanup)
         self.tmp = Path(self.tempdir.name)
 
+    def test_clean_python_process_can_import_agents_package_from_repo_root(self) -> None:
+        repo_root = Path(__file__).resolve().parent.parent
+        result = subprocess.run(
+            [sys.executable, "-c", "import agents.hunting_policy"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
 
     def test_default_policy_selection_is_off_until_explicitly_enabled(self) -> None:
         self.assertEqual(resolve_policy_selection(None), "off")

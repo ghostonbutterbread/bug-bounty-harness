@@ -11,10 +11,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
 from agents.coverage_store import CoverageStore  # noqa: E402
 from agents.shared_brain import RepoIndex, load_index, save_index  # noqa: E402
 from agents.storage_resolver import resolve_storage  # noqa: E402
@@ -25,16 +21,13 @@ import os
 import sys
 from pathlib import Path
 
-project_root = Path(sys.argv[1])
-home = sys.argv[2]
-program = sys.argv[3]
-target_dir = Path(sys.argv[4])
-vuln_class = sys.argv[5]
-relpath = sys.argv[6]
+home = sys.argv[1]
+program = sys.argv[2]
+target_dir = Path(sys.argv[3])
+vuln_class = sys.argv[4]
+relpath = sys.argv[5]
 
 os.environ["HOME"] = home
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
 
 from agents.coverage_store import CoverageStore
 
@@ -351,13 +344,13 @@ class CoverageStoreTests(unittest.TestCase):
                     sys.executable,
                     "-c",
                     _CONCURRENT_MARK_SCRIPT,
-                    str(_project_root),
                     str(self.home),
                     self.program,
                     str(self.target_dir),
                     "dom-xss",
                     relpath,
                 ],
+                cwd=Path(__file__).resolve().parent.parent,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,

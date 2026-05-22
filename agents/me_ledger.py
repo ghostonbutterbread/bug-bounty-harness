@@ -410,6 +410,7 @@ def cmd_cover(args: argparse.Namespace) -> int:
         target_root,
         lane=args.lane,
         family=args.family,
+        root_override=root_override,
     )
     store.mark_examined(
         vuln_class=class_name,
@@ -568,7 +569,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_parser.set_defaults(func=cmd_add)
 
     cover_parser = subparsers.add_parser("cover", help="Mark a file/class surface as explored")
-    _add_common_arguments(cover_parser, include_root=False)
+    _add_common_arguments(cover_parser)
     cover_parser.add_argument("--agent", default=DEFAULT_AGENT)
     cover_parser.add_argument("--version", dest="version_label")
     cover_parser.set_defaults(func=cmd_cover)

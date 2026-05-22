@@ -39,6 +39,38 @@ def _imports_for(path: Path) -> set[str]:
 
 
 class ScannerLocalFindingGuardrailTests(unittest.TestCase):
+    def test_zero_day_hunter_route_local_constants_and_generic_names_are_not_tainted(self) -> None:
+        source = """
+import json
+import os
+
+@app.route("/health")
+def healthcheck():
+    payload = "uptime"
+    os.system("uptime")
+    os.system(payload)
+    json.loads("{}")
+""".strip()
+
+        findings = zero_day_hunter.PythonAnalyzer(Path("app.py"), source).analyze()
+
+        self.assertEqual(findings, [])
+
+    def test_zero_day_hunter_route_context_only_amplifies_proven_request_taint(self) -> None:
+        source = """
+import os
+
+@app.route("/run")
+def handler(request):
+    os.system(request.args.get("cmd"))
+""".strip()
+
+        findings = zero_day_hunter.PythonAnalyzer(Path("app.py"), source).analyze()
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].rule_id, "python-os-command-injection")
+        self.assertEqual(findings[0].severity, "CRITICAL")
+
     def test_scanner_modules_do_not_import_canonical_ledger_writers(self) -> None:
         for module in (zero_day_hunter, secrets_finder):
             path = Path(module.__file__).resolve()

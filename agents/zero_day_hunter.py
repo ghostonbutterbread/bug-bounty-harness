@@ -46,11 +46,6 @@ LANGUAGE_EXTENSIONS = {
     "cpp": {".cc", ".cpp", ".cxx", ".c++", ".hpp", ".hh", ".hxx"},
 }
 
-USER_CONTROLLED_NAME_RE = re.compile(
-    r"(?:user|input|request|req|param|query|body|form|json|payload|data|cmd|command|expr|code|template)",
-    re.IGNORECASE,
-)
-
 WEB_INPUT_RE = re.compile(
     r"(?:req|request|ctx|context|params|query|body|argv|location|cookie|headers|input)",
     re.IGNORECASE,
@@ -199,14 +194,15 @@ class PythonAnalyzer(ast.NodeVisitor):
         arg_is_user_controlled = bool(first_arg is not None and ctx and self._expr_uses_user_input(first_arg, ctx))
         arg_is_dynamic = bool(first_arg is not None and self._is_dynamic_string(first_arg))
         in_route = bool(ctx and ctx.route_handler)
+        route_amplified = in_route and (arg_is_user_controlled or arg_is_dynamic)
 
         if call_name in {"eval", "builtins.eval", "exec", "builtins.exec"}:
-            if arg_is_user_controlled or arg_is_dynamic or in_route:
+            if arg_is_user_controlled or arg_is_dynamic:
                 self._add_finding(
                     node=node,
                     rule_id="python-eval-user-input",
                     vuln_type="code_injection",
-                    severity="CRITICAL" if (arg_is_user_controlled or in_route) else "HIGH",
+                    severity="CRITICAL" if route_amplified else "HIGH",
                     sink=call_name,
                     description="Dynamic Python evaluation reaches a web-facing or user-influenced string.",
                     scenario="User-controlled content may be executed as Python code, which can become full server-side RCE.",
@@ -229,12 +225,12 @@ class PythonAnalyzer(ast.NodeVisitor):
             return
 
         if call_name in {"os.system", "os.popen", "commands.getoutput", "commands.getstatusoutput"}:
-            if arg_is_user_controlled or arg_is_dynamic or in_route:
+            if arg_is_user_controlled or arg_is_dynamic:
                 self._add_finding(
                     node=node,
                     rule_id="python-os-command-injection",
                     vuln_type="command_injection",
-                    severity="CRITICAL" if (arg_is_user_controlled or in_route) else "HIGH",
+                    severity="CRITICAL" if route_amplified else "HIGH",
                     sink=call_name,
                     description="OS command execution consumes a dynamic or user-controlled string.",
                     scenario="Unsanitized request data may be interpreted by the shell and lead to arbitrary command execution.",
@@ -255,12 +251,12 @@ class PythonAnalyzer(ast.NodeVisitor):
                 and keyword.value.value is True
                 for keyword in node.keywords
             )
-            if shell_true and (arg_is_user_controlled or arg_is_dynamic or in_route):
+            if shell_true and (arg_is_user_controlled or arg_is_dynamic):
                 self._add_finding(
                     node=node,
                     rule_id="python-subprocess-shell-true",
                     vuln_type="command_injection",
-                    severity="CRITICAL",
+                    severity="CRITICAL" if route_amplified else "HIGH",
                     sink=call_name,
                     description="`subprocess` is invoked with `shell=True` and a dynamic command source.",
                     scenario="Shell metacharacters in request-controlled arguments may pivot into arbitrary command execution.",
@@ -308,7 +304,7 @@ class PythonAnalyzer(ast.NodeVisitor):
                 )
             return
 
-        if call_name == "json.loads" and (arg_is_user_controlled or in_route):
+        if call_name == "json.loads" and arg_is_user_controlled:
             self._add_finding(
                 node=node,
                 rule_id="python-json-loads-review",
@@ -322,12 +318,12 @@ class PythonAnalyzer(ast.NodeVisitor):
             return
 
         if call_name in {"flask.render_template_string", "render_template_string"}:
-            if arg_is_user_controlled or arg_is_dynamic or in_route:
+            if arg_is_user_controlled or arg_is_dynamic:
                 self._add_finding(
                     node=node,
                     rule_id="python-render-template-string",
                     vuln_type="template_injection",
-                    severity="CRITICAL" if (arg_is_user_controlled and in_route) else "HIGH",
+                    severity="CRITICAL" if route_amplified else "HIGH",
                     sink=call_name,
                     description="Runtime template rendering uses a dynamic string source.",
                     scenario="If template text is attacker-controlled, SSTI may expose server objects and sometimes reach code execution.",
@@ -346,7 +342,7 @@ class PythonAnalyzer(ast.NodeVisitor):
     def _expr_uses_user_input(self, expr: ast.AST, ctx: FunctionContext) -> bool:
         for node in ast.walk(expr):
             if isinstance(node, ast.Name):
-                if node.id in ctx.user_controlled or USER_CONTROLLED_NAME_RE.search(node.id):
+                if node.id in ctx.user_controlled:
                     return True
             elif isinstance(node, ast.Attribute):
                 dotted = self._call_name(node)

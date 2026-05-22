@@ -62,11 +62,23 @@ class ScopeManager:
                     if line and not line.startswith("#") and line.startswith("http"):
                         urls.add(line)
         return urls
+
+    def _extract_host(self, target: str) -> str:
+        """Extract a hostname from either a URL or a bare host input."""
+        if not target:
+            return ""
+
+        parsed = urlparse(target)
+        if parsed.hostname:
+            return parsed.hostname.lower()
+
+        host = parsed.path.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+        return host.lower()
     
     def is_in_scope(self, target: str) -> bool:
         """Check if target is in scope."""
         parsed = urlparse(target)
-        host = parsed.netloc.lower()
+        host = self._extract_host(target)
         
         # Check exact domain
         if host in self.domains:

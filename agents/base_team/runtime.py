@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 SpawnFn = Callable[[str, str, Path], subprocess.Popen[Any]]
 WaitFn = Callable[[dict[str, subprocess.Popen[Any]], int], dict[str, tuple[str, int]]]
@@ -27,6 +27,7 @@ LoadSharedBrainFn = Callable[[], dict[str, Any]]
 LoadLedgerFn = Callable[[], dict[str, Any]]
 UpdateReviewedFn = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
 RenderPromptFn = Callable[[Any], str]
+AmplifierRouteFn = Callable[[list[dict[str, Any]]], None]
 TimestampIsoFn = Callable[[], str]
 TraceTimestampFn = Callable[[], str]
 SlugFn = Callable[[str], str]
@@ -254,6 +255,7 @@ def orchestrate(
     active_handles: dict[str, subprocess.Popen[Any]],
     persist_partial_results: PersistPartialFn,
     render_prompt: RenderPromptFn,
+    route_amplifier_findings: AmplifierRouteFn | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Run the full team lifecycle."""
     if agents_mode not in {"static", "dynamic", "all"}:
@@ -401,7 +403,10 @@ def orchestrate(
                 )
 
         set_partial_findings(list(raw_findings))
-        new_findings = deduplicate_findings(raw_findings, ledger)
+        amplifier_findings, reviewable_findings = _split_amplifier_hold_findings(raw_findings)
+        if amplifier_findings and route_amplifier_findings is not None:
+            route_amplifier_findings(amplifier_findings)
+        new_findings = deduplicate_findings(reviewable_findings, ledger)
         confirmed, dormant, novel = stage2_review(new_findings, target_path)
         reviewed_findings = confirmed + dormant + novel
         reviewed_findings = update_reviewed_findings(reviewed_findings)
@@ -417,6 +422,7 @@ def orchestrate(
             [
                 {
                     "event": "review_complete",
+                    "amplifier_hold_findings": len(amplifier_findings),
                     "confirmed": len(confirmed),
                     "dormant": len(dormant),
                     "novel": len(novel),
@@ -439,3 +445,23 @@ def orchestrate(
                     pass
             cleanup_handle(handle)
         active_handles.clear()
+
+
+def _split_amplifier_hold_findings(findings: Sequence[Mapping[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    amplifier: list[dict[str, Any]] = []
+    reviewable: list[dict[str, Any]] = []
+    for finding in findings:
+        record = dict(finding)
+        role = str(record.get("finding_role") or "").strip().lower()
+        entry_status = str(record.get("entry_status") or "").strip().lower()
+        reportability = str(record.get("reportability") or "").strip().lower()
+        if role in {"amplifier", "chain"} and (
+            entry_status in {"", "missing", "plausible"} or reportability == "hold_for_chain"
+        ):
+            record["finding_role"] = role
+            record["entry_status"] = entry_status or "missing"
+            record["reportability"] = reportability or "hold_for_chain"
+            amplifier.append(record)
+            continue
+        reviewable.append(record)
+    return amplifier, reviewable

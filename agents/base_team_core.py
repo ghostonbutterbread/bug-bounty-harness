@@ -5,6 +5,7 @@ from __future__ import annotations
 import abc
 import argparse
 import fcntl
+import hashlib
 import json
 import logging
 import os
@@ -89,6 +90,77 @@ def _normalize_text_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _read_jsonl_records(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            payload = json.loads(line)
+            if isinstance(payload, dict):
+                rows.append(payload)
+    except (OSError, json.JSONDecodeError):
+        return []
+    return rows
+
+
+def _amplifier_finding_key(finding: dict[str, Any]) -> str:
+    parts = (
+        finding.get("hypothesis_id"),
+        finding.get("agent"),
+        finding.get("type"),
+        finding.get("file"),
+        finding.get("line"),
+        finding.get("sink"),
+    )
+    return hashlib.sha256(
+        "\x1f".join(str(part or "").strip().lower() for part in parts).encode("utf-8")
+    ).hexdigest()
+
+
+def _render_amplifier_findings(findings: Sequence[dict[str, Any]]) -> str:
+    lines = ["# Amplifier Findings", ""]
+    if not findings:
+        lines.extend(["No held amplifier findings have been recorded.", ""])
+        return "\n".join(lines)
+    for finding in findings:
+        title = str(finding.get("description") or finding.get("type") or finding.get("class_name") or "Untitled amplifier").strip()
+        lines.extend(
+            [
+                f"## {_markdown_text(title)}",
+                "",
+                f"- Role: `{_markdown_inline(finding.get('finding_role'))}`",
+                f"- Entry status: `{_markdown_inline(finding.get('entry_status'))}`",
+                f"- Reportability: `{_markdown_inline(finding.get('reportability'))}`",
+                f"- File: `{_markdown_inline(finding.get('file'))}`",
+                f"- Required entry primitives: {_markdown_list(finding.get('required_entry_primitives'))}",
+                f"- Chain handles: {_markdown_list(finding.get('chain_handles'))}",
+                f"- Unlocked amplifiers: {_markdown_list(finding.get('unlocked_amplifiers'))}",
+                "",
+            ]
+        )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _markdown_list(value: Any) -> str:
+    if isinstance(value, str):
+        return f"`{_markdown_inline(value)}`" if value.strip() else "none"
+    if not isinstance(value, Sequence):
+        return "none"
+    rendered = [f"`{_markdown_inline(item)}`" for item in value if str(item or "").strip()]
+    return ", ".join(rendered) if rendered else "none"
+
+
+def _markdown_inline(value: Any) -> str:
+    return str(value or "").replace("`", "'").strip()
+
+
+def _markdown_text(value: Any) -> str:
+    return str(value or "").replace("\r", " ").replace("\n", " ").strip()
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
@@ -499,7 +571,27 @@ class BaseTeam(abc.ABC):
             active_handles=self._active_handles,
             persist_partial_results=self._persist_partial_results,
             render_prompt=self._render_prompt,
+            route_amplifier_findings=self._route_amplifier_findings,
         )
+
+    def _route_amplifier_findings(self, findings: list[dict[str, Any]]) -> None:
+        """Persist missing-entry amplifier material outside active/dormant review."""
+        if not findings:
+            return
+        reports_dir = self.storage.reports_root / "findings"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        jsonl_path = reports_dir / "amplifier_findings.jsonl"
+        markdown_path = reports_dir / "amplifier.md"
+        rows_by_key = {_amplifier_finding_key(row): row for row in _read_jsonl_records(jsonl_path)}
+        for finding in findings:
+            row = dict(finding)
+            row["finding_role"] = str(row.get("finding_role") or "amplifier").strip().lower() or "amplifier"
+            row["entry_status"] = str(row.get("entry_status") or "missing").strip().lower() or "missing"
+            row["reportability"] = str(row.get("reportability") or "hold_for_chain").strip().lower() or "hold_for_chain"
+            rows_by_key[_amplifier_finding_key(row)] = row
+        rows = list(rows_by_key.values())
+        jsonl_path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8")
+        markdown_path.write_text(_render_amplifier_findings(rows), encoding="utf-8")
 
     def _select_specs(
         self,

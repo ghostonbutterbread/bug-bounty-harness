@@ -147,7 +147,7 @@ File: {filepath}
 {content}
 ```
 
-{ReviewAgent._system_prompt}
+{SYSTEM_PROMPT}
 
 Provide your review now:"""
 

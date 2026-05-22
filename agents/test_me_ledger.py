@@ -205,6 +205,75 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             },
         )
 
+    @patch("agents.me_ledger._default_run_id", return_value="run-1")
+    @patch(
+        "agents.me_ledger._resolve_snapshot",
+        return_value={"snapshot_id": "snap-1", "version_label": "v2.2.0"},
+    )
+    @patch("agents.me_ledger._load_shared_brain_candidates", return_value={"dom-xss": ["src/preload.js"]})
+    @patch("agents.me_ledger.CoverageStore")
+    def test_cmd_cover_uses_explicit_root_for_coverage_store(
+        self,
+        mock_store_cls,
+        _mock_candidates,
+        _mock_resolve_snapshot,
+        _mock_default_run_id,
+    ) -> None:
+        mock_store = mock_store_cls.return_value
+        mock_store.path = Path("/tmp/me-root/coverage.json")
+        mock_store.get_unexplored.return_value = []
+        args = argparse.Namespace(
+            program="notion",
+            file="./src\\preload.js",
+            class_name=" Dom-Xss ",
+            lane="exe",
+            family="binaries",
+            root_override="/tmp/me-root",
+            version_label="v2.2.0",
+            agent="unit-agent",
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            rc = me_ledger.cmd_cover(args)
+
+        self.assertEqual(rc, 0)
+        mock_store_cls.assert_called_once_with(
+            "notion",
+            unittest.mock.ANY,
+            lane="exe",
+            family="binaries",
+            root_override="/tmp/me-root",
+        )
+        mock_store.mark_examined.assert_called_once_with(
+            vuln_class="dom-xss",
+            files=["src/preload.js"],
+            method="unit-agent",
+            status="done",
+            run_id="run-1",
+            snapshot_id="snap-1",
+            version_label="v2.2.0",
+        )
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["coverage_path"], "/tmp/me-root/coverage.json")
+
+    def test_build_parser_cover_accepts_root_override(self) -> None:
+        args = me_ledger.build_parser().parse_args(
+            [
+                "cover",
+                "--program",
+                "notion",
+                "--file",
+                "src/preload.js",
+                "--class-name",
+                "dom-xss",
+                "--root",
+                "/tmp/me-root",
+            ]
+        )
+
+        self.assertEqual(args.root_override, "/tmp/me-root")
+
 
 if __name__ == "__main__":
     unittest.main()

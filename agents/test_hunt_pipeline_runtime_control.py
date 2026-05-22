@@ -988,6 +988,63 @@ def test_plan_run_hypotheses_n_and_all_control_selected_count(tmp_path: Path, ca
     assert payload_all["scheduler_plan"]["config"]["max_agents"] is None
 
 
+def test_clone_plan_samples_agents_and_regenerates_scoped_runtime_artifacts(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from agents.hunt_pipeline.cli import main
+    from agents.hunt_pipeline.runtime_action_policy import evaluate_runtime_action_policy
+    from agents.hunt_pipeline.runtime_environment_approval import evaluate_runtime_environment_approval
+
+    source_plan = _write_plan(tmp_path, selected_count=5, deferred_count=3, concurrent_agents=2)
+    source_payload = json.loads(source_plan.read_text(encoding="utf-8"))
+    source_payload = _add_non_live_contract_sections(source_plan)
+    source_payload["runtime_action_policy"]["scope"]["pipeline_plan"] = "/stale/source/pipeline_plan.json"
+    source_payload["runtime_environment_approval"]["scope"]["pipeline_plan"] = "/stale/source/pipeline_plan.json"
+    source_plan.write_text(json.dumps(source_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    clone_out = tmp_path / "clone"
+    (clone_out).mkdir()
+    (clone_out / "run_state.json").write_text('{"stopped": true}\n', encoding="utf-8")
+    (clone_out / "run_control.json").write_text('{"stopped": true}\n', encoding="utf-8")
+
+    code = main(
+        [
+            "clone-plan",
+            str(source_plan),
+            "--output-dir",
+            str(clone_out),
+            "--run-id",
+            "clone-sample",
+            "--sample-agents",
+            "3",
+            "--concurrent-agents",
+            "2",
+            "--force",
+        ]
+    )
+
+    assert code == 0
+    result = json.loads(capsys.readouterr().out)
+    clone_plan = Path(result["pipeline_plan"])
+    payload = json.loads(clone_plan.read_text(encoding="utf-8"))
+    assert payload["run_id"] == "clone-sample"
+    assert result["selected"] == 3
+    assert payload["scheduler_plan"]["summary"]["selected"] == 3
+    assert payload["scheduler_plan"]["summary"]["deferred"] == 5
+    assert payload["scheduler_plan"]["config"]["max_agents"] == 3
+    assert payload["scheduler_plan"]["config"]["concurrent_agents"] == 2
+    assert [item["agent_key"] for item in payload["scheduler_plan"]["selected"]] == ["agent-1", "agent-2", "agent-3"]
+    assert payload["scheduler_plan"]["selected_batches"][0]["agent_keys"] == ["agent-1", "agent-2"]
+    assert payload["scheduler_plan"]["decision_artifacts"]["selected_agents"]["path"] == str(clone_out / "selected_agents.jsonl")
+    assert not (clone_out / "run_state.json").exists()
+    assert not (clone_out / "run_control.json").exists()
+    assert evaluate_runtime_action_policy(payload, plan_path=clone_plan)["status"] == "active"
+    assert evaluate_runtime_environment_approval(payload, plan_path=clone_plan)["status"] == "approval_required"
+    assert payload["runtime_action_policy"]["scope"]["pipeline_plan"] == str(clone_plan.resolve(strict=False))
+    assert payload["runtime_environment_approval"]["scope"]["pipeline_plan"] == str(clone_plan.resolve(strict=False))
+
+
 def test_plan_tmp_uses_isolated_tmp_output_dir(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     from agents.hunt_pipeline.cli import main
 

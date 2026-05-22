@@ -685,6 +685,7 @@ def _group_prompt(group: _GroupedPacketSet) -> str:
         "Rules:\n"
         "- This group is a starting point, not a hard gate. If adjacent source-backed branches look strong, pursue them and document how they branch from this evidence cluster.\n"
         "- Stay anchored to grouped evidence, source files, and the target's trust boundaries before widening scope.\n"
+        "- Keep full source context available by file path. Do not paste huge/minified bundles into the conversation; write focused excerpts, grep hits, indexes, or module extracts into your artifact directory and cite those paths.\n"
         "- Treat stale or ambiguous branches as hypotheses until code evidence proves reachability.\n"
         "- This agent evaluates multiple hypotheses. Emit a per-hypothesis verdict for every listed hypothesis before closing the task.\n"
         "- Optional specialist follow-up requests are allowed only when static evidence justifies them.\n"
@@ -797,6 +798,9 @@ def _prompt_template(packet: HypothesisAgentPacket) -> str:
         "- Shared brain: {shared_brain_dir}\n"
         "- Notes root: {notes_root}\n"
         "- Traces root: {traces_dir}\n\n"
+        "Large-file handling:\n"
+        "- Keep full source files available by path, but do not paste huge/minified bundles into the conversation.\n"
+        "- When a bundle is large, write focused excerpts, grep hits, indexes, or module extracts into your artifact directory and cite those local paths in the verdict.\n\n"
         "Hunting policy:\n"
         "{hunting_policy_snippet}\n\n"
         + _phased_output_schema_prompt()

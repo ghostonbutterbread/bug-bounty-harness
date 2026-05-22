@@ -152,6 +152,11 @@ class RateLimiter:
         self._cooldown_lock = threading.Lock()
         self._consecutive_429s: int = 0
 
+    def _set_rate(self, new_rate: float) -> None:
+        """Keep the configured RPS and active global bucket in sync."""
+        self._rps = max(new_rate, 0.001)
+        self._bucket.set_rate(self._rps)
+
     # ── Blocking sync ─────────────────────────────────────────────────────
 
     def wait(self) -> None:
@@ -247,7 +252,7 @@ class RateLimiter:
             # Use 80% of declared limit as our target rate (safety margin)
             safe_rps = declared_limit * 0.8 / 60.0  # assuming per-minute
             if safe_rps > 0:
-                self._bucket.set_rate(safe_rps)
+                self._set_rate(safe_rps)
 
     def _handle_429(self, headers: dict) -> None:
         """Handle a 429 response — parse Retry-After or apply exponential backoff."""
@@ -282,7 +287,7 @@ class RateLimiter:
         # Also halve the current rate permanently after 3+ consecutive 429s
         if count >= 3:
             new_rate = max(self._bucket.rate / 2.0, 0.1)
-            self._bucket.set_rate(new_rate)
+            self._set_rate(new_rate)
 
     def _apply_cooldown(self, seconds: float) -> None:
         """Set a cooldown period, extending if one is already active."""

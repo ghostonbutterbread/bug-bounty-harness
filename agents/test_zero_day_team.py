@@ -981,6 +981,109 @@ Electron desktop target.
         self.assertEqual(queued["snapshot_id"], "snap-1")
         self.assertEqual(queued["source_spec_path"], str(spec_path.resolve(strict=False)))
 
+    def test_appmap_agent_log_findings_flow_into_review_and_promotion(self) -> None:
+        lane_root = self.tmp / "Shared" / "appmap" / "canva" / "promoted"
+        target = lane_root / "input" / "app_asar"
+        target.mkdir(parents=True)
+        spec_path = self._write_appmap_spec(lane_root)
+        storage = self._appmap_storage(lane_root)
+        spawned_profiles: list = []
+        reviewed_inputs: list[dict] = []
+        promoted_updates: list[dict] = []
+        ledger = SimpleNamespace(
+            path=storage.ledgers_root / "ledger.json",
+            get_class_context=Mock(return_value=""),
+            check=Mock(side_effect=lambda finding: (False, "D01", {**finding, "fid": "D01"})),
+            run_id="run-1",
+            root_override=self.tmp / "storage-root",
+        )
+
+        class FakeProcess:
+            pid = 4242
+
+            def wait(self, timeout=None):
+                return 0
+
+        def fake_spawn(*, profile, agents_root, coverage_path=None, **_kwargs):
+            spawned_profiles.append(profile)
+            agents_root.mkdir(parents=True, exist_ok=True)
+            log_path = agents_root / f"agent_{profile.key}_4242.log"
+            raw_finding = {
+                **profile.brainstorm_metadata,
+                "agent": profile.key,
+                "category": "class",
+                "class_name": "rce",
+                "type": "Project config reaches process execution",
+                "file": "src/sink1.js",
+                "line": 101,
+                "description": "User-controlled project config reaches child_process execution.",
+                "severity": "HIGH",
+                "source": "project config",
+                "sink": "child_process.exec",
+                "context": "applyProjectConfig(config)",
+                "trust_boundary": "project import to main process",
+                "flow_path": "config -> bridge -> exec",
+            }
+            log_path.write_text(json.dumps(raw_finding) + "\n", encoding="utf-8")
+            return zero_day_team.AgentSession(
+                profile=profile,
+                workspace=agents_root / profile.key,
+                log_path=log_path,
+                process=FakeProcess(),
+                coverage_path=coverage_path,
+            )
+
+        def review_side_effect(findings, *_args, **_kwargs):
+            reviewed_inputs.extend(dict(finding) for finding in findings)
+            return ([{**finding, "review_tier": "CONFIRMED", "tier": "CONFIRMED"} for finding in findings], [], [])
+
+        def update_side_effect(_program, finding, **_kwargs):
+            updated = dict(finding, promoted=True)
+            promoted_updates.append(updated)
+            return updated
+
+        with (
+            patch.object(zero_day_team, "SubagentLogger", None),
+            patch.object(zero_day_team, "_resolve_zero_day_storage", return_value=storage),
+            patch.object(
+                zero_day_team,
+                "get_snapshot_identity",
+                return_value={"snapshot_id": "snap-1", "version_label": "1.2.3", "channel": "stable"},
+            ),
+            patch.object(zero_day_team, "create_team_ledger_from_storage", return_value=ledger),
+            patch.object(zero_day_team, "DynamicAgentBuilder") as builder_cls,
+            patch.object(zero_day_team, "_spawn_agent", side_effect=fake_spawn),
+            patch.object(zero_day_team, "stage2_ghost_review", side_effect=review_side_effect),
+            patch.object(zero_day_team, "update_team_finding", side_effect=update_side_effect),
+            patch.object(zero_day_team, "_pretty_print_findings"),
+        ):
+            builder_cls.return_value.run.return_value = []
+
+            result = zero_day_team.orchestrate_zero_day_team(
+                "canva",
+                str(target),
+                no_preflight=True,
+                no_shared_brain=True,
+                brainstorm_spec=str(spec_path),
+                brainstorm_only=True,
+            )
+
+        self.assertEqual([profile.key for profile in spawned_profiles], ["canva-appmap-rce-1"])
+        self.assertEqual(len(reviewed_inputs), 1)
+        self.assertEqual(reviewed_inputs[0]["fid"], "D01")
+        self.assertEqual(reviewed_inputs[0]["hypothesis_id"], "H001")
+        self.assertEqual(reviewed_inputs[0]["appmap_candidate_id"], "C0001")
+        self.assertEqual(len(promoted_updates), 1)
+        self.assertEqual(promoted_updates[0]["fid"], "D01")
+        self.assertTrue(promoted_updates[0]["promoted"])
+        persisted = [
+            json.loads(line)
+            for line in (storage.ledgers_root / zero_day_team.FINDINGS_FILENAME).read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertEqual([item["fid"] for item in persisted], ["D01"])
+        self.assertEqual(result["by_tier"]["confirmed"], 1)
+
     def test_brainstorm_single_spec_usage_stays_backward_compatible(self) -> None:
         lane_root = self.tmp / "Shared" / "appmap" / "canva" / "single"
         target = lane_root / "input" / "app_asar"

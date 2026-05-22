@@ -117,6 +117,23 @@ class SnapshotIdentityTests(unittest.TestCase):
         self.assertEqual(non_git_identity["channel"], "dev")
         self.assertEqual(get_snapshot_id(non_git_target), non_git_identity["manifest_hash"])
 
+    def test_snapshot_identity_changes_when_non_git_file_contents_change_without_size_change(self) -> None:
+        first_target = self.tmp / "first-target"
+        second_target = self.tmp / "second-target"
+        first_target.mkdir()
+        second_target.mkdir()
+        (first_target / "same.txt").write_text("alpha\n", encoding="utf-8")
+        (second_target / "same.txt").write_text("bravo\n", encoding="utf-8")
+
+        first_identity = get_snapshot_identity(first_target)
+        second_identity = get_snapshot_identity(second_target)
+
+        self.assertIsNone(first_identity["git_head"])
+        self.assertIsNone(second_identity["git_head"])
+        self.assertEqual((first_target / "same.txt").stat().st_size, (second_target / "same.txt").stat().st_size)
+        self.assertNotEqual(first_identity["manifest_hash"], second_identity["manifest_hash"])
+        self.assertNotEqual(first_identity["snapshot_id"], second_identity["snapshot_id"])
+
 
 class LedgerV2Tests(unittest.TestCase):
     def setUp(self) -> None:

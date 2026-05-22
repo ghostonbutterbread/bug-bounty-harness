@@ -465,6 +465,78 @@ class TestSyncReports(unittest.TestCase):
         self.assertEqual(selected.mode, "source_reports")
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
+    def test_sync_reports_import_from_source_dir_writes_canonical_report_and_coverage(self, _mock_chain):
+        program = "source_import_program"
+        storage_root = self.tmp / "canonical-root"
+        target_root = self.tmp / "target"
+        reports_dir = self.tmp / "import-reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        (target_root / "src").mkdir(parents=True, exist_ok=True)
+        (target_root / "src" / "app.js").write_text(
+            "document.body.innerHTML = location.hash;\n",
+            encoding="utf-8",
+        )
+        report_path = reports_dir / "finding.md"
+        report_path.write_text(
+            "\n".join(
+                [
+                    "Title: DOM XSS via location hash",
+                    "Type: DOM XSS",
+                    "Class: dom-xss",
+                    "Severity: HIGH",
+                    "File: src/app.js:1",
+                    "Sink: innerHTML",
+                    "Description: The renderer writes attacker-controlled hash content into innerHTML.",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        save_index(
+            RepoIndex(
+                target_root=str(target_root),
+                target_id="target-source-import",
+                generated_at="2026-04-28T12:00:00Z",
+                git_head="snap-source-import",
+                manifest_hash="manifest-source-import",
+                files={"src/app.js": _brain_file("sha-app")},
+            ),
+            program,
+            family="binaries",
+            lane="apk",
+            root_override=storage_root,
+        )
+
+        rc = sync_reports_main(
+            program,
+            source_dir=reports_dir.as_posix(),
+            storage_root=storage_root,
+        )
+
+        self.assertEqual(rc, 0)
+        storage = resolve_storage(
+            program,
+            family="binaries",
+            lane="apk",
+            root_override=storage_root,
+            create=False,
+        )
+        ledger_payload = json.loads((storage.ledgers_root / "ledger.json").read_text(encoding="utf-8"))
+        self.assertEqual([finding["fid"] for finding in ledger_payload["findings"]], ["D01"])
+
+        canonical_reports = [
+            path
+            for path in (storage.reports_root / "findings").glob("**/*.md")
+            if "DOM XSS via location hash" in path.read_text(encoding="utf-8")
+        ]
+        self.assertEqual(len(canonical_reports), 1)
+
+        coverage_payload = json.loads((storage.ledgers_root / "coverage.json").read_text(encoding="utf-8"))
+        coverage_entry = coverage_payload["snapshots"][get_snapshot_id(target_root)]["classes"]["dom-xss"]["files"]["src/app.js"]
+        self.assertEqual(coverage_entry["method"], "sync-reports")
+        self.assertEqual(coverage_entry["finding_fids"], ["D01"])
+
+    @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._mark_coverage", return_value=None)
     @patch("agents.sync_reports._append_canonical_report")
     @patch("agents.sync_reports._candidates_for_file")

@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -18,9 +19,6 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from agents.pte_audit import HarnessEfficiencyScorer, main
-
-
-SUBAGENT_LOGGER_PATH = Path("/home/ryushe/projects/bounty-tools/subagent_logger.py")
 
 
 def _load_module(path: Path, module_name: str):
@@ -42,6 +40,99 @@ class PteAuditTests(unittest.TestCase):
         self.home_patcher = patch.dict(os.environ, {"HOME": str(self.home)}, clear=False)
         self.home_patcher.start()
         self.addCleanup(self.home_patcher.stop)
+
+    def _write_subagent_logger_fixture(self) -> Path:
+        path = self.tmp / "subagent_logger.py"
+        path.write_text(
+            textwrap.dedent(
+                """
+                from __future__ import annotations
+
+                import json
+                import math
+                import os
+                from pathlib import Path
+                from uuid import uuid4
+
+                SOFT_CONTEXT_LIMIT_TOKENS = 32000
+
+
+                def estimate_tokens(size_bytes):
+                    return max(0, math.ceil(int(size_bytes or 0) / 4))
+
+
+                def compute_pte_lite(
+                    *,
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    tool_output_tokens=0,
+                    context_tokens_after=0,
+                    spawn_prefill_tokens=0,
+                    context_overhang_tokens=None,
+                ):
+                    if context_overhang_tokens is None:
+                        context_overhang_tokens = max(0, int(context_tokens_after or 0) - SOFT_CONTEXT_LIMIT_TOKENS)
+                    return (
+                        int(prompt_tokens or 0)
+                        + int(completion_tokens or 0)
+                        + int(tool_output_tokens or 0)
+                        + int(spawn_prefill_tokens or 0)
+                        + int(context_overhang_tokens or 0)
+                    )
+
+
+                class SubagentLogger:
+                    def __init__(self, agent_name, program, trace_prefix=None):
+                        self.agent_name = agent_name
+                        self.program = program
+                        prefix = trace_prefix or agent_name
+                        self.trace_id = f"{prefix}_{uuid4().hex[:8]}"
+                        self.trace_dir = (
+                            Path(os.environ["HOME"])
+                            / "Shared"
+                            / "web_bounty"
+                            / program
+                            / "web"
+                            / "ledgers"
+                            / "traces"
+                        )
+                        self.trace_dir.mkdir(parents=True, exist_ok=True)
+                        self.trace_path = self.trace_dir / f"{self.trace_id}.jsonl"
+
+                    def _write(self, payload):
+                        payload = dict(payload)
+                        payload.setdefault("trace_id", self.trace_id)
+                        self.trace_path.write_text(
+                            self.trace_path.read_text(encoding="utf-8") + json.dumps(payload) + "\\n"
+                            if self.trace_path.exists()
+                            else json.dumps(payload) + "\\n",
+                            encoding="utf-8",
+                        )
+
+                    def start(self, **fields):
+                        self._write({"span_type": "run", "level": "START", "agent_name": self.agent_name, **fields})
+
+                    def log_span(self, span_type, **fields):
+                        payload = {"span_type": span_type, "agent_name": self.agent_name, **fields}
+                        if span_type == "model":
+                            payload["pte_lite"] = compute_pte_lite(
+                                prompt_tokens=payload.get("prompt_tokens"),
+                                completion_tokens=payload.get("completion_tokens"),
+                                tool_output_tokens=payload.get("tool_output_tokens"),
+                                context_tokens_after=payload.get("context_tokens_after"),
+                                spawn_prefill_tokens=payload.get("spawn_prefill_tokens"),
+                                context_overhang_tokens=payload.get("context_overhang_tokens"),
+                            )
+                        self._write(payload)
+
+                    def finish(self, **fields):
+                        self._write({"span_type": "run", "level": "FINISH", "agent_name": self.agent_name, **fields})
+                """
+            ).strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        return path
 
     def _ghost_dir(self, program: str) -> Path:
         return self.home / "Shared" / "bounty_recon" / program / "ghost"
@@ -306,7 +397,7 @@ class PteAuditTests(unittest.TestCase):
         self._write_jsonl(traces_dir / "20260408T020000Z.jsonl", run2)
 
     def test_subagent_logger_writes_trace_and_computes_pte_lite(self) -> None:
-        module = _load_module(SUBAGENT_LOGGER_PATH, "subagent_logger_test")
+        module = _load_module(self._write_subagent_logger_fixture(), "subagent_logger_test")
         logger = module.SubagentLogger("xss_hunter", "demo")
         logger.start(target="https://example.test")
         logger.log_span(

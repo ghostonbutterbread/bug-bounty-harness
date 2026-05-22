@@ -32,6 +32,14 @@ class DummyTeam(BaseTeam):
         return []
 
 
+class _CompletedHandle:
+    pid = 4242
+    returncode = 0
+
+    def poll(self) -> int:
+        return 0
+
+
 class BaseTeamLedgerWriteTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -268,6 +276,70 @@ class BaseTeamLedgerWriteTests(unittest.TestCase):
         )
 
         self.assertEqual(calls, ["updated"])
+
+    def test_runtime_routes_missing_entry_amplifier_before_review(self) -> None:
+        amplifier = {
+            **self._finding(),
+            "type": "hostrpc chain material",
+            "finding_role": "amplifier",
+            "entry_status": "missing",
+            "reportability": "hold_for_chain",
+            "required_entry_primitives": ["renderer_xss"],
+        }
+        reviewed = {**self._finding(), "fid": "D01", "review_tier": "CONFIRMED"}
+        routed: list[dict] = []
+        dedup_inputs: list[list[dict]] = []
+        spec = AgentSpec(
+            key="amp-agent",
+            vuln_class="ipc",
+            surface="main",
+            prompt_template="",
+            focus_globs=[],
+            code_patterns=[],
+            program="demo",
+            created_at="2026-05-21T00:00:00Z",
+            snapshot_id="snap-runtime",
+        )
+
+        confirmed, dormant, novel = runtime_orchestrate(
+            parallel=True,
+            agents_mode="static",
+            install_signal_handlers=lambda: None,
+            set_partial_findings=lambda findings: None,
+            get_static_profiles=lambda: [spec],
+            generate_dynamic_agents=lambda target, force: [],
+            target_path=self.target,
+            force_preflight=False,
+            select_specs=lambda static, dynamic: static,
+            load_shared_brain=lambda: {"files": {}},
+            load_ledger=lambda: {"version": 2, "findings": []},
+            set_last_loaded_ledger=lambda ledger: None,
+            findings_path=self.team.findings_path,
+            write_traces=lambda events: None,
+            snapshot_id=lambda: "snap-runtime",
+            spawn_agent=lambda prompt, agent_name, log_path: _CompletedHandle(),  # type: ignore[arg-type,return-value]
+            agents_dir=self.team.agents_dir,
+            slug=lambda value: value,
+            trace_timestamp=lambda: "20260429T000000Z",
+            sigterm_received=lambda: False,
+            read_log_for_handle=lambda handle: "",
+            cleanup_handle=lambda handle: None,
+            collect_agent_findings=lambda spec, log_path: [amplifier],
+            agent_timeout=1,
+            deduplicate_findings=lambda raw, ledger: dedup_inputs.append(raw) or [reviewed],
+            stage2_review=lambda findings, target: (findings, [], []),
+            update_reviewed_findings=lambda findings: findings,
+            update_coverage=lambda agent_name, surface, finding_count: None,
+            get_last_review_error=lambda: None,
+            active_handles={},
+            persist_partial_results=lambda: None,
+            render_prompt=lambda spec: "",
+            route_amplifier_findings=lambda findings: routed.extend(findings),
+        )
+
+        self.assertEqual([item["type"] for item in routed], ["hostrpc chain material"])
+        self.assertEqual(dedup_inputs, [[]])
+        self.assertEqual(confirmed, [reviewed])
         self.assertEqual(confirmed, [reviewed])
         self.assertEqual(dormant, [])
         self.assertEqual(novel, [])

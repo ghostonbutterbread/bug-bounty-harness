@@ -111,10 +111,12 @@ Validates that recon and testing targets stay within program scope.
 
 **Scope file locations (loaded in order):**
 ```
-~/Shared/bounty_recon/{program}/scope/in-scope.txt
-~/Shared/bounty_recon/{program}/scope/domains.txt
-~/Shared/bounty_recon/{program}/scope/scope.txt
-~/Shared/bounty_recon/{program}/recon/scope.txt
+~/Shared/scopes/{program}/in-scope.txt
+~/Shared/scopes/{program}/rules-of-engagement.json  # platform/rules metadata
+~/Shared/bounty_recon/{program}/scope/in-scope.txt  # legacy fallback
+~/Shared/bounty_recon/{program}/scope/domains.txt   # legacy fallback
+~/Shared/bounty_recon/{program}/scope/scope.txt     # legacy fallback
+~/Shared/bounty_recon/{program}/recon/scope.txt     # legacy fallback
 ```
 
 **Supported scope formats:**

@@ -13,14 +13,39 @@ The goal is not to make live agents useless. The goal is to let them test aggres
 
 ## Core model
 
-Phase 20 has two guardrails that must work together:
+Phase 20 has three guardrails that must work together:
 
-1. **VM Guard / environment approval** — controls where agents may connect.
-2. **Private-by-default action policy** — controls what agents may do after connecting.
+1. **Program scope profile** — controls which bounty assets and rules-of-engagement apply.
+2. **VM Guard / environment approval** — controls where agents may connect.
+3. **Private-by-default action policy** — controls what agents may do after connecting.
 
 Environment approval alone is not enough. An agent inside an approved VM could still perform harmful or unwanted actions in a real app, such as posting publicly, inviting users, sending messages, or submitting payment. Action policy catches that class of risk.
 
 Action policy alone is not enough either. Agents also need a network/process boundary so they do not wander into unrelated machines, local network assets, metadata services, or unmanaged external hosts.
+
+## Program scope profile
+
+Before live recon, crawling, fuzzing, or probing, agents must read the canonical scope profile:
+
+```text
+~/Shared/scopes/{program}/in-scope.txt
+~/Shared/scopes/{program}/rules-of-engagement.json
+```
+
+The scope profile has two parts:
+
+- asset scope: hosts, URLs, apps, APIs, accounts, and exclusions
+- rules-of-engagement: allowed, excluded, capped, approval-required, or sensitive testing behavior
+
+If the profile is missing, agents must pull it first or stay in static/offline analysis mode:
+
+```bash
+python3 agents/scope_puller.py <program> --platform <hackerone|bugcrowd|intigriti>
+```
+
+Bugcrowd pulls default to public `/engagements/<program>` scraping. `--api` is reserved for intentionally configured API-backed pulls.
+
+For live target requests, agents must validate each target through `ScopeValidator(program).validate_or_fail(target)` before sending traffic. Missing or unreadable scope fails closed for live testing.
 
 ## VM Guard: environment-scoped approval
 

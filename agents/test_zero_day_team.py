@@ -49,6 +49,28 @@ class ZeroDayTeamOutputRootTests(unittest.TestCase):
         self.assertTrue(all(profile.created_at.endswith("Z") for profile in profiles))
         self.assertIn("dom-xss", {profile.key for profile in profiles})
 
+    def test_legacy_zero_day_prompt_accepts_program_scope_snippet(self) -> None:
+        profile = zero_day_team.VulnerabilityClassProfile(
+            key="scope-aware",
+            description="scope aware test",
+            entry_questions=("entry?",),
+            cross_questions=("cross?",),
+            sink_categories=("sink",),
+            reasoning="trace scope behavior",
+        )
+
+        prompt = zero_day_team._build_prompt_base(
+            profile=profile,
+            program="demo",
+            target_path=self.tmp / "target",
+            findings_path=self.tmp / "findings.jsonl",
+            program_scope_snippet="## Program Scope And Rules Of Engagement\nScope status: loaded.",
+        )
+
+        self.assertIn("Program Scope And Rules Of Engagement", prompt)
+        self.assertIn("Scope status: loaded.", prompt)
+        self.assertIn("Append every finding", prompt)
+
     def _brainstorm_spec_text(self) -> str:
         return """# Brainstorm Spec: Canva Desktop EXE
 

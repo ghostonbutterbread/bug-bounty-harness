@@ -182,6 +182,84 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     return payload
 
 
+def _load_program_scope_prompt(program: str) -> str:
+    """Render the canonical program-scope guardrail for spawned agents."""
+    scope_dir = Path.home() / "Shared" / "scopes" / program
+    legacy_scope_dir = Path.home() / "Shared" / "bounty_recon" / program / "scope"
+    rules_path = scope_dir / "rules-of-engagement.json"
+    in_scope_path = scope_dir / "in-scope.txt"
+
+    lines = [
+        "## Program Scope And Rules Of Engagement",
+        f"Canonical scope directory: {scope_dir}",
+        f"Legacy fallback directory: {legacy_scope_dir}",
+    ]
+
+    if not rules_path.exists() and not in_scope_path.exists():
+        lines.extend(
+            [
+                "Scope status: not loaded.",
+                "Before any live network testing, pull scope and rules with:",
+                f"  python3 agents/scope_puller.py {program} --platform <hackerone|bugcrowd|intigriti>",
+                "Bugcrowd public engagement pages are scraped by default; use --api only when an API-backed path is intentionally configured.",
+                "Until canonical scope exists, do static/offline analysis only. Do not send live requests, crawl, fuzz, or probe vendor systems.",
+            ]
+        )
+        return "\n".join(lines).rstrip()
+
+    policy: dict[str, Any] = {}
+    if rules_path.exists():
+        try:
+            raw_policy = json.loads(rules_path.read_text(encoding="utf-8"))
+            if isinstance(raw_policy, dict):
+                policy = raw_policy
+        except (OSError, json.JSONDecodeError) as exc:
+            lines.append(f"Scope policy read warning: {exc}")
+
+    entries: list[str] = []
+    if in_scope_path.exists():
+        try:
+            entries = [
+                line.strip()
+                for line in in_scope_path.read_text(encoding="utf-8").splitlines()
+                if line.strip() and not line.strip().startswith("#")
+            ]
+        except OSError as exc:
+            lines.append(f"Scope asset read warning: {exc}")
+
+    lines.extend(
+        [
+            "Scope status: loaded.",
+            f"Platform: {policy.get('platform') or 'unknown'}",
+            f"Source URL: {policy.get('source_url') or 'unknown'}",
+            f"Source brief URL: {policy.get('source_brief_url') or 'unknown'}",
+            f"Participation: {policy.get('participation') or 'unknown'}",
+            f"Program status: {policy.get('status') or 'unknown'}",
+            "Rules file: rules-of-engagement.json",
+            "Asset file: in-scope.txt",
+            "Live testing rule: validate every target with ScopeValidator(program).validate_or_fail(target) before requests.",
+            "Scope interpretation rule: if rules mark a class as out-of-scope, low-impact, sensitive, or approval-required, do not test or report it as a standalone bug.",
+            "Amplifier rule: if an in-scope vulnerability is already established, a normally out-of-scope or low-impact behavior may be considered only as a bounded non-destructive escalation/demo step, not as the reported root issue.",
+            "Amplifier safety rule: do not execute blocked, noisy, destructive, privacy-impacting, credential-validation, or user-impacting behavior without explicit approval; record rejected amplifier candidates and the rule that blocked them.",
+        ]
+    )
+
+    blocked = policy.get("blocked_or_sensitive_classes") if isinstance(policy, dict) else None
+    if blocked:
+        lines.append("Blocked/sensitive classes from rules: " + ", ".join(str(item) for item in blocked))
+    if entries:
+        sample = ", ".join(entries[:10])
+        suffix = f" (+{len(entries) - 10} more)" if len(entries) > 10 else ""
+        lines.append(f"In-scope asset sample: {sample}{suffix}")
+    rules_text = str(policy.get("rules_text") or "").strip()
+    if rules_text:
+        normalized_rules = re.sub(r"\s+", " ", rules_text).strip()
+        if len(normalized_rules) > 32000:
+            normalized_rules = normalized_rules[:32000].rstrip() + " [truncated]"
+        lines.append(f"Rules text: {normalized_rules}")
+    return "\n".join(lines).rstrip()
+
+
 @dataclass(slots=True)
 class AgentSpec:
     key: str
@@ -289,6 +367,7 @@ class BaseTeam(abc.ABC):
             self.hunting_policy = resolved_policy
         else:
             self.hunting_policy = coerce_hunting_policy(resolved_policy)
+        self.program_scope_snippet = _load_program_scope_prompt(self.program)
 
         self.team_dir = self.storage.lane_root
         self.agents_dir = self.team_dir / "agents"
@@ -741,8 +820,11 @@ class BaseTeam(abc.ABC):
             "shared_root": str(self.storage.shared_root),
             "hunting_policy_id": self.hunting_policy.id,
             "hunting_policy_snippet": self.hunting_policy.snippet("agent"),
+            "program_scope_snippet": self.program_scope_snippet,
         }
         rendered = spec.prompt_template.format(**context).rstrip()
+        if "{program_scope_snippet}" not in spec.prompt_template:
+            rendered = f"{rendered}\n\n{self.program_scope_snippet}"
         if self.hunting_policy.enabled and "{hunting_policy_snippet}" not in spec.prompt_template:
             rendered = f"{rendered}\n\n{self.hunting_policy.snippet('agent')}"
         return rendered.rstrip() + "\n"

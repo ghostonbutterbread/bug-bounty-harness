@@ -34,6 +34,7 @@ from agents.base_team import (
     read_findings_jsonl as shared_read_findings_jsonl,
     safe_int as shared_safe_int,
 )
+from agents.base_team_core import _load_program_scope_prompt
 from agents.chain_matrix import build_chain_graph, get_chainable_findings  # type: ignore[attr-defined]
 from agents.hybrid_preflight import run_preflight  # type: ignore[attr-defined]
 from agents.dynamic_agent_builder import DynamicAgentBuilder  # type: ignore[attr-defined]
@@ -831,6 +832,7 @@ def _build_prompt_base(
     repo_context: str = "",
     starting_entry: dict[str, Any] | None = None,
     policy_snippet: str = "",
+    program_scope_snippet: str = "",
 ) -> str:
     entry_lines = "\n".join(f"- {question}" for question in profile.entry_questions)
     cross_lines = "\n".join(f"- {question}" for question in profile.cross_questions)
@@ -918,6 +920,8 @@ Low-priority ignore globs:
 Custom agent instructions:
 {profile.prompt_addendum or "None."}
 
+{program_scope_snippet.strip()}
+
 {policy_snippet.strip()}
 
 Output rules:
@@ -986,6 +990,7 @@ def _spawn_agent(
     hunt_type: str = "source",
     coverage_path: Path | None = None,
     policy_snippet: str = "",
+    program_scope_snippet: str = "",
 ) -> AgentSession:
     workspace = agents_root / f"{profile.key}_{int(time.time() * 1000)}"
     _ensure_directory(workspace)
@@ -1002,6 +1007,7 @@ def _spawn_agent(
         repo_context=repo_context,
         starting_entry=starting_entry,
         policy_snippet=policy_snippet,
+        program_scope_snippet=program_scope_snippet,
     )
     env["ZERO_DAY_TARGET_PATH"] = str(target_path)
     env["ZERO_DAY_AGENT_WORKDIR"] = str(workspace)
@@ -2764,6 +2770,7 @@ def _run_single_agent(
     hunt_type: str = "source",
     coverage_path: Path | None = None,
     policy_snippet: str = "",
+    program_scope_snippet: str = "",
 ) -> Tuple[VulnerabilityClassProfile, int]:
     session = _spawn_agent(
         profile=profile,
@@ -2777,6 +2784,7 @@ def _run_single_agent(
         skip_ledger=fresh,
         coverage_path=coverage_path,
         policy_snippet=policy_snippet,
+        program_scope_snippet=program_scope_snippet,
     )
     if session.process is not None:
         _append_brainstorm_coverage(
@@ -3502,6 +3510,7 @@ def orchestrate_zero_day_team(
         policy_config=policy_config,
     )
     agent_policy_snippet = resolved_policy.snippet("agent")
+    program_scope_snippet = _load_program_scope_prompt(program_slug)
     snapshot_identity = get_snapshot_identity(target, version_label=version_label)
     ledger = create_team_ledger_from_storage(
         program_slug,
@@ -3922,6 +3931,7 @@ def orchestrate_zero_day_team(
                         fresh,
                         coverage_path=brainstorm_coverage_path,
                         policy_snippet=agent_policy_snippet,
+                        program_scope_snippet=program_scope_snippet,
                     ): profile
                     for profile in active_profiles
                 }
@@ -3953,6 +3963,7 @@ def orchestrate_zero_day_team(
                 fresh=fresh,
                 coverage_path=brainstorm_coverage_path,
                 policy_snippet=agent_policy_snippet,
+                program_scope_snippet=program_scope_snippet,
             )
             print(f"[orchestrator] Finished {index}/{len(active_profiles)}: {profile.key}")
 

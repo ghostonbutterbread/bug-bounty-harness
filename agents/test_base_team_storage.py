@@ -105,6 +105,78 @@ class BaseTeamStorageIdentityTests(unittest.TestCase):
         self.assertEqual(team.lane, "api")
         self.assertEqual(team.team_dir, self.tmp / "Shared" / "web_bounty" / "demo" / "api")
 
+    def test_base_team_injects_loaded_program_scope_into_agent_prompts(self) -> None:
+        target = self.tmp / "target"
+        target.mkdir()
+        scope_dir = self.tmp / "Shared" / "scopes" / "demo"
+        scope_dir.mkdir(parents=True)
+        (scope_dir / "in-scope.txt").write_text(
+            "# In-scope domains and URLs\n*.demo.example\nhttps://api.demo.example\n",
+            encoding="utf-8",
+        )
+        (scope_dir / "rules-of-engagement.json").write_text(
+            json.dumps(
+                {
+                    "platform": "bugcrowd",
+                    "source_url": "https://bugcrowd.com/engagements/demo",
+                    "source_brief_url": "https://bugcrowd.com/demo-brief.json",
+                    "blocked_or_sensitive_classes": ["spam", "denial of service"],
+                    "rules_text": "Do not spam users. Stay inside approved scope.",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with patch.object(Path, "home", return_value=self.tmp):
+            team = DummyTeam("demo", "0day_team", target, max_agents=1)
+
+        spec = AgentSpec(
+            key="scope-check",
+            vuln_class="xss",
+            surface="web",
+            prompt_template="Hunt {program}",
+            focus_globs=["**/*"],
+            code_patterns=[],
+            program="demo",
+            created_at="2026-05-21T00:00:00Z",
+            snapshot_id="snapshot",
+        )
+        rendered = team._render_prompt(spec)
+
+        self.assertIn("Program Scope And Rules Of Engagement", rendered)
+        self.assertIn("Scope status: loaded.", rendered)
+        self.assertIn("Platform: bugcrowd", rendered)
+        self.assertIn("ScopeValidator(program).validate_or_fail(target)", rendered)
+        self.assertIn("do not test or report it as a standalone bug", rendered)
+        self.assertIn("normally out-of-scope or low-impact behavior may be considered", rendered)
+        self.assertIn("record rejected amplifier candidates", rendered)
+        self.assertIn("denial of service", rendered)
+        self.assertIn("Rules text: Do not spam users. Stay inside approved scope.", rendered)
+
+    def test_base_team_missing_program_scope_warns_agents_to_stay_offline(self) -> None:
+        target = self.tmp / "target"
+        target.mkdir()
+
+        with patch.object(Path, "home", return_value=self.tmp):
+            team = DummyTeam("demo", "0day_team", target, max_agents=1)
+
+        spec = AgentSpec(
+            key="scope-missing",
+            vuln_class="xss",
+            surface="web",
+            prompt_template="Hunt {program}",
+            focus_globs=["**/*"],
+            code_patterns=[],
+            program="demo",
+            created_at="2026-05-21T00:00:00Z",
+            snapshot_id="snapshot",
+        )
+        rendered = team._render_prompt(spec)
+
+        self.assertIn("Scope status: not loaded.", rendered)
+        self.assertIn("python3 agents/scope_puller.py demo --platform", rendered)
+        self.assertIn("Do not send live requests", rendered)
+
     def test_base_team_load_ledger_normalizes_coverage_total_findings(self) -> None:
         target = self.tmp / "target"
         target.mkdir()

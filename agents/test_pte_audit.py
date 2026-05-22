@@ -7,16 +7,11 @@ import importlib.util
 import io
 import json
 import os
-import sys
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
 
 from agents.pte_audit import HarnessEfficiencyScorer, main
 

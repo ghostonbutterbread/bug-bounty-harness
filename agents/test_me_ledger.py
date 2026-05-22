@@ -5,15 +5,10 @@ from __future__ import annotations
 import argparse
 import io
 import json
-import sys
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
-
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
 
 from agents import ledger as ledger_adapter  # noqa: E402
 from agents import me_ledger  # noqa: E402

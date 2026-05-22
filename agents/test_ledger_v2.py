@@ -12,10 +12,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
 from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.ledger import update_team_finding
 from agents.ledger_v2 import VersionedFindingsLedger, ledger_add, ledger_get, ledger_list, ledger_path
@@ -32,20 +28,17 @@ from bounty_core.ledger import list_findings as core_list_findings
 _CONCURRENT_ADD_SCRIPT = textwrap.dedent(
     """
     import os
-    import sys
-    from pathlib import Path
 
-    project_root = Path(sys.argv[1])
-    home = sys.argv[2]
-    program = sys.argv[3]
-    relpath = sys.argv[4]
-    class_name = sys.argv[5]
-    snapshot_id = sys.argv[6]
-    run_id = sys.argv[7]
+    import sys
+
+    home = sys.argv[1]
+    program = sys.argv[2]
+    relpath = sys.argv[3]
+    class_name = sys.argv[4]
+    snapshot_id = sys.argv[5]
+    run_id = sys.argv[6]
 
     os.environ["HOME"] = home
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
 
     from agents.ledger_v2 import ledger_add
 
@@ -574,7 +567,6 @@ class LedgerV2Tests(unittest.TestCase):
                     sys.executable,
                     "-c",
                     _CONCURRENT_ADD_SCRIPT,
-                    str(_project_root),
                     str(self.home),
                     self.program,
                     f"src/file_{index}.js",
@@ -582,6 +574,7 @@ class LedgerV2Tests(unittest.TestCase):
                     "snap-concurrent",
                     f"20260407T18000{index}Z",
                 ],
+                cwd=Path(__file__).resolve().parent.parent,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,

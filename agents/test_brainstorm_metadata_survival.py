@@ -2,16 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
 
 from agents.base_team import AgentSpec, BaseTeam
 from agents.base_team.review import stage2_ghost_review

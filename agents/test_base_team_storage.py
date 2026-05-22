@@ -3,19 +3,14 @@
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
-from agents.base_team import AgentSpec, BaseTeam  # noqa: E402
-from agents.base_team.storage import resolve_team_storage  # noqa: E402
-from agents.storage_resolver import resolve_target_identity  # noqa: E402
+from agents.base_team import AgentSpec, BaseTeam
+from agents.base_team.storage import resolve_team_storage
+from agents.storage_resolver import resolve_target_identity
 
 
 class DummyTeam(BaseTeam):

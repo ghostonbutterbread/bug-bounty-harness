@@ -15,7 +15,6 @@ Run: python3 agents/test_dormant_split.py
 
 from __future__ import annotations
 
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,19 +22,15 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
-from agents.zero_day_team import (  # noqa: E402
+from agents.zero_day_team import (
     _normalize_claude_review,
     _normalize_finding,
     is_placeholder_finding,
 )
-from agents.base_team.promotion import promote_reviewed_findings  # noqa: E402
-from agents.base_team.review import stage2_ghost_review  # noqa: E402
-from agents.findings_ledger import FindingsLedger, LEDGER_FILENAME  # noqa: E402
-from agents.chain_matrix import build_chain_graph, get_chainable_findings  # noqa: E402
+from agents.base_team.promotion import promote_reviewed_findings
+from agents.base_team.review import stage2_ghost_review
+from agents.findings_ledger import FindingsLedger, LEDGER_FILENAME
+from agents.chain_matrix import build_chain_graph, get_chainable_findings
 
 
 # ---------------------------------------------------------------------------

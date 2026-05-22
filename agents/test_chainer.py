@@ -2,18 +2,13 @@
 
 from __future__ import annotations
 
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
-from agents import chainer  # noqa: E402
-from agents.report_paths import status_report_path_for_read  # noqa: E402
-from agents.storage_resolver import resolve_family_lane, resolve_storage  # noqa: E402
+from agents import chainer
+from agents.report_paths import status_report_path_for_read
+from agents.storage_resolver import resolve_family_lane, resolve_storage
 
 
 class ChainerStorageRoutingTests(unittest.TestCase):

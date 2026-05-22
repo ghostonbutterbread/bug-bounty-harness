@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import tempfile
 import time
 import unittest
@@ -10,12 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
-from agents.base_team.reports import write_report_indexes  # noqa: E402
-from agents.base_team.review import _render_dormant_report, review_single_finding, stage2_ghost_review  # noqa: E402
+from agents.base_team.reports import write_report_indexes
+from agents.base_team.review import _render_dormant_report, review_single_finding, stage2_ghost_review
 
 
 class BaseTeamReviewTests(unittest.TestCase):

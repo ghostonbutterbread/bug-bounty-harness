@@ -6,16 +6,11 @@ import io
 import json
 import os
 import subprocess
-import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import Mock, patch
-
-_project_root = Path(__file__).resolve().parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
 
 from agents.manual_hunter import (
     ManualHunter,

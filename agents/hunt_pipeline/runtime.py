@@ -93,6 +93,7 @@ class LiveBaseTeamAdapter:
         self.team.agent_sandbox_mode = "artifact-write"
         self.team.writable_artifact_dir = self.artifacts_dir
         self.last_execution_details: dict[str, dict[str, Any]] = {}
+        self.last_promising_entry_ids: tuple[str, ...] = ()
 
     def execute(self, specs: Sequence[AgentSpec]) -> dict[str, str]:
         handles = {}
@@ -156,6 +157,7 @@ class LiveBaseTeamAdapter:
             agent_findings = self.team._collect_agent_findings(spec, log_paths.get(key))
             findings_by_agent[key] = agent_findings
             raw_findings.extend(agent_findings)
+        self.last_promising_entry_ids = _promising_entry_trigger_ids(raw_findings)
         amplifier_findings, review_findings = _split_amplifier_hold_findings(raw_findings)
         if amplifier_findings:
             _append_run_amplifier_findings(self.team.storage.reports_root, amplifier_findings)
@@ -255,6 +257,25 @@ def _append_run_amplifier_findings(reports_root: Path, findings: Sequence[Mappin
     return path
 
 
+def _promising_entry_trigger_ids(findings: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
+    values: list[str] = []
+    for finding in findings:
+        role = str(finding.get("finding_role") or "").strip().lower()
+        entry_status = str(finding.get("entry_status") or "").strip().lower()
+        reportability = str(finding.get("reportability") or "").strip().lower()
+        if role != "entry":
+            continue
+        if entry_status not in {"proven", "plausible"}:
+            continue
+        if reportability not in {"submit", "validate_entry"}:
+            continue
+        for key in ("hypothesis_id", "hypothesis_key", "brainstorm_agent_key", "agent"):
+            cleaned = str(finding.get(key) or "").strip()
+            if cleaned and cleaned not in values:
+                values.append(cleaned)
+    return tuple(values)
+
+
 def _markdown_list(value: Any) -> str:
     if isinstance(value, str):
         return f"`{_markdown_inline(value)}`" if value.strip() else "none"
@@ -306,18 +327,25 @@ def execute_next_wave(
             skip_chain=skip_chain,
         )
         save_run_state(state, run_state_path_for_plan(resolved_plan_path))
+        pending_trigger_entry_ids = tuple(
+            str(item).strip()
+            for item in state.get("pending_trigger_entry_ids", ())
+            if str(item).strip()
+        )
+        effective_trigger_entry_ids = tuple(trigger_entry_ids) or pending_trigger_entry_ids
+        using_pending_trigger_ids = bool(pending_trigger_entry_ids and not trigger_entry_ids)
         triggered_hypothesis_ids = _triggered_hypothesis_ids(
             plan,
             resolved_plan_path,
-            trigger_entry_ids=trigger_entry_ids,
+            trigger_entry_ids=effective_trigger_entry_ids,
         )
         wave = next_wave_records(
             plan,
             state,
             max_agents=max_agents,
             concurrent_agents=concurrent_agents,
-            skip_chain=False if trigger_entry_ids else bool(state["run_config"].get("skip_chain", False)),
-            only_hypothesis_ids=triggered_hypothesis_ids if trigger_entry_ids else None,
+            skip_chain=False if effective_trigger_entry_ids else bool(state["run_config"].get("skip_chain", False)),
+            only_hypothesis_ids=triggered_hypothesis_ids if effective_trigger_entry_ids else None,
         )
         if not wave:
             save_run_state(state, run_state_path_for_plan(resolved_plan_path))
@@ -329,6 +357,7 @@ def execute_next_wave(
                 "runtime_promotion_decision": promotion_decision,
                 "skip_chain": bool(state["run_config"].get("skip_chain", False)),
                 "trigger_entry_ids": list(trigger_entry_ids),
+                "auto_trigger_entry_ids": list(pending_trigger_entry_ids),
                 "triggered_hypothesis_ids": sorted(triggered_hypothesis_ids),
                 "summary": summarize_run(
                     resolved_plan_path,
@@ -339,6 +368,8 @@ def execute_next_wave(
             }
 
         state = update_agent_statuses(state, wave, status="running")
+        if using_pending_trigger_ids:
+            state["pending_trigger_entry_ids"] = []
         save_run_state(state, run_state_path_for_plan(resolved_plan_path))
 
         specs_path: Path | None = None
@@ -392,6 +423,7 @@ def execute_next_wave(
                 "runtime_promotion_decision": promotion_decision,
                 "skip_chain": bool(state["run_config"].get("skip_chain", False)),
                 "trigger_entry_ids": list(trigger_entry_ids),
+                "auto_trigger_entry_ids": list(pending_trigger_entry_ids),
                 "triggered_hypothesis_ids": sorted(triggered_hypothesis_ids),
                 "summary": summarize_run(
                     resolved_plan_path,
@@ -423,6 +455,12 @@ def execute_next_wave(
                 },
             )
         execution_details = getattr(runtime_adapter, "last_execution_details", {})
+        new_trigger_entry_ids = _adapter_promising_entry_ids(runtime_adapter)
+        if new_trigger_entry_ids:
+            state["pending_trigger_entry_ids"] = _merge_trigger_ids(
+                state.get("pending_trigger_entry_ids", ()),
+                new_trigger_entry_ids,
+            )
         efficiency_dir = finalize_efficiency_logging(
             resolved_plan_path,
             plan,
@@ -440,6 +478,8 @@ def execute_next_wave(
             "no_ledger": bool(state["run_config"].get("no_ledger", False)),
             "skip_chain": bool(state["run_config"].get("skip_chain", False)),
             "trigger_entry_ids": list(trigger_entry_ids),
+            "auto_trigger_entry_ids": list(pending_trigger_entry_ids),
+            "queued_trigger_entry_ids": list(new_trigger_entry_ids),
             "triggered_hypothesis_ids": sorted(triggered_hypothesis_ids),
             "execution_mode": execution_mode,
             "spec_metrics": spec_metrics,
@@ -456,6 +496,8 @@ def execute_next_wave(
             "runtime_promotion_decision": promotion_decision,
             "skip_chain": bool(state["run_config"].get("skip_chain", False)),
             "trigger_entry_ids": list(trigger_entry_ids),
+            "auto_trigger_entry_ids": list(pending_trigger_entry_ids),
+            "queued_trigger_entry_ids": list(new_trigger_entry_ids),
             "triggered_hypothesis_ids": sorted(triggered_hypothesis_ids),
             "summary": summarize_run(
                 resolved_plan_path,
@@ -544,6 +586,24 @@ def _triggered_hypothesis_ids(
             if hypothesis_id:
                 matched.add(hypothesis_id)
     return frozenset(matched)
+
+
+def _adapter_promising_entry_ids(adapter: PipelineRuntimeAdapter) -> tuple[str, ...]:
+    return tuple(
+        str(item).strip()
+        for item in getattr(adapter, "last_promising_entry_ids", ()) or ()
+        if str(item).strip()
+    )
+
+
+def _merge_trigger_ids(existing: Any, new_values: Sequence[str]) -> list[str]:
+    merged: list[str] = []
+    existing_values = [existing] if isinstance(existing, str) else list(existing or ())
+    for item in [*existing_values, *new_values]:
+        cleaned = str(item).strip()
+        if cleaned and cleaned not in merged:
+            merged.append(cleaned)
+    return merged
 
 
 def _load_chain_activation_index(plan: Mapping[str, Any], plan_path: Path) -> dict[str, Any]:

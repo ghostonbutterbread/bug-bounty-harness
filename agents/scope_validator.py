@@ -313,7 +313,9 @@ class ScopeValidator:
 
     def is_out_of_scope(self, target: str) -> bool:
         """Return True if target is explicitly out of scope."""
-        return not self.is_in_scope(target)
+        if not target or not target.strip():
+            return False
+        return any(e.matches(target.strip()) for e in self._out_of_scope)
 
     def is_wildcard_scope(self, domain: str) -> bool:
         """

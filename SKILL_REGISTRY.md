@@ -73,6 +73,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **appmap** | `/appmap {program} {target_path}` | `prompts/appmap-playbook.md` |
 | **appmap-research-librarian** | `/appmap-research-librarian init {program}` | `prompts/appmap-research-librarian-playbook.md` |
 | **electron** | `/electron {program} {target_path}` | `prompts/electron-playbook.md` |
+| **prompt-injection** | `/prompt-injection {program} {target_url}` | `prompts/prompt-injection-playbook.md` |
 | **me** | `/me {program}` | `skills/me/SKILL.md` |
 
 ---
@@ -93,8 +94,16 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /appmap canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --target-kind electron-exe --focus rce --write-specs
 /appmap-research-librarian init canva --category electron-ipc --research-query electron rce --target-kind electron-exe
 /electron canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --dry-run-prompts
+/prompt-injection canva https://target.example/ai-assistant --mode map
 /me notion --hunt-type source
 /me canva --hunt-type source --lane exe
+```
+
+### Local Skill Audit Labs
+
+```bash
+# Prompt injection vulnerable local lab: starts, tests, and shuts down
+python3 agents/prompt_injection_lab.py --eval --json
 ```
 
 ### Agent Spawn
@@ -172,4 +181,4 @@ bug_bounty_harness/
 
 ---
 
-*Last updated: 2026-05-04*
+*Last updated: 2026-05-21*

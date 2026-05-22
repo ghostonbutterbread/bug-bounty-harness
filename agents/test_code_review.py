@@ -16,6 +16,15 @@ def test_review_with_codex_uses_module_system_prompt(monkeypatch):
     result = code_review.review_with_codex("print('demo')", "demo.py")
 
     assert result == "review output"
-    assert code_review.SYSTEM_PROMPT in captured["command"][2]
-    assert "ReviewAgent" not in captured["command"][2]
+    assert captured["command"][:7] == [
+        "codex",
+        "exec",
+        "-s",
+        "read-only",
+        "--skip-git-repo-check",
+        "--cd",
+        str(code_review.Path.cwd()),
+    ]
+    assert code_review.SYSTEM_PROMPT in captured["command"][7]
+    assert "ReviewAgent" not in captured["command"][7]
     assert captured["kwargs"]["timeout"] == 120

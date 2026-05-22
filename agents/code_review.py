@@ -155,7 +155,16 @@ Provide your review now:"""
     _start = time.time()
     try:
         result = subprocess.run(
-            ["codex", "exec", prompt],
+            [
+                "codex",
+                "exec",
+                "-s",
+                "read-only",
+                "--skip-git-repo-check",
+                "--cd",
+                str(Path.cwd()),
+                prompt,
+            ],
             capture_output=True,
             text=True,
             timeout=120,

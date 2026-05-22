@@ -156,8 +156,11 @@ class LiveBaseTeamAdapter:
             agent_findings = self.team._collect_agent_findings(spec, log_paths.get(key))
             findings_by_agent[key] = agent_findings
             raw_findings.extend(agent_findings)
+        amplifier_findings, review_findings = _split_amplifier_hold_findings(raw_findings)
+        if amplifier_findings:
+            _append_run_amplifier_findings(self.team.storage.reports_root, amplifier_findings)
         ledger = self.team.load_ledger()
-        new_findings = self.team.deduplicate_findings(raw_findings, ledger)
+        new_findings = self.team.deduplicate_findings(review_findings, ledger)
         confirmed, dormant, novel = self.team.stage2_review(new_findings, self.team.target_path)
         reviewed = self.team.update_reviewed_findings(confirmed + dormant + novel)
         for key, spec in specs_by_key.items():
@@ -171,6 +174,7 @@ class LiveBaseTeamAdapter:
                 {
                     "event": "hunt_pipeline_live_review_complete",
                     "raw_findings": len(raw_findings),
+                    "amplifier_hold_findings": len(amplifier_findings),
                     "new_findings": len(new_findings),
                     "confirmed": len(confirmed),
                     "dormant": len(dormant),
@@ -206,11 +210,75 @@ def _terminate_live_handles(team: BaseTeam, handles: Mapping[str, Any], *, write
                     pass
 
 
+def _split_amplifier_hold_findings(findings: Sequence[Mapping[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    amplifier: list[dict[str, Any]] = []
+    reviewable: list[dict[str, Any]] = []
+    for finding in findings:
+        record = dict(finding)
+        role = str(record.get("finding_role") or "").strip().lower()
+        entry_status = str(record.get("entry_status") or "").strip().lower()
+        reportability = str(record.get("reportability") or "").strip().lower()
+        if role in {"amplifier", "chain"} and (
+            entry_status in {"", "missing", "plausible"} or reportability == "hold_for_chain"
+        ):
+            record["reportability"] = reportability or "hold_for_chain"
+            record["entry_status"] = entry_status or "missing"
+            record["finding_role"] = role
+            amplifier.append(record)
+            continue
+        reviewable.append(record)
+    return amplifier, reviewable
+
+
+def _append_run_amplifier_findings(reports_root: Path, findings: Sequence[Mapping[str, Any]]) -> Path:
+    path = reports_root / "findings" / "amplifier.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = path.read_text(encoding="utf-8") if path.exists() else "# Amplifier Findings\n\n"
+    blocks = []
+    for finding in findings:
+        title = str(finding.get("description") or finding.get("type") or finding.get("class_name") or "Untitled amplifier").strip()
+        blocks.extend(
+            [
+                f"## {_markdown_text(title)}",
+                "",
+                f"- Role: `{_markdown_inline(finding.get('finding_role'))}`",
+                f"- Entry status: `{_markdown_inline(finding.get('entry_status'))}`",
+                f"- Reportability: `{_markdown_inline(finding.get('reportability'))}`",
+                f"- File: `{_markdown_inline(finding.get('file'))}`",
+                f"- Required entry primitives: {_markdown_list(finding.get('required_entry_primitives'))}",
+                f"- Chain handles: {_markdown_list(finding.get('chain_handles'))}",
+                f"- Unlocked amplifiers: {_markdown_list(finding.get('unlocked_amplifiers'))}",
+                "",
+            ]
+        )
+    path.write_text(existing.rstrip() + "\n\n" + "\n".join(blocks).rstrip() + "\n", encoding="utf-8")
+    return path
+
+
+def _markdown_list(value: Any) -> str:
+    if isinstance(value, str):
+        return f"`{_markdown_inline(value)}`" if value.strip() else "none"
+    if not isinstance(value, Sequence):
+        return "none"
+    rendered = [f"`{_markdown_inline(item)}`" for item in value if str(item or "").strip()]
+    return ", ".join(rendered) if rendered else "none"
+
+
+def _markdown_inline(value: Any) -> str:
+    return str(value or "").replace("`", "'").strip()
+
+
+def _markdown_text(value: Any) -> str:
+    return str(value or "").replace("\r", " ").replace("\n", " ").strip()
+
+
 def execute_next_wave(
     plan_path: str | Path,
     *,
     max_agents: int | None = None,
     concurrent_agents: int | None = None,
+    skip_chain: bool = False,
+    trigger_entry_ids: Sequence[str] = (),
     execute_live: bool = False,
     live_testing_enabled: bool | None = None,
     no_ledger: bool | None = None,
@@ -235,9 +303,22 @@ def execute_next_wave(
             state,
             live_testing_enabled=live_testing_enabled,
             no_ledger=no_ledger,
+            skip_chain=skip_chain,
         )
         save_run_state(state, run_state_path_for_plan(resolved_plan_path))
-        wave = next_wave_records(plan, state, max_agents=max_agents, concurrent_agents=concurrent_agents)
+        triggered_hypothesis_ids = _triggered_hypothesis_ids(
+            plan,
+            resolved_plan_path,
+            trigger_entry_ids=trigger_entry_ids,
+        )
+        wave = next_wave_records(
+            plan,
+            state,
+            max_agents=max_agents,
+            concurrent_agents=concurrent_agents,
+            skip_chain=False if trigger_entry_ids else bool(state["run_config"].get("skip_chain", False)),
+            only_hypothesis_ids=triggered_hypothesis_ids if trigger_entry_ids else None,
+        )
         if not wave:
             save_run_state(state, run_state_path_for_plan(resolved_plan_path))
             return {
@@ -246,7 +327,15 @@ def execute_next_wave(
                 "agent_keys": [],
                 "execution_mode": execution_mode,
                 "runtime_promotion_decision": promotion_decision,
-                "summary": summarize_run(resolved_plan_path, max_agents=max_agents, concurrent_agents=concurrent_agents),
+                "skip_chain": bool(state["run_config"].get("skip_chain", False)),
+                "trigger_entry_ids": list(trigger_entry_ids),
+                "triggered_hypothesis_ids": sorted(triggered_hypothesis_ids),
+                "summary": summarize_run(
+                    resolved_plan_path,
+                    max_agents=max_agents,
+                    concurrent_agents=concurrent_agents,
+                    skip_chain=bool(state["run_config"].get("skip_chain", False)),
+                ),
             }
 
         state = update_agent_statuses(state, wave, status="running")
@@ -301,7 +390,15 @@ def execute_next_wave(
                 "agent_keys": [record["agent_key"] for record in wave],
                 "execution_mode": execution_mode,
                 "runtime_promotion_decision": promotion_decision,
-                "summary": summarize_run(resolved_plan_path, max_agents=max_agents, concurrent_agents=concurrent_agents),
+                "skip_chain": bool(state["run_config"].get("skip_chain", False)),
+                "trigger_entry_ids": list(trigger_entry_ids),
+                "triggered_hypothesis_ids": sorted(triggered_hypothesis_ids),
+                "summary": summarize_run(
+                    resolved_plan_path,
+                    max_agents=max_agents,
+                    concurrent_agents=concurrent_agents,
+                    skip_chain=bool(state["run_config"].get("skip_chain", False)),
+                ),
             }
 
         record_statuses = _record_statuses_from_grouped_specs(wave, specs, result)
@@ -341,6 +438,9 @@ def execute_next_wave(
             "live_execution": bool(execute_live and live_testing_requested),
             "live_testing_enabled": bool(state["run_config"].get("live_testing_enabled", False)),
             "no_ledger": bool(state["run_config"].get("no_ledger", False)),
+            "skip_chain": bool(state["run_config"].get("skip_chain", False)),
+            "trigger_entry_ids": list(trigger_entry_ids),
+            "triggered_hypothesis_ids": sorted(triggered_hypothesis_ids),
             "execution_mode": execution_mode,
             "spec_metrics": spec_metrics,
             "selected_wave": _selected_wave_number(state),
@@ -354,7 +454,15 @@ def execute_next_wave(
             "specs_path": str(specs_path),
             "execution_mode": execution_mode,
             "runtime_promotion_decision": promotion_decision,
-            "summary": summarize_run(resolved_plan_path, max_agents=max_agents, concurrent_agents=concurrent_agents),
+            "skip_chain": bool(state["run_config"].get("skip_chain", False)),
+            "trigger_entry_ids": list(trigger_entry_ids),
+            "triggered_hypothesis_ids": sorted(triggered_hypothesis_ids),
+            "summary": summarize_run(
+                resolved_plan_path,
+                max_agents=max_agents,
+                concurrent_agents=concurrent_agents,
+                skip_chain=bool(state["run_config"].get("skip_chain", False)),
+            ),
             "efficiency_dir": str(efficiency_dir),
         }
 
@@ -407,6 +515,46 @@ def _default_adapter(
         target_kind=str(plan.get("target_kind") or "").strip() or None,
         no_ledger=no_ledger,
     )
+
+
+def _triggered_hypothesis_ids(
+    plan: Mapping[str, Any],
+    plan_path: Path,
+    *,
+    trigger_entry_ids: Sequence[str],
+) -> frozenset[str]:
+    requested = {str(item).strip() for item in trigger_entry_ids if str(item).strip()}
+    if not requested:
+        return frozenset()
+    activation_index = _load_chain_activation_index(plan, plan_path)
+    matched: set[str] = set()
+    for activation in activation_index.get("activations") or ():
+        if not isinstance(activation, Mapping):
+            continue
+        activation_keys = {
+            str(activation.get("id") or "").strip(),
+            str(activation.get("key") or "").strip(),
+        }
+        if not requested.intersection(activation_keys):
+            continue
+        for amplifier in activation.get("unlocked_amplifiers") or ():
+            if not isinstance(amplifier, Mapping):
+                continue
+            hypothesis_id = str(amplifier.get("id") or "").strip()
+            if hypothesis_id:
+                matched.add(hypothesis_id)
+    return frozenset(matched)
+
+
+def _load_chain_activation_index(plan: Mapping[str, Any], plan_path: Path) -> dict[str, Any]:
+    metadata = plan.get("artifact_metadata") if isinstance(plan.get("artifact_metadata"), Mapping) else {}
+    artifact = metadata.get("chain_activation_index") if isinstance(metadata.get("chain_activation_index"), Mapping) else {}
+    path = Path(str(artifact.get("path") or plan_path.parent / "chain_activation_index.json")).expanduser().resolve(strict=False)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _safe_name(value: str) -> str:
@@ -514,6 +662,7 @@ def _resolved_run_config(
     *,
     live_testing_enabled: bool | None,
     no_ledger: bool | None,
+    skip_chain: bool | None,
 ) -> dict[str, Any]:
     current = state.get("run_config") if isinstance(state.get("run_config"), Mapping) else {}
     return {
@@ -526,5 +675,10 @@ def _resolved_run_config(
             bool(no_ledger)
             if no_ledger is not None
             else bool(current.get("no_ledger", False))
+        ),
+        "skip_chain": (
+            bool(skip_chain)
+            if skip_chain is not None
+            else bool(current.get("skip_chain", False))
         ),
     }

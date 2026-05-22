@@ -128,6 +128,29 @@ def test_packet_to_base_team_agent_spec_maps_fields() -> None:
     assert spec.metadata["hypothesis_id"] == "HP-123"
     assert spec.metadata["runtime_handoff"]["spawn_enabled"] is False
     assert spec.metadata["runtime_handoff"]["ledger_writes_enabled"] is False
+    assert spec.metadata["entry_status"] == "unknown"
+
+
+def test_packet_from_dict_accepts_phased_testing_fields() -> None:
+    packet = _packet(
+        entry_status="plausible",
+        attacker_influence_score=0.8,
+        context_privilege_score=0.7,
+        incremental_impact_score=0.6,
+        entry_reportability_score=0.9,
+        chain_unlock_score=0.5,
+        ingestion_path="file import",
+        required_entry_primitives=("malicious_file_import",),
+        context_tags=("desktop_chrome_v2",),
+        unlocked_amplifiers=("HostRpc.DownloadService",),
+        reportability="validate_entry",
+    )
+    spec = packet_to_base_team_agent_spec(packet, program="demo", snapshot_id="snapshot-1")
+
+    assert spec.metadata["entry_status"] == "plausible"
+    assert spec.metadata["ingestion_path"] == "file import"
+    assert spec.metadata["required_entry_primitives"] == ["malicious_file_import"]
+    assert spec.metadata["unlocked_amplifiers"] == ["HostRpc.DownloadService"]
 
 
 def test_packet_trace_metadata_is_preserved_by_value() -> None:
@@ -604,6 +627,9 @@ def test_grouped_decisions_surface_category_pack_plan_in_metadata_and_prompt(tmp
 
     assert "Category-pack planning:" in rendered
     assert "Per-hypothesis verdict values:" in rendered
+    assert "Required phased-testing output fields" in rendered
+    assert "chain_handles" in rendered
+    assert "reportability: submit|validate_entry|hold_for_chain|notes_only" in rendered
     assert "Bounded context: use listed source files/routes/sinks/entry paths first" in rendered
     assert "Specialist request schema: request_type, parent_pack_id, reason" in rendered
     assert "bridge-only or dangerous-method evidence is amplifier-only and non-reportable" in rendered

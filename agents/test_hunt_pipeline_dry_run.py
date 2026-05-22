@@ -312,3 +312,144 @@ def test_write_hypotheses_option_writes_jsonl_artifact_metadata(tmp_path: Path) 
     assert metadata["count"] == len(payload["hypotheses"]) == len(rows) == 2
     assert [row["id"] for row in rows] == [item["id"] for item in payload["hypotheses"]]
     assert metadata["sha256"]
+
+
+def test_dry_run_writes_amplifier_hypotheses_index(tmp_path: Path) -> None:
+    appmap = tmp_path / "appmap" / "run-1"
+    appmap.mkdir(parents=True)
+    (appmap / "manifest.json").write_text('{"run_id":"run-1"}\n', encoding="utf-8")
+    (appmap / "target_profile.json").write_text('{"program":"demo","target_kind":"electron"}\n', encoding="utf-8")
+    _write_jsonl(
+        appmap / "surfaces.jsonl",
+        [
+            {"id": "S0001", "kind": "ipc", "file": "src/main.js"},
+            {"id": "S0002", "kind": "rendering", "file": "src/view.js"},
+        ],
+    )
+
+    _, plan_path = build_dry_run_plan(
+        program="demo",
+        target_path=tmp_path / "target",
+        target_kind="auto",
+        ruleset_id="auto",
+        appmap_run=appmap,
+        output_dir=tmp_path / "out",
+    )
+    payload = load_plan(plan_path)
+    metadata = payload["artifact_metadata"]["amplifier_hypotheses"]
+    rows = _read_jsonl(Path(metadata["path"]))
+
+    assert Path(metadata["path"]).name == "amplifier_hypotheses.jsonl"
+    assert metadata["count"] == len(rows) == 1
+    assert rows[0]["role"] == "amplifier"
+    assert rows[0]["reportability"] == "hold_for_chain"
+    assert rows[0]["entry_status"] == "missing"
+    assert rows[0]["surface_family"] == "ipc-bridge"
+
+
+def test_dry_run_writes_amplifier_markdown_report(tmp_path: Path) -> None:
+    appmap = tmp_path / "appmap" / "run-1"
+    appmap.mkdir(parents=True)
+    (appmap / "manifest.json").write_text('{"run_id":"run-1"}\n', encoding="utf-8")
+    (appmap / "target_profile.json").write_text('{"program":"demo","target_kind":"electron"}\n', encoding="utf-8")
+    _write_jsonl(
+        appmap / "surfaces.jsonl",
+        [
+            {"id": "S0001", "kind": "ipc", "file": "src/main.js"},
+            {"id": "S0002", "kind": "rendering", "file": "src/view.js"},
+        ],
+    )
+
+    _, plan_path = build_dry_run_plan(
+        program="demo",
+        target_path=tmp_path / "target",
+        target_kind="auto",
+        ruleset_id="auto",
+        appmap_run=appmap,
+        output_dir=tmp_path / "out",
+        run_id="demo-amplifier-report",
+    )
+    payload = load_plan(plan_path)
+    metadata = payload["artifact_metadata"]["amplifier_report"]
+    report_path = Path(metadata["path"])
+    text = report_path.read_text(encoding="utf-8")
+
+    assert report_path.name == "amplifier.md"
+    assert report_path.parent == plan_path.parent / "reports" / "findings"
+    assert metadata["count"] == 1
+    assert "# Amplifier Hypotheses" in text
+    assert "Program: `demo`" in text
+    assert "Run ID: `demo-amplifier-report`" in text
+    assert "Reportability: `hold_for_chain`" in text
+    assert "Entry status: `missing`" in text
+
+
+def test_dry_run_writes_chain_activation_index(tmp_path: Path) -> None:
+    appmap = tmp_path / "appmap" / "run-1"
+    appmap.mkdir(parents=True)
+    (appmap / "manifest.json").write_text('{"run_id":"run-1"}\n', encoding="utf-8")
+    (appmap / "target_profile.json").write_text('{"program":"demo","target_kind":"electron"}\n', encoding="utf-8")
+    _write_jsonl(
+        appmap / "surfaces.jsonl",
+        [
+            {"id": "S0001", "kind": "rendering", "file": "src/shared.js"},
+            {"id": "S0002", "kind": "ipc", "file": "src/shared.js"},
+        ],
+    )
+
+    _, plan_path = build_dry_run_plan(
+        program="demo",
+        target_path=tmp_path / "target",
+        target_kind="auto",
+        ruleset_id="auto",
+        appmap_run=appmap,
+        output_dir=tmp_path / "out",
+    )
+    payload = load_plan(plan_path)
+    metadata = payload["artifact_metadata"]["chain_activation_index"]
+    index_path = Path(metadata["path"])
+    activation_index = json.loads(index_path.read_text(encoding="utf-8"))
+
+    assert index_path.name == "chain_activation_index.json"
+    assert activation_index["activation_model"] == "entry_to_matching_amplifiers"
+    assert activation_index["entry_count"] == 1
+    assert activation_index["amplifier_count"] == 1
+    assert activation_index["matched_entry_count"] == 1
+    assert activation_index["matched_amplifier_count"] == 1
+    assert activation_index["activations"][0]["surface_family"] == "rendering-content-parser"
+    assert activation_index["activations"][0]["unlocked_amplifiers"][0]["surface_family"] == "ipc-bridge"
+    assert activation_index["activations"][0]["unlocked_amplifiers"][0]["match_reasons"] == [
+        "shared_focus_file:src/shared.js",
+        "entry_unlocks_family:ipc-bridge",
+    ]
+
+
+def test_chain_activation_index_matches_entry_unlocked_amplifier_family_across_files(tmp_path: Path) -> None:
+    appmap = tmp_path / "appmap" / "run-1"
+    appmap.mkdir(parents=True)
+    (appmap / "manifest.json").write_text('{"run_id":"run-1"}\n', encoding="utf-8")
+    (appmap / "target_profile.json").write_text('{"program":"demo","target_kind":"electron"}\n', encoding="utf-8")
+    _write_jsonl(
+        appmap / "surfaces.jsonl",
+        [
+            {"id": "S0001", "kind": "rendering", "file": "src/renderer.js"},
+            {"id": "S0002", "kind": "ipc", "file": "src/main.js"},
+        ],
+    )
+
+    _, plan_path = build_dry_run_plan(
+        program="demo",
+        target_path=tmp_path / "target",
+        target_kind="auto",
+        ruleset_id="auto",
+        appmap_run=appmap,
+        output_dir=tmp_path / "out",
+    )
+    payload = load_plan(plan_path)
+    metadata = payload["artifact_metadata"]["chain_activation_index"]
+    activation_index = json.loads(Path(metadata["path"]).read_text(encoding="utf-8"))
+
+    assert activation_index["matched_entry_count"] == 1
+    unlocked = activation_index["activations"][0]["unlocked_amplifiers"][0]
+    assert unlocked["surface_family"] == "ipc-bridge"
+    assert unlocked["match_reasons"] == ["entry_unlocks_family:ipc-bridge"]

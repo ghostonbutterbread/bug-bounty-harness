@@ -34,7 +34,7 @@ from agents.hunt_pipeline.run_state import (
     save_run_state,
     summarize_run,
 )
-from agents.hunt_pipeline.runtime import execute_next_wave
+from agents.hunt_pipeline.runtime import _split_amplifier_hold_findings, execute_next_wave
 from agents.hunt_pipeline.runtime_contract import (
     build_runtime_handoff_contract,
     build_runtime_promotion_protocol,
@@ -76,12 +76,12 @@ def _decision(index: int, status: str = "selected") -> dict:
     }
 
 
-def _packet(index: int) -> dict:
+def _packet(index: int, *, role: str = "entry") -> dict:
     return {
         "id": f"HP-{index}",
         "key": f"agent-{index}",
         "title": f"hypothesis {index}",
-        "role": "entry",
+        "role": role,
         "surface_family": "ipc-bridge",
         "priority": "high",
         "target_kind": "electron",
@@ -463,6 +463,167 @@ def test_resume_executes_next_deferred_wave_without_remapping(tmp_path: Path) ->
     specs = [json.loads(line) for line in Path(result["specs_path"]).read_text(encoding="utf-8").splitlines()]
     assert [item["key"] for item in specs] == ["agent-3", "agent-4"]
     assert specs[0]["metadata"]["scheduler_decision"]["reason"] == "max agents cap reached"
+
+
+def test_skip_chain_omits_pure_amplifier_wave_without_marking_terminal(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=3, deferred_count=0, concurrent_agents=3)
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload["hypotheses"][0] = _packet(1, role="amplifier")
+    payload["hypotheses"][1] = _packet(2, role="chain")
+    payload["hypotheses"][2] = _packet(3, role="entry")
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = execute_next_wave(plan_path, max_agents=3, concurrent_agents=3, skip_chain=True)
+
+    assert result["ok"] is True
+    assert result["skip_chain"] is True
+    assert result["agent_keys"] == ["agent-3"]
+    state = json.loads(run_state_path_for_plan(plan_path).read_text(encoding="utf-8"))
+    assert state["run_config"]["skip_chain"] is True
+    assert state["agents"]["agent-1"]["status"] == "selected"
+    assert state["agents"]["agent-2"]["status"] == "selected"
+    assert state["agents"]["agent-3"]["status"] == "completed"
+
+
+def test_skip_chain_falls_through_to_deferred_entry_when_selected_are_chain_only(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=2, deferred_count=1, concurrent_agents=3)
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload["hypotheses"][0] = _packet(1, role="amplifier")
+    payload["hypotheses"][1] = _packet(2, role="chain")
+    payload["hypotheses"][2] = _packet(3, role="entry")
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = execute_next_wave(plan_path, max_agents=3, concurrent_agents=3, skip_chain=True)
+
+    assert result["ok"] is True
+    assert result["agent_keys"] == ["agent-3"]
+    state = json.loads(run_state_path_for_plan(plan_path).read_text(encoding="utf-8"))
+    assert state["agents"]["agent-1"]["status"] == "selected"
+    assert state["agents"]["agent-2"]["status"] == "selected"
+    assert state["agents"]["agent-3"]["status"] == "completed"
+
+
+def test_skip_chain_keeps_mixed_entry_amplifier_group_runnable(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=2, deferred_count=0, concurrent_agents=2)
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload["hypotheses"][0] = _packet(1, role="entry")
+    payload["hypotheses"][1] = _packet(2, role="amplifier")
+    payload["scheduler_plan"]["selected"][0]["member_hypothesis_ids"] = ["HP-1", "HP-2"]
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = execute_next_wave(plan_path, max_agents=1, concurrent_agents=1, skip_chain=True)
+
+    assert result["ok"] is True
+    assert result["agent_keys"] == ["agent-1"]
+
+
+def test_trigger_entry_id_runs_matching_amplifier_from_activation_index(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=1, concurrent_agents=2)
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload["hypotheses"][0] = _packet(1, role="entry")
+    payload["hypotheses"][1] = _packet(2, role="amplifier")
+    activation_path = plan_path.parent / "chain_activation_index.json"
+    activation_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "activations": [
+                    {
+                        "id": "HP-1",
+                        "key": "agent-1",
+                        "unlocked_amplifiers": [{"id": "HP-2", "key": "agent-2"}],
+                    }
+                ],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    payload["artifact_metadata"] = {
+        "run": {"run_id": "trigger-test"},
+        "chain_activation_index": {"path": str(activation_path)},
+    }
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = execute_next_wave(plan_path, max_agents=2, concurrent_agents=2, trigger_entry_ids=("HP-1",))
+
+    assert result["ok"] is True
+    assert result["agent_keys"] == ["agent-2"]
+    assert result["trigger_entry_ids"] == ["HP-1"]
+    assert result["triggered_hypothesis_ids"] == ["HP-2"]
+
+
+def test_trigger_entry_id_overrides_skip_chain_for_focused_chain_runs(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path, selected_count=1, deferred_count=1, concurrent_agents=2)
+    payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    payload["hypotheses"][0] = _packet(1, role="entry")
+    payload["hypotheses"][1] = _packet(2, role="amplifier")
+    activation_path = plan_path.parent / "chain_activation_index.json"
+    activation_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "activations": [{"id": "HP-1", "unlocked_amplifiers": [{"id": "HP-2"}]}],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    payload["artifact_metadata"] = {
+        "run": {"run_id": "trigger-skip-chain-test"},
+        "chain_activation_index": {"path": str(activation_path)},
+    }
+    plan_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = execute_next_wave(
+        plan_path,
+        max_agents=2,
+        concurrent_agents=2,
+        skip_chain=True,
+        trigger_entry_ids=("HP-1",),
+    )
+
+    assert result["ok"] is True
+    assert result["agent_keys"] == ["agent-2"]
+    assert result["skip_chain"] is True
+
+
+def test_runtime_parser_accepts_skip_chain_for_light_runs() -> None:
+    args = build_parser().parse_args(["resume", "--output-dir", "/tmp/demo-run", "--skip-chain"])
+
+    assert args.skip_chain is True
+
+
+def test_runtime_parser_accepts_trigger_entry_ids_for_chain_runs() -> None:
+    args = build_parser().parse_args(
+        ["resume", "--output-dir", "/tmp/demo-run", "--trigger-entry-id", "HP-1", "--trigger-entry-id", "HP-2"]
+    )
+
+    assert args.trigger_entry_id == ["HP-1", "HP-2"]
+
+
+def test_amplifier_hold_findings_are_split_from_reviewable_findings() -> None:
+    amplifier, reviewable = _split_amplifier_hold_findings(
+        [
+            {
+                "type": "hostrpc branch",
+                "finding_role": "amplifier",
+                "entry_status": "missing",
+                "reportability": "hold_for_chain",
+            },
+            {
+                "type": "import xss",
+                "finding_role": "entry",
+                "entry_status": "proven",
+                "reportability": "submit",
+            },
+        ]
+    )
+
+    assert [item["type"] for item in amplifier] == ["hostrpc branch"]
+    assert [item["type"] for item in reviewable] == ["import xss"]
 
 
 def test_execute_next_wave_writes_efficiency_artifacts(tmp_path: Path) -> None:

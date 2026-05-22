@@ -261,7 +261,13 @@ def clear_pause(plan_path: str | Path) -> dict[str, Any]:
         return state
 
 
-def summarize_run(plan_path: str | Path, *, max_agents: int | None = None, concurrent_agents: int | None = None) -> dict[str, Any]:
+def summarize_run(
+    plan_path: str | Path,
+    *,
+    max_agents: int | None = None,
+    concurrent_agents: int | None = None,
+    skip_chain: bool = False,
+) -> dict[str, Any]:
     plan = load_pipeline_plan(plan_path)
     state = initialize_run_state(plan_path, plan)
     run_config = _normalized_run_config(state.get("run_config"))
@@ -278,7 +284,13 @@ def summarize_run(plan_path: str | Path, *, max_agents: int | None = None, concu
         "skipped": _count_status(agents, "skipped"),
     }
     counts["unrun"] = sum(1 for item in agents if item.get("status") in RUNNABLE_STATUSES)
-    next_wave = next_wave_records(plan, state, max_agents=max_agents, concurrent_agents=concurrent_agents)
+    next_wave = next_wave_records(
+        plan,
+        state,
+        max_agents=max_agents,
+        concurrent_agents=concurrent_agents,
+        skip_chain=skip_chain,
+    )
     status_snapshot = {
         **counts,
         "pause_requested": bool(state.get("pause_requested", False)),
@@ -295,6 +307,7 @@ def summarize_run(plan_path: str | Path, *, max_agents: int | None = None, concu
         "stopped_requested": bool(state.get("stopped", False)),
         "run_config": run_config,
         "live_testing_enabled": bool(run_config.get("live_testing_enabled", False)),
+        "skip_chain": bool(skip_chain),
         "next_wave_count": len(next_wave),
         "next_wave_agent_keys": [item["agent_key"] for item in next_wave],
         "runtime_handoff_contract": evaluate_runtime_handoff_contract(plan),
@@ -331,6 +344,8 @@ def next_wave_records(
     *,
     max_agents: int | None = None,
     concurrent_agents: int | None = None,
+    skip_chain: bool = False,
+    only_hypothesis_ids: set[str] | frozenset[str] | None = None,
 ) -> list[dict[str, Any]]:
     if state.get("pause_requested") or state.get("stopped"):
         return []
@@ -340,15 +355,61 @@ def next_wave_records(
         for record in _ordered_selected_records(plan)
         if _state_status(agents_by_key, record["agent_key"]) == "selected"
     ]
-    candidates = selected_pending or [
+    deferred_pending = [
         record
         for record in _ordered_unrun_records(plan)
         if _state_status(agents_by_key, record["agent_key"]) == "deferred"
     ]
+    if skip_chain:
+        selected_pending = _filter_chain_records(plan, selected_pending)
+        deferred_pending = _filter_chain_records(plan, deferred_pending)
+    if only_hypothesis_ids is not None:
+        selected_pending = _filter_hypothesis_records(selected_pending, only_hypothesis_ids)
+        deferred_pending = _filter_hypothesis_records(deferred_pending, only_hypothesis_ids)
+    candidates = selected_pending or deferred_pending
     if not candidates:
         return []
     limit = _wave_limit(plan, max_agents=max_agents, concurrent_agents=concurrent_agents)
     return candidates[:limit]
+
+
+def _filter_hypothesis_records(
+    records: Sequence[Mapping[str, Any]],
+    hypothesis_ids: set[str] | frozenset[str],
+) -> list[dict[str, Any]]:
+    wanted = {str(item).strip() for item in hypothesis_ids if str(item).strip()}
+    if not wanted:
+        return []
+    return [dict(record) for record in records if wanted.intersection(_hypothesis_ids(record))]
+
+
+def _filter_chain_records(plan: Mapping[str, Any], records: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    roles_by_id = _hypothesis_roles_by_id(plan)
+    filtered: list[dict[str, Any]] = []
+    for record in records:
+        roles = {
+            roles_by_id.get(hypothesis_id, "")
+            for hypothesis_id in _hypothesis_ids(record)
+            if hypothesis_id
+        }
+        # Keep mixed entry+amplifier groups runnable. They are entry validation
+        # waves with chain context, not pure second-wave chain expansion.
+        if roles and roles.issubset({"amplifier", "chain"}):
+            continue
+        filtered.append(dict(record))
+    return filtered
+
+
+def _hypothesis_roles_by_id(plan: Mapping[str, Any]) -> dict[str, str]:
+    roles: dict[str, str] = {}
+    for item in plan.get("hypotheses") or ():
+        if not isinstance(item, Mapping):
+            continue
+        hypothesis_id = str(item.get("id") or item.get("hypothesis_id") or "").strip()
+        role = str(item.get("role") or "").strip().lower()
+        if hypothesis_id and role:
+            roles[hypothesis_id] = role
+    return roles
 
 
 
@@ -574,6 +635,7 @@ def _normalized_run_config(config: Any) -> dict[str, Any]:
     return {
         "live_testing_enabled": bool(payload.get("live_testing_enabled", False)),
         "no_ledger": bool(payload.get("no_ledger", False)),
+        "skip_chain": bool(payload.get("skip_chain", False)),
     }
 
 

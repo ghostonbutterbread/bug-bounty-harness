@@ -87,6 +87,17 @@ class HypothesisAgentPacket:
     tags: tuple[str, ...] = ()
     reasons: tuple[str, ...] = ()
     scheduler_metadata: dict[str, Any] = field(default_factory=dict)
+    entry_status: str = "unknown"
+    attacker_influence_score: float = 0.0
+    context_privilege_score: float = 0.0
+    incremental_impact_score: float = 0.0
+    entry_reportability_score: float = 0.0
+    chain_unlock_score: float = 0.0
+    ingestion_path: str = "unknown"
+    required_entry_primitives: tuple[str, ...] = ()
+    context_tags: tuple[str, ...] = ()
+    unlocked_amplifiers: tuple[str, ...] = ()
+    reportability: str = "unknown"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

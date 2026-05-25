@@ -92,6 +92,9 @@ def build_runtime_action_policy(
                     "authenticated_session_use",
                     "caido_session_header_use",
                     "current_session_update",
+                    "bounded_race_test",
+                    "owned_account_message",
+                    "owned_account_invite",
                     "private_draft",
                     "self_settings_change",
                     "evidence_capture",
@@ -102,6 +105,8 @@ def build_runtime_action_policy(
                     "Inspect code, flows, and debugger state without changing shared state.",
                     "Use approved owned/test accounts to browse, replay requests, compare behavior, and validate vulnerabilities inside scope.",
                     "Use explicitly approved Caido-held Authorization/Cookie values in memory to update the current scoped browser session, such as mySession, without printing or storing the raw values.",
+                    "Race test owned resources with a total burst budget of 35 requests or less for one hypothesis.",
+                    "Send invites or messages only between validated owned test accounts or clearly owned private workspaces/resources.",
                     "Use private drafts or self-only settings that can be reverted.",
                     "Stop at the final confirmation step of risky flows without submitting them.",
                 ],
@@ -139,8 +144,9 @@ def build_runtime_action_policy(
         notes=(
             "Core posture: scoped testing is allowed; damaging behavior is explicit.",
             "Unknown or uncertain live actions must downgrade to approval_required.",
-            "Public, payment, messaging, invite, posting, and vendor/customer-visible state changes are never allowed_private by default.",
+            "Public, payment, vendor/customer-visible, or non-owned messaging/invite state changes are never allowed_private by default.",
             "Using Caido-held Authorization/Cookie values to update the current scoped browser session is allowed only when explicitly instructed and must not disclose, log, persist, or reuse the raw values outside that run.",
+            "Race testing is allowed only for owned accounts/resources and only up to 35 total requests per hypothesis unless explicitly approved otherwise.",
         ),
     )
 

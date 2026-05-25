@@ -19,7 +19,7 @@ Phase 20 has three guardrails that must work together:
 2. **VM Guard / environment approval** — controls where agents may connect.
 3. **Private-by-default action policy** — controls what agents may do after connecting.
 
-Environment approval alone is not enough. An agent inside an approved VM could still perform harmful or unwanted actions in a real app, such as posting publicly, inviting users, sending messages, or submitting payment. Action policy catches that class of risk.
+Environment approval alone is not enough. An agent inside an approved VM could still perform harmful or unwanted actions in a real app, including posting publicly, inviting users, sending messages, sending friend requests, or submitting payment. Action policy catches that class of risk.
 
 Action policy alone is not enough either. Agents also need a network/process boundary so they do not wander into unrelated machines, local network assets, metadata services, or unmanaged external hosts.
 
@@ -105,13 +105,15 @@ If an action cannot be performed privately or in a sandbox/test mode, the agent 
 
 ### Allowed by default
 
-Allowed actions are private, reversible, local, or read-only. Examples:
+Allowed actions are private, reversible, local, or read-only. The list below is
+non-exhaustive; agents may use equivalent low-impact variants that stay inside
+the same boundaries:
 
 - static analysis
 - debugger inspection
 - read-only UI flow mapping
 - local/VM-only target interaction
-- using explicitly approved authenticated context already present in a local proxy/profile to update the current test browser session, such as applying Caido-held `Authorization` and/or `Cookie` values to `mySession` without exposing the raw values
+- using explicitly approved authenticated context already present in a local proxy/profile to update the current test browser session, including applying Caido-held `Authorization` and/or `Cookie` values to `mySession` without exposing the raw values
 - authenticated browser/API testing with approved owned/test account sessions
 - one-request replay or browser state setup using approved local session
   headers, provided the raw values remain in memory only
@@ -121,7 +123,11 @@ Allowed actions are private, reversible, local, or read-only. Examples:
   owned private workspaces/resources
 - sharing resources only when the resource, sender, recipients, and workspace
   are all validated as owned/approved for the test
-- minimal LFI/path traversal proof such as `/etc/hosts`, `/etc/passwd`, safe
+- checkout, discount-code, gift-card, or payment-card validation using approved
+  shared test instruments from `~/Shared/cards.txt` when that file exists, keeping raw values out of
+  prompts/logs/reports/chat and choosing the lowest-price viable path unless
+  instructed otherwise
+- minimal LFI/path traversal proof including `/etc/hosts`, `/etc/passwd`, safe
   Windows equivalents, or synthetic canaries
 - minimal SSRF proof using owned callback infrastructure, one safe canary
   endpoint, or one targeted non-sensitive internal request when needed to prove
@@ -136,8 +142,8 @@ Allowed actions are private, reversible, local, or read-only. Examples:
 
 These actions may be valid vulnerability tests, but they require explicit approval for the exact action, target, account, and environment:
 
-- payments, purchases, subscriptions, refunds, credits, coupons, gift cards, or checkout submission
-- public posts, publishing, comments, reactions, follows, ratings, reviews, or social actions
+- payments, purchases, subscriptions, refunds, credits, coupons, gift cards, or checkout submission outside approved shared test instruments or above the lowest-price viable path
+- public posts, publishing, comments, reactions, follows, friend requests, ratings, reviews, or social actions
 - guild/community/workspace/server/channel creation when visible to others
 - invites, DMs, emails, notifications, SMS, webhooks, shares, or messages to non-owned users/systems
 - account creation beyond approved test accounts
@@ -156,7 +162,7 @@ Ryushe explicitly approves the exact action, target, account, and environment:
 - destructive changes
 - spam-like behavior
 - irreversible financial/account state changes
-- credential harvesting or exfiltration. This does not block using user-approved local session material in memory, such as Caido-held `Authorization` or `Cookie` headers, solely to authenticate the current scoped test browser/session. It does block printing, copying, logging, persisting, reusing outside the scoped run, or sending those raw values anywhere else.
+- credential harvesting or exfiltration. This does not block using user-approved local session material in memory, including Caido-held `Authorization` or `Cookie` headers, solely to authenticate the current scoped test browser/session. It does block printing, copying, logging, persisting, reusing outside the scoped run, or sending those raw values anywhere else.
 - lateral movement outside the VM/test environment
 - internal network scanning or cloud metadata credential access through SSRF
 - persistence, malware-like behavior, or privilege escalation outside the target test scope
@@ -174,11 +180,11 @@ For Caido-backed browser work, `--caido-profile auto` means:
 - inspect the active Caido profile/request context for usable request auth headers, normally `Authorization` and/or `Cookie`
 - apply those values directly to the current scoped browser/session update mechanism, including `mySession` when that is the active bridge
 - keep the values in memory only
-- record only non-secret metadata, such as which header names were used and that `mySession` was updated
+- record only non-secret metadata, including which header names were used and that `mySession` was updated
 
 Agents must not treat Caido history as a password source, dump tokens into prompts/logs/findings/chat, store raw auth headers as evidence, or reuse the session material outside the approved program/task/account scope.
 
-## Example decisions
+## Decision Patterns
 
 ### Payment vulnerability hypothesis
 
@@ -210,7 +216,7 @@ Approval required:
 - creating public guilds/servers/channels
 - sending invites/messages/notifications
 - sharing resources with non-owned users or unclear workspaces
-- posting publicly
+- posting publicly, commenting publicly, spamming public posts/comments, or sending friend requests outside owned-account tests
 - interacting with real users or shared communities
 
 ### Desktop app with CDP and Ghidra MCP
@@ -244,4 +250,4 @@ The pipeline should record the policy decision in evidence/session metadata so f
 
 ## Iteration note
 
-This policy should evolve as we discover new app classes and risky action categories. Add examples here instead of burying them in chat logs.
+This policy should evolve as we discover new app classes and risky action categories. Capture reusable behavior patterns here instead of burying them in chat logs.

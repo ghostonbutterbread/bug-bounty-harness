@@ -20,7 +20,7 @@ Use when a task needs a fresh Chromium/Chrome instance with remote debugging ena
 1. Read program scope/rules and the interpreted rate limit before live interaction.
 2. Read `$HARNESS_ROOT/prompts/chromium-test-playbook.md`.
 3. Check existing program context under `$HARNESS_SHARED_BASE/{program}/`.
-4. Resolve the browser/account profile through Caido MCP first. If Caido is offline or no profile tool is exposed, fall back only when the task can still be done safely.
+4. Resolve the browser/account profile through Caido MCP first. With `--caido-profile auto`, ask Caido for the current profile's authentication/session context and apply it to the launched browser without printing raw secrets. If Caido is offline or no profile tool is exposed, fall back only when the task can still be done safely.
 5. Confirm the proxy/MCP setup:
    - MCP control endpoint defaults to `$KAIDO_MCP_PROXY_URL` or `http://127.0.0.1:3333/mcp`.
    - Browser proxy comes from the Caido profile when available.
@@ -50,6 +50,7 @@ Use when a task needs a fresh Chromium/Chrome instance with remote debugging ena
 - Never reuse Ryushe's normal browser profile.
 - Never print secrets, cookies, or credentials in chat.
 - Prefer Caido MCP profile resolution over manually guessing accounts, profile directories, or proxy listeners.
+- With `--caido-profile auto`, dynamically pull the Caido profile's usable auth/session context for the browser; do not extract credentials into logs, shell output, findings, or prompts.
 - Do not treat an MCP `/mcp` URL as a browser proxy server unless Caido returns it as an actual browser proxy listener.
 - When a browser proxy is configured, verify the launch command includes `--ignore-certificate-errors` so proxy TLS interception works.
 - Stay inside the program scope, account authorization, and rate limits.

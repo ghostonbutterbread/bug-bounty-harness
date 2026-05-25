@@ -114,7 +114,7 @@ def build_runtime_action_policy(
                     "Race test owned resources with a total burst budget of 35 requests or less for one hypothesis.",
                     "Send invites or messages only between validated owned test accounts or clearly owned private workspaces/resources.",
                     "Share resources only when the resource, sender, recipients, and workspace are all validated as owned/approved for the test.",
-                    "Validate checkout, discount-code, gift-card, or payment-card behavior using approved shared test instruments from ~/Shared/cards.txt when that file exists while keeping raw values out of prompts/logs/reports/chat and choosing the lowest-price viable path unless instructed otherwise.",
+                    "Validate checkout, discount-code, gift-card, or payment-card behavior using approved shared test instruments from ~/Shared/cards.txt when that file exists while keeping raw values out of prompts/logs/reports/chat, preferring a no-balance card, and keeping total attempted or actual spend at or under $25 when the selected card has balance unless instructed otherwise.",
                     "Use minimal LFI/path traversal proof including /etc/hosts, /etc/passwd, safe Windows equivalents, or synthetic canaries.",
                     "Use minimal SSRF proof with owned callback infrastructure, one safe canary endpoint, or one targeted non-sensitive internal request when needed to prove server-side/internal access.",
                     "Use private drafts or self-only settings that can be reverted.",
@@ -125,7 +125,7 @@ def build_runtime_action_policy(
                 "description": "Potentially valid tests that could affect people, money, shared state, or vendor-visible systems and need exact approval for the action, target, account, and environment.",
                 "action_tags": sorted(RISKY_DEFAULT_ACTION_TAGS),
                 "patterns": [
-                    "Payments, purchases, subscriptions, refunds, credits, coupons, or checkout submission outside approved shared test instruments or above the lowest-price viable path.",
+                    "Payments, purchases, subscriptions, refunds, credits, coupons, or checkout submission outside approved shared test instruments, without preferring a no-balance card, or above the $25 cap for cards with balance.",
                     "Public posts, publishing, comments, reactions, invites, messages, notifications, emails, or social actions.",
                     "Shared guild/community/workspace creation, bulk changes, public uploads, or vendor/customer-visible persistence.",
                 ],

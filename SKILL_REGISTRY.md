@@ -76,6 +76,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **prompt-injection** | `/prompt-injection {program} {target_url}` | `prompts/prompt-injection-playbook.md` |
 | **bypass** | `/bypass {target_url} {type}` | `prompts/bypass-playbook.md` |
 | **chromium-test** | `/chromium-test {program} {task}` | `prompts/chromium-test-playbook.md` |
+| **pfp** | `/pfp {program} {goal}` | `prompts/pfp-playbook.md` |
 | **shared-skill-creator** | `/shared-skill-creator {project} {skill-name}` | `prompts/shared-skill-creator-playbook.md` |
 | **me** | `/me {program}` | `skills/me/SKILL.md` |
 
@@ -101,6 +102,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /bypass https://target.example/admin 403 --program target
 /chromium-test superdrug pfp
 /chromium-test canva upload-flow --account qa-primary --url https://www.canva.com/
+/pfp canva profile-picture
 /shared-skill-creator bounty-harness bypass "endpoint bypass testing workflow"
 /me notion --hunt-type source
 /me canva --hunt-type source --lane exe

@@ -100,6 +100,7 @@ Important distinction:
 - The preferred path is: ask Caido MCP for the profile, then use the browser proxy listener returned by that profile.
 - A browser `--proxy-server` value must be an actual HTTP/SOCKS proxy listener, not merely the MCP `/mcp` endpoint.
 - Use `$CHROMIUM_TEST_PROXY_SERVER` or launcher `--proxy-server` only as an override when Caido does not return one.
+- Whenever a browser proxy is configured, the launcher must add `--ignore-certificate-errors` so the proxied browser can work with interception certificates.
 
 Basic MCP reachability check:
 
@@ -137,6 +138,7 @@ Record:
 - scope/rate-limit source checked
 - requested task and exact steps performed
 - proxy/MCP endpoint and actual browser proxy listener, if any
+- whether `--ignore-certificate-errors` was present when proxying
 - screenshots or artifact paths
 - full URLs for relevant requests
 - security-relevant observations and why they matter

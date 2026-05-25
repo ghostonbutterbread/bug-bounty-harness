@@ -124,9 +124,11 @@ the same boundaries:
 - sharing resources only when the resource, sender, recipients, and workspace
   are all validated as owned/approved for the test
 - checkout, discount-code, gift-card, or payment-card validation using approved
-  shared test instruments from `~/Shared/cards.txt` when that file exists, keeping raw values out of
-  prompts/logs/reports/chat and choosing the lowest-price viable path unless
-  instructed otherwise
+  shared test instruments from `~/Shared/cards.txt` when that file exists,
+  keeping raw values out of prompts/logs/reports/chat and preferring a
+  no-balance card; if the selected card has balance, minimize purchase attempts
+  and keep total attempted or actual spend at or under `$25` unless instructed
+  otherwise
 - minimal LFI/path traversal proof including `/etc/hosts`, `/etc/passwd`, safe
   Windows equivalents, or synthetic canaries
 - minimal SSRF proof using owned callback infrastructure, one safe canary
@@ -142,7 +144,7 @@ the same boundaries:
 
 These actions may be valid vulnerability tests, but they require explicit approval for the exact action, target, account, and environment:
 
-- payments, purchases, subscriptions, refunds, credits, coupons, gift cards, or checkout submission outside approved shared test instruments or above the lowest-price viable path
+- payments, purchases, subscriptions, refunds, credits, coupons, gift cards, or checkout submission outside approved shared test instruments, without preferring a no-balance card, or above the `$25` cap for cards with balance
 - public posts, publishing, comments, reactions, follows, friend requests, ratings, reviews, or social actions
 - guild/community/workspace/server/channel creation when visible to others
 - invites, DMs, emails, notifications, SMS, webhooks, shares, or messages to non-owned users/systems

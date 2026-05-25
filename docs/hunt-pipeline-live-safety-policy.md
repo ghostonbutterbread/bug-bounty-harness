@@ -119,6 +119,8 @@ Allowed actions are private, reversible, local, or read-only. Examples:
   hypothesis stays at or under 35 total requests
 - messages or invites only between validated owned test accounts or clearly
   owned private workspaces/resources
+- sharing resources only when the resource, sender, recipients, and workspace
+  are all validated as owned/approved for the test
 - private drafts visible only to the test account/self
 - self-only settings changes that can be reverted
 - screenshots, traces, logs, and evidence capture with redaction
@@ -132,7 +134,7 @@ These actions may be valid vulnerability tests, but they require explicit approv
 - payments, purchases, subscriptions, refunds, credits, coupons, gift cards, or checkout submission
 - public posts, publishing, comments, reactions, follows, ratings, reviews, or social actions
 - guild/community/workspace/server/channel creation when visible to others
-- invites, DMs, emails, notifications, SMS, webhooks, or messages to non-owned users/systems
+- invites, DMs, emails, notifications, SMS, webhooks, shares, or messages to non-owned users/systems
 - account creation beyond approved test accounts
 - bulk creation, crawling, scraping, mass update, load-generating actions, or race testing above 35 total requests for a hypothesis
 - changing organization, tenant, billing, role, permission, or shared resource state
@@ -199,6 +201,7 @@ Approval required:
 
 - creating public guilds/servers/channels
 - sending invites/messages/notifications
+- sharing resources with non-owned users or unclear workspaces
 - posting publicly
 - interacting with real users or shared communities
 

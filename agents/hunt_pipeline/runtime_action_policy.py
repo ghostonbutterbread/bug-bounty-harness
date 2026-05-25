@@ -84,6 +84,8 @@ def build_runtime_action_policy(
                     "debugger_inspection",
                     "read_only_ui_mapping",
                     "vm_local_interaction",
+                    "caido_session_header_use",
+                    "current_session_update",
                     "private_draft",
                     "self_settings_change",
                     "evidence_capture",
@@ -92,6 +94,7 @@ def build_runtime_action_policy(
                 ],
                 "examples": [
                     "Inspect code, flows, and debugger state without changing shared state.",
+                    "Use explicitly approved Caido-held Authorization/Cookie values in memory to update the current scoped browser session, such as mySession, without printing or storing the raw values.",
                     "Use private drafts or self-only settings that can be reverted.",
                     "Stop at the final confirmation step of risky flows without submitting them.",
                 ],
@@ -122,13 +125,14 @@ def build_runtime_action_policy(
                 "examples": [
                     "Do not bypass route restrictions, approval gates, or leave the approved VM/tunnel boundary.",
                     "Do not perform destructive, spam-like, or irreversible financial/account state changes.",
-                    "Do not harvest credentials, exfiltrate data, or access unrelated tenants or users.",
+                    "Do not harvest, print, persist, or exfiltrate credentials, cookies, bearer tokens, or auth headers; in-memory use of explicitly approved Caido session headers for the current scoped browser session is not credential harvesting.",
                 ],
             },
         },
         notes=(
             "Unknown or uncertain live actions must downgrade to approval_required.",
             "Public, payment, messaging, invite, posting, and vendor/customer-visible state changes are never allowed_private by default.",
+            "Using Caido-held Authorization/Cookie values to update the current scoped browser session is allowed only when explicitly instructed and must not disclose, log, persist, or reuse the raw values outside that run.",
         ),
     )
 

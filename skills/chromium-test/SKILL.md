@@ -25,6 +25,7 @@ Use when a task needs a fresh Chromium/Chrome instance with remote debugging ena
    - MCP control endpoint defaults to `$KAIDO_MCP_PROXY_URL` or `http://127.0.0.1:3333/mcp`.
    - Browser proxy comes from the Caido profile when available.
    - Browser proxy uses `--proxy-server` or `$CHROMIUM_TEST_PROXY_SERVER` only as an override.
+   - Any launch with a browser proxy must include `--ignore-certificate-errors`.
 
 ## Canonical Files
 
@@ -50,5 +51,6 @@ Use when a task needs a fresh Chromium/Chrome instance with remote debugging ena
 - Never print secrets, cookies, or credentials in chat.
 - Prefer Caido MCP profile resolution over manually guessing accounts, profile directories, or proxy listeners.
 - Do not treat an MCP `/mcp` URL as a browser proxy server unless Caido returns it as an actual browser proxy listener.
+- When a browser proxy is configured, verify the launch command includes `--ignore-certificate-errors` so proxy TLS interception works.
 - Stay inside the program scope, account authorization, and rate limits.
 - For state-changing tasks, confirm the action is allowed and non-destructive before proceeding.

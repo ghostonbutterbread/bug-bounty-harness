@@ -136,6 +136,7 @@ def build_command(args: argparse.Namespace, port: int, profile_dir: Path) -> lis
     proxy_server = args.proxy_server or os.environ.get("CHROMIUM_TEST_PROXY_SERVER")
     if proxy_server:
         command.append(f"--proxy-server={proxy_server}")
+        command.append("--ignore-certificate-errors")
 
     command.append(args.url or "about:blank")
     return command

@@ -121,6 +121,11 @@ Allowed actions are private, reversible, local, or read-only. Examples:
   owned private workspaces/resources
 - sharing resources only when the resource, sender, recipients, and workspace
   are all validated as owned/approved for the test
+- minimal LFI/path traversal proof such as `/etc/hosts`, `/etc/passwd`, safe
+  Windows equivalents, or synthetic canaries
+- minimal SSRF proof using owned callback infrastructure, one safe canary
+  endpoint, or one targeted non-sensitive internal request when needed to prove
+  server-side/internal access
 - private drafts visible only to the test account/self
 - self-only settings changes that can be reverted
 - screenshots, traces, logs, and evidence capture with redaction
@@ -137,6 +142,8 @@ These actions may be valid vulnerability tests, but they require explicit approv
 - invites, DMs, emails, notifications, SMS, webhooks, shares, or messages to non-owned users/systems
 - account creation beyond approved test accounts
 - bulk creation, crawling, scraping, mass update, load-generating actions, or race testing above 35 total requests for a hypothesis
+- SSRF probing beyond owned callback infrastructure, one safe proof target, or
+  one targeted non-sensitive internal request needed for impact proof
 - changing organization, tenant, billing, role, permission, or shared resource state
 - uploading files that become public or visible to vendor/customer systems
 - any action that persists vendor/customer-visible data
@@ -151,6 +158,7 @@ Ryushe explicitly approves the exact action, target, account, and environment:
 - irreversible financial/account state changes
 - credential harvesting or exfiltration. This does not block using user-approved local session material in memory, such as Caido-held `Authorization` or `Cookie` headers, solely to authenticate the current scoped test browser/session. It does block printing, copying, logging, persisting, reusing outside the scoped run, or sending those raw values anywhere else.
 - lateral movement outside the VM/test environment
+- internal network scanning or cloud metadata credential access through SSRF
 - persistence, malware-like behavior, or privilege escalation outside the target test scope
 - attempts to access unrelated tenants/users/customers
 - bypassing VM Guard, route restrictions, or approval gates

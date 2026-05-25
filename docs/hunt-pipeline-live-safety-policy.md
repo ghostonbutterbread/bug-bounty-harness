@@ -100,6 +100,7 @@ Allowed actions are private, reversible, local, or read-only. Examples:
 - debugger inspection
 - read-only UI flow mapping
 - local/VM-only target interaction
+- using explicitly approved authenticated context already present in a local proxy/profile to update the current test browser session, such as applying Caido-held `Authorization` and/or `Cookie` values to `mySession` without exposing the raw values
 - private drafts visible only to the test account/self
 - self-only settings changes that can be reverted
 - screenshots, traces, logs, and evidence capture with redaction
@@ -127,11 +128,22 @@ These should not happen in normal promoted runs:
 - destructive changes
 - spam-like behavior
 - irreversible financial/account state changes
-- credential harvesting or exfiltration
+- credential harvesting or exfiltration. This does not block using user-approved local session material in memory, such as Caido-held `Authorization` or `Cookie` headers, solely to authenticate the current scoped test browser/session. It does block printing, copying, logging, persisting, reusing outside the scoped run, or sending those raw values anywhere else.
 - lateral movement outside the VM/test environment
 - persistence, malware-like behavior, or privilege escalation outside the target test scope
 - attempts to access unrelated tenants/users/customers
 - bypassing VM Guard, route restrictions, or approval gates
+
+### Auth material boundary
+
+Agents may use authenticated tooling or an authenticated local profile when Ryushe instructs them to test as that account/session. For Caido-backed browser work, `--caido-profile auto` means:
+
+- inspect the active Caido profile/request context for usable request auth headers, normally `Authorization` and/or `Cookie`
+- apply those values directly to the current scoped browser/session update mechanism, including `mySession` when that is the active bridge
+- keep the values in memory only
+- record only non-secret metadata, such as which header names were used and that `mySession` was updated
+
+Agents must not treat Caido history as a password source, dump tokens into prompts/logs/findings/chat, store raw auth headers as evidence, or reuse the session material outside the approved program/task/account scope.
 
 ## Example decisions
 

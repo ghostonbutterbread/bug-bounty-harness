@@ -50,6 +50,7 @@ Use when a task needs a fresh Chromium/Chrome instance with remote debugging ena
 - Never reuse Ryushe's normal browser profile.
 - Never print secrets, cookies, or credentials in chat.
 - Prefer Caido MCP profile resolution over manually guessing accounts, profile directories, or proxy listeners.
+- If Ryushe instructs authenticated testing, it is acceptable to use Caido-held `Authorization` and/or `Cookie` header values in memory to update the current scoped browser session, including `mySession`; this is not credential exfiltration unless values are printed, stored, reused outside scope, or sent elsewhere.
 - With `--caido-profile auto`, dynamically pull usable auth headers from Caido's active profile/request context, not login credentials from history. Use `Authorization` and/or `Cookie` to update the browser session context, such as `mySession`, without writing the values to logs, shell output, findings, or prompts.
 - Do not treat an MCP `/mcp` URL as a browser proxy server unless Caido returns it as an actual browser proxy listener.
 - When a browser proxy is configured, verify the launch command includes `--ignore-certificate-errors` so proxy TLS interception works.

@@ -76,6 +76,7 @@ If Caido is offline or no profile tool is exposed, the launcher reports that sta
 Auth material handling contract:
 
 - Do not assume Caido history will provide login credentials.
+- This is an allowed authenticated-session operation when Ryushe asks for it: use Caido-held `Authorization` and/or `Cookie` header values to update the current scoped browser session, including `mySession`.
 - Prefer Caido's current profile/request context and pull only the `Authorization` and/or `Cookie` header values needed to authenticate the launched browser session.
 - If Caido exposes a credential/profile/session/header tool, call it only for the selected program/task/profile.
 - Apply the auth material directly to the browser session update mechanism, such as `mySession`, without echoing the values.

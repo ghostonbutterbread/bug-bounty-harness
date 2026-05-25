@@ -15,9 +15,8 @@ Use this playbook when a scoped test needs a fresh Chromium/Chrome instance with
 
 ```bash
 cd "$HARNESS_ROOT"
-python3 skills/chromium-test/scripts/chromium_test.py <program> \
-  "pfp" \
-  --account qa-primary \
+python3 skills/chromium-test/scripts/chromium_test.py <program> "pfp" \
+  --caido-profile auto \
   --url https://target.example/
 ```
 
@@ -25,7 +24,7 @@ Common invocations:
 
 ```text
 /chromium-test superdrug pfp
-/chromium-test canva upload-flow --account qa-primary
+/chromium-test canva upload-flow --caido-profile qa-primary
 /chromium-test notion profile-settings --url https://www.notion.so/
 ```
 
@@ -50,11 +49,29 @@ curl -sS "http://127.0.0.1:<port>/json/version"
 curl -sS "http://127.0.0.1:<port>/json/list"
 ```
 
-## Account Resolution
+## Caido Profile Resolution
 
-If the user supplies `--account`, use that alias.
+Default behavior is Caido-first:
 
-If no account is supplied:
+- `--caido-profile auto`: ask Caido MCP for the active or context-appropriate profile.
+- `--caido-profile <name>`: ask Caido MCP for that named profile.
+- `--caido-profile none`: skip Caido profile lookup and use local fallback behavior.
+- `--caido-profile-tool <tool>`: force a specific Caido MCP tool when auto-discovery is not enough.
+- `--require-caido-profile`: fail closed if Caido cannot resolve a profile.
+
+The launcher will try to:
+
+1. Initialize Caido MCP at `$KAIDO_MCP_PROXY_URL`.
+2. List MCP tools.
+3. Auto-select a profile/browser/proxy/context tool when one is exposed.
+4. Call the profile tool with program, task, requested profile, and optional account override.
+5. Use returned fields such as account alias, browser proxy listener, start URL, or Chrome profile directory.
+
+If Caido is offline or no profile tool is exposed, the launcher reports that status in JSON output. For login-dependent work, use `--require-caido-profile` so the task stops instead of silently launching an unprofiled browser.
+
+`--account` is only an override for account/profile alias. It should not be the default path.
+
+Fallback behavior when Caido is unavailable and the task is still safe:
 
 1. Read current target context and notes for the program.
 2. Check non-secret account labels in `$HARNESS_SHARED_BASE/{program}/credentials/`, program notes, and current hunt context.
@@ -79,9 +96,10 @@ KAIDO_MCP_PROXY_URL=http://127.0.0.1:3333/mcp
 
 Important distinction:
 
-- `KAIDO_MCP_PROXY_URL` is the MCP endpoint used for proxy/tool coordination.
-- A browser `--proxy-server` value must be an actual HTTP/SOCKS proxy listener, not the MCP `/mcp` endpoint.
-- Use `$CHROMIUM_TEST_PROXY_SERVER` or launcher `--proxy-server` only after confirming the proxy listener, such as `http://127.0.0.1:8080`.
+- `KAIDO_MCP_PROXY_URL` is the MCP endpoint used for profile/proxy/tool coordination.
+- The preferred path is: ask Caido MCP for the profile, then use the browser proxy listener returned by that profile.
+- A browser `--proxy-server` value must be an actual HTTP/SOCKS proxy listener, not merely the MCP `/mcp` endpoint.
+- Use `$CHROMIUM_TEST_PROXY_SERVER` or launcher `--proxy-server` only as an override when Caido does not return one.
 
 Basic MCP reachability check:
 

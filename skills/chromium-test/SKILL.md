@@ -47,6 +47,7 @@ Use when a task needs a fresh Chromium/Chrome instance with remote debugging ena
 
 ## Guardrails
 
+- Core posture: scoped testing is allowed; damaging behavior is explicit.
 - Never reuse Ryushe's normal browser profile.
 - Never print secrets, cookies, or credentials in chat.
 - Prefer Caido MCP profile resolution over manually guessing accounts, profile directories, or proxy listeners.

@@ -49,12 +49,12 @@ curl -sS "http://127.0.0.1:<port>/json/version"
 curl -sS "http://127.0.0.1:<port>/json/list"
 ```
 
-## Caido Profile Resolution
+## Caido Profile and Credential Resolution
 
 Default behavior is Caido-first:
 
-- `--caido-profile auto`: ask Caido MCP for the active or context-appropriate profile.
-- `--caido-profile <name>`: ask Caido MCP for that named profile.
+- `--caido-profile auto`: ask Caido MCP for the active or context-appropriate profile, including the profile's usable authentication/session context.
+- `--caido-profile <name>`: ask Caido MCP for that named profile and its usable authentication/session context.
 - `--caido-profile none`: skip Caido profile lookup and use local fallback behavior.
 - `--caido-profile-tool <tool>`: force a specific Caido MCP tool when auto-discovery is not enough.
 - `--require-caido-profile`: fail closed if Caido cannot resolve a profile.
@@ -65,11 +65,19 @@ The launcher will try to:
 2. List MCP tools.
 3. Auto-select a profile/browser/proxy/context tool when one is exposed.
 4. Call the profile tool with program, task, requested profile, and optional account override.
-5. Use returned fields such as account alias, browser proxy listener, start URL, or Chrome profile directory.
+5. Use returned fields such as account alias, browser proxy listener, start URL, Chrome profile directory, or profile-bound session/auth material.
+6. Apply auth/session material to the launched browser through the profile/tool flow. Do not print raw usernames, passwords, cookies, bearer tokens, session IDs, or credential values.
 
 If Caido is offline or no profile tool is exposed, the launcher reports that status in JSON output. For login-dependent work, use `--require-caido-profile` so the task stops instead of silently launching an unprofiled browser.
 
 `--account` is only an override for account/profile alias. It should not be the default path.
+
+Credential handling contract:
+
+- Prefer using Caido's current profile/session state over extracting reusable secrets.
+- If Caido exposes a credential/profile tool, call it only for the selected program/task/profile.
+- Secret values are in-memory operational material, not evidence. Never copy them into logs, screenshots, reports, prompts, chat, or notes.
+- If Caido cannot provide a usable session and a login is required, pause and ask Ryushe rather than guessing or scraping credentials from local files.
 
 Fallback behavior when Caido is unavailable and the task is still safe:
 

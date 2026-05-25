@@ -74,6 +74,8 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **appmap-research-librarian** | `/appmap-research-librarian init {program}` | `prompts/appmap-research-librarian-playbook.md` |
 | **electron** | `/electron {program} {target_path}` | `prompts/electron-playbook.md` |
 | **prompt-injection** | `/prompt-injection {program} {target_url}` | `prompts/prompt-injection-playbook.md` |
+| **bypass** | `/bypass {target_url} {type}` | `prompts/bypass-playbook.md` |
+| **shared-skill-creator** | `/shared-skill-creator {project} {skill-name}` | `prompts/shared-skill-creator-playbook.md` |
 | **me** | `/me {program}` | `skills/me/SKILL.md` |
 
 ---
@@ -95,6 +97,8 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /appmap-research-librarian init canva --category electron-ipc --research-query electron rce --target-kind electron-exe
 /electron canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --dry-run-prompts
 /prompt-injection canva https://target.example/ai-assistant --mode map
+/bypass https://target.example/admin 403 --program target
+/shared-skill-creator bounty-harness bypass "endpoint bypass testing workflow"
 /me notion --hunt-type source
 /me canva --hunt-type source --lane exe
 ```
@@ -151,12 +155,14 @@ Per-program knowledge file:
 
 ## Creating New Skills
 
-1. Create skill wrapper: `skills/{name}/SKILL.md`
-2. Create playbook if needed: `prompts/{name}-playbook.md`
-3. Create sync metadata if the skill should publish `_meta.json`
-4. Create harness if needed: `agents/{name}_hunter.py`
-5. Add to this registry
-6. Run `./setup.sh --sync`
+1. Prefer `/shared-skill-creator <project> <skill-name>` for shared skills.
+2. Create skill wrapper: `skills/{name}/SKILL.md`
+3. Create playbook if needed: `prompts/{name}-playbook.md`
+4. Create sync metadata if the skill should publish `_meta.json`
+5. Create harness if needed: `agents/{name}_hunter.py`
+6. Add to this registry
+7. Commit and push the owning repo.
+8. Run `aiskillsync sync all --repo bounty-harness`
 
 ---
 
@@ -181,4 +187,4 @@ bug_bounty_harness/
 
 ---
 
-*Last updated: 2026-05-21*
+*Last updated: 2026-05-25*

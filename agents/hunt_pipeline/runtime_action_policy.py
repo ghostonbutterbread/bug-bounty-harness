@@ -96,6 +96,9 @@ def build_runtime_action_policy(
                     "owned_account_message",
                     "owned_account_invite",
                     "owned_resource_share",
+                    "approved_low_cost_checkout",
+                    "approved_gift_card_validation",
+                    "approved_payment_card_validation",
                     "minimal_lfi_proof",
                     "minimal_ssrf_reachability_proof",
                     "private_draft",
@@ -104,14 +107,15 @@ def build_runtime_action_policy(
                     "stop_before_confirmation",
                     "sandbox_test_endpoint",
                 ],
-                "examples": [
+                "patterns": [
                     "Inspect code, flows, and debugger state without changing shared state.",
                     "Use approved owned/test accounts to browse, replay requests, compare behavior, and validate vulnerabilities inside scope.",
-                    "Use explicitly approved Caido-held Authorization/Cookie values in memory to update the current scoped browser session, such as mySession, without printing or storing the raw values.",
+                    "Use explicitly approved Caido-held Authorization/Cookie values in memory to update the current scoped browser session, including mySession, without printing or storing the raw values.",
                     "Race test owned resources with a total burst budget of 35 requests or less for one hypothesis.",
                     "Send invites or messages only between validated owned test accounts or clearly owned private workspaces/resources.",
                     "Share resources only when the resource, sender, recipients, and workspace are all validated as owned/approved for the test.",
-                    "Use minimal LFI/path traversal proof such as /etc/hosts, /etc/passwd, safe Windows equivalents, or synthetic canaries.",
+                    "Validate checkout, discount-code, gift-card, or payment-card behavior using approved shared test instruments from ~/Shared/cards.txt when that file exists while keeping raw values out of prompts/logs/reports/chat and choosing the lowest-price viable path unless instructed otherwise.",
+                    "Use minimal LFI/path traversal proof including /etc/hosts, /etc/passwd, safe Windows equivalents, or synthetic canaries.",
                     "Use minimal SSRF proof with owned callback infrastructure, one safe canary endpoint, or one targeted non-sensitive internal request when needed to prove server-side/internal access.",
                     "Use private drafts or self-only settings that can be reverted.",
                     "Stop at the final confirmation step of risky flows without submitting them.",
@@ -120,8 +124,8 @@ def build_runtime_action_policy(
             "approval_required": {
                 "description": "Potentially valid tests that could affect people, money, shared state, or vendor-visible systems and need exact approval for the action, target, account, and environment.",
                 "action_tags": sorted(RISKY_DEFAULT_ACTION_TAGS),
-                "examples": [
-                    "Payments, purchases, subscriptions, refunds, credits, coupons, or checkout submission.",
+                "patterns": [
+                    "Payments, purchases, subscriptions, refunds, credits, coupons, or checkout submission outside approved shared test instruments or above the lowest-price viable path.",
                     "Public posts, publishing, comments, reactions, invites, messages, notifications, emails, or social actions.",
                     "Shared guild/community/workspace creation, bulk changes, public uploads, or vendor/customer-visible persistence.",
                 ],
@@ -142,7 +146,7 @@ def build_runtime_action_policy(
                     "internal_network_scanning",
                     "cloud_metadata_credential_access",
                 ],
-                "examples": [
+                "patterns": [
                     "Do not bypass route restrictions, approval gates, or leave the approved VM/tunnel boundary.",
                     "Do not perform destructive, spam-like, or irreversible financial/account state changes.",
                     "Do not scan internal networks or access cloud metadata credentials through SSRF.",

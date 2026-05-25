@@ -4,6 +4,7 @@ Use this playbook when a scoped test needs a fresh Chromium/Chrome instance with
 
 ## Safety Boundary
 
+- Core posture: scoped testing is allowed; damaging behavior is explicit.
 - Read the current program scope and rate limit first.
 - Use a dedicated browser profile for the program and account alias.
 - Do not use Ryushe's personal/default browser profile.

@@ -78,12 +78,18 @@ def build_runtime_action_policy(
         expires_at="2999-01-01T00:00:00Z",
         classifications={
             "allowed_private": {
-                "description": "Private, reversible, local, sandboxed, or read-only actions allowed by default.",
+                "description": (
+                    "Scoped testing actions allowed by default when they are private, reversible, local, "
+                    "sandboxed, low-risk, or read-only."
+                ),
                 "action_tags": [
                     "static_analysis",
                     "debugger_inspection",
                     "read_only_ui_mapping",
                     "vm_local_interaction",
+                    "scoped_browser_testing",
+                    "scoped_api_replay",
+                    "authenticated_session_use",
                     "caido_session_header_use",
                     "current_session_update",
                     "private_draft",
@@ -94,13 +100,14 @@ def build_runtime_action_policy(
                 ],
                 "examples": [
                     "Inspect code, flows, and debugger state without changing shared state.",
+                    "Use approved owned/test accounts to browse, replay requests, compare behavior, and validate vulnerabilities inside scope.",
                     "Use explicitly approved Caido-held Authorization/Cookie values in memory to update the current scoped browser session, such as mySession, without printing or storing the raw values.",
                     "Use private drafts or self-only settings that can be reverted.",
                     "Stop at the final confirmation step of risky flows without submitting them.",
                 ],
             },
             "approval_required": {
-                "description": "Potentially valid tests that need exact approval for the action, target, account, and environment.",
+                "description": "Potentially valid tests that could affect people, money, shared state, or vendor-visible systems and need exact approval for the action, target, account, and environment.",
                 "action_tags": sorted(RISKY_DEFAULT_ACTION_TAGS),
                 "examples": [
                     "Payments, purchases, subscriptions, refunds, credits, coupons, or checkout submission.",
@@ -109,7 +116,7 @@ def build_runtime_action_policy(
                 ],
             },
             "blocked": {
-                "description": "Actions that should not occur in normal promoted runs.",
+                "description": "Damaging or out-of-scope behavior that should not occur in normal promoted runs.",
                 "action_tags": [
                     "bypass_vm_guard",
                     "credential_harvesting",
@@ -130,6 +137,7 @@ def build_runtime_action_policy(
             },
         },
         notes=(
+            "Core posture: scoped testing is allowed; damaging behavior is explicit.",
             "Unknown or uncertain live actions must downgrade to approval_required.",
             "Public, payment, messaging, invite, posting, and vendor/customer-visible state changes are never allowed_private by default.",
             "Using Caido-held Authorization/Cookie values to update the current scoped browser session is allowed only when explicitly instructed and must not disclose, log, persist, or reuse the raw values outside that run.",

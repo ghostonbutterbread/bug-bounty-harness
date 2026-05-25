@@ -86,9 +86,20 @@ Before spawning promoted live agents, runtime must verify:
 - denied routes override allowed routes
 - missing or malformed environment approval fails closed before run-state/spec/adapter writes
 
-## Private-by-default action policy
+## Scoped Testing Action Policy
 
-Live testing should default to private, local, sandboxed, or read-only behavior.
+Core posture:
+
+> Scoped testing is allowed. Damaging behavior is explicit.
+
+Live testing should allow bounded, in-scope testing inside approved account,
+environment, and route boundaries. The policy exists to block or require
+approval for damaging behavior, not to block normal authentication, browsing,
+request replay, owned-account comparison, or vulnerability validation.
+
+Default to private, local, sandboxed, reversible, low-rate, or read-only
+behavior. When an action is clearly inside those boundaries, continue testing
+and record evidence.
 
 If an action cannot be performed privately or in a sandbox/test mode, the agent should stop at a proof plan and ask for exact-test approval instead of executing.
 
@@ -101,6 +112,9 @@ Allowed actions are private, reversible, local, or read-only. Examples:
 - read-only UI flow mapping
 - local/VM-only target interaction
 - using explicitly approved authenticated context already present in a local proxy/profile to update the current test browser session, such as applying Caido-held `Authorization` and/or `Cookie` values to `mySession` without exposing the raw values
+- authenticated browser/API testing with approved owned/test account sessions
+- one-request replay or browser state setup using approved local session
+  headers, provided the raw values remain in memory only
 - private drafts visible only to the test account/self
 - self-only settings changes that can be reverted
 - screenshots, traces, logs, and evidence capture with redaction
@@ -121,9 +135,10 @@ These actions may be valid vulnerability tests, but they require explicit approv
 - uploading files that become public or visible to vendor/customer systems
 - any action that persists vendor/customer-visible data
 
-### Blocked unless explicitly approved
+### Damaging behavior
 
-These should not happen in normal promoted runs:
+These should not happen in normal promoted runs. They are blocked unless
+Ryushe explicitly approves the exact action, target, account, and environment:
 
 - destructive changes
 - spam-like behavior
@@ -136,7 +151,11 @@ These should not happen in normal promoted runs:
 
 ### Auth material boundary
 
-Agents may use authenticated tooling or an authenticated local profile when Ryushe instructs them to test as that account/session. For Caido-backed browser work, `--caido-profile auto` means:
+Agents may use authenticated tooling or an authenticated local profile when
+Ryushe instructs them to test as that account/session. This is an allowed
+testing operation, not a policy exception.
+
+For Caido-backed browser work, `--caido-profile auto` means:
 
 - inspect the active Caido profile/request context for usable request auth headers, normally `Authorization` and/or `Cookie`
 - apply those values directly to the current scoped browser/session update mechanism, including `mySession` when that is the active bridge

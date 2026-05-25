@@ -115,6 +115,10 @@ Allowed actions are private, reversible, local, or read-only. Examples:
 - authenticated browser/API testing with approved owned/test account sessions
 - one-request replay or browser state setup using approved local session
   headers, provided the raw values remain in memory only
+- bounded race-condition testing against owned accounts/resources when the full
+  hypothesis stays at or under 35 total requests
+- messages or invites only between validated owned test accounts or clearly
+  owned private workspaces/resources
 - private drafts visible only to the test account/self
 - self-only settings changes that can be reverted
 - screenshots, traces, logs, and evidence capture with redaction
@@ -128,9 +132,9 @@ These actions may be valid vulnerability tests, but they require explicit approv
 - payments, purchases, subscriptions, refunds, credits, coupons, gift cards, or checkout submission
 - public posts, publishing, comments, reactions, follows, ratings, reviews, or social actions
 - guild/community/workspace/server/channel creation when visible to others
-- invites, DMs, emails, notifications, SMS, webhooks, or messages to real users/systems
+- invites, DMs, emails, notifications, SMS, webhooks, or messages to non-owned users/systems
 - account creation beyond approved test accounts
-- bulk creation, crawling, scraping, mass update, or load-generating actions
+- bulk creation, crawling, scraping, mass update, load-generating actions, or race testing above 35 total requests for a hypothesis
 - changing organization, tenant, billing, role, permission, or shared resource state
 - uploading files that become public or visible to vendor/customer systems
 - any action that persists vendor/customer-visible data

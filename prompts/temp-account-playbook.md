@@ -94,11 +94,11 @@ Do not forward broad personal mail. Keep filters tied to bounty relay phrases, p
 
 ## Browser Signup
 
-Use `/chromium-test` or another approved browser automation skill.
+Prefer the approved Stealth browser for program signup and target-site testing. Use `/chromium-test` or another isolated browser automation skill only when Stealth is unavailable, unsuitable, or the caller specifically needs the Chromium-test/Caido profile workflow.
 
 Default flow:
 
-1. Launch an isolated browser profile for the program and task.
+1. Launch a Stealth browser profile for the program and task when available; otherwise launch an isolated Chromium/Playwright profile.
 2. Navigate to the in-scope signup URL.
 3. Fill only required signup fields.
 4. Use the approved program-required email path, or the disposable inbox if allowed, for verification links or codes.
@@ -107,6 +107,8 @@ Default flow:
 7. Create the minimum private owned resources requested by the caller.
 
 Avoid normal Ryushe browser profiles. Avoid broad profile reuse unless the caller explicitly asks for the same account context.
+
+Stealth is acceptable for program workflows. Do not layer on CAPTCHA solvers, residential proxies, or additional anti-bot evasion unless Ryushe explicitly approves it for the specific target.
 
 ## Credential Storage
 

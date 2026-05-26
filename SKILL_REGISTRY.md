@@ -71,9 +71,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **csrf** | `/csrf {program}` | `skills/csrff/SKILL.md` |
 | **mental-map** | `/mental-map {program}` | `prompts/mental-map-playbook.md` |
 | **caido** | `/caido {mcp-url-or-host?}` | `skills/caido/SKILL.md` |
-| **agent-email** | `/agent-email {create|read|show|accounts}` | `skills/agent-email/SKILL.md` |
-| **gmail** | `/gmail {search-query}` | `skills/gmail/SKILL.md` |
-| **temp-account** | `/temp-account {program} {target-url}` | `prompts/temp-account-playbook.md` |
+| **temporary-email** | `/temporary-email {create|read|show|accounts}` | `skills/temporary-email/SKILL.md` |
 | **brainstorm-spec** | `/brainstorm-spec {program}` | `prompts/brainstorm-spec-playbook.md` |
 | **appmap** | `/appmap {program} {target_path}` | `prompts/appmap-playbook.md` |
 | **appmap-research-librarian** | `/appmap-research-librarian init {program}` | `prompts/appmap-research-librarian-playbook.md` |
@@ -108,9 +106,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /csrf superdrug
 /mental-map superdrug
 /caido 192.168.0.135
-/agent-email create
-/gmail 'from:(mail-forwarder@wearehackerone.com) ryushe+ai1'
-/temp-account canva https://www.canva.com/signup
+/temporary-email create
 /brainstorm-spec canva --family binaries --lane exe --target-kind electron-exe
 /appmap canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --target-kind electron-exe --focus rce --write-specs
 /appmap-research-librarian init canva --category electron-ipc --research-query electron rce --target-kind electron-exe

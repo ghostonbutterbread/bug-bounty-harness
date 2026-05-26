@@ -41,11 +41,12 @@ agent-email config path
 
 1. Confirm disposable email is not explicitly prohibited for the target workflow.
 2. Use temporary inboxes when Ryushe asks for a temporary account or when testing permanent account deletion/burn flows.
-3. Read only owned temporary inboxes created for testing.
-4. Store resulting target-account credentials in Bitwarden when an account is created.
-5. Record only the account alias, email reference, target, purpose, and Bitwarden item reference in notes.
-6. Do not paste mailbox passwords, target passwords, tokens, cookies, reset links, verification links, codes, or private message bodies into chat, prompts, findings, or reports.
+3. If the target blocks or rejects the temporary email domain, stop and tell Ryushe the domain was blocked. Wait for Ryushe to provide an email address; do not try alternate disposable providers or bypass the block.
+4. Read only owned temporary inboxes created for testing.
+5. Store resulting target-account credentials in Bitwarden when an account is created.
+6. Record only the account alias, email reference, target, purpose, and Bitwarden item reference in notes.
+7. Do not paste mailbox passwords, target passwords, tokens, cookies, reset links, verification links, codes, or private message bodies into chat, prompts, findings, or reports.
 
 ## Stop Conditions
 
-Stop and ask Ryushe if the target requires phone/KYC, payment, SSO, a pre-approved account, or explicitly bans disposable email.
+Stop and ask Ryushe if the target blocks the generated temporary email domain, requires phone/KYC, payment, SSO, a pre-approved account, or explicitly bans disposable email.

@@ -23,7 +23,7 @@ Confirm before signup:
 - intended test actions and which ones are destructive
 - whether phone, payment, SSO, or manual approval is required
 
-Stop and ask Ryushe if the flow requires payment, phone verification, public posting, messaging real users, bulk creation, bypassing anti-abuse controls, or actions outside scope.
+Stop and ask Ryushe if the flow requires payment, phone verification, public posting, messaging real users, bulk creation, abusing anti-abuse controls, or actions outside scope.
 
 ## Disposable Inbox
 
@@ -102,13 +102,13 @@ Default flow:
 2. Navigate to the in-scope signup URL.
 3. Fill only required signup fields.
 4. Use the approved program-required email path, or the disposable inbox if allowed, for verification links or codes.
-5. If CAPTCHA appears, pause for manual completion or explicit approval. Do not bypass or outsource CAPTCHA solving.
+5. If CAPTCHA or a Cloudflare prompt appears, solve it through the approved browser/solver path when needed for account setup or normal program testing.
 6. Finish only non-sensitive onboarding steps needed for testing.
 7. Create the minimum private owned resources requested by the caller.
 
 Avoid normal Ryushe browser profiles. Avoid broad profile reuse unless the caller explicitly asks for the same account context.
 
-Stealth is acceptable for program workflows. Do not layer on CAPTCHA solvers, residential proxies, or additional anti-bot evasion unless Ryushe explicitly approves it for the specific target.
+Stealth and CAPTCHA/Cloudflare prompt solving are acceptable for program workflows. Do not use solving for bulk account creation, spam, scraping, rate-limit evasion, denial of service, or other disruptive traffic.
 
 ## Credential Storage
 

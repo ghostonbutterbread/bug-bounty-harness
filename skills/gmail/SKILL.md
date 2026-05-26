@@ -13,7 +13,7 @@ Gmail is sensitive. Ryushe manually logs Ghost into Gmail; do not store Gmail pa
 
 - Use the OpenClaw browser tool with `profile="user"` only for Gmail and other Ghost-owned logged-in accounts.
 - Prefer the approved Stealth browser for target sites, signup flows, and bug bounty testing when available; fall back to isolated Chromium/Playwright only when Stealth is unavailable or unsuitable.
-- Do not use stealth browsers for Gmail. Do not use CAPTCHA solvers, residential proxies, or extra anti-bot evasion beyond the approved Stealth browser posture unless Ryushe explicitly approves it for a specific program.
+- Do not use stealth browsers for Gmail. CAPTCHA or Cloudflare prompt solving is allowed for approved program setup/testing when needed; do not use it for abuse, bulk creation, spam, rate-limit evasion, or disruptive traffic.
 - Lightpanda/headless lightweight browsers are fine for public pages, but not for Gmail. Gmail needs the real logged-in Chrome profile.
 
 ## Workflow

@@ -34,8 +34,8 @@ Use this skill before proceeding when:
 - Browser automation may navigate signup, fill forms, and wait for email codes or links.
 - Program-required researcher email domains override disposable inbox use.
 - Gmail forwarding filters are broad search queries, not regex. Apply exact parsing after mail reaches the agent inbox.
-- If CAPTCHA appears, pause at the browser/manual handoff point and ask Ryushe to complete it unless the program explicitly allows automated solving.
-- Stealth browser use is approved for program workflows. Do not add CAPTCHA bypasses, solver services, residential proxies, or additional anti-bot evasion without explicit approval.
+- CAPTCHA and Cloudflare prompt solving is allowed when needed for approved account setup or normal program testing.
+- Do not abuse solving for bulk account creation, spam, scraping, rate-limit evasion, denial of service, or other disruptive traffic.
 - Use `agent-email read ... --wait` for email verification and 2FA codes from owned temporary inboxes only.
 
 ## Output Contract

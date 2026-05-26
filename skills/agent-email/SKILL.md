@@ -62,6 +62,7 @@ Aliases:
 5. Read only messages for owned test inboxes.
 6. Do not paste mailbox passwords, tokens, cookies, reset links, or private message bodies into chat, prompts, findings, or public reports.
 7. For Codex/Claude delegated workflows, temporary inboxes are acceptable when the program does not explicitly prohibit them; otherwise use a Ghost-created account reference from Bitwarden.
+8. Prefer fresh temporary inboxes for risky lanes such as delete, destructive update, upload abuse, invite/share testing, or cleanup tests. Record the intended lane in the account pointer so other agents know what the email/account is meant for.
 
 ## Storage
 

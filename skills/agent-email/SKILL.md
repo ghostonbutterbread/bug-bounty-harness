@@ -55,12 +55,13 @@ Aliases:
 
 ## Workflow
 
-1. Confirm disposable email is allowed for the target workflow and scope.
+1. Confirm disposable email is not explicitly prohibited for the target workflow and scope.
 2. Prefer one inbox per target account or role. Record the account alias, not raw credentials, in hunt notes.
 3. Use JSON output by default so agents can parse verification links and message IDs.
 4. For isolated runs, set `AGENT_EMAIL_CONFIG` to a target-specific config path.
 5. Read only messages for owned test inboxes.
 6. Do not paste mailbox passwords, tokens, cookies, reset links, or private message bodies into chat, prompts, findings, or public reports.
+7. For Codex/Claude delegated workflows, temporary inboxes are acceptable when the program does not explicitly prohibit them; otherwise use a Ghost-created account reference from Bitwarden.
 
 ## Storage
 

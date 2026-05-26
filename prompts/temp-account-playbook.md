@@ -18,7 +18,7 @@ Confirm before signup:
 - program and target domain are in scope
 - account creation is allowed by the program rules
 - required researcher email domains or account identity rules
-- disposable email is allowed or at least not prohibited
+- whether disposable email is explicitly prohibited, blocked, or merely not the preferred identity path
 - required account count, role mix, and tenant/workspace/project count
 - intended test actions and which ones are destructive
 - whether phone, payment, SSO, or manual approval is required
@@ -29,7 +29,9 @@ Stop and ask Ryushe if the flow requires payment, phone verification, public pos
 
 Use `/agent-email`.
 
-Do not use a disposable inbox when the program requires a specific researcher email domain, bug bounty platform alias, customer-provided tenant, SSO identity, or pre-approved account. In that case, stop and ask Ryushe for the approved account path or existing credential reference.
+Prefer a bounty-platform or researcher email alias when it is applicable and already available. Use a disposable inbox when the alias is unavailable, not necessary for the test, or an isolated throwaway account is the right workflow, as long as the program does not explicitly prohibit disposable email.
+
+Do not use a disposable inbox when the target requires a customer-provided tenant, SSO identity, pre-approved account, paid plan, phone/KYC identity, or the program explicitly bans disposable email. In those cases, stop and ask Ryushe for the approved account path or existing credential reference.
 
 Preferred commands:
 
@@ -43,9 +45,11 @@ Use JSON output when available so verification links and codes can be parsed. Re
 
 Do not print mailbox passwords, verification links, reset links, codes, or private message bodies in chat, prompts, findings, or reports.
 
+For Codex/Claude delegated work, it is acceptable for the agent to create a temporary inbox/account with `/agent-email` when the above policy allows it. If Ghost has already created a suitable account, prefer storing the credential in Bitwarden and handing the worker only the Bitwarden item reference and account alias.
+
 ## Program Email Aliases And Forwarded Codes
 
-Some programs require a bounty-platform researcher email, such as `@bugcrowdninja.com`, instead of disposable inboxes.
+Some programs prefer or request a bounty-platform researcher email, such as `@bugcrowdninja.com`, instead of disposable inboxes. Use those aliases when they are available and fit the workflow; otherwise use an allowed temporary inbox.
 
 Use aliases shaped like:
 

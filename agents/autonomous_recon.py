@@ -204,6 +204,7 @@ def _http_get(url: str, timeout: int = 15) -> tuple[bytes, dict]:
             )
             return body, dict(resp.headers)
     except urllib.error.HTTPError as e:
+        body = e.read()
         _safe_log_span(
             span_type="tool",
             level="STEP",
@@ -211,11 +212,12 @@ def _http_get(url: str, timeout: int = 15) -> tuple[bytes, dict]:
             tool_name="urllib_request",
             tool_category="http_request",
             input_bytes=len(url.encode("utf-8", errors="replace")),
-            output_bytes=0,
+            output_bytes=len(body),
             latency_ms=int((time.time() - start) * 1000),
+            output_tokens_est=max(0, math.ceil(len(body) / 4)),
             success=False,
         )
-        return b"", dict(e.headers) if e.headers else {}
+        return body, dict(e.headers) if e.headers else {}
     except Exception:
         _safe_log_span(
             span_type="tool",
@@ -458,7 +460,7 @@ def phase_crawl(result: ReconResult) -> None:
                 # Extract JS files
                 for m in SRC_RE.finditer(text):
                     u = _normalize_url(m.group(1), url)
-                    if u:
+                    if u and _same_host(u, result.target_host):
                         all_js.add(u)
                 # Extract all URLs from body text
                 for m in URL_RE.finditer(text):
@@ -514,7 +516,7 @@ def _try_playwright_crawl(
                     all_urls.add(u)
                     for m in PARAM_RE.finditer(u):
                         all_params.add(m.group(1))
-                if u.endswith(".js") or ".js?" in u:
+                if (u.endswith(".js") or ".js?" in u) and _same_host(u, result.target_host):
                     all_js.add(u)
 
             page.on("request", on_request)
@@ -538,7 +540,7 @@ def _try_playwright_crawl(
                     scripts = page.eval_on_selector_all("script[src]", "els => els.map(e => e.src)")
                     for s in scripts:
                         n = _normalize_url(s, url)
-                        if n:
+                        if n and _same_host(n, result.target_host):
                             all_js.add(n)
                     # Extract forms
                     _extract_forms(html, url, result)
@@ -579,7 +581,8 @@ def phase_analyze(result: ReconResult) -> None:
     )
     endpoint_set: set[str] = set()
 
-    for js_url in result.js_files[:80]:  # cap at 80 JS files
+    scoped_js_urls = [js_url for js_url in result.js_files if _same_host(js_url, result.target_host)]
+    for js_url in scoped_js_urls[:80]:  # cap at 80 JS files
         body, _ = _http_get(js_url, timeout=10)
         if not body:
             continue

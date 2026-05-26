@@ -234,7 +234,7 @@ def review_with_claude(content: str, filepath: str) -> str:
             [
                 "claude",
                 "--print",
-                "--permission-mode", "bypassPermissions",
+                "--permission-mode", "plan",
                 "--output-format", "json",
                 f"SYSTEM: {SYSTEM_PROMPT}\n\nUSER: {prompt}"
             ],
@@ -274,7 +274,7 @@ def review_with_claude(content: str, filepath: str) -> str:
             try:
                 import json
                 data = json.loads(result.stdout)
-                return data.get("completion", result.stdout)
+                return data.get("completion") or data.get("result") or result.stdout
             except:
                 return result.stdout
         else:

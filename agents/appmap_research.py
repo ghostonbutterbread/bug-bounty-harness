@@ -409,6 +409,24 @@ class HybridResearchProvider(WebFetchResearchProvider):
             result = self._collect_web(request, seed_first=True)
             result["manifest"]["provider"] = self.key
             result["manifest"]["research_mode"] = "hybrid"
+            result["manifest"]["cache_key"] = _json_digest(
+                {
+                    "provider": self.key,
+                    "research_mode": "hybrid",
+                    "research_query": request.research_query.as_manifest(),
+                    "program": request.program,
+                    "focus": request.focus,
+                    "target_kind": request.target_kind,
+                    "seed_paths": [
+                        str(path.expanduser().resolve(strict=False))
+                        for path in request.seed_paths
+                    ],
+                    "source_urls": list(request.source_urls),
+                    "fetched": _stable_research_cache_value(result["manifest"].get("fetched", [])),
+                    "sources": _stable_research_cache_value(result.get("sources", [])),
+                    "technique_packs": _stable_research_cache_value(result.get("technique_packs", [])),
+                }
+            )
             return result
 
         sources, technique_packs, errors = _collect_seed_research(request)

@@ -11,11 +11,11 @@ This is an account setup router, not a vulnerability testing skill. Return accou
 
 ## Load Order
 
-1. Confirm the target program allows account creation, authenticated testing, disposable email, and the intended account count.
+1. Confirm the target program allows account creation, authenticated testing, the intended account count, and whether disposable email is prohibited.
 2. Resolve `$HARNESS_ROOT` first; default is `/home/ryushe/projects/bug_bounty_harness`.
 3. Read `$HARNESS_ROOT/prompts/temp-account-playbook.md`.
-4. Check whether the program requires a specific researcher email domain. If it does, use that approved account path instead of disposable email.
-5. Load `/agent-email` only when disposable inboxes are allowed for the target.
+4. Prefer a bounty-platform or researcher email alias when it is applicable and available.
+5. Use `/agent-email` temporary inboxes when a researcher alias is unavailable, not needed, or the caller explicitly needs an isolated throwaway account, as long as the program does not explicitly prohibit disposable email.
 6. If the approved email path uses forwarded relay mail, load `/gmail` for the `+ai` alias and forwarded-code parsing flow.
 7. Prefer the approved Stealth browser for signup UI control; fall back to `/chromium-test` or another isolated browser skill only when Stealth is unavailable or unsuitable.
 8. Store credentials in Bitwarden with `bw` if available; otherwise stop and ask Ryushe which credential store to use.
@@ -32,7 +32,7 @@ Use this skill before proceeding when:
 ## CAPTCHA And Verification
 
 - Browser automation may navigate signup, fill forms, and wait for email codes or links.
-- Program-required researcher email domains override disposable inbox use.
+- Bounty-platform/researcher email aliases are preferred when applicable and available; temporary inboxes are acceptable fallback accounts when not explicitly prohibited.
 - Gmail forwarding filters are broad search queries, not regex. Apply exact parsing after mail reaches the agent inbox.
 - CAPTCHA and Cloudflare prompt solving is allowed when needed for approved account setup or normal program testing.
 - Do not abuse solving for bulk account creation, spam, scraping, rate-limit evasion, denial of service, or other disruptive traffic.

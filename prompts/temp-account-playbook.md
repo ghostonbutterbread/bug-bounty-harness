@@ -43,6 +43,55 @@ Use JSON output when available so verification links and codes can be parsed. Re
 
 Do not print mailbox passwords, verification links, reset links, codes, or private message bodies in chat, prompts, findings, or reports.
 
+## Program Email Aliases And Forwarded Codes
+
+Some programs require a bounty-platform researcher email, such as `@bugcrowdninja.com`, instead of disposable inboxes.
+
+Use aliases shaped like:
+
+```text
+ryushe+ai-<program>-a@bugcrowdninja.com
+ryushe+ai-<program>-b@bugcrowdninja.com
+ryushe+ai1@bugcrowdninja.com
+ryushe+ai2@bugcrowdninja.com
+```
+
+Gmail filters do not support true regex or arbitrary wildcards. Use Gmail to forward broad-but-safe matches, then let the receiving agent inbox/parser do exact regex matching.
+
+Suggested Gmail filter query for relay mail:
+
+```text
+("Relayed on behalf of" "to ryushe+ai" "@bugcrowdninja.com")
+("code" OR "verification" OR "verify" OR "login" OR "registration" OR "register" OR "forgot password" OR "password reset")
+```
+
+Program-specific variant:
+
+```text
+("Relayed on behalf of" "<program>" "to ryushe+ai" "@bugcrowdninja.com")
+("code" OR "verification" OR "verify your email" OR "login code" OR "registration" OR "forgot password" OR "password reset")
+```
+
+Recommended Gmail actions:
+- forward to the agent-controlled inbox
+- apply a label like `ghost/bugbounty/<program>-codes`
+- never send to spam
+- keep Ryushe's original copy unless he asks otherwise
+
+After forwarding, parse with real regex in the agent inbox/tooling:
+
+```regex
+Relayed on behalf of (?P<sender>[^\s\]]+) to (?P<alias>ryushe\+ai[^\s\]]*@bugcrowdninja\.com)
+```
+
+Classify message purpose with subject/body terms:
+- code: `code`, `login code`, `security code`, `verification code`, `one-time code`, `OTP`
+- email verification: `verify`, `verify your email`, `confirm your email`, `registration`, `register`
+- login: `login`, `sign in`, `new sign-in`, `magic link`
+- password recovery: `forgot password`, `password reset`, `reset your password`
+
+Do not forward broad personal mail. Keep filters tied to bounty relay phrases, program names, and `+ai` aliases.
+
 ## Browser Signup
 
 Use `/chromium-test` or another approved browser automation skill.

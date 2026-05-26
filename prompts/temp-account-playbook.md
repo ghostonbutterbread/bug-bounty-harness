@@ -11,6 +11,7 @@ Prefer:
 - one disposable inbox per account
 - private, reversible test resources
 - aliases in notes instead of secrets
+- dedicated temporary-email accounts for risky lanes so destructive or messy tests do not contaminate durable researcher accounts
 
 ## Preflight
 
@@ -29,7 +30,7 @@ Stop and ask Ryushe if the flow requires payment, phone verification, public pos
 
 Use `/agent-email`.
 
-Prefer a bounty-platform or researcher email alias when it is applicable and already available. Use a disposable inbox when the alias is unavailable, not necessary for the test, or an isolated throwaway account is the right workflow, as long as the program does not explicitly prohibit disposable email.
+Prefer a bounty-platform or researcher email alias when it is applicable and already available. Use a disposable inbox when the alias is unavailable, not necessary for the test, all researcher aliases are leased, or an isolated throwaway account is the right workflow, as long as the program does not explicitly prohibit disposable email.
 
 Do not use a disposable inbox when the target requires a customer-provided tenant, SSO identity, pre-approved account, paid plan, phone/KYC identity, or the program explicitly bans disposable email. In those cases, stop and ask Ryushe for the approved account path or existing credential reference.
 
@@ -51,16 +52,20 @@ For Codex/Claude delegated work, it is acceptable for the agent to create a temp
 
 Some programs prefer or request a bounty-platform researcher email, such as `@bugcrowdninja.com`, instead of disposable inboxes. Use those aliases when they are available and fit the workflow; otherwise use an allowed temporary inbox.
 
-Use aliases shaped like:
+Current forwarding rules only cover these aliases:
 
 ```text
-ryushe+ai-<program>-a@bugcrowdninja.com
-ryushe+ai-<program>-b@bugcrowdninja.com
+ryushe+ai@bugcrowdninja.com
 ryushe+ai1@bugcrowdninja.com
 ryushe+ai2@bugcrowdninja.com
+ryushe+ai3@bugcrowdninja.com
+ryushe+ai@wearehackerone.com
+ryushe+ai1@wearehackerone.com
+ryushe+ai2@wearehackerone.com
+ryushe+ai3@wearehackerone.com
 ```
 
-Ryushe manages Gmail forwarding rules. Ghost should not create or edit forwarding filters. After signup/login actions, wait 10-15 seconds, then use `/gmail` to search the Ghost inbox for the program, alias, sender, and message purpose.
+Do not invent program-suffixed aliases such as `ryushe+ai-canva-a@bugcrowdninja.com` unless Ryushe says forwarding now supports them. Ryushe manages Gmail forwarding rules. Ghost should not create or edit forwarding filters. After signup/login actions, wait 10-15 seconds, then use `/gmail` to search the Ghost inbox for the program, alias, sender, and message purpose. If no message appears after that threshold, ask Ryushe whether he can see or resend the code.
 
 If a message is relayed, parse the relay text with:
 
@@ -117,6 +122,7 @@ The pointer may include:
 - account alias
 - email alias/reference
 - role and tenant/workspace relationship
+- intended lane or risk class, such as `read-only`, `idor-a`, `tenant-b`, `risky-delete`, `upload`, `invite`, or `cleanup-test`
 - Bitwarden item reference
 - created test resources
 - cleanup notes

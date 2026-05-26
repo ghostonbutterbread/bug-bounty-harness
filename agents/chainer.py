@@ -331,6 +331,10 @@ def _codex_develop_chain(finding: ChainFinding, source_path: Path, output_dir: P
     try:
         slug_title = slug(finding.title)
         report_path = output_dir / f"{finding.fid}_{slug_title}_report.md"
+        output_root = output_dir.resolve()
+        resolved_report_path = report_path.resolve()
+        if not resolved_report_path.is_relative_to(output_root):
+            return _empty_chain("Refusing to write chain report outside output directory")
         resolved_source = _resolve_source_file(source_path, finding.file_ref)
         source_ref_for_prompt = str(resolved_source) if resolved_source is not None else finding.file_ref
 
@@ -407,7 +411,18 @@ CRITICAL:
 '''.replace("    ", "", 1)
 
         result = subprocess.run(
-            ["codex", "exec", "-s", "danger-full-access", "--skip-git-repo-check", prompt],
+            [
+                "codex",
+                "exec",
+                "-s",
+                "workspace-write",
+                "--skip-git-repo-check",
+                "--cd",
+                str(source_path),
+                "--add-dir",
+                str(output_root),
+                prompt,
+            ],
             capture_output=True,
             text=True,
             timeout=300,
@@ -509,6 +524,7 @@ def _parse_markdown_report(report_text: str, finding: ChainFinding) -> dict:
     poc_raw = "\n".join(poc_lines).strip()
     poc_code = re.sub(r'^```code\s*$', "", poc_raw, flags=re.MULTILINE)
     poc_code = re.sub(r'^```$', "", poc_code, flags=re.MULTILINE).strip()
+    poc_is_placeholder = _is_placeholder_poc(poc_code)
 
     # Extract exploit scenario (text between headers)
     exploit_scenario = ""
@@ -542,11 +558,11 @@ def _parse_markdown_report(report_text: str, finding: ChainFinding) -> dict:
     hypothetical_prereq = ""
     hypoth_markers = ["requires prior", "needs prior", "xss first", "javascript execution first",
                       "depends on a separate", "separate exploit", "if we get xss"]
-    if any(m in lc for m in hypoth_markers) and not poc_code.strip():
+    if any(m in lc for m in hypoth_markers) or poc_is_placeholder:
         hypothetical_prereq = missing_link or "XSS or equivalent renderer JS execution (unconfirmed)"
 
     # chain_viable: has PoC and no missing link dependency
-    chain_viable = bool(poc_code.strip()) and not hypothetical_prereq
+    chain_viable = bool(poc_code.strip()) and not hypothetical_prereq and not poc_is_placeholder
 
     # Build notes from technical notes section
     notes = ""
@@ -585,6 +601,27 @@ def _empty_chain(reason: str) -> dict:
         "missing_link": reason, "hypothetical_prereq": "",
         "cvss_estimate": "", "severity_estimate": "UNKNOWN", "notes": "",
     }
+
+
+def _is_placeholder_poc(poc_code: str) -> bool:
+    normalized = re.sub(r"\s+", " ", poc_code.strip().lower())
+    if not normalized:
+        return False
+    placeholder_markers = (
+        "requires prior",
+        "needs prior",
+        "requires xss",
+        "needs xss",
+        "no poc",
+        "no real poc",
+        "not exploitable",
+        "placeholder",
+        "insert payload",
+        "todo",
+        "n/a",
+        "cannot be built",
+    )
+    return any(marker in normalized for marker in placeholder_markers)
 
 
 def _parse_text_fallback(text: str, finding: ChainFinding) -> dict:

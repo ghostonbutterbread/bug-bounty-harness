@@ -7,6 +7,7 @@ import json
 import shlex
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -429,7 +430,8 @@ def _campaign_run_id(value: str | None) -> str:
         if not run_id:
             raise SystemExit("run id must contain at least one letter or digit")
         return run_id[:120]
-    return f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{int(time.time())}"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"{timestamp}-{time.time_ns()}-{uuid.uuid4().hex[:8]}"
 
 
 def _flatten_query(values: Iterable[Iterable[str]]) -> tuple[str, ...]:

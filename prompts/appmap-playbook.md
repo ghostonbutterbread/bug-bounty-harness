@@ -2,17 +2,18 @@
 
 ## Overview
 
-Use AppMap as a static pre-runtime step: map the application, preserve evidence-backed artifacts, and generate focused brainstorm specs. Execution remains owned by `zero_day_team --brainstorm-spec` or `apk_team --brainstorm-spec`.
+Use AppMap as a static pre-runtime step: map the application, preserve evidence-backed artifacts, and generate focused brainstorm specs. Baseline mode builds reusable topology/posture artifacts; focus overlays turn selected baseline evidence into candidate chains and bounded agent packets. Execution remains owned by `zero_day_team --brainstorm-spec` or `apk_team --brainstorm-spec`.
 
 ## Decision Tree
 
 1. Resolve the local target directory and target-kind hint.
-2. Run static mapping with `agents/app_mapper.py`; do not launch the application.
-3. Review architecture, surfaces, flows, candidates, and rejected candidates.
-4. If a generated spec exists, validate it with the brainstorm spec parser.
-5. Report the artifact root and the highest-signal candidate chains.
-6. For promoted specs, use read-only handoff discovery, validation, and planning before runtime.
-7. Hand off to team runtime only on explicit user request.
+2. Run baseline mapping first when no compatible baseline exists, when the cache is stale, or when the user wants general posture.
+3. Run focus overlays from a compatible baseline when the user names a vulnerability class.
+4. Review architecture, baseline quality, coverage gaps, category plan, focus recommendations, candidates, and rejected candidates.
+5. If a generated spec exists, validate it with the brainstorm spec parser.
+6. Report the artifact root and the highest-signal candidate chains or triage categories.
+7. For promoted specs, use read-only handoff discovery, validation, and planning before runtime.
+8. Hand off to team runtime only on explicit user request.
 
 ## 1. Resolve Inputs
 
@@ -24,7 +25,10 @@ Required:
 Optional:
 
 - `target-kind`: use `auto` unless the user gives a specific kind such as `electron-exe`
-- `focus`: Phase 2 supports `rce`
+- `mode`: `baseline` for reusable posture mapping, `focus` for vulnerability overlays
+- `focus`: supports `baseline`, `rce`, and `renderer-content-trust`
+- `from-baseline`: existing AppMap baseline run root for focused overlays
+- `electronegativity-root`: controlled Electronegativity output directory to import as bounded Electron enrichment
 - `output-mode`: `standalone` for scratch runs, `canonical` for lane storage
 - `family` and `lane`: required for canonical storage
 - `shared-root`: optional canonical base; defaults to `~/Shared`
@@ -40,7 +44,26 @@ If the target path is missing or ambiguous, ask before running the mapper.
 
 ## 2. Run The Mapper
 
-Default command:
+Baseline posture command:
+
+```bash
+cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
+PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
+  python3 agents/app_mapper.py <program> <target_path> \
+  --target-kind auto \
+  --mode baseline
+```
+
+Electron baseline with controlled Electronegativity enrichment:
+
+```bash
+python3 agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
+  --target-kind electron-exe \
+  --mode baseline \
+  --electronegativity-root /home/ryushe/Shared/binaries/canva/exe/electronegativity/<controlled-run>
+```
+
+Default focused RCE command:
 
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
@@ -72,6 +95,15 @@ python3 agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/
   --lane exe
 ```
 
+Focus overlay from an existing baseline:
+
+```bash
+python3 agents/app_mapper.py canva \
+  --from-baseline ~/Shared/binaries/canva/exe/appmap/<baseline-run> \
+  --focus renderer-content-trust \
+  --write-specs
+```
+
 This writes the immutable AppMap run under:
 
 ```text
@@ -90,7 +122,18 @@ Inspect:
 
 - `target_profile.json`: detected kind, languages, frameworks, entrypoints
 - `architecture.md`: human summary and top candidates
+- `baseline/records.jsonl`: stable source/boundary/transform/sink/file/component/enrichment records
+- `baseline/relationships.jsonl`: stable relationship records
+- `baseline/quality_report.json`: file, entrypoint, component, record, relationship, enrichment, and focus-readiness checks
+- `baseline/coverage_gaps.jsonl`: dead zones, missing evidence, and map-repair hints
+- `baseline/posture_summary.md`: operator-readable baseline posture and recommended focus overlays
+- `baseline/category_plan.json`: broad security categories and next actions
+- `baseline/triage_hypotheses.jsonl`: category-level hypotheses, explicitly not findings
+- `baseline/focus_recommendations.jsonl`: ranked focus overlays with bounded baseline refs
+- `baseline/enrichments/electronegativity.json`: import summary when controlled Electronegativity output is attached
 - `surfaces.jsonl`: normalized source, boundary, transform, and sink evidence
+- `noise/filtered_surfaces.jsonl`: filtered evidence retained for audit/tuning; not used for normal candidate generation
+- `noise/summary.json`: counts by filter reason, kind, and noisy files so the noise meter can be tuned
 - `flows.jsonl`: source-to-sink chains
 - `candidates.jsonl`: hypotheses eligible for spec generation
 - `rejected_candidates.jsonl`: explicit reasons for discarded evidence
@@ -119,6 +162,9 @@ Packet schema contract:
 - `evidence`: exact source, boundary, optional transform, and sink items with file, line, snippet, confidence, and emitting `target_pack_keys`
 - `research`: optional candidate-scoped research with `technique_summaries` and cited `sources`; adapters preserve stable metadata as `appmap_research_technique_ids`, `appmap_research_source_ids`, and `appmap_research_citations`
 - `next_steps`
+- `ingestion_budget`: explicit packet limits and raw-artifact exclusions
+
+Packets must not include full baseline records, relationships, raw candidates, rejected candidates, or raw scanner findings. They should contain linked IDs, bounded snippets, nearby evidence, focus files, quality refs, gap refs, and a next validation question only.
 
 Strict linkage rules: every AppMap hypothesis must reference exactly one `appmap-C####` candidate; missing, duplicate, unknown, or multi-candidate evidence must fail before handoff. If a hypothesis has multiple suggested agents, write one packet per agent using the same candidate evidence.
 
@@ -136,6 +182,15 @@ Research module contract:
 - `web-fetch` performs no search engine scraping, no crawling, no target-app probing, and enforces bounded fetch size/timeouts.
 - Fetched pages become cited source records. Technique packs are accepted only from explicit JSON/JSONL research metadata; fetched prose/HTML is never transformed into a technique pack.
 - `research_manifest.json` must record provider, research mode/query, categories, `network_access`, source URLs, fetch status/errors, byte counts, content digests, validation status, and artifact paths so the run is replayable from saved artifacts.
+
+Electronegativity enrichment contract:
+
+- Import only controlled scanner output directories.
+- Prefer `inventory.json`, `hypotheses.jsonl`, and `electron-team-context.json`.
+- Do not ingest raw `findings.json` into baseline records or agent packets; summarize it as ignored.
+- Apply total, per-type, and per-file caps before writing enrichment rows.
+- Record imported/skipped/overflow counts in `baseline/enrichments/electronegativity.json` and `quality_report.json`.
+- Treat enrichment as scanner evidence, not a finding. Focus overlays or runtime proof must validate reachability and impact.
 
 ## 4. Promote Handoff Artifacts
 

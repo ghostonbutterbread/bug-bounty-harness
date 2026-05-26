@@ -9,8 +9,9 @@ Map a local application and forge focused brainstorm specs from source/boundary/
 ## Invocation
 
 ```text
-/appmap <program> <target_path> [--target-kind <kind>] [--focus rce] [--write-specs] [--output-mode standalone|canonical] [--family <family>] [--lane <lane>] [--promote-to-brainstorm]
+/appmap <program> <target_path> [--target-kind <kind>] [--mode baseline|focus] [--focus baseline|rce|renderer-content-trust] [--from-baseline <run_root>] [--write-specs] [--output-mode standalone|canonical] [--family <family>] [--lane <lane>] [--promote-to-brainstorm]
 /appmap <program> <target_path> --research-mode local|web|hybrid [--research-query WORD [WORD ...]] [--research-seed <path>] [--research-source-url <https-url>]
+/appmap <program> <target_path> --mode baseline [--electronegativity-root <controlled_run_dir>]
 /appmap --list-handoffs --brainstorm-root <brainstorm_root>
 /appmap --campaign-status --brainstorm-root <brainstorm_root>
 /appmap --validate-handoff <promoted_spec>
@@ -21,6 +22,8 @@ Examples:
 
 ```text
 /appmap canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --target-kind electron-exe --focus rce --write-specs
+/appmap canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --target-kind electron-exe --mode baseline
+/appmap canva --from-baseline ~/Shared/binaries/canva/exe/appmap/<baseline-run> --focus renderer-content-trust --write-specs
 /appmap canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --target-kind electron-exe --focus rce --write-specs --output-mode canonical --family binaries --lane exe
 /appmap demo /path/to/source --focus rce
 ```
@@ -44,11 +47,18 @@ Read the playbook before running the mapper:
 - **Agent contexts:** `{output}/agent_contexts/<hypothesis_id>-<candidate_id>-<agent_key>.json` when generated specs link hypotheses to candidates
 - **Run manifest:** `{output}/manifest.json`
 - **Run index:** `~/Shared/{family}/{program}/{lane}/appmap/index.jsonl` for canonical runs
+- **Baseline artifacts:** `{output}/baseline/records.jsonl`, `quality_report.json`, `coverage_gaps.jsonl`, `posture_summary.md`, `category_plan.json`, `triage_hypotheses.jsonl`, and `focus_recommendations.jsonl`
+- **Noise audit artifacts:** `{output}/noise/filtered_surfaces.jsonl` and `{output}/noise/summary.json`
+- **Electron enrichment summary:** `{output}/baseline/enrichments/electronegativity.json` when `--electronegativity-root` is provided
 
 ## Responsibilities
 
 - Run static AppMap against local source or extracted application code.
+- Support baseline mode as reusable pre-runtime topology/posture mapping. Baseline mode writes no focused vulnerability spec.
+- Support focused overlays, including `rce` and `renderer-content-trust`, over either the current scan or an explicit `--from-baseline` run root.
 - Preserve AppMap artifacts: profile, architecture, surfaces, flows, candidates, rejected candidates, and summary.
+- Preserve baseline artifacts: stable records, relationships, quality report, coverage gaps, posture/category triage, and focus recommendations.
+- Preserve filtered/noise evidence in `noise/` so operators can tune the noise meter without losing discarded leads.
 - Generate parser-valid brainstorm specs when `--write-specs` is requested and candidates exist.
 - Preserve candidate-isolated agent handoff contexts with only the linked map IDs, evidence snippets/files, active packs, and next steps.
 - Ensure each AppMap hypothesis links to exactly one `appmap-C####` candidate and write one context packet per suggested agent.
@@ -58,6 +68,8 @@ Read the playbook before running the mapper:
 - List, validate, and plan promoted handoffs with read-only CLI modes before runtime.
 - Do not overwrite existing `brainstorm/spec.md` unless the user explicitly chooses that filename and allows overwrite.
 - Keep packet `active_target_packs` candidate-evidence scoped so mixed targets do not leak unrelated framework context.
+- Keep agent packets bounded: linked IDs, snippets, focus files, quality refs, and gap refs only. Do not pass raw AppMap JSONL or raw scanner findings into agents.
+- Import controlled Electronegativity output only as bounded enrichment from structured `inventory.json`, `hypotheses.jsonl`, and `electron-team-context.json`. Raw `findings.json` stays on disk and is summarized as ignored.
 - Keep research no-network-by-default. Prefer `--research-mode local|web|hybrid` plus `--research-query WORD [WORD ...]`.
 - Use `--research-mode local` for local `--research-seed` artifacts. Use `--research-mode web` for explicit online source fetches without an extra online flag. Use `--research-mode hybrid` to process local seeds first and then explicit web sources only when `--research-online` and `--research-source-url` are present.
 - Treat `--research-provider`, `--research-online`, and `--research-source-url` compatibility carefully: old provider flags still work, but docs and new commands should prefer mode/query. Do not require `--research-online` with `--research-mode web`.
@@ -66,9 +78,28 @@ Read the playbook before running the mapper:
 
 ## Workflow
 
-1. Resolve `program`, `target_path`, `target-kind`, `focus`, and output root.
+1. Resolve `program`, `target_path`, `target-kind`, mode/focus, and output root.
 2. Confirm `target_path` is a local directory. Do not run the target application.
-3. Run:
+3. For a reusable baseline/posture map, run:
+
+```bash
+cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
+PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
+  python3 agents/app_mapper.py <program> <target_path> \
+  --target-kind auto \
+  --mode baseline
+```
+
+With controlled Electronegativity enrichment:
+
+```bash
+python3 agents/app_mapper.py <program> <target_path> \
+  --target-kind electron-exe \
+  --mode baseline \
+  --electronegativity-root <controlled-electronegativity-run-dir>
+```
+
+4. For focused RCE output, run:
 
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
@@ -76,6 +107,15 @@ PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   python3 agents/app_mapper.py <program> <target_path> \
   --target-kind auto \
   --focus rce \
+  --write-specs
+```
+
+For a focus overlay over an existing baseline:
+
+```bash
+python3 agents/app_mapper.py <program> \
+  --from-baseline <appmap-baseline-run-root> \
+  --focus renderer-content-trust \
   --write-specs
 ```
 
@@ -91,12 +131,12 @@ python3 agents/app_mapper.py <program> <target_path> \
   --lane <lane>
 ```
 
-4. Read `appmap_summary.md`, `architecture.md`, `manifest.json`, `candidates.jsonl`, `rejected_candidates.jsonl`, and generated `agent_contexts/*.json` when present.
-5. Validate generated specs with `agents.brainstorm_spec.parse_brainstorm_spec` when present.
-6. If research is requested, prefer `--research-mode local --research-query <terms> --research-seed <path>` for offline artifacts, or `--research-mode web --research-query <terms> --research-source-url <https-url>` for explicit online sources. Hybrid mode reads local seeds first and then fetches explicit HTTPS `--research-source-url` values only when `--research-online` is set; do not use search scraping, crawling, or target probing.
-7. Promote only on request with `--promote-to-brainstorm`. Canonical mode defaults to `{lane_root}/brainstorm`; standalone mode needs `--brainstorm-root`.
-8. For promoted specs, run `--list-handoffs`, `--validate-handoff`, or `--plan-handoff` as needed. These modes are read-only and must not write findings ledgers, raw map data, coverage, or reports.
-9. Report the output directory, manifest/index, candidate count, generated specs, promoted handoff paths when any, validation counts/errors, planned runtime command, research mode/query/provider/network status, and no-candidate reasons visible in rejected candidates.
+5. Read `appmap_summary.md`, `architecture.md`, `manifest.json`, baseline quality/posture artifacts, `candidates.jsonl`, `rejected_candidates.jsonl`, and generated `agent_contexts/*.json` when present.
+6. Validate generated specs with `agents.brainstorm_spec.parse_brainstorm_spec` when present.
+7. If research is requested, prefer `--research-mode local --research-query <terms> --research-seed <path>` for offline artifacts, or `--research-mode web --research-query <terms> --research-source-url <https-url>` for explicit online sources. Hybrid mode reads local seeds first and then fetches explicit HTTPS `--research-source-url` values only when `--research-online` is set; do not use search scraping, crawling, or target probing.
+8. Promote only on request with `--promote-to-brainstorm`. Canonical mode defaults to `{lane_root}/brainstorm`; standalone mode needs `--brainstorm-root`.
+9. For promoted specs, run `--list-handoffs`, `--validate-handoff`, or `--plan-handoff` as needed. These modes are read-only and must not write findings ledgers, raw map data, coverage, or reports.
+10. Report the output directory, manifest/index, baseline quality/readiness, candidate count, generated specs, promoted handoff paths when any, validation counts/errors, planned runtime command, research mode/query/provider/network status, and no-candidate reasons visible in rejected candidates.
 
 ## Promotion
 

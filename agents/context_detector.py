@@ -59,20 +59,6 @@ class ContextDetector:
                 reflected=True,
             )
 
-        if self._inside_tag(response_text, start_index, match_value):
-            if self._is_url_attribute(response_text, start_index, match_value):
-                context_type = ContextType.URL_PARAM
-            else:
-                context_type = ContextType.HTML_ATTRIBUTE
-            return InjectionContext(
-                type=context_type,
-                reflected_fragment=match_value,
-                surrounding_text=surrounding,
-                confidence=0.9,
-                location_hint=location_hint,
-                reflected=True,
-            )
-
         if self._inside_script(response_text, start_index):
             script_context = self._detect_script_subcontext(response_text, start_index)
             return InjectionContext(
@@ -90,6 +76,20 @@ class ContextDetector:
                 reflected_fragment=match_value,
                 surrounding_text=surrounding,
                 confidence=0.86,
+                location_hint=location_hint,
+                reflected=True,
+            )
+
+        if self._inside_tag(response_text, start_index, match_value):
+            if self._is_url_attribute(response_text, start_index, match_value):
+                context_type = ContextType.URL_PARAM
+            else:
+                context_type = ContextType.HTML_ATTRIBUTE
+            return InjectionContext(
+                type=context_type,
+                reflected_fragment=match_value,
+                surrounding_text=surrounding,
+                confidence=0.9,
                 location_hint=location_hint,
                 reflected=True,
             )
@@ -145,8 +145,11 @@ class ContextDetector:
 
     def _inside_tag(self, text: str, start: int, match_value: str) -> bool:
         left = text.rfind("<", 0, start)
+        previous_close = text.rfind(">", 0, start)
         right = text.find(">", start + len(match_value))
         if left == -1 or right == -1 or right - left > 400:
+            return False
+        if previous_close > left:
             return False
         if text[left:right].find("\n") != -1:
             return False

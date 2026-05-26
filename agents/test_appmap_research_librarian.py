@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from agents.brainstorm_spec import parse_brainstorm_spec
+from agents import appmap_research_librarian
 from agents.appmap_research_librarian import main, plan_appmap_command, validate_seed
 from agents.hunting_policy import policy_artifact_metadata, resolve_hunting_policy
 
@@ -70,6 +71,25 @@ def test_librarian_init_writes_campaign_artifacts(tmp_path: Path) -> None:
             ]
         )
     assert "Do not delete" in (campaign / "validated_research_seed.json").read_text(encoding="utf-8")
+
+
+def test_librarian_default_run_ids_do_not_collide(monkeypatch) -> None:
+    class FixedDateTime:
+        @classmethod
+        def now(cls, tz=None):
+            from datetime import datetime, timezone
+
+            return datetime(2026, 5, 23, 1, 30, 0, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(appmap_research_librarian, "datetime", FixedDateTime)
+    monkeypatch.setattr(appmap_research_librarian.time, "time_ns", lambda: 1234567890)
+
+    first = appmap_research_librarian._campaign_run_id(None)
+    second = appmap_research_librarian._campaign_run_id(None)
+
+    assert first != second
+    assert first.startswith("20260523T013000Z-1234567890-")
+    assert second.startswith("20260523T013000Z-1234567890-")
 
 
 def test_librarian_validate_seed_reports_counts_and_strict_errors(tmp_path: Path) -> None:

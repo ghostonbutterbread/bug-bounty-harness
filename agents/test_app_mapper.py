@@ -247,9 +247,15 @@ def test_app_mapper_filters_generated_js_and_caps_config_file_surfaces(tmp_path:
 
     noisy_surfaces = [surface for surface in result.surfaces if surface["file"] == "src/en.strings.js"]
     assert noisy_surfaces == []
+    retained_noise = [surface for surface in result.noise_surfaces if surface["file"] == "src/en.strings.js"]
+    assert retained_noise
+    assert {surface["filtered_reason"] for surface in retained_noise} == {"generated_or_noise_file"}
     stats_surfaces = [surface for surface in result.surfaces if surface["file"] == "dist/stats.json"]
     assert len(stats_surfaces) <= 1
     assert all(surface["kind"] == "config-file" for surface in stats_surfaces)
+    stats_noise = [surface for surface in result.noise_surfaces if surface["file"] == "dist/stats.json"]
+    assert stats_noise
+    assert {surface["filtered_reason"] for surface in stats_noise} == {"generated_or_noise_file"}
     package_config_surfaces = [
         surface
         for surface in result.surfaces
@@ -257,6 +263,38 @@ def test_app_mapper_filters_generated_js_and_caps_config_file_surfaces(tmp_path:
     ]
     assert len(package_config_surfaces) == 1
     assert package_config_surfaces[0]["line"] == 1
+    package_noise = [
+        surface
+        for surface in result.noise_surfaces
+        if surface["file"] == "package.json" and surface["kind"] == "config-file"
+    ]
+    assert package_noise
+    assert {surface["filtered_reason"] for surface in package_noise} == {"config_file_line_cap"}
+
+
+def test_write_artifacts_emits_filtered_noise_audit_artifacts(tmp_path: Path) -> None:
+    target = tmp_path / "noise-audit"
+    _write(target / "package.json", '{\n  "main": "main.js",\n  "scripts": {"start": "node main.js"}\n}\n')
+    _write(target / "src" / "en.strings.js", 'JSON.parse("{}"); deserialize(value); eval(value);\n')
+
+    result = map_application("noise audit", target, target_kind="node")
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="noise-audit-run",
+        write_specs=False,
+    )
+
+    noise_records = _jsonl(paths["noise_filtered_surfaces"])
+    noise_summary = json.loads(paths["noise_summary"].read_text(encoding="utf-8"))
+    manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+
+    assert noise_records
+    assert noise_summary["filtered_surface_count"] == len(noise_records)
+    assert noise_summary["by_reason"]["generated_or_noise_file"] >= 1
+    assert manifest["artifacts"]["noise_filtered_surfaces"] == "noise/filtered_surfaces.jsonl"
+    assert manifest["artifacts"]["noise_summary"] == "noise/summary.json"
+    assert manifest["counts"]["noise_filtered_surfaces"] == len(noise_records)
 
 
 def test_app_mapper_avoids_lowercase_function_and_member_exec_false_positives(tmp_path: Path) -> None:
@@ -378,6 +416,456 @@ subprocess.run(config_path, shell=True)
     ]
     assert surfaces
     assert candidates
+
+
+def test_write_artifacts_emits_baseline_scaffolding_for_existing_rce_runs(tmp_path: Path) -> None:
+    result = _one_candidate_result(tmp_path)
+
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="baseline-scaffold-run",
+        write_specs=True,
+    )
+
+    assert paths["baseline_records"].is_file()
+    assert paths["baseline_relationships"].is_file()
+    assert paths["baseline_quality_report"].is_file()
+    assert paths["baseline_coverage_gaps"].is_file()
+    assert paths["baseline_posture_summary"].is_file()
+    assert paths["baseline_category_plan"].is_file()
+    assert paths["baseline_triage_hypotheses"].is_file()
+    assert paths["baseline_focus_recommendations"].is_file()
+    records = _jsonl(paths["baseline_records"])
+    relationships = _jsonl(paths["baseline_relationships"])
+    quality = json.loads(paths["baseline_quality_report"].read_text(encoding="utf-8"))
+    category_plan = json.loads(paths["baseline_category_plan"].read_text(encoding="utf-8"))
+    focus_recommendations = _jsonl(paths["baseline_focus_recommendations"])
+    manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+
+    assert any(record["record_type"] == "source" for record in records)
+    assert any(record["record_type"] == "sink" for record in records)
+    assert relationships
+    assert "file_scan_coverage" in quality["coverage"]
+    assert "relationship_coverage" in quality["coverage"]
+    assert quality["focus_readiness"]["rce"]["status"] == "ready"
+    assert "auth-session-state" in quality["focus_readiness"]
+    assert "ssrf-network-fetch" in quality["focus_readiness"]
+    assert category_plan["categories"]
+    assert focus_recommendations
+    assert focus_recommendations[0]["rank"] == 1
+    assert any(row["focus"] == "rce" for row in focus_recommendations)
+    assert all("required_records" in row for row in focus_recommendations)
+    assert any(row["baseline_refs"] for row in focus_recommendations)
+    assert any(row["baseline_refs"] for row in _jsonl(paths["baseline_triage_hypotheses"]))
+    assert manifest["artifacts"]["baseline_records"] == "baseline/records.jsonl"
+    assert manifest["artifacts"]["baseline_focus_recommendations"] == "baseline/focus_recommendations.jsonl"
+    assert manifest["artifacts"]["baseline_sources"] == "baseline/sources.jsonl"
+    assert manifest["counts"]["baseline_records"] == len(records)
+    assert manifest["counts"]["baseline_relationships"] == len(relationships)
+    assert manifest["counts"]["baseline_focus_recommendations"] == len(focus_recommendations)
+
+
+def test_electronegativity_import_is_bounded_and_summary_first(tmp_path: Path) -> None:
+    target = tmp_path / "electron-enriched"
+    enrichment_root = tmp_path / "electronegativity"
+    _write(target / "package.json", '{"main":"src/main.js","dependencies":{"electron":"^30.0.0"}}')
+    _write(
+        target / "src" / "main.js",
+        """
+const { ipcMain } = require("electron");
+ipcMain.handle("ping", async () => "pong");
+""".strip(),
+    )
+    inventory = {
+        "records": [
+            {
+                "component_type": "renderer_sink",
+                "name": f"innerHTML-{index}",
+                "file": str(target / "src" / "renderer.js"),
+                "line": index + 1,
+                "description": "innerHTML sink",
+                "confidence": 0.7,
+            }
+            for index in range(4)
+        ]
+    }
+    _write(enrichment_root / "inventory.json", json.dumps(inventory))
+    _write(
+        enrichment_root / "hypotheses.jsonl",
+        "\n".join(
+            json.dumps(
+                {
+                    "hypothesis": "route input may reach innerHTML",
+                    "sink": {"file": str(target / "src" / "renderer.js"), "line": 25},
+                    "confidence": 0.65,
+                }
+            )
+            for _ in range(2)
+        )
+        + "\n",
+    )
+    _write(enrichment_root / "findings.json", json.dumps({"large": ["raw"] * 100}))
+
+    assert app_mapper_main(
+        [
+            "electron enriched",
+            str(target),
+            "--mode",
+            "baseline",
+            "--electronegativity-root",
+            str(enrichment_root),
+            "--enrichment-record-limit",
+            "3",
+            "--enrichment-per-type-limit",
+            "2",
+            "--output-root",
+            str(tmp_path / "out"),
+            "--run-id",
+            "electronegativity-enrichment-run",
+        ]
+    ) == 0
+
+    run_root = tmp_path / "out" / "appmap" / "electronegativity-enrichment-run"
+    records = _jsonl(run_root / "baseline" / "records.jsonl")
+    enrichment_summary = json.loads((run_root / "baseline" / "enrichments" / "electronegativity.json").read_text())
+    quality = json.loads((run_root / "baseline" / "quality_report.json").read_text())
+    manifest = json.loads((run_root / "manifest.json").read_text())
+
+    imported = [record for record in records if record.get("source_tool") == "electronegativity"]
+    assert imported
+    assert all(record["record_type"] == "scanner_enrichment" for record in imported)
+    assert len(imported) == 3
+    assert enrichment_summary["records_imported"] == 3
+    assert enrichment_summary["overflow_count"] > 0
+    assert enrichment_summary["ignored_files"][0]["path"] == "findings.json"
+    assert quality["coverage"]["enrichment_coverage"]["status"] == "pass"
+    assert quality["coverage"]["enrichment_coverage"]["overflow_count"] == enrichment_summary["overflow_count"]
+    assert manifest["artifacts"]["baseline_electronegativity_enrichment"] == "baseline/enrichments/electronegativity.json"
+    assert manifest["counts"]["baseline_scanner_enrichments"] == 3
+
+
+def test_focus_recommendations_change_with_app_shape(tmp_path: Path) -> None:
+    electron = tmp_path / "electron-shape"
+    node = tmp_path / "node-shape"
+    _write(electron / "package.json", '{"main":"src/main.js","dependencies":{"electron":"^30.0.0"}}')
+    _write(electron / "src" / "main.js", 'const { ipcMain } = require("electron"); ipcMain.handle("x", () => "x");')
+    _write(
+        node / "runner.js",
+        """
+const fs = require("fs");
+const child_process = require("child_process");
+const config = JSON.parse(fs.readFileSync("project.json", "utf8"));
+child_process.exec(config.command);
+""".strip(),
+    )
+
+    electron_paths = write_artifacts(
+        map_application("electron shape", electron, target_kind="auto", focus="baseline"),
+        output_root=tmp_path / "electron-out",
+        run_id="electron-shape-run",
+        write_specs=False,
+    )
+    node_paths = write_artifacts(
+        map_application("node shape", node, target_kind="node"),
+        output_root=tmp_path / "node-out",
+        run_id="node-shape-run",
+        write_specs=False,
+    )
+    electron_recs = _jsonl(electron_paths["baseline_focus_recommendations"])
+    node_recs = _jsonl(node_paths["baseline_focus_recommendations"])
+
+    assert electron_recs[0]["focus"] == "renderer-content-trust"
+    assert node_recs[0]["focus"] == "rce"
+
+
+def test_baseline_focus_alias_is_preruntime_and_writes_no_focus_spec(tmp_path: Path) -> None:
+    target = tmp_path / "electron-baseline"
+    _write(
+        target / "package.json",
+        """
+{
+  "main": "src/main.js",
+  "dependencies": {"electron": "^30.0.0"}
+}
+""".strip(),
+    )
+    _write(
+        target / "src" / "main.js",
+        """
+const { ipcMain } = require("electron");
+ipcMain.handle("ping", async () => "pong");
+""".strip(),
+    )
+
+    result = map_application("baseline target", target, target_kind="auto", focus="baseline")
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="baseline-only-run",
+        write_specs=True,
+    )
+
+    assert result.focus == "baseline"
+    assert result.flows == []
+    assert result.candidates == []
+    assert "spec" not in paths
+    assert "rce_spec" not in paths
+    assert paths["baseline_records"].is_file()
+    quality = json.loads(paths["baseline_quality_report"].read_text(encoding="utf-8"))
+    assert quality["minimum_focus_ready"] is True
+    assert any(row["record_type"] == "source" for row in _jsonl(paths["baseline_records"]))
+
+
+def test_focus_overlay_from_baseline_inherits_quality_and_bounded_refs(tmp_path: Path) -> None:
+    target = tmp_path / "electron-from-baseline"
+    _write(
+        target / "package.json",
+        """
+{
+  "main": "src/main.js",
+  "dependencies": {"electron": "^30.0.0"}
+}
+""".strip(),
+    )
+    _write(
+        target / "src" / "main.js",
+        """
+const { ipcMain } = require("electron");
+const fs = require("fs");
+const path = require("path");
+const child_process = require("child_process");
+ipcMain.handle("run", async () => {
+  const configPath = path.join(process.cwd(), "project.json");
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  return child_process.exec(config.command);
+});
+""".strip(),
+    )
+    baseline_result = map_application("baseline target", target, target_kind="auto", focus="baseline")
+    baseline_paths = write_artifacts(
+        baseline_result,
+        output_root=tmp_path / "baseline-out",
+        run_id="baseline-context-run",
+        write_specs=False,
+    )
+
+    assert app_mapper_main(
+        [
+            "baseline target",
+            "--from-baseline",
+            str(baseline_paths["run_root"]),
+            "--output-root",
+            str(tmp_path / "focus-out"),
+            "--run-id",
+            "focus-from-baseline",
+            "--write-specs",
+        ]
+    ) == 0
+
+    run_root = tmp_path / "focus-out" / "appmap" / "focus-from-baseline"
+    manifest = json.loads((run_root / "manifest.json").read_text(encoding="utf-8"))
+    candidates = _jsonl(run_root / "candidates.jsonl")
+    agent_contexts = sorted((run_root / "agent_contexts").glob("*.json"))
+
+    assert manifest["input_baseline"]["run_root"] == str(baseline_paths["run_root"])
+    assert candidates
+    assert candidates[0]["baseline_refs"]
+    assert candidates[0]["baseline_quality_refs"]
+    assert agent_contexts
+    context = json.loads(agent_contexts[0].read_text(encoding="utf-8"))
+    assert context["candidate"]["baseline_refs"] == candidates[0]["baseline_refs"]
+    assert context["baseline_context"]["run_root"] == str(baseline_paths["run_root"])
+    assert context["ingestion_budget"]["raw_artifacts_excluded"]
+    assert len(context["candidate"]["baseline_refs"]) <= context["ingestion_budget"]["baseline_ref_limit"]
+    assert len(context["candidate"]["baseline_quality_refs"]) <= context["ingestion_budget"]["quality_ref_limit"]
+    assert len(context["candidate"]["baseline_gap_refs"]) <= context["ingestion_budget"]["gap_ref_limit"]
+    assert len(context["focus_files"]) <= context["ingestion_budget"]["focus_file_limit"]
+    for evidence in context["evidence"].values():
+        if evidence is not None:
+            assert len(evidence["snippet"]) <= context["ingestion_budget"]["snippet_limit"]
+
+
+def test_focus_overlay_from_baseline_rejects_missing_required_artifacts(tmp_path: Path) -> None:
+    run_root = tmp_path / "broken-baseline"
+    baseline_root = run_root / "baseline"
+    baseline_root.mkdir(parents=True)
+    (run_root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "program": "broken target",
+                "focus": "baseline",
+                "target_path": str(tmp_path),
+                "target_kind": "auto",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="required baseline artifact not found"):
+        app_mapper_main(["broken target", str(tmp_path), "--from-baseline", str(run_root)])
+
+
+def test_focus_overlay_from_baseline_rejects_mismatched_target_path(tmp_path: Path) -> None:
+    first_target = tmp_path / "first-target"
+    second_target = tmp_path / "second-target"
+    _write(first_target / "package.json", '{"main":"src/main.js","dependencies":{"electron":"^30.0.0"}}')
+    _write(first_target / "src" / "main.js", 'const { ipcMain } = require("electron"); ipcMain.handle("x", () => "x");')
+    _write(second_target / "package.json", '{"main":"src/main.js","dependencies":{"electron":"^30.0.0"}}')
+    _write(second_target / "src" / "main.js", 'const { ipcMain } = require("electron"); ipcMain.handle("y", () => "y");')
+    baseline_result = map_application("baseline target", first_target, target_kind="auto", focus="baseline")
+    baseline_paths = write_artifacts(
+        baseline_result,
+        output_root=tmp_path / "baseline-out",
+        run_id="baseline-context-run",
+        write_specs=False,
+    )
+
+    with pytest.raises(SystemExit, match="does not match requested target_path"):
+        app_mapper_main(["baseline target", str(second_target), "--from-baseline", str(baseline_paths["run_root"])])
+
+
+def test_renderer_content_trust_focus_builds_candidate_and_spec(tmp_path: Path) -> None:
+    target = tmp_path / "renderer-content-target"
+    _write(target / "package.json", '{"main":"src/main.js","dependencies":{"electron":"^30.0.0"}}')
+    _write(
+        target / "src" / "main.js",
+        """
+const { BrowserWindow, ipcMain } = require("electron");
+const win = new BrowserWindow({ webPreferences: { preload: "preload.js" } });
+ipcMain.handle("render-html", async (_event, html) => {
+  return win.webContents.executeJavaScript(`document.body.innerHTML = ${JSON.stringify(html)}`);
+});
+""".strip(),
+    )
+
+    result = map_application("renderer target", target, target_kind="auto", focus="renderer-content-trust")
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="renderer-focus-run",
+        write_specs=True,
+    )
+
+    assert result.candidates
+    assert result.candidates[0]["sink"]["kind"] in {"renderer-code-execution", "html-injection"}
+    assert paths["renderer_content_trust_spec"].is_file()
+    spec = parse_brainstorm_spec(paths["renderer_content_trust_spec"])
+    assert spec.metadata["AppMap run id"] == "renderer-focus-run"
+    assert any("renderer-content-trust" in hypothesis.tags for hypothesis in spec.hypotheses)
+
+
+def test_electron_baseline_links_main_to_configured_preload(tmp_path: Path) -> None:
+    target = tmp_path / "electron-preload-link"
+    _write(target / "package.json", '{"main":"src/main.js","dependencies":{"electron":"^30.0.0"}}')
+    _write(
+        target / "src" / "main.js",
+        """
+const { BrowserWindow, app } = require("electron");
+app.whenReady().then(() => {
+  new BrowserWindow({ webPreferences: { preload: "preload.js" } });
+});
+""".strip(),
+    )
+    _write(
+        target / "src" / "preload.js",
+        """
+const { contextBridge } = require("electron");
+contextBridge.exposeInMainWorld("api", {});
+""".strip(),
+    )
+
+    paths = write_artifacts(
+        map_application("preload link", target, target_kind="auto", focus="baseline"),
+        output_root=tmp_path / "out",
+        run_id="preload-link-run",
+        write_specs=False,
+    )
+    records = _jsonl(paths["baseline_records"])
+    relationships = _jsonl(paths["baseline_relationships"])
+    main_record = next(record for record in records if record["record_type"] == "entrypoint" and record["file"] == "src/main.js")
+    preload_record = next(record for record in records if record["record_type"] == "entrypoint" and record["file"] == "src/preload.js")
+
+    assert any(
+        relationship["from"] == main_record["id"]
+        and relationship["to"] == preload_record["id"]
+        and relationship["relationship_type"] == "configures_preload"
+        for relationship in relationships
+    )
+
+
+def test_renderer_focus_spec_has_explicit_baseline_evidence_refs(tmp_path: Path) -> None:
+    target = tmp_path / "renderer-baseline-evidence"
+    _write(target / "package.json", '{"main":"src/main.js","dependencies":{"electron":"^30.0.0"}}')
+    _write(
+        target / "src" / "main.js",
+        """
+const { BrowserWindow, ipcMain } = require("electron");
+const win = new BrowserWindow({ webPreferences: { preload: "preload.js" } });
+ipcMain.handle("render-html", async (_event, html) => {
+  return win.webContents.executeJavaScript(`document.body.innerHTML = ${JSON.stringify(html)}`);
+});
+""".strip(),
+    )
+    baseline_paths = write_artifacts(
+        map_application("renderer target", target, target_kind="auto", focus="baseline"),
+        output_root=tmp_path / "baseline-out",
+        run_id="renderer-baseline-run",
+        write_specs=False,
+    )
+
+    assert app_mapper_main(
+        [
+            "renderer target",
+            "--from-baseline",
+            str(baseline_paths["run_root"]),
+            "--focus",
+            "renderer-content-trust",
+            "--output-root",
+            str(tmp_path / "focus-out"),
+            "--run-id",
+            "renderer-focus-from-baseline",
+            "--write-specs",
+        ]
+    ) == 0
+
+    spec_text = (
+        tmp_path
+        / "focus-out"
+        / "appmap"
+        / "renderer-focus-from-baseline"
+        / "generated_specs"
+        / "renderer-content-trust-spec.md"
+    ).read_text(encoding="utf-8")
+    assert "baseline-ref:base-R" in spec_text
+    assert "baseline-quality:quality:" in spec_text
+
+
+def test_hunting_policy_preserves_baseline_context(tmp_path: Path) -> None:
+    result = _one_candidate_electron_app_entry_result(tmp_path)
+    result.baseline_context = {
+        "run_root": str(tmp_path / "baseline"),
+        "overall_quality": "usable",
+        "gap_refs": ["gap-G000001"],
+    }
+    policy = resolve_hunting_policy(
+        "auto",
+        target_kind=result.profile.target_kind,
+        target_path=result.profile.target_path,
+    )
+
+    paths = write_artifacts(
+        result,
+        output_root=tmp_path / "out",
+        run_id="policy-baseline-context-run",
+        write_specs=True,
+        hunting_policy=policy,
+    )
+    manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+    context = json.loads(paths["agent_context_c0001"].read_text(encoding="utf-8"))
+
+    assert manifest["input_baseline"]["overall_quality"] == "usable"
+    assert context["baseline_context"]["overall_quality"] == "usable"
 
 
 def test_app_mapper_default_generated_specs_use_category_master(tmp_path: Path) -> None:
@@ -2512,6 +3000,16 @@ def test_app_mapper_direct_hybrid_provider_stamps_hybrid_records(tmp_path: Path)
     assert research["manifest"]["provider"] == "hybrid"
     assert research["manifest"]["research_mode"] == "hybrid"
     assert research["sources"][0]["research_mode"] == "hybrid"
+
+    web_research = generate_research_artifacts(
+        result,
+        research_online=True,
+        research_provider="web-fetch",
+        source_urls=["https://research.example/hybrid"],
+        provider=WebFetchResearchProvider(opener=fake_open),
+    )
+
+    assert research["manifest"]["cache_key"] != web_research["manifest"]["cache_key"]
 
 
 def test_app_mapper_web_fetch_provider_records_failures_non_fatal(tmp_path: Path) -> None:

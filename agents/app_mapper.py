@@ -15,6 +15,7 @@ import shutil
 import shlex
 import sys
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -159,10 +160,25 @@ class MapResult:
     profile: TargetProfile
     focus: str = "rce"
     surfaces: list[dict[str, Any]] = field(default_factory=list)
+    noise_surfaces: list[dict[str, Any]] = field(default_factory=list)
     flows: list[dict[str, Any]] = field(default_factory=list)
     candidates: list[dict[str, Any]] = field(default_factory=list)
     rejected_candidates: list[dict[str, Any]] = field(default_factory=list)
     research: dict[str, Any] | None = None
+    baseline_context: dict[str, Any] | None = None
+    enrichment_records: list[dict[str, Any]] = field(default_factory=list)
+    enrichment_summary: dict[str, Any] | None = None
+
+
+@dataclass
+class BaselineContext:
+    run_root: Path
+    manifest: dict[str, Any]
+    records: list[dict[str, Any]]
+    relationships: list[dict[str, Any]]
+    quality_report: dict[str, Any]
+    coverage_gaps: list[dict[str, Any]]
+    category_plan: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -211,6 +227,15 @@ STATIC_CATEGORY_AGENT_KEYS = {
     "ipc-trust-boundary",
     "node-integration",
 }
+BASELINE_FOCUS = "baseline"
+ENRICHMENT_RECORD_LIMIT = 500
+ENRICHMENT_PER_TYPE_LIMIT = 120
+ENRICHMENT_PER_FILE_LIMIT = 80
+AGENT_PACKET_BASELINE_REF_LIMIT = 20
+AGENT_PACKET_QUALITY_REF_LIMIT = 8
+AGENT_PACKET_GAP_REF_LIMIT = 8
+AGENT_PACKET_FOCUS_FILE_LIMIT = 5
+AGENT_PACKET_SNIPPET_LIMIT = 240
 
 
 def _compile(pattern: str, *, ignore_case: bool = True) -> re.Pattern[str]:
@@ -453,6 +478,39 @@ PY_SINK_PATTERNS = [
         "privileged-local",
         "unknown",
         0.84,
+    ),
+]
+
+RENDERER_CONTENT_TRUST_SINK_PATTERNS = [
+    PatternSpec(
+        "electron-webcontents-execute-javascript",
+        _compile(r"\bwebContents\.executeJavaScript\s*\(", ignore_case=False),
+        "sink",
+        "renderer-code-execution",
+        "Electron webContents executes JavaScript in a renderer context",
+        "renderer",
+        "unknown",
+        0.86,
+    ),
+    PatternSpec(
+        "electron-load-url-or-file",
+        _compile(r"\b(?:webContents\.)?(?:loadURL|loadFile)\s*\(", ignore_case=False),
+        "sink",
+        "renderer-navigation",
+        "Electron renderer navigation or file loading sink",
+        "renderer",
+        "unknown",
+        0.76,
+    ),
+    PatternSpec(
+        "dom-html-injection",
+        _compile(r"\b(?:document|[\w$]+)\.(?:innerHTML|outerHTML|insertAdjacentHTML)\b|\bdangerouslySetInnerHTML\b", ignore_case=False),
+        "sink",
+        "html-injection",
+        "renderer HTML injection sink",
+        "renderer",
+        "unknown",
+        0.74,
     ),
 ]
 
@@ -699,6 +757,18 @@ def _rce_transform_patterns(path: Path) -> tuple[PatternSpec, ...]:
     return ()
 
 
+def _renderer_content_trust_sink_patterns(path: Path) -> tuple[PatternSpec, ...]:
+    if _js_like(path):
+        return tuple(RENDERER_CONTENT_TRUST_SINK_PATTERNS)
+    return ()
+
+
+def _renderer_content_trust_transform_patterns(path: Path) -> tuple[PatternSpec, ...]:
+    if _js_like(path):
+        return tuple(TRANSFORM_PATTERNS)
+    return ()
+
+
 def _active_target_packs(profile: TargetProfile | None) -> list[TargetPack]:
     if profile is None:
         return list(TARGET_PACKS.values())
@@ -875,6 +945,22 @@ def _register_builtin_packs() -> None:
             render_spec=lambda result, run_id: render_rce_spec(result, run_id=run_id),
         )
     )
+    register_vulnerability_pack(
+        VulnerabilityPack(
+            key="renderer-content-trust",
+            sink_patterns_for_file=_renderer_content_trust_sink_patterns,
+            transform_patterns_for_file=_renderer_content_trust_transform_patterns,
+            build_flows=lambda surfaces: build_focus_flows(
+                surfaces,
+                focus="renderer-content-trust",
+                question_template=(
+                    "Can lower-trust renderer or remote content influence "
+                    "the {sink_kind} sink across the {boundary_kind} boundary?"
+                ),
+            ),
+            render_spec=lambda result, run_id: render_focus_spec(result, run_id=run_id),
+        )
+    )
 
 
 def sanitize_key(value: str, *, fallback: str = "target") -> str:
@@ -946,9 +1032,21 @@ def classify_target(program: str, target_path: Path, target_kind: str = "auto") 
 
 
 def scan_surfaces(target_path: Path, *, focus: str = "rce", target_profile: TargetProfile | None = None) -> list[dict[str, Any]]:
+    surfaces, _noise_surfaces = scan_surface_sets(target_path, focus=focus, target_profile=target_profile)
+    return surfaces
+
+
+def scan_surface_sets(
+    target_path: Path,
+    *,
+    focus: str = "rce",
+    target_profile: TargetProfile | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     surfaces: list[dict[str, Any]] = []
+    noise_surfaces: list[dict[str, Any]] = []
     counters: dict[str, int] = {}
-    vuln_pack = VULNERABILITY_PACKS[focus]
+    noise_counters: dict[str, int] = {}
+    vuln_pack = None if focus == BASELINE_FOCUS else VULNERABILITY_PACKS[focus]
     target_packs = _active_target_packs(target_profile)
 
     def emit_surface(
@@ -958,37 +1056,45 @@ def scan_surfaces(target_path: Path, *, focus: str = "rce", target_profile: Targ
         rel: str,
         line_no: int,
         snippet: str,
+        destination: list[dict[str, Any]] = surfaces,
+        filtered_reason: str | None = None,
     ) -> None:
-        counters[spec.role] = counters.get(spec.role, 0) + 1
-        surface_id = f"{spec.role[:1].upper()}{counters[spec.role]:04d}"
-        surfaces.append(
-            {
-                "id": surface_id,
-                "role": spec.role,
-                "kind": spec.family,
-                "name": spec.name,
-                "description": spec.description,
-                "file": rel,
-                "line": line_no,
-                "snippet": snippet[:240],
-                "trust_level": spec.trust_level,
-                "attacker_control": spec.attacker_control,
-                "confidence": spec.confidence,
-                "target_pack_keys": list(target_pack_keys),
-            }
-        )
+        active_counters = noise_counters if filtered_reason else counters
+        active_counters[spec.role] = active_counters.get(spec.role, 0) + 1
+        prefix = "N" if filtered_reason else spec.role[:1].upper()
+        surface_id = f"{prefix}{active_counters[spec.role]:04d}"
+        surface = {
+            "id": surface_id,
+            "role": spec.role,
+            "kind": spec.family,
+            "name": spec.name,
+            "description": spec.description,
+            "file": rel,
+            "line": line_no,
+            "snippet": snippet[:240],
+            "trust_level": spec.trust_level,
+            "attacker_control": spec.attacker_control,
+            "confidence": spec.confidence,
+            "target_pack_keys": list(target_pack_keys),
+        }
+        if filtered_reason:
+            surface["filtered_reason"] = filtered_reason
+        destination.append(surface)
 
-    for path in iter_source_files(target_path):
-        if _generated_or_noise_surface_file(path):
-            continue
-        patterns: list[tuple[PatternSpec, tuple[str, ...]]] = []
+    def patterns_for_path(path: Path) -> list[tuple[PatternSpec, tuple[str, ...]]]:
+        collected: list[tuple[PatternSpec, tuple[str, ...]]] = []
         for pack in target_packs:
             for spec in pack.source_patterns_for_file(path):
-                patterns.append((spec, _surface_target_pack_keys(spec, pack.key)))
+                collected.append((spec, _surface_target_pack_keys(spec, pack.key)))
             for spec in pack.boundary_patterns_for_file(path):
-                patterns.append((spec, _surface_target_pack_keys(spec, pack.key)))
-        patterns.extend((spec, ()) for spec in vuln_pack.transform_patterns_for_file(path))
-        patterns.extend((spec, ()) for spec in vuln_pack.sink_patterns_for_file(path))
+                collected.append((spec, _surface_target_pack_keys(spec, pack.key)))
+        if vuln_pack is not None:
+            collected.extend((spec, ()) for spec in vuln_pack.transform_patterns_for_file(path))
+            collected.extend((spec, ()) for spec in vuln_pack.sink_patterns_for_file(path))
+        return collected
+
+    for path in iter_source_files(target_path):
+        patterns = patterns_for_path(path)
         if not patterns:
             continue
 
@@ -998,17 +1104,49 @@ def scan_surfaces(target_path: Path, *, focus: str = "rce", target_profile: Targ
             continue
 
         rel = path.relative_to(target_path).as_posix()
+        if _generated_or_noise_surface_file(path):
+            for line_no, line in enumerate(lines, start=1):
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                for spec, target_pack_keys in patterns:
+                    if not spec.regex.search(stripped):
+                        continue
+                    emit_surface(
+                        spec,
+                        target_pack_keys,
+                        rel=rel,
+                        line_no=line_no,
+                        snippet=stripped,
+                        destination=noise_surfaces,
+                        filtered_reason="generated_or_noise_file",
+                    )
+            continue
+
         if _config_like(path):
             remaining_patterns: list[tuple[PatternSpec, tuple[str, ...]]] = []
+            emitted_config_surface = False
             for spec, target_pack_keys in patterns:
                 if spec.name != CONFIG_FILE_SOURCE_PATTERN.name:
                     remaining_patterns.append((spec, target_pack_keys))
                     continue
                 for line_no, line in enumerate(lines, start=1):
                     stripped = line.strip()
-                    if stripped:
+                    if not stripped:
+                        continue
+                    if not emitted_config_surface:
                         emit_surface(spec, target_pack_keys, rel=rel, line_no=line_no, snippet=stripped)
-                        break
+                        emitted_config_surface = True
+                    else:
+                        emit_surface(
+                            spec,
+                            target_pack_keys,
+                            rel=rel,
+                            line_no=line_no,
+                            snippet=stripped,
+                            destination=noise_surfaces,
+                            filtered_reason="config_file_line_cap",
+                        )
             patterns = remaining_patterns
             if not patterns:
                 continue
@@ -1021,7 +1159,7 @@ def scan_surfaces(target_path: Path, *, focus: str = "rce", target_profile: Targ
                 if not spec.regex.search(stripped):
                     continue
                 emit_surface(spec, target_pack_keys, rel=rel, line_no=line_no, snippet=stripped)
-    return surfaces
+    return surfaces, noise_surfaces
 
 
 def _surface_target_pack_keys(spec: PatternSpec, emitting_pack_key: str) -> tuple[str, ...]:
@@ -1139,6 +1277,110 @@ def build_rce_flows(surfaces: list[dict[str, Any]]) -> tuple[list[dict[str, Any]
                 "question": (
                     "Can attacker-controlled input at the mapped source influence "
                     f"the {sink['kind']} sink across the {boundary['kind']} boundary?"
+                ),
+            }
+        )
+
+    candidates.sort(key=lambda item: (-float(item["score"]), str(item["id"])))
+    return flows, candidates, rejected
+
+
+def build_focus_flows(
+    surfaces: list[dict[str, Any]],
+    *,
+    focus: str,
+    question_template: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    by_file: dict[str, list[dict[str, Any]]] = {}
+    for surface in surfaces:
+        by_file.setdefault(str(surface["file"]), []).append(surface)
+
+    flows: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    flow_index = 1
+    candidate_index = 1
+    rejected_index = 1
+
+    for file_name, file_surfaces in sorted(by_file.items()):
+        sources = [item for item in file_surfaces if item["role"] == "source"]
+        boundaries = [item for item in file_surfaces if item["role"] == "boundary"]
+        transforms = [item for item in file_surfaces if item["role"] == "transform"]
+        sinks = [item for item in file_surfaces if item["role"] == "sink"]
+        if sinks and (not sources or not boundaries):
+            rejected.append(
+                {
+                    "id": f"R{rejected_index:04d}",
+                    "file": file_name,
+                    "sink_ids": [sink["id"] for sink in sinks],
+                    "reason": f"sink evidence lacks same-file source and trust boundary for {focus}",
+                }
+            )
+            rejected_index += 1
+        if sources and not sinks:
+            rejected.append(
+                {
+                    "id": f"R{rejected_index:04d}",
+                    "file": file_name,
+                    "source_ids": [source["id"] for source in sources],
+                    "reason": f"source or boundary evidence lacks same-file {focus} sink",
+                }
+            )
+            rejected_index += 1
+        if not sources or not boundaries or not sinks:
+            continue
+
+        chain = _best_ordered_chain(sources, boundaries, transforms, sinks)
+        if chain is None:
+            rejected.append(
+                {
+                    "id": f"R{rejected_index:04d}",
+                    "file": file_name,
+                    "source_ids": [source["id"] for source in sources],
+                    "boundary_ids": [boundary["id"] for boundary in boundaries],
+                    "sink_ids": [sink["id"] for sink in sinks],
+                    "reason": f"same-file evidence lacks ordered proximate or linked {focus} chain",
+                }
+            )
+            rejected_index += 1
+            continue
+
+        source, boundary, transform, sink, score = chain
+        flow_id = f"F{flow_index:04d}"
+        candidate_id = f"C{candidate_index:04d}"
+        flow_index += 1
+        candidate_index += 1
+        flow = {
+            "id": flow_id,
+            "source_id": source["id"],
+            "boundary_id": boundary["id"],
+            "transform_id": transform["id"] if transform else None,
+            "sink_id": sink["id"],
+            "file": file_name,
+            "chain": [
+                f"{source['kind']} source at {source['file']}:{source['line']}",
+                f"{boundary['kind']} boundary",
+                *([f"{transform['kind']} transform"] if transform else []),
+                f"{sink['kind']} sink at {sink['file']}:{sink['line']}",
+            ],
+            "confidence": score,
+        }
+        flows.append(flow)
+        candidates.append(
+            {
+                "id": candidate_id,
+                "flow_id": flow_id,
+                "surface_id": source["id"],
+                "source": source,
+                "boundary": boundary,
+                "transform": transform,
+                "sink": sink,
+                "score": score,
+                "priority": "high" if score >= 0.78 else "medium",
+                "question": question_template.format(
+                    source_kind=source["kind"],
+                    boundary_kind=boundary["kind"],
+                    sink_kind=sink["kind"],
                 ),
             }
         )
@@ -1265,13 +1507,19 @@ def map_application(
     hunting_policy: HuntingPolicy | dict[str, Any] | None = None,
 ) -> MapResult:
     profile = classify_target(program, target_path, target_kind=target_kind)
-    vuln_pack = VULNERABILITY_PACKS[focus]
-    surfaces = scan_surfaces(target_path, focus=focus, target_profile=profile)
-    flows, candidates, rejected = vuln_pack.build_flows(surfaces)
+    surfaces, noise_surfaces = scan_surface_sets(target_path, focus=focus, target_profile=profile)
+    if focus == BASELINE_FOCUS:
+        flows: list[dict[str, Any]] = []
+        candidates: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
+    else:
+        vuln_pack = VULNERABILITY_PACKS[focus]
+        flows, candidates, rejected = vuln_pack.build_flows(surfaces)
     result = MapResult(
         profile=profile,
         focus=focus,
         surfaces=surfaces,
+        noise_surfaces=noise_surfaces,
         flows=flows,
         candidates=candidates,
         rejected_candidates=rejected,
@@ -1322,6 +1570,955 @@ def resolve_output_root(
     return canonical_output_root(family=family, program=program, lane=lane, shared_root=shared_root)
 
 
+def build_baseline_records(result: MapResult) -> list[dict[str, Any]]:
+    """Return stable, bounded baseline records derived from AppMap evidence."""
+
+    records: list[dict[str, Any]] = []
+
+    def next_id() -> str:
+        return f"base-R{len(records) + 1:06d}"
+
+    seen_components: set[str] = set()
+    seen_files: set[str] = set()
+
+    for entrypoint in result.profile.entrypoints:
+        path = str(entrypoint.get("path") or entrypoint.get("name") or "").strip()
+        records.append(
+            {
+                "id": next_id(),
+                "record_type": "entrypoint",
+                "kind": str(entrypoint.get("kind") or "entrypoint"),
+                "name": path or str(entrypoint.get("kind") or "entrypoint"),
+                "file": path or None,
+                "line": None,
+                "snippet": "",
+                "trust_level": "unknown",
+                "attacker_control": "unknown",
+                "confidence": result.profile.confidence,
+                "target_pack_keys": [],
+                "source_tool": "appmap",
+                "source_ref": f"entrypoint:{path or len(records) + 1}",
+            }
+        )
+
+    for surface in sorted(result.surfaces, key=lambda item: (str(item.get("file", "")), int(item.get("line", 0)), str(item.get("id", "")))):
+        file_name = str(surface.get("file") or "")
+        if file_name:
+            seen_files.add(file_name)
+            component = str(Path(file_name).parent.as_posix())
+            if component and component != ".":
+                seen_components.add(component)
+        role = str(surface.get("role") or "record")
+        records.append(
+            {
+                "id": next_id(),
+                "record_type": role if role in {"source", "boundary", "transform", "sink"} else "surface",
+                "kind": surface.get("kind"),
+                "name": surface.get("name"),
+                "file": file_name or None,
+                "line": surface.get("line"),
+                "snippet": surface.get("snippet", ""),
+                "trust_level": surface.get("trust_level", "unknown"),
+                "attacker_control": surface.get("attacker_control", "unknown"),
+                "confidence": surface.get("confidence", 0.0),
+                "target_pack_keys": surface.get("target_pack_keys", []),
+                "source_tool": "appmap",
+                "source_ref": f"surface:{surface.get('id')}",
+            }
+        )
+
+    for component in sorted(seen_components):
+        records.append(
+            {
+                "id": next_id(),
+                "record_type": "component",
+                "kind": "directory",
+                "name": component,
+                "file": component,
+                "line": None,
+                "snippet": "",
+                "trust_level": "unknown",
+                "attacker_control": "unknown",
+                "confidence": 0.5,
+                "target_pack_keys": [],
+                "source_tool": "appmap",
+                "source_ref": f"component:{component}",
+            }
+        )
+
+    for file_name in sorted(seen_files):
+        records.append(
+            {
+                "id": next_id(),
+                "record_type": "file",
+                "kind": Path(file_name).suffix.lower().lstrip(".") or "file",
+                "name": file_name,
+                "file": file_name,
+                "line": None,
+                "snippet": "",
+                "trust_level": "unknown",
+                "attacker_control": "unknown",
+                "confidence": 0.5,
+                "target_pack_keys": [],
+                "source_tool": "appmap",
+                "source_ref": f"file:{file_name}",
+            }
+        )
+
+    for enrichment in result.enrichment_records:
+        record = dict(enrichment)
+        record.pop("id", None)
+        record.setdefault("record_type", "scanner_enrichment")
+        record.setdefault("source_tool", "electronegativity")
+        record.setdefault("target_pack_keys", ["electron"])
+        record["id"] = next_id()
+        records.append(record)
+
+    return records
+
+
+def build_noise_summary(result: MapResult) -> dict[str, Any]:
+    by_reason = Counter(str(surface.get("filtered_reason") or "unknown") for surface in result.noise_surfaces)
+    by_kind = Counter(str(surface.get("kind") or "unknown") for surface in result.noise_surfaces)
+    by_file = Counter(str(surface.get("file") or "unknown") for surface in result.noise_surfaces)
+    return {
+        "schema_version": 1,
+        "description": (
+            "Filtered AppMap surface evidence kept for audit/tuning. These records are "
+            "excluded from normal candidate generation unless a future run promotes them."
+        ),
+        "filtered_surface_count": len(result.noise_surfaces),
+        "primary_surface_count": len(result.surfaces),
+        "by_reason": dict(sorted(by_reason.items())),
+        "by_kind": dict(sorted(by_kind.items())),
+        "top_files": [
+            {"file": file_name, "count": count}
+            for file_name, count in by_file.most_common(25)
+        ],
+    }
+
+
+def build_baseline_relationships(result: MapResult, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_surface_ref = {str(record.get("source_ref")): record["id"] for record in records}
+    entrypoints = [record for record in records if record.get("record_type") == "entrypoint"]
+    records_by_file: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        file_name = str(record.get("file") or "")
+        if file_name:
+            records_by_file.setdefault(file_name, []).append(record)
+    relationships: list[dict[str, Any]] = []
+
+    def add_edge(source_id: str | None, target_id: str | None, relationship_type: str, confidence: float) -> None:
+        if not source_id or not target_id:
+            return
+        relationships.append(
+            {
+                "id": f"base-E{len(relationships) + 1:06d}",
+                "from": source_id,
+                "to": target_id,
+                "relationship_type": relationship_type,
+                "confidence": round(confidence, 2),
+                "source_tool": "appmap",
+            }
+        )
+
+    for flow in result.flows:
+        source_id = by_surface_ref.get(f"surface:{flow.get('source_id')}")
+        boundary_id = by_surface_ref.get(f"surface:{flow.get('boundary_id')}")
+        transform_id = by_surface_ref.get(f"surface:{flow.get('transform_id')}")
+        sink_id = by_surface_ref.get(f"surface:{flow.get('sink_id')}")
+        confidence = float(flow.get("confidence") or 0.0)
+        add_edge(source_id, boundary_id, "crosses", confidence)
+        if transform_id:
+            add_edge(boundary_id, transform_id, "transforms", confidence)
+            add_edge(transform_id, sink_id, "may_feed", confidence)
+        else:
+            add_edge(boundary_id, sink_id, "may_feed", confidence)
+    for entrypoint in entrypoints:
+        entrypoint_id = str(entrypoint.get("id") or "")
+        entrypoint_file = str(entrypoint.get("file") or "")
+        for record in records_by_file.get(entrypoint_file, []):
+            if record.get("id") != entrypoint_id:
+                add_edge(entrypoint_id, str(record.get("id") or ""), "contains_evidence", 0.7)
+    add_electron_preload_relationships(result, entrypoints, add_edge)
+    return relationships
+
+
+def add_electron_preload_relationships(
+    result: MapResult,
+    entrypoints: list[dict[str, Any]],
+    add_edge: Callable[[str | None, str | None, str, float], None],
+) -> None:
+    if "electron" not in result.profile.frameworks:
+        return
+    target_root = Path(result.profile.target_path)
+    entrypoint_by_file = {str(entrypoint.get("file") or ""): entrypoint for entrypoint in entrypoints}
+    preload_files = {
+        str(entrypoint.get("file") or "")
+        for entrypoint in entrypoints
+        if str(entrypoint.get("kind") or "") == "electron-preload"
+    }
+    if not preload_files:
+        return
+    for main_entrypoint in entrypoints:
+        if str(main_entrypoint.get("kind") or "") != "electron-main":
+            continue
+        main_file = str(main_entrypoint.get("file") or "")
+        main_path = target_root / main_file
+        try:
+            text = main_path.read_text(encoding="utf-8", errors="ignore")[:20000]
+        except OSError:
+            continue
+        for match in re.finditer(r"\bpreload\s*:\s*['\"`]([^'\"`]+)['\"`]", text):
+            preload_ref = match.group(1).strip()
+            normalized = _normalize_preload_ref(preload_ref, main_file)
+            preload_entrypoint = entrypoint_by_file.get(normalized)
+            if preload_entrypoint is None and Path(normalized).name in {Path(item).name for item in preload_files}:
+                preload_entrypoint = next(
+                    (entrypoint for entrypoint in entrypoints if Path(str(entrypoint.get("file") or "")).name == Path(normalized).name),
+                    None,
+                )
+            if preload_entrypoint is not None:
+                add_edge(
+                    str(main_entrypoint.get("id") or ""),
+                    str(preload_entrypoint.get("id") or ""),
+                    "configures_preload",
+                    0.82,
+                )
+
+
+def _normalize_preload_ref(preload_ref: str, main_file: str) -> str:
+    preload_path = Path(preload_ref)
+    if preload_path.is_absolute():
+        return preload_path.name
+    main_parent = Path(main_file).parent
+    if main_parent.as_posix() == ".":
+        return preload_path.as_posix()
+    return (main_parent / preload_path).as_posix()
+
+
+def build_baseline_quality_report(
+    result: MapResult,
+    records: list[dict[str, Any]],
+    relationships: list[dict[str, Any]],
+) -> dict[str, Any]:
+    record_counts: dict[str, int] = {}
+    for record in records:
+        key = str(record.get("record_type") or "unknown")
+        record_counts[key] = record_counts.get(key, 0) + 1
+    mapped_files = {str(record.get("file")) for record in records if record.get("file")}
+    mapped_file_count = len(mapped_files)
+    try:
+        eligible_files = [path for path in iter_source_files(Path(result.profile.target_path))]
+    except OSError:
+        eligible_files = []
+    eligible_file_count = len(eligible_files)
+    source_count = record_counts.get("source", 0)
+    boundary_count = record_counts.get("boundary", 0)
+    sink_count = record_counts.get("sink", 0)
+    relationship_count = len(relationships)
+    component_count = record_counts.get("component", 0)
+    source_tools = sorted({str(record.get("source_tool")) for record in records if record.get("source_tool")})
+    enrichment_summary = result.enrichment_summary or {}
+    enrichment_records = record_counts.get("scanner_enrichment", 0)
+    if enrichment_records:
+        enrichment_status = "pass"
+    elif "electron" in result.profile.frameworks:
+        enrichment_status = "missing"
+    else:
+        enrichment_status = "not_configured"
+    if not records:
+        overall = "failed"
+    elif source_count and boundary_count and relationship_count:
+        overall = "good"
+    elif source_count or boundary_count or sink_count:
+        overall = "usable"
+    else:
+        overall = "weak"
+    rce_status = "ready" if result.candidates else "usable" if source_count and boundary_count and sink_count else "weak"
+    return {
+        "schema_version": 1,
+        "overall_quality": overall,
+        "quality_score": round(
+            min(
+                1.0,
+                (0.2 if records else 0.0)
+                + min(source_count, 10) * 0.02
+                + min(boundary_count, 10) * 0.02
+                + min(sink_count, 10) * 0.02
+                + min(relationship_count, 10) * 0.03
+                + result.profile.confidence * 0.25,
+            ),
+            2,
+        ),
+        "minimum_focus_ready": overall in {"good", "usable"},
+        "coverage": {
+            "file_scan_coverage": {
+                "status": "pass" if eligible_file_count else "warn",
+                "eligible_files": eligible_file_count,
+                "mapped_files_with_records": mapped_file_count,
+                "ratio": round(mapped_file_count / max(eligible_file_count, 1), 3),
+            },
+            "entrypoint_coverage": {
+                "status": "pass" if result.profile.entrypoints else "warn",
+                "confidence": result.profile.confidence,
+                "entrypoints": len(result.profile.entrypoints),
+            },
+            "component_coverage": {
+                "status": "pass" if component_count else "warn",
+                "components": component_count,
+                "frameworks": result.profile.frameworks,
+            },
+            "record_coverage": {
+                "status": "pass" if records else "fail",
+                "records": len(records),
+                "record_types": record_counts,
+            },
+            "relationship_coverage": {
+                "status": "pass" if relationships else "warn",
+                "relationships": relationship_count,
+                "edges_per_record": round(relationship_count / max(len(records), 1), 3),
+            },
+            "enrichment_coverage": {
+                "status": enrichment_status,
+                "source_tools": source_tools,
+                "records": enrichment_records,
+                "overflow_count": int(enrichment_summary.get("overflow_count") or 0),
+                "skipped_count": int(enrichment_summary.get("skipped_count") or 0),
+                "read_files": enrichment_summary.get("read_files", []),
+                "ignored_files": enrichment_summary.get("ignored_files", []),
+            },
+        },
+        "checks": {
+            "file_coverage": {"status": "pass" if mapped_file_count else "warn", "mapped_files": mapped_file_count},
+            "entrypoint_detection": {
+                "status": "pass" if result.profile.entrypoints else "warn",
+                "confidence": result.profile.confidence,
+                "entrypoints": len(result.profile.entrypoints),
+            },
+            "framework_detection": {
+                "status": "pass" if result.profile.frameworks else "warn",
+                "frameworks": result.profile.frameworks,
+            },
+            "record_density": {"status": "pass" if records else "fail", "records": len(records), "record_types": record_counts},
+            "relationship_density": {
+                "status": "pass" if relationships else "warn",
+                "relationships": relationship_count,
+                "edges_per_record": round(relationship_count / max(len(records), 1), 3),
+            },
+        },
+        "focus_readiness": {
+            "rce": {
+                "status": rce_status,
+                "reason": "candidate chains present" if result.candidates else "baseline has partial source/boundary/sink evidence",
+            },
+            "renderer-content-trust": {
+                "status": "usable" if "electron" in result.profile.frameworks else "weak",
+                "reason": "Electron target detected" if "electron" in result.profile.frameworks else "no Electron renderer evidence imported yet",
+            },
+            "file-upload-import": {
+                "status": "weak",
+                "reason": "file import overlay not implemented in Phase 1",
+            },
+            "auth-session-state": {
+                "status": "weak",
+                "reason": "auth/session overlay not implemented in Phase 1",
+            },
+            "ssrf-network-fetch": {
+                "status": "weak",
+                "reason": "network fetch overlay not implemented in Phase 1",
+            },
+            "tenant-collaboration-boundary": {
+                "status": "weak",
+                "reason": "tenant/collaboration overlay not implemented in Phase 1",
+            },
+            "ai-content-trust": {
+                "status": "weak",
+                "reason": "AI content trust overlay not implemented in Phase 1",
+            },
+            "supply-chain-update": {
+                "status": "weak",
+                "reason": "supply-chain/update overlay not implemented in Phase 1",
+            },
+            "local-file-privacy": {
+                "status": "weak",
+                "reason": "local file/privacy overlay not implemented in Phase 1",
+            },
+        },
+    }
+
+
+def build_coverage_gaps(result: MapResult, records: list[dict[str, Any]], relationships: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    gaps: list[dict[str, Any]] = []
+
+    def add_gap(gap_type: str, path: str | None, reason: str, affected_focuses: list[str], recommended_repair: str, blocks_focus: bool) -> None:
+        gaps.append(
+            {
+                "id": f"gap-G{len(gaps) + 1:06d}",
+                "gap_type": gap_type,
+                "path": path,
+                "reason": reason,
+                "affected_focuses": affected_focuses,
+                "recommended_repair": recommended_repair,
+                "blocks_focus": blocks_focus,
+            }
+        )
+
+    if not result.profile.entrypoints:
+        add_gap(
+            "missing_entrypoint",
+            None,
+            "No explicit entrypoints were detected.",
+            ["entrypoint-and-boundary-inventory"],
+            "Inspect manifests or add target-pack entrypoint detection.",
+            False,
+        )
+    if records and not relationships:
+        add_gap(
+            "missing_relationships",
+            None,
+            "Baseline has records but no linked relationships.",
+            ["rce", "renderer-content-trust", "file-upload-import"],
+            "Run a focused overlay or add relationship builder coverage for this target kind.",
+            False,
+        )
+    if not records:
+        add_gap(
+            "low_signal_focus",
+            None,
+            "No baseline records were emitted.",
+            ["all"],
+            "Review scan extensions, target path, and target-pack detection.",
+            True,
+        )
+    return gaps
+
+
+def build_baseline_category_plan(
+    result: MapResult,
+    quality_report: dict[str, Any],
+    gaps: list[dict[str, Any]],
+) -> dict[str, Any]:
+    focus_readiness = quality_report.get("focus_readiness", {})
+    categories: list[dict[str, Any]] = []
+    for category, readiness in sorted(focus_readiness.items()):
+        status = str(readiness.get("status") or "weak")
+        categories.append(
+            {
+                "category": category,
+                "priority": "high" if status == "ready" else "medium" if status == "usable" else "low",
+                "readiness": status,
+                "reason": readiness.get("reason") or "",
+                "suggested_agent": f"{category}-triage",
+                "next_action": "run focused overlay" if status in {"ready", "usable"} else "repair baseline map first",
+            }
+        )
+    if result.profile.entrypoints:
+        categories.insert(
+            0,
+            {
+                "category": "entrypoint-and-boundary-inventory",
+                "priority": "medium",
+                "readiness": "usable",
+                "reason": f"{len(result.profile.entrypoints)} entrypoint(s) detected",
+                "suggested_agent": "entrypoint-boundary-triage",
+                "next_action": "sample entrypoint-to-boundary relationships",
+            },
+        )
+    return {
+        "schema_version": 1,
+        "overall_quality": quality_report.get("overall_quality"),
+        "gap_count": len(gaps),
+        "categories": categories,
+    }
+
+
+def build_baseline_triage_hypotheses(
+    category_plan: dict[str, Any],
+    records: list[dict[str, Any]],
+    gaps: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    hypotheses: list[dict[str, Any]] = []
+    for category in category_plan.get("categories", []):
+        category_name = str(category.get("category") or "")
+        baseline_refs = [
+            str(record["id"])
+            for record in records
+            if category_name in {"entrypoint-and-boundary-inventory", "renderer-content-trust", "rce"}
+            and record.get("record_type") in {"entrypoint", "source", "boundary", "sink"}
+        ][:20]
+        if not baseline_refs:
+            baseline_refs = [str(record["id"]) for record in records[:10]]
+        gap_refs = [
+            str(gap["id"])
+            for gap in gaps
+            if category_name in set(str(item) for item in gap.get("affected_focuses", [])) or "all" in gap.get("affected_focuses", [])
+        ][:10]
+        hypotheses.append(
+            {
+                "id": f"triage-H{len(hypotheses) + 1:04d}",
+                "category": category.get("category"),
+                "priority": category.get("priority"),
+                "readiness": category.get("readiness"),
+                "baseline_refs": baseline_refs,
+                "gap_refs": gap_refs,
+                "question": f"What does the baseline imply for {category.get('category')}?",
+                "expected_output": "category posture note, candidate focus recommendations, or map-repair request",
+                "not_a_finding": True,
+            }
+        )
+    return hypotheses
+
+
+def build_focus_recommendations(
+    quality_report: dict[str, Any],
+    category_plan: dict[str, Any],
+    gaps: list[dict[str, Any]],
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    recommendations: list[dict[str, Any]] = []
+    readiness_weight = {"ready": 90, "usable": 70, "weak": 35, "blocked": 10, "failed": 0}
+    priority_weight = {"high": 20, "medium": 10, "low": 0}
+    focus_readiness = quality_report.get("focus_readiness", {})
+    records_by_type: dict[str, list[str]] = {}
+    records_by_kind: dict[str, list[str]] = {}
+    for record in records:
+        record_id = str(record.get("id") or "")
+        if not record_id:
+            continue
+        records_by_type.setdefault(str(record.get("record_type") or ""), []).append(record_id)
+        records_by_kind.setdefault(str(record.get("kind") or ""), []).append(record_id)
+
+    def evidence_for_focus(focus: str) -> tuple[list[str], list[str]]:
+        if focus == "rce":
+            required = ["source", "boundary", "sink"]
+            refs = [
+                *records_by_type.get("source", [])[:6],
+                *records_by_type.get("boundary", [])[:6],
+                *records_by_type.get("sink", [])[:6],
+            ]
+        elif focus == "renderer-content-trust":
+            required = ["entrypoint", "source", "boundary"]
+            refs = [
+                *records_by_type.get("entrypoint", [])[:4],
+                *records_by_kind.get("ipc", [])[:6],
+                *records_by_kind.get("electron-boundary", [])[:6],
+                *records_by_type.get("boundary", [])[:4],
+            ]
+        elif focus == "file-upload-import":
+            required = ["source", "boundary", "file"]
+            refs = [*records_by_type.get("source", [])[:6], *records_by_type.get("file", [])[:8]]
+        elif focus == "local-file-privacy":
+            required = ["file", "source"]
+            refs = [*records_by_type.get("file", [])[:10], *records_by_type.get("source", [])[:6]]
+        else:
+            required = ["source", "boundary"]
+            refs = [*records_by_type.get("source", [])[:6], *records_by_type.get("boundary", [])[:6]]
+        return required, list(dict.fromkeys(refs))[:20]
+
+    for category in category_plan.get("categories", []):
+        focus = str(category.get("category") or "")
+        if focus == "entrypoint-and-boundary-inventory":
+            continue
+        readiness = str(category.get("readiness") or focus_readiness.get(focus, {}).get("status") or "weak")
+        priority = str(category.get("priority") or "low")
+        gap_refs = [
+            str(gap["id"])
+            for gap in gaps
+            if focus in set(str(item) for item in gap.get("affected_focuses", [])) or "all" in gap.get("affected_focuses", [])
+        ][:10]
+        required_records, baseline_refs = evidence_for_focus(focus)
+        score = (
+            readiness_weight.get(readiness, 0)
+            + priority_weight.get(priority, 0)
+            + min(len(baseline_refs), 10)
+            - min(len(gap_refs) * 5, 25)
+        )
+        if readiness in {"blocked", "failed"}:
+            next_action = "repair baseline before running overlay"
+        elif readiness in {"ready", "usable"}:
+            next_action = "run focused overlay"
+        else:
+            next_action = "collect or import more baseline evidence first"
+        recommendations.append(
+            {
+                "id": f"focus-R{len(recommendations) + 1:04d}",
+                "focus": focus,
+                "rank_score": max(score, 0),
+                "readiness": readiness,
+                "priority": priority,
+                "reason": category.get("reason") or focus_readiness.get(focus, {}).get("reason") or "",
+                "required_records": required_records,
+                "baseline_refs": baseline_refs,
+                "gap_refs": gap_refs,
+                "next_action": next_action,
+                "not_a_finding": True,
+            }
+        )
+    recommendations.sort(key=lambda item: (-int(item["rank_score"]), str(item["focus"])))
+    for index, item in enumerate(recommendations, start=1):
+        item["rank"] = index
+    return recommendations
+
+
+def render_baseline_posture_summary(
+    result: MapResult,
+    quality_report: dict[str, Any],
+    category_plan: dict[str, Any],
+    gaps: list[dict[str, Any]],
+    focus_recommendations: list[dict[str, Any]] | None = None,
+) -> str:
+    lines = [
+        f"# Baseline Posture Summary: {result.profile.program}",
+        "",
+        f"- Focus: {result.focus}",
+        f"- Overall quality: {quality_report.get('overall_quality')}",
+        f"- Quality score: {quality_report.get('quality_score')}",
+        f"- Records: {quality_report.get('checks', {}).get('record_density', {}).get('records', 0)}",
+        f"- Relationships: {quality_report.get('checks', {}).get('relationship_density', {}).get('relationships', 0)}",
+        f"- Coverage gaps: {len(gaps)}",
+        "",
+        "## Category Plan",
+        "",
+    ]
+    for category in category_plan.get("categories", []):
+        lines.append(
+            f"- {category['category']}: {category['readiness']} / {category['priority']} - {category['reason']}"
+        )
+    if focus_recommendations:
+        lines.extend(["", "## Recommended Focus Overlays", ""])
+        for recommendation in focus_recommendations[:8]:
+            lines.append(
+                f"- #{recommendation['rank']} {recommendation['focus']}: "
+                f"{recommendation['readiness']} / score {recommendation['rank_score']} - "
+                f"{recommendation['next_action']}"
+            )
+    if gaps:
+        lines.extend(["", "## Gaps", ""])
+        for gap in gaps:
+            lines.append(f"- {gap['id']} {gap['gap_type']}: {gap['reason']}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def import_electronegativity_enrichment(
+    root: Path,
+    *,
+    target_path: Path | None = None,
+    max_records: int = ENRICHMENT_RECORD_LIMIT,
+    per_type_limit: int = ENRICHMENT_PER_TYPE_LIMIT,
+    per_file_limit: int = ENRICHMENT_PER_FILE_LIMIT,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Import bounded Electronegativity records without loading raw findings into agent context."""
+
+    source_root = root.expanduser().resolve(strict=False)
+    if not source_root.is_dir():
+        raise ValueError(f"Electronegativity root must be an existing directory: {source_root}")
+    summary: dict[str, Any] = {
+        "schema_version": 1,
+        "source_tool": "electronegativity",
+        "input_root": str(source_root),
+        "records_imported": 0,
+        "skipped_count": 0,
+        "overflow_count": 0,
+        "by_record_type": {},
+        "by_file": {},
+        "read_files": [],
+        "ignored_files": [],
+    }
+    records: list[dict[str, Any]] = []
+    type_counts: dict[str, int] = {}
+    file_counts: dict[str, int] = {}
+
+    def allow(record_type: str, file_name: str | None) -> bool:
+        if len(records) >= max_records:
+            summary["overflow_count"] += 1
+            return False
+        if type_counts.get(record_type, 0) >= per_type_limit:
+            summary["overflow_count"] += 1
+            return False
+        if file_name and file_counts.get(file_name, 0) >= per_file_limit:
+            summary["overflow_count"] += 1
+            return False
+        return True
+
+    def add_record(payload: dict[str, Any], *, source_ref: str) -> None:
+        record_type = _electronegativity_record_type(payload)
+        file_name = _normalize_enrichment_path(payload.get("file") or payload.get("path") or payload.get("source_file"), target_path)
+        if not allow(record_type, file_name):
+            return
+        line = _safe_int(payload.get("line") or payload.get("line_no") or payload.get("start_line"))
+        snippet = str(payload.get("snippet") or payload.get("code") or payload.get("text") or payload.get("description") or "")[:240]
+        record = {
+            "record_type": "scanner_enrichment",
+            "kind": record_type,
+            "name": str(payload.get("name") or payload.get("id") or record_type),
+            "file": file_name,
+            "line": line,
+            "snippet": snippet,
+            "trust_level": str(payload.get("trust_level") or payload.get("trust") or "unknown"),
+            "attacker_control": str(payload.get("attacker_control") or payload.get("control") or "unknown"),
+            "confidence": _safe_float(payload.get("confidence"), default=0.5),
+            "target_pack_keys": ["electron"],
+            "source_tool": "electronegativity",
+            "source_ref": source_ref,
+        }
+        records.append(record)
+        type_counts[record_type] = type_counts.get(record_type, 0) + 1
+        if file_name:
+            file_counts[file_name] = file_counts.get(file_name, 0) + 1
+
+    inventory_path = source_root / "inventory.json"
+    if inventory_path.is_file():
+        summary["read_files"].append("inventory.json")
+        for index, item in enumerate(_iter_json_records(inventory_path), start=1):
+            if isinstance(item, dict):
+                add_record(item, source_ref=f"inventory:{index}")
+            else:
+                summary["skipped_count"] += 1
+
+    hypotheses_path = source_root / "hypotheses.jsonl"
+    if hypotheses_path.is_file():
+        summary["read_files"].append("hypotheses.jsonl")
+        for index, item in enumerate(_read_jsonl_objects(hypotheses_path), start=1):
+            add_record(_normalize_electronegativity_hypothesis(item), source_ref=f"hypothesis:{index}")
+
+    team_context_path = source_root / "electron-team-context.json"
+    if team_context_path.is_file():
+        summary["read_files"].append("electron-team-context.json")
+        for index, item in enumerate(_iter_json_records(team_context_path), start=1):
+            if isinstance(item, dict):
+                item = {**item, "type": item.get("type") or item.get("kind") or "electron_context"}
+                add_record(item, source_ref=f"electron-team-context:{index}")
+
+    findings_path = source_root / "findings.json"
+    if findings_path.is_file():
+        summary["ignored_files"].append(
+            {
+                "path": "findings.json",
+                "reason": "raw findings can be very large; use inventory/hypotheses/context summaries instead",
+                "size_bytes": findings_path.stat().st_size,
+            }
+        )
+
+    summary["records_imported"] = len(records)
+    summary["by_record_type"] = dict(sorted(type_counts.items()))
+    summary["by_file"] = dict(sorted(file_counts.items()))
+    return records, summary
+
+
+def _iter_json_records(path: Path) -> Iterable[Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if isinstance(payload, list):
+        for item in payload:
+            yield item
+    elif isinstance(payload, dict):
+        for key in ("records", "inventory", "items", "components", "findings", "hypotheses"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                for item in value:
+                    yield item
+                return
+        yield payload
+
+
+def _normalize_electronegativity_hypothesis(item: dict[str, Any]) -> dict[str, Any]:
+    source = item.get("source") if isinstance(item.get("source"), dict) else {}
+    sink = item.get("sink") if isinstance(item.get("sink"), dict) else {}
+    return {
+        "type": item.get("type") or item.get("kind") or "source_to_sink_hypothesis",
+        "name": item.get("name") or item.get("title") or item.get("hypothesis") or "Electronegativity hypothesis",
+        "file": item.get("file") or sink.get("file") or source.get("file"),
+        "line": item.get("line") or sink.get("line") or source.get("line"),
+        "description": item.get("description") or item.get("summary") or item.get("hypothesis") or "",
+        "confidence": item.get("confidence") or item.get("score"),
+        "trust_level": item.get("trust_level") or source.get("trust_level") or "unknown",
+        "attacker_control": item.get("attacker_control") or source.get("attacker_control") or "unknown",
+    }
+
+
+def _electronegativity_record_type(payload: dict[str, Any]) -> str:
+    raw = str(
+        payload.get("component_type")
+        or payload.get("record_type")
+        or payload.get("type")
+        or payload.get("kind")
+        or payload.get("category")
+        or "scanner_enrichment"
+    )
+    return sanitize_key(raw.replace("_", "-"), fallback="scanner-enrichment")
+
+
+def _normalize_enrichment_path(value: Any, target_path: Path | None) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    path = Path(text)
+    if path.is_absolute() and target_path is not None:
+        try:
+            return path.resolve(strict=False).relative_to(target_path.resolve(strict=False)).as_posix()
+        except ValueError:
+            return path.name
+    return path.as_posix()
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _safe_float(value: Any, *, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def load_baseline_context(run_root: Path) -> BaselineContext:
+    run_root = run_root.expanduser().resolve(strict=False)
+    baseline_root = run_root / "baseline"
+    manifest_path = run_root / "manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"baseline manifest not found: {manifest_path}")
+    if not baseline_root.is_dir():
+        raise FileNotFoundError(f"baseline artifact directory not found: {baseline_root}")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"baseline manifest is not valid JSON: {manifest_path}") from exc
+    if not isinstance(manifest, dict):
+        raise ValueError(f"baseline manifest must be a JSON object: {manifest_path}")
+
+    def read_required_json(path: Path) -> dict[str, Any]:
+        if not path.is_file():
+            raise FileNotFoundError(f"required baseline artifact not found: {path}")
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"baseline artifact is not valid JSON: {path}") from exc
+        if not isinstance(loaded, dict):
+            raise ValueError(f"baseline artifact must be a JSON object: {path}")
+        return loaded
+
+    def read_required_jsonl(path: Path) -> list[dict[str, Any]]:
+        if not path.is_file():
+            raise FileNotFoundError(f"required baseline artifact not found: {path}")
+        rows: list[dict[str, Any]] = []
+        for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"baseline artifact {path} has invalid JSON on line {line_no}") from exc
+            if not isinstance(payload, dict):
+                raise ValueError(f"baseline artifact {path} line {line_no} must be a JSON object")
+            rows.append(payload)
+        return rows
+
+    records = read_required_jsonl(baseline_root / "records.jsonl")
+    if not records:
+        raise ValueError(f"baseline records are empty: {baseline_root / 'records.jsonl'}")
+    quality_report = read_required_json(baseline_root / "quality_report.json")
+    if not quality_report.get("minimum_focus_ready", False):
+        raise ValueError(f"baseline quality is not focus-ready: {baseline_root / 'quality_report.json'}")
+
+    return BaselineContext(
+        run_root=run_root,
+        manifest=manifest,
+        records=records,
+        relationships=read_required_jsonl(baseline_root / "relationships.jsonl"),
+        quality_report=quality_report,
+        coverage_gaps=read_required_jsonl(baseline_root / "coverage_gaps.jsonl"),
+        category_plan=read_required_json(baseline_root / "category_plan.json"),
+    )
+
+
+def baseline_target_path(run_root: Path) -> str | None:
+    try:
+        context = load_baseline_context(run_root)
+    except (OSError, ValueError):
+        return None
+    value = str(context.manifest.get("target_path") or "").strip()
+    return value or None
+
+
+def validate_baseline_compatibility(
+    baseline: BaselineContext,
+    *,
+    program: str,
+    target_path: Path,
+    target_kind: str,
+    focus: str,
+) -> None:
+    baseline_program = str(baseline.manifest.get("program") or "").strip()
+    if baseline_program and sanitize_key(baseline_program) != sanitize_key(program):
+        raise ValueError(f"baseline program {baseline_program!r} does not match requested program {program!r}")
+    baseline_target = str(baseline.manifest.get("target_path") or "").strip()
+    if baseline_target:
+        baseline_resolved = Path(baseline_target).expanduser().resolve(strict=False)
+        if baseline_resolved != target_path:
+            raise ValueError(f"baseline target_path {baseline_resolved} does not match requested target_path {target_path}")
+    baseline_kind = str(baseline.manifest.get("target_kind") or "").strip()
+    if target_kind != "auto" and baseline_kind and baseline_kind != target_kind:
+        raise ValueError(f"baseline target_kind {baseline_kind!r} does not match requested target_kind {target_kind!r}")
+    if str(baseline.manifest.get("focus") or "") != BASELINE_FOCUS:
+        raise ValueError("--from-baseline requires a baseline-mode AppMap run")
+    focus_status = str(
+        baseline.quality_report.get("focus_readiness", {})
+        .get(focus, {})
+        .get("status", "")
+    )
+    if focus_status in {"blocked", "failed"}:
+        raise ValueError(f"baseline is not ready for focus {focus!r}: {focus_status}")
+
+
+def apply_baseline_context(result: MapResult, baseline: BaselineContext) -> None:
+    records_by_surface_ref: dict[tuple[str, str], str] = {}
+    for record in baseline.records:
+        source_ref = str(record.get("source_ref") or "")
+        record_id = str(record.get("id") or "")
+        if record_id and source_ref.startswith("surface:"):
+            records_by_surface_ref[(source_ref.removeprefix("surface:"), str(record.get("record_type") or ""))] = record_id
+    gap_refs = [str(gap.get("id")) for gap in baseline.coverage_gaps if gap.get("id")][:10]
+    quality_refs = ["quality:overall_quality"]
+    if baseline.quality_report.get("coverage"):
+        quality_refs.extend(f"quality:{key}" for key in sorted(baseline.quality_report["coverage"])[:6])
+
+    def refs_for_candidate(candidate: dict[str, Any]) -> list[str]:
+        pairs: list[tuple[str, str]] = []
+        for role in ("source", "boundary", "transform", "sink"):
+            item = candidate.get(role)
+            if isinstance(item, dict) and item.get("id"):
+                pairs.append((str(item["id"]), role))
+        refs = [records_by_surface_ref[pair] for pair in pairs if pair in records_by_surface_ref]
+        return refs[:20]
+
+    for candidate in result.candidates:
+        candidate["baseline_refs"] = refs_for_candidate(candidate)
+        candidate["baseline_quality"] = baseline.quality_report.get("overall_quality", "unknown")
+        candidate["baseline_quality_refs"] = quality_refs
+        candidate["baseline_gap_refs"] = gap_refs
+        candidate["baseline_run_root"] = str(baseline.run_root)
+
+    result.baseline_context = {
+        "run_root": str(baseline.run_root),
+        "run_id": baseline.manifest.get("run_id"),
+        "focus": baseline.manifest.get("focus"),
+        "overall_quality": baseline.quality_report.get("overall_quality", "unknown"),
+        "quality_score": baseline.quality_report.get("quality_score"),
+        "gap_refs": gap_refs,
+        "category_count": len(baseline.category_plan.get("categories", [])),
+        "records": len(baseline.records),
+        "relationships": len(baseline.relationships),
+    }
+
+
 def write_artifacts(
     result: MapResult,
     *,
@@ -1340,12 +2537,38 @@ def write_artifacts(
     run_root = appmap_root / safe_run_id
     if not run_root.resolve(strict=False).is_relative_to(appmap_root):
         raise ValueError(f"run_id {run_id!r} resolves outside output root")
+    baseline_root = run_root / "baseline"
+    baseline_enrichments = baseline_root / "enrichments"
+    noise_root = run_root / "noise"
     generated_specs = run_root / "generated_specs"
     run_root.mkdir(parents=True, exist_ok=True)
+    baseline_root.mkdir(parents=True, exist_ok=True)
+    baseline_enrichments.mkdir(parents=True, exist_ok=True)
+    noise_root.mkdir(parents=True, exist_ok=True)
     generated_specs.mkdir(parents=True, exist_ok=True)
 
     paths = {
         "run_root": run_root,
+        "baseline": baseline_root,
+        "baseline_enrichments": baseline_enrichments,
+        "noise": noise_root,
+        "noise_filtered_surfaces": noise_root / "filtered_surfaces.jsonl",
+        "noise_summary": noise_root / "summary.json",
+        "baseline_records": baseline_root / "records.jsonl",
+        "baseline_relationships": baseline_root / "relationships.jsonl",
+        "baseline_quality_report": baseline_root / "quality_report.json",
+        "baseline_coverage_gaps": baseline_root / "coverage_gaps.jsonl",
+        "baseline_posture_summary": baseline_root / "posture_summary.md",
+        "baseline_category_plan": baseline_root / "category_plan.json",
+        "baseline_triage_hypotheses": baseline_root / "triage_hypotheses.jsonl",
+        "baseline_focus_recommendations": baseline_root / "focus_recommendations.jsonl",
+        "baseline_components": baseline_root / "components.jsonl",
+        "baseline_trust_boundaries": baseline_root / "trust_boundaries.jsonl",
+        "baseline_sources": baseline_root / "sources.jsonl",
+        "baseline_transforms": baseline_root / "transforms.jsonl",
+        "baseline_sinks": baseline_root / "sinks.jsonl",
+        "baseline_files": baseline_root / "files.jsonl",
+        "baseline_electronegativity_enrichment": baseline_enrichments / "electronegativity.json",
         "target_profile": run_root / "target_profile.json",
         "architecture": run_root / "architecture.md",
         "surfaces": run_root / "surfaces.jsonl",
@@ -1373,9 +2596,45 @@ def write_artifacts(
     )
     paths["architecture"].write_text(render_architecture(result), encoding="utf-8")
     _write_jsonl(paths["surfaces"], result.surfaces)
+    _write_jsonl(paths["noise_filtered_surfaces"], result.noise_surfaces)
+    paths["noise_summary"].write_text(
+        json.dumps(build_noise_summary(result), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     _write_jsonl(paths["flows"], result.flows)
     _write_jsonl(paths["candidates"], result.candidates)
     _write_jsonl(paths["rejected_candidates"], result.rejected_candidates)
+    baseline_records = build_baseline_records(result)
+    baseline_relationships = build_baseline_relationships(result, baseline_records)
+    quality_report = build_baseline_quality_report(result, baseline_records, baseline_relationships)
+    coverage_gaps = build_coverage_gaps(result, baseline_records, baseline_relationships)
+    category_plan = build_baseline_category_plan(result, quality_report, coverage_gaps)
+    triage_hypotheses = build_baseline_triage_hypotheses(category_plan, baseline_records, coverage_gaps)
+    focus_recommendations = build_focus_recommendations(quality_report, category_plan, coverage_gaps, baseline_records)
+    _write_jsonl(paths["baseline_records"], baseline_records)
+    _write_jsonl(paths["baseline_relationships"], baseline_relationships)
+    paths["baseline_quality_report"].write_text(json.dumps(quality_report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_jsonl(paths["baseline_coverage_gaps"], coverage_gaps)
+    paths["baseline_category_plan"].write_text(json.dumps(category_plan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_jsonl(paths["baseline_triage_hypotheses"], triage_hypotheses)
+    _write_jsonl(paths["baseline_focus_recommendations"], focus_recommendations)
+    paths["baseline_posture_summary"].write_text(
+        render_baseline_posture_summary(result, quality_report, category_plan, coverage_gaps, focus_recommendations),
+        encoding="utf-8",
+    )
+    _write_jsonl(paths["baseline_components"], [record for record in baseline_records if record["record_type"] == "component"])
+    _write_jsonl(paths["baseline_trust_boundaries"], [record for record in baseline_records if record["record_type"] == "boundary"])
+    _write_jsonl(paths["baseline_sources"], [record for record in baseline_records if record["record_type"] == "source"])
+    _write_jsonl(paths["baseline_transforms"], [record for record in baseline_records if record["record_type"] == "transform"])
+    _write_jsonl(paths["baseline_sinks"], [record for record in baseline_records if record["record_type"] == "sink"])
+    _write_jsonl(paths["baseline_files"], [record for record in baseline_records if record["record_type"] == "file"])
+    if result.enrichment_summary is not None:
+        paths["baseline_electronegativity_enrichment"].write_text(
+            json.dumps(result.enrichment_summary, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    else:
+        paths.pop("baseline_electronegativity_enrichment", None)
     if result.research is not None:
         _write_research_artifacts(result.research, paths)
 
@@ -1477,6 +2736,9 @@ def _apply_hunting_policy_to_map_result(
         candidates=candidates,
         rejected_candidates=rejected,
         research=result.research,
+        baseline_context=result.baseline_context,
+        enrichment_records=result.enrichment_records,
+        enrichment_summary=result.enrichment_summary,
     )
 
 
@@ -1962,9 +3224,16 @@ def validate_run_id(run_id: str) -> str:
 
 
 def _write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def _jsonl_count(path: Path) -> int:
+    if not path.is_file():
+        return 0
+    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
 
 
 def _read_jsonl_objects(path: Path) -> Iterable[dict[str, Any]]:
@@ -2472,10 +3741,27 @@ def render_run_manifest(
             "target_profile",
             "architecture",
             "surfaces",
+            "noise_filtered_surfaces",
+            "noise_summary",
             "flows",
             "candidates",
             "rejected_candidates",
             "summary",
+            "baseline_records",
+            "baseline_relationships",
+            "baseline_quality_report",
+            "baseline_coverage_gaps",
+            "baseline_posture_summary",
+            "baseline_category_plan",
+            "baseline_triage_hypotheses",
+            "baseline_focus_recommendations",
+            "baseline_components",
+            "baseline_trust_boundaries",
+            "baseline_sources",
+            "baseline_transforms",
+            "baseline_sinks",
+            "baseline_files",
+            "baseline_electronegativity_enrichment",
             "spec",
             "agent_contexts",
             "research_manifest",
@@ -2498,15 +3784,24 @@ def render_run_manifest(
         "detected_kinds": result.profile.detected_kinds,
         "counts": {
             "surfaces": len(result.surfaces),
+            "noise_filtered_surfaces": len(result.noise_surfaces),
             "flows": len(result.flows),
             "candidates": len(result.candidates),
             "rejected_candidates": len(result.rejected_candidates),
+            "baseline_records": _jsonl_count(paths["baseline_records"]) if "baseline_records" in paths else 0,
+            "baseline_relationships": _jsonl_count(paths["baseline_relationships"]) if "baseline_relationships" in paths else 0,
+            "baseline_coverage_gaps": _jsonl_count(paths["baseline_coverage_gaps"]) if "baseline_coverage_gaps" in paths else 0,
+            "baseline_triage_hypotheses": _jsonl_count(paths["baseline_triage_hypotheses"]) if "baseline_triage_hypotheses" in paths else 0,
+            "baseline_focus_recommendations": _jsonl_count(paths["baseline_focus_recommendations"]) if "baseline_focus_recommendations" in paths else 0,
+            "baseline_scanner_enrichments": len(result.enrichment_records),
             "agent_contexts": len(list(paths["agent_contexts"].glob("*.json"))) if "agent_contexts" in paths else 0,
             "research_sources": len(result.research.get("sources", [])) if result.research else 0,
             "research_technique_packs": len(result.research.get("technique_packs", [])) if result.research else 0,
         },
         "artifacts": artifacts,
     }
+    if result.baseline_context:
+        manifest["input_baseline"] = result.baseline_context
     manifest = merge_policy_artifact_metadata(manifest, hunting_policy)
     effective_policy_config = str(Path(policy_config).expanduser()) if policy_config else policy_config_path_for_artifacts(hunting_policy)
     if effective_policy_config and manifest.get("hunting_policy_id"):
@@ -2688,6 +3983,101 @@ def render_rce_spec(
     )
 
 
+def render_focus_spec(
+    result: MapResult,
+    *,
+    run_id: str,
+    max_hypotheses: int = MAX_GENERATED_HYPOTHESES,
+) -> str:
+    program_slug = sanitize_key(result.profile.program)
+    created = datetime.now(timezone.utc).date().isoformat()
+    focus_slug = sanitize_key(result.focus, fallback="focus")
+    primitives: list[str] = []
+    hypotheses: list[str] = []
+    for index, candidate in enumerate(result.candidates[:max_hypotheses], start=1):
+        primitive_id = f"P{index:03d}"
+        hypothesis_id = f"H{index:03d}"
+        source = candidate["source"]
+        boundary = candidate["boundary"]
+        transform = candidate.get("transform")
+        sink = candidate["sink"]
+        agent_key = f"{focus_slug}-triage"
+        baseline_evidence = [f"  - baseline-ref:{ref}" for ref in candidate.get("baseline_refs", [])[:20]]
+        quality_evidence = [f"  - baseline-quality:{ref}" for ref in candidate.get("baseline_quality_refs", [])[:8]]
+        gap_evidence = [f"  - baseline-gap:{ref}" for ref in candidate.get("baseline_gap_refs", [])[:8]]
+        primitives.append(
+            "\n".join(
+                [
+                    f"### {primitive_id} - {sink['kind']} reachable from {source['kind']} evidence",
+                    f"- Source: {source['description']}",
+                    f"- Impact: lower-trust content may reach {sink['description']}",
+                    f"- Evidence: appmap-{candidate['id']}",
+                    "- Status: active",
+                ]
+            )
+        )
+        transform_text = f" -> {transform['kind']} transform" if transform else ""
+        focus_files = _focus_files_for_candidate(candidate)
+        hypotheses.append(
+            "\n".join(
+                [
+                    f"### {hypothesis_id} - {_title_case(source['kind'])} may influence {_title_case(sink['kind'])}",
+                    candidate["question"],
+                    "- Status: untested",
+                    f"- Priority: {candidate['priority']}",
+                    f"- Surface: appmap-{candidate['surface_id']}-{source['kind']}",
+                    f"- Entry point: {source['description']} ({source['trust_level']})",
+                    (
+                        f"- Expected chain: {source['kind']} source -> "
+                        f"{boundary['kind']} boundary{transform_text} -> {sink['kind']} sink"
+                    ),
+                    "- Suggested agents:",
+                    f"  - {agent_key}",
+                    "- Focus files:",
+                    *[f"  - {glob}" for glob in focus_files],
+                    f"- Tags: {focus_slug}, appmap, static, {source['kind']}, {sink['kind']}",
+                    "- Evidence:",
+                    f"  - appmap-{candidate['id']}",
+                    f"  - appmap-context:{hypothesis_id}:{candidate['id']}:{agent_key}",
+                    *baseline_evidence,
+                    *quality_evidence,
+                    *gap_evidence,
+                    f"  - surface-{candidate['surface_id']}",
+                    f"  - flow-{candidate['flow_id']}",
+                    (
+                        f"- Notes: AppMap run {run_id}; candidate {candidate['id']}; "
+                        f"flow {candidate['flow_id']}; baseline refs "
+                        f"{', '.join(candidate.get('baseline_refs', [])) or 'none'}."
+                    ),
+                ]
+            )
+        )
+
+    return (
+        f"# Brainstorm Spec: {result.profile.program} AppMap {result.focus}\n\n"
+        "## Metadata\n"
+        f"- Program: {program_slug}\n"
+        "- Family: appmap\n"
+        "- Lane: static\n"
+        f"- Target kind: {result.profile.target_kind}\n"
+        "- Target path: .\n"
+        f"- Created: {created}\n"
+        "- Status: active\n"
+        f"- AppMap run id: {run_id}\n\n"
+        "## Target mental model\n"
+        f"{_mental_model(result)}\n\n"
+        "## Impact primitives\n"
+        + "\n\n".join(primitives)
+        + "\n\n"
+        "## Hypotheses\n"
+        + "\n\n".join(hypotheses)
+        + "\n\n"
+        "## Coverage log\n"
+        "| Hypothesis | Agent | Status | Result | Linked FIDs | Run ID | Notes |\n"
+        "|---|---|---|---|---|---|---|\n"
+    )
+
+
 def write_agent_contexts(
     result: MapResult,
     *,
@@ -2762,6 +4152,12 @@ def render_agent_context(
     }
     if candidate.get("policy") is not None:
         candidate_payload["policy"] = candidate.get("policy")
+    if candidate.get("baseline_refs") is not None:
+        candidate_payload["baseline_refs"] = list(candidate.get("baseline_refs", []))[:AGENT_PACKET_BASELINE_REF_LIMIT]
+        candidate_payload["baseline_quality"] = candidate.get("baseline_quality", "unknown")
+        candidate_payload["baseline_quality_refs"] = list(candidate.get("baseline_quality_refs", []))[:AGENT_PACKET_QUALITY_REF_LIMIT]
+        candidate_payload["baseline_gap_refs"] = list(candidate.get("baseline_gap_refs", []))[:AGENT_PACKET_GAP_REF_LIMIT]
+        candidate_payload["baseline_run_root"] = candidate.get("baseline_run_root")
     context = {
         "schema_version": 1,
         "run_id": run_id,
@@ -2776,7 +4172,7 @@ def render_agent_context(
             **hypothesis_linkage,
             "spec_file": _relative_to(spec_path, run_root),
         },
-        "focus_files": _focus_files_for_candidate(candidate),
+        "focus_files": _focus_files_for_candidate(candidate)[:AGENT_PACKET_FOCUS_FILE_LIMIT],
         "evidence": {
             "source": _evidence_item(source),
             "boundary": _evidence_item(boundary),
@@ -2784,6 +4180,22 @@ def render_agent_context(
             "sink": _evidence_item(sink),
         },
         "research": _candidate_research_packet(result, candidate),
+        "ingestion_budget": {
+            "baseline_ref_limit": AGENT_PACKET_BASELINE_REF_LIMIT,
+            "quality_ref_limit": AGENT_PACKET_QUALITY_REF_LIMIT,
+            "gap_ref_limit": AGENT_PACKET_GAP_REF_LIMIT,
+            "focus_file_limit": AGENT_PACKET_FOCUS_FILE_LIMIT,
+            "snippet_limit": AGENT_PACKET_SNIPPET_LIMIT,
+            "raw_artifacts_excluded": [
+                "baseline/records.jsonl",
+                "baseline/relationships.jsonl",
+                "surfaces.jsonl",
+                "candidates.jsonl",
+                "rejected_candidates.jsonl",
+                "raw scanner findings",
+            ],
+        },
+        "baseline_context": result.baseline_context or {},
         "next_steps": [
             "Use only this packet's map IDs, evidence snippets, and focus files for the hypothesis.",
             "Trace source-to-boundary-to-sink control and data flow in the listed files.",
@@ -2887,7 +4299,7 @@ def _evidence_item(surface: dict[str, Any]) -> dict[str, Any]:
         "description": surface["description"],
         "file": surface["file"],
         "line": surface["line"],
-        "snippet": surface["snippet"],
+        "snippet": str(surface["snippet"])[:AGENT_PACKET_SNIPPET_LIMIT],
         "trust_level": surface["trust_level"],
         "attacker_control": surface["attacker_control"],
         "confidence": surface["confidence"],
@@ -3098,6 +4510,7 @@ def render_summary(
         f"- Target path: `{result.profile.target_path}`",
         f"- Output root: `{paths['run_root']}`",
         f"- Surfaces: {len(result.surfaces)}",
+        f"- Filtered/noise surfaces: {len(result.noise_surfaces)} (`{paths['noise_filtered_surfaces']}`)",
         f"- Flows: {len(result.flows)}",
         f"- Candidates: {len(result.candidates)}",
         f"- Rejected candidates: {len(result.rejected_candidates)}",
@@ -3180,7 +4593,44 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("program", nargs="?", help="Program name used in generated artifacts.")
     parser.add_argument("target_path", nargs="?", help="Local source tree, Electron app source, or extracted code path.")
     parser.add_argument("--target-kind", default="auto", type=_target_kind_arg, help="Target kind hint; defaults to auto.")
-    parser.add_argument("--focus", default="rce", choices=sorted(VULNERABILITY_PACKS), help="Vulnerability focus for Phase 2.")
+    parser.add_argument(
+        "--mode",
+        choices=("baseline", "focus"),
+        default="focus",
+        help="Operator-visible run mode. baseline is pre-runtime posture mapping; focus uses --focus.",
+    )
+    parser.add_argument(
+        "--focus",
+        default="rce",
+        choices=sorted([*VULNERABILITY_PACKS, BASELINE_FOCUS]),
+        help="Vulnerability focus for Phase 2. 'baseline' is a compatibility alias for --mode baseline.",
+    )
+    parser.add_argument(
+        "--from-baseline",
+        help="Existing AppMap run root to use as baseline context for a focused overlay.",
+    )
+    parser.add_argument(
+        "--electronegativity-root",
+        help="Controlled Electronegativity output directory to import as bounded Electron enrichment.",
+    )
+    parser.add_argument(
+        "--enrichment-record-limit",
+        type=int,
+        default=ENRICHMENT_RECORD_LIMIT,
+        help=f"Maximum Electronegativity enrichment records to import. Defaults to {ENRICHMENT_RECORD_LIMIT}.",
+    )
+    parser.add_argument(
+        "--enrichment-per-type-limit",
+        type=int,
+        default=ENRICHMENT_PER_TYPE_LIMIT,
+        help=f"Maximum imported Electronegativity records per type. Defaults to {ENRICHMENT_PER_TYPE_LIMIT}.",
+    )
+    parser.add_argument(
+        "--enrichment-per-file-limit",
+        type=int,
+        default=ENRICHMENT_PER_FILE_LIMIT,
+        help=f"Maximum imported Electronegativity records per file. Defaults to {ENRICHMENT_PER_FILE_LIMIT}.",
+    )
     parser.add_argument("--write-specs", action="store_true", help="Write and validate generated brainstorm specs.")
     parser.add_argument(
         "--agent-granularity",
@@ -3433,8 +4883,27 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[appmap] error: {exc}", file=sys.stderr)
             return 1
         return 0
+    if args.mode == BASELINE_FOCUS:
+        args.focus = BASELINE_FOCUS
+        args.write_specs = False
+    elif args.focus == BASELINE_FOCUS:
+        args.mode = BASELINE_FOCUS
+        args.write_specs = False
+    baseline_context: BaselineContext | None = None
+    if args.from_baseline:
+        try:
+            baseline_context = load_baseline_context(Path(args.from_baseline))
+        except (OSError, ValueError) as exc:
+            raise SystemExit(str(exc)) from exc
+        if args.mode == BASELINE_FOCUS:
+            raise SystemExit("--from-baseline is only valid for focus overlays")
+        if not args.target_path:
+            args.target_path = str(baseline_context.manifest.get("target_path") or "").strip()
     if not args.program or not args.target_path:
-        raise SystemExit("program and target_path are required unless using --list-handoffs, --validate-handoff, or --plan-handoff")
+        raise SystemExit(
+            "program and target_path are required unless using --list-handoffs, --validate-handoff, --plan-handoff, "
+            "or --from-baseline with a manifest target_path"
+        )
     try:
         research_mode, research_provider = _resolve_research_provider(args, raw_argv)
         _validate_research_options(
@@ -3448,6 +4917,17 @@ def main(argv: list[str] | None = None) -> int:
     target_path = Path(args.target_path).expanduser().resolve(strict=False)
     if not target_path.exists() or not target_path.is_dir():
         raise SystemExit(f"target_path must be an existing directory: {target_path}")
+    if baseline_context is not None:
+        try:
+            validate_baseline_compatibility(
+                baseline_context,
+                program=args.program,
+                target_path=target_path,
+                target_kind=args.target_kind,
+                focus=args.focus,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
 
     run_id = args.run_id or f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{int(time.time())}"
     try:
@@ -3484,6 +4964,23 @@ def main(argv: list[str] | None = None) -> int:
         focus=args.focus,
         hunting_policy=hunting_policy,
     )
+    if args.electronegativity_root:
+        if args.enrichment_record_limit < 1 or args.enrichment_per_type_limit < 1 or args.enrichment_per_file_limit < 1:
+            raise SystemExit("enrichment limits must be positive integers")
+        try:
+            enrichment_records, enrichment_summary = import_electronegativity_enrichment(
+                Path(args.electronegativity_root),
+                target_path=target_path,
+                max_records=args.enrichment_record_limit,
+                per_type_limit=args.enrichment_per_type_limit,
+                per_file_limit=args.enrichment_per_file_limit,
+            )
+        except (OSError, ValueError) as exc:
+            raise SystemExit(str(exc)) from exc
+        result.enrichment_records = enrichment_records
+        result.enrichment_summary = enrichment_summary
+    if baseline_context is not None:
+        apply_baseline_context(result, baseline_context)
     try:
         result.research = generate_research_artifacts(
             result,

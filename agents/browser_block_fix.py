@@ -67,17 +67,17 @@ _CONTENT_SIGS: list[tuple[str, str]] = [
     ("support id", "F5 BIG-IP"),
 ]
 
-_HEADER_SIGS: list[tuple[str, str, str]] = [
-    # (header_key_lower, value_needle_lower, waf_name)
-    ("server", "akamaighost", "Akamai"),
-    ("server", "akamai", "Akamai"),
-    ("x-cache", "error from cloudfront", "AWS WAF"),
-    ("server", "awselb", "AWS WAF"),
-    ("server", "cloudfront", "AWS WAF"),
-    ("cf-ray", "", "Cloudflare"),
-    ("x-sucuri-id", "", "Sucuri"),
-    ("x-datadome-cid", "", "DataDome"),
-    ("x-iinfo", "", "Imperva"),
+_HEADER_SIGS: list[tuple[str, str, str, bool]] = [
+    # (header_key_lower, value_needle_lower, waf_name, requires_block_evidence)
+    ("server", "akamaighost", "Akamai", True),
+    ("server", "akamai", "Akamai", True),
+    ("x-cache", "error from cloudfront", "AWS WAF", False),
+    ("server", "awselb", "AWS WAF", True),
+    ("server", "cloudfront", "AWS WAF", True),
+    ("cf-ray", "", "Cloudflare", True),
+    ("x-sucuri-id", "", "Sucuri", True),
+    ("x-datadome-cid", "", "DataDome", False),
+    ("x-iinfo", "", "Imperva", True),
 ]
 
 _BLOCK_STATUS_CODES: set[int] = {403, 406, 429, 503}
@@ -242,14 +242,19 @@ class BrowserBlockFix:
             if needle in content:
                 return True, name
 
-        # Header signatures
-        for hdr_key, hdr_needle, name in _HEADER_SIGS:
+        has_block_status = status in _BLOCK_STATUS_CODES
+
+        # Header signatures. CDN identity headers are only blocking evidence
+        # when paired with a block status or challenge/block body signature.
+        for hdr_key, hdr_needle, name, requires_block_evidence in _HEADER_SIGS:
             if hdr_key in headers:
                 if not hdr_needle or hdr_needle in headers[hdr_key]:
+                    if requires_block_evidence and not has_block_status:
+                        continue
                     return True, name
 
         # Block status + generic cloud/WAF indicators
-        if status in _BLOCK_STATUS_CODES:
+        if has_block_status:
             server = headers.get("server", "")
             for waf in ("akamai", "cloudflare", "imperva", "sucuri", "wordfence", "fortiweb"):
                 if waf in server:
@@ -347,10 +352,12 @@ class BrowserBlockFix:
     # Browser requests
     # -----------------------------------------------------------------------
 
-    def browser_get(self, path: str) -> dict:
+    def browser_get(self, path: str, headers: dict | None = None) -> dict:
         """GET through headless browser."""
         url = self._url(path)
         try:
+            if headers and self._context:
+                self._context.set_extra_http_headers({str(k): str(v) for k, v in headers.items()})
             resp = self._page.goto(url, wait_until="networkidle", timeout=30_000)
             return {
                 "success": bool(resp and resp.ok),
@@ -364,12 +371,15 @@ class BrowserBlockFix:
             return _error_response(url, str(exc), via="browser")
 
     def browser_post(self, path: str, data: dict | None = None,
-                     json: dict | None = None) -> dict:
+                     json: dict | None = None,
+                     headers: dict | None = None) -> dict:
         """POST through headless browser — fills form fields then submits."""
         url = self._url(path)
         payload = json if json is not None else (data or {})
 
         try:
+            if headers and self._context:
+                self._context.set_extra_http_headers({str(k): str(v) for k, v in headers.items()})
             self._page.goto(url, wait_until="domcontentloaded", timeout=30_000)
 
             for key, value in payload.items():
@@ -411,7 +421,7 @@ class BrowserBlockFix:
         """GET: curl first. If WAF blocks, spawn browser and retry."""
         # If browser already active, skip curl entirely
         if self._browser_active:
-            return self.browser_get(path)
+            return self.browser_get(path, headers=headers)
 
         response = self.curl_get(path, headers=headers)
         blocked, waf_name = self.is_blocked(response)
@@ -420,14 +430,14 @@ class BrowserBlockFix:
 
         print(f"[browser_block_fix] WAF blocked ({waf_name}) — spawning browser...")
         self.spawn_browser()
-        return self.browser_get(path)
+        return self.browser_get(path, headers=headers)
 
     def post(self, path: str, data: dict | None = None,
              json: dict | None = None,
              headers: dict | None = None) -> dict:
         """POST: curl first. If WAF blocks, spawn browser and retry."""
         if self._browser_active:
-            return self.browser_post(path, data=data, json=json)
+            return self.browser_post(path, data=data, json=json, headers=headers)
 
         response = self.curl_post(path, data=data, json=json, headers=headers)
         blocked, waf_name = self.is_blocked(response)
@@ -436,7 +446,7 @@ class BrowserBlockFix:
 
         print(f"[browser_block_fix] WAF blocked ({waf_name}) — spawning browser...")
         self.spawn_browser()
-        return self.browser_post(path, data=data, json=json)
+        return self.browser_post(path, data=data, json=json, headers=headers)
 
     def test_xss_payload(self, url: str, payload: str, param: str = "q") -> dict:
         """Test an XSS payload via browser.

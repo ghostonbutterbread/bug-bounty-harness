@@ -29,7 +29,7 @@ Never print, persist to findings, or paste raw cookies, passwords, bearer tokens
 
 ## If Accounts Are Missing
 
-Load `/temp-account` when account creation is approved or needed for a destructive/state-changing lane. Do not improvise signup, credential handling, CAPTCHA handling, or password-manager writes inside `/access-control`.
+Use existing approved accounts when available. Load `/temporary-email` only when Ryushe requests a disposable account or the test may permanently delete/burn the account. Do not improvise signup, credential handling, CAPTCHA handling, or password-manager writes inside `/access-control`.
 
 If approval or policy is unclear, stop and ask Ryushe for account setup approval.
 
@@ -44,7 +44,7 @@ Capture what is needed:
 - whether email/phone/payment verification is required
 - exact safe test resources to create
 
-Expected `/temp-account` return data:
+Expected `/temporary-email` return data when a disposable account is created:
 
 - account aliases, not raw credentials
 - role, tenant, workspace, org, project, and resource relationships

@@ -14,7 +14,7 @@ This is a router skill. Keep the first pass small: classify the boundary, load o
 1. Read scope, owned-account context, and live-testing policy.
 2. Resolve `$HARNESS_ROOT` first; default is `/home/ryushe/projects/bug_bounty_harness`.
 3. Read `$HARNESS_ROOT/skills/access-control/references/account-setup.md`.
-4. Confirm the needed owned accounts/resources exist. If not, stop and ask for account setup.
+4. Confirm the needed owned accounts/resources exist. If not, delegate to `/temp-account` before testing.
 5. Read `$HARNESS_ROOT/skills/access-control/references/related-terms.md` for search vocabulary and route/parameter keywords.
 6. Classify the lane:
    - peer object/resource access -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/horizontal.md`

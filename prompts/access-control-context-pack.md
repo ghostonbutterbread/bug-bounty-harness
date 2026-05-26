@@ -7,7 +7,8 @@ Do not load every access-control reference at once. Load `related-terms.md`, cla
 ## Source Files
 
 - Related terms and route keywords: `$HARNESS_ROOT/skills/access-control/references/related-terms.md`
-- Account setup and credential handling: `$HARNESS_ROOT/skills/access-control/references/account-setup.md`
+- Account setup routing: `$HARNESS_ROOT/skills/access-control/references/account-setup.md`
+- Temporary account creation: `/temp-account` and `$HARNESS_ROOT/prompts/temp-account-playbook.md`
 - IDOR-specific object mutations: `$HARNESS_ROOT/skills/access-control/references/mutations/idor.md`
 - Horizontal access: `$HARNESS_ROOT/skills/access-control/references/technique-packs/horizontal.md`
 - Vertical access: `$HARNESS_ROOT/skills/access-control/references/technique-packs/vertical.md`
@@ -21,6 +22,7 @@ Do not load every access-control reference at once. Load `related-terms.md`, cla
 
 ## Router
 
+- Missing approved owned accounts/resources -> `/temp-account`
 - Peer-owned resource/object -> horizontal pack or `/idor`
 - Admin/support/owner/mod/paid function -> vertical pack
 - Org/workspace/team/project/store boundary -> tenant pack
@@ -38,7 +40,7 @@ When spawning a category child, pass only:
 - program and scope boundary
 - full URL(s) and method(s)
 - owned account/resource aliases
-- account setup state and missing account/resource blockers
+- account setup state, `/temp-account` output, and missing account/resource blockers
 - relevant request/response shape
 - one technique pack path
 - mutation pack path, if needed

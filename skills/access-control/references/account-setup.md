@@ -29,7 +29,9 @@ Never print, persist to findings, or paste raw cookies, passwords, bearer tokens
 
 ## If Accounts Are Missing
 
-Stop and ask Ryushe for account setup or approval to create accounts.
+Load `/temp-account` when account creation is approved or needed for a destructive/state-changing lane. Do not improvise signup, credential handling, CAPTCHA handling, or password-manager writes inside `/access-control`.
+
+If approval or policy is unclear, stop and ask Ryushe for account setup approval.
 
 Capture what is needed:
 
@@ -42,4 +44,11 @@ Capture what is needed:
 - whether email/phone/payment verification is required
 - exact safe test resources to create
 
-Future account-creation skill idea: a dedicated router that handles signup policy, aliases, inbox/verification, test-resource creation, credential storage, and cleanup notes.
+Expected `/temp-account` return data:
+
+- account aliases, not raw credentials
+- role, tenant, workspace, org, project, and resource relationships
+- inbox reference
+- Bitwarden or credential-store item reference
+- cleanup notes
+- blockers and manual steps

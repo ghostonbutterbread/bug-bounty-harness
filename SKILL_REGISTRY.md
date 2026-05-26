@@ -69,6 +69,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
 | **csrf** | `/csrf {program}` | `skills/csrff/SKILL.md` |
 | **mental-map** | `/mental-map {program}` | `prompts/mental-map-playbook.md` |
+| **caido** | `/caido {mcp-url-or-host?}` | `skills/caido/SKILL.md` |
 | **brainstorm-spec** | `/brainstorm-spec {program}` | `prompts/brainstorm-spec-playbook.md` |
 | **appmap** | `/appmap {program} {target_path}` | `prompts/appmap-playbook.md` |
 | **appmap-research-librarian** | `/appmap-research-librarian init {program}` | `prompts/appmap-research-librarian-playbook.md` |
@@ -94,6 +95,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /recon superdrug
 /csrf superdrug
 /mental-map superdrug
+/caido 192.168.0.135
 /brainstorm-spec canva --family binaries --lane exe --target-kind electron-exe
 /appmap canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --target-kind electron-exe --focus rce --write-specs
 /appmap-research-librarian init canva --category electron-ipc --research-query electron rce --target-kind electron-exe

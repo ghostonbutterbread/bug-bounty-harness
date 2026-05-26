@@ -62,6 +62,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | Skill | Command | Playbook |
 |-------|---------|----------|
 | **xss** | `/xss {program}` | `prompts/xss-playbook.md` |
+| **access-control** | `/access-control {program}` | `prompts/access-control-playbook.md` |
 | **idor** | `/idor {program}` | `prompts/idor-playbook.md` |
 | **sqli** | `/sqli {program}` | `prompts/sqli-playbook.md` |
 | **ssrf** | `/ssrf {program}` | `prompts/ssrf-playbook.md` |
@@ -83,11 +84,19 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 
 ---
 
+## Skill Templates
+
+- Reusable skill-tree and handoff template: `docs/skill-tree-handoff-template.md`
+- Harness/agent module template: `SKILL_TEMPLATE.md`
+
+---
+
 ## How to Invoke
 
 ### Slash Commands
 ```
 /xss superdrug
+/access-control superdrug account-orders
 /idor superdrug
 /sqli superdrug
 /ssrf superdrug
@@ -108,6 +117,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /shared-skill-creator bounty-harness bypass "endpoint bypass testing workflow"
 /me notion --hunt-type source
 /me canva --hunt-type source --lane exe
+/access-control canva project-sharing
 ```
 
 ### Local Skill Audit Labs

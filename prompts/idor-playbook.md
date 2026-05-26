@@ -2,7 +2,9 @@
 
 ## Overview
 
-Use this as a decision tree: capture the baseline, map object references and ownership boundaries, choose the matching authorization lane, verify access with the correct account context, then report the exact object transition and impact.
+Use this as the object-level authorization lane under `/access-control`: capture the baseline, map object references and ownership boundaries, choose the matching authorization lane, verify access with the correct account context, then report the exact object transition and impact.
+
+For role, tenant, workflow, unauthenticated, method/header/path, Referer/Origin, GraphQL/RPC, or broad broken-access-control work, load `$HARNESS_ROOT/prompts/access-control-playbook.md` first and use this playbook only for the object-reference lane.
 
 ## Decision Tree
 
@@ -38,6 +40,9 @@ Do not focus only on obvious numeric IDs.
 - Query parameters such as `id`, `user_id`, `account`, `order`, `tenant`
 - JSON body fields that name users, resources, or assignees
 - Export, download, and attachment handles
+- GUIDs, UUIDs, base64/global IDs, cursors, node IDs, and opaque handles disclosed elsewhere
+- GraphQL query or mutation arguments that select users, accounts, workspaces, orders, files, documents, or projects
+- Storage/CDN keys, pre-signed URL object keys, file paths, avatar IDs, crop IDs, and media versions
 - Indirect references surfaced in responses, links, or web sockets
 
 ### Ownership Questions
@@ -80,6 +85,23 @@ Use when authorization may fail between steps rather than on a single fetch.
 1. Map creation, approval, redemption, cancellation, sharing, and deletion steps.
 2. Replay later steps with another user's identifiers or tokens.
 3. Confirm whether ownership is rechecked at each transition.
+
+### Unauthenticated Lane
+
+Use when a resource should require login, session freshness, or membership.
+
+1. Remove cookies and authorization headers.
+2. Replay the direct object URL or API request.
+3. Check redirect, 401, and 403 response bodies for private data before dismissing the case.
+4. Confirm whether the returned object is authenticated-only and not public by design.
+
+### Tenant Lane
+
+Use when object references include organization, workspace, project, tenant, store, or team identifiers.
+
+1. Capture baselines from two owned tenant/workspace contexts.
+2. Swap tenant and object references independently.
+3. Confirm whether a role or membership from one context is reused in another.
 
 ## 4. Verify
 

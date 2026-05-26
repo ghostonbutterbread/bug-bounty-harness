@@ -17,6 +17,7 @@ Prefer:
 Confirm before signup:
 - program and target domain are in scope
 - account creation is allowed by the program rules
+- required researcher email domains or account identity rules
 - disposable email is allowed or at least not prohibited
 - required account count, role mix, and tenant/workspace/project count
 - intended test actions and which ones are destructive
@@ -27,6 +28,8 @@ Stop and ask Ryushe if the flow requires payment, phone verification, public pos
 ## Disposable Inbox
 
 Use `/agent-email`.
+
+Do not use a disposable inbox when the program requires a specific researcher email domain, bug bounty platform alias, customer-provided tenant, SSO identity, or pre-approved account. In that case, stop and ask Ryushe for the approved account path or existing credential reference.
 
 Preferred commands:
 
@@ -49,7 +52,7 @@ Default flow:
 1. Launch an isolated browser profile for the program and task.
 2. Navigate to the in-scope signup URL.
 3. Fill only required signup fields.
-4. Use the disposable inbox for verification links or codes.
+4. Use the approved program-required email path, or the disposable inbox if allowed, for verification links or codes.
 5. If CAPTCHA appears, pause for manual completion or explicit approval. Do not bypass or outsource CAPTCHA solving.
 6. Finish only non-sensitive onboarding steps needed for testing.
 7. Create the minimum private owned resources requested by the caller.

@@ -100,7 +100,7 @@ do_copy() {
 }
 
 # =============================================================================
-# Sync a skill (SKILL.md + _meta.json if present)
+# Sync a skill (full skill directory so bundled scripts/references/assets are available)
 # =============================================================================
 
 sync_skill() {
@@ -114,8 +114,17 @@ sync_skill() {
             echo "  - $skill (skipped: missing SKILL.md)"
             return 0
         fi
-        do_copy "$src_dir/SKILL.md" "$dest_dir/$skill/SKILL.md"
-        [ -f "$src_dir/_meta.json" ] && do_copy "$src_dir/_meta.json" "$dest_dir/$skill/_meta.json" || true
+        if [ "$DRY_RUN" = true ]; then
+            echo "  [DRY-RUN] Would copy directory: $src_dir -> $dest_dir/$skill"
+        else
+            if [ -e "$dest_dir/$skill" ] && [ "$(readlink -f "$src_dir")" = "$(readlink -f "$dest_dir/$skill")" ]; then
+                echo "  - $skill (already linked)"
+                return 0
+            fi
+            mkdir -p "$dest_dir/$skill"
+            cp -a "$src_dir/." "$dest_dir/$skill/"
+            echo "  ✓ $skill"
+        fi
     else
         echo "  ✗ $skill (not found: $src_dir)"
     fi

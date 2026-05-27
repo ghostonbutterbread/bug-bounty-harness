@@ -9,6 +9,8 @@ Use this when a bug bounty agent needs the normal agent-lane Caido MCP endpoint 
 
 This is the default proxy lane. It should not inspect Ryushe's personal PC traffic. Use `ryushe-proxy` only when the task explicitly asks to view or compare Ryushe's traffic.
 
+Phrase mapping: "your proxy", "agent proxy", "Ghost proxy", "OpenClaw proxy", or "local proxy" from the agent's point of view means this agent lane. "My proxy", "Ryushe's proxy", "my Caido", or "Ryushe's Caido" means the Ryushe lane instead; load `ryushe-proxy`.
+
 ## Runtime Resolution
 
 Resolve in this order:

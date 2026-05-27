@@ -132,3 +132,45 @@ def test_live_map_blind_mode_redacts_route_hints_and_adds_browser_redaction(tmp_
     assert route["blind_mode_redacted"] is True
     assert "title" not in route
     assert "notes" not in route
+
+
+def test_live_map_blind_mode_redacts_stored_map_hints(tmp_path: Path) -> None:
+    ingest_observations(
+        "demo",
+        [
+            {
+                "type": "route",
+                "method": "GET",
+                "url": "https://target.example/admin",
+                "title": "Lab: Referer-based access control",
+                "notes": "Training banner revealed the expected bug.",
+            },
+            {
+                "type": "hypothesis",
+                "lane": "access-control:vertical",
+                "summary": "Referer-based access control lab title leak.",
+                "recommended_skill": "access-control",
+                "recommended_pack": "vertical",
+                "source_route_ids": ["R0001"],
+                "source_object_ids": [],
+                "status": "candidate",
+            },
+        ],
+        source="browser",
+        shared_base=tmp_path,
+        blind_mode=True,
+        run_id="blind-ingest",
+    )
+
+    paths = map_paths("demo", shared_base=tmp_path)
+    route = read_jsonl(paths.routes)[0]
+    hypothesis = read_jsonl(paths.hypotheses)[0]
+    log_entry = read_jsonl(paths.ingestion_log)[0]
+
+    assert route["blind_mode_redacted"] is True
+    assert "title" not in route
+    assert "notes" not in route
+    assert hypothesis["blind_mode_redacted"] is True
+    assert hypothesis["summary"] == "Blind-mode candidate generated from runtime observations."
+    assert "Referer" not in json.dumps(hypothesis)
+    assert log_entry["blind_mode"] is True

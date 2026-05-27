@@ -100,10 +100,25 @@ python3 agents/live_map.py add-route <program> \
   --source browser
 ```
 
+For blind training runs, do not store page titles or lab/challenge hints in the map:
+
+```bash
+python3 agents/live_map.py add-route <program> \
+  --url "https://target.example/admin" \
+  --source browser \
+  --blind-mode
+```
+
 3. Ingest normalized proxy/manual observations:
 
 ```bash
 python3 agents/live_map.py ingest <program> --input observations.jsonl --source proxy
+```
+
+Use blind ingestion for PortSwigger or other challenge platforms where raw browser/proxy observations may include lab titles, breadcrumbs, banners, or challenge descriptions:
+
+```bash
+python3 agents/live_map.py ingest <program> --input observations.jsonl --source browser --blind-mode
 ```
 
 4. Build child-agent packets:
@@ -161,9 +176,12 @@ Use `--blind-mode` when training pages, lab platforms, or challenge wrappers lea
 
 Blind mode:
 
+- removes title-like and freeform hint fields from stored observations when ingesting with `--blind-mode`
 - removes `title` and freeform `notes` from route records before writing child handoff packets
 - adds a `blind_mode` block with a browser redaction snippet
 - tells the child to ignore page titles, lab banners, breadcrumbs, and back-to-lab links
+
+For blind benchmark runs, use `--blind-mode` at both ingestion and handoff time. Otherwise the map itself can become a side channel even if the final child packet is redacted.
 
 The parent or scout may run the packet's `blind_mode.browser_redaction_js` in the live browser before capturing snapshots for a child. This should be done before the child sees browser DOM. The snippet is for hiding training-lab chrome only; it is not proof and it is not a target bypass.
 

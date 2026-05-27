@@ -26,7 +26,9 @@ Use this when an agent needs to explore a live app without being told the vulner
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 python3 agents/live_map.py init <program>
 python3 agents/live_map.py add-route <program> --url https://target.example/my-account?id=123 --auth-state user-a --source browser
+python3 agents/live_map.py add-route <program> --url https://target.example/admin --source browser --blind-mode
 python3 agents/live_map.py ingest <program> --input observations.jsonl --source proxy
+python3 agents/live_map.py ingest <program> --input observations.jsonl --source browser --blind-mode
 python3 agents/live_map.py build-handoffs <program> --skill access-control
 python3 agents/live_map.py build-handoffs <program> --skill access-control --blind-mode
 python3 agents/live_map.py summary <program>
@@ -52,6 +54,6 @@ Primary artifacts:
 
 Do not pass page titles, lab titles, solution text, raw proxy dumps, cookies, bearer tokens, passwords, or broad app history to child agents.
 
-For PortSwigger or any training target that exposes the lab name in the page chrome, build packets with `--blind-mode`. The packet strips title-like route hints and includes browser redaction JavaScript that the parent/scout can run before child snapshots.
+For PortSwigger or any training target that exposes the lab name in the page chrome, use `--blind-mode` while ingesting observations and while building packets. The map should store neutral runtime observations, not lab titles or challenge hints. Blind packets also include browser redaction JavaScript that the parent/scout can run before child snapshots.
 
 Pass only the handoff packet plus the relevant skill pack. The child should treat map entries as exploration leads, not proof.

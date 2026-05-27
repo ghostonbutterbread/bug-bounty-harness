@@ -272,6 +272,14 @@ def route_record(
     }
 
 
+def strip_blind_hint_fields(row: dict[str, Any]) -> None:
+    """Remove freeform fields that commonly carry lab titles or challenge hints."""
+    for key in ("title", "page_title", "lab_title", "heading", "breadcrumb", "breadcrumbs", "notes", "description"):
+        row.pop(key, None)
+    if "summary" in row:
+        row["summary"] = "Blind-mode candidate generated from runtime observations."
+
+
 def infer_route_tags(*, method: str, path: str, query_keys: list[str]) -> list[str]:
     tags: set[str] = set()
     path_l = path.lower()
@@ -433,6 +441,7 @@ def ingest_observations(
     source: str,
     shared_base: str | Path | None = None,
     run_id: str | None = None,
+    blind_mode: bool = False,
 ) -> dict[str, int]:
     paths = ensure_map(program, shared_base=shared_base)
     counts: Counter[str] = Counter()
@@ -451,6 +460,8 @@ def ingest_observations(
                 notes=observation.get("notes"),
                 observed_at=str(observation.get("observed_at") or observed_at),
             )
+            if blind_mode:
+                route = blind_route_record(route)
             result = ingest_route(paths, route)
             for key, rows in result.items():
                 counts[key] += len(rows)
@@ -471,6 +482,9 @@ def ingest_observations(
         row.setdefault("type", kind)
         row.setdefault("source", source)
         row.setdefault("observed_at", observed_at)
+        if blind_mode:
+            strip_blind_hint_fields(row)
+            row["blind_mode_redacted"] = True
         append_jsonl(target_path, [row])
         counts[kind.replace("-", "_") + "s"] += 1
     append_jsonl(
@@ -481,6 +495,7 @@ def ingest_observations(
                 "source": source,
                 "counts": dict(counts),
                 "observed_at": observed_at,
+                "blind_mode": blind_mode,
             }
         ],
     )
@@ -573,8 +588,7 @@ def build_handoffs(
 def blind_route_record(route: dict[str, Any]) -> dict[str, Any]:
     """Return a child-safe route record with title-like hint fields removed."""
     sanitized = dict(route)
-    sanitized.pop("title", None)
-    sanitized.pop("notes", None)
+    strip_blind_hint_fields(sanitized)
     sanitized["blind_mode_redacted"] = True
     return sanitized
 
@@ -608,12 +622,22 @@ def build_parser() -> argparse.ArgumentParser:
     add_route.add_argument("--auth-state")
     add_route.add_argument("--title")
     add_route.add_argument("--notes")
+    add_route.add_argument(
+        "--blind-mode",
+        action="store_true",
+        help="Store this route without title/notes hints for blind training runs.",
+    )
 
     ingest = sub.add_parser("ingest", help="Ingest JSON or JSONL observations")
     ingest.add_argument("program")
     ingest.add_argument("--input", required=True, type=Path)
     ingest.add_argument("--source", default="manual", choices=sorted(OBSERVATION_SOURCES))
     ingest.add_argument("--run-id")
+    ingest.add_argument(
+        "--blind-mode",
+        action="store_true",
+        help="Strip title/notes/description hints before storing observations.",
+    )
 
     handoffs = sub.add_parser("build-handoffs", help="Build bounded child-agent context packets")
     handoffs.add_argument("program")
@@ -649,6 +673,8 @@ def main(argv: list[str] | None = None) -> int:
             title=args.title,
             notes=args.notes,
         )
+        if args.blind_mode:
+            route = blind_route_record(route)
         counts = {key: len(rows) for key, rows in ingest_route(paths, route).items()}
         print(json.dumps({"root": str(paths.root), "counts": counts}, sort_keys=True))
         return 0
@@ -660,6 +686,7 @@ def main(argv: list[str] | None = None) -> int:
             source=args.source,
             shared_base=args.shared_base,
             run_id=args.run_id,
+            blind_mode=args.blind_mode,
         )
         print(json.dumps({"counts": counts}, sort_keys=True))
         return 0

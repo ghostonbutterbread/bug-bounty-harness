@@ -9,6 +9,8 @@ Use this only when the task explicitly asks to view, inspect, or compare Ryushe'
 
 This is not the default agent proxy. Normal spawned agents should use `agent-proxy`.
 
+Phrase mapping: "my proxy", "Ryushe's proxy", "my Caido", or "Ryushe's Caido" means this Ryushe lane. "Your proxy", "agent proxy", "Ghost proxy", "OpenClaw proxy", or "local proxy" from the agent's point of view means the agent lane instead; load `agent-proxy`.
+
 ## Endpoint
 
 From Hoster only:

@@ -18,6 +18,9 @@ Look for:
 
 - `skills/{name}/SKILL.md`
 - `prompts/{name}-playbook.md`
+- `SKILL_TEMPLATE.md` to choose executable-harness vs RAG-style skill structure
+- `docs/rag-skill-template.md` for thin `SKILL.md` files with on-demand references
+- `docs/executable-harness-template.md` for Python modules with scope/rate-limit controls
 - `docs/skill-tree-handoff-template.md` for router skills that hand off to child skills
 - `SKILL_REGISTRY.md`
 - `sync_skills.sh` or `setup.sh --sync`
@@ -31,7 +34,12 @@ prompts/{skill-name}-playbook.md
 SKILL_REGISTRY.md
 ```
 
-If the skill is a router or starting point for several vulnerability lanes, use `docs/skill-tree-handoff-template.md` before writing. Keep the entry skill thin, put branch logic in a context pack, and require an evidence-backed handoff card before invoking child skills.
+For Bug Bounty Harness, choose one template track first:
+
+- executable harness module -> `docs/executable-harness-template.md`
+- RAG-style skill -> `docs/rag-skill-template.md`
+
+If the skill is a router or starting point for several vulnerability lanes, use `docs/skill-tree-handoff-template.md` in addition to the RAG template. Keep the entry skill thin, put branch logic in a context pack, and require an evidence-backed handoff card before invoking child skills.
 
 For skills that need findings, coverage, or prior-result context, point agents at `agents.ledger` as the harness adapter over Bounty Core. Do not add instructions that parse or rewrite `ledger.json` directly.
 

@@ -4,8 +4,9 @@ Use this when testing broken access control across web, API, GraphQL, mobile-bac
 
 ## Posture
 
-- Core posture: authorization testing is allowed only inside approved scope and owned/approved account boundaries.
-- Use at least two owned accounts when testing horizontal access. Use an approved low-privileged account and an approved higher-privileged baseline when testing vertical access.
+- Core posture: authorization testing is allowed only inside approved scope and owned account boundaries.
+- Use at least two owned accounts when testing horizontal access. Use an owned low-privileged account and an owned higher-privileged baseline when testing vertical access.
+- Treat every account/resource as `destructible: no` unless stored account metadata explicitly marks `destructible: yes`.
 - Treat unauthenticated access to authenticated-only resources as access control, not only information disclosure.
 - Do not claim IDOR from public catalog enumeration, generic size differences, cached responses, or UI-only hiding. Prove unauthorized access or action against a boundary.
 - Stop after minimum proof if non-owned data appears. Capture metadata and ask Ryushe before expanding.
@@ -125,7 +126,7 @@ Test families:
 - export or send data to an attacker-controlled destination
 - create object under another tenant/account
 
-Stop before destructive real-world impact. Prefer owned resources, reversible actions, dry-run endpoints, or proof with benign fields.
+Stop before destructive real-world impact unless the exact account/resource is marked `destructible: yes`. Prefer owned resources, reversible actions, dry-run endpoints, or proof with benign fields.
 
 ## 3. API And GraphQL Focus
 

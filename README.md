@@ -93,6 +93,7 @@ See `SKILL_REGISTRY.md` for:
 - How to invoke each
 - Config options
 - How to create new skills
+- Which template to use for executable harness modules vs RAG-style skills
 
 ### Agent Workflow
 
@@ -136,13 +137,17 @@ Skills are synced to:
 
 ## Creating New Skills
 
-1. Create playbook: `prompts/{name}-playbook.md`
-2. Create skill wrapper: `skills/{name}/SKILL.md`
-3. Create harness: `agents/{name}_hunter.py`
-4. Add to `SKILL_REGISTRY.md`
-5. Run `./setup.sh --sync`
+1. Read `SKILL_TEMPLATE.md` and choose a track.
+2. For executable Python modules, use `docs/executable-harness-template.md`.
+3. For RAG-style skills, use `docs/rag-skill-template.md`.
+4. For router skills that hand off to child lanes, also use `docs/skill-tree-handoff-template.md`.
+5. Create the lean skill wrapper: `skills/{name}/SKILL.md`.
+6. Put verbose method in `prompts/{name}-playbook.md` or lane-specific `references/`.
+7. Create `agents/{name}_hunter.py` only when the skill needs executable harness code.
+8. Add the skill or module to `SKILL_REGISTRY.md`.
+9. Run `./setup.sh --sync`.
 
-See `SKILL_TEMPLATE.md` for anatomy of a skill file.
+See `SKILL_TEMPLATE.md` for the template chooser.
 
 ---
 

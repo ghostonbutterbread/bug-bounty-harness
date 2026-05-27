@@ -10,7 +10,7 @@ Use when a task needs a fresh Chromium/Chrome instance with remote debugging ena
 ## Invocation
 
 ```text
-/chromium-test <program> <task> [--caido-profile <name|auto>] [--url <url>] [--port <port>]
+/chromium-test <program> <task> [--caido-profile <name|auto>] [--url <url>] [--port <port>] [--remote-allow-origins <value>]
 /chromium-test superdrug pfp
 /chromium-test canva upload-flow --caido-profile qa-primary --url https://www.canva.com/
 ```

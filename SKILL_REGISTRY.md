@@ -72,6 +72,8 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **csrf** | `/csrf {program}` | `skills/csrff/SKILL.md` |
 | **mental-map** | `/mental-map {program}` | `prompts/mental-map-playbook.md` |
 | **caido** | `/caido {mcp-url-or-host?}` | `skills/caido/SKILL.md` |
+| **agent-proxy** | `/agent-proxy` | `skills/agent-proxy/SKILL.md` |
+| **ryushe-proxy** | `/ryushe-proxy` | `skills/ryushe-proxy/SKILL.md` |
 | **temporary-email** | `/temporary-email {create|read|show|accounts}` | `skills/temporary-email/SKILL.md` |
 | **live-map** | `/live-map {program}` | `prompts/live-map-playbook.md` |
 | **brainstorm-spec** | `/brainstorm-spec {program}` | `prompts/brainstorm-spec-playbook.md` |
@@ -111,6 +113,8 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /csrf superdrug
 /mental-map superdrug
 /caido 192.168.0.135
+/agent-proxy
+/ryushe-proxy
 /temporary-email create
 /live-map superdrug --source browser
 /brainstorm-spec canva --family binaries --lane exe --target-kind electron-exe

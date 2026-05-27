@@ -21,6 +21,14 @@ python3 skills/chromium-test/scripts/chromium_test.py <program> "pfp" \
   --url https://target.example/
 ```
 
+The launcher includes Chromium's CDP origin compatibility flag by default:
+
+```text
+--remote-allow-origins=*
+```
+
+Override when needed with `--remote-allow-origins <value>` or `$CHROMIUM_TEST_REMOTE_ALLOW_ORIGINS`.
+
 Common invocations:
 
 ```text
@@ -36,6 +44,7 @@ The launcher owns CDP port selection:
 - allowed range: `9223-9500`
 - default behavior: inspect listening ports and bind-test candidates, then choose the first free port
 - optional override: `--port <port>` inside the allowed range
+- CDP origin compatibility: launcher emits `--remote-allow-origins=*` unless overridden
 
 Manual inspection when debugging:
 

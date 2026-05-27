@@ -124,6 +124,7 @@ def build_command(args: argparse.Namespace, port: int, profile_dir: Path) -> lis
         chrome,
         f"--remote-debugging-port={port}",
         "--remote-debugging-address=127.0.0.1",
+        f"--remote-allow-origins={args.remote_allow_origins}",
         f"--user-data-dir={profile_dir}",
         "--no-first-run",
         "--no-default-browser-check",
@@ -314,6 +315,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, help=f"CDP port in {PORT_MIN}-{PORT_MAX}.")
     parser.add_argument("--profile-dir", help="Override Chrome user-data-dir.")
     parser.add_argument("--proxy-server", help="Actual browser HTTP/SOCKS proxy listener.")
+    parser.add_argument(
+        "--remote-allow-origins",
+        default=os.environ.get("CHROMIUM_TEST_REMOTE_ALLOW_ORIGINS", "*"),
+        help="Value for Chromium --remote-allow-origins. Defaults to '*'.",
+    )
     parser.add_argument(
         "--caido-profile",
         default=os.environ.get("CHROMIUM_TEST_CAIDO_PROFILE", "auto"),

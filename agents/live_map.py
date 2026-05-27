@@ -574,6 +574,7 @@ def build_handoffs(
                 "browser_redaction_js": BLIND_BROWSER_REDACTION_JS,
                 "rules": [
                     "Do not inspect PortSwigger Academy description pages or solution/community sections.",
+                    "When extracting links in blind mode, keep same-origin links only and discard external training-platform hrefs before logging or reasoning.",
                     "If browser access is needed, run browser_redaction_js before taking snapshots or handing the page to a child agent.",
                     "Treat visible page titles, lab banners, breadcrumbs, and back-to-lab links as intentionally unavailable.",
                 ],

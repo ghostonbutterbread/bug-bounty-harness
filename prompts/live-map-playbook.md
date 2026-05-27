@@ -165,6 +165,7 @@ Child agents do not get:
 
 - vulnerability title or expected class
 - page title, lab title, breadcrumbs, or top-page training-lab banners
+- external Academy/training-platform links or hrefs
 - solution text
 - raw page/proxy dumps
 - unrelated map history
@@ -180,6 +181,7 @@ Blind mode:
 - removes `title` and freeform `notes` from route records before writing child handoff packets
 - adds a `blind_mode` block with a browser redaction snippet
 - tells the child to ignore page titles, lab banners, breadcrumbs, and back-to-lab links
+- requires same-origin-only link extraction so external Academy/training-platform URLs cannot leak lab slugs through `href` values
 
 For blind benchmark runs, use `--blind-mode` at both ingestion and handoff time. Otherwise the map itself can become a side channel even if the final child packet is redacted.
 

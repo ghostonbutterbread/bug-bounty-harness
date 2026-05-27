@@ -52,8 +52,10 @@ Primary artifacts:
 
 ## Child-Agent Rule
 
-Do not pass page titles, lab titles, solution text, raw proxy dumps, cookies, bearer tokens, passwords, or broad app history to child agents.
+Do not pass page titles, lab titles, external Academy/training-platform hrefs, solution text, raw proxy dumps, cookies, bearer tokens, passwords, or broad app history to child agents.
 
 For PortSwigger or any training target that exposes the lab name in the page chrome, use `--blind-mode` while ingesting observations and while building packets. The map should store neutral runtime observations, not lab titles or challenge hints. Blind packets also include browser redaction JavaScript that the parent/scout can run before child snapshots.
+
+When extracting links in blind mode, keep same-origin links only. Discard external Academy/training-platform URLs before logging or handing data to child agents; their slugs can reveal the lab.
 
 Pass only the handoff packet plus the relevant skill pack. The child should treat map entries as exploration leads, not proof.

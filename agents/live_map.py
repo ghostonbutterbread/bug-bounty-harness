@@ -31,6 +31,43 @@ from agents.storage_resolver import normalize_program
 MAP_VERSION = 1
 OBSERVATION_SOURCES = {"browser", "proxy", "manual", "appmap", "hybrid"}
 HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"}
+BLIND_BROWSER_REDACTION_JS = r"""(() => {
+  document.title = "Runtime target";
+  const hide = (node) => {
+    if (!node || node.dataset.liveMapBlindHidden === "1") return;
+    node.dataset.liveMapBlindHidden = "1";
+    node.dataset.liveMapOriginalDisplay = node.style.display || "";
+    node.style.display = "none";
+  };
+  const textIncludes = (node, needles) => {
+    const text = (node.innerText || node.textContent || "").toLowerCase();
+    return needles.some((needle) => text.includes(needle));
+  };
+  const selectors = [
+    "[class*='academyLabHeader']",
+    "[class*='labHeader']",
+    "[class*='lab-header']",
+    "[class*='lab-status']",
+    "[data-testid*='lab']",
+    "a[href*='portswigger.net/web-security']",
+  ];
+  for (const selector of selectors) {
+    document.querySelectorAll(selector).forEach(hide);
+  }
+  const bodyText = (document.body?.innerText || "").toLowerCase();
+  if (bodyText.includes("back to lab description")) {
+    document.querySelectorAll("h1,h2").forEach((node, index) => {
+      if (index < 2) hide(node);
+    });
+  }
+  document.querySelectorAll("h1,h2,header,banner,[role='banner'],a").forEach((node) => {
+    if (textIncludes(node, ["back to lab description", "lab:", "not solved", "solved"])) hide(node);
+  });
+  document.querySelectorAll("*").forEach((node) => {
+    const text = (node.innerText || node.textContent || "").trim().toLowerCase();
+    if (["lab", "not solved", "solved"].includes(text)) hide(node);
+  });
+})();"""
 OBJECT_KEY_RE = re.compile(
     r"(^|[_-])(id|uuid|guid|gid|user|account|owner|member|tenant|org|workspace|team|project|file|document|order|invoice|export|attachment|media|cursor|token)([_-]|$)",
     re.IGNORECASE,
@@ -474,6 +511,7 @@ def build_handoffs(
     skill: str = "access-control",
     limit: int = 10,
     shared_base: str | Path | None = None,
+    blind_mode: bool = False,
 ) -> list[Path]:
     paths = ensure_map(program, shared_base=shared_base)
     routes = {row["id"]: row for row in read_jsonl(paths.routes)}
@@ -485,13 +523,16 @@ def build_handoffs(
     ]
     written: list[Path] = []
     for hypothesis in hypotheses[:limit]:
+        packet_routes = [routes[rid] for rid in hypothesis.get("source_route_ids", []) if rid in routes]
+        if blind_mode:
+            packet_routes = [blind_route_record(route) for route in packet_routes]
         packet = {
             "schema": "bug-bounty-harness.live-map-handoff",
             "version": MAP_VERSION,
             "program": normalize_program(program),
             "skill": skill,
             "hypothesis": hypothesis,
-            "routes": [routes[rid] for rid in hypothesis.get("source_route_ids", []) if rid in routes],
+            "routes": packet_routes,
             "objects": [objects[oid] for oid in hypothesis.get("source_object_ids", []) if oid in objects],
             "instructions": [
                 "Do not assume the vulnerability class is proven.",
@@ -500,10 +541,31 @@ def build_handoffs(
                 "Stop on non-owned private data or destructive actions without explicit destructible scope.",
             ],
         }
+        if blind_mode:
+            packet["blind_mode"] = {
+                "enabled": True,
+                "redacted_fields": ["routes[].title", "routes[].notes"],
+                "browser_redaction_js": BLIND_BROWSER_REDACTION_JS,
+                "rules": [
+                    "Do not inspect PortSwigger Academy description pages or solution/community sections.",
+                    "If browser access is needed, run browser_redaction_js before taking snapshots or handing the page to a child agent.",
+                    "Treat visible page titles, lab banners, breadcrumbs, and back-to-lab links as intentionally unavailable.",
+                ],
+            }
+            packet["instructions"].insert(0, "Blind mode is active: do not use page titles, lab titles, breadcrumbs, or top-page lab banners as evidence.")
         packet_path = paths.handoffs / f"{hypothesis['id']}-{slug(skill)}.json"
         packet_path.write_text(json.dumps(packet, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         written.append(packet_path)
     return written
+
+
+def blind_route_record(route: dict[str, Any]) -> dict[str, Any]:
+    """Return a child-safe route record with title-like hint fields removed."""
+    sanitized = dict(route)
+    sanitized.pop("title", None)
+    sanitized.pop("notes", None)
+    sanitized["blind_mode_redacted"] = True
+    return sanitized
 
 
 def load_observation_file(path: Path) -> list[dict[str, Any]]:
@@ -546,6 +608,11 @@ def build_parser() -> argparse.ArgumentParser:
     handoffs.add_argument("program")
     handoffs.add_argument("--skill", default="access-control")
     handoffs.add_argument("--limit", type=int, default=10)
+    handoffs.add_argument(
+        "--blind-mode",
+        action="store_true",
+        help="Strip title/notes hints and include browser redaction JavaScript for child-agent isolation.",
+    )
 
     summary = sub.add_parser("summary", help="Print map summary")
     summary.add_argument("program")
@@ -586,7 +653,13 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"counts": counts}, sort_keys=True))
         return 0
     if args.command == "build-handoffs":
-        packet_paths = build_handoffs(args.program, skill=args.skill, limit=args.limit, shared_base=args.shared_base)
+        packet_paths = build_handoffs(
+            args.program,
+            skill=args.skill,
+            limit=args.limit,
+            shared_base=args.shared_base,
+            blind_mode=args.blind_mode,
+        )
         print(json.dumps({"handoffs": [str(path) for path in packet_paths]}, indent=2, sort_keys=True))
         return 0
     if args.command == "summary":

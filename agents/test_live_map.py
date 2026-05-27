@@ -92,3 +92,43 @@ def test_live_map_accepts_manual_flow_records(tmp_path: Path) -> None:
     flow = read_jsonl(paths.flows)[0]
     assert flow["id"] == "F0001"
     assert flow["source"] == "manual"
+
+
+def test_live_map_blind_mode_redacts_route_hints_and_adds_browser_redaction(tmp_path: Path) -> None:
+    ingest_observations(
+        "demo",
+        [
+            {
+                "type": "route",
+                "method": "GET",
+                "url": "https://target.example/admin",
+                "status": 200,
+                "auth_state": "user:wiener",
+                "title": "Lab: Multi-step process with no access control on one step",
+                "notes": "Top-left lab banner exposed the expected vulnerability.",
+            },
+            {
+                "type": "hypothesis",
+                "lane": "access-control:vertical",
+                "summary": "Observed an administrator-only route while authenticated as low privilege.",
+                "recommended_skill": "access-control",
+                "recommended_pack": "vertical",
+                "source_route_ids": ["R0001"],
+                "source_object_ids": [],
+                "status": "candidate",
+            },
+        ],
+        source="browser",
+        shared_base=tmp_path,
+    )
+
+    packets = build_handoffs("demo", shared_base=tmp_path, blind_mode=True)
+
+    payload = json.loads(packets[0].read_text(encoding="utf-8"))
+    route = payload["routes"][0]
+    assert payload["blind_mode"]["enabled"] is True
+    assert "document.title" in payload["blind_mode"]["browser_redaction_js"]
+    assert payload["instructions"][0].startswith("Blind mode is active")
+    assert route["blind_mode_redacted"] is True
+    assert "title" not in route
+    assert "notes" not in route

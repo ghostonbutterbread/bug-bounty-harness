@@ -72,6 +72,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **mental-map** | `/mental-map {program}` | `prompts/mental-map-playbook.md` |
 | **caido** | `/caido {mcp-url-or-host?}` | `skills/caido/SKILL.md` |
 | **temporary-email** | `/temporary-email {create|read|show|accounts}` | `skills/temporary-email/SKILL.md` |
+| **live-map** | `/live-map {program}` | `prompts/live-map-playbook.md` |
 | **brainstorm-spec** | `/brainstorm-spec {program}` | `prompts/brainstorm-spec-playbook.md` |
 | **appmap** | `/appmap {program} {target_path}` | `prompts/appmap-playbook.md` |
 | **appmap-research-librarian** | `/appmap-research-librarian init {program}` | `prompts/appmap-research-librarian-playbook.md` |
@@ -87,8 +88,10 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 
 ## Skill Templates
 
-- Reusable skill-tree and handoff template: `docs/skill-tree-handoff-template.md`
-- Harness/agent module template: `SKILL_TEMPLATE.md`
+- Template chooser: `SKILL_TEMPLATE.md`
+- Executable harness/module template: `docs/executable-harness-template.md`
+- RAG-style skill template: `docs/rag-skill-template.md`
+- Skill-tree and handoff template: `docs/skill-tree-handoff-template.md`
 
 ---
 
@@ -107,6 +110,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /mental-map superdrug
 /caido 192.168.0.135
 /temporary-email create
+/live-map superdrug --source browser
 /brainstorm-spec canva --family binaries --lane exe --target-kind electron-exe
 /appmap canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --target-kind electron-exe --focus rce --write-specs
 /appmap-research-librarian init canva --category electron-ipc --research-query electron rce --target-kind electron-exe
@@ -195,6 +199,7 @@ bug_bounty_harness/
 ├── prompts/               # Playbooks
 │   ├── xss-playbook.md
 │   └── ...
+├── agents/live_map.py     # Runtime/browser/proxy application map writer
 ├── skills/                # Skill wrappers (source)
 │   ├── xss/SKILL.md
 │   └── ...

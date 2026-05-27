@@ -14,9 +14,10 @@ This is a router skill. Keep the first pass small: classify the boundary, load o
 1. Read scope, owned-account context, and live-testing policy.
 2. Resolve `$HARNESS_ROOT` first; default is `/home/ryushe/projects/bug_bounty_harness`.
 3. Read `$HARNESS_ROOT/skills/access-control/references/account-setup.md`.
-4. Confirm the needed owned accounts/resources exist. If not, ask Ryushe for the account path, or use `/temporary-email` when Ryushe requested a disposable account or the test may permanently delete/burn the account.
-5. Read `$HARNESS_ROOT/skills/access-control/references/related-terms.md` for search vocabulary and route/parameter keywords.
-6. Classify the lane:
+4. Confirm the needed owned accounts/resources exist and record whether each is `destructible: yes|no`. If not, ask for the account path, or use `/temporary-email` when a disposable/destructible account is needed.
+5. Check `$HARNESS_SHARED_BASE/{program}/agent_shared/application-map/` for existing `/live-map` routes, objects, hypotheses, and handoff packets. Use map entries as exploration leads, not proof.
+6. Read `$HARNESS_ROOT/skills/access-control/references/related-terms.md` for search vocabulary and route/parameter keywords.
+7. Classify the lane:
    - peer object/resource access -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/horizontal.md`
    - admin/support/owner/moderator/paid functionality -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/vertical.md`
    - org/workspace/team/project/store isolation -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/tenant.md`
@@ -25,9 +26,9 @@ This is a router skill. Keep the first pass small: classify the boundary, load o
    - GraphQL arguments or global IDs -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/graphql-bola.md`
    - signed URLs, CDN objects, exports, attachments, media -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/storage-links.md`
    - method/header/path/parser discrepancy -> load `/bypass` with type `403` or `idor`
-7. For IDOR/BOLA object mutations, load `$HARNESS_ROOT/skills/access-control/references/mutations/idor.md`.
-8. For encoding, parser, path, method, header, WAF, or filter mutations, load `/bypass` instead of duplicating bypass content here.
-9. Load `$HARNESS_ROOT/prompts/access-control-playbook.md` only for deep review, stuck analysis, or report writing.
+8. For IDOR/BOLA object mutations, load `$HARNESS_ROOT/skills/access-control/references/mutations/idor.md`.
+9. For encoding, parser, path, method, header, WAF, or filter mutations, load `/bypass` instead of duplicating bypass content here.
+10. Load `$HARNESS_ROOT/prompts/access-control-playbook.md` only for deep review, stuck analysis, or report writing.
 
 ## Sub-Agent Rule
 
@@ -40,7 +41,7 @@ The parent agent scouts and classifies. Spawn a focused child when:
 Give the child only:
 - flow summary and full URL(s)
 - account/resource boundary
-- approved account aliases and role/tenant relationship
+- owned account aliases, role/tenant relationship, and destructible status
 - one technique pack
 - mutation pack path, if needed
 - relevant request/response shape
@@ -53,4 +54,4 @@ Promote only if the evidence shows unauthorized read, list, export, write, delet
 
 Do not promote public data, response-size differences, soft redirects, generic errors, UI-only hiding, or caller-owned data.
 
-Stop on non-owned private data after minimum proof. Capture metadata and ask Ryushe before expanding.
+Stop on non-owned private data after minimum proof. Also stop before destructive actions unless the account/resource is explicitly marked `destructible: yes`. Capture metadata and ask Ryushe before expanding.

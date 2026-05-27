@@ -17,7 +17,9 @@ Read shared state in this order before mapping flows:
 
 ## Primary Analysis Surface
 
-There is no dedicated `agents/mental_map.py` harness in this repo. Use Caido MCP proxy traffic as the source of truth, set the browser or replay client proxy to `KAIDO_MCP_PROXY_URL`, then classify captured requests into application flows.
+Use Caido MCP proxy traffic as the source of truth, set the browser or replay client proxy to `KAIDO_MCP_PROXY_URL`, then classify captured requests into application flows.
+
+When the flow creates reusable routes, object references, auth boundaries, or follow-up hypotheses, also write normalized observations through `/live-map` so future agents can query the universal runtime application map instead of rediscovering the same area.
 
 ## What To Map
 
@@ -36,6 +38,8 @@ Prioritize end-to-end flows another agent would need to replay safely:
 
 - **Playbook:** `$HARNESS_ROOT/prompts/mental-map-playbook.md`
 - **Output Root:** `$HARNESS_SHARED_BASE/{program}/agent_shared/application-structure/`
+- **Universal Runtime Map:** `$HARNESS_SHARED_BASE/{program}/agent_shared/application-map/`
+- **Live Map CLI:** `$HARNESS_ROOT/agents/live_map.py`
 - **Flow Template:** `$HARNESS_ROOT/agent_shared/templates/application-structure/flow-template.md`
 
 ## Output Contract
@@ -62,4 +66,5 @@ Each flow file must include:
 3. Connect the browser or replay client to `KAIDO_MCP_PROXY_URL` and capture the real workflow.
 4. Group requests into a concrete flow with entry points, dependencies, and state-changing operations.
 5. Write the diagram and structured notes to `agent_shared/application-structure/{flow-type}/{flow-name}.md`.
-6. Update `notes/summary.md`, `notes/observations.md`, and `todo.md` when the map exposes new testing lanes or prerequisites.
+6. Ingest reusable route/object/action/auth-boundary observations into `/live-map`.
+7. Update `notes/summary.md`, `notes/observations.md`, and `todo.md` when the map exposes new testing lanes or prerequisites.

@@ -4,6 +4,8 @@
 
 Use this as a decision tree: connect to Caido MCP, capture a real user journey through the proxy, cluster the requests into one business flow, identify the state transitions and dependencies, then write a markdown sequence diagram another agent can replay without rediscovering the workflow.
 
+When a mapped flow exposes reusable runtime routes, object references, auth-boundary deltas, or state-changing actions, also ingest a normalized slice into `/live-map`. Mental maps are human-readable flow notes; live-map is the universal runtime map queried by child agents.
+
 ## Decision Tree
 
 1. Set the browser or HTTP client proxy to `KAIDO_MCP_PROXY_URL`.
@@ -12,6 +14,7 @@ Use this as a decision tree: connect to Caido MCP, capture a real user journey t
 4. Remove noise, then keep only requests that advance state, fetch prerequisites, or establish session context.
 5. Record the sequence, auth requirements, tokens, and data objects.
 6. Save the flow map under `application-structure/{flow-type}/`.
+7. Save reusable route/object/action/auth-boundary observations under `application-map/` with `agents/live_map.py`.
 
 ## 1. Connect To Caido MCP
 
@@ -206,3 +209,9 @@ Update shared notes when the map creates a concrete next step for another skill,
 - IDOR review on object IDs carried through the flow
 - Race review on multi-step checkout or reset paths
 - SSRF, XSS, or SQLi review on newly mapped endpoints
+
+Also build bounded handoff packets when the follow-up should run in an isolated child:
+
+```bash
+python3 agents/live_map.py build-handoffs <program> --skill access-control
+```

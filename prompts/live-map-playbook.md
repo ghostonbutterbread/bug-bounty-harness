@@ -112,6 +112,12 @@ python3 agents/live_map.py ingest <program> --input observations.jsonl --source 
 python3 agents/live_map.py build-handoffs <program> --skill access-control
 ```
 
+For blind training runs, especially PortSwigger labs where the live page can expose the lab name in the top-left banner, build blind packets:
+
+```bash
+python3 agents/live_map.py build-handoffs <program> --skill access-control --blind-mode
+```
+
 5. Spawn child agents using only the packet and the relevant skill pack.
 
 ## Symptom Routing
@@ -143,10 +149,23 @@ Child agents get:
 Child agents do not get:
 
 - vulnerability title or expected class
+- page title, lab title, breadcrumbs, or top-page training-lab banners
 - solution text
 - raw page/proxy dumps
 - unrelated map history
 - cookies, bearer tokens, passwords, auth headers, reset links, or verification codes
+
+## Blind Mode
+
+Use `--blind-mode` when training pages, lab platforms, or challenge wrappers leak the expected vulnerability class through titles, banners, breadcrumbs, or lab status headers.
+
+Blind mode:
+
+- removes `title` and freeform `notes` from route records before writing child handoff packets
+- adds a `blind_mode` block with a browser redaction snippet
+- tells the child to ignore page titles, lab banners, breadcrumbs, and back-to-lab links
+
+The parent or scout may run the packet's `blind_mode.browser_redaction_js` in the live browser before capturing snapshots for a child. This should be done before the child sees browser DOM. The snippet is for hiding training-lab chrome only; it is not proof and it is not a target bypass.
 
 ## Proof Standard
 

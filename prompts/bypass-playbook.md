@@ -62,6 +62,7 @@ Path and route:
 
 Headers:
 - `X-Original-URL`, `X-Rewrite-URL`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Host`, `Forwarded`, `X-HTTP-Method-Override`, duplicated headers, absent headers, altered `Host`
+- For `403` trusted-header tests, capture a direct-path denial first. If a header like `X-Original-URL: /admin` exposes a privileged page from a benign visible path, test state-changing subroutes by putting the protected route in the trusted header and leaving required query parameters on the visible URL, for example `GET /?id=123` plus `X-Original-URL: /admin/action`. Keep the request count small and stop after proving the authorization boundary.
 
 Parameters:
 - duplicate keys, array notation, JSON key changes, snake/camel case swaps, nested object forms, type swaps, empty/null/missing values, alternative content types
@@ -89,4 +90,3 @@ Write findings with:
 - security impact
 - cleanup performed or needed
 - raw artifacts path
-

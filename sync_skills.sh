@@ -89,6 +89,10 @@ do_copy() {
     if [ "$DRY_RUN" = true ]; then
         echo "  [DRY-RUN] Would copy: $src -> $dest"
     else
+        if [ -e "$dest" ] && [ "$(readlink -f "$src")" = "$(readlink -f "$dest")" ]; then
+            echo "  - $(basename "$dest") (already linked)"
+            return 0
+        fi
         mkdir -p "$(dirname "$dest")"
         cp "$src" "$dest"
         echo "  ✓ $(basename "$dest")"
@@ -106,6 +110,10 @@ sync_skill() {
     local src_dir="$HARNESS_ROOT/skills/$skill"
 
     if [ -d "$src_dir" ]; then
+        if [ ! -f "$src_dir/SKILL.md" ]; then
+            echo "  - $skill (skipped: missing SKILL.md)"
+            return 0
+        fi
         do_copy "$src_dir/SKILL.md" "$dest_dir/$skill/SKILL.md"
         [ -f "$src_dir/_meta.json" ] && do_copy "$src_dir/_meta.json" "$dest_dir/$skill/_meta.json" || true
     else

@@ -128,6 +128,7 @@ def test_live_map_blind_mode_redacts_route_hints_and_adds_browser_redaction(tmp_
     route = payload["routes"][0]
     assert payload["blind_mode"]["enabled"] is True
     assert "document.title" in payload["blind_mode"]["browser_redaction_js"]
+    assert any("same-origin links only" in rule for rule in payload["blind_mode"]["rules"])
     assert payload["instructions"][0].startswith("Blind mode is active")
     assert route["blind_mode_redacted"] is True
     assert "title" not in route

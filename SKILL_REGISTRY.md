@@ -65,6 +65,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **access-control** | `/access-control {program}` | `prompts/access-control-playbook.md` |
 | **idor** | `/idor {program}` | `prompts/idor-playbook.md` |
 | **sqli** | `/sqli {program}` | `prompts/sqli-playbook.md` |
+| **ssti** | `/ssti {program}` | `prompts/ssti-playbook.md` |
 | **ssrf** | `/ssrf {program}` | `prompts/ssrf-playbook.md` |
 | **fuzz** | `/fuzz {program}` | `prompts/fuzz-playbook.md` |
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
@@ -103,6 +104,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /access-control superdrug account-orders
 /idor superdrug
 /sqli superdrug
+/ssti superdrug
 /ssrf superdrug
 /fuzz superdrug
 /recon superdrug

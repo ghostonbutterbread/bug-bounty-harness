@@ -22,7 +22,8 @@ file_id, document_id, order_id, invoice_id, uuid, guid, gid, node_id, cursor
 - Swap User A object ID into User B request.
 - Compare list endpoint filtering against direct object fetch.
 - Check 302, 401, and 403 response bodies for leaked private data.
-- Find GUIDs in HTML, JS, exports, emails, or links, then fetch directly.
+- If IDs are opaque or GUIDs, crawl in-scope public pages for author, profile, account, and owner links before mutating account or object endpoints.
+- Check editable account/profile forms for cross-user reads and sensitive form values before deeper mutation work.
 - Test batch, bulk, and export endpoints separately.
 
 ## Proof

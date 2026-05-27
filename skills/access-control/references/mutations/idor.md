@@ -40,6 +40,8 @@ IDOR needs comparison accounts.
 - Compare `/objects/{id}` with `/users/{user_id}/objects/{id}`.
 - Test read, update, delete, export, download, and finalize endpoints separately.
 - Mix authorized and unauthorized IDs in batch/bulk requests.
+- For generated downloads, exports, transcripts, receipts, or attachments, create one owned object first and record its generated ID or filename.
+- If the generated object uses a numeric or sequential-looking reference, test nearby owned-safe candidates such as `N-1`, `N+1`, and `0` before broader enumeration.
 
 ## Tenant And Workspace Mutations
 
@@ -56,6 +58,7 @@ IDOR needs comparison accounts.
 - Decode base64/global IDs only to identify object type and source ID.
 - Mutate nested input IDs in create/update/bulk mutation inputs.
 - Batch authorized and unauthorized IDs in the same query or mutation.
+- For opaque web IDs or GUIDs, search in-scope public pages, author links, profile links, HTML, JavaScript, exports, and emails for valid references before guessing.
 
 ## Lifecycle And Stale Reference Mutations
 

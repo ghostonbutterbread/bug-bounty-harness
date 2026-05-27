@@ -50,12 +50,20 @@ BLIND_BROWSER_REDACTION_JS = r"""(() => {
     "[class*='lab-status']",
     "[data-testid*='lab']",
     "a[href*='portswigger.net/web-security']",
+    "a[href*='twitter.com/intent/tweet']",
+    "a[href*='linkedin.com/sharing']",
+    "a[href*='api.whatsapp.com/send']",
+    "a[href*='reddit.com/submit']",
   ];
   for (const selector of selectors) {
     document.querySelectorAll(selector).forEach(hide);
   }
   const bodyText = (document.body?.innerText || "").toLowerCase();
-  if (bodyText.includes("back to lab description")) {
+  const isTrainingLab =
+    location.hostname.endsWith(".web-security-academy.net") ||
+    bodyText.includes("back to lab description") ||
+    bodyText.includes("congratulations, you solved the lab");
+  if (isTrainingLab) {
     document.querySelectorAll("h1,h2").forEach((node, index) => {
       if (index < 2) hide(node);
     });
@@ -65,7 +73,10 @@ BLIND_BROWSER_REDACTION_JS = r"""(() => {
   });
   document.querySelectorAll("*").forEach((node) => {
     const text = (node.innerText || node.textContent || "").trim().toLowerCase();
-    if (["lab", "not solved", "solved"].includes(text)) hide(node);
+    if (
+      ["lab", "not solved", "solved", "share your skills!"].includes(text) ||
+      (text.length < 160 && text.startsWith("congratulations, you solved the lab"))
+    ) hide(node);
   });
 })();"""
 OBJECT_KEY_RE = re.compile(

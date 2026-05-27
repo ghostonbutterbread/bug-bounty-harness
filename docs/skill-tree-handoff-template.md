@@ -8,7 +8,9 @@ Replaced by: none
 Implementation commit: pending
 Last reviewed: 2026-05-25
 
-Use this when creating a skill that should scout one surface, choose a child lane, and hand clean context to another agent or skill.
+Use this when creating a RAG-style skill that should scout one surface, choose a child lane, and hand clean context to another agent or skill.
+
+Start with `docs/rag-skill-template.md`; use this file only for router/coordinator skills that need explicit child-lane handoff behavior.
 
 The pattern is:
 
@@ -295,7 +297,7 @@ Ledger action: notes-only
 
 ## Maintenance Check
 
-- Existing canonical artifact checked: `SKILL_TEMPLATE.md` covers Python harness modules, not skill handoff trees.
+- Existing canonical artifact checked: `SKILL_TEMPLATE.md` now routes between executable harness templates, RAG skill templates, and this handoff template.
 - Neighboring patterns checked: `prompts/pfp-playbook.md`, `prompts/pfp-context-pack.md`, `prompts/shared-skill-creator-playbook.md`.
 - Duplicate logic/spec risk: low.
 - Merge/deprecation plan: keep this as the canonical reusable skill-tree template and link to it from skill-creation workflow docs.

@@ -31,6 +31,7 @@ There is no dedicated `agents/csrf_hunter.py` in this repo yet. Run CSRF work ma
 ## Files
 
 - **Playbook:** `$HARNESS_ROOT/prompts/csrf-playbook.md`
+- **Origin/Referer Headers:** `$HARNESS_ROOT/skills/headers/references/technique-packs/origin.md`
 - **Shared Root:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`
 - **CSRF Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/csrf/findings.md`
 - **CSRF Artifacts:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/csrf/`
@@ -39,7 +40,8 @@ There is no dedicated `agents/csrf_hunter.py` in this repo yet. Run CSRF work ma
 
 1. Complete the required preflight reads in shared state order.
 2. Read `prompts/csrf-playbook.md`.
-3. Capture authenticated state-changing requests and build the simplest matching cross-site PoC.
-4. Use `baseline_capture.py` when you need before-and-after evidence or to inspect anti-CSRF headers during controlled replay.
-5. Write findings to `agent_shared/findings/csrf/findings.md`.
-6. Update CSRF entries in `checklist.md`, `todo.md`, and relevant notes.
+3. If the defense depends on `Origin`, `Referer`, or `Sec-Fetch-*`, load `/headers` origin instead of duplicating header checks here.
+4. Capture authenticated state-changing requests and build the simplest matching cross-site PoC.
+5. Use `baseline_capture.py` when you need before-and-after evidence or to inspect anti-CSRF headers during controlled replay.
+6. Write findings to `agent_shared/findings/csrf/findings.md`.
+7. Update CSRF entries in `checklist.md`, `todo.md`, and relevant notes.

@@ -83,6 +83,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **electron** | `/electron {program} {target_path}` | `prompts/electron-playbook.md` |
 | **prompt-injection** | `/prompt-injection {program} {target_url}` | `prompts/prompt-injection-playbook.md` |
 | **bypass** | `/bypass {target_url} {type}` | `prompts/bypass-playbook.md` |
+| **403** | `/403 {target_url}` | `skills/403/SKILL.md` |
 | **chromium-test** | `/chromium-test {program} {task}` | `prompts/chromium-test-playbook.md` |
 | **chromium-handoff** | `/chromium-handoff {cdp_port}` | `skills/chromium-handoff/SKILL.md` |
 | **pfp** | `/pfp {program} {goal}` | `prompts/pfp-playbook.md` |
@@ -126,6 +127,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /electron canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --dry-run-prompts
 /prompt-injection canva https://target.example/ai-assistant --mode map
 /bypass https://target.example/admin 403 --program target
+/403 https://target.example/admin --program target
 /chromium-test superdrug pfp
 /chromium-test canva upload-flow --account qa-primary --url https://www.canva.com/
 /chromium-handoff 9224

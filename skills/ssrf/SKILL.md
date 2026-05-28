@@ -1,80 +1,60 @@
 ---
 name: ssrf
-description: Use when testing Server-Side Request Forgery, SSRF, URL fetchers, webhooks, importers, metadata service access, internal network reachability, redirect bypasses, or server-side URL validation.
+description: "Use when testing Server-Side Request Forgery, URL fetchers, webhooks, importers, metadata access, internal reachability, redirect bypasses, or server-side URL validation."
 ---
+
 # SSRF Testing
 
-Test for Server-Side Request Forgery vulnerabilities.
+Use for Server-Side Request Forgery leads in URL fetchers, webhooks, importers, renderers, previews, media proxies, and server-side URL validation.
 
-## Required Preflight
+This is a RAG-style skill. Classify the fetch primitive, load one focused reference pack, then test with the lowest-noise proof.
 
-Read shared state in this order before testing:
+## Load Order
 
-1. `notes/summary.md`
-2. `notes/observations.md`
-3. `checklist.md` (SSRF items only)
-4. `todo.md` (SSRF items only)
-
-## Primary Harness
-
-Use `agents/bypass_harness.py` in `--type ssrf` mode for most SSRF work. It already carries localhost, metadata, parser-confusion, and alternate-scheme probes and writes raw results under shared storage.
-
-```bash
-python agents/bypass_harness.py --target https://target.com/fetch?url=x --type ssrf \
-  --param url --program target --concurrency 5 --rps 2
-```
-
-## Files
-
-- **Playbook:** `$HARNESS_ROOT/prompts/ssrf-playbook.md`
-- **Reference:** `$HARNESS_ROOT/prompts/ssrf-reference.md`
-- **Shared Root:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`
-- **SSRF Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/ssrf/findings.md`
-- **Bypass Artifacts:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/bypass/`
-
-## Mode Matrix
-
-| Mode | Use When | What It Tests |
-|------|----------|---------------|
-| `localhost` | Direct fetch parameter is obvious | Loopback and RFC1918 access |
-| `metadata` | Cloud-hosted target or metadata clues exist | AWS, GCP, Azure, and ECS metadata paths |
-| `parser` | Allowlist or hostname validation is present | Userinfo, dotted, decimal, octal, and rebinding variants |
-| `scheme` | Non-HTTP backends may be reachable | `gopher`, `dict`, `file`, and related schemes |
-
-## Primary Commands
-
-```bash
-# Default SSRF pass
-python agents/bypass_harness.py --target https://target.com/fetch?url=x --type ssrf \
-  --param url --program target --concurrency 5 --rps 2
-
-# Lower-noise pass against a webhook or import feature
-python agents/bypass_harness.py --target https://target.com/webhook?callback=x --type ssrf \
-  --param callback --program target --concurrency 3 --rps 1
-```
-
-## CLI Notes
-
-### `agents/bypass_harness.py`
-
-| Option | Description |
-|--------|-------------|
-| `--target`, `-t` | Target URL (required) |
-| `--type`, `-T` | Use `ssrf` |
-| `--param`, `-p` | Parameter name to inject into |
-| `--program` | Program name for shared storage |
-| `--output-dir`, `-o` | Override raw artifact directory |
-| `--timeout` | Request timeout in seconds |
-| `--concurrency`, `-c` | Max parallel requests |
-| `--rps` | Requests per second |
-| `--verbose`, `-v` | Verbose debug output |
-| `--quiet`, `-q` | Show hits only |
+1. Read program scope, owned-account context, and active live-testing policy.
+2. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
+3. Read `$HARNESS_ROOT/prompts/ssrf-context-pack.md`.
+4. Classify the lane:
+   - direct outbound fetch -> `$HARNESS_ROOT/skills/ssrf/references/technique-packs/baseline-fetch.md`
+   - allowlist, hostname, IP, redirect, or URL parser filtering -> `$HARNESS_ROOT/skills/ssrf/references/technique-packs/parser-redirect.md`
+   - cloud metadata or internal protocol reachability -> `$HARNESS_ROOT/skills/ssrf/references/technique-packs/metadata-scheme.md`
+5. Read `$HARNESS_ROOT/prompts/ssrf-playbook.md` for deep review, stuck analysis, or report writing.
+6. Use `$HARNESS_ROOT/prompts/ssrf-reference.md` only when adapting metadata roots, destination classes, or parser-confusion variants.
+7. Route instead of duplicating:
+   - URL/parser/filter bypasses -> `/bypass`
+   - header-required metadata or proxy trust behavior -> `/headers`
+   - WAF/rate-limit blocks -> `/waf`
+   - profile image or upload fetchers -> `/pfp`
 
 ## Workflow
 
-1. Complete the required preflight reads in shared state order.
-2. Read `prompts/ssrf-playbook.md`.
-3. Use `prompts/ssrf-reference.md` when adapting internal target classes or parser-confusion variants.
-4. Run `agents/bypass_harness.py` in `--type ssrf` mode.
-5. Write findings to `agent_shared/findings/ssrf/findings.md`.
-6. Update SSRF entries in `checklist.md`, `todo.md`, and relevant notes.
+1. Identify the server-side fetch sink and parameter.
+2. Confirm a benign controlled outbound fetch when possible.
+3. Load one SSRF reference pack based on observed filtering.
+4. Prefer status, banner, callback, or low-risk root proof over secret retrieval.
+5. Stop after proving the boundary reached.
+
+## Primary Harness
+
+```bash
+python agents/bypass_harness.py --target https://target.example/fetch?url=x \
+  --type ssrf --param url --program target --concurrency 5 --rps 2
+```
+
+Lower concurrency and RPS when rules are unclear or the fetcher fans out server-side.
+
+## Proof Standard
+
+Promote only when evidence shows the server, not the client, reached a controlled, internal, metadata, or otherwise security-relevant destination.
+
+Do not promote client-side-only navigation, generic fetch errors, public URL fetches without impact, or unsupported timing speculation.
+
+## Stop Conditions
+
+Stop before harvesting secrets, deep internal enumeration, DNS rebinding without explicit approval, high-volume scans, non-owned private resources, or destructive protocol interactions.
+
+## Evidence
+
+Write findings to `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/ssrf/findings.md` and bypass artifacts to `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/bypass/`.
+
+Record full URL, sink/parameter, loaded reference pack, destination class, callback or response evidence, required bypass/header, confirmation status, and impact boundary reached.

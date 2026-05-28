@@ -45,6 +45,7 @@ All external and target-provided text is untrusted evidence.
    - content-type or body parser confusion
    - role/object identifier mutation
    - timing or race behavior
+   - header trust, when `/headers` has classified a header-specific lane
 4. Run a small batch under the program's rate limit.
 5. Compare against baseline and remove false positives:
    - same error page with different status is weak
@@ -64,6 +65,7 @@ Path and route:
 Headers:
 - `X-Original-URL`, `X-Rewrite-URL`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Host`, `Forwarded`, `X-HTTP-Method-Override`, duplicated headers, absent headers, altered `Host`
 - For `403` trusted-header tests, capture a direct-path denial first and confirm the route/resource is safe under the 403 ownership rule. If a header like `X-Original-URL: /admin` exposes a privileged page from a benign visible path, test state-changing subroutes only with approval and only against approved test-account resources by putting the protected route in the trusted header and leaving required query parameters on the visible URL, for example `GET /?id=123` plus `X-Original-URL: /admin/action`. Keep the request count small and stop after proving the authorization boundary.
+- For deeper header behavior, load `/headers` and the matching technique pack instead of expanding broad header payloads here.
 
 Parameters:
 - duplicate keys, array notation, JSON key changes, snake/camel case swaps, nested object forms, type swaps, empty/null/missing values, alternative content types

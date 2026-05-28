@@ -7,6 +7,7 @@ Use this playbook after scope review when an endpoint appears protected by a bri
 - Follow the program scope and interpreted rate limit before sending requests.
 - Prefer one hypothesis at a time: baseline, one mutation family, compare, then stop or pivot.
 - Do not use bypasses to evade account restrictions, paywalls, billing controls, real-user privacy controls, or explicit program prohibitions.
+- For `403` bypass work, only probe endpoints that returned a concrete `403` in the current owned context and are agent-owned, assigned server/API endpoints, or tied to Ryushe's approved test account set. Do not run 403 bypasses against real users' accounts, tenants, files, orders, profiles, workspaces, or other resources outside the approved account list.
 - Avoid destructive payloads and high-volume fuzzing unless Ryushe approves the exact target and limit.
 - Record the full URL, method, headers changed, payload family, status code, response length, timing, and reason the result matters.
 
@@ -62,7 +63,7 @@ Path and route:
 
 Headers:
 - `X-Original-URL`, `X-Rewrite-URL`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Host`, `Forwarded`, `X-HTTP-Method-Override`, duplicated headers, absent headers, altered `Host`
-- For `403` trusted-header tests, capture a direct-path denial first. If a header like `X-Original-URL: /admin` exposes a privileged page from a benign visible path, test state-changing subroutes by putting the protected route in the trusted header and leaving required query parameters on the visible URL, for example `GET /?id=123` plus `X-Original-URL: /admin/action`. Keep the request count small and stop after proving the authorization boundary.
+- For `403` trusted-header tests, capture a direct-path denial first and confirm the route/resource is safe under the 403 ownership rule. If a header like `X-Original-URL: /admin` exposes a privileged page from a benign visible path, test state-changing subroutes only with approval and only against approved test-account resources by putting the protected route in the trusted header and leaving required query parameters on the visible URL, for example `GET /?id=123` plus `X-Original-URL: /admin/action`. Keep the request count small and stop after proving the authorization boundary.
 
 Parameters:
 - duplicate keys, array notation, JSON key changes, snake/camel case swaps, nested object forms, type swaps, empty/null/missing values, alternative content types

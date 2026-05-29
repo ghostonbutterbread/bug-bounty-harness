@@ -25,6 +25,8 @@ Start a remote run and return immediately:
 python3 agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
 ```
 
+The start command fails closed if saved scope is missing or the URL is out of scope. It also writes a project-local `rate_limit.conf` before launch. Use `--rate-limit-rps` only after checking the program policy; use `--allow-unscoped` only after explicit Ryushe approval.
+
 Check remote status/log names:
 
 ```bash
@@ -59,3 +61,4 @@ Ingest writes:
 - Promote to the findings ledger only after a separate high-confidence validation step.
 - Keep Hoster logs on Hoster; ingest completed project directories when Ryushe asks or when the run is done.
 - Stop before running high-volume recon on a target without explicit scope/rate approval.
+- Never bypass the saved-scope check unless Ryushe explicitly approves the target and rate limit.

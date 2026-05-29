@@ -45,7 +45,18 @@ def test_ingest_copies_recon_outputs_and_writes_manifest(tmp_path: Path) -> None
 
 def test_start_dry_run_uses_hoster_wrapper(capsys) -> None:
     parser = recon_ry.build_parser()
-    args = parser.parse_args(["start", "demo", "--url", "example.com", "--profile", "subs", "--dry-run"])
+    args = parser.parse_args(
+        [
+            "start",
+            "demo",
+            "--url",
+            "example.com",
+            "--profile",
+            "subs",
+            "--dry-run",
+            "--allow-unscoped",
+        ]
+    )
 
     recon_ry.start_remote(args)
 
@@ -53,3 +64,46 @@ def test_start_dry_run_uses_hoster_wrapper(capsys) -> None:
     assert "$HOME/bin/recon-ry" in output
     assert "--subs" in output
     assert "--url 'example.com'" in output
+    assert "rate_limit.conf" in output
+    assert "default=2" in output
+
+
+def test_validate_start_scope_fails_closed_when_no_scope(monkeypatch) -> None:
+    class EmptyScope:
+        def __init__(self, program: str, strict: bool = True):
+            self.program = program
+            self.strict = strict
+
+        def is_empty(self) -> bool:
+            return True
+
+    monkeypatch.setattr(recon_ry, "ScopeValidator", EmptyScope)
+
+    try:
+        recon_ry.validate_start_scope("demo", "https://example.com")
+    except SystemExit as exc:
+        assert "No saved scope" in str(exc)
+    else:
+        raise AssertionError("expected fail-closed SystemExit")
+
+
+def test_validate_start_scope_rejects_out_of_scope(monkeypatch) -> None:
+    class DemoScope:
+        def __init__(self, program: str, strict: bool = True):
+            self.program = program
+            self.strict = strict
+
+        def is_empty(self) -> bool:
+            return False
+
+        def validate_or_fail(self, url: str) -> None:
+            raise recon_ry.OutOfScopeError("out of scope")
+
+    monkeypatch.setattr(recon_ry, "ScopeValidator", DemoScope)
+
+    try:
+        recon_ry.validate_start_scope("demo", "https://evil.example")
+    except SystemExit as exc:
+        assert "out of scope" in str(exc)
+    else:
+        raise AssertionError("expected out-of-scope SystemExit")

@@ -28,6 +28,7 @@ This is a RAG-style mechanism skill. Classify the header lane first, load one fo
    - broad bypass or parser mutation -> `/bypass`
    - CORS policy impact -> `/csrf` or future `/cors`
    - direct object ownership -> `/access-control` or `/idor`
+   - browser-generated or one-shot request shape -> `/single-request-grabber`
 
 ## Workflow
 

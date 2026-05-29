@@ -29,6 +29,7 @@ This is a RAG-style decision skill. It does not authorize broader testing by its
    - object ownership -> `/idor`
    - parser/header behavior -> `/headers` or `/bypass`
    - route discovery -> `/fuzz` or `/live-map`
+   - fresh token, browser-generated request, or one-shot action request -> `/single-request-grabber`
 
 ## Workflow
 

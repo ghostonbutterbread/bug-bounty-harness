@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from pathlib import Path
 
 from agents import recon_ry
@@ -66,6 +67,31 @@ def test_start_dry_run_uses_hoster_wrapper(capsys) -> None:
     assert "--url 'example.com'" in output
     assert "rate_limit.conf" in output
     assert "default=2" in output
+    assert "urls.txt" in output
+    assert "wild.txt" in output
+
+
+def test_build_remote_seed_files_uses_saved_scope(monkeypatch) -> None:
+    class DemoScope:
+        def __init__(self, program: str, strict: bool = True):
+            self.program = program
+            self.strict = strict
+            self._entries = [
+                SimpleNamespace(raw="*.example.com", entry_type="wildcard"),
+                SimpleNamespace(raw="api.example.com", entry_type="domain"),
+                SimpleNamespace(raw="https://app.example.com/login", entry_type="url_pattern"),
+            ]
+
+        def is_empty(self) -> bool:
+            return False
+
+    monkeypatch.setattr(recon_ry, "ScopeValidator", DemoScope)
+
+    files = recon_ry.build_remote_seed_files("demo", "example.com")
+
+    assert files["urls.txt"] == "example.com\nhttps://app.example.com/login\napi.example.com\n"
+    assert files["url.txt"] == files["urls.txt"]
+    assert files["wild.txt"] == "example.com\n"
 
 
 def test_validate_start_scope_fails_closed_when_no_scope(monkeypatch) -> None:

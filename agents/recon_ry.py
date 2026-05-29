@@ -24,12 +24,14 @@ ensure_bounty_core_importable("bounty_core.recon")
 from bounty_core.recon import start_run, write_manifest
 
 from scope_validator import OutOfScopeError, ScopeValidator
+from scope_seed_files import clean_scope_value, recon_seed_lines
 
 
 DEFAULT_REMOTE = "ryushe@hoster"
 DEFAULT_SSH_KEY = Path.home() / ".ssh" / "hoster"
 TOP_LEVEL_ARTIFACTS = (
     "alive.txt",
+    "url.txt",
     "urls.txt",
     "wild.txt",
     "params_raw.txt",
@@ -193,6 +195,34 @@ def validate_start_scope(program: str, url: str, *, allow_unscoped: bool = False
         raise SystemExit(str(exc)) from exc
 
 
+def build_remote_seed_files(program: str, seed_url: str, *, allow_unscoped: bool = False) -> dict[str, str]:
+    """Build recon-ry project seed files from saved scope plus the requested seed URL."""
+    domains: list[str] = []
+    urls: list[str] = [seed_url]
+    try:
+        validator = ScopeValidator(program=program, strict=True)
+    except Exception:
+        validator = None
+    if validator and not validator.is_empty():
+        for entry in getattr(validator, "_entries", []):
+            raw = clean_scope_value(getattr(entry, "raw", ""))
+            if not raw:
+                continue
+            if getattr(entry, "entry_type", "") == "url_pattern" or raw.startswith(("http://", "https://")):
+                urls.append(raw)
+            else:
+                domains.append(raw)
+    elif not allow_unscoped:
+        validate_start_scope(program, seed_url, allow_unscoped=allow_unscoped)
+
+    url_lines, wild_lines = recon_seed_lines(domains, urls)
+    return {
+        "urls.txt": "\n".join(url_lines) + ("\n" if url_lines else ""),
+        "url.txt": "\n".join(url_lines) + ("\n" if url_lines else ""),
+        "wild.txt": "\n".join(wild_lines) + ("\n" if wild_lines else ""),
+    }
+
+
 def rate_limit_conf_body(rate_limit_rps: float, timeout: int) -> str:
     rate = max(float(rate_limit_rps), 0.1)
     timeout = max(int(timeout), 0)
@@ -227,10 +257,20 @@ def start_remote(args: argparse.Namespace) -> None:
     url_part = f" --url {shell_quote(args.url)}" if args.url else ""
     verbose = " -vv" if args.very_verbose else " -v"
     rate_conf = rate_limit_conf_body(args.rate_limit_rps, args.timeout)
+    seed_files = build_remote_seed_files(args.program, args.url, allow_unscoped=args.allow_unscoped)
+    seed_file_cmds = ""
+    for filename, body in seed_files.items():
+        marker = f"RECONRY_{filename.upper().replace('.', '_')}"
+        seed_file_cmds += (
+            f"cat > {shell_quote(project_dir + '/' + filename)} <<'{marker}'\n"
+            f"{body}"
+            f"{marker}\n"
+        )
     remote_cmd = (
         "set -eu; "
         "mkdir -p \"$HOME/bounties\" \"$HOME/recon-ry-logs\"; "
         f"mkdir -p {shell_quote(project_dir)}; "
+        f"{seed_file_cmds}"
         f"cat > {shell_quote(project_dir + '/rate_limit.conf')} <<'RECONRY_RATE_LIMIT'\n"
         f"{rate_conf}"
         "RECONRY_RATE_LIMIT\n"

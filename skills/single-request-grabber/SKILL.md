@@ -7,32 +7,37 @@ description: "Capture one live owned-session request through proxy or browser, t
 
 Use when a test needs the exact live request shape, token, cookie state, or browser-generated headers for one action.
 
-This is a RAG-style live-request skill. It captures one request, classifies the safe modification, executes at most the bounded test, and writes an action/error trail.
+This is a RAG-style live-request skill. Its primary job is operational: capture one request through the proxy/MCP or browser, optionally pause it while fresh, make one approved mutation, forward or replay it, and write an action/error trail.
+
+Routing is secondary. Do not route away before capturing the request if the current task specifically needs the live token/request shape.
 
 ## Load Order
 
 1. Read program scope, owned-account context, current task goal, and live-testing policy.
 2. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
 3. Read `$HARNESS_ROOT/prompts/single-request-grabber-context-pack.md`.
-4. Classify the lane:
+4. Classify the mutation lane:
    - CSRF token or one-time action token -> `$HARNESS_ROOT/skills/single-request-grabber/references/technique-packs/csrf-token.md`
    - approved account/resource substitution -> `$HARNESS_ROOT/skills/single-request-grabber/references/technique-packs/access-control-replay.md`
    - header or request-shape repair -> `$HARNESS_ROOT/skills/single-request-grabber/references/technique-packs/request-shape-repair.md`
 5. Read `$HARNESS_ROOT/prompts/single-request-grabber-playbook.md` for step-by-step operation or report writing.
-6. Route instead of duplicating:
+6. Use proxy setup helpers only if needed:
+   - agent-lane proxy/MCP -> `/agent-proxy`
+   - Caido MCP inspection/replay -> `/caido`
+   - browser-driven capture -> `/chromium-test`
+7. After the result, route instead of duplicating:
    - CSRF impact -> `/csrf`
    - workspace/account/resource authorization -> `/access-control` or `/idor`
    - header mechanics -> `/headers`
    - error classification -> `/error-triage`
-   - proxy setup -> `/agent-proxy`, `/caido`, or `/chromium-test`
 
 ## Workflow
 
 1. Choose one action and one owned account/session.
-2. Capture the live request through browser/proxy or proxy history.
+2. Capture the live request through browser/proxy, proxy MCP history, or proxy intercept.
 3. Sanitize notes: never store raw cookies, tokens, auth headers, or secrets.
 4. Confirm ownership and destructible status for every account/resource touched.
-5. Modify only the approved field, header, method, body, or owned-resource identifier.
+5. Modify only the approved field, header, method, body, cookie/session context, or owned-resource identifier.
 6. Send at most the bounded replay/forward test needed to answer the question.
 7. Record the action/error trail before routing to another skill.
 

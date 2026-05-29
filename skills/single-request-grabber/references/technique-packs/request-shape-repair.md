@@ -1,6 +1,6 @@
 # Request-Shape Repair
 
-Use when the server tells the agent the request shape is wrong: missing field, unsupported media type, method not allowed, invalid schema, or browser-generated header required.
+Use when the server tells the agent the request shape is wrong: missing field, unsupported media type, method not allowed, invalid schema, filename/MIME mismatch, multipart boundary issue, or browser-generated header required.
 
 ## Checks
 
@@ -8,6 +8,7 @@ Use when the server tells the agent the request shape is wrong: missing field, u
 - Compare method, path, query, body, `Content-Type`, `Accept`, CSRF token, and custom headers.
 - Repair syntax or representation before trying security mutations.
 - Route header/content-type/method behavior to `/headers`.
+- For uploads, compare filename, extension, declared MIME type, multipart field names, and server-visible content type.
 
 ## Allowed Modifications
 

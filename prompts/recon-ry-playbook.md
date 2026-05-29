@@ -29,6 +29,14 @@ Start via the local wrapper so Hoster owns the long-running process:
 python3 agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
 ```
 
+The wrapper enforces saved scope before starting:
+
+- if no saved scope exists for the program, it stops
+- if the seed URL is not in scope, it stops
+- `--allow-unscoped` is only for explicit Ryushe-approved exceptions
+
+The wrapper writes `<remote-project>/rate_limit.conf` before launch. Default is conservative: `--rate-limit-rps 2`, `--timeout 300`. Increase only when the program policy allows it.
+
 The command prints:
 
 - PID

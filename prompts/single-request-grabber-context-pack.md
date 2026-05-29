@@ -2,11 +2,13 @@
 
 Use this as the compact branch map for `/single-request-grabber`.
 
-Primary purpose: get one exact live request from proxy/browser state, then make one approved mutation while preserving the parts that must stay fresh.
+Primary purpose: get one exact live request or one short action flow from proxy/browser state, then make one approved mutation while preserving the parts that must stay fresh.
 
 ## Rules
 
-- Capture exactly one live request or one request family for one action.
+- Capture exactly one live request or one small request family for one action flow.
+- During proxy intercept, inspect paused requests and forward non-target requests until the target request appears.
+- After the target request is handled and the flow is complete, disable intercept.
 - Prefer intercept-and-forward when the request contains a per-action token, browser-only header set, or timing-sensitive body.
 - Prefer proxy-history replay when the request is stable and safe to replay.
 - Use owned sessions and approved test resources only.
@@ -23,8 +25,14 @@ Use when the request must be paused while fresh, modified once, and forwarded no
 Common examples:
 - per-action CSRF token
 - one-time nonce
+- one-use Cloudflare or anti-bot token already obtained through an owned browser flow
 - browser-generated boundary/body
 - action that cannot be reproduced from stale history
+
+Flow examples:
+- observe payment-processor request shape without letting the main account complete a charge
+- capture account-deletion request shape and redirect the test only to an approved destructible account
+- preserve a fresh CSRF or challenge token while changing one approved authorization field
 
 Reference:
 - `$HARNESS_ROOT/skills/single-request-grabber/references/technique-packs/csrf-token.md`

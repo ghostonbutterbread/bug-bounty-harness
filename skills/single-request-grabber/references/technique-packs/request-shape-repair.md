@@ -5,6 +5,7 @@ Use when the server tells the agent the request shape is wrong: missing field, u
 ## Checks
 
 - Capture the browser's valid request for the same owned action.
+- If the valid request appears after setup/API preflight requests, forward setup requests until the target request appears.
 - Compare method, path, query, body, `Content-Type`, `Accept`, CSRF token, and custom headers.
 - Repair syntax or representation before trying security mutations.
 - Route header/content-type/method behavior to `/headers`.

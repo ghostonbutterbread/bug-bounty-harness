@@ -5,11 +5,15 @@ description: "Capture one live owned-session request through proxy or browser, t
 
 # Single Request Grabber
 
-Use when a test needs the exact live request shape, token, cookie state, or browser-generated headers for one action.
+Use when a test needs the exact live request shape, token, cookie state, or browser-generated headers for one action or one short action flow.
 
-This is a RAG-style live-request skill. Its primary job is operational: capture one request through the proxy/MCP or browser, optionally pause it while fresh, make one approved mutation, forward or replay it, and write an action/error trail.
+This is a RAG-style live-request skill. Its primary job is operational: capture one request or one short flow through the proxy/MCP or browser, forward non-target requests until the target request appears, optionally pause it while fresh, make one approved mutation, forward or replay it, finish the flow, disable intercept, and write an action/error trail.
 
 Routing is secondary. Do not route away before capturing the request if the current task specifically needs the live token/request shape.
+
+## Agent Note
+
+This skill is designed to be used with other skills. Use it to capture or mutate the live request/flow; use `/access-control`, `/idor`, `/csrf`, `/headers`, `/error-triage`, or another owning skill to interpret the security result.
 
 ## Load Order
 
@@ -33,13 +37,15 @@ Routing is secondary. Do not route away before capturing the request if the curr
 
 ## Workflow
 
-1. Choose one action and one owned account/session.
+1. Choose one action or short action flow and one owned account/session.
 2. Capture the live request through browser/proxy, proxy MCP history, or proxy intercept.
-3. Sanitize notes: never store raw cookies, tokens, auth headers, or secrets.
-4. Confirm ownership and destructible status for every account/resource touched.
-5. Modify only the approved field, header, method, body, cookie/session context, or owned-resource identifier.
-6. Send at most the bounded replay/forward test needed to answer the question.
-7. Record the action/error trail before routing to another skill.
+3. If intercepting a flow, inspect each paused request, forward requests that are not relevant, and stop only on the target request or request family.
+4. Sanitize notes: never store raw cookies, tokens, auth headers, or secrets.
+5. Confirm ownership and destructible status for every account/resource touched.
+6. Modify only the approved field, header, method, body, cookie/session context, or owned-resource identifier.
+7. Send at most the bounded replay/forward test needed to answer the question.
+8. Complete the browser/proxy flow if safe, then turn off intercept.
+9. Record the action/error trail before routing to another skill.
 
 ## Proof Standard
 
@@ -55,4 +61,4 @@ Stop if the action is destructive and the target resource is not explicitly `des
 
 Write notes under `$HARNESS_SHARED_BASE/{program}/ghost/single-request-grabber/` or the owning finding lane.
 
-Record action goal, full URL, method, account/resource aliases, destructible status, captured request source, sanitized mutation, result, routed skill, stop condition, and raw artifact path if available.
+Record action goal, flow boundary, full URL, method, account/resource aliases, destructible status, captured request source, forwarded non-target request count, sanitized mutation, result, intercept-off confirmation, routed skill, stop condition, and raw artifact path if available.

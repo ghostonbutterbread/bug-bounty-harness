@@ -1,11 +1,12 @@
 # CSRF Token
 
-Use when a live request includes a per-action or per-request CSRF token, one-time nonce, or browser-generated token that may go stale if replayed later.
+Use when a live request includes a per-action or per-request CSRF token, one-time nonce, one-use challenge token, or browser-generated token that may go stale if replayed later.
 
 ## Checks
 
 - Identify where the token came from: DOM, hidden input, meta tag, cookie, previous response, or same-origin token endpoint.
 - Capture the token only from the owned browser/session flow.
+- If the token appears only after multiple setup requests, forward setup requests until the target action request appears.
 - Prefer live intercept/modify when replaying an old token is invalid.
 - Test omission, stale token, or cross-session token only when the action is safe and owned.
 - Do not try to generate or guess CSRF tokens. Use the legitimate owned flow and preserve the live token while changing only the approved test field.

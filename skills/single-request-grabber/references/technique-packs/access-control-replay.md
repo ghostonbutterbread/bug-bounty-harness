@@ -11,6 +11,7 @@ This pack is for authorization comparison, not broad exploitation. The source re
 - Modify only the identifier, workspace, tenant, role, or resource field under test.
 - Compare expected denial/allow behavior against actual behavior.
 - If the action is dangerous, use an approved throwaway target resource and mark `destructible: yes` before forwarding.
+- If the request appears inside a multi-request flow, forward setup requests and mutate only the target action request.
 
 ## Allowed Modifications
 

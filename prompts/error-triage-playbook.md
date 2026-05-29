@@ -25,6 +25,7 @@ The same error can be evidence or a blocker depending on the task.
    - route to another skill
    - retry once with a minimal baseline
    - record a note
+   - capture one fresh browser/proxy request if the request shape is the blocker
    - stop and ask Ryushe
 
 ## Route Matrix
@@ -40,6 +41,11 @@ The same error can be evidence or a blocker depending on the task.
 | `429`, CAPTCHA, WAF page | `/waf`, manual handoff, or stop |
 | soft 404/weird route error | `/fuzz` or `/live-map` |
 | fresh CSRF token or one-shot browser request needed | `/single-request-grabber` |
+| unclear/custom/mixed error | record ambiguity, then bounded baseline retry, `/live-map`, `/fuzz`, `/headers`, or manual handoff |
+
+The route matrix is not a closed list. If the active skill has better context for
+the current goal, it can keep ownership and use `/error-triage` only as the
+decision log.
 
 ## Handoff Card
 

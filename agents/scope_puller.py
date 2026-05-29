@@ -11,6 +11,11 @@ from textwrap import dedent
 from pathlib import Path
 from urllib.parse import urlparse
 
+try:
+    from scope_seed_files import write_recon_seed_files
+except ModuleNotFoundError:
+    from agents.scope_seed_files import write_recon_seed_files
+
 PLATFORMS = {
     "hackerone": "https://hackerone.com/{program}",
     "bugcrowd": "https://bugcrowd.com/{program}",
@@ -334,13 +339,23 @@ def save_scope(program: str, scope_data: dict, *, legacy: bool = True):
         changed.append(write_if_changed(raw_base / f"{scope_data.get('platform', 'source')}-brief.json", json.dumps(scope_data["raw"], indent=2, sort_keys=True) + "\n"))
 
     if legacy:
-        legacy_base = Path.home() / "Shared" / "bounty_recon" / slug / "scope"
+        legacy_program_base = Path.home() / "Shared" / "bounty_recon" / slug
+        legacy_base = legacy_program_base / "scope"
         write_if_changed(legacy_base / "in-scope.txt", in_scope)
+        seed_counts = write_recon_seed_files(
+            legacy_program_base,
+            scope_data.get("domains", set()),
+            scope_data.get("urls", set()),
+        )
+    else:
+        seed_counts = {"urls": 0, "wildcards": 0}
 
     print(f"[+] Saved scope to: {base}")
     print(f"    Changed: {'yes' if any(changed) else 'no'}")
     print(f"    Domains: {len(scope_data.get('domains', []))}")
     print(f"    URLs: {len(scope_data.get('urls', []))}")
+    if legacy:
+        print(f"    Recon seeds: {seed_counts['urls']} urls, {seed_counts['wildcards']} wildcards")
 
 
 def pull_scope(program: str, platform: str = None, *, use_api: bool = False):

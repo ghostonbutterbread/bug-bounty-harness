@@ -69,6 +69,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **ssrf** | `/ssrf {program}` | `prompts/ssrf-playbook.md` |
 | **fuzz** | `/fuzz {program}` | `prompts/fuzz-playbook.md` |
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
+| **recon-ry** | `/recon-ry {program}` | `prompts/recon-ry-playbook.md` |
 | **csrf** | `/csrf {program}` | `skills/csrff/SKILL.md` |
 | **mental-map** | `/mental-map {program}` | `prompts/mental-map-playbook.md` |
 | **caido** | `/caido {mcp-url-or-host?}` | `skills/caido/SKILL.md` |
@@ -116,6 +117,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /ssrf superdrug
 /fuzz superdrug
 /recon superdrug
+/recon-ry superdrug --url example.com --profile full
 /csrf superdrug
 /mental-map superdrug
 /caido 192.168.0.135

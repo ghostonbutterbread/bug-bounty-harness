@@ -27,6 +27,14 @@ python3 agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profil
 
 The start command fails closed if saved scope is missing or the URL is out of scope. It also writes a project-local `rate_limit.conf` before launch. Use `--rate-limit-rps` only after checking the program policy; use `--allow-unscoped` only after explicit Ryushe approval.
 
+Before launch, the wrapper stages recon seed files into the remote project:
+
+- `/home/ryushe/bounties/{program}/urls.txt`
+- `/home/ryushe/bounties/{program}/wild.txt`
+
+`urls.txt` receives exact URLs and exact host/domain entries. `wild.txt`
+receives wildcard base domains with `*.` removed.
+
 Check remote status/log names:
 
 ```bash

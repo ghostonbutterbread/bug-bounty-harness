@@ -15,7 +15,7 @@ def test_recon_seed_lines_split_exact_urls_and_wildcards() -> None:
     assert wild == ["example.com", "wild.example"]
 
 
-def test_write_recon_seed_files_writes_urls_url_and_wild(tmp_path: Path) -> None:
+def test_write_recon_seed_files_writes_urls_and_wild(tmp_path: Path) -> None:
     counts = scope_seed_files.write_recon_seed_files(
         tmp_path,
         {"*.example.com", "api.example.com"},
@@ -24,5 +24,5 @@ def test_write_recon_seed_files_writes_urls_url_and_wild(tmp_path: Path) -> None
 
     assert counts == {"urls": 2, "wildcards": 1}
     assert (tmp_path / "urls.txt").read_text(encoding="utf-8") == "https://app.example.com\napi.example.com\n"
-    assert (tmp_path / "url.txt").read_text(encoding="utf-8") == "https://app.example.com\napi.example.com\n"
+    assert not (tmp_path / "url.txt").exists()
     assert (tmp_path / "wild.txt").read_text(encoding="utf-8") == "example.com\n"

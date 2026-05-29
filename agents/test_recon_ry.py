@@ -90,7 +90,7 @@ def test_build_remote_seed_files_uses_saved_scope(monkeypatch) -> None:
     files = recon_ry.build_remote_seed_files("demo", "example.com")
 
     assert files["urls.txt"] == "example.com\nhttps://app.example.com/login\napi.example.com\n"
-    assert files["url.txt"] == files["urls.txt"]
+    assert "url.txt" not in files
     assert files["wild.txt"] == "example.com\n"
 
 

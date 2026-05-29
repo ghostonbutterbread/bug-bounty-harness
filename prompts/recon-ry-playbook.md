@@ -37,6 +37,13 @@ The wrapper enforces saved scope before starting:
 
 The wrapper writes `<remote-project>/rate_limit.conf` before launch. Default is conservative: `--rate-limit-rps 2`, `--timeout 300`. Increase only when the program policy allows it.
 
+The wrapper also stages scope seed files into the remote project before launch:
+
+- `<remote-project>/urls.txt` — exact URLs and exact host/domain entries
+- `<remote-project>/wild.txt` — wildcard base domains with leading `*.` removed
+
+For example, `https://app.example.com` stays in `urls.txt`; `*.example.com` becomes `example.com` in `wild.txt`.
+
 The command prints:
 
 - PID
@@ -70,6 +77,10 @@ The helper copies known `recon-ry` artifacts into:
 ```text
 ~/Shared/web_bounty/{program}/web/recon/recon-ry/{target}/runs/{YYYY-MM-DD}/{run_id}/
 ```
+
+This means active `recon-ry` output lives on Hoster during the scan, then Ghost
+imports a completed run into Shared storage. Do not treat the Hoster project
+directory as the final canonical archive.
 
 It writes `manifest.json` with counts for alive URLs, params, JavaScript files, secrets, dorks, and promotion state.
 

@@ -1,6 +1,6 @@
 # CSRF Token
 
-Use when a live request includes a per-action or per-request CSRF token.
+Use when a live request includes a per-action or per-request CSRF token, one-time nonce, or browser-generated token that may go stale if replayed later.
 
 ## Checks
 
@@ -8,12 +8,14 @@ Use when a live request includes a per-action or per-request CSRF token.
 - Capture the token only from the owned browser/session flow.
 - Prefer live intercept/modify when replaying an old token is invalid.
 - Test omission, stale token, or cross-session token only when the action is safe and owned.
+- Do not try to generate or guess CSRF tokens. Use the legitimate owned flow and preserve the live token while changing only the approved test field.
 
 ## Allowed Modifications
 
 - Remove token for a missing-token check.
 - Replay same owned request once to test token freshness.
 - Swap approved test-account context only when both sides are owned and the action is non-destructive or destructible-approved.
+- Preserve the fresh token while changing one approved resource/account identifier for authorization testing.
 - Change `Origin`/`Referer` only through `/headers` origin guidance.
 
 ## Evidence Required

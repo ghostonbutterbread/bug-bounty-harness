@@ -86,6 +86,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **403** | `/403 {target_url}` | `skills/403/SKILL.md` |
 | **headers** | `/headers {target_url}` | `prompts/headers-context-pack.md` |
 | **error-triage** | `/error-triage {target_url}` | `prompts/error-triage-context-pack.md` |
+| **single-request-grabber** | `/single-request-grabber {target_url}` | `prompts/single-request-grabber-context-pack.md` |
 | **chromium-test** | `/chromium-test {program} {task}` | `prompts/chromium-test-playbook.md` |
 | **chromium-handoff** | `/chromium-handoff {cdp_port}` | `skills/chromium-handoff/SKILL.md` |
 | **pfp** | `/pfp {program} {goal}` | `prompts/pfp-playbook.md` |
@@ -132,6 +133,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /403 https://target.example/admin --program target
 /headers https://target.example/api/resource --program target
 /error-triage https://target.example/api/resource --program target
+/single-request-grabber https://target.example/settings/delete --program target
 /chromium-test superdrug pfp
 /chromium-test canva upload-flow --account qa-primary --url https://www.canva.com/
 /chromium-handoff 9224

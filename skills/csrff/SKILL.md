@@ -19,6 +19,8 @@ Read shared state in this order before testing:
 
 There is no dedicated `agents/csrf_hunter.py` in this repo yet. Run CSRF work manually with a browser, proxy, and reproducible PoC HTML. Use `baseline_capture.py` when you need to snapshot authenticated before-and-after state or inspect reflected anti-CSRF headers during a controlled replay.
 
+If the token is generated per action or per request, use `/single-request-grabber` to capture the fresh owned-session request and perform a bounded intercept/modify test. Do not invent, brute force, or harvest CSRF tokens.
+
 ## Mode Matrix
 
 | Mode | Use When | What It Tests |
@@ -32,6 +34,7 @@ There is no dedicated `agents/csrf_hunter.py` in this repo yet. Run CSRF work ma
 
 - **Playbook:** `$HARNESS_ROOT/prompts/csrf-playbook.md`
 - **Origin/Referer Headers:** `$HARNESS_ROOT/skills/headers/references/technique-packs/origin.md`
+- **Live Request Capture:** `$HARNESS_ROOT/skills/single-request-grabber/references/technique-packs/csrf-token.md`
 - **Shared Root:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`
 - **CSRF Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/csrf/findings.md`
 - **CSRF Artifacts:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/csrf/`
@@ -41,7 +44,8 @@ There is no dedicated `agents/csrf_hunter.py` in this repo yet. Run CSRF work ma
 1. Complete the required preflight reads in shared state order.
 2. Read `prompts/csrf-playbook.md`.
 3. If the defense depends on `Origin`, `Referer`, or `Sec-Fetch-*`, load `/headers` origin instead of duplicating header checks here.
-4. Capture authenticated state-changing requests and build the simplest matching cross-site PoC.
-5. Use `baseline_capture.py` when you need before-and-after evidence or to inspect anti-CSRF headers during controlled replay.
-6. Write findings to `agent_shared/findings/csrf/findings.md`.
-7. Update CSRF entries in `checklist.md`, `todo.md`, and relevant notes.
+4. If a fresh per-action/per-request token is required, load `/single-request-grabber` before replaying.
+5. Capture authenticated state-changing requests and build the simplest matching cross-site PoC.
+6. Use `baseline_capture.py` when you need before-and-after evidence or to inspect anti-CSRF headers during controlled replay.
+7. Write findings to `agent_shared/findings/csrf/findings.md`.
+8. Update CSRF entries in `checklist.md`, `todo.md`, and relevant notes.

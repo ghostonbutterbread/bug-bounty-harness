@@ -8,7 +8,7 @@ Use this as a decision tree: identify a state-changing request, classify the pro
 
 1. Capture a real authenticated state-changing request.
 2. If no anti-CSRF token is present, test the missing-token lane first.
-3. If a token is present, test whether it is actually enforced and session-bound.
+3. If a token is present, test whether it is actually enforced and session-bound. If the token is per-action or per-request, use `/single-request-grabber` so the agent captures and modifies the fresh owned-session request instead of chasing stale replays.
 4. If cookies are the main defense, test the `SameSite` lane.
 5. If the app relies on `Origin` or `Referer`, test that validation explicitly.
 6. Verify a safe state change and report the exact victim prerequisites.
@@ -66,6 +66,22 @@ Verification should prove a real cross-site state change, not just that the requ
 - `Confirmed`: the cross-site request caused the authenticated state change.
 - `Potential`: controls appear weak, but the state change was not reproduced safely.
 - `False Positive`: the request was blocked by token binding, custom headers, `SameSite`, or origin checks in practice.
+
+## Live Token Handling
+
+Use `/single-request-grabber` when a token can only be tested while fresh.
+
+Allowed:
+- extract token from the owned browser/session flow
+- intercept one outgoing owned-session request
+- modify one approved field or header
+- forward once and capture before/after evidence
+
+Not allowed:
+- inventing or brute forcing tokens
+- harvesting tokens from non-owned sessions
+- destructive actions unless the target resource is marked `destructible: yes`
+- replaying against real-user accounts or resources
 
 ## 4. Report
 

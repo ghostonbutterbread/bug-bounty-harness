@@ -39,6 +39,7 @@ The same error can be evidence or a blocker depending on the task.
 | `500` with framework/server hints | server-error triage, then `/fuzz`, `/headers`, or source review |
 | `429`, CAPTCHA, WAF page | `/waf`, manual handoff, or stop |
 | soft 404/weird route error | `/fuzz` or `/live-map` |
+| fresh CSRF token or one-shot browser request needed | `/single-request-grabber` |
 
 ## Handoff Card
 

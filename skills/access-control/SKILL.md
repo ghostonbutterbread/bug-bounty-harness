@@ -26,6 +26,7 @@ This is a router skill. Keep the first pass small: classify the boundary, load o
    - GraphQL arguments or global IDs -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/graphql-bola.md`
    - signed URLs, CDN objects, exports, attachments, media -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/storage-links.md`
    - method/header/path/parser discrepancy -> load `/headers` for header mechanisms or `/bypass` with type `403`/`idor`
+   - one live browser/proxy request must be captured and safely modified -> `/single-request-grabber`
 8. For IDOR/BOLA object mutations, load `$HARNESS_ROOT/skills/access-control/references/mutations/idor.md`.
 9. For header mechanisms, load `/headers`; for encoding, parser, path, WAF, or filter mutations, load `/bypass` instead of duplicating bypass content here.
 10. Load `$HARNESS_ROOT/prompts/access-control-playbook.md` only for deep review, stuck analysis, or report writing.
@@ -36,6 +37,7 @@ The parent agent scouts and classifies. Spawn a focused child when:
 - more than one lane is plausible
 - the lane needs different accounts/roles/tenants
 - mutation work moves into `/bypass`
+- one live request must be captured or intercepted through `/single-request-grabber`
 - the finding needs separate verification from the scout
 
 Give the child only:

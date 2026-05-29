@@ -31,7 +31,6 @@ DEFAULT_REMOTE = "ryushe@hoster"
 DEFAULT_SSH_KEY = Path.home() / ".ssh" / "hoster"
 TOP_LEVEL_ARTIFACTS = (
     "alive.txt",
-    "url.txt",
     "urls.txt",
     "wild.txt",
     "params_raw.txt",
@@ -218,7 +217,6 @@ def build_remote_seed_files(program: str, seed_url: str, *, allow_unscoped: bool
     url_lines, wild_lines = recon_seed_lines(domains, urls)
     return {
         "urls.txt": "\n".join(url_lines) + ("\n" if url_lines else ""),
-        "url.txt": "\n".join(url_lines) + ("\n" if url_lines else ""),
         "wild.txt": "\n".join(wild_lines) + ("\n" if wild_lines else ""),
     }
 

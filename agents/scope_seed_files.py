@@ -67,7 +67,6 @@ def write_recon_seed_files(base: Path, domains: set[str] | list[str], urls: set[
     urls_body = "\n".join(url_lines) + ("\n" if url_lines else "")
     wild_body = "\n".join(wild_lines) + ("\n" if wild_lines else "")
     (base / "urls.txt").write_text(urls_body, encoding="utf-8")
-    (base / "url.txt").write_text(urls_body, encoding="utf-8")
     (base / "wild.txt").write_text(wild_body, encoding="utf-8")
     return {"urls": len(url_lines), "wildcards": len(wild_lines)}
 

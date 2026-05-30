@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Use `recon-ry` as a Hoster-side, long-running recon producer. Ghost starts runs, records where they are running, and later ingests completed project directories into canonical recon artifact storage.
+Use `recon-ry` as a Hoster-side, long-running recon producer and durable recon location. Ghost starts runs, records where they are running, and teaches agents where to read the resulting artifact files. Do not copy bulk recon data when a manifest or direct project path is enough.
 
 ## Preflight
 
@@ -52,6 +52,48 @@ The command prints:
 
 Do not tail the process for the whole run. Save the PID/log/project path in notes or chat.
 
+## Directory Map
+
+Default active project:
+
+```text
+/home/ryushe/bounties/{program}/
+```
+
+Legacy/example project locations:
+
+```text
+~/Shared/bounty_recon/{program}/
+~/projects/bounties/{program}/
+```
+
+Recon-ry writes and dedupes its current state into root line files:
+
+```text
+{project}/
+├── urls.txt          # all known URLs and exact host/domain entries
+├── wild.txt          # subdomains and wildcard bases
+├── alive.txt         # live HTTP(S) targets after probing
+├── params_raw.txt    # raw URLs with parameters from discovery tools
+├── params.txt        # normalized/deduped parameterized endpoints
+├── jsfiles.txt       # JavaScript URLs for JS/secrets/sink analysis
+├── secrets.txt       # secret-scanner output; sensitive until validated
+├── dorks.txt         # dork/query leads
+├── dirs.txt          # directory/content discovery output when present
+├── rate_limit.conf   # project-local rate config
+├── history/
+│   └── {timestamp}/  # snapshot of root outputs for a specific run
+└── screenshots/ or eyewitness/  # visual artifacts when present
+```
+
+Root files are the latest deduped view. `history/{timestamp}/` folders are run snapshots. The newest run is usually:
+
+```bash
+ls -1t /home/ryushe/bounties/<program>/history | head -1
+```
+
+If no `history/` directory exists, use the root files directly.
+
 ## Status Pattern
 
 Use status for a short check only:
@@ -62,9 +104,21 @@ python3 agents/recon_ry.py status
 
 If needed, inspect the last log lines manually on Hoster, but avoid turning this into a watcher.
 
-## Ingest Pattern
+## Reading Pattern
 
-After the run completes, ingest the project directory:
+When an agent needs recon data:
+
+- start from `alive.txt` for live hosts, browser checks, live-map, and nuclei-style validation
+- use `params.txt` for endpoint-heavy testing such as XSS, SQLi, SSRF, redirect, request-shape, and IDOR review
+- use `jsfiles.txt` for JavaScript analysis, secrets review, source-map checks, and DOM sink review
+- use `urls.txt` for broad URL discovery, route grouping, and API/path clustering
+- use `wild.txt` for subdomain or host-level follow-up
+- use `history/<newest>/` only when comparing a specific run or checking what changed
+- treat `secrets.txt` as sensitive; summarize safely and do not paste raw tokens
+
+## Ingest/Index Pattern
+
+After the run completes, ingest or index the project directory only when Ghost needs a Shared manifest/counts record:
 
 ```bash
 python3 agents/recon_ry.py ingest <program> \
@@ -72,15 +126,13 @@ python3 agents/recon_ry.py ingest <program> \
   --target <target-host>
 ```
 
-The helper copies known `recon-ry` artifacts into:
+The helper can copy known `recon-ry` artifacts into:
 
 ```text
 ~/Shared/web_bounty/{program}/web/recon/recon-ry/{target}/runs/{YYYY-MM-DD}/{run_id}/
 ```
 
-This means active `recon-ry` output lives on Hoster during the scan, then Ghost
-imports a completed run into Shared storage. Do not treat the Hoster project
-directory as the final canonical archive.
+For large runs, prefer manifest/indexing and direct project references over copying raw bulk data into Shared. Treat the Hoster project directory as the durable recon location unless Ryushe asks for a full archive copy.
 
 It writes `manifest.json` with counts for alive URLs, params, JavaScript files, secrets, dorks, and promotion state.
 

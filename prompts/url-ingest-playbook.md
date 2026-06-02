@@ -66,6 +66,38 @@ python3 agents/url_ingest.py next <program> \
   --limit 25
 ```
 
+For parameter-injection lanes, use parameter-aware presets so agents do not all receive the same generic first-seen queue:
+
+```bash
+python3 agents/url_ingest.py next <program> \
+  --lane xss \
+  --skill xss \
+  --test-family reflected-probe \
+  --param-preset xss \
+  --limit 25
+
+python3 agents/url_ingest.py next <program> \
+  --lane ssrf \
+  --skill ssrf \
+  --test-family url-fetcher-probe \
+  --param-preset ssrf \
+  --limit 25
+
+python3 agents/url_ingest.py next <program> \
+  --lane lfi \
+  --skill lfi \
+  --test-family path-traversal-probe \
+  --param-preset lfi \
+  --limit 25
+```
+
+Preset intent:
+
+- `xss`: text/search/content-ish parameters such as `q`, `query`, `search`, `title`, `name`, `content`
+- `ssrf`: URL/redirect/callback-ish parameters such as `url`, `redirect`, `callback`, `loginRedirect`, `signupRedirect`
+- `lfi`: path/template/page-ish parameters such as `file`, `path`, `template`, `page`, `include_page_ids`
+- `opaque-state`: encoded state/routing parameters such as `ui`, `adj`, `category`, `type`
+
 Examples of useful skill/test-family pairs:
 
 - `user-agent-fuzz` / `header-behavior`

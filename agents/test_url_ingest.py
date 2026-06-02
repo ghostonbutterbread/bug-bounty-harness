@@ -552,6 +552,64 @@ class TestQueryStatus(unittest.TestCase):
         self.assertNotIn("api/v2/users", output)
         self.assertIn("api/v2/search", output)
 
+    def test_next_param_preset_filters_by_parameter_keys(self):
+        with M.get_conn(self.program) as conn:
+            now = "2026-06-02T00:00:00"
+            conn.execute(
+                "INSERT INTO urls (canonical_url, url_hash, route_hash, param_hash, "
+                "host, path, param_keys, source, first_seen, last_seen) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("https://target.com/search?q=test", "111", "222", "333",
+                 "target.com", "/search", '["q"]', "alive.txt", now, now)
+            )
+            conn.execute(
+                "INSERT INTO urls (canonical_url, url_hash, route_hash, param_hash, "
+                "host, path, param_keys, source, first_seen, last_seen) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("https://target.com/oembed?url=https://target.com/x", "444", "555", "666",
+                 "target.com", "/oembed", '["url"]', "alive.txt", now, now)
+            )
+            conn.execute(
+                "INSERT INTO urls (canonical_url, url_hash, route_hash, param_hash, "
+                "host, path, param_keys, source, first_seen, last_seen) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("https://target.com/plain", "777", "888", "999",
+                 "target.com", "/plain", "[]", "alive.txt", now, now)
+            )
+            conn.commit()
+
+        import io, sys
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        M.query_next(
+            self.program,
+            lane="xss",
+            skill="xss",
+            test_family="reflected-probe",
+            param_preset="xss",
+            limit=10,
+        )
+        output = sys.stdout.getvalue()
+        sys.stdout = old_stdout
+        self.assertIn("/search?q=test", output)
+        self.assertNotIn("/oembed", output)
+        self.assertNotIn("/plain", output)
+
+        sys.stdout = io.StringIO()
+        M.query_next(
+            self.program,
+            lane="ssrf",
+            skill="ssrf",
+            test_family="url-fetcher-probe",
+            param_preset="ssrf",
+            limit=10,
+        )
+        output = sys.stdout.getvalue()
+        sys.stdout = old_stdout
+        self.assertIn("/oembed?url=", output)
+        self.assertNotIn("/search?q=test", output)
+        self.assertNotIn("/plain", output)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

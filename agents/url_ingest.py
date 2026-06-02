@@ -46,6 +46,7 @@ VALID_LANES = {
     "sqli",
     "ssrf",
     "idor",
+    "lfi",
     "access-control",
     "ssti",
     "open-redirect",
@@ -56,6 +57,68 @@ VALID_LANES = {
 DEFAULT_TEST_SKILL = "manual"
 DEFAULT_TEST_FAMILY = "general-review"
 PULLSCOPE_PLATFORMS = ("hackerone", "bugcrowd", "intigriti")
+PARAM_PRESETS = {
+    "xss": (
+        "q",
+        "query",
+        "search",
+        "keyword",
+        "title",
+        "name",
+        "text",
+        "message",
+        "description",
+        "html",
+        "content",
+        "utm_content",
+    ),
+    "ssrf": (
+        "url",
+        "uri",
+        "redirect",
+        "return",
+        "next",
+        "callback",
+        "continue",
+        "target",
+        "image",
+        "src",
+        "link",
+        "webhook",
+        "domain",
+        "host",
+        "referrer",
+        "loginredirect",
+        "signupredirect",
+    ),
+    "lfi": (
+        "file",
+        "path",
+        "template",
+        "theme",
+        "page",
+        "view",
+        "include",
+        "include_page_ids",
+        "load",
+        "download",
+        "asset",
+        "folder",
+        "dir",
+    ),
+    "opaque-state": (
+        "ui",
+        "adj",
+        "layout",
+        "layoutqueryid",
+        "searchqueryid",
+        "queryid",
+        "design",
+        "category",
+        "filter",
+        "type",
+    ),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -600,8 +663,24 @@ def query_history(program: str, url: str, limit: int = 50):
                 print(f"    evidence={test['evidence_path']}")
 
 
+def _param_filter_terms(param_preset: str | None, param_key_like: str | None) -> list[str]:
+    """Return lowercase parameter-key terms for queue filtering."""
+    terms: list[str] = []
+    if param_preset:
+        preset = PARAM_PRESETS.get(param_preset)
+        if not preset:
+            valid = ", ".join(sorted(PARAM_PRESETS))
+            print(f"ERROR: unknown --param-preset {param_preset!r}. Valid: {valid}", file=sys.stderr)
+            return []
+        terms.extend(preset)
+    if param_key_like:
+        terms.extend(part.strip() for part in param_key_like.split(",") if part.strip())
+    return [term.lower() for term in terms if term]
+
+
 def query_next(program: str, lane: str, skill: str = None, test_family: str = None,
-               host: str = None, limit: int = 50):
+               host: str = None, limit: int = 50, param_preset: str = None,
+               param_key_like: str = None, has_query: bool = False):
     """Print URLs that have not yet been tested for the requested lane/skill/family."""
     if not lane:
         print("ERROR: --lane is required for next", file=sys.stderr)
@@ -623,6 +702,17 @@ def query_next(program: str, lane: str, skill: str = None, test_family: str = No
         if host:
             filters.append("u.host LIKE ?")
             params.append(f"%{host}%")
+        param_terms = _param_filter_terms(param_preset, param_key_like)
+        if param_preset and not param_terms:
+            return
+        if has_query:
+            filters.append("u.param_keys != '[]'")
+        if param_terms:
+            term_filters = []
+            for term in param_terms:
+                term_filters.append("LOWER(u.param_keys) LIKE ?")
+                params.append(f"%{term}%")
+            filters.append(f"({' OR '.join(term_filters)})")
         params.append(limit)
         rows = conn.execute(
             f"""
@@ -821,6 +911,20 @@ def main():
     parser.add_argument("--param-hash", help="Param hash to search")
     parser.add_argument("--host", help="Host substring to search")
     parser.add_argument("--limit", "-n", type=int, default=50, help="Max results (default: 50)")
+    parser.add_argument(
+        "--param-preset",
+        choices=sorted(PARAM_PRESETS),
+        help="For next: filter queue by parameter-key preset, e.g. xss, ssrf, lfi.",
+    )
+    parser.add_argument(
+        "--param-key-like",
+        help="For next: comma-separated parameter key substrings to match.",
+    )
+    parser.add_argument(
+        "--has-query",
+        action="store_true",
+        help="For next: only return URLs with query parameters.",
+    )
     parser.add_argument("--status", help=f"Status value: {sorted(VALID_STATUSES)}")
     parser.add_argument("--notes", help="Notes for observation")
     parser.add_argument("--evidence", help="Evidence path for observation")
@@ -879,7 +983,10 @@ def main():
             print("ERROR: --lane is required for next", file=sys.stderr)
             sys.exit(1)
         query_next(args.program, lane=args.lane, skill=args.skill,
-                   test_family=args.test_family, host=args.host, limit=args.limit)
+                   test_family=args.test_family, host=args.host, limit=args.limit,
+                   param_preset=args.param_preset,
+                   param_key_like=args.param_key_like,
+                   has_query=args.has_query)
 
     elif cmd == "search":
         query_status(args.program, lane=args.lane, url=args.url,

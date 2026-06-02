@@ -212,6 +212,81 @@ class TestIngestRoundtrip(unittest.TestCase):
         finally:
             os.unlink(tf_path)
 
+    def test_ingest_scope_filter_auto_repulls_by_default(self):
+        class EmptyScope:
+            def __init__(self, program: str, strict: bool = True):
+                self.program = program
+                self.strict = strict
+
+            def is_empty(self):
+                return True
+
+            def scope_summary(self):
+                return "(no scope loaded)"
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tf:
+            tf.write("https://unknown.example/a\n")
+            tf.flush()
+            tf_path = tf.name
+        try:
+            with patch.object(M, "ScopeValidator", EmptyScope), patch.object(
+                M, "_try_repull_scope", return_value=(False, "not found on public platforms")
+            ) as repull:
+                M.ingest(
+                    self.program,
+                    source_file=tf_path,
+                    run_id="default-repull-run",
+                    scope_filter="auto",
+                )
+            repull.assert_called_once_with(self.program)
+            with M.get_conn(self.program) as conn:
+                imported = conn.execute(
+                    "SELECT scope_mode, scope_source, scope_note "
+                    "FROM imports ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                self.assertEqual(imported["scope_mode"], "no_scope_after_pull")
+                self.assertEqual(imported["scope_source"], "no_scope_after_pull")
+                self.assertIn("not found", imported["scope_note"])
+        finally:
+            os.unlink(tf_path)
+
+    def test_ingest_scope_filter_can_disable_repull(self):
+        class EmptyScope:
+            def __init__(self, program: str, strict: bool = True):
+                self.program = program
+                self.strict = strict
+
+            def is_empty(self):
+                return True
+
+            def scope_summary(self):
+                return "(no scope loaded)"
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tf:
+            tf.write("https://unknown.example/a\n")
+            tf.flush()
+            tf_path = tf.name
+        try:
+            with patch.object(M, "ScopeValidator", EmptyScope), patch.object(
+                M, "_try_repull_scope", return_value=(False, "should not be called")
+            ) as repull:
+                M.ingest(
+                    self.program,
+                    source_file=tf_path,
+                    run_id="no-repull-run",
+                    scope_filter="auto",
+                    repull_scope=False,
+                )
+            repull.assert_not_called()
+            with M.get_conn(self.program) as conn:
+                imported = conn.execute(
+                    "SELECT scope_mode, scope_source FROM imports ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                self.assertEqual(imported["scope_mode"], "no_saved_scope")
+                self.assertEqual(imported["scope_source"], "saved_scope")
+        finally:
+            os.unlink(tf_path)
+
     def test_ingest_tracks_first_and_last_seen(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tf:
             tf.write("https://unique.example.com/path\n")

@@ -4,6 +4,7 @@ url_ingest.py — SQLite-backed URL ingestor and review tracker.
 
 Usage:
     python3 agents/url_ingest.py ingest   <program> [--source <file>] [--run-id <id>]
+                                                 [--scope-filter auto] [--no-repull-scope]
     python3 agents/url_ingest.py status   <program> [--lane <lane>] [--url <url>]
     python3 agents/url_ingest.py mark     <program> --url <url> --lane <lane> --status <status> \
                                                  [--skill <skill>] [--test-family <family>] \
@@ -357,7 +358,7 @@ def ingest(
     run_id: str = None,
     *,
     scope_filter: str = "off",
-    repull_scope: bool = False,
+    repull_scope: bool = True,
 ):
     """
     Ingest URLs from a source file (or stdin) into the DB.
@@ -805,7 +806,14 @@ def main():
     parser.add_argument(
         "--repull-scope",
         action="store_true",
-        help="For ingest: if saved scope is missing, try public HackerOne/Bugcrowd/Intigriti scope pulls before fallback.",
+        default=None,
+        help="For ingest: if saved scope is missing, try public HackerOne/Bugcrowd/Intigriti scope pulls before fallback. Default when --scope-filter auto is used.",
+    )
+    parser.add_argument(
+        "--no-repull-scope",
+        action="store_false",
+        dest="repull_scope",
+        help="For ingest: do not try pulling scope when saved scope is missing.",
     )
     parser.add_argument("--lane", help="Lane to filter by (e.g. xss, ssrf)")
     parser.add_argument("--url", help="Exact URL to query")
@@ -833,12 +841,15 @@ def main():
         init_db(args.program)
 
     elif cmd == "ingest":
+        repull_scope = args.repull_scope
+        if repull_scope is None:
+            repull_scope = args.scope_filter == "auto"
         ingest(
             args.program,
             source_file=args.source,
             run_id=args.run_id,
             scope_filter=args.scope_filter,
-            repull_scope=args.repull_scope,
+            repull_scope=repull_scope,
         )
 
     elif cmd == "status":

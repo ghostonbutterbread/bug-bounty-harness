@@ -1,3 +1,7 @@
+---
+name: url-ingest
+description: Use when importing, indexing, filtering, queueing, checking, or marking recon URLs in the SQLite-backed per-lane URL review tracker.
+---
 # url-ingest — URL Ingestor + Review Tracker
 
 ## What it is

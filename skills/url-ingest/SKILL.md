@@ -22,8 +22,9 @@ SQLite-backed URL index and per-lane review tracker. Keeps a durable record of e
    Show review status for URLs. Use --url for exact lookup, --lane to filter by vuln lane.
 
 /url-ingest mark <program> --url <url> --lane <lane> --status <status>
+              [--skill <skill>] [--test-family <family>] [--technique <technique>]
               [--notes <notes>] [--evidence <path>] [--agent-id <id>] [--run-id <id>]
-   Record an observation (analysis depth update) for a URL in a given lane.
+   Append a test-run event and update the latest summary for a URL in a given lane.
 
    Valid statuses:
      discovered          — seen in recon, not yet reviewed
@@ -36,8 +37,14 @@ SQLite-backed URL index and per-lane review tracker. Keeps a durable record of e
                              [--host <host>] [--lane <lane>] [--limit <n>]
    Search URLs by route hash, param-shape hash, or host.
 
+/url-ingest next <program> --lane <lane> [--skill <skill>] [--test-family <family>] [--limit <n>]
+   List URLs not yet tested for that lane/skill/family combination.
+
+/url-ingest history <program> --url <url>
+   Show append-only test events for one URL.
+
 /url-ingest stats <program>
-   Show DB statistics: total URLs, status breakdown, last import.
+   Show DB statistics: total URLs, status breakdown, test-family breakdown, last import.
 
 ## Per-lane status semantics
 A URL can have a different status per vulnerability lane:
@@ -53,7 +60,26 @@ A URL can have a different status per vulnerability lane:
 ## Agent protocol
 Before testing a URL in a lane, call `/url-ingest status` to check if it's already `deep_reviewed` or `dismissed` for that lane.
 
-After testing, call `/url-ingest mark` to record the result.
+Before running a specific technique across URLs, call `/url-ingest next` with `--skill` and `--test-family` so agents do not repeat the same work.
+
+After testing, call `/url-ingest mark` with the skill, test family, and technique. This writes an append-only test event, then updates the compact per-lane summary.
+
+Examples:
+
+```bash
+python3 agents/url_ingest.py next canva --lane recon --skill user-agent-fuzz --test-family header-behavior --limit 25
+
+python3 agents/url_ingest.py mark canva \
+  --url "https://www.canva.com/help/" \
+  --lane recon \
+  --status surface_reviewed \
+  --skill user-agent-fuzz \
+  --test-family header-behavior \
+  --technique desktop-vs-mobile-agent \
+  --request-variant "changed User-Agent only" \
+  --response-summary "status and length unchanged" \
+  --notes "No behavior delta."
+```
 
 ## Ingest from Hoster
 To ingest from the Hoster recon-ry output:
@@ -69,5 +95,5 @@ ssh hoster 'cat /home/ryushe/bounties/<program>/alive.txt' | \
 ```
 
 ## Supported lanes
-xss, sqli, ssrf, idor, access-control, ssti, open-redirect, xxe, race, csrf
+recon, xss, sqli, ssrf, idor, access-control, ssti, open-redirect, xxe, race, csrf
 (Custom lanes are accepted; standard lanes are checked for typo warnings.)

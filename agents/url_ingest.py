@@ -6,7 +6,11 @@ Usage:
     python3 agents/url_ingest.py ingest   <program> [--source <file>] [--run-id <id>]
     python3 agents/url_ingest.py status   <program> [--lane <lane>] [--url <url>]
     python3 agents/url_ingest.py mark     <program> --url <url> --lane <lane> --status <status> \
+                                                 [--skill <skill>] [--test-family <family>] \
                                                  [--notes <notes>] [--evidence <path>]
+    python3 agents/url_ingest.py history  <program> --url <url>
+    python3 agents/url_ingest.py next     <program> --lane <lane> [--skill <skill>] \
+                                                 [--test-family <family>] [--limit <n>]
     python3 agents/url_ingest.py search   <program> [--route-hash <hash>] [--param-hash <hash>] \
                                                  [--host <host>] [--limit <n>]
     python3 agents/url_ingest.py stats    <program>
@@ -28,7 +32,21 @@ from contextlib import contextmanager
 SHARED_BASE = Path.home() / "Shared" / "web_bounty"
 
 VALID_STATUSES = {"discovered", "surface_reviewed", "deep_reviewed", "validated_signal", "dismissed"}
-VALID_LANES = {"xss", "sqli", "ssrf", "idor", "access-control", "ssti", "open-redirect", "xxe", "race", "csrf"}
+VALID_LANES = {
+    "recon",
+    "xss",
+    "sqli",
+    "ssrf",
+    "idor",
+    "access-control",
+    "ssti",
+    "open-redirect",
+    "xxe",
+    "race",
+    "csrf",
+}
+DEFAULT_TEST_SKILL = "manual"
+DEFAULT_TEST_FAMILY = "general-review"
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +144,26 @@ def schema() -> str:
         FOREIGN KEY (url_id) REFERENCES urls(id)
     );
 
+    CREATE TABLE IF NOT EXISTS test_runs (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        url_id           INTEGER NOT NULL,
+        lane             TEXT NOT NULL,
+        skill            TEXT NOT NULL,
+        test_family      TEXT NOT NULL,
+        technique        TEXT,
+        status           TEXT NOT NULL,
+        depth            TEXT,
+        agent_id         TEXT,
+        run_id           TEXT,
+        evidence_path    TEXT,
+        request_variant  TEXT,
+        response_summary TEXT,
+        notes            TEXT,
+        started_at       TIMESTAMP NOT NULL,
+        completed_at     TIMESTAMP NOT NULL,
+        FOREIGN KEY (url_id) REFERENCES urls(id)
+    );
+
     CREATE TABLE IF NOT EXISTS imports (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
         source_file   TEXT NOT NULL,
@@ -142,6 +180,12 @@ def schema() -> str:
     CREATE UNIQUE INDEX IF NOT EXISTS idx_obs_url_lane    ON observations(url_id, lane);
     CREATE INDEX IF NOT EXISTS idx_obs_status             ON observations(status);
     CREATE INDEX IF NOT EXISTS idx_obs_run_id             ON observations(run_id);
+    CREATE INDEX IF NOT EXISTS idx_test_runs_url          ON test_runs(url_id);
+    CREATE INDEX IF NOT EXISTS idx_test_runs_lane         ON test_runs(lane);
+    CREATE INDEX IF NOT EXISTS idx_test_runs_skill        ON test_runs(skill);
+    CREATE INDEX IF NOT EXISTS idx_test_runs_family       ON test_runs(test_family);
+    CREATE INDEX IF NOT EXISTS idx_test_runs_run_id       ON test_runs(run_id);
+    CREATE INDEX IF NOT EXISTS idx_test_runs_completed_at ON test_runs(completed_at);
     """
 
 
@@ -201,10 +245,12 @@ def ingest(program: str, source_file: str = None, run_id: str = None):
                     path = parse_path_from_url(raw_url)
                     parsed = urlparse(canonical)
                     param_keys = json.dumps(sorted(k for k, _ in parse_qsl(parsed.query)))
-                    _upsert_url(conn, canonical, uh, rh, ph, host, path, param_keys,
-                                os.path.basename(source_file), now)
+                    inserted = _upsert_url(
+                        conn, canonical, uh, rh, ph, host, path, param_keys,
+                        os.path.basename(source_file), now
+                    )
                     urls_read += 1
-                    urls_inserted += 1
+                    urls_inserted += int(inserted)
 
             # Log import
             conn.execute(
@@ -226,16 +272,25 @@ def ingest(program: str, source_file: str = None, run_id: str = None):
                 path = parse_path_from_url(raw_url)
                 parsed = urlparse(canonical)
                 param_keys = json.dumps(sorted(k for k, _ in parse_qsl(parsed.query)))
-                _upsert_url(conn, canonical, uh, rh, ph, host, path, param_keys, "stdin", now)
+                inserted = _upsert_url(
+                    conn, canonical, uh, rh, ph, host, path, param_keys, "stdin", now
+                )
                 urls_read += 1
-                urls_inserted += 1
+                urls_inserted += int(inserted)
+
+            conn.execute(
+                "INSERT INTO imports (source_file, program, run_id, urls_imported, imported_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ("stdin", program, run_id, urls_inserted, now)
+            )
+            conn.commit()
 
         print(f"✓ Ingested {urls_inserted} URLs (read {urls_read}) from {source_file or 'stdin'}")
 
 
 def _upsert_url(conn, canonical, url_hash, route_hash, param_hash, host, path,
                 param_keys, source, now):
-    """Insert or update a URL record."""
+    """Insert or update a URL record. Return True when a new URL is inserted."""
     existing = conn.execute(
         "SELECT id FROM urls WHERE url_hash = ?", (url_hash,)
     ).fetchone()
@@ -244,12 +299,35 @@ def _upsert_url(conn, canonical, url_hash, route_hash, param_hash, host, path,
             "UPDATE urls SET last_seen = ?, source = ? WHERE id = ?",
             (now, source, existing["id"])
         )
+        return False
     else:
         conn.execute(
             "INSERT INTO urls (canonical_url, url_hash, route_hash, param_hash, host, path, "
             "param_keys, source, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (canonical, url_hash, route_hash, param_hash, host, path, param_keys, source, now, now)
         )
+        return True
+
+
+def _ensure_url(conn, url: str, source: str, now: str) -> int:
+    """Return a URL id, inserting a URL record when needed."""
+    uh, _, _ = url_hashes(url)
+    row = conn.execute("SELECT id FROM urls WHERE url_hash = ?", (uh,)).fetchone()
+    if row:
+        return row["id"]
+
+    canonical = normalize_url(url)
+    uh2, rh, ph = url_hashes(url)
+    host = parse_host_from_url(url)
+    path = parse_path_from_url(url)
+    parsed = urlparse(canonical)
+    param_keys = json.dumps(sorted(k for k, _ in parse_qsl(parsed.query)))
+    conn.execute(
+        "INSERT INTO urls (canonical_url, url_hash, route_hash, param_hash, host, path, "
+        "param_keys, source, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (canonical, uh2, rh, ph, host, path, param_keys, source, now, now),
+    )
+    return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
 
 # ---------------------------------------------------------------------------
@@ -339,14 +417,103 @@ def query_status(program: str, lane: str = None, url: str = None,
                 print("  Status: discovered (no observations yet)")
 
 
+def query_history(program: str, url: str, limit: int = 50):
+    """Print append-only test history for a URL."""
+    with get_conn(program) as conn:
+        uh, _, _ = url_hashes(url)
+        row = conn.execute(
+            "SELECT id, canonical_url, host, path FROM urls WHERE url_hash = ?", (uh,)
+        ).fetchone()
+        if not row:
+            print("No URL found.")
+            return
+
+        print(f"\nURL: {row['canonical_url']}")
+        print(f"  Host: {row['host']}  Path: {row['path']}")
+        tests = conn.execute(
+            """
+            SELECT lane, skill, test_family, technique, status, depth, agent_id,
+                   run_id, evidence_path, request_variant, response_summary, notes,
+                   started_at, completed_at
+            FROM test_runs
+            WHERE url_id = ?
+            ORDER BY completed_at DESC, id DESC
+            LIMIT ?
+            """,
+            (row["id"], limit),
+        ).fetchall()
+        if not tests:
+            print("  No test runs logged yet.")
+            return
+        for test in tests:
+            print(
+                f"  [{test['lane']}] {test['skill']}:{test['test_family']} "
+                f"{test['status']} depth={test['depth']} run={test['run_id']}"
+            )
+            if test["technique"]:
+                print(f"    technique={test['technique']}")
+            if test["request_variant"]:
+                print(f"    request={test['request_variant']}")
+            if test["response_summary"]:
+                print(f"    response={test['response_summary']}")
+            if test["notes"]:
+                print(f"    notes={test['notes']}")
+            if test["evidence_path"]:
+                print(f"    evidence={test['evidence_path']}")
+
+
+def query_next(program: str, lane: str, skill: str = None, test_family: str = None,
+               host: str = None, limit: int = 50):
+    """Print URLs that have not yet been tested for the requested lane/skill/family."""
+    if not lane:
+        print("ERROR: --lane is required for next", file=sys.stderr)
+        return
+
+    with get_conn(program) as conn:
+        filters = ["u.id NOT IN (SELECT url_id FROM observations WHERE lane = ? AND status IN ('deep_reviewed', 'dismissed'))"]
+        params = [lane]
+        tested_filters = ["tr.url_id = u.id", "tr.lane = ?"]
+        tested_params = [lane]
+        if skill:
+            tested_filters.append("tr.skill = ?")
+            tested_params.append(skill)
+        if test_family:
+            tested_filters.append("tr.test_family = ?")
+            tested_params.append(test_family)
+        filters.append(f"NOT EXISTS (SELECT 1 FROM test_runs tr WHERE {' AND '.join(tested_filters)})")
+        params.extend(tested_params)
+        if host:
+            filters.append("u.host LIKE ?")
+            params.append(f"%{host}%")
+        params.append(limit)
+        rows = conn.execute(
+            f"""
+            SELECT u.canonical_url, u.host, u.path, u.source, u.first_seen
+            FROM urls u
+            WHERE {' AND '.join(filters)}
+            ORDER BY u.last_seen DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+
+    if not rows:
+        print("No candidate URLs found.")
+        return
+    for row in rows:
+        print(row["canonical_url"])
+
+
 # ---------------------------------------------------------------------------
 # Mark
 # ---------------------------------------------------------------------------
 
 def mark(program: str, url: str, lane: str, status: str,
          notes: str = None, evidence_path: str = None, agent_id: str = None,
-         run_id: str = None):
-    """Record an observation (analysis depth update) for a URL in a given lane."""
+         run_id: str = None, skill: str = None, test_family: str = None,
+         technique: str = None, request_variant: str = None,
+         response_summary: str = None, depth: str = None):
+    """Record an append-only test run and update the latest per-lane URL summary."""
     if status not in VALID_STATUSES:
         print(f"ERROR: invalid status '{status}'. Valid: {VALID_STATUSES}", file=sys.stderr)
         return
@@ -355,26 +522,40 @@ def mark(program: str, url: str, lane: str, status: str,
 
     init_db(program)
     now = datetime.now(timezone.utc).isoformat()
+    normalized_skill = str(skill or DEFAULT_TEST_SKILL).strip() or DEFAULT_TEST_SKILL
+    normalized_family = str(test_family or DEFAULT_TEST_FAMILY).strip() or DEFAULT_TEST_FAMILY
+    normalized_depth = str(depth or status).strip() or status
 
     with get_conn(program) as conn:
-        uh, _, _ = url_hashes(url)
-        row = conn.execute("SELECT id FROM urls WHERE url_hash = ?", (uh,)).fetchone()
-        if not row:
+        before = conn.execute(
+            "SELECT id FROM urls WHERE url_hash = ?", (url_hashes(url)[0],)
+        ).fetchone()
+        if not before:
             print(f"WARNING: URL not found in DB — ingested as new", file=sys.stderr)
-            canonical = normalize_url(url)
-            uh2, rh, ph = url_hashes(url)
-            host = parse_host_from_url(url)
-            path = parse_path_from_url(url)
-            parsed = urlparse(canonical)
-            param_keys = json.dumps(sorted(k for k, _ in parse_qsl(parsed.query)))
-            conn.execute(
-                "INSERT INTO urls (canonical_url, url_hash, route_hash, param_hash, host, path, "
-                "param_keys, source, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (canonical, uh2, rh, ph, host, path, param_keys, "mark-unknown", now, now)
-            )
-            url_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        else:
-            url_id = row["id"]
+        url_id = _ensure_url(conn, url, "mark-unknown", now)
+
+        conn.execute(
+            "INSERT INTO test_runs (url_id, lane, skill, test_family, technique, status, "
+            "depth, notes, evidence_path, agent_id, run_id, request_variant, response_summary, "
+            "started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                url_id,
+                lane,
+                normalized_skill,
+                normalized_family,
+                technique,
+                status,
+                normalized_depth,
+                notes,
+                evidence_path,
+                agent_id,
+                run_id,
+                request_variant,
+                response_summary,
+                now,
+                now,
+            ),
+        )
 
         # Upsert observation
         existing = conn.execute(
@@ -422,6 +603,19 @@ def stats(program: str):
         else:
             print("  (no observations yet)")
 
+        print("\nBy skill+test family:")
+        rows = conn.execute("""
+            SELECT skill, test_family, status, COUNT(*) as cnt
+            FROM test_runs
+            GROUP BY skill, test_family, status
+            ORDER BY skill, test_family, status
+        """).fetchall()
+        if rows:
+            for row in rows:
+                print(f"  {row['skill']}:{row['test_family']} [{row['status']}]: {row['cnt']}")
+        else:
+            print("  (no test runs yet)")
+
         print("\nBy source file:")
         rows = conn.execute("""
             SELECT source, COUNT(*) as cnt
@@ -450,7 +644,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
-    parser.add_argument("cmd", choices=["init", "ingest", "status", "mark", "search", "stats"],
+    parser.add_argument("cmd", choices=["init", "ingest", "status", "mark", "history", "next", "search", "stats"],
                         help="Sub-command")
     parser.add_argument("program", help="Target program name")
     parser.add_argument("--source", "-s", help="Source file to ingest (default: stdin)")
@@ -466,6 +660,12 @@ def main():
     parser.add_argument("--evidence", help="Evidence path for observation")
     parser.add_argument("--agent-id", help="Agent ID that wrote this observation")
     parser.add_argument("--run-id-mark", dest="run_id", help="Run ID for observation")
+    parser.add_argument("--skill", help="Skill or agent capability used, e.g. user-agent-fuzz")
+    parser.add_argument("--test-family", help="Specific test family, e.g. header-behavior")
+    parser.add_argument("--technique", help="Specific technique or payload family")
+    parser.add_argument("--depth", help="Analysis depth override; defaults to --status")
+    parser.add_argument("--request-variant", help="Short description of request mutation tested")
+    parser.add_argument("--response-summary", help="Short result summary without sensitive data")
 
     args = parser.parse_args()
 
@@ -488,7 +688,23 @@ def main():
             sys.exit(1)
         mark(args.program, url=args.url, lane=args.lane, status=args.status,
              notes=args.notes, evidence_path=args.evidence,
-             agent_id=args.agent_id, run_id=args.run_id)
+             agent_id=args.agent_id, run_id=args.run_id, skill=args.skill,
+             test_family=args.test_family, technique=args.technique,
+             request_variant=args.request_variant, response_summary=args.response_summary,
+             depth=args.depth)
+
+    elif cmd == "history":
+        if not args.url:
+            print("ERROR: --url is required for history", file=sys.stderr)
+            sys.exit(1)
+        query_history(args.program, url=args.url, limit=args.limit)
+
+    elif cmd == "next":
+        if not args.lane:
+            print("ERROR: --lane is required for next", file=sys.stderr)
+            sys.exit(1)
+        query_next(args.program, lane=args.lane, skill=args.skill,
+                   test_family=args.test_family, host=args.host, limit=args.limit)
 
     elif cmd == "search":
         query_status(args.program, lane=args.lane, url=args.url,

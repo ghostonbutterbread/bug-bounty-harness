@@ -97,6 +97,34 @@ class TestIngestRoundtrip(unittest.TestCase):
         finally:
             os.unlink(tf_path)
 
+    def test_ingest_from_stdin_commits_and_logs_import(self):
+        import io
+        import sys
+
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(
+            "https://stdin.example.com/a\n"
+            "https://stdin.example.com/a\n"
+            "https://stdin.example.com/b\n"
+        )
+        try:
+            M.ingest(self.program, source_file=None, run_id="stdin-run")
+        finally:
+            sys.stdin = old_stdin
+
+        with M.get_conn(self.program) as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM urls WHERE host='stdin.example.com'"
+            ).fetchone()[0]
+            self.assertEqual(count, 2)
+            imported = conn.execute(
+                "SELECT source_file, run_id, urls_imported FROM imports "
+                "WHERE source_file='stdin' ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            self.assertIsNotNone(imported)
+            self.assertEqual(imported["run_id"], "stdin-run")
+            self.assertEqual(imported["urls_imported"], 2)
+
     def test_ingest_tracks_first_and_last_seen(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tf:
             tf.write("https://unique.example.com/path\n")
@@ -142,12 +170,20 @@ class TestMark(unittest.TestCase):
             ).fetchone()
             self.assertIsNotNone(row)
             self.assertEqual(row["status"], "surface_reviewed")
+            test = conn.execute(
+                "SELECT * FROM test_runs WHERE url_id=1 AND lane='xss'"
+            ).fetchone()
+            self.assertIsNotNone(test)
+            self.assertEqual(test["skill"], M.DEFAULT_TEST_SKILL)
+            self.assertEqual(test["test_family"], M.DEFAULT_TEST_FAMILY)
 
     def test_mark_updates_existing_observation(self):
         M.mark(self.program, "https://example.com/page",
-               lane="xss", status="surface_reviewed", run_id="r1")
+               lane="xss", status="surface_reviewed", run_id="r1",
+               skill="user-agent-fuzz", test_family="header-behavior")
         M.mark(self.program, "https://example.com/page",
-               lane="xss", status="deep_reviewed", run_id="r2")
+               lane="xss", status="deep_reviewed", run_id="r2",
+               skill="param-fuzz", test_family="parameter-mining")
         with M.get_conn(self.program) as conn:
             count = conn.execute("SELECT COUNT(*) FROM observations WHERE url_id=1 AND lane='xss'"
                                  ).fetchone()[0]
@@ -156,6 +192,50 @@ class TestMark(unittest.TestCase):
                 "SELECT status FROM observations WHERE url_id=1 AND lane='xss'"
             ).fetchone()["status"]
             self.assertEqual(status, "deep_reviewed")
+            test_count = conn.execute(
+                "SELECT COUNT(*) FROM test_runs WHERE url_id=1 AND lane='xss'"
+            ).fetchone()[0]
+            self.assertEqual(test_count, 2)
+
+    def test_mark_records_specific_test_metadata_append_only(self):
+        M.mark(
+            self.program,
+            "https://example.com/page",
+            lane="recon",
+            status="surface_reviewed",
+            skill="user-agent-fuzz",
+            test_family="header-behavior",
+            technique="desktop-vs-mobile-agent",
+            request_variant="changed User-Agent only",
+            response_summary="status and length unchanged",
+            notes="No behavior delta.",
+            run_id="r-ua",
+            agent_id="agent-1",
+        )
+        M.mark(
+            self.program,
+            "https://example.com/page",
+            lane="recon",
+            status="deep_reviewed",
+            skill="param-fuzz",
+            test_family="parameter-mining",
+            technique="known-param-wordlist",
+            response_summary="extra debug parameter rejected",
+            run_id="r-param",
+            agent_id="agent-2",
+        )
+
+        with M.get_conn(self.program) as conn:
+            rows = conn.execute(
+                "SELECT skill, test_family, technique, request_variant, response_summary "
+                "FROM test_runs WHERE url_id=1 ORDER BY id"
+            ).fetchall()
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(rows[0]["skill"], "user-agent-fuzz")
+            self.assertEqual(rows[0]["test_family"], "header-behavior")
+            self.assertEqual(rows[0]["request_variant"], "changed User-Agent only")
+            self.assertEqual(rows[1]["skill"], "param-fuzz")
+            self.assertEqual(rows[1]["test_family"], "parameter-mining")
 
     def test_mark_invalid_status_rejected(self):
         # Should not raise, just prints error and returns
@@ -196,6 +276,11 @@ class TestStats(unittest.TestCase):
                 (now,)
             )
             conn.execute(
+                "INSERT INTO test_runs (url_id, lane, skill, test_family, status, started_at, completed_at) "
+                "VALUES (1, 'xss', 'xss', 'reflected-probe', 'deep_reviewed', ?, ?)",
+                (now, now),
+            )
+            conn.execute(
                 "INSERT INTO imports (source_file, program, urls_imported, imported_at) "
                 "VALUES (?, ?, ?, ?)", ("alive.txt", self.program, 2, now)
             )
@@ -213,6 +298,7 @@ class TestStats(unittest.TestCase):
         output = sys.stdout.getvalue()
         sys.stdout = old_stdout
         self.assertIn("Total URLs: 2", output)
+        self.assertIn("xss:reflected-probe", output)
 
 
 class TestQueryStatus(unittest.TestCase):
@@ -258,6 +344,51 @@ class TestQueryStatus(unittest.TestCase):
         output = sys.stdout.getvalue()
         sys.stdout = old_stdout
         self.assertIn("deep_reviewed", output)
+
+    def test_next_excludes_matching_test_family_only(self):
+        with M.get_conn(self.program) as conn:
+            now = "2026-06-02T00:00:00"
+            conn.execute(
+                "INSERT INTO urls (canonical_url, url_hash, route_hash, param_hash, "
+                "host, path, param_keys, source, first_seen, last_seen) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("https://target.com/api/v2/search?q=1", "ddd", "eee", "fff",
+                 "target.com", "/api/v2/search", '["q"]', "alive.txt", now, now)
+            )
+            conn.execute(
+                "INSERT INTO test_runs (url_id, lane, skill, test_family, status, started_at, completed_at) "
+                "VALUES (1, 'recon', 'user-agent-fuzz', 'header-behavior', 'surface_reviewed', ?, ?)",
+                (now, now),
+            )
+            conn.commit()
+
+        import io, sys
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        M.query_next(
+            self.program,
+            lane="recon",
+            skill="param-fuzz",
+            test_family="parameter-mining",
+            limit=10,
+        )
+        output = sys.stdout.getvalue()
+        sys.stdout = old_stdout
+        self.assertIn("api/v2/users", output)
+        self.assertIn("api/v2/search", output)
+
+        sys.stdout = io.StringIO()
+        M.query_next(
+            self.program,
+            lane="recon",
+            skill="user-agent-fuzz",
+            test_family="header-behavior",
+            limit=10,
+        )
+        output = sys.stdout.getvalue()
+        sys.stdout = old_stdout
+        self.assertNotIn("api/v2/users", output)
+        self.assertIn("api/v2/search", output)
 
 
 if __name__ == "__main__":

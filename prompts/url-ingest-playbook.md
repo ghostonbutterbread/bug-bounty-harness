@@ -30,8 +30,58 @@ python3 agents/url_ingest.py mark <program> \
     --url "https://target.com/api/v2/users?id=1" \
     --lane idor \
     --status deep_reviewed \
+    --skill access-control \
+    --test-family object-ownership \
+    --technique "cross-account-id-swap" \
     --notes "GET /api/v2/users?id=1 returned 200 with full user list, confirmed IDOR" \
     --evidence "/home/ryushe/Shared/web_bounty/target/ghost/reports/idor/06-02-2026/canva-idor.png"
+```
+
+`mark` has two effects:
+- appends a permanent row to `test_runs`
+- updates the one-row `observations` summary for fast skip/route decisions
+
+Do not rely on `observations` as the audit trail. Use `history` for the audit trail.
+
+### Technique-specific queueing
+Before running one technique across a batch, ask for URLs that have not yet seen that technique:
+
+```bash
+python3 agents/url_ingest.py next <program> \
+  --lane recon \
+  --skill user-agent-fuzz \
+  --test-family header-behavior \
+  --limit 25
+```
+
+Examples of useful skill/test-family pairs:
+
+- `user-agent-fuzz` / `header-behavior`
+- `param-fuzz` / `parameter-mining`
+- `js-static-analysis` / `endpoint-and-sink-map`
+- `xss` / `reflected-probe`
+- `ssrf` / `url-fetcher-probe`
+- `access-control` / `object-ownership`
+
+After the technique runs, record the actual test:
+
+```bash
+python3 agents/url_ingest.py mark <program> \
+  --url "https://target.example/search?q=test" \
+  --lane recon \
+  --status surface_reviewed \
+  --skill user-agent-fuzz \
+  --test-family header-behavior \
+  --technique desktop-vs-mobile-agent \
+  --request-variant "changed User-Agent only" \
+  --response-summary "status and response length unchanged" \
+  --notes "No behavior delta."
+```
+
+Use `history` to inspect all tests logged for one URL:
+
+```bash
+python3 agents/url_ingest.py history <program> --url "https://target.example/search?q=test"
 ```
 
 ### Route-based dedup
@@ -79,6 +129,8 @@ subprocess.run([
 
 ### With recon planner
 The recon planner pulls `discovered` URLs or stale `surface_reviewed` URLs to generate fresh hunting tasks, preventing agents from re-testing already-reviewed surfaces.
+
+When the planner assigns a technique, it should use `next` with the skill/test-family fields rather than only checking lane status. This lets different agents test the same URL for different hypotheses without overwriting each other.
 
 ## Limitations (Phase 1)
 - Fingerprinting (title, status code, content hash) is not yet stored

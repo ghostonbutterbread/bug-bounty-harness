@@ -40,8 +40,10 @@ SQLite-backed URL index and per-lane review tracker. Keeps a durable record of e
                              [--host <host>] [--lane <lane>] [--limit <n>]
    Search URLs by route hash, param-shape hash, or host.
 
-/url-ingest next <program> --lane <lane> [--skill <skill>] [--test-family <family>] [--limit <n>]
+/url-ingest next <program> --lane <lane> [--skill <skill>] [--test-family <family>]
+                            [--param-preset xss|ssrf|lfi|opaque-state] [--limit <n>]
    List URLs not yet tested for that lane/skill/family combination.
+   Use `--param-preset` for parameter-aware queues instead of generic first-seen ordering.
 
 /url-ingest history <program> --url <url>
    Show append-only test events for one URL.
@@ -85,6 +87,11 @@ Examples:
 
 ```bash
 python3 agents/url_ingest.py next canva --lane recon --skill user-agent-fuzz --test-family header-behavior --limit 25
+
+python3 agents/url_ingest.py next canva --lane xss --skill xss --test-family reflected-probe --param-preset xss --limit 25
+python3 agents/url_ingest.py next canva --lane ssrf --skill ssrf --test-family url-fetcher-probe --param-preset ssrf --limit 25
+python3 agents/url_ingest.py next canva --lane lfi --skill lfi --test-family path-traversal-probe --param-preset lfi --limit 25
+python3 agents/url_ingest.py next canva --lane recon --skill param-fuzz --test-family opaque-state-map --param-preset opaque-state --limit 25
 
 python3 agents/url_ingest.py mark canva \
   --url "https://www.canva.com/help/" \

@@ -24,10 +24,17 @@ import json
 import sys
 import os
 import re
+import subprocess
+import tempfile
 from datetime import datetime, timezone
 from urllib.parse import urlparse, parse_qsl, urlencode
 from pathlib import Path
 from contextlib import contextmanager
+
+try:
+    from scope_validator import ScopeValidator
+except ModuleNotFoundError:
+    from agents.scope_validator import ScopeValidator
 
 SHARED_BASE = Path.home() / "Shared" / "web_bounty"
 
@@ -47,6 +54,7 @@ VALID_LANES = {
 }
 DEFAULT_TEST_SKILL = "manual"
 DEFAULT_TEST_FAMILY = "general-review"
+PULLSCOPE_PLATFORMS = ("hackerone", "bugcrowd", "intigriti")
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +178,14 @@ def schema() -> str:
         program       TEXT,
         run_id        TEXT,
         urls_imported INTEGER,
+        urls_read     INTEGER,
+        urls_accepted INTEGER,
+        urls_rejected INTEGER,
+        scope_mode    TEXT,
+        scope_source  TEXT,
+        scope_note    TEXT,
+        scoped_temp_path TEXT,
+        rejected_temp_path TEXT,
         imported_at   TIMESTAMP NOT NULL
     );
 
@@ -209,83 +225,204 @@ def init_db(program: str):
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.executescript(schema())
+    _migrate_import_columns(conn)
     conn.close()
     print(f"✓ Initialized DB at {db_path}")
+
+
+def _migrate_import_columns(conn) -> None:
+    """Add import metadata columns for existing URL index databases."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(imports)").fetchall()}
+    columns = {
+        "urls_read": "INTEGER",
+        "urls_accepted": "INTEGER",
+        "urls_rejected": "INTEGER",
+        "scope_mode": "TEXT",
+        "scope_source": "TEXT",
+        "scope_note": "TEXT",
+        "scoped_temp_path": "TEXT",
+        "rejected_temp_path": "TEXT",
+    }
+    for name, sql_type in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE imports ADD COLUMN {name} {sql_type}")
+    conn.commit()
+
+
+def _read_url_lines(source_file: str | None) -> tuple[list[str], str]:
+    """Read candidate URLs from a file or stdin and return non-empty, non-comment lines."""
+    source_label = source_file or "stdin"
+    lines: list[str] = []
+    if source_file:
+        if not os.path.isfile(source_file):
+            raise FileNotFoundError(source_file)
+        with open(source_file, encoding="utf-8", errors="ignore") as fh:
+            raw_lines = fh
+            for raw_url in raw_lines:
+                raw_url = raw_url.strip()
+                if raw_url and not raw_url.startswith("#"):
+                    lines.append(raw_url)
+    else:
+        for raw_url in sys.stdin:
+            raw_url = raw_url.strip()
+            if raw_url and not raw_url.startswith("#"):
+                lines.append(raw_url)
+    return lines, source_label
+
+
+def _scope_temp_path(program: str, run_id: str | None, suffix: str) -> Path:
+    safe_program = re.sub(r"[^A-Za-z0-9._-]+", "_", program).strip("._-") or "program"
+    safe_run = re.sub(r"[^A-Za-z0-9._-]+", "_", run_id or "manual").strip("._-") or "manual"
+    return Path(tempfile.gettempdir()) / f"url-ingest-{safe_program}-{safe_run}-{suffix}.txt"
+
+
+def _write_lines(path: Path, lines: list[str]) -> None:
+    path.write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
+
+
+def _try_repull_scope(program: str) -> tuple[bool, str]:
+    """Try public scope pulls across known platforms. Returns (success, note)."""
+    script = Path(__file__).resolve().parent / "scope_puller.py"
+    errors: list[str] = []
+    for platform in PULLSCOPE_PLATFORMS:
+        result = subprocess.run(
+            [sys.executable, str(script), program, "--platform", platform],
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+        validator = ScopeValidator(program, strict=False)
+        if result.returncode == 0 and not validator.is_empty():
+            return True, f"pulled scope via {platform}"
+        detail = (result.stderr or result.stdout or "").strip().splitlines()
+        errors.append(f"{platform}: {detail[-1] if detail else 'no scope entries'}")
+    return False, "; ".join(errors)
+
+
+def _prepare_scope_staging(
+    program: str,
+    urls: list[str],
+    *,
+    run_id: str | None,
+    scope_filter: str,
+    repull_scope: bool,
+) -> dict:
+    """Filter URLs through saved/pulled scope and write temp accepted/rejected files."""
+    validator = ScopeValidator(program, strict=False)
+    scope_source = "saved_scope"
+    scope_note = validator.scope_summary()
+
+    if validator.is_empty() and repull_scope:
+        pulled, note = _try_repull_scope(program)
+        validator = ScopeValidator(program, strict=False)
+        scope_source = "pulled_scope" if pulled and not validator.is_empty() else "no_scope_after_pull"
+        scope_note = note
+
+    if scope_filter == "off":
+        accepted = urls
+        rejected: list[str] = []
+        mode = "scope_filter_off"
+    elif validator.is_empty():
+        accepted = urls
+        rejected = []
+        mode = "no_saved_scope"
+        if repull_scope:
+            mode = "no_scope_after_pull"
+    else:
+        accepted, rejected = validator.partition(urls)
+        mode = "saved_scope" if scope_source == "saved_scope" else "pulled_scope"
+
+    scoped_path = _scope_temp_path(program, run_id, "scoped")
+    rejected_path = _scope_temp_path(program, run_id, "rejected")
+    _write_lines(scoped_path, accepted)
+    _write_lines(rejected_path, rejected)
+    return {
+        "accepted": accepted,
+        "rejected": rejected,
+        "scope_mode": mode,
+        "scope_source": scope_source,
+        "scope_note": scope_note,
+        "scoped_temp_path": str(scoped_path),
+        "rejected_temp_path": str(rejected_path),
+    }
 
 
 # ---------------------------------------------------------------------------
 # Ingest
 # ---------------------------------------------------------------------------
 
-def ingest(program: str, source_file: str = None, run_id: str = None):
+def ingest(
+    program: str,
+    source_file: str = None,
+    run_id: str = None,
+    *,
+    scope_filter: str = "off",
+    repull_scope: bool = False,
+):
     """
     Ingest URLs from a source file (or stdin) into the DB.
     Deduplicates by url_hash.
     """
     init_db(program)
 
-    urls_read = 0
+    try:
+        raw_urls, source_label = _read_url_lines(source_file)
+    except FileNotFoundError:
+        print(f"ERROR: file not found: {source_file}", file=sys.stderr)
+        return
+
+    staging = _prepare_scope_staging(
+        program,
+        raw_urls,
+        run_id=run_id,
+        scope_filter=scope_filter,
+        repull_scope=repull_scope,
+    )
+    urls = staging["accepted"]
+    urls_read = len(raw_urls)
+    urls_rejected = len(staging["rejected"])
     urls_inserted = 0
     now = datetime.now(timezone.utc).isoformat()
 
     with get_conn(program) as conn:
-        # Ingest from a specific file
-        if source_file:
-            if not os.path.isfile(source_file):
-                print(f"ERROR: file not found: {source_file}", file=sys.stderr)
-                return
-            with open(source_file) as fh:
-                for raw_url in fh:
-                    raw_url = raw_url.strip()
-                    if not raw_url or raw_url.startswith("#"):
-                        continue
-                    canonical = normalize_url(raw_url)
-                    uh, rh, ph = url_hashes(raw_url)
-                    host = parse_host_from_url(raw_url)
-                    path = parse_path_from_url(raw_url)
-                    parsed = urlparse(canonical)
-                    param_keys = json.dumps(sorted(k for k, _ in parse_qsl(parsed.query)))
-                    inserted = _upsert_url(
-                        conn, canonical, uh, rh, ph, host, path, param_keys,
-                        os.path.basename(source_file), now
-                    )
-                    urls_read += 1
-                    urls_inserted += int(inserted)
-
-            # Log import
-            conn.execute(
-                "INSERT INTO imports (source_file, program, run_id, urls_imported, imported_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (source_file, program, run_id, urls_inserted, now)
+        source_for_rows = os.path.basename(source_file) if source_file else "stdin"
+        for raw_url in urls:
+            canonical = normalize_url(raw_url)
+            uh, rh, ph = url_hashes(raw_url)
+            host = parse_host_from_url(raw_url)
+            path = parse_path_from_url(raw_url)
+            parsed = urlparse(canonical)
+            param_keys = json.dumps(sorted(k for k, _ in parse_qsl(parsed.query)))
+            inserted = _upsert_url(
+                conn, canonical, uh, rh, ph, host, path, param_keys, source_for_rows, now
             )
-            conn.commit()
+            urls_inserted += int(inserted)
 
-        # Ingest from stdin
-        else:
-            for raw_url in sys.stdin:
-                raw_url = raw_url.strip()
-                if not raw_url:
-                    continue
-                canonical = normalize_url(raw_url)
-                uh, rh, ph = url_hashes(raw_url)
-                host = parse_host_from_url(raw_url)
-                path = parse_path_from_url(raw_url)
-                parsed = urlparse(canonical)
-                param_keys = json.dumps(sorted(k for k, _ in parse_qsl(parsed.query)))
-                inserted = _upsert_url(
-                    conn, canonical, uh, rh, ph, host, path, param_keys, "stdin", now
-                )
-                urls_read += 1
-                urls_inserted += int(inserted)
+        conn.execute(
+            "INSERT INTO imports (source_file, program, run_id, urls_imported, urls_read, "
+            "urls_accepted, urls_rejected, scope_mode, scope_source, scope_note, "
+            "scoped_temp_path, rejected_temp_path, imported_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                source_label,
+                program,
+                run_id,
+                urls_inserted,
+                urls_read,
+                len(urls),
+                urls_rejected,
+                staging["scope_mode"],
+                staging["scope_source"],
+                staging["scope_note"],
+                staging["scoped_temp_path"],
+                staging["rejected_temp_path"],
+                now,
+            ),
+        )
+        conn.commit()
 
-            conn.execute(
-                "INSERT INTO imports (source_file, program, run_id, urls_imported, imported_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                ("stdin", program, run_id, urls_inserted, now)
-            )
-            conn.commit()
-
-        print(f"✓ Ingested {urls_inserted} URLs (read {urls_read}) from {source_file or 'stdin'}")
+    print(f"✓ Ingested {urls_inserted} URLs (read {urls_read}, accepted {len(urls)}, rejected {urls_rejected}) from {source_file or 'stdin'}")
+    print(f"  scope_mode={staging['scope_mode']} scoped={staging['scoped_temp_path']} rejected={staging['rejected_temp_path']}")
 
 
 def _upsert_url(conn, canonical, url_hash, route_hash, param_hash, host, path,
@@ -626,12 +763,22 @@ def stats(program: str):
             print(f"  {row['source']}: {row['cnt']}")
 
         last_import = conn.execute(
-            "SELECT imported_at, source_file, urls_imported FROM imports "
+            "SELECT imported_at, source_file, urls_imported, urls_read, urls_accepted, "
+            "urls_rejected, scope_mode, scoped_temp_path, rejected_temp_path FROM imports "
             "ORDER BY imported_at DESC LIMIT 1"
         ).fetchone()
         if last_import:
             print(f"\nLast import: {last_import['imported_at']}  "
                   f"({last_import['urls_imported']} URLs from {last_import['source_file']})")
+            print(
+                f"  scope_mode={last_import['scope_mode']} "
+                f"read={last_import['urls_read']} accepted={last_import['urls_accepted']} "
+                f"rejected={last_import['urls_rejected']}"
+            )
+            if last_import["scoped_temp_path"]:
+                print(f"  scoped_temp={last_import['scoped_temp_path']}")
+            if last_import["rejected_temp_path"]:
+                print(f"  rejected_temp={last_import['rejected_temp_path']}")
 
 
 # ---------------------------------------------------------------------------
@@ -649,6 +796,17 @@ def main():
     parser.add_argument("program", help="Target program name")
     parser.add_argument("--source", "-s", help="Source file to ingest (default: stdin)")
     parser.add_argument("--run-id", help="Recon run ID to associate with this import")
+    parser.add_argument(
+        "--scope-filter",
+        choices=["off", "auto"],
+        default="off",
+        help="For ingest: write /tmp scoped/rejected files and ingest only scoped URLs when scope exists.",
+    )
+    parser.add_argument(
+        "--repull-scope",
+        action="store_true",
+        help="For ingest: if saved scope is missing, try public HackerOne/Bugcrowd/Intigriti scope pulls before fallback.",
+    )
     parser.add_argument("--lane", help="Lane to filter by (e.g. xss, ssrf)")
     parser.add_argument("--url", help="Exact URL to query")
     parser.add_argument("--route-hash", help="Route hash to search")
@@ -675,7 +833,13 @@ def main():
         init_db(args.program)
 
     elif cmd == "ingest":
-        ingest(args.program, source_file=args.source, run_id=args.run_id)
+        ingest(
+            args.program,
+            source_file=args.source,
+            run_id=args.run_id,
+            scope_filter=args.scope_filter,
+            repull_scope=args.repull_scope,
+        )
 
     elif cmd == "status":
         query_status(args.program, lane=args.lane, url=args.url,

@@ -125,6 +125,93 @@ class TestIngestRoundtrip(unittest.TestCase):
             self.assertEqual(imported["run_id"], "stdin-run")
             self.assertEqual(imported["urls_imported"], 2)
 
+    def test_ingest_scope_filter_writes_temp_files_and_rejects_out_of_scope(self):
+        class DemoScope:
+            def __init__(self, program: str, strict: bool = True):
+                self.program = program
+                self.strict = strict
+
+            def is_empty(self):
+                return False
+
+            def scope_summary(self):
+                return "example.com"
+
+            def partition(self, urls):
+                accepted = [url for url in urls if "example.com" in url]
+                rejected = [url for url in urls if "example.com" not in url]
+                return accepted, rejected
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tf:
+            tf.write("https://example.com/a\n")
+            tf.write("https://evil.test/b\n")
+            tf.flush()
+            tf_path = tf.name
+        try:
+            with patch.object(M, "ScopeValidator", DemoScope):
+                M.ingest(
+                    self.program,
+                    source_file=tf_path,
+                    run_id="scoped-run",
+                    scope_filter="auto",
+                )
+            with M.get_conn(self.program) as conn:
+                urls = conn.execute("SELECT canonical_url FROM urls ORDER BY id").fetchall()
+                self.assertEqual([row["canonical_url"] for row in urls], ["https://example.com/a"])
+                imported = conn.execute(
+                    "SELECT urls_read, urls_accepted, urls_rejected, scope_mode, "
+                    "scoped_temp_path, rejected_temp_path FROM imports ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                self.assertEqual(imported["urls_read"], 2)
+                self.assertEqual(imported["urls_accepted"], 1)
+                self.assertEqual(imported["urls_rejected"], 1)
+                self.assertEqual(imported["scope_mode"], "saved_scope")
+                self.assertTrue(Path(imported["scoped_temp_path"]).read_text().strip().endswith("example.com/a"))
+                self.assertIn("evil.test", Path(imported["rejected_temp_path"]).read_text())
+        finally:
+            os.unlink(tf_path)
+
+    def test_ingest_repull_failure_allows_passive_parse_but_labels_import(self):
+        class EmptyScope:
+            def __init__(self, program: str, strict: bool = True):
+                self.program = program
+                self.strict = strict
+
+            def is_empty(self):
+                return True
+
+            def scope_summary(self):
+                return "(no scope loaded)"
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tf:
+            tf.write("https://unknown.example/a\n")
+            tf.flush()
+            tf_path = tf.name
+        try:
+            with patch.object(M, "ScopeValidator", EmptyScope), patch.object(
+                M, "_try_repull_scope", return_value=(False, "not found on public platforms")
+            ):
+                M.ingest(
+                    self.program,
+                    source_file=tf_path,
+                    run_id="no-scope-run",
+                    scope_filter="auto",
+                    repull_scope=True,
+                )
+            with M.get_conn(self.program) as conn:
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM urls").fetchone()[0], 1)
+                imported = conn.execute(
+                    "SELECT urls_read, urls_accepted, urls_rejected, scope_mode, scope_note "
+                    "FROM imports ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                self.assertEqual(imported["urls_read"], 1)
+                self.assertEqual(imported["urls_accepted"], 1)
+                self.assertEqual(imported["urls_rejected"], 0)
+                self.assertEqual(imported["scope_mode"], "no_scope_after_pull")
+                self.assertIn("not found", imported["scope_note"])
+        finally:
+            os.unlink(tf_path)
+
     def test_ingest_tracks_first_and_last_seen(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tf:
             tf.write("https://unique.example.com/path\n")

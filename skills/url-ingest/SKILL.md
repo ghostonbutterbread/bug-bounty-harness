@@ -14,9 +14,11 @@ SQLite-backed URL index and per-lane review tracker. Keeps a durable record of e
 /url-ingest init <program>
    Create the DB schema for a program.
 
-/url-ingest ingest <program> --source <file> [--run-id <id>]
+/url-ingest ingest <program> --source <file> [--run-id <id>] [--scope-filter auto] [--repull-scope]
    Import URLs from a recon artifact file (e.g. alive.txt, params_raw.txt) into the DB.
    Deduplicates by canonical URL hash.
+   With `--scope-filter auto`, writes scoped and rejected temp files first, then ingests only scoped URLs when scope exists.
+   With `--repull-scope`, tries public HackerOne, Bugcrowd, and Intigriti scope pulls if no saved scope exists.
 
 /url-ingest status <program> [--lane <lane>] [--url <url>]
    Show review status for URLs. Use --url for exact lookup, --lane to filter by vuln lane.
@@ -58,6 +60,21 @@ A URL can have a different status per vulnerability lane:
 | `dismissed` | Intentionally skipped, with reason in notes |
 
 ## Agent protocol
+For URLs that may feed live testing, prefer scoped ingestion:
+
+```bash
+python3 agents/url_ingest.py ingest <program> \
+  --source /path/to/urls.txt \
+  --run-id <run-id> \
+  --scope-filter auto \
+  --repull-scope
+```
+
+Behavior:
+- saved scope exists: accepted/rejected temp files are written under `/tmp`, and only accepted URLs are ingested
+- no saved scope: `--repull-scope` tries HackerOne, Bugcrowd, and Intigriti public scope pulls
+- no scope after repull: passive parsing may continue, but the import is labeled `scope_mode=no_scope_after_pull`; agents must not treat this as live-test approval
+
 Before testing a URL in a lane, call `/url-ingest status` to check if it's already `deep_reviewed` or `dismissed` for that lane.
 
 Before running a specific technique across URLs, call `/url-ingest next` with `--skill` and `--test-family` so agents do not repeat the same work.

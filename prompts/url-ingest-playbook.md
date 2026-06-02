@@ -9,12 +9,24 @@ The url-ingest system solves the "have we already looked at this URL?" problem f
 ### Pre-hunt ingestion
 Before any hunting agents run against a program:
 1. Run recon-ry on Hoster → produces `alive.txt`, `params_raw.txt`, etc.
-2. Copy or pipe those files into url-ingest:
+2. Copy or pipe those files into url-ingest. For queues that may feed live testing, scope-filter first:
    ```bash
    ssh hoster 'cat /home/ryushe/bounties/<program>/alive.txt' | \
-       python3 agents/url_ingest.py ingest <program>
+       python3 agents/url_ingest.py ingest <program> \
+         --run-id <run-id> \
+         --scope-filter auto \
+         --repull-scope
    ```
 3. Run `url-ingest stats <program>` to confirm import.
+
+Scope behavior:
+
+- If saved scope exists, `url-ingest` writes accepted/rejected temp files under `/tmp` and ingests only accepted URLs.
+- If no saved scope exists and `--repull-scope` is set, it tries public HackerOne, Bugcrowd, and Intigriti pulls before fallback.
+- If no scope can be found after repull, passive parsing is allowed and the import is labeled `scope_mode=no_scope_after_pull`. Agents must notify Ryushe before live testing because no authoritative scope was established.
+- If scope filtering is intentionally not wanted, omit `--scope-filter auto`; the import will be labeled `scope_filter_off`.
+
+Inspect import metadata through `stats`; it includes read, accepted, rejected, scope mode, and temp file paths.
 
 ### Pre-test query
 Before an agent tests a URL in lane `X`, check if it's already been reviewed:

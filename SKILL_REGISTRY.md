@@ -78,6 +78,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **mullvad** | `/mullvad` | `prompts/mullvad-playbook.md` |
 | **temporary-email** | `/temporary-email {create|read|show|accounts}` | `skills/temporary-email/SKILL.md` |
 | **live-map** | `/live-map {program}` | `prompts/live-map-playbook.md` |
+| **url-ingest** | `/url-ingest {init|ingest|status|mark|search|stats} {program}` | `skills/url-ingest/SKILL.md` |
 | **brainstorm-spec** | `/brainstorm-spec {program}` | `prompts/brainstorm-spec-playbook.md` |
 | **appmap** | `/appmap {program} {target_path}` | `prompts/appmap-playbook.md` |
 | **appmap-research-librarian** | `/appmap-research-librarian init {program}` | `prompts/appmap-research-librarian-playbook.md` |

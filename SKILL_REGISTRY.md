@@ -75,6 +75,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **caido** | `/caido {mcp-url-or-host?}` | `skills/caido/SKILL.md` |
 | **agent-proxy** | `/agent-proxy` | `skills/agent-proxy/SKILL.md` |
 | **ryushe-proxy** | `/ryushe-proxy` | `skills/ryushe-proxy/SKILL.md` |
+| **intercepted-proxy** | `/intercepted-proxy {program} {target-flow}` | `prompts/intercepted-proxy-playbook.md` |
 | **mullvad** | `/mullvad` | `prompts/mullvad-playbook.md` |
 | **temporary-email** | `/temporary-email {create|read|show|accounts}` | `skills/temporary-email/SKILL.md` |
 | **live-map** | `/live-map {program}` | `prompts/live-map-playbook.md` |
@@ -125,6 +126,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /caido 192.168.0.135
 /agent-proxy
 /ryushe-proxy
+/intercepted-proxy canva billing-flow
 /mullvad
 /temporary-email create
 /live-map superdrug --source browser

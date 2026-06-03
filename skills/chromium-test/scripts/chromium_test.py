@@ -20,6 +20,9 @@ from typing import Any, Iterable
 PORT_MIN = 9223
 PORT_MAX = 9500
 DEFAULT_MCP_URL = "http://127.0.0.1:3333/mcp"
+DEFAULT_ROUTE_TABLE = Path(
+    "/home/ryushe/projects/ai-policies/skills/proxy-routing-policy/data/proxy_routes.json"
+)
 CHROME_BINARIES = (
     "chromium",
     "chromium-browser",
@@ -86,6 +89,55 @@ def pick_port(requested: int | None = None) -> int:
     raise SystemExit(f"no free port found in {PORT_MIN}-{PORT_MAX}")
 
 
+def current_runtime() -> str:
+    runtime = os.environ.get("GHOST_AGENT_RUNTIME")
+    if runtime:
+        return runtime.strip().lower()
+    return socket.gethostname().strip().lower()
+
+
+def load_runtime_route(runtime: str) -> dict[str, str]:
+    if DEFAULT_ROUTE_TABLE.exists():
+        try:
+            data = json.loads(DEFAULT_ROUTE_TABLE.read_text())
+        except json.JSONDecodeError:
+            data = {}
+        runtimes = data.get("runtimes") if isinstance(data, dict) else None
+        if isinstance(runtimes, dict):
+            route = runtimes.get(runtime)
+            if isinstance(route, dict):
+                return {str(k): str(v) for k, v in route.items() if v is not None}
+
+    if runtime in {"hoster", "ryushespc", "abommie"}:
+        return {
+            "browser_proxy": "http://localhost:8080",
+            "caido_mcp": "http://localhost:3333/mcp",
+            "lane": "agent" if runtime == "hoster" else "ryushe",
+        }
+    return {
+        "browser_proxy": "http://hoster:8080",
+        "caido_mcp": "http://hoster:3333/mcp",
+        "lane": "agent",
+    }
+
+
+def find_playwright_chromium_binary() -> str | None:
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore
+    except Exception:
+        return None
+
+    try:
+        with sync_playwright() as playwright:
+            path = playwright.chromium.executable_path
+    except Exception:
+        return None
+
+    if path and Path(path).exists():
+        return str(path)
+    return None
+
+
 def find_chrome_binary(explicit: str | None = None) -> str:
     if explicit:
         path = shutil.which(explicit) if os.path.sep not in explicit else explicit
@@ -96,6 +148,10 @@ def find_chrome_binary(explicit: str | None = None) -> str:
     env_binary = os.environ.get("CHROMIUM_TEST_CHROME")
     if env_binary:
         return find_chrome_binary(env_binary)
+
+    playwright_chromium = find_playwright_chromium_binary()
+    if playwright_chromium:
+        return playwright_chromium
 
     for binary in CHROME_BINARIES:
         path = shutil.which(binary)
@@ -314,7 +370,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--url", help="Initial URL to open. Defaults to about:blank.")
     parser.add_argument("--port", type=int, help=f"CDP port in {PORT_MIN}-{PORT_MAX}.")
     parser.add_argument("--profile-dir", help="Override Chrome user-data-dir.")
-    parser.add_argument("--proxy-server", help="Actual browser HTTP/SOCKS proxy listener.")
+    parser.add_argument(
+        "--proxy-server",
+        help="Actual browser HTTP/SOCKS proxy listener. Defaults to the runtime route table.",
+    )
     parser.add_argument(
         "--remote-allow-origins",
         default=os.environ.get("CHROMIUM_TEST_REMOTE_ALLOW_ORIGINS", "*"),
@@ -333,7 +392,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--mcp-url",
-        default=os.environ.get("KAIDO_MCP_PROXY_URL", DEFAULT_MCP_URL),
+        default=os.environ.get("KAIDO_MCP_PROXY_URL"),
+        help="Caido MCP control URL. Defaults to the runtime route table.",
     )
     parser.add_argument("--chrome-binary", help="Override Chromium/Chrome executable.")
     parser.add_argument("--dry-run", action="store_true", help="Print launch plan only.")
@@ -343,6 +403,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    runtime = current_runtime()
+    runtime_route = load_runtime_route(runtime)
+    if not args.mcp_url:
+        args.mcp_url = runtime_route.get("caido_mcp", DEFAULT_MCP_URL)
     port = pick_port(args.port)
     task = args.task_opt or args.task_arg or "manual"
     caido_profile = resolve_caido_profile(args, task)
@@ -362,6 +426,11 @@ def main() -> int:
     )
     if not args.proxy_server and caido_profile.get("proxy_server"):
         args.proxy_server = caido_profile["proxy_server"]
+    if not args.proxy_server:
+        args.proxy_server = (
+            os.environ.get("CHROMIUM_TEST_PROXY_SERVER")
+            or runtime_route.get("browser_proxy")
+        )
     if not args.url and caido_profile.get("url"):
         args.url = caido_profile["url"]
     if not args.dry_run:
@@ -377,6 +446,8 @@ def main() -> int:
         "cdp_version_url": f"http://127.0.0.1:{port}/json/version",
         "profile_dir": str(profile_dir),
         "mcp_url": args.mcp_url,
+        "runtime": runtime,
+        "runtime_route": runtime_route,
         "caido_profile": caido_profile,
         "proxy_server": args.proxy_server or os.environ.get("CHROMIUM_TEST_PROXY_SERVER"),
         "command": command,

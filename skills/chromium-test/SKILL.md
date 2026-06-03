@@ -7,6 +7,8 @@ description: "Launch an isolated Chromium test browser on a free local CDP port 
 
 Use when a task needs a fresh Chromium/Chrome instance with remote debugging enabled, an isolated profile, and proxy/MCP-aware observation.
 
+The launcher prefers Playwright's bundled Chromium when Playwright is installed, then falls back to system Chromium/Chrome.
+
 ## Invocation
 
 ```text
@@ -23,10 +25,10 @@ Use when a task needs a fresh Chromium/Chrome instance with remote debugging ena
 4. Resolve the browser/account profile through Caido MCP first. With `--caido-profile auto`, ask Caido for the current profile/request authentication headers, especially `Authorization` and/or `Cookie`, then apply them to the launched browser/session update flow such as `mySession` without printing raw secrets. If Caido is offline or no profile tool is exposed, fall back only when the task can still be done safely.
 5. If the task needs live intercept/modify/forward behavior, read `intercepted-proxy` before launching the browser.
 6. Confirm the proxy/MCP setup:
-   - MCP control endpoint defaults to `$KAIDO_MCP_PROXY_URL` or `http://127.0.0.1:3333/mcp`.
+   - MCP control endpoint defaults to `$KAIDO_MCP_PROXY_URL` or the runtime route table.
    - Browser proxy comes from the Caido profile when available.
-   - Browser proxy uses `--proxy-server` or `$CHROMIUM_TEST_PROXY_SERVER` only as an override.
-   - Any launch with a browser proxy must include `--ignore-certificate-errors`.
+   - Browser proxy defaults to the runtime route table and may be overridden by `--proxy-server` or `$CHROMIUM_TEST_PROXY_SERVER`.
+   - Every normal launch must include a browser proxy and `--ignore-certificate-errors`.
    - On OpenClaw/Ghost/`ghostonbread`, the default agent-lane browser proxy is `http://hoster:8080`; on `hoster` or `ryushespc`/Abommie, use `http://localhost:8080`.
 
 ## Canonical Files
@@ -42,6 +44,7 @@ Use when a task needs a fresh Chromium/Chrome instance with remote debugging ena
    ```bash
    python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" <program> "<task>" --caido-profile auto
    ```
+   The launcher resolves the runtime route and adds `--proxy-server=<browser-proxy>` by default.
 2. Use the returned CDP URL to connect browser automation or manual debugging.
 3. Perform only the requested scoped action in that browser profile.
 4. Observe traffic through the approved proxy/MCP workflow when configured.
@@ -56,7 +59,7 @@ Use when a task needs a fresh Chromium/Chrome instance with remote debugging ena
 - If Ryushe instructs authenticated testing, it is acceptable to use Caido-held `Authorization` and/or `Cookie` header values in memory to update the current scoped browser session, including `mySession`; this is not credential exfiltration unless values are printed, stored, reused outside scope, or sent elsewhere.
 - With `--caido-profile auto`, dynamically pull usable auth headers from Caido's active profile/request context, not login credentials from history. Use `Authorization` and/or `Cookie` to update the browser session context, such as `mySession`, without writing the values to logs, shell output, findings, or prompts.
 - Do not treat an MCP `/mcp` URL as a browser proxy server unless Caido returns it as an actual browser proxy listener.
-- When a browser proxy is configured, verify the launch command includes `--ignore-certificate-errors` so proxy TLS interception works.
+- Verify the launch command includes `--proxy-server=<browser-proxy>` and `--ignore-certificate-errors` so proxy TLS interception works.
 - For intercepted proxy testing, do not launch the browser until the resolved `--proxy-server=<browser-proxy>` value is known. Route to `intercepted-proxy` for the intercept on/off and temporary Tamper rule lifecycle.
 - Stay inside the program scope, account authorization, and rate limits.
 - For state-changing tasks, confirm the action is allowed and non-destructive before proceeding.

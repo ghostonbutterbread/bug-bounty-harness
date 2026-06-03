@@ -123,6 +123,13 @@ Important distinction:
 - A browser `--proxy-server` value must be an actual HTTP/SOCKS proxy listener, not merely the MCP `/mcp` endpoint.
 - Use `$CHROMIUM_TEST_PROXY_SERVER` or launcher `--proxy-server` only as an override when Caido does not return one.
 - Whenever a browser proxy is configured, the launcher must add `--ignore-certificate-errors` so the proxied browser can work with interception certificates.
+- For live intercept/modify/forward work, load `/intercepted-proxy` before browser launch. It owns runtime route selection, proxy flag requirements, Caido intercept/Tamper enablement, forwarding, and cleanup.
+
+Runtime defaults for intercepted browser launches:
+
+- OpenClaw/Ghost/`ghostonbread`: browser proxy `http://hoster:8080`, MCP `http://hoster:3333/mcp`
+- Hoster: browser proxy `http://localhost:8080`, MCP `http://localhost:3333/mcp`
+- Ryushe PC / `ryushespc` / Abommie: browser proxy `http://localhost:8080`, MCP `http://localhost:3333/mcp`
 
 Basic MCP reachability check:
 

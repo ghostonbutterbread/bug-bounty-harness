@@ -9,6 +9,8 @@ Use when a live bug bounty task needs browser traffic routed through Caido and a
 
 This skill owns the operational proxy lifecycle. Use it before `/single-request-grabber` when the browser must be launched through the proxy first.
 
+`chromium-test` should be the default browser launcher for this workflow. It prefers Playwright's bundled Chromium when available and routes launches through the runtime browser proxy by default.
+
 ## Load Order
 
 1. Read scope, owned-account context, and `live-testing-policy`.
@@ -52,11 +54,10 @@ For the harness launcher, prefer:
 
 ```bash
 python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" <program> "<task>" \
-  --proxy-server <resolved-browser-proxy> \
   --url <target-url>
 ```
 
-Use `--caido-profile auto` only when the profile tool returns a real browser proxy listener. If it does not, pass `--proxy-server` explicitly from the runtime route.
+The launcher adds the runtime `--proxy-server` automatically. Pass `--proxy-server` explicitly only when overriding the route table.
 
 ## Intercept Lifecycle
 

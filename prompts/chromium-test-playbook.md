@@ -2,6 +2,8 @@
 
 Use this playbook when a scoped test needs a fresh Chromium/Chrome instance with remote debugging, a per-program profile, and proxy/MCP-aware observation.
 
+The launcher prefers Playwright's bundled Chromium when Playwright is installed, then falls back to system Chromium/Chrome.
+
 ## Safety Boundary
 
 - Core posture: scoped testing is allowed; damaging behavior is explicit.
@@ -20,6 +22,8 @@ python3 skills/chromium-test/scripts/chromium_test.py <program> "pfp" \
   --caido-profile auto \
   --url https://target.example/
 ```
+
+Browser proxying is default behavior. The launcher resolves the runtime route table and adds `--proxy-server=<browser-proxy>` plus `--ignore-certificate-errors` unless a Caido profile or explicit flag supplies a different browser proxy.
 
 The launcher includes Chromium's CDP origin compatibility flag by default:
 
@@ -107,7 +111,7 @@ Never disclose credential values. If login requires a secret that is not already
 Default MCP control endpoint:
 
 ```text
-http://127.0.0.1:3333/mcp
+runtime route table, or $KAIDO_MCP_PROXY_URL when set
 ```
 
 Override with:
@@ -121,8 +125,9 @@ Important distinction:
 - `KAIDO_MCP_PROXY_URL` is the MCP endpoint used for profile/proxy/tool coordination.
 - The preferred path is: ask Caido MCP for the profile, then use the browser proxy listener returned by that profile.
 - A browser `--proxy-server` value must be an actual HTTP/SOCKS proxy listener, not merely the MCP `/mcp` endpoint.
-- Use `$CHROMIUM_TEST_PROXY_SERVER` or launcher `--proxy-server` only as an override when Caido does not return one.
-- Whenever a browser proxy is configured, the launcher must add `--ignore-certificate-errors` so the proxied browser can work with interception certificates.
+- The launcher falls back to the runtime route table when Caido does not return a browser proxy.
+- Use `$CHROMIUM_TEST_PROXY_SERVER` or launcher `--proxy-server` only as an explicit override.
+- The launcher must add `--ignore-certificate-errors` whenever it launches through the proxy so the proxied browser can work with interception certificates.
 - For live intercept/modify/forward work, load `/intercepted-proxy` before browser launch. It owns runtime route selection, proxy flag requirements, Caido intercept/Tamper enablement, forwarding, and cleanup.
 
 Runtime defaults for intercepted browser launches:

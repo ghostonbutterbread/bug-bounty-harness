@@ -68,12 +68,11 @@ Preferred harness launcher:
 ```bash
 cd "$HARNESS_ROOT"
 python3 skills/chromium-test/scripts/chromium_test.py <program> "<task>" \
-  --proxy-server "$BROWSER_PROXY" \
   --url "<target-url>" \
   --json
 ```
 
-Verify the returned JSON includes the same proxy listener. If using Playwright directly, pass the equivalent proxy option and keep the same certificate-error handling:
+The launcher prefers Playwright's bundled Chromium when available and falls back to system Chromium/Chrome. It resolves the runtime browser proxy by default. Verify the returned JSON includes the expected proxy listener. If using Playwright directly, pass the equivalent proxy option and keep the same certificate-error handling:
 
 ```python
 browser = chromium.launch(

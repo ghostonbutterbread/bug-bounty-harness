@@ -85,6 +85,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **appmap-research-librarian** | `/appmap-research-librarian init {program}` | `prompts/appmap-research-librarian-playbook.md` |
 | **electron** | `/electron {program} {target_path}` | `prompts/electron-playbook.md` |
 | **prompt-injection** | `/prompt-injection {program} {target_url}` | `prompts/prompt-injection-playbook.md` |
+| **ato** | `/ato {program} {auth-or-account-flow}` | `prompts/ato-playbook.md` |
 | **payment-testing** | `/payment-testing {program} {checkout-or-billing-context}` | `prompts/payment-testing-playbook.md` |
 | **bypass** | `/bypass {target_url} {type}` | `prompts/bypass-playbook.md` |
 | **403** | `/403 {target_url}` | `skills/403/SKILL.md` |

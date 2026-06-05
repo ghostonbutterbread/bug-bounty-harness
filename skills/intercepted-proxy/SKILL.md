@@ -18,8 +18,11 @@ This skill owns the operational proxy lifecycle. Use it before `/single-request-
 3. Read `agent-proxy` for agent-lane work or `ryushe-proxy` only when Ryushe explicitly asks for his personal Caido lane.
 4. Read `caido` to check MCP connectivity.
 5. Read `chromium-test` or the relevant browser automation skill before launching a browser.
-6. Read `$HARNESS_ROOT/prompts/intercepted-proxy-playbook.md`.
-7. Route the security interpretation afterward:
+6. Read `pwnfox` when the task mentions a PwnFox color, profile, tab session,
+   or phrase like "Red session"; use `X-PwnFox-Color: <color>` to isolate that
+   lane in proxy history.
+7. Read `$HARNESS_ROOT/prompts/intercepted-proxy-playbook.md`.
+8. Route the security interpretation afterward:
    - one fresh request/body/token -> `/single-request-grabber`
    - authz/object changes -> `/access-control` or `/idor`
    - payment/billing -> `/payment-testing`
@@ -94,6 +97,7 @@ Record:
 
 - runtime hostname and resolved lane
 - browser proxy and Caido MCP endpoint, without secrets
+- PwnFox color/header filter when used
 - browser launch command shape or launcher JSON path
 - whether `--proxy-server` and `--ignore-certificate-errors` were present
 - intercept/Tamper rule name, source, host/path condition, and sanitized mutation

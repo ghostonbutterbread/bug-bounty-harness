@@ -78,6 +78,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **csrf** | `/csrf {program}` | `skills/csrff/SKILL.md` |
 | **mental-map** | `/mental-map {program}` | `prompts/mental-map-playbook.md` |
 | **caido** | `/caido {mcp-url-or-host?}` | `skills/caido/SKILL.md` |
+| **pwnfox** | `/pwnfox {color}` | `skills/pwnfox/SKILL.md` |
 | **agent-proxy** | `/agent-proxy` | `skills/agent-proxy/SKILL.md` |
 | **ryushe-proxy** | `/ryushe-proxy` | `skills/ryushe-proxy/SKILL.md` |
 | **intercepted-proxy** | `/intercepted-proxy {program} {target-flow}` | `prompts/intercepted-proxy-playbook.md` |
@@ -134,6 +135,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /csrf superdrug
 /mental-map superdrug
 /caido 192.168.0.135
+/pwnfox red
 /agent-proxy
 /ryushe-proxy
 /intercepted-proxy canva billing-flow

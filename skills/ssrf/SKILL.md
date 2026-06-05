@@ -5,21 +5,27 @@ description: "Use when testing Server-Side Request Forgery, URL fetchers, webhoo
 
 # SSRF Testing
 
-Use for Server-Side Request Forgery leads in URL fetchers, webhooks, importers, renderers, previews, media proxies, and server-side URL validation.
+Use for Server-Side Request Forgery: server-side features that fetch, render,
+import, preview, proxy, convert, or validate attacker-controlled URLs or network
+resources.
 
-This is a RAG-style skill. Classify the fetch primitive, load one focused reference pack, then test with the lowest-noise proof.
+This is a RAG-style skill. Load a small "where to look" reference first, then a
+small "what to try" reference once a fetch surface exists. Treat references as
+idea seeds, not checklists or ceilings.
 
 ## Load Order
 
 1. Read program scope, owned-account context, and active live-testing policy.
 2. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
-3. Read `$HARNESS_ROOT/prompts/ssrf-context-pack.md`.
-4. Classify the lane:
-   - direct outbound fetch -> `$HARNESS_ROOT/skills/ssrf/references/technique-packs/baseline-fetch.md`
-   - allowlist, hostname, IP, redirect, or URL parser filtering -> `$HARNESS_ROOT/skills/ssrf/references/technique-packs/parser-redirect.md`
-   - cloud metadata or internal protocol reachability -> `$HARNESS_ROOT/skills/ssrf/references/technique-packs/metadata-scheme.md`
-5. Read `$HARNESS_ROOT/prompts/ssrf-playbook.md` for deep review, stuck analysis, or report writing.
-6. Use `$HARNESS_ROOT/prompts/ssrf-reference.md` only when adapting metadata roots, destination classes, or parser-confusion variants.
+3. Read `references/common-locations.md` to decide where to hunt.
+4. After finding a fetch surface, read `references/idea-seeds.md` for bypass,
+   parser, metadata, header, WAF, and segmentation ideas.
+5. Optional deeper packs:
+   - direct outbound fetch -> `references/technique-packs/baseline-fetch.md`
+   - allowlist, hostname, IP, redirect, or URL parser filtering -> `references/technique-packs/parser-redirect.md`
+   - cloud metadata or internal protocol reachability -> `references/technique-packs/metadata-scheme.md`
+6. Read `$HARNESS_ROOT/prompts/ssrf-playbook.md` only for deep review, stuck
+   analysis, or report writing.
 7. Route instead of duplicating:
    - URL/parser/filter bypasses -> `/bypass`
    - header-required metadata or proxy trust behavior -> `/headers`
@@ -30,7 +36,7 @@ This is a RAG-style skill. Classify the fetch primitive, load one focused refere
 
 1. Identify the server-side fetch sink and parameter.
 2. Confirm a benign controlled outbound fetch when possible.
-3. Load one SSRF reference pack based on observed filtering.
+3. Use the idea seeds that match the observed filtering or routing behavior.
 4. Prefer status, banner, callback, or low-risk root proof over secret retrieval.
 5. Stop after proving the boundary reached.
 

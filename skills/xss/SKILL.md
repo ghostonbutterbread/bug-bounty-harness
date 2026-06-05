@@ -1,102 +1,118 @@
 ---
 name: xss
-description: Use when testing for Cross-Site Scripting, XSS, reflected XSS, stored XSS, DOM XSS, browser sink injection, payload execution, WAF bypass for script injection, or unsafe HTML/JavaScript rendering.
+description: Use when testing Cross-Site Scripting or routing XSS work into reflected, stored, or DOM lanes. Load this first for XSS triage, then load reflected-xss, stored-xss, or dom-xss based on where attacker-controlled input lands.
 ---
-# XSS Testing
 
-Test for Cross-Site Scripting vulnerabilities.
+# XSS Router
+
+Use this as the XSS routing card. It should classify the XSS shape, load the
+right lane skill, and keep payload choice tied to the actual render context.
+
+Core posture: XSS testing is controlled rule-breaking. Be creative with payload
+shape, encodings, parser confusion, sanitizer breakouts, framework quirks, and
+browser/server differences. Be conservative with impact, ownership, rate,
+cleanup, and human-visible side effects.
 
 ## Required Preflight
 
-Read shared state in this order before testing:
+Read shared state in this order before testing when the files exist:
 
 1. `notes/summary.md`
 2. `notes/observations.md`
 3. `checklist.md` (XSS items only)
 4. `todo.md` (XSS items only)
 
-## Primary Harness
+Also load:
 
-Use `agents/xss_framework.py` for most XSS work. It handles discovery, reflection screening, reflected/stored/DOM lanes, and optional browser verification.
+- `general-security-testing-policy`
+- `live-testing-policy`
+- `waf-live-policy` when payloads are blocked, filtered, normalized, challenged,
+  or mutated
+
+## Route Selection
+
+Load the smallest matching lane:
+
+| Signal | Load | Why |
+| --- | --- | --- |
+| Marker appears in the immediate HTTP response | `reflected-xss` | Immediate render/context breakout and browser proof. |
+| Marker is saved and appears later in another view, notification, admin page, email, export, or feed | `stored-xss` | Persistence, render-point discovery, cleanup, and blast-radius control. |
+| Marker reaches client-side sources/sinks such as URL, hash, storage, `postMessage`, router state, or JS-generated HTML | `dom-xss` | Browser source-to-sink verification and framework behavior. |
+| More than one is plausible | Load all relevant lanes, but keep notes separated by lane. |
+
+Do not treat these lanes as mutually exclusive. A stored value can become DOM
+XSS at render time; a reflected value can be inert in raw HTML but exploitable
+after client-side parsing; a DOM route can also call server APIs.
+
+## Shared Payload Sources
+
+Use context-specific payloads, not generic spraying. Start with the shared
+payload-selection reference:
+
+- `skills/xss/references/payload-selection.md`
+
+Useful local sources:
+
+- `/home/ryushe/projects/bug_bounty_harness/prompts/xss-playbook.md`
+- `/home/ryushe/projects/bug_bounty_harness/prompts/xss-payloads.md`
+- `/home/ryushe/Shared/word_lists/xss/payloads.txt`
+- `/home/ryushe/.axss/knowledge.db` when curated rows exist
+
+## Harnesses
+
+Use `agents/xss_framework.py` for broad XSS work. It handles discovery,
+reflection screening, reflected/stored/DOM lanes, and optional browser
+verification.
 
 ```bash
-python agents/xss_framework.py --target https://target.com/search?q=test --program target --mode full --rate-limit 2
+python /home/ryushe/projects/bug_bounty_harness/agents/xss_framework.py \
+  --target https://target.example/search?q=test \
+  --program target \
+  --mode full \
+  --rate-limit 2
 ```
 
-## Mode Matrix
-
-| Mode | Use When | What It Does |
-|------|----------|--------------|
-| `full` | Default full run | Discovery, reflection screening, reflected testing, stored testing, and DOM analysis |
-| `reflected` | Query/form/header reflection suspected | Discovery, reflection screening, and reflected XSS testing only |
-| `stored` | You have a render location | Discovery, reflection screening, and stored XSS testing for `--stored-url` targets |
-| `dom` | Client-side flow is the main lead | DOM source-to-sink analysis only |
-
-## Primary Commands
+Use `agents/xss_hunter.py` for narrower parameter-focused passes.
 
 ```bash
-# Full pipeline
-python agents/xss_framework.py --target https://target.com/search?q=test --program target --mode full --rate-limit 2
-
-# Reflected only
-python agents/xss_framework.py --target https://target.com/search?q=test --program target --mode reflected --rate-limit 2
-
-# Stored only
-python agents/xss_framework.py --target https://target.com/post --program target --mode stored \
-  --stored-url https://target.com/forum/thread/1 --rate-limit 1
-
-# DOM only with browser verification
-python agents/xss_framework.py --target https://target.com/app --program target --mode dom \
-  --browser-verify --rate-limit 1
+python /home/ryushe/projects/bug_bounty_harness/agents/xss_hunter.py \
+  --target https://target.example/search?q=test \
+  --program target \
+  --depth deep \
+  --rate-limit 5
 ```
 
-## Secondary Harness
+## Working Loop
 
-Use `agents/xss_hunter.py` for a narrower quick scan when you already know the target URL and want a shallow or deep parameter-focused pass.
+1. Identify the input vector: query, path, body, JSON, header, cookie, upload,
+   stored object field, router state, storage, or message.
+2. Send an inert marker and record where it lands.
+3. Classify the render context before choosing payloads.
+4. Load `reflected-xss`, `stored-xss`, or `dom-xss`.
+5. Use the lane skill to pick payload families, browser proof, cleanup, and
+   report shape.
+6. Escalate to `waf-live-policy` and bypass/mutation work when filtering or
+   parsing behavior becomes the interesting surface.
 
-```bash
-python agents/xss_hunter.py --target https://target.com/search?q=test --program target --depth shallow --rate-limit 5
-```
+## Evidence Standard
 
-## CLI Notes
+Record:
 
-### `agents/xss_framework.py`
+- full URL and request method
+- auth state and account/resource ownership
+- exact vector and parameter/header/body field
+- context where input landed
+- payload family and why it matched that context
+- browser verification status
+- interaction needed, if any
+- cleanup state for stored payloads
+- stop reason or next lane
 
-| Option | Description |
-|--------|-------------|
-| `--target` | Target URL or domain (required) |
-| `--program` | Program name for shared storage (default: `adhoc`) |
-| `--mode` | One of `full`, `reflected`, `stored`, `dom` |
-| `--stored-url` | Render locations for stored XSS verification |
-| `--rate-limit` | Requests per second |
-| `--browser-verify` | Verify execution with Playwright |
-| `--browser-bypass` | Use browser automation when WAF blocks HTTP requests |
-| `--output` | Write JSON findings to a specific path |
+## Status Rules
 
-### `agents/xss_hunter.py`
-
-| Option | Description |
-|--------|-------------|
-| `--target` | Target URL or domain (required) |
-| `--program` | Program name for shared storage (default: `test`) |
-| `--depth` | Scan depth: `shallow` or `deep` |
-| `--rate-limit` | Requests per second |
-| `--output` | Output file for findings (JSON) |
-| `--verbose` | Print traceback on failures |
-
-## Files
-
-- **Playbook:** `$HARNESS_ROOT/prompts/xss-playbook.md`
-- **Payload Catalog:** `$HARNESS_ROOT/prompts/xss-payloads.md`
-- **Shared Root:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`
-- **XSS Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/xss/findings.md`
-- **XSS Scan Artifacts:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/xss/`
-
-## Workflow
-
-1. Complete the required preflight reads in shared state order.
-2. Read `prompts/xss-playbook.md`.
-3. Use `prompts/xss-payloads.md` when adapting payloads to context, WAF behavior, or frontend framework sinks.
-4. Run `agents/xss_framework.py` unless a quick targeted `agents/xss_hunter.py` pass is enough.
-5. Write findings to `agent_shared/findings/xss/findings.md`.
-6. Update XSS entries in `checklist.md`, `todo.md`, and relevant notes.
+- `Confirmed`: JavaScript execution occurred in a browser or equivalent checker.
+- `Likely`: source, sink, and context are strong but browser execution is blocked.
+- `Potential`: controllable reflection/storage/source-to-sink exists, but the
+  exploit path is not proven.
+- `False positive`: the value is inert, safely encoded, unreachable, or blocked
+  in the tested context.

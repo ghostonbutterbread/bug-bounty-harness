@@ -71,7 +71,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **ssti** | `/ssti {program}` | `prompts/ssti-playbook.md` |
 | **ssrf** | `/ssrf {program}` | `prompts/ssrf-playbook.md` |
 | **lfi** | `/lfi {target_url}` | `skills/lfi/SKILL.md` |
-| **injection-testing-policy** | load during SSRF/LFI/XSS/SQLi/etc. testing | `skills/injection-testing-policy/SKILL.md` |
+| **injection-testing-policy** | load during SSRF/LFI/XSS/SQLi/etc. testing | canonical policy skill from `ai-policies` |
 | **fuzz** | `/fuzz {program}` | `prompts/fuzz-playbook.md` |
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
 | **recon-ry** | `/recon-ry {program}` | `prompts/recon-ry-playbook.md` |

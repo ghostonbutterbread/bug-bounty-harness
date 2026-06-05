@@ -26,6 +26,9 @@ Also load:
 
 - `general-security-testing-policy`
 - `live-testing-policy`
+- `injection-testing-policy` once a render sink, stored render point, DOM sink,
+  sanitizer, markdown/HTML parser, or browser/server parser boundary is
+  plausible
 - `waf-live-policy` when payloads are blocked, filtered, normalized, challenged,
   or mutated
 

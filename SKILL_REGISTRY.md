@@ -61,7 +61,10 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 
 | Skill | Command | Playbook |
 |-------|---------|----------|
-| **xss** | `/xss {program}` | `prompts/xss-playbook.md` |
+| **xss** | `/xss {program}` | Router to `reflected-xss`, `stored-xss`, and `dom-xss` |
+| **reflected-xss** | `/reflected-xss {target_url}` | `skills/reflected-xss/SKILL.md` |
+| **stored-xss** | `/stored-xss {program} {write-and-render-context}` | `skills/stored-xss/SKILL.md` |
+| **dom-xss** | `/dom-xss {target_url}` | `skills/dom-xss/SKILL.md` |
 | **access-control** | `/access-control {program}` | `prompts/access-control-playbook.md` |
 | **idor** | `/idor {program}` | `prompts/idor-playbook.md` |
 | **sqli** | `/sqli {program}` | `prompts/sqli-playbook.md` |
@@ -114,6 +117,9 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 ### Slash Commands
 ```
 /xss superdrug
+/reflected-xss https://target.example/search?q=test
+/stored-xss target profile-title-to-notification
+/dom-xss https://target.example/#/route?x=test
 /access-control superdrug account-orders
 /idor superdrug
 /sqli superdrug

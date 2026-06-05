@@ -17,16 +17,19 @@ idea seeds, not checklists or ceilings.
 
 1. Read program scope, owned-account context, and active live-testing policy.
 2. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
-3. Read `references/common-locations.md` to decide where to hunt.
-4. After finding a fetch surface, read `references/idea-seeds.md` for bypass,
+3. Read `injection-testing-policy` once a URL/fetch sink exists or is strongly
+   suspected. Do not stop just because the first callback or response canary
+   produces no visible signal.
+4. Read `references/common-locations.md` to decide where to hunt.
+5. After finding a fetch surface, read `references/idea-seeds.md` for bypass,
    parser, metadata, header, WAF, and segmentation ideas.
-5. Optional deeper packs:
+6. Optional deeper packs:
    - direct outbound fetch -> `references/technique-packs/baseline-fetch.md`
    - allowlist, hostname, IP, redirect, or URL parser filtering -> `references/technique-packs/parser-redirect.md`
    - cloud metadata or internal protocol reachability -> `references/technique-packs/metadata-scheme.md`
-6. Read `$HARNESS_ROOT/prompts/ssrf-playbook.md` only for deep review, stuck
+7. Read `$HARNESS_ROOT/prompts/ssrf-playbook.md` only for deep review, stuck
    analysis, or report writing.
-7. Route instead of duplicating:
+8. Route instead of duplicating:
    - URL/parser/filter bypasses -> `/bypass`
    - header-required metadata or proxy trust behavior -> `/headers`
    - WAF/rate-limit blocks -> `/waf`
@@ -36,9 +39,13 @@ idea seeds, not checklists or ceilings.
 
 1. Identify the server-side fetch sink and parameter.
 2. Confirm a benign controlled outbound fetch when possible.
-3. Use the idea seeds that match the observed filtering or routing behavior.
-4. Prefer status, banner, callback, or low-risk root proof over secret retrieval.
-5. Stop after proving the boundary reached.
+3. If no callback, reflection, status change, or visible delta appears, classify
+   likely controls anyway: allowlist, private-IP block, redirect handling, DNS
+   timing, scheme block, URL parser split, sanitizer, WAF, or async fetch.
+4. Use the idea seeds that match the observed or plausible filtering/routing
+   behavior, then run a bounded mutation ladder.
+5. Prefer status, banner, callback, or low-risk root proof over secret retrieval.
+6. Stop after proving the boundary reached.
 
 ## Primary Harness
 

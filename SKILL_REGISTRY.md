@@ -70,6 +70,8 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **sqli** | `/sqli {program}` | `prompts/sqli-playbook.md` |
 | **ssti** | `/ssti {program}` | `prompts/ssti-playbook.md` |
 | **ssrf** | `/ssrf {program}` | `prompts/ssrf-playbook.md` |
+| **lfi** | `/lfi {target_url}` | `skills/lfi/SKILL.md` |
+| **injection-testing-policy** | load during SSRF/LFI/XSS/SQLi/etc. testing | `skills/injection-testing-policy/SKILL.md` |
 | **fuzz** | `/fuzz {program}` | `prompts/fuzz-playbook.md` |
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
 | **recon-ry** | `/recon-ry {program}` | `prompts/recon-ry-playbook.md` |
@@ -125,6 +127,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /sqli superdrug
 /ssti superdrug
 /ssrf superdrug
+/lfi https://target.example/download?file=test.pdf
 /fuzz superdrug
 /recon superdrug
 /recon-ry superdrug --url example.com --profile full

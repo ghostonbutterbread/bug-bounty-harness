@@ -17,6 +17,16 @@ Read shared state in this order before testing:
 3. `checklist.md` (SQLi items only)
 4. `todo.md` (SQLi items only)
 
+Also load:
+
+- `general-security-testing-policy`
+- `live-testing-policy`
+- `injection-testing-policy`
+
+No visible error or response delta from the first SQLi probe is not a stop
+reason by itself. Classify the likely query context and control first, then run
+paired error, boolean, timing, or result-shaping probes as allowed.
+
 ## Primary Harness
 
 There is no dedicated `agents/sqli_hunter.py` in this repo. Treat your browser/proxy request replay workflow as the primary execution surface and use `agents/payload_mutator.py` to generate context-aware SQLi variants after you have classified the sink.

@@ -28,6 +28,7 @@ This skill is designed to be used with other skills. Use it to capture or mutate
 6. Use proxy setup helpers only if needed:
    - agent-lane proxy/MCP -> `/agent-proxy`
    - Caido MCP inspection/replay -> `/caido`
+   - PwnFox colored profile/session filtering -> `/pwnfox`
    - browser-driven capture -> `/chromium-test`
 7. After the result, route instead of duplicating:
    - CSRF impact -> `/csrf`
@@ -61,4 +62,8 @@ Stop if the action is destructive and the target resource is not explicitly `des
 
 Write notes under `$HARNESS_SHARED_BASE/{program}/ghost/single-request-grabber/` or the owning finding lane.
 
-Record action goal, flow boundary, full URL, method, account/resource aliases, destructible status, captured request source, forwarded non-target request count, sanitized mutation, result, intercept-off confirmation, routed skill, stop condition, and raw artifact path if available.
+Record action goal, flow boundary, full URL, method, account/resource aliases,
+destructible status, captured request source, PwnFox color/header filter when
+used, forwarded non-target request count, sanitized mutation, result,
+intercept-off confirmation, routed skill, stop condition, and raw artifact path
+if available.

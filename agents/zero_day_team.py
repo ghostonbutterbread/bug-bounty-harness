@@ -58,6 +58,11 @@ from agents.brainstorm_adapters import (
 from agents.brainstorm_spec import parse_brainstorm_spec
 from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.hunting_policy import HuntingPolicy, coerce_hunting_policy, resolve_hunting_policy, resolve_policy_selection
+from agents.hunter_memory_adapter import (
+    HunterMemoryRef,
+    build_hunter_memory_ref,
+    harvest_hunter_memory_from_log,
+)
 from agents.base_team.scheduler import BaseTeamSchedulerOptions, schedule_profiles
 from agents.snapshot_identity import get_snapshot_identity
 from agents.verbosity import clamp_verbosity
@@ -833,6 +838,7 @@ def _build_prompt_base(
     starting_entry: dict[str, Any] | None = None,
     policy_snippet: str = "",
     program_scope_snippet: str = "",
+    hunter_memory_prompt: str = "",
 ) -> str:
     entry_lines = "\n".join(f"- {question}" for question in profile.entry_questions)
     cross_lines = "\n".join(f"- {question}" for question in profile.cross_questions)
@@ -924,6 +930,8 @@ Custom agent instructions:
 
 {policy_snippet.strip()}
 
+{hunter_memory_prompt.strip()}
+
 Output rules:
 - A class finding should identify the source, the trust boundary crossing, the flow, the dangerous sink category, and why exploitation is or is not realistically reachable.
 - If you discover a strong pattern that does NOT fit this class, record it as a NOVEL finding instead of forcing it into the current class.
@@ -991,9 +999,26 @@ def _spawn_agent(
     coverage_path: Path | None = None,
     policy_snippet: str = "",
     program_scope_snippet: str = "",
+    hunter_memory_enabled: bool = False,
+    hunter_memory_root: str | Path | None = None,
 ) -> AgentSession:
     workspace = agents_root / f"{profile.key}_{int(time.time() * 1000)}"
     _ensure_directory(workspace)
+
+    hunter_memory_ref: HunterMemoryRef | None = None
+    hunter_memory_prompt = ""
+    if hunter_memory_enabled:
+        hunter_memory_ref = build_hunter_memory_ref(
+            program=program,
+            agent_key=profile.key,
+            vulnerability=profile.key,
+            surface=profile.key,
+            goal=f"Run {profile.key} static-analysis learning loop against {target_path}",
+            target=target_path,
+            provider="codex",
+            root=hunter_memory_root,
+        )
+        hunter_memory_prompt = hunter_memory_ref.prompt
 
     env = os.environ.copy()
     env["ZERO_DAY_AGENT_NAME"] = profile.key
@@ -1008,6 +1033,7 @@ def _spawn_agent(
         starting_entry=starting_entry,
         policy_snippet=policy_snippet,
         program_scope_snippet=program_scope_snippet,
+        hunter_memory_prompt=hunter_memory_prompt,
     )
     env["ZERO_DAY_TARGET_PATH"] = str(target_path)
     env["ZERO_DAY_AGENT_WORKDIR"] = str(workspace)
@@ -1041,7 +1067,7 @@ def _spawn_agent(
             latency_ms=int((time.time() - spawn_start) * 1000),
             success=False,
         )
-        return AgentSession(
+        session = AgentSession(
             profile=profile,
             workspace=workspace,
             log_path=fallback_log,
@@ -1049,6 +1075,8 @@ def _spawn_agent(
             skip_ledger=skip_ledger,
             coverage_path=coverage_path,
         )
+        setattr(session, "hunter_memory_ref", hunter_memory_ref)
+        return session
 
     log_path = agents_root / f"agent_{profile.key}_{process.pid}.log"
     _safe_log_span(
@@ -1062,7 +1090,7 @@ def _spawn_agent(
         latency_ms=int((time.time() - spawn_start) * 1000),
         success=True,
     )
-    return AgentSession(
+    session = AgentSession(
         profile=profile,
         workspace=workspace,
         log_path=log_path,
@@ -1070,6 +1098,8 @@ def _spawn_agent(
         skip_ledger=skip_ledger,
         coverage_path=coverage_path,
     )
+    setattr(session, "hunter_memory_ref", hunter_memory_ref)
+    return session
 
 
 def _safe_int(value: Any) -> int:
@@ -2645,6 +2675,20 @@ def _run_agent_session(
             pass
 
     try:
+        hunter_memory_result = harvest_hunter_memory_from_log(
+            session.log_path,
+            getattr(session, "hunter_memory_ref", None),
+        )
+        if hunter_memory_result.get("enabled"):
+            _safe_log_span(
+                span_type="tool",
+                level="RESULT",
+                message=f"Hunter memory harvested: {session.profile.key}",
+                tool_name="hunter_memory_adapter",
+                tool_category="storage",
+                success=not bool(hunter_memory_result.get("errors")),
+                output_bytes=int(hunter_memory_result.get("attempts") or 0),
+            )
         salvaged = _extract_findings_from_log(session.log_path, default_agent=session.profile.key)
         initial_salvaged = list(salvaged)
         # Deduplicate through ledger before reviewer sees anything
@@ -2771,6 +2815,8 @@ def _run_single_agent(
     coverage_path: Path | None = None,
     policy_snippet: str = "",
     program_scope_snippet: str = "",
+    hunter_memory_enabled: bool = False,
+    hunter_memory_root: str | Path | None = None,
 ) -> Tuple[VulnerabilityClassProfile, int]:
     session = _spawn_agent(
         profile=profile,
@@ -2785,6 +2831,8 @@ def _run_single_agent(
         coverage_path=coverage_path,
         policy_snippet=policy_snippet,
         program_scope_snippet=program_scope_snippet,
+        hunter_memory_enabled=hunter_memory_enabled,
+        hunter_memory_root=hunter_memory_root,
     )
     if session.process is not None:
         _append_brainstorm_coverage(
@@ -3457,6 +3505,8 @@ def orchestrate_zero_day_team(
     max_hypotheses_per_master_agent: int = 6,
     prefer_deferred: bool = True,
     verbose: int = 0,
+    hunter_memory: bool = False,
+    hunter_memory_root: str | Path | None = None,
 ) -> Dict[str, Any]:
     """Run one clean static-analysis agent per vulnerability class."""
     global _ZERO_DAY_TEAM_LOGGER
@@ -3932,6 +3982,8 @@ def orchestrate_zero_day_team(
                         coverage_path=brainstorm_coverage_path,
                         policy_snippet=agent_policy_snippet,
                         program_scope_snippet=program_scope_snippet,
+                        hunter_memory_enabled=hunter_memory,
+                        hunter_memory_root=hunter_memory_root,
                     ): profile
                     for profile in active_profiles
                 }
@@ -3964,6 +4016,8 @@ def orchestrate_zero_day_team(
                 coverage_path=brainstorm_coverage_path,
                 policy_snippet=agent_policy_snippet,
                 program_scope_snippet=program_scope_snippet,
+                hunter_memory_enabled=hunter_memory,
+                hunter_memory_root=hunter_memory_root,
             )
             print(f"[orchestrator] Finished {index}/{len(active_profiles)}: {profile.key}")
 
@@ -4080,6 +4134,10 @@ def orchestrate_zero_day_team(
         "snapshot_id": snapshot_identity.get("snapshot_id"),
         "version_label": snapshot_identity.get("version_label"),
         "channel": snapshot_identity.get("channel"),
+    }
+    summary["hunter_memory"] = {
+        "enabled": bool(hunter_memory),
+        "root": str(Path(hunter_memory_root).expanduser()) if hunter_memory_root else str(Path.home() / "Shared" / "bounty_recon"),
     }
     summary["dynamic_agents"] = {
         "count": len(dynamic_profiles),
@@ -4319,6 +4377,15 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
         action="store_true",
         help="Do not prefer previously deferred agents when policy-aware scheduling is enabled.",
     )
+    parser.add_argument(
+        "--hunter-memory",
+        action="store_true",
+        help="Enable Hunter Memory Loop scaffolding and parent-side attempt harvesting for each agent.",
+    )
+    parser.add_argument(
+        "--hunter-memory-root",
+        help="Override Hunter Memory storage root. Defaults to ~/Shared/bounty_recon.",
+    )
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     return parser.parse_args(list(argv))
 
@@ -4368,5 +4435,7 @@ if __name__ == "__main__":
         max_hypotheses_per_master_agent=args.max_hypotheses_per_master_agent,
         prefer_deferred=not args.no_prefer_deferred,
         verbose=args.verbose,
+        hunter_memory=args.hunter_memory,
+        hunter_memory_root=args.hunter_memory_root,
     )
     print(json.dumps(result, indent=2, sort_keys=True))

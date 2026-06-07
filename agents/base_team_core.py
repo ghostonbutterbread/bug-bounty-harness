@@ -54,6 +54,11 @@ from agents.base_team.runtime import (
 )
 from agents.base_team.storage import resolve_team_storage
 from agents.hunting_policy import HuntingPolicy, coerce_hunting_policy, resolve_hunting_policy, resolve_policy_selection
+from agents.hunter_memory_adapter import (
+    HunterMemoryRef,
+    build_hunter_memory_ref,
+    harvest_hunter_memory_from_log,
+)
 from agents.snapshot_identity import get_snapshot_identity
 from agents.storage_resolver import TargetIdentity, resolve_family_lane
 
@@ -322,6 +327,8 @@ class BaseTeam(abc.ABC):
         scheduler_prefer_deferred: bool = True,
         scheduler_fresh: bool = False,
         scheduler_wave_id: str | None = None,
+        hunter_memory: bool = False,
+        hunter_memory_root: str | Path | None = None,
     ) -> None:
         normalized_program = re.sub(r"[^A-Za-z0-9._-]+", "_", str(program or "").strip())
         if not normalized_program:
@@ -391,6 +398,9 @@ class BaseTeam(abc.ABC):
         self.scheduler_prefer_deferred = scheduler_prefer_deferred
         self.scheduler_fresh = scheduler_fresh
         self.scheduler_wave_id = scheduler_wave_id
+        self.hunter_memory_enabled = bool(hunter_memory)
+        self.hunter_memory_root = Path(hunter_memory_root).expanduser() if hunter_memory_root else None
+        self._hunter_memory_refs: dict[str, HunterMemoryRef] = {}
         self.latest_scheduler_result: Any | None = None
         self.latest_scheduler_summary: dict[str, Any] | None = None
 
@@ -785,6 +795,22 @@ class BaseTeam(abc.ABC):
         return mixed
 
     def _render_prompt(self, spec: AgentSpec) -> str:
+        hunter_memory_prompt = ""
+        if self.hunter_memory_enabled:
+            ref = self._hunter_memory_refs.get(spec.key)
+            if ref is None:
+                ref = build_hunter_memory_ref(
+                    program=self.program,
+                    agent_key=spec.key,
+                    vulnerability=spec.vuln_class or "general",
+                    surface=spec.surface or spec.key,
+                    goal=f"Run {spec.key} {spec.vuln_class or 'general'} learning loop against {self.target_path}",
+                    target=self.target_path,
+                    provider="codex",
+                    root=self.hunter_memory_root,
+                )
+                self._hunter_memory_refs[spec.key] = ref
+            hunter_memory_prompt = ref.prompt
         context = {
             "program": self.program,
             "team_type": self.team_type,
@@ -821,15 +847,32 @@ class BaseTeam(abc.ABC):
             "hunting_policy_id": self.hunting_policy.id,
             "hunting_policy_snippet": self.hunting_policy.snippet("agent"),
             "program_scope_snippet": self.program_scope_snippet,
+            "hunter_memory_prompt": hunter_memory_prompt,
         }
         rendered = spec.prompt_template.format(**context).rstrip()
         if "{program_scope_snippet}" not in spec.prompt_template:
             rendered = f"{rendered}\n\n{self.program_scope_snippet}"
         if self.hunting_policy.enabled and "{hunting_policy_snippet}" not in spec.prompt_template:
             rendered = f"{rendered}\n\n{self.hunting_policy.snippet('agent')}"
+        if hunter_memory_prompt and "{hunter_memory_prompt}" not in spec.prompt_template:
+            rendered = f"{rendered}\n\n{hunter_memory_prompt}"
         return rendered.rstrip() + "\n"
 
     def _collect_agent_findings(self, spec: AgentSpec, log_path: Path | None) -> list[dict[str, Any]]:
+        if log_path is not None and self.hunter_memory_enabled:
+            harvest_result = harvest_hunter_memory_from_log(log_path, self._hunter_memory_refs.get(spec.key))
+            if harvest_result.get("enabled"):
+                self.write_traces(
+                    [
+                        {
+                            "event": "hunter_memory_harvest",
+                            "agent_name": spec.key,
+                            "attempts": harvest_result.get("attempts"),
+                            "claims": harvest_result.get("claims"),
+                            "errors": harvest_result.get("errors") or [],
+                        }
+                    ]
+                )
         log_findings = self._extract_findings_from_log(log_path, default_agent=spec.key) if log_path else []
 
         combined: list[dict[str, Any]] = []
@@ -1109,6 +1152,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Force regeneration of dynamic agent specs for the current snapshot.",
     )
+    parser.add_argument(
+        "--hunter-memory",
+        action="store_true",
+        help="Enable Hunter Memory Loop scaffolding and parent-side attempt harvesting for each agent.",
+    )
+    parser.add_argument(
+        "--hunter-memory-root",
+        help="Override Hunter Memory storage root. Defaults to ~/Shared/bounty_recon.",
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -1141,6 +1193,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             intent_text=args.intent_text,
             hunting_policy=policy_selection,
             policy_config=args.policy_config,
+            hunter_memory=args.hunter_memory,
+            hunter_memory_root=args.hunter_memory_root,
         )
     elif args.team_type == "apk":
         from agents.apk_team import APKTeam
@@ -1158,6 +1212,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             infer_target_identity=True,
             hunting_policy=policy_selection,
             policy_config=args.policy_config,
+            hunter_memory=args.hunter_memory,
+            hunter_memory_root=args.hunter_memory_root,
         )
     else:
         raise SystemExit("web team is not implemented yet")

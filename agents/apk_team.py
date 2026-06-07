@@ -44,6 +44,11 @@ from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.decompiler import decompile_smali_targets
 from agents.dynamic_agent_builder import DynamicAgentBuilder
+from agents.hunter_memory_adapter import (
+    HunterMemoryRef,
+    build_hunter_memory_ref,
+    harvest_hunter_memory_from_log,
+)
 from agents.ledger import create_team_ledger_from_storage, update_team_finding
 from agents.base_team.promotion import promote_reviewed_findings
 from agents.base_team.storage import resolve_team_storage
@@ -402,6 +407,7 @@ def _build_prompt_base(
     profile_context: str,
     targeted_files: Sequence[str],
     pseudo_java: dict[str, str],
+    hunter_memory_prompt: str = "",
 ) -> str:
     entry_lines = "\n".join(f"- {item}" for item in profile.entry_questions)
     cross_lines = "\n".join(f"- {item}" for item in profile.cross_questions)
@@ -444,6 +450,8 @@ Reasoning:
 
 Profile-specific instructions:
 {profile.prompt_addendum or "None."}
+
+{hunter_memory_prompt.strip()}
 
 Targeted files to inspect first:
 {target_file_lines}
@@ -503,9 +511,26 @@ def _spawn_apk_agent(
     targeted_files: Sequence[str],
     pseudo_java: dict[str, str],
     fresh: bool,
+    hunter_memory_enabled: bool = False,
+    hunter_memory_root: str | Path | None = None,
 ) -> AgentSession:
     workspace = agents_root / f"{profile.key}_{int(time.time() * 1000)}"
     ensure_directory(workspace)
+
+    hunter_memory_ref: HunterMemoryRef | None = None
+    hunter_memory_prompt = ""
+    if hunter_memory_enabled:
+        hunter_memory_ref = build_hunter_memory_ref(
+            program=program,
+            agent_key=profile.key,
+            vulnerability=profile.key,
+            surface="-".join(profile.surface_types) if profile.surface_types else profile.key,
+            goal=f"Run {profile.key} APK static-analysis learning loop against {extracted_root}",
+            target=extracted_root,
+            provider="codex",
+            root=hunter_memory_root,
+        )
+        hunter_memory_prompt = hunter_memory_ref.prompt
 
     env = os.environ.copy()
     env["APK_TEAM_AGENT_NAME"] = profile.key
@@ -520,6 +545,7 @@ def _spawn_apk_agent(
         profile_context=profile_context,
         targeted_files=targeted_files,
         pseudo_java=pseudo_java,
+        hunter_memory_prompt=hunter_memory_prompt,
     )
     env["APK_TEAM_TARGET_PATH"] = str(extracted_root)
     env["APK_TEAM_AGENT_WORKDIR"] = str(workspace)
@@ -565,7 +591,9 @@ def _spawn_apk_agent(
             success=False,
             error=str(exc),
         )
-        return AgentSession(profile=profile, workspace=workspace, log_path=fallback_log, process=None, skip_ledger=fresh)
+        session = AgentSession(profile=profile, workspace=workspace, log_path=fallback_log, process=None, skip_ledger=fresh)
+        setattr(session, "hunter_memory_ref", hunter_memory_ref)
+        return session
 
     log_path = agents_root / f"agent_{profile.key}_{process.pid}.log"
     _safe_log_span(
@@ -592,7 +620,9 @@ def _spawn_apk_agent(
         output_bytes=0,
         success=True,
     )
-    return AgentSession(profile=profile, workspace=workspace, log_path=log_path, process=process, skip_ledger=fresh)
+    session = AgentSession(profile=profile, workspace=workspace, log_path=log_path, process=process, skip_ledger=fresh)
+    setattr(session, "hunter_memory_ref", hunter_memory_ref)
+    return session
 
 
 def _targeted_files_for_profile(registry: ApkSurfaceRegistry, profile: ApkHuntProfile) -> list[str]:
@@ -891,6 +921,8 @@ def _run_single_profile(
     prepared_bundle: tuple[dict[str, Any], list[str], dict[str, str]],
     registry: ApkSurfaceRegistry,
     coverage_path: Path | None = None,
+    hunter_memory_enabled: bool = False,
+    hunter_memory_root: str | Path | None = None,
 ) -> tuple[ApkHuntProfile, int]:
     registry_context, targeted_files, pseudo_java = prepared_bundle
     session = _spawn_apk_agent(
@@ -905,6 +937,8 @@ def _run_single_profile(
         targeted_files=targeted_files,
         pseudo_java=pseudo_java,
         fresh=fresh,
+        hunter_memory_enabled=hunter_memory_enabled,
+        hunter_memory_root=hunter_memory_root,
     )
     setattr(session, "coverage_path", coverage_path)
     if session.process is not None:
@@ -920,6 +954,20 @@ def _run_single_profile(
         ),
         maybe_log_span=_safe_log_span,
     )
+    harvest_result = harvest_hunter_memory_from_log(
+        session.log_path,
+        getattr(session, "hunter_memory_ref", None),
+    )
+    if harvest_result.get("enabled"):
+        _safe_log_span(
+            span_type="tool",
+            level="RESULT",
+            message=f"Hunter memory harvested: {profile.key}",
+            tool_name="hunter_memory_adapter",
+            tool_category="storage",
+            success=not bool(harvest_result.get("errors")),
+            output_bytes=int(harvest_result.get("attempts") or 0),
+        )
     try:
         initial_salvaged = extract_findings_from_log(session.log_path, default_agent=profile.key)
         initial_salvaged = [item for item in initial_salvaged if not is_placeholder_finding(item)]
@@ -955,6 +1003,8 @@ def orchestrate_apk_team(
     brainstorm_only: bool = False,
     brainstorm_hypothesis: str | None = None,
     verbose: int = 0,
+    hunter_memory: bool = False,
+    hunter_memory_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """
     1. Extract APK if not already (apktool)
@@ -1178,6 +1228,8 @@ def orchestrate_apk_team(
                         prepared_bundle=prepared_bundles[profile.key],
                         registry=registry,
                         coverage_path=brainstorm_coverage_path,
+                        hunter_memory_enabled=hunter_memory,
+                        hunter_memory_root=hunter_memory_root,
                     )
                 ] = profile
             for future in as_completed(futures):
@@ -1213,6 +1265,8 @@ def orchestrate_apk_team(
                 prepared_bundle=prepared_bundles[profile.key],
                 registry=registry,
                 coverage_path=brainstorm_coverage_path,
+                hunter_memory_enabled=hunter_memory,
+                hunter_memory_root=hunter_memory_root,
             )
             # MGP: record that this profile was tested
             if mem is not None:
@@ -1332,6 +1386,10 @@ def orchestrate_apk_team(
         "version_name": registry.payload.get("version_name"),
     }
     summary["snapshot"] = snapshot_identity
+    summary["hunter_memory"] = {
+        "enabled": bool(hunter_memory),
+        "root": str(Path(hunter_memory_root).expanduser()) if hunter_memory_root else str(Path.home() / "Shared" / "bounty_recon"),
+    }
     summary["dynamic_agents"] = {
         "count": len(dynamic_profiles),
         "keys": [profile.key for profile in dynamic_profiles],
@@ -1429,6 +1487,15 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
         "--intent-text",
         help="Optional natural-language task text used as routing evidence before path/artifact fallback.",
     )
+    parser.add_argument(
+        "--hunter-memory",
+        action="store_true",
+        help="Enable Hunter Memory Loop scaffolding and parent-side attempt harvesting for each profile.",
+    )
+    parser.add_argument(
+        "--hunter-memory-root",
+        help="Override Hunter Memory storage root. Defaults to ~/Shared/bounty_recon.",
+    )
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     args = parser.parse_args(list(argv))
     if not args.program and not args.program_override:
@@ -1458,6 +1525,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         brainstorm_only=args.brainstorm_only,
         brainstorm_hypothesis=args.brainstorm_hypothesis,
         verbose=args.verbose,
+        hunter_memory=args.hunter_memory,
+        hunter_memory_root=args.hunter_memory_root,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

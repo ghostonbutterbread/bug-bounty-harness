@@ -1,7 +1,10 @@
+import contextlib
+import io
 import json
 from pathlib import Path
 
 from agents.hunter_memory_adapter import build_hunter_memory_ref, harvest_hunter_memory_from_log
+from agents.hunter_memory_tool import main as hunter_memory_tool_main
 
 
 def test_hunter_memory_adapter_harvests_attempts_and_claims(tmp_path: Path) -> None:
@@ -57,3 +60,88 @@ def test_hunter_memory_adapter_ignores_missing_disabled_ref(tmp_path: Path) -> N
 
     assert result == {"enabled": False, "attempts": 0, "claims": 0, "errors": []}
 
+
+def test_hunter_memory_tool_start_attempt_claim_and_harvest(tmp_path: Path) -> None:
+    prompt_path = tmp_path / "prompt.md"
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        exit_code = hunter_memory_tool_main(
+            [
+                "start",
+                "tool-smoke",
+                "--vulnerability",
+                "xss",
+                "--surface",
+                "avatar upload",
+                "--goal",
+                "learn avatar upload render behavior",
+                "--agent-id",
+                "scout",
+                "--root",
+                str(tmp_path),
+                "--prompt-out",
+                str(prompt_path),
+                "--json",
+            ]
+        )
+    assert exit_code == 0
+    payload = json.loads(output.getvalue())
+    assert Path(payload["run_path"]).exists()
+    assert Path(payload["agent_path"]).exists()
+    assert "hunter-memory-attempts" in prompt_path.read_text(encoding="utf-8")
+
+    exit_code = hunter_memory_tool_main(
+        [
+            "attempt",
+            "--agent-dir",
+            payload["agent_path"],
+            "--goal",
+            "learn avatar upload render behavior",
+            "--action",
+            "uploaded safe png",
+            "--result",
+            "inconclusive",
+            "--learning",
+            "baseline upload succeeds",
+        ]
+    )
+    assert exit_code == 0
+
+    exit_code = hunter_memory_tool_main(
+        [
+            "claim",
+            "--run-path",
+            payload["run_path"],
+            "--agent-id",
+            "scout",
+            "--claim",
+            "Avatar upload baseline succeeds",
+            "--status",
+            "interesting_signal",
+        ]
+    )
+    assert exit_code == 0
+
+    log_path = tmp_path / "agent.log"
+    log_path.write_text(
+        """```hunter-memory-attempts
+{"goal":"learn avatar upload render behavior","action":"uploaded svg","result":"blocked","learning":"svg blocked","next_action":"try metadata context"}
+```""",
+        encoding="utf-8",
+    )
+    harvest_output = io.StringIO()
+    with contextlib.redirect_stdout(harvest_output):
+        exit_code = hunter_memory_tool_main(
+            [
+                "harvest",
+                "--run-path",
+                payload["run_path"],
+                "--agent-id",
+                "scout",
+                "--log",
+                str(log_path),
+            ]
+        )
+    assert exit_code == 0
+    harvest = json.loads(harvest_output.getvalue())
+    assert harvest["attempts"] == 1

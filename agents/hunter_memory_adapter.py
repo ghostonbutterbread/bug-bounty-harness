@@ -168,7 +168,7 @@ Use this exact fenced JSONL block for meaningful attempts:
 
 Optional claim block when you learned a reusable conclusion:
 ```hunter-memory-claims
-{{"claim":"short reusable conclusion","status":"confirmed|in_progress|rejected","confidence":"low|medium|high"}}
+{{"claim":"short reusable conclusion","status":"planned|in_progress|tested_no_signal|interesting_signal|blocked|confirmed|needs_followup","confidence":"low|medium|high"}}
 ```
 
 Keep rows concise. Do not include raw cookies, tokens, API keys, credentials,

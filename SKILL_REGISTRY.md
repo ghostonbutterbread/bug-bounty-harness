@@ -67,6 +67,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **dom-xss** | `/dom-xss {target_url}` | `skills/dom-xss/SKILL.md` |
 | **access-control** | `/access-control {program}` | `prompts/access-control-playbook.md` |
 | **idor** | `/idor {program}` | `prompts/idor-playbook.md` |
+| **jwt-auth** | `/jwt-auth {program} {jwt-auth-context}` | `prompts/jwt-auth-playbook.md` |
 | **sqli** | `/sqli {program}` | `prompts/sqli-playbook.md` |
 | **ssti** | `/ssti {program}` | `prompts/ssti-playbook.md` |
 | **ssrf** | `/ssrf {program}` | `prompts/ssrf-playbook.md` |
@@ -125,6 +126,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /dom-xss https://target.example/#/route?x=test
 /access-control superdrug account-orders
 /idor superdrug
+/jwt-auth superdrug bearer-token-403
 /sqli superdrug
 /ssti superdrug
 /ssrf superdrug

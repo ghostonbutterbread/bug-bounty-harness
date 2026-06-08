@@ -38,3 +38,16 @@ Reference:
 Related skills:
 - `/access-control`
 - `/idor`
+
+### JWT Auth
+
+Load when the `403` depends on a JWT in an Authorization header, cookie, query, body, browser storage, websocket message, or historical app auth notes.
+
+Related skill:
+- `/jwt-auth`
+
+Look for:
+- Bearer tokens with three JWT segments
+- JWT-shaped cookies such as `session`, `jwt`, `access_token`, or `id_token`
+- decoded headers containing `alg`, `kid`, `jku`, `x5u`, `x5c`, `x5t`, or `jwk`
+- decoded claims containing `iss`, `aud`, `jti`, `role`, `scope`, `tenant`, `org_id`, `user_id`, `exp`, or `nbf`

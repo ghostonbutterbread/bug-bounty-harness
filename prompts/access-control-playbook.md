@@ -116,6 +116,18 @@ Test families:
 
 Success requires the protected action or resource becoming reachable through an alternate representation.
 
+### JWT Authorization Lane
+
+Use when a Bearer token, JWT cookie, or token claim appears to decide the subject, role, tenant, object, issuer, audience, or token state.
+
+Load `/jwt-auth` and pass:
+- full URL and token location
+- safe decoded header and payload with token/signature redacted
+- owned account/resource map
+- observed `403`, allowed baseline, and candidate mutation idea
+
+Keep `/access-control` as the owner for object/tenant impact, but let `/jwt-auth` own JWT mutation families.
+
 ### State-Changing Authorization Lane
 
 Use when writes, deletes, invites, exports, transfers, billing actions, or settings changes are involved.

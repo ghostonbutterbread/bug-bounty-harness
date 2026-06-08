@@ -19,8 +19,10 @@ This is a RAG-style child skill. Classify why the 403 exists, load one focused r
    - path or route normalization -> `$HARNESS_ROOT/skills/403/references/technique-packs/path-normalization.md`
    - trusted route/client headers -> `$HARNESS_ROOT/skills/403/references/technique-packs/trusted-headers.md`
    - auth-state or owned-account comparison -> `$HARNESS_ROOT/skills/403/references/technique-packs/auth-state.md`
+   - JWT/Bearer/cookie token controls authorization -> load `/jwt-auth`
 6. Read `$HARNESS_ROOT/prompts/403-playbook.md` for deep review, stuck analysis, or report writing.
 7. Route instead of duplicating:
+   - JWT algorithm, signature, claim, key-source, or token format behavior -> `/jwt-auth`
    - broader header behavior -> `/headers`
    - WAF or bot enforcement -> `/waf`
    - object ownership or role boundary -> `/access-control` or `/idor`

@@ -85,6 +85,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **mullvad** | `/mullvad` | `prompts/mullvad-playbook.md` |
 | **temporary-email** | `/temporary-email {create|read|show|accounts}` | `skills/temporary-email/SKILL.md` |
 | **live-map** | `/live-map {program}` | `prompts/live-map-playbook.md` |
+| **deep-hunt** | `/deep-hunt {program} --section {section-or-route-cluster}` | `prompts/deep-hunt-playbook.md` |
 | **url-ingest** | `/url-ingest {init|ingest|status|mark|search|stats} {program}` | `skills/url-ingest/SKILL.md` |
 | **hunter-memory** | `/hunter-memory {program} {surface}` | `prompts/hunter-memory-playbook.md` |
 | **brainstorm-spec** | `/brainstorm-spec {program}` | `prompts/brainstorm-spec-playbook.md` |
@@ -144,6 +145,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /mullvad
 /temporary-email create
 /live-map superdrug --source browser
+/deep-hunt canva --section sso-callbacks
 /hunter-memory canva avatar-upload --vulnerability xss
 /brainstorm-spec canva --family binaries --lane exe --target-kind electron-exe
 /appmap canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --target-kind electron-exe --focus rce --write-specs

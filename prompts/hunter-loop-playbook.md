@@ -1,0 +1,162 @@
+# Hunter Loop Playbook
+
+Hunter Loop is Hackbot's parent bounty-hunter control loop. It keeps the broad
+application model coherent, records learnings, and dispatches specialists when
+the mapped surface gives a reason.
+
+## Goal
+
+Turn a target objective into an adaptive loop:
+
+```text
+scope -> goal -> map -> observe -> learn -> dispatch -> verify -> merge -> next hypothesis
+```
+
+The parent agent is not the main exploit engine. It is the orchestrator that
+keeps context, avoids duplicate work, and hands precise packets to specialists.
+
+## Parent State
+
+Maintain a target memory pack with:
+
+- current goal and allowed scope
+- auth recipe and approved account/resource references
+- full URLs, route clusters, and app sections
+- forms, methods, content-types, CSRF/session observations
+- JavaScript files, client routes, sources, sinks, and API calls
+- object identifiers and ownership hints
+- constraints learned from failed attempts
+- working payloads and failed payload boundaries
+- callback/collaborator-style observations when approved
+- completed lanes and next hypotheses
+- specialist packets sent and results merged
+
+Store secrets by reference only. Never write raw cookies, bearer tokens,
+passwords, API keys, reset links, private headers, or private config values.
+
+## Mapping Loop
+
+1. Pick one section or goal.
+2. Load prior Hunter Memory, live-map, URL index, findings, and program notes.
+3. Explore with browser/CDP first when the flow is JS-heavy or stateful.
+4. Add runtime routes, forms, scripts, objects, and auth boundaries to the map.
+5. Convert each interesting observation into a trigger or a scoped boundary.
+6. Dispatch specialists only when the trigger has enough context.
+7. Merge specialist results back into the target memory pack.
+8. Choose the next section, next specialist, or stop condition.
+
+Browser/CDP should be core for:
+
+- report-to-admin and moderation flows
+- stored and DOM XSS
+- OAuth/SAML and account linking
+- CSRF/session-sensitive forms
+- upload preview/render flows
+- JS-heavy route/API discovery
+
+Use curl or direct HTTP when it gives clearer request control, but preserve the
+browser context when behavior depends on client state.
+
+## Dispatch Triggers
+
+Send focused specialists when the map shows:
+
+- ID/tenant/object ownership: `/access-control`, `/idor`
+- JWT/JWK/JWKS/key-source behavior: `/jwt-auth`
+- OAuth/SAML/password reset/account linking/MFA/invite: `/ato`
+- stored render/admin review/email/export path: `/stored-xss`, `/dom-xss`
+- DOM source/sink/router/localStorage/postMessage: `/dom-xss`
+- upload parser, metadata, SVG, media preview, CDN path: `/pfp`, `/ssrf`,
+  `/stored-xss`, `/access-control`
+- checkout/coupon/subscription/credit/refund entitlement state:
+  `/payment-testing`
+- method/path/header/status-code boundary: `/error-triage`, `/403`,
+  `/bypass`, `/headers`, `/access-control`
+- SQL/template/file/path behavior: `/sqli`, `/ssti`, `/lfi`
+- rate/concurrency/state race signal: `/race`
+
+Do not dispatch because a vuln class is generically possible. Dispatch because
+the app surface gave a concrete reason.
+
+## Specialist Packet Contract
+
+Each packet should be small and complete:
+
+```json
+{
+  "program": "target-name",
+  "section": "profile-avatar",
+  "objective": "test whether avatar object IDs are tenant-isolated",
+  "scope": ["https://target.example/profile", "https://target.example/api/avatar/123"],
+  "auth_context": "owned test account A and B via approved session references",
+  "required_skills": ["access-control", "idor", "account-testing-policy", "live-testing-policy"],
+  "known_facts": ["avatar id 123 belongs to account A", "GET returns 200 for owner"],
+  "already_tested": ["filename reflection in profile HTML escaped"],
+  "constraints": ["no destructive profile deletion", "no raw token storage"],
+  "evidence_standard": "cross-account request must show non-owned object data or mutation",
+  "stop_condition": "stop after ownership boundary is confirmed, blocked, or two safe variants produce no signal"
+}
+```
+
+Include full URLs. Include only the relevant app slice. Exclude broad proxy
+dumps, raw secrets, unrelated history, and unsanitized personal data.
+
+## Specialist Result Contract
+
+Each specialist returns:
+
+- verdict: confirmed, interesting_signal, tested_no_signal, blocked, or needs_followup
+- exact attempts and what changed
+- evidence file references
+- constraints learned
+- reusable claims
+- new routes, IDs, scripts, or flows discovered
+- recommended next specialist or stop condition
+
+The parent merges results into Hunter Memory and the target memory pack. Failed
+attempts become scoped boundaries, not global rejections of a vuln class.
+
+## Human Steering
+
+Ryushe can steer the parent loop with short directives:
+
+- "send IDOR on this ID"
+- "stop fuzzing and read JS"
+- "switch to browser"
+- "focus report-to-admin"
+- "check upload parser"
+- "pause live testing, summarize memory"
+
+Record steering as an orchestrator event and update the current plan.
+
+## Benchmark Mode
+
+Controlled labs are for measuring whether the loop improved, not just proving a
+single exploit path.
+
+Track:
+
+- lab and category
+- solved or failed
+- attempts and specialist path
+- browser required
+- human hint required
+- blocker reason
+- chain depth
+- evidence files
+- reusable lessons
+
+Start with Hoster-local labs such as Juice Shop and local reproductions. Keep
+intentionally vulnerable apps bound to localhost unless Ryushe explicitly asks
+to expose them.
+
+## Stop Conditions
+
+Stop or ask for steering when:
+
+- scope, auth, ownership, rate, or destructive-action policy is unclear
+- a specialist needs credentials or sensitive material not already approved
+- the same lane repeats without new observations
+- the map has enough evidence to move to a better section
+- a confirmed vulnerability is ready for normal report/promotion workflow
+

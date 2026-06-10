@@ -11,6 +11,8 @@ This is the default proxy lane. It should not inspect Ryushe's personal PC traff
 
 Phrase mapping: "your proxy", "agent proxy", "Ghost proxy", "OpenClaw proxy", or "local proxy" from the agent's point of view means this agent lane. "My proxy", "Ryushe's proxy", "my Caido", or "Ryushe's Caido" means the Ryushe lane instead; load `ryushe-proxy`.
 
+If Ryushe says "look at the request <request>", the request lookup/source defaults to Ryushe's proxy unless he specifies another source. After that lookup, active agent testing still uses this agent lane by default. The only exception is when the agent is on the same host as Ryushe's proxy and `my proxy` resolves to `localhost` from that runtime. Rebuild the request with agent-owned browser/session state rather than replaying with Ryushe's cookies, tokens, or auth headers.
+
 ## Runtime Resolution
 
 Resolve in this order:

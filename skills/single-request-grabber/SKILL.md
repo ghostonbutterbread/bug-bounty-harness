@@ -11,6 +11,8 @@ This is a RAG-style live-request skill. Its primary job is operational: capture 
 
 Routing is secondary. Do not route away before capturing the request if the current task specifically needs the live token/request shape.
 
+Default source wording: if Ryushe says "look at the request <request>", inspect or pull that request from Ryushe's proxy unless he specifies another source. If an agent then tests the application, replay through the agent lane with agent-owned session state unless the agent is on the same host as Ryushe's proxy and `my proxy` resolves to `localhost` from that runtime.
+
 ## Agent Note
 
 This skill is designed to be used with other skills. Use it to capture or mutate the live request/flow; use `/access-control`, `/idor`, `/csrf`, `/headers`, `/error-triage`, or another owning skill to interpret the security result.
@@ -42,11 +44,12 @@ This skill is designed to be used with other skills. Use it to capture or mutate
 2. Capture the live request through browser/proxy, proxy MCP history, or proxy intercept.
 3. If intercepting a flow, inspect each paused request, forward requests that are not relevant, and stop only on the target request or request family.
 4. Sanitize notes: never store raw cookies, tokens, auth headers, or secrets.
-5. Confirm ownership and destructible status for every account/resource touched.
-6. Modify only the approved field, header, method, body, cookie/session context, or owned-resource identifier.
-7. Send at most the bounded replay/forward test needed to answer the question.
-8. Complete the browser/proxy flow if safe, then turn off intercept.
-9. Record the action/error trail before routing to another skill.
+5. If the source request came from Ryushe's proxy, use it as a request-shape template only and switch to the agent lane before active replay/testing unless the same-host localhost exception applies.
+6. Confirm ownership and destructible status for every account/resource touched.
+7. Modify only the approved field, header, method, body, cookie/session context, or owned-resource identifier.
+8. Send at most the bounded replay/forward test needed to answer the question.
+9. Complete the browser/proxy flow if safe, then turn off intercept.
+10. Record the action/error trail before routing to another skill.
 
 ## Proof Standard
 

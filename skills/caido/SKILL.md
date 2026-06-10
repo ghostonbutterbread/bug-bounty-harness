@@ -7,6 +7,8 @@ description: "Connect to a Caido MCP instance for proxy traffic inspection and r
 
 Use this when a bug bounty task needs Caido MCP traffic, project history, request inspection, or request comparison.
 
+If Ryushe says "look at the request <request>", inspect the matching request in Ryushe's proxy by default unless he specifies another proxy, lane, browser profile, or MCP endpoint. If an agent uses that request to test an application, the active replay/testing lane remains the agent's own proxy by default; use the Ryushe-lane request as shape evidence only. The only active-testing exception is when the agent is on the same host as Ryushe's proxy and `my proxy` resolves to `localhost` from that runtime.
+
 ## MCP URL
 
 Default to:

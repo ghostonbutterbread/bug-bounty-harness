@@ -11,6 +11,10 @@ This is a RAG-style live-request skill. Its primary job is operational: capture 
 
 Routing is secondary. Do not route away before capturing the request if the current task specifically needs the live token/request shape.
 
+This skill decides that a fresh request is needed and routes the agent into the right capture/replay path. `intercepted-proxy` owns the live intercept mechanics: launch or verify the proxied browser, enable intercept/Tamper, forward unrelated requests, pause the target request, mutate if approved, forward once, and clean up.
+
+Use `intercepted-proxy` from this skill when the target request is single-use, nonce-bound, CSRF-bearing, signed, browser-generated, or part of a short state-changing flow where modifying the live request is stronger than replaying a stale copy.
+
 Default source wording: if Ryushe says "look at the request <request>", inspect or pull that request from Ryushe's proxy unless he specifies another source. If an agent then replays the request, prefer direct HTTP replay with agent-owned session state unless the agent is on the same host as Ryushe's proxy and `my proxy` resolves to `localhost` from that runtime.
 
 This direct-replay preference applies only to replaying known request shapes. It does not apply to live browser exploration. For live testing, use Chromium/Playwright attached to the agent's local browser proxy and pull the live request from that local agent proxy when needed.
@@ -36,6 +40,7 @@ This skill is designed to be used with other skills. Use it to capture or mutate
    - Caido MCP inspection/replay -> `/caido`
    - PwnFox colored profile/session filtering -> `/pwnfox`
    - browser-driven capture -> `/chromium-test`
+   - live intercept/modify/forward lifecycle -> `/intercepted-proxy`
 7. After the result, route instead of duplicating:
    - CSRF impact -> `/csrf`
    - workspace/account/resource authorization -> `/access-control` or `/idor`
@@ -45,17 +50,21 @@ This skill is designed to be used with other skills. Use it to capture or mutate
 ## Workflow
 
 1. Choose one action or short action flow and one owned account/session.
-2. Capture the live request through browser/proxy, proxy MCP history, or proxy intercept.
-3. If intercepting a flow, inspect each paused request, forward requests that are not relevant, and stop only on the target request or request family.
-4. Sanitize notes: never store raw cookies, tokens, auth headers, or secrets.
-5. If the source request came from Ryushe's proxy, use it as a request-shape template only and switch to the agent lane before active replay/testing unless the same-host localhost exception applies.
-6. For replay, try direct HTTP first with `curl`, `httpx`, or a focused script while preserving method, full URL, relevant headers, content type, body encoding, redirect behavior, and agent-owned auth/session material.
-7. If direct replay fails for browser/client-fingerprint reasons, retry through the agent's local proxy/MCP. Keep this fallback agent-local.
-8. Confirm ownership and destructible status for every account/resource touched.
-9. Modify only the approved field, header, method, body, cookie/session context, or owned-resource identifier.
-10. Send at most the bounded replay/forward test needed to answer the question.
-11. Complete the browser/proxy flow if safe, then turn off intercept.
-12. Record the action/error trail before routing to another skill.
+2. Decide capture mode:
+   - use `intercepted-proxy` for single-use tokens, one-shot actions, CSRF-bearing requests, signed/nonce-bound requests, browser-generated state, or short critical state changes
+   - use passive proxy history when the request is repeatable and only needs shape review
+   - use direct HTTP replay when the request shape is already known and fresh browser state is not needed
+3. Capture the live request through browser/proxy, proxy MCP history, or proxy intercept.
+4. If intercepting a flow, inspect each paused request, forward requests that are not relevant, and stop only on the target request or request family.
+5. Sanitize notes: never store raw cookies, tokens, auth headers, or secrets.
+6. If the source request came from Ryushe's proxy, use it as a request-shape template only and switch to the agent lane before active replay/testing unless the same-host localhost exception applies.
+7. For replay, try direct HTTP first with `curl`, `httpx`, or a focused script while preserving method, full URL, relevant headers, content type, body encoding, redirect behavior, and agent-owned auth/session material.
+8. If direct replay fails for browser/client-fingerprint reasons, retry through the agent's local proxy/MCP. Keep this fallback agent-local.
+9. Confirm ownership and destructible status for every account/resource touched.
+10. Modify only the approved field, header, method, body, cookie/session context, or owned-resource identifier.
+11. Send at most the bounded replay/forward test needed to answer the question.
+12. Complete the browser/proxy flow if safe, then turn off intercept.
+13. Record the action/error trail before routing to another skill.
 
 ## Proof Standard
 

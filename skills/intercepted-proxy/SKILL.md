@@ -11,6 +11,10 @@ This skill owns the operational proxy lifecycle. Use it before `/single-request-
 
 `chromium-test` should be the default browser launcher for this workflow. It prefers Playwright's bundled Chromium when available and routes launches through the runtime browser proxy by default.
 
+Use intercept as the preferred live mode when the value of the test depends on seeing or changing a request while the browser flow is happening. This includes single-use tokens, nonce-bound requests, CSRF-bearing actions, signed one-shot flows, browser-generated state, and short critical state-changing flows where replaying later would be weaker or misleading.
+
+Intercept can also be the fastest way to understand a live flow. When the history is noisy or the target request is buried in a multi-request browser action, pause the flow, forward unrelated requests, and inspect the target request family as it appears instead of relying only on passive history filtering afterward.
+
 ## Load Order
 
 1. Read scope, owned-account context, and `live-testing-policy`.
@@ -62,6 +66,22 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" <program> 
 
 The launcher adds the runtime `--proxy-server` automatically. Pass `--proxy-server` explicitly only when overriding the route table.
 
+## When To Intercept
+
+Prefer live intercept when:
+
+- the action uses a single-use token, nonce, signed request, expiring CSRF token, or other fresh browser-generated value
+- the request represents a single action item or short state-changing flow
+- the test requires modifying one field before the server consumes the request
+- the browser flow is noisy and the agent needs to identify the relevant request family in real time
+- replaying from saved history would lose sequencing, timing, token freshness, or browser context
+
+Prefer passive proxy history or direct replay when:
+
+- the request is repeatable and does not depend on one-time state
+- the goal is only request-shape review, comparison, or documentation
+- the action can be reproduced safely with direct HTTP replay using agent-owned auth/session material
+
 ## Intercept Lifecycle
 
 1. Resolve and verify the browser proxy and Caido MCP endpoints.
@@ -80,6 +100,7 @@ The launcher adds the runtime `--proxy-server` automatically. Pass `--proxy-serv
 
 - One proxy lane at a time unless Ryushe confirms enough proxies are available.
 - One mutation family at a time.
+- Intercept only the minimum request family needed for the test; forward unrelated browser traffic without mutation.
 - Keep rules scoped to exact host/path/request family when possible.
 - Do not leave intercept or Tamper rules enabled after the lane.
 - Do not log cookies, bearer tokens, auth headers, CSRF tokens, card data, payment tokens, raw credentials, or private request bodies.

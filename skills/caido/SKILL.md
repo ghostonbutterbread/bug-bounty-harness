@@ -9,6 +9,8 @@ Use this when a bug bounty task needs Caido MCP traffic, project history, reques
 
 If Ryushe says "look at the request <request>", inspect the matching request in Ryushe's proxy by default unless he specifies another proxy, lane, browser profile, or MCP endpoint. If an agent uses that request to test an application, the active replay/testing lane remains the agent's own proxy by default; use the Ryushe-lane request as shape evidence only. The only active-testing exception is when the agent is on the same host as Ryushe's proxy and `my proxy` resolves to `localhost` from that runtime.
 
+For replaying a known request shape, do not require Caido MCP by default. Prefer direct HTTP replay with `curl`, `httpx`, or a focused script. Use the agent's local MCP/proxy replay only when direct replay fails because the server expects browser/proxy-like behavior, such as Cloudflare/bot challenges, TLS/header fingerprint issues, browser-only flow state, or missing JS-generated tokens.
+
 ## MCP URL
 
 Default to:
@@ -35,3 +37,4 @@ If the user gives a full URL, use that exact URL.
 4. If unreachable, report whether it looks like host, firewall, bind-address, or port exposure trouble.
 5. For comparisons, keep Caido projects isolated and compare equivalent workflows request-by-request.
 6. For one live owned-session request capture or intercept/modify testing, route to `/single-request-grabber` after Caido connectivity is confirmed.
+7. For live browser exploration, route to `/chromium-test`; the browser should attach to the agent's local proxy so browser-generated requests are observable.

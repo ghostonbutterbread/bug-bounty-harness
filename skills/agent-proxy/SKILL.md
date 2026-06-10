@@ -13,6 +13,8 @@ Phrase mapping: "your proxy", "agent proxy", "Ghost proxy", "OpenClaw proxy", or
 
 If Ryushe says "look at the request <request>", the request lookup/source defaults to Ryushe's proxy unless he specifies another source. After that lookup, active agent testing still uses this agent lane by default. The only exception is when the agent is on the same host as Ryushe's proxy and `my proxy` resolves to `localhost` from that runtime. Rebuild the request with agent-owned browser/session state rather than replaying with Ryushe's cookies, tokens, or auth headers.
 
+Replay transport policy: direct HTTP replay with `curl`, `httpx`, or a focused script is preferred for known request shapes. Use the agent-lane MCP/proxy replay only as a fallback when direct replay fails for browser/proxy/client-fingerprint reasons such as Cloudflare or browser-only flow state. Live browser exploration still uses Chromium/Playwright attached to the agent's local browser proxy.
+
 ## Runtime Resolution
 
 Resolve in this order:

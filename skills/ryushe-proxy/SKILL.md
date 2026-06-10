@@ -19,6 +19,8 @@ Same-host exception: active testing may use Ryushe's proxy only when the agent i
 
 Do not replay from Ryushe's proxy just because the request was found there. Treat the Ryushe-lane request as a shape/template: method, full URL, parameters, body structure, and non-secret headers. Use agent-owned cookies, tokens, browser state, and test-account resources for active replay.
 
+For replaying that request shape, prefer direct HTTP replay from the agent with `curl`, `httpx`, or a focused script. If direct replay fails because it looks like non-browser traffic, the agent may use its own local MCP/proxy replay fallback. That fallback is still agent-lane, not Ryushe-lane, unless the same-host localhost exception applies.
+
 ## Endpoint
 
 From Hoster only:

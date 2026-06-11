@@ -88,6 +88,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **account-management** | `/account-management {program}` | `prompts/account-management-playbook.md` |
 | **live-map** | `/live-map {program}` | `prompts/live-map-playbook.md` |
 | **deep-hunt** | `/deep-hunt {program} --section {section-or-route-cluster}` | `prompts/deep-hunt-playbook.md` |
+| **error-mapper** | `/error-mapper {program} --url {target_url}` | `prompts/error-mapper-playbook.md` |
 | **url-ingest** | `/url-ingest {init|ingest|status|mark|search|stats} {program}` | `skills/url-ingest/SKILL.md` |
 | **hunter-memory** | `/hunter-memory {program} {surface}` | `prompts/hunter-memory-playbook.md` |
 | **hunter-loop** | `/hunter-loop {program} --goal {objective}` | `prompts/hunter-loop-playbook.md` |
@@ -151,6 +152,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /account-management canva
 /live-map superdrug --source browser
 /deep-hunt canva --section sso-callbacks
+/error-mapper canva --url "https://www.canva.com/search?q=test"
 /hunter-memory canva avatar-upload --vulnerability xss
 /hunter-loop canva --goal "map app and dispatch specialists from concrete triggers"
 /brainstorm-spec canva --family binaries --lane exe --target-kind electron-exe

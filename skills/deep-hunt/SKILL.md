@@ -5,8 +5,8 @@ description: "Use when running a section-scoped deep web hunt that maps one app 
 
 # Deep Hunt
 
-Use this when Ryushe wants agents to go deep on a live web target or one app
-section instead of testing many unrelated URLs shallowly.
+Use this when Ryushe wants agents to go deep on one live web URL, route
+cluster, or app section instead of testing many unrelated URLs shallowly.
 
 Deep Hunt is an orchestrator skill. The parent agent owns mapping, hypothesis
 separation, child-agent packets, and progress tracking. Child agents own one
@@ -21,8 +21,8 @@ bounded lane at a time.
    - `/live-map` summary and relevant handoff packets
    - `/hunter-memory` summaries for the section or vulnerability lane
    - program knowledge and prior findings
-4. Choose one section or tight route cluster.
-5. Create a hypothesis board for that section.
+4. Choose one URL, one section, or one tight route cluster.
+5. Create a hypothesis board for that URL/section.
 6. Spawn or brief focused child lanes only after each packet has a clear
    boundary, safety rule, and stop condition.
 
@@ -30,6 +30,7 @@ bounded lane at a time.
 
 ```text
 /deep-hunt <program> --section <section-or-route-cluster>
+/deep-hunt <program> --url <full-url>
 /deep-hunt <program> --from-params <params.txt> --section <hint>
 /deep-hunt <program> --from-url-index --section <route-or-host-filter>
 /deep-hunt <program> --manual-companion <human-current-flow>
@@ -41,7 +42,7 @@ skills for concrete actions.
 
 ## Section Rule
 
-Prefer one section at a time:
+Prefer one URL or one section at a time:
 
 - search/results
 - SSO/login/callback
@@ -52,6 +53,11 @@ Prefer one section at a time:
 - export/download/share links
 
 Do not mix unrelated sections in one child packet.
+
+For URL-deep-dive work, slower is preferred. A child agent should understand
+the chosen URL's response, linked JavaScript, parameters, related route cluster,
+and a few low-noise probes before moving on. It is acceptable for many URLs to
+remain unreviewed if the reviewed URLs have better notes and cleaner coverage.
 
 ## Hypothesis Rule
 
@@ -77,6 +83,7 @@ Each child gets only:
 - account/resource boundary and destructible status
 - selected skill and technique family
 - prior scoped attempts from hunter memory
+- optional `/error-mapper` probe pack when parser/error behavior is relevant
 - exact stop condition
 
 Never pass raw cookies, bearer tokens, passwords, reset links, API keys, broad

@@ -12,7 +12,7 @@ def test_default_config_uses_gpt55_planner_opencode_worker_and_unlimited_request
     assert config.planner.engine == "codex"
     assert config.planner.model == "gpt-5.5"
     assert config.worker.engine == "opencode"
-    assert config.worker.model == "deepseek/deepseek-v4-pro"
+    assert config.worker.model == "opencode/deepseek-v4-flash-free"
     assert config.max_requests_per_worker == 0
     assert config.monitor_workers is True
 
@@ -63,6 +63,7 @@ def test_plan_classifies_urls_and_writes_worker_packets(tmp_path: Path) -> None:
     packet_prompt = (output / "worker_packets" / "W001-xss.md").read_text(encoding="utf-8")
     assert "0 means no arbitrary hard cap" in packet_prompt
     assert "challenge/fingerprint/browser-only cases only" in packet_prompt
+    assert "These artifacts are mandatory" in packet_prompt
 
 
 def test_cli_overrides_worker_model_and_request_cap(tmp_path: Path, capsys) -> None:
@@ -124,3 +125,39 @@ def test_command_for_supported_engines_quotes_prompt_and_model(tmp_path: Path) -
     assert "--file" in opencode
     assert "codex exec" in codex
     assert "--model gpt-5.5" in codex
+
+
+def test_execute_plan_updates_monitor_state_and_runs_planner_after_workers(tmp_path: Path) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://www.canva.com/search/templates?q=test\n", encoding="utf-8")
+    output = tmp_path / "run"
+    config = hybrid.HybridConfig(
+        planner=hybrid.EngineConfig(
+            "opencode",
+            "planner-test",
+            command_template="python3 -c \"from pathlib import Path; Path('planner-ran').write_text('ok')\"",
+        ),
+        worker=hybrid.EngineConfig(
+            "opencode",
+            "worker-test",
+            command_template="python3 -c \"from pathlib import Path; Path('summary.md').write_text('ok')\"",
+        ),
+        worker_limit=1,
+    )
+    plan = hybrid.build_plan(
+        program="canva",
+        objective="test",
+        input_path=source,
+        output_root=output,
+        config=config,
+    )
+
+    statuses = hybrid.execute_plan(plan, include_planner=True)
+    monitor = json.loads((output / "monitor_state.json").read_text(encoding="utf-8"))
+
+    assert statuses["W001-xss"] == "completed"
+    assert statuses["planner"] == "completed"
+    assert monitor["worker_status"]["W001-xss"] == "completed"
+    assert monitor["worker_status"]["planner"] == "completed"
+    assert (output / "workers" / "W001-xss" / "summary.md").exists()
+    assert (output / "planner-ran").exists()

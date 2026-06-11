@@ -84,7 +84,9 @@ python3 agents/url_ingest.py mark <program> \
 Do not rely on `observations` as the audit trail. Use `history` for the audit trail.
 
 ### Technique-specific queueing
-Before running one technique across a batch, ask for URLs that have not yet seen that technique:
+Before running one technique across a batch, ask for URLs that have not yet seen that technique.
+For deep URL review, keep the limit small. A batch of 3 to 10 well-reviewed URLs
+is usually better than 100 shallow checks.
 
 ```bash
 python3 agents/url_ingest.py next <program> \
@@ -131,9 +133,15 @@ Examples of useful skill/test-family pairs:
 - `user-agent-fuzz` / `header-behavior`
 - `param-fuzz` / `parameter-mining`
 - `js-static-analysis` / `endpoint-and-sink-map`
+- `error-mapper` / `parser-error-map`
 - `xss` / `reflected-probe`
 - `ssrf` / `url-fetcher-probe`
 - `access-control` / `object-ownership`
+
+Use `/deep-hunt` for one URL or one route cluster when the agent should inspect
+linked JavaScript, classify parameters, test a couple of careful variants, and
+leave high-quality notes. Use `/error-mapper` only as a tiny helper when the
+deep dive needs parser/error-character comparison.
 
 After the technique runs, record the actual test:
 

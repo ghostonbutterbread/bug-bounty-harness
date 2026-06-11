@@ -32,7 +32,7 @@ if str(PROJECT_ROOT) not in sys.path:
 DEFAULT_PLANNER_ENGINE = "codex"
 DEFAULT_PLANNER_MODEL = "gpt-5.5"
 DEFAULT_WORKER_ENGINE = "opencode"
-DEFAULT_WORKER_MODEL = "deepseek/deepseek-v4-pro"
+DEFAULT_WORKER_MODEL = "opencode/deepseek-v4-flash-free"
 DEFAULT_RATE_LIMIT = "from_scope"
 DEFAULT_MAX_REQUESTS = 0
 DEFAULT_WORKER_LIMIT = 8
@@ -430,7 +430,7 @@ Objective: {objective}
 - Rate limit: {packet.rate_limit_rps}
 - Do not treat unlimited budget as permission to ignore scope, target stress, CAPTCHA/challenge, non-owned object boundaries, or side effects.
 - Browser escalation policy: challenge/fingerprint/browser-only cases only; plain app/server 403/401 should be classified through the relevant 403/auth/access-control/error workflow first.
-- Do not store or print cookies, tokens, private headers, auth material, reset links, or secrets.
+- Do not store or print cookies, tokens, private headers, auth material, reset links, nonce values, Set-Cookie headers, or secrets. When inspecting redirects or headers, filter or redact sensitive fields before they reach logs.
 
 ## Skills To Apply
 
@@ -457,6 +457,10 @@ Required files:
 - `attempts.jsonl` with one JSON object per deliberate observation.
 - `summary.md` with exact boundaries, useful leads, and no inflated claims.
 - `handoff.json` if this lane discovers follow-up work for another skill/model.
+
+These artifacts are mandatory. If you stop early because of policy, auth,
+challenge, rate limit, or target-stress boundaries, still write `attempts.jsonl`
+and `summary.md` explaining the boundary.
 
 Stay focused on this lane. If a different lane becomes clearly relevant, create a handoff packet instead of absorbing all work into this worker.
 """
@@ -592,20 +596,12 @@ def write_monitor_state(output_root: Path, plan: Mapping[str, Any], *, worker_st
 
 def execute_plan(plan: Mapping[str, Any], *, include_planner: bool = False) -> dict[str, str]:
     output_root = Path(str(plan["output_root"]))
-    statuses: dict[str, str] = {}
+    statuses: dict[str, str] = {
+        str(packet_payload.get("packet_id")): "planned"
+        for packet_payload in plan.get("worker_packets", [])
+    }
     processes: dict[str, subprocess.Popen[Any]] = {}
-
-    if include_planner:
-        planner_config = _engine_from_mapping(plan.get("config", {}).get("planner"), HybridConfig().planner)
-        prompt_path = Path(str(plan["planner_packet"]))
-        log_path = output_root / "logs" / "planner.log"
-        processes["planner"] = spawn_cli_engine(
-            planner_config,
-            prompt_path=prompt_path,
-            log_path=log_path,
-            workdir=output_root,
-            title="Hybrid planner",
-        )
+    write_monitor_state(output_root, plan, worker_status=statuses)
 
     for packet_payload in plan.get("worker_packets", []):
         packet_id = str(packet_payload.get("packet_id"))
@@ -620,10 +616,28 @@ def execute_plan(plan: Mapping[str, Any], *, include_planner: bool = False) -> d
             workdir=Path(str(packet_payload.get("output_dir"))),
             title=f"Hybrid worker {packet_id}",
         )
+        statuses[packet_id] = "running"
+        write_monitor_state(output_root, plan, worker_status=statuses)
 
     for key, process in processes.items():
         returncode = process.wait()
         statuses[key] = "completed" if returncode == 0 else f"failed:{returncode}"
+        write_monitor_state(output_root, plan, worker_status=statuses)
+    if include_planner:
+        planner_config = _engine_from_mapping(plan.get("config", {}).get("planner"), HybridConfig().planner)
+        prompt_path = Path(str(plan["planner_packet"]))
+        log_path = output_root / "logs" / "planner.log"
+        statuses["planner"] = "running"
+        write_monitor_state(output_root, plan, worker_status=statuses)
+        planner = spawn_cli_engine(
+            planner_config,
+            prompt_path=prompt_path,
+            log_path=log_path,
+            workdir=output_root,
+            title="Hybrid planner",
+        )
+        returncode = planner.wait()
+        statuses["planner"] = "completed" if returncode == 0 else f"failed:{returncode}"
         write_monitor_state(output_root, plan, worker_status=statuses)
     return statuses
 

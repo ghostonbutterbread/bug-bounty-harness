@@ -43,7 +43,7 @@ planner:
 
 worker:
   engine: opencode
-  model: deepseek/deepseek-v4-pro
+  model: opencode/deepseek-v4-flash-free
   transport: cli
 
 max_requests_per_worker: 0

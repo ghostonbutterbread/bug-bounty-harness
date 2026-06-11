@@ -64,6 +64,9 @@ def test_plan_classifies_urls_and_writes_worker_packets(tmp_path: Path) -> None:
     assert "0 means no arbitrary hard cap" in packet_prompt
     assert "challenge/fingerprint/browser-only cases only" in packet_prompt
     assert "These artifacts are mandatory" in packet_prompt
+    assert "Auth/session logging rule" in packet_prompt
+    assert "cookie/header names and counts" in packet_prompt
+    assert "framework/JS/API clues" in packet_prompt
 
 
 def test_cli_overrides_worker_model_and_request_cap(tmp_path: Path, capsys) -> None:
@@ -173,6 +176,7 @@ def test_execute_plan_redacts_sensitive_worker_log_output(tmp_path: Path) -> Non
             "worker-test",
             command_template=(
                 "python3 -c \"print('location: https://example.test/cb?nonce=abcdef1234567890'); "
+                "print('cookie: session=secret-cookie; theme=blue'); "
                 "print('set-cookie: SESSION=secret; Path=/'); "
                 "print('Authorization: Bearer secret-token-value')\""
             ),
@@ -192,8 +196,10 @@ def test_execute_plan_redacts_sensitive_worker_log_output(tmp_path: Path) -> Non
 
     assert statuses["W001-xss"] == "completed"
     assert "nonce=REDACTED" in log_text
+    assert "cookie: REDACTED" in log_text
     assert "set-cookie: REDACTED" in log_text
     assert "Authorization: Bearer REDACTED" in log_text
     assert "abcdef1234567890" not in log_text
+    assert "secret-cookie" not in log_text
     assert "SESSION=secret" not in log_text
     assert "secret-token-value" not in log_text

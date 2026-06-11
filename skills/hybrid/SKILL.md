@@ -18,7 +18,7 @@ or error mapping.
 - CLI: `agents/hybrid_runner.py`
 - Playbook: `prompts/hybrid-playbook.md`
 - Default planner: Codex with `gpt-5.5`
-- Default worker: OpenCode with `opencode/deepseek-v4-flash-free`
+- Default worker: OpenCode with `deepseek/deepseek-v4-pro`
 - Default request cap: `max_requests_per_worker=0`
 
 `max_requests_per_worker=0` means no arbitrary hard request cap. It does not
@@ -35,7 +35,7 @@ python3 agents/hybrid_runner.py deep-dive recon canva \
   --planner codex \
   --planner-model gpt-5.5 \
   --worker opencode \
-  --worker-model openrouter/deepseek/deepseek-chat \
+  --worker-model deepseek/deepseek-v4-pro \
   --max-requests-per-worker 0
 
 python3 agents/hybrid_runner.py deep-dive xss canva \

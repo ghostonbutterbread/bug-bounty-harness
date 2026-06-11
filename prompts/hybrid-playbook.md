@@ -43,7 +43,7 @@ planner:
 
 worker:
   engine: opencode
-  model: opencode/deepseek-v4-flash-free
+  model: deepseek/deepseek-v4-pro
   transport: cli
 
 max_requests_per_worker: 0
@@ -75,7 +75,7 @@ python3 agents/hybrid_runner.py deep-dive recon canva \
   --planner codex \
   --planner-model gpt-5.5 \
   --worker opencode \
-  --worker-model openrouter/deepseek/deepseek-chat \
+  --worker-model deepseek/deepseek-v4-pro \
   --max-requests-per-worker 0
 ```
 

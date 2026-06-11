@@ -32,7 +32,7 @@ if str(PROJECT_ROOT) not in sys.path:
 DEFAULT_PLANNER_ENGINE = "codex"
 DEFAULT_PLANNER_MODEL = "gpt-5.5"
 DEFAULT_WORKER_ENGINE = "opencode"
-DEFAULT_WORKER_MODEL = "opencode/deepseek-v4-flash-free"
+DEFAULT_WORKER_MODEL = "deepseek/deepseek-v4-pro"
 DEFAULT_RATE_LIMIT = "from_scope"
 DEFAULT_MAX_REQUESTS = 0
 DEFAULT_WORKER_LIMIT = 8

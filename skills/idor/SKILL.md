@@ -12,10 +12,15 @@ For broader broken access control work, start with `/access-control`. Use `/idor
 
 Read shared state in this order before testing:
 
-1. `notes/summary.md`
-2. `notes/observations.md`
-3. `checklist.md` (IDOR items only)
-4. `todo.md` (IDOR items only)
+1. `/account-management` registry at `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json`
+2. `notes/summary.md`
+3. `notes/observations.md`
+4. `checklist.md` (IDOR items only)
+5. `todo.md` (IDOR items only)
+
+Use the registry to identify owned account aliases, user IDs, PwnFox colors,
+resource IDs, owner relationships, and destructible/cleanup status before
+swapping any object identifier.
 
 ## Primary Harness
 
@@ -76,6 +81,7 @@ python agents/bypass_harness.py --target https://target.com/api/v1/order?id=123 
 2. Read `prompts/access-control-context-pack.md` if the request is broader than direct object references.
 3. Read `prompts/idor-playbook.md`.
 4. Run `agents/bypass_harness.py` in `--type idor` mode for first-pass coverage.
-5. Confirm promising cases manually with baseline captures and multi-account comparison.
+5. Confirm promising cases manually with baseline captures and multi-account comparison from `/account-management` owned records.
 6. Write findings to `agent_shared/findings/idor/findings.md`.
-7. Update IDOR entries in `checklist.md`, `todo.md`, and relevant notes.
+7. Record newly observed owned IDs/resources in `/account-management`.
+8. Update IDOR entries in `checklist.md`, `todo.md`, and relevant notes.

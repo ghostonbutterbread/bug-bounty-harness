@@ -1,3 +1,8 @@
+---
+name: lfi
+description: "Use when testing Local File Inclusion, file path traversal, file read sinks, path normalization bypasses, wrappers, null bytes, log poisoning, or proc/environment disclosure."
+---
+
 # LFI — Local File Inclusion Bypass
 
 ## What It Does

@@ -78,12 +78,14 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **csrf** | `/csrf {program}` | `skills/csrff/SKILL.md` |
 | **mental-map** | `/mental-map {program}` | `prompts/mental-map-playbook.md` |
 | **caido** | `/caido {mcp-url-or-host?}` | `skills/caido/SKILL.md` |
+| **proxy-curl** | `/proxy-curl {raw-request-file}` | `prompts/proxy-curl-playbook.md` |
 | **pwnfox** | `/pwnfox {color}` | `skills/pwnfox/SKILL.md` |
 | **agent-proxy** | `/agent-proxy` | `skills/agent-proxy/SKILL.md` |
 | **ryushe-proxy** | `/ryushe-proxy` | `skills/ryushe-proxy/SKILL.md` |
 | **intercepted-proxy** | `/intercepted-proxy {program} {target-flow}` | `prompts/intercepted-proxy-playbook.md` |
 | **mullvad** | `/mullvad` | `prompts/mullvad-playbook.md` |
 | **temporary-email** | `/temporary-email {create|read|show|accounts}` | `skills/temporary-email/SKILL.md` |
+| **account-management** | `/account-management {program}` | `prompts/account-management-playbook.md` |
 | **live-map** | `/live-map {program}` | `prompts/live-map-playbook.md` |
 | **deep-hunt** | `/deep-hunt {program} --section {section-or-route-cluster}` | `prompts/deep-hunt-playbook.md` |
 | **url-ingest** | `/url-ingest {init|ingest|status|mark|search|stats} {program}` | `skills/url-ingest/SKILL.md` |
@@ -139,12 +141,14 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /csrf superdrug
 /mental-map superdrug
 /caido 192.168.0.135
+/proxy-curl /tmp/request.raw
 /pwnfox red
 /agent-proxy
 /ryushe-proxy
 /intercepted-proxy canva billing-flow
 /mullvad
 /temporary-email create
+/account-management canva
 /live-map superdrug --source browser
 /deep-hunt canva --section sso-callbacks
 /hunter-memory canva avatar-upload --vulnerability xss

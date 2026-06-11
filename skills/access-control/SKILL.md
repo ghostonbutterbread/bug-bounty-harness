@@ -13,11 +13,12 @@ This is a router skill. Keep the first pass small: classify the boundary, load o
 
 1. Read scope, owned-account context, and live-testing policy.
 2. Resolve `$HARNESS_ROOT` first; default is `/home/ryushe/projects/bug_bounty_harness`.
-3. Read `$HARNESS_ROOT/skills/access-control/references/account-setup.md`.
-4. Confirm the needed owned accounts/resources exist and record whether each is `destructible: yes|no`. If not, ask for the account path, or use `/temporary-email` when a disposable/destructible account is needed.
-5. Check `$HARNESS_SHARED_BASE/{program}/agent_shared/application-map/` for existing `/live-map` routes, objects, hypotheses, and handoff packets. Use map entries as exploration leads, not proof.
-6. Read `$HARNESS_ROOT/skills/access-control/references/related-terms.md` for search vocabulary and route/parameter keywords.
-7. Classify the lane:
+3. Load `/account-management` and check `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json` for owned accounts, user IDs, PwnFox lanes, object IDs, and destructible/cleanup status.
+4. Read `$HARNESS_ROOT/skills/access-control/references/account-setup.md`.
+5. Confirm the needed owned accounts/resources exist and record whether each is `destructible: yes|no|unknown`. If not, ask for the account path, or use `/temporary-email` when a disposable/destructible account is needed.
+6. Check `$HARNESS_SHARED_BASE/{program}/agent_shared/application-map/` for existing `/live-map` routes, objects, hypotheses, and handoff packets. Use map entries as exploration leads, not proof.
+7. Read `$HARNESS_ROOT/skills/access-control/references/related-terms.md` for search vocabulary and route/parameter keywords.
+8. Classify the lane:
    - peer object/resource access -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/horizontal.md`
    - admin/support/owner/moderator/paid functionality -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/vertical.md`
    - org/workspace/team/project/store isolation -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/tenant.md`
@@ -28,9 +29,9 @@ This is a router skill. Keep the first pass small: classify the boundary, load o
    - JWT/Bearer/cookie claims influence role, tenant, object, issuer, audience, or token lifecycle -> load `/jwt-auth`
    - method/header/path/parser discrepancy -> load `/headers` for header mechanisms or `/bypass` with type `403`/`idor`
    - one live browser/proxy request must be captured and safely modified -> `/single-request-grabber`
-8. For IDOR/BOLA object mutations, load `$HARNESS_ROOT/skills/access-control/references/mutations/idor.md`.
-9. For header mechanisms, load `/headers`; for encoding, parser, path, WAF, or filter mutations, load `/bypass` instead of duplicating bypass content here.
-10. Load `$HARNESS_ROOT/prompts/access-control-playbook.md` only for deep review, stuck analysis, or report writing.
+9. For IDOR/BOLA object mutations, load `$HARNESS_ROOT/skills/access-control/references/mutations/idor.md`.
+10. For header mechanisms, load `/headers`; for encoding, parser, path, WAF, or filter mutations, load `/bypass` instead of duplicating bypass content here.
+11. Load `$HARNESS_ROOT/prompts/access-control-playbook.md` only for deep review, stuck analysis, or report writing.
 
 ## Sub-Agent Rule
 
@@ -44,7 +45,7 @@ The parent agent scouts and classifies. Spawn a focused child when:
 Give the child only:
 - flow summary and full URL(s)
 - account/resource boundary
-- owned account aliases, role/tenant relationship, and destructible status
+- owned account aliases, user/resource IDs, PwnFox colors, role/tenant relationship, and destructible status from `/account-management`
 - one technique pack
 - mutation pack path, if needed
 - token claim/header summary with secrets redacted, if JWT-driven

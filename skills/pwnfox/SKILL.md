@@ -42,10 +42,14 @@ but preserve the observed header value when recording evidence.
    proxy/request skill first.
 2. If Ryushe names a color, filter request history by the matching
    `X-PwnFox-Color` header.
-3. If multiple colors appear, keep them separated as distinct session lanes.
-4. Label findings, comparisons, and request notes with the PwnFox color.
-5. When comparing auth behavior, compare equivalent requests across colors
+3. Load `/account-management` and check whether the color is mapped to an
+   owned account alias, user ID, role, tenant, or resource set.
+4. If multiple colors appear, keep them separated as distinct session lanes.
+5. Label findings, comparisons, and request notes with the PwnFox color.
+6. When comparing auth behavior, compare equivalent requests across colors
    only after confirming the account/resource ownership for each lane.
+7. If a color/account mapping is newly confirmed, record it with
+   `/account-management`.
 
 ## Request Filtering
 
@@ -56,9 +60,16 @@ Header name:  X-PwnFox-Color
 Header value: <requested color>
 ```
 
-For proxy history review, search or filter for the exact header name first,
-then narrow by color value. If the header is absent, say that the observed
-traffic is not PwnFox-labeled instead of guessing which profile produced it.
+For Caido proxy history review, use:
+
+```text
+Presence: req.raw.cont:"X-PwnFox-Color"
+Color:    req.raw.cont:"X-PwnFox-Color" AND req.raw.cont:"<color>"
+```
+
+This exact spelling was observed in Ryushe's Caido traffic with lowercase color
+values such as `blue`. If the header is absent, say that the observed traffic is
+not PwnFox-labeled instead of guessing which profile produced it.
 
 ## Guardrails
 
@@ -76,6 +87,6 @@ Record:
 - full URL, method, status, and auth state
 - proxy source, such as Caido/Burp/browser history
 - account/resource alias for that color when known
+- `/account-management` registry path and matching account/resource record
 - whether the header was present, absent, or inconsistent
 - comparison color if doing cross-session auth testing
-

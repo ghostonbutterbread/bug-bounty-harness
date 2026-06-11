@@ -4,6 +4,7 @@
 import unittest
 import tempfile
 import os
+import sys
 import sqlite3
 import json
 from pathlib import Path
@@ -461,6 +462,171 @@ class TestStats(unittest.TestCase):
         sys.stdout = old_stdout
         self.assertIn("Total URLs: 2", output)
         self.assertIn("xss:reflected-probe", output)
+
+    def test_brief_shows_compact_summary(self):
+        import io, sys
+
+        M.mark(
+            self.program,
+            "https://x.com/search?q=test",
+            lane="recon",
+            status="surface_reviewed",
+            skill="recon",
+            test_family="brief-smoke",
+        )
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        M.brief(self.program, limit=10)
+        output = sys.stdout.getvalue()
+        sys.stdout = old_stdout
+        self.assertIn("URL Index Brief", output)
+        self.assertIn("x.com", output)
+        self.assertIn("q:", output)
+
+
+class TestAggregateRecon(unittest.TestCase):
+    def setUp(self):
+        self.program = "aggprog"
+        M.SHARED_BASE = TEMP_SHARED
+        self.program_root = TEMP_SHARED / self.program / "web" / "recon"
+        self.source_root = self.program_root / "recon-ry" / "www.example.com" / "runs" / "2026-06-11" / "run1"
+        self.source_root.mkdir(parents=True, exist_ok=True)
+        (self.source_root / "urls.txt").write_text(
+            "https://www.example.com/a\n"
+            "https://www.example.com/assets/app.js\n",
+            encoding="utf-8",
+        )
+        (self.source_root / "params_raw.txt").write_text(
+            "https://www.example.com/search?q=test\n"
+            "https://www.example.com/search?q=test\n",
+            encoding="utf-8",
+        )
+        (self.source_root / "js_files.txt").write_text(
+            "https://www.example.com/assets/app.js\n",
+            encoding="utf-8",
+        )
+        (self.source_root / "live.txt").write_text(
+            "https://live.example.com/\n",
+            encoding="utf-8",
+        )
+        (self.source_root / "live-hosts.txt").write_text(
+            "https://docs.example.com\n",
+            encoding="utf-8",
+        )
+        (self.source_root / "url_seed.txt").write_text(
+            "https://seed.example.com\n",
+            encoding="utf-8",
+        )
+        (self.source_root / "baseline-wild.txt").write_text(
+            "seed.example.com\n",
+            encoding="utf-8",
+        )
+        (self.source_root / "subdomains.txt").write_text(
+            "api.example.com\n",
+            encoding="utf-8",
+        )
+        (self.source_root / "ffuf-results.tsv").write_text(
+            "docs.example.com\tadmin\t200\t12\t2\t1\thttps://docs.example.com/admin\n",
+            encoding="utf-8",
+        )
+        (self.source_root / "selected-2000.jsonl").write_text(
+            '{"url":"https://www.example.com/apps/search?q=logo","source":"url-map"}\n'
+            '{"url":"https://www.example.com/static/runtime.js","source":"url-map"}\n',
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(TEMP_SHARED / self.program, ignore_errors=True)
+
+    def test_aggregate_writes_central_files_deltas_and_imports(self):
+        from unittest.mock import Mock
+
+        with patch.object(M.subprocess, "run", return_value=Mock(returncode=1)):
+            manifest = M.aggregate_recon(
+                self.program,
+                source_roots=[str(self.source_root)],
+                run_id="agg-run",
+                ingest_outputs=True,
+                scope_filter="off",
+            )
+
+        aggregate_dir = self.program_root / "aggregated"
+        self.assertEqual(Path(manifest["aggregate_dir"]), aggregate_dir)
+        self.assertTrue((aggregate_dir / "urls.txt").exists())
+        self.assertTrue((aggregate_dir / "alive.txt").exists())
+        self.assertTrue((aggregate_dir / "params_raw.txt").exists())
+        self.assertTrue((aggregate_dir / "params.txt").exists())
+        self.assertTrue((aggregate_dir / "jsfiles.txt").exists())
+        self.assertTrue((aggregate_dir / "runs" / "agg-run" / "delta" / "urls.txt").exists())
+        self.assertIn(
+            "https://www.example.com/search?q=test",
+            (aggregate_dir / "params.txt").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "https://live.example.com/",
+            (aggregate_dir / "alive.txt").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "https://docs.example.com",
+            (aggregate_dir / "alive.txt").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "https://seed.example.com",
+            (aggregate_dir / "urls.txt").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "api.example.com",
+            (aggregate_dir / "wild.txt").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "https://docs.example.com/admin",
+            (aggregate_dir / "dirs.txt").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "https://www.example.com/apps/search?q=logo",
+            (aggregate_dir / "params_raw.txt").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "https://www.example.com/assets/app.js",
+            (aggregate_dir / "jsfiles.txt").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "https://www.example.com/static/runtime.js",
+            (aggregate_dir / "jsfiles.txt").read_text(encoding="utf-8"),
+        )
+
+        with M.get_conn(self.program) as conn:
+            total = conn.execute("SELECT COUNT(*) FROM urls").fetchone()[0]
+            imports = conn.execute("SELECT COUNT(*) FROM imports").fetchone()[0]
+        self.assertGreaterEqual(total, 3)
+        self.assertGreaterEqual(imports, 1)
+
+    def test_aggregate_cli_prefers_input_and_keeps_source_root_alias(self):
+        for flag in ("--input", "--source-root"):
+            with self.subTest(flag=flag):
+                with patch.object(M, "aggregate_recon") as aggregate:
+                    with patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "url_ingest.py",
+                            "aggregate",
+                            self.program,
+                            flag,
+                            str(self.source_root),
+                            "--run-id",
+                            f"cli-{flag.lstrip('-')}",
+                            "--no-ingest",
+                        ],
+                    ):
+                        M.main()
+
+                    aggregate.assert_called_once()
+                    kwargs = aggregate.call_args.kwargs
+                    self.assertEqual(kwargs["source_roots"], [str(self.source_root)])
+                    self.assertFalse(kwargs["ingest_outputs"])
 
 
 class TestQueryStatus(unittest.TestCase):

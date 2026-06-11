@@ -5,6 +5,8 @@ url_ingest.py — SQLite-backed URL ingestor and review tracker.
 Usage:
     python3 agents/url_ingest.py ingest   <program> [--source <file>] [--run-id <id>]
                                                  [--scope-filter auto] [--no-repull-scope]
+    python3 agents/url_ingest.py aggregate <program> [--input <dir>] [--run-id <id>]
+                                                 [--scope-filter auto] [--no-ingest]
     python3 agents/url_ingest.py status   <program> [--lane <lane>] [--url <url>]
     python3 agents/url_ingest.py mark     <program> --url <url> --lane <lane> --status <status> \
                                                  [--skill <skill>] [--test-family <family>] \
@@ -14,6 +16,7 @@ Usage:
                                                  [--test-family <family>] [--limit <n>]
     python3 agents/url_ingest.py search   <program> [--route-hash <hash>] [--param-hash <hash>] \
                                                  [--host <host>] [--limit <n>]
+    python3 agents/url_ingest.py brief    <program> [--limit <n>]
     python3 agents/url_ingest.py stats    <program>
     python3 agents/url_ingest.py init     <program>
 """
@@ -120,16 +123,55 @@ PARAM_PRESETS = {
     ),
 }
 
+AGGREGATED_RECON_FILES = {
+    "wild.txt",
+    "urls.txt",
+    "alive.txt",
+    "params_raw.txt",
+    "params.txt",
+    "jsfiles.txt",
+    "dirs.txt",
+}
+AGGREGATE_NAME_ALIASES = {
+    "live.txt": "alive.txt",
+    "live-hosts.txt": "alive.txt",
+    "url_seed.txt": "urls.txt",
+    "js_files.txt": "jsfiles.txt",
+    "javascript.txt": "jsfiles.txt",
+    "javascript_urls.txt": "jsfiles.txt",
+}
+AGGREGATE_IGNORE_DIRS = {
+    ".git",
+    "__pycache__",
+    "url_index",
+    "aggregated",
+    "screenshots",
+    "eyewitness",
+}
+AGGREGATE_SCAN_EXTENSIONS = {".txt", ".json", ".jsonl", ".md", ".csv", ".tsv"}
+URL_RE = re.compile(r"https?://[^\s\"'<>)}\]]+")
+
 
 # ---------------------------------------------------------------------------
 # Normalization helpers
 # ---------------------------------------------------------------------------
 
+def _parse_urlish(url: str):
+    """Parse URL-ish input, accepting bare domains as HTTPS URLs."""
+    value = url.strip()
+    parsed = urlparse(value)
+    if parsed.scheme and parsed.netloc:
+        return parsed
+    if not parsed.scheme and not parsed.netloc:
+        return urlparse(f"https://{value}")
+    return parsed
+
+
 def normalize_url(url: str) -> str:
     """Return a normalized, lowercase, query-sorted canonical URL."""
     url = url.strip()
     try:
-        parsed = urlparse(url)
+        parsed = _parse_urlish(url)
     except Exception:
         return url.lower()
     scheme = parsed.scheme.lower() if parsed.scheme else "https"
@@ -162,7 +204,7 @@ def url_hashes(url: str):
 def parse_host_from_url(url: str) -> str:
     """Extract host from URL."""
     try:
-        return urlparse(url).netloc.lower()
+        return _parse_urlish(url).netloc.lower()
     except Exception:
         return ""
 
@@ -170,7 +212,7 @@ def parse_host_from_url(url: str) -> str:
 def parse_path_from_url(url: str) -> str:
     """Extract path from URL."""
     try:
-        return urlparse(url).path or "/"
+        return _parse_urlish(url).path or "/"
     except Exception:
         return "/"
 
@@ -342,6 +384,368 @@ def _scope_temp_path(program: str, run_id: str | None, suffix: str) -> Path:
 
 def _write_lines(path: Path, lines: list[str]) -> None:
     path.write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
+
+
+def _default_recon_roots(program: str) -> list[Path]:
+    """Return likely recon roots for a program, newest/canonical first."""
+    home = Path.home()
+    return [
+        SHARED_BASE / program / "web" / "recon",
+        home / "Shared" / "bounty_recon" / program,
+        home / "Shared" / "bounty" / program / "agent_shared",
+    ]
+
+
+def _aggregate_root(program: str) -> Path:
+    root = SHARED_BASE / program / "web" / "recon" / "aggregated"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _normalize_run_id(run_id: str | None) -> str:
+    if run_id:
+        cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", run_id).strip("._-")
+        if cleaned:
+            return cleaned
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _aggregate_target_name(path: Path) -> str | None:
+    name = AGGREGATE_NAME_ALIASES.get(path.name, path.name)
+    if name in AGGREGATED_RECON_FILES:
+        return name
+    lowered = name.lower()
+    stem = path.stem.lower()
+    if "params_raw" in lowered:
+        return "params_raw.txt"
+    if "param" in lowered:
+        return "params.txt"
+    if "alive" in lowered or "live-host" in lowered or stem == "httpx":
+        return "alive.txt"
+    if "wild" in lowered or "subdomain" in lowered or "subs" in lowered:
+        return "wild.txt"
+    if "url" in lowered:
+        return "urls.txt"
+    if "js" in lowered or "javascript" in lowered:
+        return "jsfiles.txt"
+    if "dir" in lowered:
+        return "dirs.txt"
+    return None
+
+
+def _should_skip_aggregate_path(path: Path) -> bool:
+    return any(part in AGGREGATE_IGNORE_DIRS for part in path.parts)
+
+
+def _read_nonempty_lines(path: Path) -> list[str]:
+    lines: list[str] = []
+    with path.open("r", encoding="utf-8", errors="ignore") as handle:
+        for raw in handle:
+            value = raw.strip()
+            if value and not value.startswith("#"):
+                lines.append(value)
+    return lines
+
+
+def _dedupe_preserve_order(lines: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for line in lines:
+        if line not in seen:
+            seen.add(line)
+            out.append(line)
+    return out
+
+
+def _find_tool(name: str) -> str | None:
+    """Resolve a recon helper binary from PATH or common recon-ry install locations."""
+    result = subprocess.run(
+        ["bash", "-lc", f"command -v {name}"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip().splitlines()[0]
+
+    home = Path.home()
+    candidates = [
+        home / "go" / "bin" / name,
+        home / ".local" / "bin" / name,
+        home / "tools" / "recon-ry" / "venvs" / name / "bin" / name,
+    ]
+    for candidate in candidates:
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
+def _run_uro(input_path: Path, output_path: Path) -> str:
+    """Normalize URL clutter with uro when available, falling back to sorted unique lines."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    uro_bin = _find_tool("uro")
+    if uro_bin:
+        with input_path.open("rb") as inp:
+            result = subprocess.run(
+                [uro_bin, "-o", str(output_path)],
+                stdin=inp,
+                capture_output=True,
+                text=True,
+            )
+        if result.returncode == 0 and output_path.exists():
+            return "uro"
+        print(
+            f"WARNING: uro failed for {input_path}; falling back to sorted unique lines",
+            file=sys.stderr,
+        )
+    lines = sorted(set(_read_nonempty_lines(input_path)))
+    _write_lines(output_path, lines)
+    return "sort-unique"
+
+
+def _merge_with_anew(source_path: Path, target_path: Path, delta_path: Path) -> dict:
+    """Append new source lines into target with anew when available."""
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    delta_path.parent.mkdir(parents=True, exist_ok=True)
+    if not target_path.exists():
+        target_path.touch()
+
+    read_count = len(_read_nonempty_lines(source_path))
+    anew_bin = _find_tool("anew")
+    if anew_bin:
+        with source_path.open("rb") as inp:
+            result = subprocess.run(
+                [anew_bin, str(target_path)],
+                stdin=inp,
+                capture_output=True,
+                text=True,
+            )
+        if result.returncode == 0:
+            delta_lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+            _write_lines(delta_path, delta_lines)
+            return {"read": read_count, "new": len(delta_lines), "mode": "anew"}
+        print(
+            f"WARNING: anew failed for {source_path}; falling back to Python merge",
+            file=sys.stderr,
+        )
+
+    existing = set(_read_nonempty_lines(target_path))
+    source_lines = _dedupe_preserve_order(_read_nonempty_lines(source_path))
+    delta_lines = [line for line in source_lines if line not in existing]
+    if delta_lines:
+        with target_path.open("a", encoding="utf-8") as handle:
+            for line in delta_lines:
+                handle.write(line + "\n")
+    merged = sorted(set(_read_nonempty_lines(target_path)))
+    _write_lines(target_path, merged)
+    _write_lines(delta_path, delta_lines)
+    return {"read": read_count, "new": len(delta_lines), "mode": "python-sort-unique"}
+
+
+def _write_aggregate_input(run_dir: Path, name: str, lines: list[str]) -> Path:
+    path = run_dir / "incoming" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_lines(path, _dedupe_preserve_order(lines))
+    return path
+
+
+def _discover_aggregate_sources(roots: list[Path]) -> dict[str, list[Path]]:
+    sources = {name: [] for name in AGGREGATED_RECON_FILES}
+    for root in roots:
+        root = root.expanduser()
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file() or _should_skip_aggregate_path(path):
+                continue
+            target_name = _aggregate_target_name(path)
+            if target_name:
+                sources[target_name].append(path)
+    return sources
+
+
+def _iter_aggregate_artifact_files(roots: list[Path]) -> list[Path]:
+    files: list[Path] = []
+    for root in roots:
+        root = root.expanduser()
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if (
+                path.is_file()
+                and not _should_skip_aggregate_path(path)
+                and path.suffix.lower() in AGGREGATE_SCAN_EXTENSIONS
+            ):
+                files.append(path)
+    return files
+
+
+def _extract_generic_recon_lines(path: Path) -> dict[str, list[str]]:
+    """Extract URL/host-shaped recon data from text, JSON, JSONL, CSV, and Markdown artifacts."""
+    extracted = {name: [] for name in ("urls.txt", "alive.txt", "params_raw.txt", "jsfiles.txt", "wild.txt", "dirs.txt")}
+    name = path.name.lower()
+    try:
+        raw_text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return extracted
+
+    for match in URL_RE.findall(raw_text):
+        value = match.rstrip(".,;:")
+        extracted["urls.txt"].append(value)
+        if any(marker in name for marker in ("alive", "live", "httpx")):
+            extracted["alive.txt"].append(value)
+        if any(marker in name for marker in ("dir", "ffuf")):
+            extracted["dirs.txt"].append(value)
+        if "=" in value:
+            extracted["params_raw.txt"].append(value)
+        if re.search(r"\.js(?:[?#].*)?$", value):
+            extracted["jsfiles.txt"].append(value)
+
+    if any(marker in name for marker in ("wild", "subdomain", "subs", "hosts", "alive", "live", "httpx")):
+        for line in raw_text.splitlines():
+            value = line.strip().strip(",")
+            if not value or value.startswith("#") or value.startswith(("http://", "https://")):
+                continue
+            if re.match(r"^(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?::\d+)?$", value):
+                if any(marker in name for marker in ("wild", "subdomain", "subs", "hosts")):
+                    extracted["wild.txt"].append(value)
+                if any(marker in name for marker in ("alive", "live", "httpx")):
+                    extracted["alive.txt"].append(value)
+    return extracted
+
+
+def aggregate_recon(
+    program: str,
+    *,
+    source_roots: list[str] | None = None,
+    run_id: str | None = None,
+    ingest_outputs: bool = True,
+    scope_filter: str = "off",
+    repull_scope: bool = False,
+) -> dict:
+    """Aggregate recon URL files into one program-level recon directory."""
+    init_db(program)
+    selected_roots = [Path(item).expanduser() for item in source_roots] if source_roots else _default_recon_roots(program)
+    selected_roots = [path for path in selected_roots if path.exists()]
+    resolved_run_id = _normalize_run_id(run_id)
+    root = _aggregate_root(program)
+    run_dir = root / "runs" / resolved_run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    sources = _discover_aggregate_sources(selected_roots)
+    incoming_lines: dict[str, list[str]] = {name: [] for name in AGGREGATED_RECON_FILES}
+    for name, paths in sources.items():
+        for path in paths:
+            incoming_lines[name].extend(_read_nonempty_lines(path))
+
+    for artifact in _iter_aggregate_artifact_files(selected_roots):
+        extracted = _extract_generic_recon_lines(artifact)
+        for name, lines in extracted.items():
+            incoming_lines[name].extend(lines)
+
+    # Derive useful canonical views from all URL-bearing files, not only urls.txt.
+    urlish_pool: list[str] = []
+    for name in ("urls.txt", "alive.txt", "params_raw.txt", "params.txt", "jsfiles.txt", "dirs.txt"):
+        urlish_pool.extend(incoming_lines.get(name, []))
+    incoming_lines["urls.txt"].extend(line for line in urlish_pool if line.startswith(("http://", "https://")))
+    incoming_lines["params_raw.txt"].extend(
+        line for line in urlish_pool if line.startswith(("http://", "https://")) and "=" in line
+    )
+    incoming_lines["jsfiles.txt"].extend(
+        line for line in urlish_pool if line.startswith(("http://", "https://")) and re.search(r"\.js(?:[?#].*)?$", line)
+    )
+
+    run_inputs: dict[str, Path] = {}
+    normalization: dict[str, str] = {}
+    for name, lines in incoming_lines.items():
+        lines = _dedupe_preserve_order(lines)
+        if not lines:
+            continue
+        input_path = _write_aggregate_input(run_dir, name, lines)
+        if name in {"urls.txt", "params_raw.txt", "params.txt", "jsfiles.txt"}:
+            normalized_path = run_dir / "normalized" / name
+            normalization[name] = _run_uro(input_path, normalized_path)
+            run_inputs[name] = normalized_path
+        else:
+            run_inputs[name] = input_path
+
+    # params.txt should be the normalized param view derived from params_raw when available.
+    if "params_raw.txt" in run_inputs:
+        params_from_raw = run_dir / "normalized" / "params.txt"
+        normalization["params.txt"] = _run_uro(run_inputs["params_raw.txt"], params_from_raw)
+        run_inputs["params.txt"] = params_from_raw
+
+    deltas: dict[str, dict] = {}
+    for name, path in sorted(run_inputs.items()):
+        target = root / name
+        delta = run_dir / "delta" / name
+        deltas[name] = _merge_with_anew(path, target, delta)
+
+    import_summaries: list[dict] = []
+    if ingest_outputs:
+        for name in ("urls.txt", "alive.txt", "params_raw.txt", "params.txt", "jsfiles.txt"):
+            target = root / name
+            if target.exists() and target.stat().st_size > 0:
+                before = _latest_import_id_for_aggregate(program)
+                ingest(
+                    program,
+                    source_file=str(target),
+                    run_id=resolved_run_id,
+                    scope_filter=scope_filter,
+                    repull_scope=repull_scope,
+                )
+                row = _latest_import_row_for_aggregate(program, after_id=before)
+                if row:
+                    import_summaries.append(row)
+
+    manifest = {
+        "program": program,
+        "run_id": resolved_run_id,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "aggregate_dir": str(root),
+        "source_roots": [str(path) for path in selected_roots],
+        "source_files": {
+            name: [str(path) for path in paths]
+            for name, paths in sources.items()
+            if paths
+        },
+        "outputs": {name: str(root / name) for name in sorted(deltas)},
+        "delta_outputs": {name: str(run_dir / "delta" / name) for name in sorted(deltas)},
+        "normalization": normalization,
+        "counts": deltas,
+        "imports": import_summaries,
+        "notes": "Program-level aggregate recon files. Raw source run directories remain untouched; deltas show what was new for this aggregate run.",
+    }
+    manifest_path = run_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (root / "latest_manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    print(f"✓ Aggregated recon for {program} into {root}")
+    for name, stats_row in sorted(deltas.items()):
+        print(f"  {name}: read={stats_row['read']} new={stats_row['new']} via {stats_row['mode']}")
+    print(f"  manifest={manifest_path}")
+    return manifest
+
+
+def _latest_import_id_for_aggregate(program: str) -> int:
+    try:
+        with get_conn(program) as conn:
+            row = conn.execute("SELECT MAX(id) AS id FROM imports").fetchone()
+            return int(row["id"] or 0)
+    except Exception:
+        return 0
+
+
+def _latest_import_row_for_aggregate(program: str, *, after_id: int) -> dict | None:
+    with get_conn(program) as conn:
+        row = conn.execute(
+            "SELECT id, source_file, run_id, urls_imported, urls_read, urls_accepted, "
+            "urls_rejected, scope_mode, imported_at FROM imports WHERE id > ? ORDER BY id DESC LIMIT 1",
+            (after_id,),
+        ).fetchone()
+        return dict(row) if row else None
 
 
 def _try_repull_scope(program: str) -> tuple[bool, str]:
@@ -872,6 +1276,75 @@ def stats(program: str):
                 print(f"  rejected_temp={last_import['rejected_temp_path']}")
 
 
+def brief(program: str, limit: int = 20):
+    """Print a compact, agent-safe recon index summary."""
+    with get_conn(program) as conn:
+        total = conn.execute("SELECT COUNT(*) FROM urls").fetchone()[0]
+        parameterized = conn.execute("SELECT COUNT(*) FROM urls WHERE param_keys != '[]'").fetchone()[0]
+        hosts = conn.execute(
+            "SELECT COUNT(DISTINCT host) FROM urls WHERE host IS NOT NULL AND host != ''"
+        ).fetchone()[0]
+        routes = conn.execute("SELECT COUNT(DISTINCT route_hash) FROM urls").fetchone()[0]
+
+        print(f"\n=== URL Index Brief: {program} ===")
+        print(f"URLs: {total}  Hosts: {hosts}  Routes: {routes}  Parameterized: {parameterized}")
+
+        print("\nTop hosts:")
+        rows = conn.execute(
+            """
+            SELECT host, COUNT(*) AS cnt, SUM(CASE WHEN param_keys != '[]' THEN 1 ELSE 0 END) AS param_cnt
+            FROM urls
+            WHERE host IS NOT NULL AND host != ''
+            GROUP BY host
+            ORDER BY cnt DESC, param_cnt DESC, host
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        if rows:
+            for row in rows:
+                print(f"  {row['host']}: {row['cnt']} urls, {row['param_cnt']} parameterized")
+        else:
+            print("  (none)")
+
+        print("\nInteresting parameter keys:")
+        param_counts: dict[str, int] = {}
+        rows = conn.execute("SELECT param_keys FROM urls WHERE param_keys != '[]'").fetchall()
+        for row in rows:
+            try:
+                keys = json.loads(row["param_keys"] or "[]")
+            except json.JSONDecodeError:
+                keys = []
+            for key in keys:
+                param_counts[str(key)] = param_counts.get(str(key), 0) + 1
+        if param_counts:
+            for key, count in sorted(param_counts.items(), key=lambda item: (-item[1], item[0]))[:limit]:
+                print(f"  {key}: {count}")
+        else:
+            print("  (none)")
+
+        print("\nRecent imports:")
+        rows = conn.execute(
+            """
+            SELECT imported_at, source_file, run_id, urls_imported, urls_read, urls_accepted, urls_rejected, scope_mode
+            FROM imports
+            ORDER BY imported_at DESC
+            LIMIT ?
+            """,
+            (min(limit, 10),),
+        ).fetchall()
+        if rows:
+            for row in rows:
+                print(
+                    f"  {row['imported_at']} run={row['run_id']} "
+                    f"imported={row['urls_imported']} read={row['urls_read']} "
+                    f"accepted={row['urls_accepted']} rejected={row['urls_rejected']} "
+                    f"scope={row['scope_mode']} source={row['source_file']}"
+                )
+        else:
+            print("  (none)")
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -882,10 +1355,17 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
-    parser.add_argument("cmd", choices=["init", "ingest", "status", "mark", "history", "next", "search", "stats"],
+    parser.add_argument("cmd", choices=["init", "ingest", "aggregate", "status", "mark", "history", "next", "search", "brief", "stats"],
                         help="Sub-command")
     parser.add_argument("program", help="Target program name")
     parser.add_argument("--source", "-s", help="Source file to ingest (default: stdin)")
+    parser.add_argument(
+        "--input",
+        "--source-root",
+        dest="source_root",
+        action="append",
+        help="For aggregate: recon root/file tree to scan. Repeatable. Defaults to known program recon roots. --source-root is a compatibility alias.",
+    )
     parser.add_argument("--run-id", help="Recon run ID to associate with this import")
     parser.add_argument(
         "--scope-filter",
@@ -904,6 +1384,11 @@ def main():
         action="store_false",
         dest="repull_scope",
         help="For ingest: do not try pulling scope when saved scope is missing.",
+    )
+    parser.add_argument(
+        "--no-ingest",
+        action="store_true",
+        help="For aggregate: write central files/manifest only; do not import outputs into SQLite.",
     )
     parser.add_argument("--lane", help="Lane to filter by (e.g. xss, ssrf)")
     parser.add_argument("--url", help="Exact URL to query")
@@ -956,6 +1441,17 @@ def main():
             repull_scope=repull_scope,
         )
 
+    elif cmd == "aggregate":
+        repull_scope = bool(args.repull_scope)
+        aggregate_recon(
+            args.program,
+            source_roots=args.source_root,
+            run_id=args.run_id,
+            ingest_outputs=not args.no_ingest,
+            scope_filter=args.scope_filter,
+            repull_scope=repull_scope,
+        )
+
     elif cmd == "status":
         query_status(args.program, lane=args.lane, url=args.url,
                      route_hash=args.route_hash, param_hash=args.param_hash,
@@ -992,6 +1488,9 @@ def main():
         query_status(args.program, lane=args.lane, url=args.url,
                      route_hash=args.route_hash, param_hash=args.param_hash,
                      host=args.host, limit=args.limit)
+
+    elif cmd == "brief":
+        brief(args.program, limit=args.limit)
 
     elif cmd == "stats":
         stats(args.program)

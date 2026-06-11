@@ -28,8 +28,8 @@ Bad:
 - declaring a parameter "not XSS" after only testing raw reflection in one
   response context
 - marking dozens of URLs `deep_reviewed` after only status/title checks
-- accepting curl-level 403/challenge HTML as app-layer coverage when a browser
-  lane is available
+- accepting Cloudflare/challenge/bot-defense HTML as app-layer coverage when a
+  browser lane is available
 - moving to a new app section before recording the exact boundary learned
 
 ## Workflow
@@ -169,11 +169,13 @@ When the selected unit is one URL, use this minimum loop:
    redirect/URL, file/path, opaque state, analytics, or unknown.
 5. Run only a few probes that match the hypothesis: user-agent comparison,
    one or two parameter changes, or `/error-mapper`'s tiny character subset.
-6. If raw HTTP sees only 403/401 edge blocks, Cloudflare/managed challenge
-   pages, browser-only token failures, or other bot-defense behavior before app
-   content appears, escalate to `/chromium-test` with the agent browser proxy
-   attached. Inject only approved agent-owned or Caido-profile auth/session
-   material in memory; never log raw secrets.
+6. If raw HTTP sees a plain 403/401, classify it first with `/403`,
+   `/error-triage`, auth, access-control, headers, or route-shape reasoning. If
+   it sees Cloudflare/managed challenge pages, browser-only token failures,
+   TLS/header fingerprinting, or other bot-defense behavior before app content
+   appears, escalate to `/chromium-test` with the agent browser proxy attached.
+   Inject only approved agent-owned or Caido-profile auth/session material in
+   memory; never log raw secrets.
 7. Record every result through `/url-ingest mark` with `skill`,
    `test-family`, `request-variant`, and `response-summary`.
 
@@ -194,10 +196,12 @@ Stop before:
 - brute forcing secrets beyond explicit lab/scope approval
 - storing raw credentials, tokens, cookies, private headers, or reset links
 
-Do not stop solely because raw HTTP returns 403 or challenge HTML. Stop only
-after the browser/proxy lane also reaches a concrete boundary such as CAPTCHA
-escalation, unclear auth, lockout risk, non-owned object risk, target stress, or
-program limits.
+Do not treat challenge HTML as app-layer coverage. For a plain 403, record the
+forbidden boundary and route it to the appropriate 403/auth/access-control
+workflow. For Cloudflare, managed challenge, bot-defense, or browser-only
+failures, stop only after the browser/proxy lane also reaches a concrete
+boundary such as CAPTCHA escalation, unclear auth, lockout risk, non-owned
+object risk, target stress, or program limits.
 
 ## Parent Summary
 

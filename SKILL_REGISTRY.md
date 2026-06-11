@@ -89,6 +89,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **live-map** | `/live-map {program}` | `prompts/live-map-playbook.md` |
 | **deep-hunt** | `/deep-hunt {program} --section {section-or-route-cluster}` | `prompts/deep-hunt-playbook.md` |
 | **error-mapper** | `/error-mapper {program} --url {target_url}` | `prompts/error-mapper-playbook.md` |
+| **hybrid** | `/hybrid deep-dive {mode} {program} --input {urls-or-params-file}` | `prompts/hybrid-playbook.md` |
 | **url-ingest** | `/url-ingest {init|ingest|status|mark|search|stats} {program}` | `skills/url-ingest/SKILL.md` |
 | **hunter-memory** | `/hunter-memory {program} {surface}` | `prompts/hunter-memory-playbook.md` |
 | **hunter-loop** | `/hunter-loop {program} --goal {objective}` | `prompts/hunter-loop-playbook.md` |
@@ -153,6 +154,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /live-map superdrug --source browser
 /deep-hunt canva --section sso-callbacks
 /error-mapper canva --url "https://www.canva.com/search?q=test"
+/hybrid deep-dive recon canva --input params.txt --planner-model gpt-5.5 --worker opencode --worker-model openrouter/deepseek/deepseek-chat --max-requests-per-worker 0
 /hunter-memory canva avatar-upload --vulnerability xss
 /hunter-loop canva --goal "map app and dispatch specialists from concrete triggers"
 /brainstorm-spec canva --family binaries --lane exe --target-kind electron-exe

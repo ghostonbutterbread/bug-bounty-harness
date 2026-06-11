@@ -161,3 +161,39 @@ def test_execute_plan_updates_monitor_state_and_runs_planner_after_workers(tmp_p
     assert monitor["worker_status"]["planner"] == "completed"
     assert (output / "workers" / "W001-xss" / "summary.md").exists()
     assert (output / "planner-ran").exists()
+
+
+def test_execute_plan_redacts_sensitive_worker_log_output(tmp_path: Path) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://www.canva.com/search/templates?q=test\n", encoding="utf-8")
+    output = tmp_path / "run"
+    config = hybrid.HybridConfig(
+        worker=hybrid.EngineConfig(
+            "opencode",
+            "worker-test",
+            command_template=(
+                "python3 -c \"print('location: https://example.test/cb?nonce=abcdef1234567890'); "
+                "print('set-cookie: SESSION=secret; Path=/'); "
+                "print('Authorization: Bearer secret-token-value')\""
+            ),
+        ),
+        worker_limit=1,
+    )
+    plan = hybrid.build_plan(
+        program="canva",
+        objective="test",
+        input_path=source,
+        output_root=output,
+        config=config,
+    )
+
+    statuses = hybrid.execute_plan(plan)
+    log_text = (output / "logs" / "w001-xss.log").read_text(encoding="utf-8")
+
+    assert statuses["W001-xss"] == "completed"
+    assert "nonce=REDACTED" in log_text
+    assert "set-cookie: REDACTED" in log_text
+    assert "Authorization: Bearer REDACTED" in log_text
+    assert "abcdef1234567890" not in log_text
+    assert "SESSION=secret" not in log_text
+    assert "secret-token-value" not in log_text

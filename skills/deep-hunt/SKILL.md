@@ -59,11 +59,13 @@ the chosen URL's response, linked JavaScript, parameters, related route cluster,
 and a few low-noise probes before moving on. It is acceptable for many URLs to
 remain unreviewed if the reviewed URLs have better notes and cleaner coverage.
 
-If raw HTTP only reaches 403/401 edge blocks, Cloudflare/managed challenge
-pages, browser-only token failures, or bot-defense HTML before app behavior is
-visible, route to `/chromium-test` with the agent browser proxy attached. Use
-approved agent-owned or Caido-profile auth/session material only in memory, and
-do not log raw secrets.
+If raw HTTP reaches a plain 403/401, classify it first. Normal app/server
+forbidden responses belong in `/403`, `/error-triage`, auth, access-control, or
+header analysis. Route to `/chromium-test` only when the response suggests
+Cloudflare/managed challenge pages, browser-only token failures, bot-defense
+HTML, TLS/header fingerprinting, or similar browser-only behavior before app
+behavior is visible. Use approved agent-owned or Caido-profile auth/session
+material only in memory, and do not log raw secrets.
 
 ## Hypothesis Rule
 

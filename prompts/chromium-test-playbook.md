@@ -5,11 +5,13 @@ Use this playbook when a scoped test needs a fresh Chromium/Chrome instance with
 The launcher prefers Playwright's bundled Chromium when Playwright is installed, then falls back to system Chromium/Chrome.
 
 Use this as the required escalation path when raw HTTP tooling cannot see the
-application layer. If `curl`, `httpx`, direct replay, or a simple script hits
-403/401 edge blocks, Cloudflare/managed challenge pages, browser-only tokens,
-TLS/header fingerprint issues, or obvious bot-defense behavior before route
-content is visible, launch the proxied browser lane and continue mapping there
-unless a real stop condition appears.
+application layer because of Cloudflare/managed challenge pages, browser-only
+tokens, TLS/header fingerprint issues, or obvious bot-defense behavior before
+route content is visible. Do not launch Chromium solely because a route returns
+403/401; normal forbidden responses should be classified through `/403`,
+`/error-triage`, auth, access-control, headers, or route-shape testing first.
+For real challenge/fingerprint/browser-only cases, launch the proxied browser
+lane and continue mapping there unless a real stop condition appears.
 
 ## Safety Boundary
 
@@ -162,9 +164,9 @@ Do not send target traffic until scope, account, and proxy expectations are clea
 1. Launch the isolated browser.
 2. Connect to the returned CDP URL using the available browser automation tool, manual Chrome DevTools, or a CDP client.
 3. Navigate to the target URL or the relevant program page.
-4. If this is a raw HTTP failure escalation, first verify whether the same URL
-   reaches app content, route JavaScript, or proxy-observed app/API requests in
-   the browser context.
+4. If this is a challenge/fingerprint/browser-only escalation, first verify
+   whether the same URL reaches app content, route JavaScript, or proxy-observed
+   app/API requests in the browser context.
 5. Log in only with the selected approved account.
 6. Perform the requested action narrowly.
    - `pfp`: profile picture/avatar upload, preview, crop, metadata, and storage/update workflow

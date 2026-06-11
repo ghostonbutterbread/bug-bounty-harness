@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import asyncio
+import ipaddress
 import json
 import os
 import re
@@ -41,6 +42,10 @@ try:
     from rate_limiter import RateLimiter
 except ImportError:
     RateLimiter = None
+try:
+    from recon_store import record_recon_artifacts
+except ImportError:
+    record_recon_artifacts = None
 
 # ---------------------------------------------------------------------------
 # Config / constants
@@ -387,7 +392,8 @@ class SubdomainCollector:
             with open(js_list) as f:
                 js_urls = [line.strip() for line in f if line.strip()]
             for js_url in js_urls[:100]:  # cap: fetch only first 100
-                if not is_safe_url(js_url):
+                host = (urlparse(js_url).hostname or "").lower()
+                if not is_safe_url(js_url) or not is_target_host(host, self.target):
                     continue
                 try:
                     r = self.session.get(js_url, timeout=10)
@@ -463,22 +469,37 @@ class SubdomainCollector:
 # URL safety helper
 # ---------------------------------------------------------------------------
 
-_PRIVATE_PREFIXES = (
-    "10.", "172.16.", "172.17.", "172.18.", "172.19.", "172.20.", "172.21.",
-    "172.22.", "172.23.", "172.24.", "172.25.", "172.26.", "172.27.", "172.28.",
-    "172.29.", "172.30.", "172.31.", "192.168.",
-)
-
-
 def is_safe_url(url: str) -> bool:
     """Return False for non-HTTP(S) schemes or private/internal hosts."""
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         return False
-    host = parsed.netloc.split(":")[0].lower()
-    if host in ("127.0.0.1", "localhost", "0.0.0.0") or host.startswith(_PRIVATE_PREFIXES):
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
         return False
-    return True
+    if host in ("localhost",) or host.endswith((".localhost", ".local", ".internal")):
+        return False
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return not any(
+        (
+            addr.is_loopback,
+            addr.is_private,
+            addr.is_link_local,
+            addr.is_multicast,
+            addr.is_reserved,
+            addr.is_unspecified,
+        )
+    )
+
+
+def is_target_host(host: str, target: str) -> bool:
+    """Return True when host is the target domain or a real subdomain."""
+    host = (host or "").strip().lower().rstrip(".")
+    target = (target or "").strip().lower().rstrip(".")
+    return bool(host and target and (host == target or host.endswith("." + target)))
 
 
 # ---------------------------------------------------------------------------
@@ -831,6 +852,26 @@ def run(target: str, program: str, use_apis: list[str],
     # Re-write outputs with takeover data
     write_outputs(program, target, raw_subs, all_subs,
                   probe_results, takeover_candidates, sources_used)
+    if record_recon_artifacts is not None:
+        manifest_path = record_recon_artifacts(
+            program=program,
+            target=target,
+            tool="subdomain-agent",
+            source_paths=[
+                out_dir / "raw_subs.txt",
+                out_dir / "all_subs.txt",
+                out_dir / "alive_subs.txt",
+                out_dir / "dead_subs.txt",
+                out_dir / "takeover_candidates.txt",
+                out_dir / "scan_results.json",
+                out_dir / "summary.json",
+            ],
+            command=f"subdomain_agent.py --program {program} --target {target}",
+            scope_filter="auto",
+            repull_scope=False,
+            extra_manifest={"legacy_output_dir": str(out_dir)},
+        )
+        print(f"  [+] Recon store   : {manifest_path}")
 
     # ---- Summary ----
     print("\n" + "="*60)

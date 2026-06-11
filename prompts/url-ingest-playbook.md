@@ -4,6 +4,15 @@
 
 The url-ingest system solves the "have we already looked at this URL?" problem for autonomous bug bounty hunting. It maintains a SQLite database per target program that tracks every discovered URL and its review state across vulnerability lanes.
 
+Recon tools must follow the unified recon-store rule:
+
+1. Preserve raw tool output in canonical recon run storage.
+2. Extract only URL/host-shaped lines into parsed artifacts.
+3. Import parsed URL artifacts into the SQLite URL index.
+4. Have downstream agents query `stats`, `next`, `status`, or the recon run manifest before loading large queues.
+
+This applies even when Ryushe runs a one-off tool such as amass. The one-off output should be recorded with `agents/recon_store.py` instead of left as an isolated text file.
+
 ## When to use it
 
 ### Pre-hunt ingestion
@@ -17,6 +26,25 @@ Before any hunting agents run against a program:
          --scope-filter auto
    ```
 3. Run `url-ingest stats <program>` to confirm import.
+
+For an agent-safe overview before selecting work, use:
+
+```bash
+python3 agents/url_ingest.py brief <program> --limit 20
+```
+
+This prints totals, top hosts, common parameter keys, and recent imports without dumping the full URL table.
+
+For generic recon output files, use the shared recorder:
+
+```bash
+python3 agents/recon_store.py <program> \
+  --tool amass \
+  --target example.com \
+  --source /path/to/amass-subs.txt
+```
+
+The recorder copies the raw file, extracts URL/host-shaped lines when the artifact type is known to contain them, imports those parsed lines into SQLite, and writes a manifest under canonical `~/Shared/web_bounty/<program>/web/recon/<tool>/...` storage.
 
 Scope behavior:
 
@@ -178,7 +206,7 @@ When the planner assigns a technique, it should use `next` with the skill/test-f
 
 ## Limitations (Phase 1)
 - Fingerprinting (title, status code, content hash) is not yet stored
-- Hoster → local sync is manual (scp or SSH pipe)
+- Hoster → local sync is still explicit, but `recon_ry.py ingest` now imports copied URL artifacts into SQLite automatically
 - DB lives on local disk, not P2P synced
 - Large programs (500k+ URLs) will have slower query performance; future phase adds pagination/cursor
 

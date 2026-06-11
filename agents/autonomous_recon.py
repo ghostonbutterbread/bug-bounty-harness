@@ -56,6 +56,10 @@ try:
     from rate_limiter import RateLimiter
 except ImportError:
     RateLimiter = None
+try:
+    from recon_store import record_recon_artifacts
+except ImportError:
+    record_recon_artifacts = None
 
 try:
     from subagent_logger import SubagentLogger
@@ -728,6 +732,26 @@ def phase_organize(result: ReconResult) -> Path:
         "errors": result.errors,
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+
+    if record_recon_artifacts is not None:
+        manifest_path = record_recon_artifacts(
+            program=result.program,
+            target=result.target_host or result.target,
+            tool="autonomous-recon",
+            source_paths=[
+                out_dir / "urls.txt",
+                out_dir / "params.txt",
+                out_dir / "js_files.txt",
+                out_dir / "tech_stack.txt",
+                out_dir / "summary.json",
+            ],
+            command=f"autonomous_recon.py --program {result.program} --target {result.target}",
+            scope_filter="auto",
+            repull_scope=True,
+            extra_manifest={"legacy_output_dir": str(out_dir)},
+        )
+        summary["canonical_manifest"] = str(manifest_path)
+        (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
 
     _log(f"Output saved to: {out_dir}", "OK")
     return out_dir

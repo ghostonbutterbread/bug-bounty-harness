@@ -154,19 +154,27 @@ def build_ssrf_url(base_url: str, param: str, payload: str) -> str:
       - No param present (append ?param=payload)
       - Replaces {param} placeholder if present
     """
-    import re
-    from urllib.parse import quote
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-    encoded_payload = quote(payload, safe="")
+    placeholder = "{" + param + "}"
+    if placeholder in base_url:
+        return base_url.replace(placeholder, payload)
 
-    if f"{param}=" in base_url:
-        # Replace existing value (including empty)
-        pattern = rf"({re.escape(param)}=)[^&]*"
-        return re.sub(pattern, rf"\1{encoded_payload}", base_url)
-    elif "?" in base_url:
-        return f"{base_url}&{param}={encoded_payload}"
-    else:
-        return f"{base_url}?{param}={encoded_payload}"
+    parts = urlsplit(base_url)
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    updated = False
+    new_query = []
+    for key, value in query:
+        if key == param:
+            new_query.append((key, payload))
+            updated = True
+        else:
+            new_query.append((key, value))
+    if not updated:
+        new_query.append((param, payload))
+    return urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urlencode(new_query), parts.fragment)
+    )
 
 
 # =============================================================================

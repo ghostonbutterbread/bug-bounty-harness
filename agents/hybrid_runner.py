@@ -654,7 +654,7 @@ def spawn_cli_engine(
         raise NotImplementedError(f"hybrid runner currently executes CLI engines only, got transport={engine.transport}")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     workdir.mkdir(parents=True, exist_ok=True)
-    command = command_for_engine(engine, prompt_path=prompt_path, workdir=workdir, title=title)
+    command = sanitized_log_command(command_for_engine(engine, prompt_path=prompt_path, workdir=workdir, title=title))
     log_handle = log_path.open("ab")
     env = os.environ.copy()
     env.update(engine.env)
@@ -669,6 +669,24 @@ def spawn_cli_engine(
     )
     setattr(process, "_bbh_log_handle", log_handle)
     return process
+
+
+def sanitized_log_command(command: str) -> str:
+    """Wrap a CLI command so sensitive output is redacted before log capture."""
+
+    return (
+        "set -o pipefail; "
+        f"( {command} ) 2>&1 | "
+        "perl -pe "
+        + shlex.quote(
+            r"s/([?&]nonce=)[A-Za-z0-9._~%+-]+/${1}REDACTED/gi; "
+            r"s/(nonce%3D)[A-Za-z0-9._~%+-]+/${1}REDACTED/gi; "
+            r"s/^(\s*<?\s*set-cookie:\s*).*$/\1REDACTED/gi; "
+            r"s/(\b(?:TOKEN|NONCE|SESSION|COOKIE)\b\s*=)[^;\s]+/${1}REDACTED/gi; "
+            r"s/(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+\/-]+/${1}REDACTED/gi; "
+            r"s/(access[_-]?token[\"'\s:=]+)[A-Za-z0-9._~+\/-]+/${1}REDACTED/gi;"
+        )
+    )
 
 
 def command_for_engine(engine: EngineConfig, *, prompt_path: Path, workdir: Path, title: str) -> str:

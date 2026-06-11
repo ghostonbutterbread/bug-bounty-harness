@@ -62,6 +62,23 @@ Do not pick payloads before classifying the context. Reflection quality matters 
 
 If you only have a source-to-sink chain such as `location.hash -> innerHTML`, it is a potential DOM issue until browser verification confirms code execution.
 
+### Context-Specific Escalations
+
+- For DOM URL sources, compare `location.search`, `location.hash`,
+  `document.URL`, and `location.toString()`. A fragment can preserve quote or
+  attribute-breakout characters that would be encoded or normalized in the
+  query string.
+- For template literals, if `${...}` survives but parentheses or backticks are
+  stripped, test expression-only execution paths such as assigning
+  `location='javascript:alert%28document.cookie%29'`.
+- For URL-bearing attributes, if obvious `javascript:` is stripped, test
+  browser-normalized scheme variants such as tab or carriage-return inserted
+  inside the scheme before abandoning the URL-navigation lane.
+- For JavaScript strings under selectable legacy charsets, browser-test
+  stateful charset switches such as ISO-2022-JP `ESC ( J` before quote
+  breakouts. Server-added backslashes may decode as a yen sign and stop
+  escaping the quote.
+
 ## 3. Choose Lane
 
 Pick the lane that matches how the input behaves.

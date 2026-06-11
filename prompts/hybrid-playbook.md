@@ -137,3 +137,10 @@ boundaries.
 
 Do not persist or print secrets. Do not pass raw auth/session material into
 worker packets.
+
+Worker logs should preserve test-relevant state without secret values. Record
+user/account labels, authenticated vs anonymous state, cookie/header names and
+counts, redirect host/path, status, content type, length, response fingerprints,
+framework and JavaScript clues, API endpoints, parameter behavior, and evidence
+paths. Redact cookie values, bearer values, CSRF values, nonce/state values,
+private headers, and sensitive query values before they reach logs.

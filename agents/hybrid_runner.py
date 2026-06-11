@@ -431,6 +431,7 @@ Objective: {objective}
 - Do not treat unlimited budget as permission to ignore scope, target stress, CAPTCHA/challenge, non-owned object boundaries, or side effects.
 - Browser escalation policy: challenge/fingerprint/browser-only cases only; plain app/server 403/401 should be classified through the relevant 403/auth/access-control/error workflow first.
 - Do not store or print cookies, tokens, private headers, auth material, reset links, nonce values, Set-Cookie headers, or secrets. When inspecting redirects or headers, filter or redact sensitive fields before they reach logs.
+- Auth/session logging rule: never log cookie values, bearer values, CSRF values, nonce/state values, or full private headers. Log only the test-relevant state: user/account label if known, authenticated vs anonymous, cookie/header names and counts, redirect host/path with sensitive query values redacted, status code, content type, response length, stable response fingerprint, framework/JS/API clues, parameter behavior, and evidence artifact paths.
 
 ## Skills To Apply
 
@@ -682,6 +683,7 @@ def sanitized_log_command(command: str) -> str:
             r"s/([?&]nonce=)[A-Za-z0-9._~%+-]+/${1}REDACTED/gi; "
             r"s/(nonce%3D)[A-Za-z0-9._~%+-]+/${1}REDACTED/gi; "
             r"s/^(\s*<?\s*set-cookie:\s*).*$/\1REDACTED/gi; "
+            r"s/^(\s*<?\s*cookie:\s*).*$/\1REDACTED/gi; "
             r"s/(\b(?:TOKEN|NONCE|SESSION|COOKIE)\b\s*=)[^;\s]+/${1}REDACTED/gi; "
             r"s/(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+\/-]+/${1}REDACTED/gi; "
             r"s/(access[_-]?token[\"'\s:=]+)[A-Za-z0-9._~+\/-]+/${1}REDACTED/gi;"

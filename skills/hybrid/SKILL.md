@@ -95,3 +95,10 @@ boundaries.
 Never pass raw cookies, bearer tokens, reset links, private headers, API keys,
 or secrets into worker packets. Use approved auth/session material in memory
 only when policy allows it.
+
+Spawned workers should log only the state needed for the test: user/account
+label if known, authenticated vs anonymous, cookie/header names and counts,
+redirect host/path, status, content type, length, response fingerprints,
+framework/JS/API clues, parameter behavior, and evidence paths. They must not
+log cookie values, bearer values, CSRF values, nonce/state values, private
+headers, or sensitive query values.

@@ -7,8 +7,11 @@ description: Use when importing, indexing, filtering, queueing, checking, or mar
 ## What it is
 SQLite-backed URL index and per-lane review tracker. Keeps a durable record of every URL discovered in recon and what kind of analysis (if any) has been done on it per vulnerability lane.
 
+Unified recon-store rule: recon agents and one-off recon tools must preserve raw artifacts first, then ingest URL/host-shaped parsed artifacts into this database. Do not leave amass/recon-ry/proxy/recon output as an isolated text file when it is meant to inform later agents.
+
 ## Location
 - **Engine:** `agents/url_ingest.py`
+- **Recon artifact recorder:** `agents/recon_store.py`
 - **Playbook:** `prompts/url-ingest-playbook.md`
 - **DB storage:** `~/Shared/web_bounty/<program>/web/recon/url_index/url_index.sqlite`
 
@@ -24,6 +27,67 @@ SQLite-backed URL index and per-lane review tracker. Keeps a durable record of e
    With `--scope-filter auto`, writes scoped and rejected temp files first, then ingests only scoped URLs when scope exists.
    With `--scope-filter auto`, missing saved scope automatically triggers the existing `agents/scope_puller.py` across HackerOne, Bugcrowd, and Intigriti before falling back.
    Use `--no-repull-scope` only for explicit passive/import-only work where scope pulling is intentionally skipped.
+
+/url-ingest aggregate <program> [--input <dir>] [--run-id <id>] [--scope-filter auto] [--no-ingest]
+   Build central program-level recon files under:
+   `~/Shared/web_bounty/<program>/web/recon/aggregated/`
+
+   This scans known recon roots by default, including recon-ry output, and aggregates:
+   `wild.txt`, `urls.txt`, `alive.txt`, `params_raw.txt`, `params.txt`, `jsfiles.txt`, and `dirs.txt`.
+   `live.txt` is accepted as an alias for `alive.txt`.
+
+   It uses `anew` for incremental append/delta tracking when available, and `uro` for URL/parameter normalization when available. The helper checks PATH first, then common recon-ry locations such as `~/go/bin/anew`, `~/.local/bin/uro`, and `~/tools/recon-ry/venvs/uro/bin/uro`.
+   Each run writes:
+   - `runs/<run-id>/incoming/*.txt`
+   - `runs/<run-id>/normalized/*.txt`
+   - `runs/<run-id>/delta/*.txt`
+   - `runs/<run-id>/manifest.json`
+   - root-level current aggregate files such as `params.txt`, `urls.txt`, and `jsfiles.txt`
+
+   Use this before handing agents a broad program URL set. For example, "Canva params" should resolve to:
+   `~/Shared/web_bounty/canva/web/recon/aggregated/params.txt`
+
+   With default settings, the aggregate command also imports aggregate URL-shaped files into SQLite so `/url-ingest next`, `/url-ingest mark`, and per-agent review state keep working.
+   `--input` is repeatable; use it for any recon-ry, dorking, crawler, proxy, or one-off tool output directory that should feed the aggregate store. `--source-root` remains a compatibility alias.
+
+## Recon Aggregate Policy
+All recon-producing agents must route URL-like output into the program aggregate store before handing URLs to testing agents.
+
+Canonical location:
+`~/Shared/web_bounty/<program>/web/recon/aggregated/`
+
+Canonical files:
+- `urls.txt` — all discovered HTTP(S) URLs and URL-like exact targets
+- `alive.txt` — URLs/hosts after HTTP probing; `live.txt` inputs are normalized here
+- `params_raw.txt` — raw parameterized URLs before final normalization
+- `params.txt` — normalized parameterized URLs for XSS/SQLi/SSRF/open-redirect/IDOR review
+- `jsfiles.txt` — JavaScript URLs for JS/secrets/sink analysis
+- `wild.txt` — host/subdomain-shaped discoveries
+- `dirs.txt` — directory/content-discovery leads
+
+Required agent flow:
+1. Preserve raw tool output in the tool/run directory first.
+2. Append into aggregate storage with:
+   `python3 agents/url_ingest.py aggregate <program> --input <tool-output-dir> --run-id <run-id>`
+3. Let aggregate use `anew` for incremental text deltas and `uro` for URL/parameter normalization.
+4. Let aggregate import URL-shaped output into SQLite unless explicitly using `--no-ingest` for a dry text-only test.
+5. Before testing, query SQLite with `brief`, `next`, `status`, or `history`.
+6. After testing, record coverage with `mark --agent-id <agent> --skill <skill> --test-family <family>`.
+
+Do not hand agents a standalone dork/crawler/proxy URL file as the long-term source of truth. Standalone files are raw evidence; the aggregate files and SQLite index are the shared working state.
+
+Duplicate handling:
+- `anew` prevents exact duplicate lines from accumulating in aggregate text files.
+- `uro` reduces URL clutter before appending.
+- SQLite canonicalization is still the authoritative dedupe/review layer; expect some semantic/canonical duplicates between text-file line counts and DB URL counts over time.
+
+For one-off recon files, use:
+
+```
+python3 agents/recon_store.py <program> --tool <tool-name> --target <domain-or-url> --source <artifact-file>
+```
+
+This keeps the raw artifact and imports URL/host-shaped records into SQLite.
 
 /url-ingest status <program> [--lane <lane>] [--url <url>]
    Show review status for URLs. Use --url for exact lookup, --lane to filter by vuln lane.
@@ -43,6 +107,9 @@ SQLite-backed URL index and per-lane review tracker. Keeps a durable record of e
 /url-ingest search <program> [--route-hash <hash>] [--param-hash <hash>]
                              [--host <host>] [--lane <lane>] [--limit <n>]
    Search URLs by route hash, param-shape hash, or host.
+
+/url-ingest brief <program> [--limit <n>]
+   Show compact agent-safe totals, top hosts, common parameter keys, and recent imports.
 
 /url-ingest next <program> --lane <lane> [--skill <skill>] [--test-family <family>]
                             [--param-preset xss|ssrf|lfi|opaque-state] [--limit <n>]

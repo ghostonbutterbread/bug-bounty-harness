@@ -4,6 +4,13 @@ Use this playbook when a scoped test needs a fresh Chromium/Chrome instance with
 
 The launcher prefers Playwright's bundled Chromium when Playwright is installed, then falls back to system Chromium/Chrome.
 
+Use this as the required escalation path when raw HTTP tooling cannot see the
+application layer. If `curl`, `httpx`, direct replay, or a simple script hits
+403/401 edge blocks, Cloudflare/managed challenge pages, browser-only tokens,
+TLS/header fingerprint issues, or obvious bot-defense behavior before route
+content is visible, launch the proxied browser lane and continue mapping there
+unless a real stop condition appears.
+
 ## Safety Boundary
 
 - Core posture: scoped testing is allowed; damaging behavior is explicit.
@@ -97,6 +104,12 @@ Auth material handling contract:
 - Secret values are in-memory operational material, not evidence. Never copy them into logs, screenshots, reports, prompts, chat, or notes.
 - If Caido cannot provide usable auth headers and a login is required, pause and ask Ryushe rather than guessing, scraping credentials from local files, or treating traffic history as a password source.
 
+For curl-failure escalation, auth/session injection is allowed only when the
+session source is approved for the current program and lane. Use agent-owned or
+Caido-profile `Authorization`/`Cookie` material in memory to update the scoped
+browser context; do not echo it into terminal output, prompts, logs, reports,
+or chat.
+
 Fallback behavior when Caido is unavailable and the task is still safe:
 
 1. Read current target context and notes for the program.
@@ -149,14 +162,17 @@ Do not send target traffic until scope, account, and proxy expectations are clea
 1. Launch the isolated browser.
 2. Connect to the returned CDP URL using the available browser automation tool, manual Chrome DevTools, or a CDP client.
 3. Navigate to the target URL or the relevant program page.
-4. Log in only with the selected approved account.
-5. Perform the requested action narrowly.
+4. If this is a raw HTTP failure escalation, first verify whether the same URL
+   reaches app content, route JavaScript, or proxy-observed app/API requests in
+   the browser context.
+5. Log in only with the selected approved account.
+6. Perform the requested action narrowly.
    - `pfp`: profile picture/avatar upload, preview, crop, metadata, and storage/update workflow
    - `upload-flow`: file upload/import workflow
    - `profile-settings`: account/profile update workflow
    - other tasks: interpret from the current hunt context and scope
-6. Observe traffic and state transitions through the proxy/MCP workflow if configured.
-7. Save evidence under:
+7. Observe traffic and state transitions through the proxy/MCP workflow if configured.
+8. Save evidence under:
    ```text
    $HARNESS_SHARED_BASE/{program}/ghost/chromium-test/
    ```

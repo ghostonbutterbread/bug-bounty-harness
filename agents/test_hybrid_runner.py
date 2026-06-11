@@ -12,19 +12,19 @@ def test_default_config_uses_gpt55_planner_opencode_worker_and_unlimited_request
     assert config.planner.engine == "codex"
     assert config.planner.model == "gpt-5.5"
     assert config.worker.engine == "opencode"
-    assert config.worker.model == "opencode/deepseek-v4-flash-free"
+    assert config.worker.model == "deepseek/deepseek-v4-pro"
     assert config.max_requests_per_worker == 0
     assert config.monitor_workers is True
 
 
 def test_environment_overrides_default_models(monkeypatch) -> None:
     monkeypatch.setenv("BBH_HYBRID_PLANNER_MODEL", "gpt-5.5")
-    monkeypatch.setenv("BBH_HYBRID_WORKER_MODEL", "openrouter/deepseek/deepseek-chat")
+    monkeypatch.setenv("BBH_HYBRID_WORKER_MODEL", "deepseek/deepseek-v4-pro")
 
     config = hybrid.load_config(None)
 
     assert config.planner.model == "gpt-5.5"
-    assert config.worker.model == "openrouter/deepseek/deepseek-chat"
+    assert config.worker.model == "deepseek/deepseek-v4-pro"
 
 
 def test_plan_classifies_urls_and_writes_worker_packets(tmp_path: Path) -> None:
@@ -83,7 +83,7 @@ def test_cli_overrides_worker_model_and_request_cap(tmp_path: Path, capsys) -> N
             "--worker",
             "opencode",
             "--worker-model",
-            "openrouter/deepseek/deepseek-chat",
+            "deepseek/deepseek-v4-pro",
             "--planner-model",
             "gpt-5.5",
             "--max-requests-per-worker",
@@ -97,7 +97,7 @@ def test_cli_overrides_worker_model_and_request_cap(tmp_path: Path, capsys) -> N
 
     assert rc == 0
     assert payload["execute"] is False
-    assert payload["worker"]["model"] == "openrouter/deepseek/deepseek-chat"
+    assert payload["worker"]["model"] == "deepseek/deepseek-v4-pro"
     assert payload["max_requests_per_worker"] == 25
     assert payload["worker_packets"] == 1
 
@@ -108,7 +108,7 @@ def test_command_for_supported_engines_quotes_prompt_and_model(tmp_path: Path) -
     workdir = tmp_path / "work dir"
 
     opencode = hybrid.command_for_engine(
-        hybrid.EngineConfig("opencode", "openrouter/deepseek/deepseek-chat"),
+        hybrid.EngineConfig("opencode", "deepseek/deepseek-v4-pro"),
         prompt_path=prompt,
         workdir=workdir,
         title="Worker 1",
@@ -121,7 +121,7 @@ def test_command_for_supported_engines_quotes_prompt_and_model(tmp_path: Path) -
     )
 
     assert "opencode run" in opencode
-    assert "--model openrouter/deepseek/deepseek-chat" in opencode
+    assert "--model deepseek/deepseek-v4-pro" in opencode
     assert "--file" in opencode
     assert "codex exec" in codex
     assert "--model gpt-5.5" in codex

@@ -154,7 +154,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /live-map superdrug --source browser
 /deep-hunt canva --section sso-callbacks
 /error-mapper canva --url "https://www.canva.com/search?q=test"
-/hybrid deep-dive recon canva --input params.txt --planner-model gpt-5.5 --worker opencode --worker-model openrouter/deepseek/deepseek-chat --max-requests-per-worker 0
+/hybrid deep-dive recon canva --input params.txt --planner-model gpt-5.5 --worker opencode --worker-model deepseek/deepseek-v4-pro --max-requests-per-worker 0
 /hunter-memory canva avatar-upload --vulnerability xss
 /hunter-loop canva --goal "map app and dispatch specialists from concrete triggers"
 /brainstorm-spec canva --family binaries --lane exe --target-kind electron-exe

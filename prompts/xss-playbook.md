@@ -15,6 +15,31 @@ See `prompts/xss-payloads.md` for the payload catalog, WAF bypasses, and framewo
 5. Verify the result with the lowest-noise payload that matches the context.
 6. Report the finding with context, sink, bypass, confirmation status, interaction, and cleanup notes.
 
+## Deep-Run Default
+
+For hybrid, deep-hunt, URL-list, and route-cluster work, the default is deeper
+source-to-sink analysis, not broad payload spraying. A worker should be able to
+answer:
+
+- Which attacker-controlled source was used?
+- Which sink or render context received the bytes?
+- Which framework, router, sanitizer, WAF, or browser/raw-client difference
+  shaped the result?
+- Which payload families were tried, and why those families matched the
+  observed context?
+- How many deliberate probes were made, and what stopped the lane?
+
+Minimum artifact expectation for these runs:
+
+- `attempts.jsonl`: one record per deliberate observation or payload probe.
+- `summary.md`: route family, source map, sink map, framework clues, payload
+  family results, confirmed/potential/false-positive decision, and next handoff.
+- `handoff.json`: required when the next step belongs to another lane, browser
+  profile, authenticated account, or source-review worker.
+
+If a worker cannot write these artifacts, the XSS lane is incomplete even when
+the raw log contains useful observations.
+
 ## 1. Probe
 
 Start by finding every place attacker-controlled data can enter the application.
@@ -44,6 +69,32 @@ Start by finding every place attacker-controlled data can enter the application.
    - Stripped
    - Truncated
    - Blocked by WAF
+
+### Source-To-Sink Inventory
+
+Before selecting payloads in a deep run, map likely sources and sinks.
+
+Sources:
+
+- `location.search`, `location.hash`, `location.href`, `document.URL`
+- `URLSearchParams`, client router params, route state, and path params
+- form fields, API responses, bootstrap data, JSON data islands
+- local/session storage, cookies, `postMessage`, message channels
+
+Sinks:
+
+- HTML text, quoted/unquoted attributes, URL-bearing attributes
+- input values and framework-controlled form state
+- inline scripts, JSON/bootstrap blobs, template literals, XML/iframe strings
+- `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `srcdoc`, dynamic scripts
+- React `dangerouslySetInnerHTML`, markdown/raw HTML renderers, unsafe URL
+  props, hydration/state handoff paths
+- Vue `v-html`, Angular `[innerHTML]` or `bypassSecurityTrust*`, sanitizer
+  trust-bypass helpers
+
+Record enough framework evidence to make payload selection defensible: bundle
+names, router/framework hints, CSP, sanitizer behavior, WAF/challenge signal,
+and raw HTTP vs browser-rendered differences.
 
 ## 2. Classify Context
 
@@ -147,6 +198,26 @@ Verification should be context-aware and low-noise.
    - sink
    - browser result
    - any WAF/filter bypass required
+
+### Payload Accounting
+
+For route-cluster and hybrid workers, count payloads by family rather than only
+by raw request count. Typical families:
+
+- marker/baseline
+- attribute breakout
+- tag breakout
+- event-handler
+- URL-scheme/navigation
+- template literal/expression
+- JSON/XML/iframe attribute
+- hash/router/source
+- storage/message source
+- WAF/parser mutation
+
+Stop increasing volume when representative probes prove the context inert.
+Escalate by changing the source/sink hypothesis, not by spraying unrelated
+polyglots.
 
 ### Status Rules
 

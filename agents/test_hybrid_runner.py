@@ -68,6 +68,9 @@ def test_plan_classifies_urls_and_writes_worker_packets(tmp_path: Path) -> None:
     assert "Auth/session logging rule" in packet_prompt
     assert "cookie/header names and counts" in packet_prompt
     assert "framework/JS/API clues" in packet_prompt
+    assert "XSS deep default" in packet_prompt
+    assert "source-to-sink mapping before payload volume" in packet_prompt
+    assert "payload family, source, sink/context" in packet_prompt
 
 
 def test_cli_overrides_worker_model_and_request_cap(tmp_path: Path, capsys) -> None:

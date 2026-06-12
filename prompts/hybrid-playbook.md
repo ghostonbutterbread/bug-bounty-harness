@@ -113,6 +113,27 @@ Workers must write at least:
 - `summary.md`
 - optional `handoff.json`
 
+### XSS Worker Standard
+
+When the lane is XSS, the packet must explicitly require deeper source-to-sink
+mapping before payload volume. The worker should:
+
+1. enumerate sources such as query, hash, router state, storage, `postMessage`,
+   bootstrap data, API responses, and framework state
+2. enumerate sinks such as reflected attributes/text, input values,
+   script/data islands, JSON/XML/iframe strings, DOM insertion APIs, raw HTML
+   helpers, sanitizer trust boundaries, and framework render paths
+3. record framework and edge clues before payload choice, including
+   React/Vue/Angular/router/state hints, bundle names, CSP, WAF/challenge
+   signal, and raw HTTP vs browser-rendered differences
+4. choose payload families from the observed context, not from a generic list
+5. write `attempts.jsonl` rows with payload family, source, sink/context,
+   transformation, browser result, and stop reason
+
+If the XSS worker cannot produce `attempts.jsonl`, `summary.md`, and a handoff
+when needed, the planner should treat that lane as incomplete even if the log
+contains useful browser observations.
+
 ## Skill Augmentation
 
 Hybrid does not replace skills. It routes to them:

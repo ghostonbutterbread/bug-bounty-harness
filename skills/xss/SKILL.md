@@ -97,6 +97,36 @@ python /home/ryushe/projects/bug_bounty_harness/agents/xss_hunter.py \
 6. Escalate to `waf-live-policy` and bypass/mutation work when filtering or
    parsing behavior becomes the interesting surface.
 
+## Deep Default For Hybrid And Deep-Hunt
+
+For `/hybrid`, `/deep-hunt`, URL-batch, or route-cluster runs, XSS workers must
+default to source-to-sink mapping before payload volume. The goal is to explain
+why a payload family matches the observed sink, not to spray generic payloads.
+
+Required sequence:
+
+1. Inventory sources: query, hash, path/router params, URLSearchParams,
+   `location`, storage, `postMessage`, data islands, API responses, and any
+   framework state that can carry attacker-controlled bytes.
+2. Inventory sinks: reflected HTML, input/attribute/text nodes, JSON/bootstrap
+   blobs, script/data islands, `innerHTML`/`outerHTML`/`insertAdjacentHTML`,
+   URL-bearing attributes, iframe/embed HTML, framework raw-HTML helpers, and
+   sanitizer trust-bypass helpers.
+3. Record framework and edge clues before payload choice: React/Vue/Angular,
+   router, hydration/state libraries, bundle names, CSP, WAF/challenge signal,
+   and browser-vs-raw response differences.
+4. Choose payload families from the context: attribute breakout, tag breakout,
+   URL-scheme, template-literal, JSON/XML/iframe-attribute, DOM-source, hash,
+   storage, or `postMessage`.
+5. Track every deliberate probe in `attempts.jsonl` with payload family,
+   source, sink/context, encoding/normalization result, browser result, and
+   stop reason. If no execution occurs, record the exact boundary.
+
+Do not mark an XSS lane complete from raw HTTP alone when browser-only routing,
+Cloudflare/challenge behavior, or framework rendering is material to the route.
+Do not continue increasing payload count after a representative set proves the
+context is inert; switch to a new source/sink hypothesis or stop.
+
 ## Evidence Standard
 
 Record:

@@ -38,6 +38,7 @@ DEFAULT_MAX_REQUESTS = 0
 DEFAULT_WORKER_LIMIT = 8
 DEFAULT_LINE_LIMIT = 5000
 RUNS_DIRNAME = "hybrid-runs"
+SANITIZED_ARTIFACT_SUFFIXES = {".json", ".jsonl", ".log", ".md", ".txt"}
 
 ROLE_PARAM_HINTS: dict[str, set[str]] = {
     "xss": {"q", "query", "search", "keyword", "term", "title", "text", "name", "message", "content"},
@@ -622,6 +623,7 @@ def execute_plan(plan: Mapping[str, Any], *, include_planner: bool = False) -> d
 
     for key, process in processes.items():
         returncode = process.wait()
+        sanitize_artifacts(Path(str(_packet_output_dir(plan, key))))
         statuses[key] = "completed" if returncode == 0 else f"failed:{returncode}"
         write_monitor_state(output_root, plan, worker_status=statuses)
     if include_planner:
@@ -638,9 +640,76 @@ def execute_plan(plan: Mapping[str, Any], *, include_planner: bool = False) -> d
             title="Hybrid planner",
         )
         returncode = planner.wait()
+        sanitize_artifacts(output_root)
         statuses["planner"] = "completed" if returncode == 0 else f"failed:{returncode}"
         write_monitor_state(output_root, plan, worker_status=statuses)
     return statuses
+
+
+def _packet_output_dir(plan: Mapping[str, Any], packet_id: str) -> str:
+    for packet_payload in plan.get("worker_packets", []):
+        if str(packet_payload.get("packet_id")) == packet_id:
+            return str(packet_payload.get("output_dir"))
+    return str(Path(str(plan["output_root"])) / "workers" / slug(packet_id))
+
+
+def sanitize_artifacts(root: Path) -> None:
+    """Redact sensitive values from worker-created artifacts, not only logs."""
+
+    if not root.exists():
+        return
+    files = [root] if root.is_file() else [
+        path for path in root.rglob("*")
+        if path.is_file() and path.suffix.lower() in SANITIZED_ARTIFACT_SUFFIXES
+    ]
+    for path in files:
+        try:
+            original = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        redacted = redact_sensitive_text(original)
+        if redacted != original:
+            path.write_text(redacted, encoding="utf-8")
+
+
+def redact_sensitive_text(text: str) -> str:
+    redacted = re.sub(r"([?&]nonce=)[A-Za-z0-9._~%+-]+", r"\1REDACTED", text, flags=re.IGNORECASE)
+    redacted = re.sub(r"(nonce%3D)[A-Za-z0-9._~%+-]+", r"\1REDACTED", redacted, flags=re.IGNORECASE)
+    redacted = re.sub(r"(?im)^(\s*<?\s*set-cookie:\s*).*$", r"\1REDACTED", redacted)
+    redacted = re.sub(r"(?im)^(\s*<?\s*cookie:\s*).*$", r"\1REDACTED", redacted)
+    redacted = re.sub(r'("set-cookie:\s*)[^"]+(")', r"\1REDACTED\2", redacted, flags=re.IGNORECASE)
+    redacted = re.sub(r'("cookie:\s*)[^"]+(")', r"\1REDACTED\2", redacted, flags=re.IGNORECASE)
+    redacted = re.sub(
+        r'("Cookie"\s*:\s*")(?!none"|REDACTED")[^"]+(")',
+        r"\1REDACTED\2",
+        redacted,
+        flags=re.IGNORECASE,
+    )
+    redacted = re.sub(
+        r'("Authorization"\s*:\s*"Bearer\s+)[^"]+(")',
+        r"\1REDACTED\2",
+        redacted,
+        flags=re.IGNORECASE,
+    )
+    redacted = re.sub(
+        r"(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+/-]+",
+        r"\1REDACTED",
+        redacted,
+        flags=re.IGNORECASE,
+    )
+    redacted = re.sub(
+        r"(\b(?:TOKEN|NONCE|SESSION|COOKIE)\b\s*=)[^;\s\"']+",
+        r"\1REDACTED",
+        redacted,
+        flags=re.IGNORECASE,
+    )
+    redacted = re.sub(
+        r"(access[_-]?token[\"'\s:=]+)[A-Za-z0-9._~+/-]+",
+        r"\1REDACTED",
+        redacted,
+        flags=re.IGNORECASE,
+    )
+    return redacted
 
 
 def spawn_cli_engine(

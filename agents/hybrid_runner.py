@@ -690,6 +690,12 @@ def sanitize_artifacts(root: Path) -> None:
 def redact_sensitive_text(text: str) -> str:
     redacted = re.sub(r"([?&]nonce=)[A-Za-z0-9._~%+-]+", r"\1REDACTED", text, flags=re.IGNORECASE)
     redacted = re.sub(r"(nonce%3D)[A-Za-z0-9._~%+-]+", r"\1REDACTED", redacted, flags=re.IGNORECASE)
+    redacted = re.sub(
+        r"((?:[?&]|\\u0026)__cf_chl_[A-Za-z0-9_%-]*tk=)[A-Za-z0-9._~%+-]+",
+        r"\1REDACTED",
+        redacted,
+        flags=re.IGNORECASE,
+    )
     redacted = re.sub(r"(?im)^(\s*<?\s*set-cookie:\s*).*$", r"\1REDACTED", redacted)
     redacted = re.sub(r"(?im)^(\s*<?\s*cookie:\s*).*$", r"\1REDACTED", redacted)
     redacted = re.sub(r'("set-cookie:\s*)[^"]+(")', r"\1REDACTED\2", redacted, flags=re.IGNORECASE)
@@ -766,6 +772,7 @@ def sanitized_log_command(command: str) -> str:
         + shlex.quote(
             r"s/([?&]nonce=)[A-Za-z0-9._~%+-]+/${1}REDACTED/gi; "
             r"s/(nonce%3D)[A-Za-z0-9._~%+-]+/${1}REDACTED/gi; "
+            r"s/((?:[?&]|\\u0026)__cf_chl_[A-Za-z0-9_%-]*tk=)[A-Za-z0-9._~%+-]+/${1}REDACTED/gi; "
             r"s/^(\s*<?\s*set-cookie:\s*).*$/\1REDACTED/gi; "
             r"s/^(\s*<?\s*cookie:\s*).*$/\1REDACTED/gi; "
             r"s/(\b(?:TOKEN|NONCE|SESSION|COOKIE)\b\s*=)[^;\s]+/${1}REDACTED/gi; "

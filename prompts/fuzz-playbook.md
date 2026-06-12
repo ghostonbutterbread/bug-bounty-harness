@@ -12,6 +12,27 @@ Use this as a decision tree: seed the target space from recon, choose the narrow
 4. If auth boundaries or redirects appear, classify them as follow-up leads rather than final findings.
 5. Report only endpoints, files, or parameters with meaningful signal.
 
+## Depth and Rate Policy
+
+Ryushe's policy is depth-first when scope and pacing are clear. Agents should
+not arbitrarily stop because they have "too many ideas." If 50,000 parameter
+names, paths, extensions, or header candidates are plausible for a bounded
+surface, it is acceptable to test them as a managed campaign.
+
+Required controls:
+
+- keep the target bounded to a specific in-scope host, route, or workflow
+- set an explicit `ffuf -rate` or equivalent request-per-second limit
+- split large campaigns into chunks with artifact files and resumable commands
+- baseline wildcard/catch-all responses before trusting hits
+- promote only meaningful response deltas into findings or downstream skills
+- avoid lockout-prone login fuzzing, destructive state-changing requests, and
+  out-of-scope hosts
+
+When replay history matters, run fuzzing through the agent MITM proxy, for
+example `-x http://hoster:8080` for default direct traffic or a leased
+`hoster:8081-8090` lane for task-specific work.
+
 ## 1. Seed The Space
 
 Do not fuzz blind when recon has already narrowed the attack surface.

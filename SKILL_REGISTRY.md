@@ -79,6 +79,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **mental-map** | `/mental-map {program}` | `prompts/mental-map-playbook.md` |
 | **caido** | `/caido {mcp-url-or-host?}` | `skills/caido/SKILL.md` |
 | **proxy-curl** | `/proxy-curl {raw-request-file}` | `prompts/proxy-curl-playbook.md` |
+| **analyze-endpoint** | `/analyze-endpoint {program} {raw-request-file}` | `prompts/analyze-endpoint-playbook.md` |
 | **pwnfox** | `/pwnfox {color}` | `skills/pwnfox/SKILL.md` |
 | **agent-proxy** | `/agent-proxy` | `skills/agent-proxy/SKILL.md` |
 | **ryushe-proxy** | `/ryushe-proxy` | `skills/ryushe-proxy/SKILL.md` |
@@ -144,6 +145,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /mental-map superdrug
 /caido 192.168.0.135
 /proxy-curl /tmp/request.raw
+/analyze-endpoint canva /tmp/request.raw --pwnfox-color green
 /pwnfox red
 /agent-proxy
 /ryushe-proxy

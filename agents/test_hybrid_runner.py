@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -203,3 +204,49 @@ def test_execute_plan_redacts_sensitive_worker_log_output(tmp_path: Path) -> Non
     assert "secret-cookie" not in log_text
     assert "SESSION=secret" not in log_text
     assert "secret-token-value" not in log_text
+
+
+def test_execute_plan_redacts_sensitive_worker_artifacts(tmp_path: Path) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://docs.canva.tech/auth?next=/api\n", encoding="utf-8")
+    output = tmp_path / "run"
+    artifact_payload = (
+        '{"req_headers":{"Cookie":"TOKEN=testvalue123"},'
+        '"resp_headers_of_interest":["set-cookie: TOKEN=(clear)",'
+        '"set-cookie: NONCE=abcdef1234567890; HttpOnly"],'
+        '"url":"https://docs.canva.tech/auth?next=/api&nonce=abcdef1234567890"}\n'
+    )
+    artifact_b64 = base64.b64encode(artifact_payload.encode("utf-8")).decode("ascii")
+    config = hybrid.HybridConfig(
+        worker=hybrid.EngineConfig(
+            "opencode",
+            "worker-test",
+            command_template=(
+                "python3 -c "
+                + repr(
+                    "import base64; "
+                    "from pathlib import Path; "
+                    f"Path('attempts.jsonl').write_bytes(base64.b64decode('{artifact_b64}'))"
+                )
+            ),
+        ),
+        worker_limit=1,
+    )
+    plan = hybrid.build_plan(
+        program="canva",
+        objective="test",
+        input_path=source,
+        output_root=output,
+        config=config,
+    )
+
+    statuses = hybrid.execute_plan(plan)
+    artifact_path = next((output / "workers").rglob("attempts.jsonl"))
+    artifact_text = artifact_path.read_text(encoding="utf-8")
+
+    assert set(statuses.values()) == {"completed"}
+    assert '"Cookie":"REDACTED"' in artifact_text
+    assert "set-cookie: REDACTED" in artifact_text
+    assert "nonce=REDACTED" in artifact_text
+    assert "testvalue123" not in artifact_text
+    assert "abcdef1234567890" not in artifact_text

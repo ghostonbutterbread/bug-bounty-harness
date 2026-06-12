@@ -217,7 +217,9 @@ def test_execute_plan_redacts_sensitive_worker_artifacts(tmp_path: Path) -> None
         '{"req_headers":{"Cookie":"TOKEN=testvalue123"},'
         '"resp_headers_of_interest":["set-cookie: TOKEN=(clear)",'
         '"set-cookie: NONCE=abcdef1234567890; HttpOnly"],'
-        '"url":"https://docs.canva.tech/auth?next=/api&nonce=abcdef1234567890"}\n'
+        '"url":"https://docs.canva.tech/auth?next=/api&nonce=abcdef1234567890",'
+        '"body_snippet":"history.replaceState(null,null,\\"/search/templates?q=x'
+        '\\u0026__cf_chl_tk=cloudflarechallengevalue123\\")"}\n'
     )
     artifact_b64 = base64.b64encode(artifact_payload.encode("utf-8")).decode("ascii")
     config = hybrid.HybridConfig(
@@ -251,5 +253,7 @@ def test_execute_plan_redacts_sensitive_worker_artifacts(tmp_path: Path) -> None
     assert '"Cookie":"REDACTED"' in artifact_text
     assert "set-cookie: REDACTED" in artifact_text
     assert "nonce=REDACTED" in artifact_text
+    assert "__cf_chl_tk=REDACTED" in artifact_text
     assert "testvalue123" not in artifact_text
     assert "abcdef1234567890" not in artifact_text
+    assert "cloudflarechallengevalue123" not in artifact_text

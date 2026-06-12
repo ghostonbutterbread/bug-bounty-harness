@@ -25,6 +25,21 @@ ffuf -u https://target.com/FUZZ \
   -mc 200,204,301,302,307,401,403,405 -fc 404 -rate 5 -c -v
 ```
 
+## Depth Policy
+
+Fuzzing is allowed to go deep when the target is in scope, rate limits are
+clear, and the run is paced. Do not cap ideas just because the wordlist is
+large. A 50,000-candidate parameter or path campaign is acceptable when it is:
+
+- scoped to a specific host/route/workflow
+- rate-limited with `ffuf -rate` or equivalent pacing
+- chunked so progress and stop conditions are observable
+- filtered against wildcard/catch-all responses before promotion
+- routed through the agent MITM proxy when request history matters
+
+Depth is not permission for destructive payloads, lockout-prone login spraying,
+state-changing spam, or testing outside scope.
+
 ## Mode Matrix
 
 | Mode | Use When | What It Finds |

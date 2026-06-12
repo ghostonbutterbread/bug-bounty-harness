@@ -188,6 +188,9 @@ def cmd_add_account(args: argparse.Namespace) -> int:
             "role": args.role,
             "tenant_id": args.tenant_id,
             "credential_ref": args.credential_ref,
+            "auth_seed_ref": args.auth_seed_ref,
+            "auth_refresh_source": args.auth_refresh_source,
+            "auth_refresh_hint": args.auth_refresh_hint,
             "pwnfox_color": args.pwnfox_color,
             "destructible": args.destructible,
             "source": args.source,
@@ -276,6 +279,19 @@ def build_parser() -> argparse.ArgumentParser:
     account.add_argument("--role")
     account.add_argument("--tenant-id")
     account.add_argument("--credential-ref")
+    account.add_argument(
+        "--auth-seed-ref",
+        help="Non-secret pointer to a locked-down auth seed, for example auth-seed:/absolute/path.json.",
+    )
+    account.add_argument(
+        "--auth-refresh-source",
+        choices=("none", "ryushe-proxy", "manual", "secret-store"),
+        help="Approved fallback source for refreshing stale account auth. Never stores secret values.",
+    )
+    account.add_argument(
+        "--auth-refresh-hint",
+        help="Non-secret hint for locating the account in the approved refresh source, such as pwnfox:blue.",
+    )
     account.add_argument("--pwnfox-color")
     account.add_argument("--destructible", choices=("yes", "no", "unknown"), default="unknown")
     account.add_argument("--source", default="manual")

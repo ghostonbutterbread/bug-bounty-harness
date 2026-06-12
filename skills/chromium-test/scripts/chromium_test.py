@@ -10,26 +10,31 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import time
-import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Iterable
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from mitm_chromium_profile import DEFAULT_CA_CERT, DEFAULT_CERT_NAME, prepare_profile_ca
+
 
 PORT_MIN = 9223
 PORT_MAX = 9500
-DEFAULT_MCP_URL = "http://127.0.0.1:3333/mcp"
 DEFAULT_ROUTE_TABLE = Path(
     "/home/ryushe/projects/ai-policies/skills/proxy-routing-policy/data/proxy_routes.json"
 )
+DEFAULT_HOSTER_CA_CERT = Path(
+    "~/.local/state/ghost/mitm-lanes/hoster-default-8080/mitmproxy/mitmproxy-ca-cert.pem"
+).expanduser()
+AUTH_SEED_REF_PREFIXES = ("auth-seed:", "auth_seed:", "file:")
 CHROME_BINARIES = (
     "chromium",
     "chromium-browser",
     "google-chrome",
     "google-chrome-stable",
 )
-CAIDO_PROFILE_TOOL_HINTS = ("profile", "browser", "proxy", "context")
 
 
 def sanitize_slug(value: str) -> str:
@@ -97,6 +102,7 @@ def current_runtime() -> str:
 
 
 def load_runtime_route(runtime: str) -> dict[str, str]:
+    allowed_route_keys = {"browser_proxy", "lane"}
     if DEFAULT_ROUTE_TABLE.exists():
         try:
             data = json.loads(DEFAULT_ROUTE_TABLE.read_text())
@@ -106,17 +112,19 @@ def load_runtime_route(runtime: str) -> dict[str, str]:
         if isinstance(runtimes, dict):
             route = runtimes.get(runtime)
             if isinstance(route, dict):
-                return {str(k): str(v) for k, v in route.items() if v is not None}
+                return {
+                    str(k): str(v)
+                    for k, v in route.items()
+                    if v is not None and str(k) in allowed_route_keys
+                }
 
     if runtime in {"hoster", "ryushespc", "abommie"}:
         return {
             "browser_proxy": "http://localhost:8080",
-            "caido_mcp": "http://localhost:3333/mcp",
             "lane": "agent" if runtime == "hoster" else "ryushe",
         }
     return {
         "browser_proxy": "http://hoster:8080",
-        "caido_mcp": "http://hoster:3333/mcp",
         "lane": "agent",
     }
 
@@ -161,17 +169,226 @@ def find_chrome_binary(explicit: str | None = None) -> str:
 
 
 def default_profile_dir(program: str, account: str) -> Path:
-    shared_base = Path(
-        os.environ.get("HARNESS_SHARED_BASE", "~/Shared/bounty_recon")
-    ).expanduser()
     return (
-        shared_base
+        shared_base()
         / sanitize_slug(program)
         / "ghost"
         / "chromium-test"
         / "profiles"
         / sanitize_slug(account)
     )
+
+
+def default_ephemeral_profile_dir(program: str, run_id: str | None) -> Path:
+    label = sanitize_slug(run_id or f"run-{int(time.time())}")
+    return (
+        shared_base()
+        / sanitize_slug(program)
+        / "ghost"
+        / "chromium-test"
+        / "profiles"
+        / "runs"
+        / label
+    )
+
+
+def shared_base() -> Path:
+    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/bounty_recon")).expanduser()
+
+
+def account_inventory_path(program: str) -> Path:
+    return shared_base() / sanitize_slug(program) / "credentials" / "account_inventory.json"
+
+
+def load_account_inventory(program: str) -> dict[str, Any]:
+    path = account_inventory_path(program)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Account inventory is not valid JSON: {path}") from exc
+    if not isinstance(data, dict):
+        raise SystemExit(f"Account inventory must contain a JSON object: {path}")
+    return data
+
+
+def resolve_account_record(program: str, selector: str | None) -> dict[str, Any]:
+    if not selector:
+        return {"status": "none"}
+    inventory = load_account_inventory(program)
+    if not inventory:
+        return {"status": "missing-inventory", "selector": selector}
+
+    accounts = inventory.get("accounts", [])
+    if not isinstance(accounts, list):
+        accounts = []
+    normalized = selector.lower()
+    by_alias = {
+        str(account.get("alias", "")).lower(): account
+        for account in accounts
+        if isinstance(account, dict) and account.get("alias")
+    }
+
+    if normalized in by_alias:
+        return {
+            "status": "resolved",
+            "selector": selector,
+            "matched_by": "alias",
+            "account": by_alias[normalized],
+            "inventory_path": str(account_inventory_path(program)),
+        }
+    for account in accounts:
+        if not isinstance(account, dict):
+            continue
+        if str(account.get("pwnfox_color", "")).lower() == normalized:
+            return {
+                "status": "resolved",
+                "selector": selector,
+                "matched_by": "pwnfox_color",
+                "account": account,
+                "inventory_path": str(account_inventory_path(program)),
+            }
+
+    lanes = inventory.get("pwnfox_lanes", [])
+    if isinstance(lanes, list):
+        for lane in lanes:
+            if not isinstance(lane, dict):
+                continue
+            if str(lane.get("color", "")).lower() == normalized:
+                alias = str(lane.get("account", "")).lower()
+                if alias in by_alias:
+                    return {
+                        "status": "resolved",
+                        "selector": selector,
+                        "matched_by": "pwnfox_lane",
+                        "account": by_alias[alias],
+                        "inventory_path": str(account_inventory_path(program)),
+                    }
+    return {"status": "not-found", "selector": selector, "inventory_path": str(account_inventory_path(program))}
+
+
+def auth_seed_path_from_account(account: dict[str, Any] | None) -> Path | None:
+    if not account:
+        return None
+    ref = account.get("auth_seed_ref") or account.get("credential_ref")
+    if not ref:
+        return None
+    text = str(ref)
+    for prefix in AUTH_SEED_REF_PREFIXES:
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+            break
+    if not text.startswith(("/", "~")):
+        return None
+    return Path(text).expanduser()
+
+
+def safe_account_resolution(resolution: dict[str, Any], auth_seed_file: Path | None) -> dict[str, Any]:
+    if resolution.get("status") != "resolved":
+        return {
+            key: resolution.get(key)
+            for key in ("status", "selector", "inventory_path")
+            if resolution.get(key) is not None
+        }
+    account = resolution.get("account") or {}
+    credential_ref = account.get("auth_seed_ref") or account.get("credential_ref")
+    if credential_ref and str(credential_ref).startswith(("auth-seed:", "auth_seed:")):
+        ref_type = "auth-seed"
+    elif credential_ref and str(credential_ref).startswith("file:"):
+        ref_type = "file"
+    elif auth_seed_file:
+        ref_type = "path"
+    else:
+        ref_type = "none"
+    return {
+        "status": "resolved",
+        "selector": resolution.get("selector"),
+        "matched_by": resolution.get("matched_by"),
+        "inventory_path": resolution.get("inventory_path"),
+        "account_alias": account.get("alias"),
+        "pwnfox_color": account.get("pwnfox_color"),
+        "role": account.get("role"),
+        "auth_refresh_source": account.get("auth_refresh_source"),
+        "auth_refresh_hint": account.get("auth_refresh_hint"),
+        "credential_ref_type": ref_type,
+        "auth_seed_file": str(auth_seed_file) if auth_seed_file else None,
+    }
+
+
+def cleanup_profile_dir(profile_dir: Path) -> dict[str, Any]:
+    profile_dir = profile_dir.expanduser().resolve()
+    if not profile_dir.exists():
+        return {"status": "not-found", "profile_dir": str(profile_dir)}
+    if profile_dir in {Path("/"), Path.home()}:
+        return {"status": "refused", "profile_dir": str(profile_dir)}
+    shutil.rmtree(profile_dir)
+    return {"status": "deleted", "profile_dir": str(profile_dir)}
+
+
+def auth_seed_metadata(path: str | None) -> dict[str, Any]:
+    data = load_auth_seed(path)
+    if data is None:
+        return {"status": "none"}
+    seed_path = Path(path).expanduser()
+    mode = seed_path.stat().st_mode & 0o777
+    safe_keys = ("account_label", "session_source", "created_at", "updated_at", "origin")
+    safe = {key: str(data[key]) for key in safe_keys if data.get(key) is not None}
+    return {
+        "status": "loaded",
+        "path": str(seed_path),
+        "mode": oct(mode),
+        "safe_metadata": safe,
+        "secret_fields_present": sorted(
+            key for key in data.keys()
+            if key.lower() in {"cookies", "cookie", "authorization", "bearer", "token", "headers"}
+        ),
+        "cookie_count": len(data.get("cookies", [])) if isinstance(data.get("cookies"), list) else 0,
+        "header_names": sorted(data.get("headers", {}).keys()) if isinstance(data.get("headers"), dict) else [],
+    }
+
+
+def load_auth_seed(path: str | None) -> dict[str, Any] | None:
+    if not path:
+        return None
+    seed_path = Path(path).expanduser()
+    if not seed_path.exists():
+        raise SystemExit(f"Auth seed file not found: {seed_path}")
+    mode = seed_path.stat().st_mode & 0o777
+    if mode & 0o077:
+        raise SystemExit(f"Auth seed file must not be readable by group/other: {seed_path} mode={oct(mode)}")
+    try:
+        data = json.loads(seed_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Auth seed file is not valid JSON: {seed_path}") from exc
+    if not isinstance(data, dict):
+        raise SystemExit("Auth seed file must contain a JSON object")
+    return data
+
+
+def resolve_auth_seed_file(args: argparse.Namespace) -> tuple[str | None, dict[str, Any]]:
+    if args.auth_seed_file:
+        return args.auth_seed_file, {
+            "status": "explicit",
+            "auth_seed_file": str(Path(args.auth_seed_file).expanduser()),
+        }
+    selector = args.account or args.account_label
+    resolution = resolve_account_record(args.program, selector)
+    account = resolution.get("account") if resolution.get("status") == "resolved" else None
+    seed_path = auth_seed_path_from_account(account)
+    return (str(seed_path) if seed_path else None), safe_account_resolution(resolution, seed_path)
+
+
+def resolve_mitm_ca_cert(configured: str, proxy_server: str | None) -> Path:
+    configured_path = Path(configured).expanduser()
+    if (
+        proxy_server
+        and configured_path == DEFAULT_CA_CERT.expanduser()
+        and re.search(r"^https?://hoster:8080/?$", proxy_server)
+        and DEFAULT_HOSTER_CA_CERT.exists()
+    ):
+        return DEFAULT_HOSTER_CA_CERT
+    return configured_path
 
 
 def build_command(args: argparse.Namespace, port: int, profile_dir: Path) -> list[str]:
@@ -186,180 +403,121 @@ def build_command(args: argparse.Namespace, port: int, profile_dir: Path) -> lis
         "--no-default-browser-check",
         "--disable-background-networking",
         "--disable-default-apps",
+        "--disable-extensions",
+        "--disable-component-update",
         "--disable-sync",
+        "--safebrowsing-disable-auto-update",
         "--new-window",
     ]
 
     proxy_server = args.proxy_server or os.environ.get("CHROMIUM_TEST_PROXY_SERVER")
     if proxy_server:
         command.append(f"--proxy-server={proxy_server}")
+    if proxy_server and getattr(args, "ignore_certificate_errors", False):
         command.append("--ignore-certificate-errors")
 
     command.append(args.url or "about:blank")
     return command
 
 
-def parse_mcp_response(raw: str) -> dict[str, Any]:
-    raw = raw.strip()
-    if not raw:
-        return {}
-    if raw.startswith("data:"):
-        data_lines = []
-        for line in raw.splitlines():
-            if line.startswith("data:"):
-                data_lines.append(line.removeprefix("data:").strip())
-        raw = "\n".join(data_lines).strip()
-    return json.loads(raw)
-
-
-def mcp_json_rpc(mcp_url: str, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    body = json.dumps(
-        {
-            "jsonrpc": "2.0",
-            "id": int(time.time() * 1000) % 1_000_000,
-            "method": method,
-            "params": params or {},
-        }
-    ).encode()
-    request = urllib.request.Request(
-        mcp_url,
-        data=body,
-        headers={
-            "Accept": "application/json, text/event-stream",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=3) as response:
-        return parse_mcp_response(response.read().decode("utf-8", errors="replace"))
-
-
-def initialize_mcp(mcp_url: str) -> dict[str, Any]:
-    return mcp_json_rpc(
-        mcp_url,
-        "initialize",
-        {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {"name": "chromium-test", "version": "1.0.0"},
-        },
-    )
-
-
-def list_mcp_tools(mcp_url: str) -> list[dict[str, Any]]:
-    response = mcp_json_rpc(mcp_url, "tools/list")
-    result = response.get("result", response)
-    tools = result.get("tools", []) if isinstance(result, dict) else []
-    return tools if isinstance(tools, list) else []
-
-
-def choose_profile_tool(tools: list[dict[str, Any]]) -> str | None:
-    for tool in tools:
-        name = str(tool.get("name", ""))
-        haystack = " ".join(
-            [
-                name,
-                str(tool.get("description", "")),
-                json.dumps(tool.get("inputSchema", {}), sort_keys=True),
-            ]
-        ).lower()
-        if "profile" in haystack and any(hint in haystack for hint in CAIDO_PROFILE_TOOL_HINTS):
-            return name
+def wait_for_cdp_page(port: int, timeout: float = 8.0) -> dict[str, Any] | None:
+    deadline = time.time() + timeout
+    url = f"http://127.0.0.1:{port}/json/list"
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=1) as response:
+                targets = json.loads(response.read().decode("utf-8", errors="replace"))
+        except Exception:
+            time.sleep(0.2)
+            continue
+        if isinstance(targets, list):
+            for target in targets:
+                if target.get("type") == "page" and target.get("webSocketDebuggerUrl"):
+                    return target
+        time.sleep(0.2)
     return None
 
 
-def call_mcp_tool(mcp_url: str, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    response = mcp_json_rpc(
-        mcp_url,
-        "tools/call",
-        {"name": tool_name, "arguments": arguments},
-    )
-    result = response.get("result", response)
-    if not isinstance(result, dict):
-        return {}
+def cdp_call(ws: Any, method: str, params: dict[str, Any] | None = None, call_id: int = 1) -> dict[str, Any]:
+    ws.send(json.dumps({"id": call_id, "method": method, "params": params or {}}))
+    while True:
+        message = json.loads(ws.recv())
+        if message.get("id") == call_id:
+            return message
 
-    content = result.get("content")
-    if isinstance(content, list):
-        for item in content:
-            if not isinstance(item, dict):
-                continue
-            text = item.get("text")
-            if isinstance(text, str):
-                try:
-                    parsed = json.loads(text)
-                except json.JSONDecodeError:
+
+def apply_auth_seed_via_cdp(port: int, target_url: str | None, seed: dict[str, Any] | None) -> dict[str, Any]:
+    if not seed:
+        return {"status": "none"}
+    target = wait_for_cdp_page(port)
+    if not target:
+        return {"status": "missing-cdp-page"}
+    try:
+        import websocket  # type: ignore
+    except Exception as exc:
+        return {"status": "missing-websocket-client", "error": str(exc)}
+
+    ws = websocket.create_connection(target["webSocketDebuggerUrl"], timeout=5)
+    call_id = 1
+    cookie_count = 0
+    header_names: list[str] = []
+    try:
+        cdp_call(ws, "Network.enable", call_id=call_id)
+        call_id += 1
+        headers = seed.get("headers")
+        if isinstance(headers, dict) and headers:
+            clean_headers = {str(k): str(v) for k, v in headers.items()}
+            cdp_call(ws, "Network.setExtraHTTPHeaders", {"headers": clean_headers}, call_id=call_id)
+            call_id += 1
+            header_names = sorted(clean_headers.keys())
+        cookies = seed.get("cookies")
+        if isinstance(cookies, list):
+            for cookie in cookies:
+                if not isinstance(cookie, dict) or not cookie.get("name"):
                     continue
-                if isinstance(parsed, dict):
-                    return parsed
-    return result
-
-
-def normalize_caido_profile(payload: dict[str, Any]) -> dict[str, Any]:
-    profile = dict(payload)
-    for key in ("profile", "browserProfile", "caidoProfile", "context"):
-        nested = profile.get(key)
-        if isinstance(nested, dict):
-            profile.update({k: v for k, v in nested.items() if k not in profile})
-
-    fields = {
-        "account": ("account", "account_alias", "accountAlias", "label", "name"),
-        "profile_dir": ("profile_dir", "profileDir", "user_data_dir", "userDataDir"),
-        "proxy_server": ("proxy_server", "proxyServer", "browser_proxy", "browserProxy"),
-        "url": ("url", "start_url", "startUrl", "target_url", "targetUrl"),
-    }
-    normalized: dict[str, Any] = {}
-    for out_key, candidates in fields.items():
-        for candidate in candidates:
-            value = profile.get(candidate)
-            if isinstance(value, str) and value.strip():
-                normalized[out_key] = value.strip()
-                break
-    return normalized
-
-
-def resolve_caido_profile(args: argparse.Namespace, task: str) -> dict[str, Any]:
-    if args.caido_profile == "none":
-        return {"status": "disabled"}
-
-    try:
-        initialize_mcp(args.mcp_url)
-        tools = list_mcp_tools(args.mcp_url)
-    except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        if args.require_caido_profile:
-            raise SystemExit(f"Caido MCP profile resolution failed: {exc}") from exc
-        return {"status": "unavailable", "error": str(exc)}
-
-    tool_name = args.caido_profile_tool or choose_profile_tool(tools)
-    if not tool_name:
-        if args.require_caido_profile:
-            tool_names = ", ".join(str(tool.get("name", "")) for tool in tools)
-            raise SystemExit(f"No Caido profile tool found. Tools: {tool_names}")
+                params = {
+                    key: cookie[key]
+                    for key in (
+                        "name",
+                        "value",
+                        "url",
+                        "domain",
+                        "path",
+                        "secure",
+                        "httpOnly",
+                        "sameSite",
+                        "expires",
+                    )
+                    if key in cookie
+                }
+                if "url" not in params and "domain" not in params and target_url:
+                    params["url"] = target_url
+                response = cdp_call(ws, "Network.setCookie", params, call_id=call_id)
+                call_id += 1
+                if response.get("result", {}).get("success"):
+                    cookie_count += 1
+        navigated = False
+        if target_url:
+            cdp_call(ws, "Page.navigate", {"url": target_url}, call_id=call_id)
+            navigated = True
         return {
-            "status": "no-profile-tool",
-            "tools": [tool.get("name") for tool in tools if isinstance(tool, dict)],
+            "status": "applied",
+            "cookies_applied": cookie_count,
+            "extra_header_names": header_names,
+            "navigated": navigated,
         }
-
-    arguments = {
-        "program": args.program,
-        "task": task,
-        "profile": args.caido_profile,
-    }
-    if args.account:
-        arguments["account"] = args.account
-
-    try:
-        payload = call_mcp_tool(args.mcp_url, tool_name, arguments)
-    except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        if args.require_caido_profile:
-            raise SystemExit(f"Caido MCP profile tool failed: {exc}") from exc
-        return {"status": "tool-error", "tool": tool_name, "error": str(exc)}
-
-    normalized = normalize_caido_profile(payload)
-    normalized.update({"status": "resolved", "tool": tool_name})
-    return normalized
+    finally:
+        ws.close()
 
 
 def parse_args() -> argparse.Namespace:
+    if len(sys.argv) > 1 and sys.argv[1] == "cleanup-profile":
+        parser = argparse.ArgumentParser(description="Delete a disposable Chromium profile directory.")
+        parser.add_argument("cleanup_command")
+        parser.add_argument("--profile-dir", required=True)
+        parser.add_argument("--json", action="store_true")
+        return parser.parse_args()
+
     parser = argparse.ArgumentParser(
         description="Launch an isolated Chromium/Chrome instance on a free CDP port."
     )
@@ -370,32 +528,64 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--url", help="Initial URL to open. Defaults to about:blank.")
     parser.add_argument("--port", type=int, help=f"CDP port in {PORT_MIN}-{PORT_MAX}.")
     parser.add_argument("--profile-dir", help="Override Chrome user-data-dir.")
+    parser.add_argument("--run-id", help="Agent run id for ephemeral profile naming and proxy attribution.")
+    parser.add_argument("--agent-id", help="Agent id for proxy attribution.")
+    parser.add_argument("--account-label", help="Stable account label for proxy attribution.")
+    parser.add_argument("--session-source", help="Auth/session source label for proxy attribution.")
+    parser.add_argument(
+        "--auth-seed-file",
+        help=(
+            "Locked-down JSON auth seed file. Must be owner-only readable; secret values are never printed. "
+            "If omitted, --account/--account-label may resolve an auth seed from credentials/account_inventory.json."
+        ),
+    )
+    parser.add_argument(
+        "--ephemeral-profile",
+        action="store_true",
+        help="Create a fresh run-scoped browser profile and include a cleanup command in output.",
+    )
     parser.add_argument(
         "--proxy-server",
         help="Actual browser HTTP/SOCKS proxy listener. Defaults to the runtime route table.",
+    )
+    parser.add_argument(
+        "--proxy-cert-mode",
+        choices=("auto", "import", "ignore", "none"),
+        default=os.environ.get("CHROMIUM_TEST_PROXY_CERT_MODE", "auto"),
+        help=(
+            "How to handle proxy TLS interception. auto/import trust a CA in the profile; "
+            "ignore adds --ignore-certificate-errors; none does neither."
+        ),
+    )
+    parser.add_argument(
+        "--mitm-ca-cert",
+        default=os.environ.get("CHROMIUM_TEST_MITM_CA_CERT")
+        or os.environ.get("MITMPROXY_CA_CERT")
+        or str(DEFAULT_CA_CERT),
+        help="CA certificate to import when --proxy-cert-mode is auto or import.",
+    )
+    parser.add_argument(
+        "--mitm-cert-name",
+        default=os.environ.get("CHROMIUM_TEST_MITM_CERT_NAME", DEFAULT_CERT_NAME),
+        help="Certificate nickname for the Chromium profile NSS DB.",
     )
     parser.add_argument(
         "--remote-allow-origins",
         default=os.environ.get("CHROMIUM_TEST_REMOTE_ALLOW_ORIGINS", "*"),
         help="Value for Chromium --remote-allow-origins. Defaults to '*'.",
     )
-    parser.add_argument(
-        "--caido-profile",
-        default=os.environ.get("CHROMIUM_TEST_CAIDO_PROFILE", "auto"),
-        help="Caido profile selector: auto, none, or a named Caido profile.",
-    )
-    parser.add_argument("--caido-profile-tool", help="Explicit Caido MCP tool for profile lookup.")
-    parser.add_argument(
-        "--require-caido-profile",
-        action="store_true",
-        help="Fail if Caido profile lookup cannot resolve.",
-    )
-    parser.add_argument(
-        "--mcp-url",
-        default=os.environ.get("KAIDO_MCP_PROXY_URL"),
-        help="Caido MCP control URL. Defaults to the runtime route table.",
-    )
     parser.add_argument("--chrome-binary", help="Override Chromium/Chrome executable.")
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Launch Chromium in headless mode for scripted smoke tests.",
+    )
+    parser.add_argument(
+        "--isolated-home",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use a per-profile HOME so Chrome uses an isolated ~/.pki/nssdb trust store.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print launch plan only.")
     parser.add_argument("--json", action="store_true", help="Print JSON output.")
     return parser.parse_args()
@@ -403,53 +593,135 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if getattr(args, "cleanup_command", None) == "cleanup-profile":
+        result = cleanup_profile_dir(Path(args.profile_dir))
+        if args.json:
+            print(json.dumps(result, indent=2, sort_keys=True))
+        else:
+            print(f"{result['status']}: {result['profile_dir']}")
+        return 0 if result["status"] in {"deleted", "not-found"} else 2
+
     runtime = current_runtime()
     runtime_route = load_runtime_route(runtime)
-    if not args.mcp_url:
-        args.mcp_url = runtime_route.get("caido_mcp", DEFAULT_MCP_URL)
     port = pick_port(args.port)
     task = args.task_opt or args.task_arg or "manual"
-    caido_profile = resolve_caido_profile(args, task)
-    if args.account:
+    resolved_auth_seed_file, account_resolution = resolve_auth_seed_file(args)
+    auth_seed_data = load_auth_seed(resolved_auth_seed_file)
+    auth_seed = auth_seed_metadata(resolved_auth_seed_file)
+    if args.account_label:
+        account = args.account_label
+    elif auth_seed.get("safe_metadata", {}).get("account_label"):
+        account = auth_seed["safe_metadata"]["account_label"]
+    elif args.account:
         account = args.account
-    elif caido_profile.get("account"):
-        account = caido_profile["account"]
-    elif caido_profile.get("status") == "resolved":
-        account = f"{sanitize_slug(args.program)}-caido"
     else:
         account = f"{sanitize_slug(args.program)}-context"
-    profile_dir_override = args.profile_dir or caido_profile.get("profile_dir")
+    profile_dir_override = args.profile_dir
     profile_dir = (
         Path(profile_dir_override).expanduser()
         if profile_dir_override
+        else default_ephemeral_profile_dir(args.program, args.run_id) if args.ephemeral_profile
         else default_profile_dir(args.program, account)
     )
-    if not args.proxy_server and caido_profile.get("proxy_server"):
-        args.proxy_server = caido_profile["proxy_server"]
     if not args.proxy_server:
         args.proxy_server = (
             os.environ.get("CHROMIUM_TEST_PROXY_SERVER")
             or runtime_route.get("browser_proxy")
         )
-    if not args.url and caido_profile.get("url"):
-        args.url = caido_profile["url"]
+    mitm_ca_cert = resolve_mitm_ca_cert(args.mitm_ca_cert, args.proxy_server)
     if not args.dry_run:
         profile_dir.mkdir(parents=True, exist_ok=True)
 
+    cert_status: dict[str, Any] = {"status": "not-needed"}
+    args.ignore_certificate_errors = False
+    home_dir = profile_dir / "home" if args.isolated_home else None
+    if home_dir and not args.dry_run:
+        home_dir.mkdir(parents=True, exist_ok=True)
+    if args.proxy_server:
+        if args.proxy_cert_mode in {"auto", "import"}:
+            if args.dry_run:
+                cert_status = {
+                    "status": "dry-run",
+                    "profile_dir": str(profile_dir),
+                    "home_dir": str(home_dir) if home_dir else None,
+                    "ca_cert": str(mitm_ca_cert),
+                    "cert_name": args.mitm_cert_name,
+                }
+            else:
+                try:
+                    cert_status = prepare_profile_ca(
+                        profile_dir,
+                        mitm_ca_cert,
+                        args.mitm_cert_name,
+                        home_dir=home_dir,
+                    )
+                except RuntimeError as exc:
+                    cert_status = {
+                        "status": "import-error",
+                        "profile_dir": str(profile_dir),
+                        "home_dir": str(home_dir) if home_dir else None,
+                        "ca_cert": str(mitm_ca_cert),
+                        "cert_name": args.mitm_cert_name,
+                        "error": str(exc),
+                    }
+            if cert_status.get("status") != "trusted":
+                if args.proxy_cert_mode == "import" and not args.dry_run:
+                    raise SystemExit(
+                        "Could not import proxy CA into Chromium profile: "
+                        f"{cert_status.get('status')}"
+                    )
+                if not args.dry_run:
+                    args.ignore_certificate_errors = True
+        elif args.proxy_cert_mode == "ignore":
+            cert_status = {"status": "ignored-by-flag"}
+            args.ignore_certificate_errors = True
+        elif args.proxy_cert_mode == "none":
+            cert_status = {"status": "disabled"}
+
+    target_url = args.url
+    if auth_seed_data and target_url:
+        args.url = None
     command = build_command(args, port, profile_dir)
+    args.url = target_url
+    if args.headless and "--headless=new" not in command:
+        command.insert(1, "--headless=new")
     result = {
         "program": args.program,
         "task": task,
         "account": account,
+        "run_id": args.run_id,
+        "agent_id": args.agent_id,
+        "account_label": args.account_label or account,
+        "session_source": args.session_source or auth_seed.get("safe_metadata", {}).get("session_source"),
+        "account_resolution": account_resolution,
+        "auth_seed": auth_seed,
         "port": port,
         "cdp_url": f"http://127.0.0.1:{port}",
         "cdp_version_url": f"http://127.0.0.1:{port}/json/version",
         "profile_dir": str(profile_dir),
-        "mcp_url": args.mcp_url,
+        "profile_lifetime": "ephemeral" if args.ephemeral_profile else "persistent",
+        "cleanup_command": (
+            [
+                sys.argv[0],
+                "cleanup-profile",
+                "--profile-dir",
+                str(profile_dir),
+                "--json",
+            ]
+            if args.ephemeral_profile
+            else None
+        ),
         "runtime": runtime,
         "runtime_route": runtime_route,
-        "caido_profile": caido_profile,
+        "mitm_proxy": {
+            "status": "configured" if args.proxy_server else "missing",
+            "proxy_server": args.proxy_server,
+            "source": "explicit/env/route",
+        },
         "proxy_server": args.proxy_server or os.environ.get("CHROMIUM_TEST_PROXY_SERVER"),
+        "proxy_cert_mode": args.proxy_cert_mode,
+        "proxy_cert_status": cert_status,
+        "auth_application": {"status": "dry-run" if auth_seed_data and args.dry_run else "none"},
         "command": command,
         "dry_run": args.dry_run,
     }
@@ -459,19 +731,21 @@ def main() -> int:
             command,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env={**os.environ, **({"HOME": str(home_dir)} if home_dir else {})},
             start_new_session=True,
         )
         time.sleep(1)
         result["pid"] = proc.pid
+        result["auth_application"] = apply_auth_seed_via_cdp(port, target_url, auth_seed_data)
 
     if args.json or args.dry_run:
         print(json.dumps(result, indent=2, sort_keys=True))
     else:
         print(f"Started Chromium PID {result['pid']} on {result['cdp_url']}")
         print(f"Profile: {profile_dir}")
-        print(f"MCP: {args.mcp_url}")
         if result["proxy_server"]:
             print(f"Browser proxy: {result['proxy_server']}")
+            print(f"Proxy cert: {cert_status['status']}")
 
     return 0
 

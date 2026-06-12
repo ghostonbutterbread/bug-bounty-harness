@@ -1,6 +1,6 @@
 # Chromium Test Playbook
 
-Use this playbook when a scoped test needs a fresh Chromium/Chrome instance with remote debugging, a per-program profile, and proxy/MCP-aware observation.
+Use this playbook when a scoped test needs a fresh Chromium/Chrome instance with remote debugging, a per-program profile, and MITM proxy observation.
 
 The launcher prefers Playwright's bundled Chromium when Playwright is installed, then falls back to system Chromium/Chrome.
 
@@ -28,11 +28,10 @@ lane and continue mapping there unless a real stop condition appears.
 ```bash
 cd "$HARNESS_ROOT"
 python3 skills/chromium-test/scripts/chromium_test.py <program> "pfp" \
-  --caido-profile auto \
   --url https://target.example/
 ```
 
-Browser proxying is default behavior. The launcher resolves the runtime route table and adds `--proxy-server=<browser-proxy>` plus `--ignore-certificate-errors` unless a Caido profile or explicit flag supplies a different browser proxy.
+Browser proxying is default behavior. The launcher resolves the runtime route table and adds `--proxy-server=<browser-proxy>`. When proxying, it prepares the isolated Chromium profile to trust the mitmproxy CA through the profile NSS database. Blanket certificate-ignore mode is fallback/debug behavior, not the normal path.
 
 The launcher includes Chromium's CDP origin compatibility flag by default:
 
@@ -46,7 +45,7 @@ Common invocations:
 
 ```text
 /chromium-test superdrug pfp
-/chromium-test canva upload-flow --caido-profile qa-primary
+/chromium-test canva upload-flow --account-label qa-primary
 /chromium-test notion profile-settings --url https://www.notion.so/
 ```
 
@@ -72,47 +71,65 @@ curl -sS "http://127.0.0.1:<port>/json/version"
 curl -sS "http://127.0.0.1:<port>/json/list"
 ```
 
-## Caido Profile and Credential Resolution
+## Account and Credential Resolution
 
-Default behavior is Caido-first:
+Default behavior is MITM-first and auth-seed explicit:
 
-- `--caido-profile auto`: ask Caido MCP for the active or context-appropriate profile/request context, including usable auth headers such as `Authorization` and/or `Cookie`.
-- `--caido-profile <name>`: ask Caido MCP for that named profile/request context and its usable auth headers.
-- `--caido-profile none`: skip Caido profile lookup and use local fallback behavior.
-- `--caido-profile-tool <tool>`: force a specific Caido MCP tool when auto-discovery is not enough.
-- `--require-caido-profile`: fail closed if Caido cannot resolve a profile.
+- The launcher does not query external profile services, proxy history, or browser profiles.
+- `--account-label <label>` selects the stable account/persona label for profile naming and proxy-store attribution.
+- `--auth-seed-file <path>` may point to a local JSON auth seed with owner-only permissions such as `0600`.
+- If `--auth-seed-file` is omitted, `--account <alias-or-color>` or
+  `--account-label <alias-or-color>` may resolve a non-secret account entry from
+  `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json`.
+  The inventory may store `credential_ref` or `auth_seed_ref` as an
+  `auth-seed:/absolute/path` or `file:/absolute/path` pointer to a locked-down
+  seed, but it must not store the cookie, token, password, or header values.
+- `--ephemeral-profile` creates a fresh run-scoped browser profile and returns a cleanup command.
 
-The launcher will try to:
-
-1. Initialize Caido MCP at `$KAIDO_MCP_PROXY_URL`.
-2. List MCP tools.
-3. Auto-select a profile/browser/proxy/context tool when one is exposed.
-4. Call the profile tool with program, task, requested profile, and optional account override.
-5. Use returned fields such as account alias, browser proxy listener, start URL, Chrome profile directory, or profile-bound request headers.
-6. Extract only the operational auth material needed for the browser session, normally `Authorization` and/or `Cookie` headers from Caido's active profile/request context.
-7. Apply those headers to the launched browser/session update flow, including `mySession` when that is the active session bridge. Do not print raw usernames, passwords, cookies, bearer tokens, session IDs, or credential values.
-
-If Caido is offline or no profile tool is exposed, the launcher reports that status in JSON output. For login-dependent work, use `--require-caido-profile` so the task stops instead of silently launching an unprofiled browser.
-
-`--account` is only an override for account/profile alias. It should not be the default path.
+`--account` selects the requested account alias or PwnFox color, for example
+`blue`. Prefer `--account-label` when the account is already resolved and the
+goal is only stable proxy-store attribution.
 
 Auth material handling contract:
 
-- Do not assume Caido history will provide login credentials.
-- This is an allowed authenticated-session operation when Ryushe asks for it: use Caido-held `Authorization` and/or `Cookie` header values to update the current scoped browser session, including `mySession`.
-- Prefer Caido's current profile/request context and pull only the `Authorization` and/or `Cookie` header values needed to authenticate the launched browser session.
-- If Caido exposes a credential/profile/session/header tool, call it only for the selected program/task/profile.
-- Apply the auth material directly to the browser session update mechanism, such as `mySession`, without echoing the values.
+- Do not assume proxy history will provide login credentials.
+- Apply auth material only from an approved auth seed or explicit task context.
+- Apply the auth material directly to the browser session update mechanism without echoing the values.
 - Secret values are in-memory operational material, not evidence. Never copy them into logs, screenshots, reports, prompts, chat, or notes.
-- If Caido cannot provide usable auth headers and a login is required, pause and ask Ryushe rather than guessing, scraping credentials from local files, or treating traffic history as a password source.
+- If no approved auth seed is available and a login is required, use the
+  account record's approved refresh policy if one exists. If no refresh policy
+  exists, pause and ask Ryushe rather than guessing, scraping credentials from
+  local files, or treating traffic history as a password source.
+
+### Named-account refresh fallback
+
+If Ryushe explicitly says to use a named account or color, for example
+`blue credentials`, and the resolved auth seed is missing, stale, or fails to
+authenticate in the fresh browser, the agent may refresh that same account's
+auth seed from the approved source recorded in
+`credentials/account_inventory.json`.
+
+Allowed record fields:
+
+- `auth_seed_ref`: non-secret pointer to the locked-down auth seed file.
+- `auth_refresh_source`: `ryushe-proxy`, `manual`, `secret-store`, or `none`.
+- `auth_refresh_hint`: non-secret lookup hint such as `pwnfox:blue` or
+  `account:blue-primary`.
+
+For `auth_refresh_source=ryushe-proxy`, load `/ryushe-proxy` and use Ryushe's
+proxy only as a credential refresh source for the already-selected account. The
+agent may extract the current cookies/headers needed for that account and write
+them into the locked-down auth seed file, but must not print, summarize, or
+store those values anywhere else. After refreshing, retry the browser launch
+through the agent MITM lane, not through Ryushe's proxy, unless Ryushe explicitly
+asks for same-host active testing.
 
 For curl-failure escalation, auth/session injection is allowed only when the
 session source is approved for the current program and lane. Use agent-owned or
-Caido-profile `Authorization`/`Cookie` material in memory to update the scoped
-browser context; do not echo it into terminal output, prompts, logs, reports,
-or chat.
+auth-seed material in memory to update the scoped browser context; do not echo
+it into terminal output, prompts, logs, reports, or chat.
 
-Fallback behavior when Caido is unavailable and the task is still safe:
+Fallback behavior when no auth seed is needed or the task is still safe:
 
 1. Read current target context and notes for the program.
 2. Check non-secret account labels in `$HARNESS_SHARED_BASE/{program}/credentials/`, program notes, and current hunt context.
@@ -121,41 +138,90 @@ Fallback behavior when Caido is unavailable and the task is still safe:
 
 Never disclose credential values. If login requires a secret that is not already available through an approved local mechanism, pause and ask Ryushe.
 
-## Proxy and MCP
+## MITM Proxy
 
-Default MCP control endpoint:
+Important rules:
 
-```text
-runtime route table, or $KAIDO_MCP_PROXY_URL when set
-```
+- A browser `--proxy-server` value must be an actual HTTP/SOCKS MITM proxy listener.
+- The launcher falls back to the runtime route table when no explicit proxy is supplied.
+- Use `$CHROMIUM_TEST_PROXY_SERVER` or launcher `--proxy-server` only as an explicit override.
+- The launcher should import the mitmproxy CA into the isolated Chromium profile whenever it launches through the proxy. Use `--proxy-cert-mode import` to fail closed, `--proxy-cert-mode auto` for import-with-debug-fallback, and `--proxy-cert-mode ignore` only for disposable troubleshooting.
+- For live intercept/modify/forward work, use a leased MITM lane so traffic is isolated and indexed with agent/run/account attribution.
 
-Override with:
+Hoster proxy model:
+
+- `hoster:8080` is the default capture proxy for generic direct HTTP traffic.
+  Ensure it is running before default browser or curl replay work:
+  ```bash
+  python3 skills/chromium-test/scripts/hoster_mitm_lane.py --json ensure-default
+  ```
+- `hoster:8081-8090` are leased task-specific agent MITM lanes.
+- `proxy_leases` is active state only. Release the row after indexing/cleanup.
+- Durable history belongs in indexed lane/request metadata: run id, agent id,
+  account label, proxy host/port, transport, browser profile id, and session
+  source.
+- On Ryushe's PC (`abommie`/`ryushespc`), prefer the local MITM proxy lane
+  unless the task explicitly asks for Hoster.
+
+Profile certificate bootstrap:
 
 ```bash
-KAIDO_MCP_PROXY_URL=http://127.0.0.1:3333/mcp
+bash skills/chromium-test/scripts/install.sh
+python3 skills/chromium-test/scripts/mitm_chromium_profile.py \
+  --profile-dir "$HARNESS_SHARED_BASE/<program>/ghost/chromium-test/profiles/<account>" \
+  --home-dir "$HARNESS_SHARED_BASE/<program>/ghost/chromium-test/profiles/<account>/home" \
+  --ca-cert ~/.mitmproxy/mitmproxy-ca-cert.pem
 ```
 
-Important distinction:
+For leased mitmproxy lane smoke tests, keep the proxy lifecycle script-owned:
 
-- `KAIDO_MCP_PROXY_URL` is the MCP endpoint used for profile/proxy/tool coordination.
-- The preferred path is: ask Caido MCP for the profile, then use the browser proxy listener returned by that profile.
-- A browser `--proxy-server` value must be an actual HTTP/SOCKS proxy listener, not merely the MCP `/mcp` endpoint.
-- The launcher falls back to the runtime route table when Caido does not return a browser proxy.
-- Use `$CHROMIUM_TEST_PROXY_SERVER` or launcher `--proxy-server` only as an explicit override.
-- The launcher must add `--ignore-certificate-errors` whenever it launches through the proxy so the proxied browser can work with interception certificates.
-- For live intercept/modify/forward work, load `/intercepted-proxy` before browser launch. It owns runtime route selection, proxy flag requirements, Caido intercept/Tamper enablement, forwarding, and cleanup.
+```bash
+python3 skills/chromium-test/scripts/hoster_mitm_lane.py --json acquire-start \
+  --agent-id "$AGENT_ID" \
+  --run-id "$RUN_ID" \
+  --program <program> \
+  --task "<task>" \
+  --account-label <account-label>
+python3 skills/chromium-test/scripts/chromium_test.py <program> "<task>" \
+  --proxy-server http://hoster:<leased-port> \
+  --ephemeral-profile \
+  --run-id "$RUN_ID" \
+  --agent-id "$AGENT_ID" \
+  --account-label <account-label> \
+  --proxy-cert-mode import \
+  --mitm-ca-cert ~/.local/state/ghost/mitm-lanes/<lane>/mitmproxy/mitmproxy-ca-cert.pem
+python3 skills/chromium-test/scripts/hoster_mitm_lane.py --json index-stop-release \
+  --lane <lane> \
+  --agent-id "$AGENT_ID" \
+  --run-id "$RUN_ID" \
+  --account-label <account-label> \
+  --proxy-port <leased-port> \
+  --transport browser
+python3 skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir <profile-dir> --json
+```
+
+The proxy store keeps two layers:
+
+- default query output is sanitized metadata: method, host, path, status,
+  content types, parameter names, body field names, header names,
+  auth/cookie presence flags, tags, and lane/program/task
+- local replay packets preserve the full request, including headers and body,
+  so agents can export one request by id when direct replay needs the original
+  shape
+
+Do not paste exported full packets into prompts or chat. They may contain
+cookies, bearer tokens, CSRF values, API keys, or request body secrets.
+
+Auth seed files are allowed only as local locked-down JSON files. Require
+owner-only permissions such as `0600`. The browser launcher can read safe
+metadata like account label and session source, but must not print or summarize
+secret cookie, bearer, CSRF, token, or private header values.
 
 Runtime defaults for intercepted browser launches:
 
-- OpenClaw/Ghost/`ghostonbread`: browser proxy `http://hoster:8080`, MCP `http://hoster:3333/mcp`
-- Hoster: browser proxy `http://localhost:8080`, MCP `http://localhost:3333/mcp`
-- Ryushe PC / `ryushespc` / Abommie: browser proxy `http://localhost:8080`, MCP `http://localhost:3333/mcp`
-
-Basic MCP reachability check:
-
-```bash
-curl -sS --max-time 2 "$KAIDO_MCP_PROXY_URL" >/tmp/chromium-test-mcp-check.txt
-```
+- OpenClaw/Ghost/`ghostonbread`: browser proxy `http://hoster:8080`
+- Hoster: browser proxy `http://localhost:8080`
+- Ryushe PC / `ryushespc` / Abommie: browser proxy `http://localhost:8080`
 
 Do not send target traffic until scope, account, and proxy expectations are clear.
 
@@ -173,7 +239,7 @@ Do not send target traffic until scope, account, and proxy expectations are clea
    - `upload-flow`: file upload/import workflow
    - `profile-settings`: account/profile update workflow
    - other tasks: interpret from the current hunt context and scope
-7. Observe traffic and state transitions through the proxy/MCP workflow if configured.
+7. Observe traffic and state transitions through the MITM proxy workflow if configured.
 8. Save evidence under:
    ```text
    $HARNESS_SHARED_BASE/{program}/ghost/chromium-test/
@@ -189,8 +255,8 @@ Record:
 - target URL(s)
 - scope/rate-limit source checked
 - requested task and exact steps performed
-- proxy/MCP endpoint and actual browser proxy listener, if any
-- whether `--ignore-certificate-errors` was present when proxying
+- MITM proxy endpoint and actual browser proxy listener, if any
+- proxy certificate mode and `proxy_cert_status`; note any fallback to `--ignore-certificate-errors`
 - screenshots or artifact paths
 - full URLs for relevant requests
 - security-relevant observations and why they matter

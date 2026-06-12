@@ -21,6 +21,28 @@ Do not replay from Ryushe's proxy just because the request was found there. Trea
 
 For replaying that request shape, prefer direct HTTP replay from the agent with `curl`, `httpx`, or a focused script. If direct replay fails because it looks like non-browser traffic, the agent may use its own local MCP/proxy replay fallback. That fallback is still agent-lane, not Ryushe-lane, unless the same-host localhost exception applies.
 
+## Named-Account Auth Refresh
+
+Ryushe has approved a narrow exception for named account/color refreshes.
+
+If Ryushe explicitly asked to use a named account or color, for example
+`blue credentials`, and the registered auth seed for that same account is
+missing, stale, or fails in a fresh Chromium/MITM browser, the agent may use
+Ryushe's proxy to refresh that account's auth seed when all of these are true:
+
+- `credentials/account_inventory.json` resolves the requested alias/color to a
+  specific account.
+- That account record has `auth_refresh_source=ryushe-proxy`.
+- The lookup is constrained by a non-secret hint such as `pwnfox:blue`,
+  `account:blue-primary`, host, or program context.
+- The refreshed values are written only to the account's locked-down auth seed
+  file referenced by `auth_seed_ref` or `credential_ref`.
+
+The agent must not print, summarize, commit, paste, or otherwise persist the
+raw cookies, bearer tokens, CSRF tokens, or private headers. After refreshing the
+seed, retry active testing through the agent MITM lane, not through Ryushe's
+proxy, unless Ryushe explicitly asks for same-host active testing.
+
 ## Endpoint
 
 From Hoster only:
@@ -39,13 +61,16 @@ Current boundary note: the Ghost/OpenClaw host, also referred to as `ghostonbrea
 2. Confirm the agent is running on Hoster by `GHOST_AGENT_RUNTIME=hoster`, hostname, or a trusted runtime note.
 3. Connect to `http://ryushespc:3333/mcp`.
 4. Inspect only the relevant project/history/workflow requested.
-5. For active testing, switch to `agent-proxy` and replay from the agent lane unless the same-host localhost exception applies.
-6. Compare equivalent flows against the agent lane when needed.
+5. For approved named-account refresh, update only the locked-down auth seed
+   for that account, then close the Ryushe-proxy lookup path.
+6. For active testing, switch to the agent MITM/proxy lane unless the same-host
+   localhost exception applies.
+7. Compare equivalent flows against the agent lane when needed.
 
 ## Guardrails
 
 - Read/compare by default; do not mutate Ryushe's Caido projects unless requested.
 - Do not actively test through Ryushe's proxy unless the current agent is on the same host as the proxy and `my proxy` resolves to `localhost`.
-- Do not copy cookies, bearer tokens, API keys, or other secrets from Ryushe's proxy into agent browsers/API clients unless Ryushe explicitly approves that action.
+- Do not copy cookies, bearer tokens, API keys, or other secrets from Ryushe's proxy into agent browsers/API clients unless Ryushe explicitly approves that action. The standing approval in this skill applies only to named-account auth refresh records with `auth_refresh_source=ryushe-proxy`.
 - Do not print, persist, or paste raw secrets from Ryushe's traffic into prompts, chat, logs, findings, reports, commits, or notes.
 - Keep Ryushe-lane evidence labeled separately from agent-lane evidence.

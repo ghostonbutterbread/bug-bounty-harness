@@ -25,7 +25,7 @@ secret material.
 
 ## What To Record
 
-- account alias, email/username if approved to store, user ID, role, tenant/workspace, credential reference, destructible status
+- account alias, email/username if approved to store, user ID, role, tenant/workspace, credential reference, auth seed reference, destructible status
 - PwnFox color to account alias mapping
 - owned resource type, resource ID, display name, owner account, full source URL, run/session ID, cleanup/destructible status
 - evidence source: browser, Caido, manual note, API response, signup flow, or child-agent output
@@ -46,7 +46,7 @@ Caido color filter template: req.raw.cont:"X-PwnFox-Color" AND req.raw.cont:"{co
 
 ```bash
 python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py show {program}
-python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-account {program} --alias primary --email ryushe+ai@example.com --user-id USER_ID --credential-ref "bitwarden:item-name" --pwnfox-color blue --destructible no
+python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-account {program} --alias primary --email ryushe+ai@example.com --user-id USER_ID --credential-ref "bitwarden:item-name" --auth-seed-ref "auth-seed:/secure/path/primary.json" --pwnfox-color blue --destructible no
 python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-resource {program} --type design --id DESIGN_ID --name "profile test design" --owner primary --url https://target.example/design/DESIGN_ID --cleanup-needed yes
 python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py link-pwnfox {program} --color blue --account primary
 ```

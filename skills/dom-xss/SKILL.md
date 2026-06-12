@@ -64,6 +64,25 @@ Framework-specific review:
 6. If browser tooling is unavailable, save enough source/sink evidence for the
    next browser-capable agent and mark as `Likely` or `Potential`.
 
+## Deep-Run Requirements
+
+For `/hybrid`, `/deep-hunt`, URL-batch, or route-cluster handoffs, do not stop
+at "marker reflected" or "framework detected." Produce a compact source-to-sink
+map:
+
+- source inventory: query, hash, router state, storage, `postMessage`,
+  bootstrap data, API response, and framework state candidates
+- sink inventory: DOM insertion APIs, raw HTML helpers, URL attributes,
+  iframe/srcdoc/embed strings, JSON/XML data islands, and sanitizer trust
+  boundaries
+- framework evidence: React/Vue/Angular/router/state-library clues, bundle
+  names, CSP, and browser-vs-raw response differences
+- payload accounting: one `attempts.jsonl` row per deliberate source/sink probe
+  with payload family, transformation result, browser result, and stop reason
+
+If the route is browser-only due to challenge or client rendering, raw HTTP is
+not sufficient evidence to close the DOM lane.
+
 ## DOM-Specific Payload Thinking
 
 DOM payloads often succeed because two components disagree:

@@ -409,6 +409,17 @@ def _lane_skills(lane: str) -> list[str]:
     }.get(lane, ["deep-hunt"])
 
 
+def _lane_specific_guidance(packet: WorkerPacket) -> str:
+    if packet.lane != "xss":
+        return "No extra lane-specific instructions."
+    return """XSS deep default:
+- Do source-to-sink mapping before payload volume. Inventory query/hash/path/router/storage/postMessage/API/bootstrap sources and reflected DOM, input value, attribute, script/data-island, JSON/XML/iframe, raw-HTML helper, sanitizer, and framework-render sinks.
+- Record framework and edge clues before payload choice: React/Vue/Angular/router/state libraries, bundle names, CSP, WAF/challenge signal, and raw HTTP vs browser-rendered differences.
+- Choose payload families from the observed context: marker/baseline, attribute breakout, tag breakout, event-handler, URL-scheme/navigation, template-literal/expression, JSON/XML/iframe attribute, hash/router source, storage/message source, or WAF/parser mutation.
+- For every deliberate probe, write one attempts.jsonl row with payload family, source, sink/context, encoding or normalization result, browser result, and stop reason.
+- Do not mark the XSS lane complete from raw HTTP alone when framework rendering or browser-only routing affects the route. Stop increasing payload volume once representative probes prove the context inert; switch source/sink hypothesis or hand off."""
+
+
 def render_worker_prompt(packet: WorkerPacket, *, program: str, objective: str) -> str:
     request_budget = (
         "0 means no arbitrary hard cap; continue only while scoped, rate-limited, "
@@ -437,6 +448,10 @@ Objective: {objective}
 ## Skills To Apply
 
 {_bullet_list(packet.skills)}
+
+## Lane-Specific Instructions
+
+{_lane_specific_guidance(packet)}
 
 ## Representative URLs
 

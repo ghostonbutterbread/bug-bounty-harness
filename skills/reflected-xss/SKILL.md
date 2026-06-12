@@ -58,6 +58,26 @@ Do not choose payloads before context classification.
    difference worth exploring.
 6. Use browser verification or target-owned checker for confirmation.
 
+## Deep-Run Requirements
+
+For `/hybrid`, `/deep-hunt`, URL-batch, or route-cluster handoffs, reflected XSS
+testing must include source/sink accounting, not just payload attempts.
+
+Required behavior:
+
+- record the exact source: parameter, path, header, body field, router state,
+  or browser-only source
+- record the exact sink/context: text, quoted attribute, unquoted attribute,
+  URL attribute, JSON/bootstrap blob, script/data island, XML/iframe string, or
+  framework render path
+- note framework and defense clues before choosing payloads: React/Vue/Angular,
+  router/state hints, CSP, sanitizer behavior, WAF/challenge, and raw HTTP vs
+  browser-rendered differences
+- choose a representative context-matched payload family and record the family
+  in `attempts.jsonl`
+- stop or hand off when the context is proven inert; do not inflate coverage
+  with unrelated polyglots
+
 ## Good Payload Thinking
 
 Prefer reasoning like:

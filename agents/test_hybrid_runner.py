@@ -71,6 +71,8 @@ def test_plan_classifies_urls_and_writes_worker_packets(tmp_path: Path) -> None:
     assert "XSS deep default" in packet_prompt
     assert "source-to-sink mapping before payload volume" in packet_prompt
     assert "payload family, source, sink/context" in packet_prompt
+    assert "packet-owned scratch directory" in packet_prompt
+    assert "Do not write scratch files under `/tmp`" in packet_prompt
 
 
 def test_cli_overrides_worker_model_and_request_cap(tmp_path: Path, capsys) -> None:
@@ -130,6 +132,7 @@ def test_command_for_supported_engines_quotes_prompt_and_model(tmp_path: Path) -
     assert "opencode run" in opencode
     assert "--model deepseek/deepseek-v4-pro" in opencode
     assert "--file" in opencode
+    assert "Use ./scratch for temporary files" in opencode
     assert "codex exec" in codex
     assert "--model gpt-5.5" in codex
 
@@ -147,7 +150,11 @@ def test_execute_plan_updates_monitor_state_and_runs_planner_after_workers(tmp_p
         worker=hybrid.EngineConfig(
             "opencode",
             "worker-test",
-            command_template="python3 -c \"from pathlib import Path; Path('summary.md').write_text('ok')\"",
+            command_template=(
+                "python3 -c \"from pathlib import Path; "
+                "Path('summary.md').write_text('ok'); "
+                "Path('attempts.jsonl').write_text('{{}}\\n')\""
+            ),
         ),
         worker_limit=1,
     )
@@ -167,7 +174,37 @@ def test_execute_plan_updates_monitor_state_and_runs_planner_after_workers(tmp_p
     assert monitor["worker_status"]["W001-xss"] == "completed"
     assert monitor["worker_status"]["planner"] == "completed"
     assert (output / "workers" / "W001-xss" / "summary.md").exists()
+    assert (output / "workers" / "W001-xss" / "attempts.jsonl").exists()
+    assert (output / "workers" / "W001-xss" / "scratch").is_dir()
     assert (output / "planner-ran").exists()
+
+
+def test_execute_plan_marks_worker_incomplete_when_required_artifacts_missing(tmp_path: Path) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://www.canva.com/search/templates?q=test\n", encoding="utf-8")
+    output = tmp_path / "run"
+    config = hybrid.HybridConfig(
+        worker=hybrid.EngineConfig(
+            "opencode",
+            "worker-test",
+            command_template="python3 -c \"print('worker exited cleanly without artifacts')\"",
+        ),
+        worker_limit=1,
+    )
+    plan = hybrid.build_plan(
+        program="canva",
+        objective="test",
+        input_path=source,
+        output_root=output,
+        config=config,
+    )
+
+    statuses = hybrid.execute_plan(plan)
+    monitor = json.loads((output / "monitor_state.json").read_text(encoding="utf-8"))
+
+    assert statuses["W001-xss"] == "incomplete:missing-artifacts:attempts.jsonl,summary.md"
+    assert monitor["worker_status"]["W001-xss"] == statuses["W001-xss"]
+    assert (output / "workers" / "W001-xss" / "scratch").is_dir()
 
 
 def test_execute_plan_redacts_sensitive_worker_log_output(tmp_path: Path) -> None:
@@ -182,7 +219,10 @@ def test_execute_plan_redacts_sensitive_worker_log_output(tmp_path: Path) -> Non
                 "python3 -c \"print('location: https://example.test/cb?nonce=abcdef1234567890'); "
                 "print('cookie: session=secret-cookie; theme=blue'); "
                 "print('set-cookie: SESSION=secret; Path=/'); "
-                "print('Authorization: Bearer secret-token-value')\""
+                "print('Authorization: Bearer secret-token-value'); "
+                "from pathlib import Path; "
+                "Path('summary.md').write_text('ok'); "
+                "Path('attempts.jsonl').write_text('{{}}\\n')\""
             ),
         ),
         worker_limit=1,
@@ -231,7 +271,8 @@ def test_execute_plan_redacts_sensitive_worker_artifacts(tmp_path: Path) -> None
                 + repr(
                     "import base64; "
                     "from pathlib import Path; "
-                    f"Path('attempts.jsonl').write_bytes(base64.b64decode('{artifact_b64}'))"
+                    f"Path('attempts.jsonl').write_bytes(base64.b64decode('{artifact_b64}')); "
+                    "Path('summary.md').write_text('ok')"
                 )
             ),
         ),

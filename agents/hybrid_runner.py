@@ -102,6 +102,7 @@ class WorkerPacket:
     params: tuple[str, ...]
     skills: tuple[str, ...]
     output_dir: str
+    scratch_dir: str
     prompt_path: str
     metadata_path: str
 
@@ -365,6 +366,7 @@ def build_worker_packets(
             params=tuple(sorted({param for item in representative for param in item.params})[:50]),
             skills=tuple(_lane_skills(lane)),
             output_dir=str(output_root / "workers" / packet_id),
+            scratch_dir=str(output_root / "workers" / packet_id / "scratch"),
             prompt_path=str(prompt_path),
             metadata_path=str(metadata_path),
         )
@@ -469,6 +471,14 @@ Objective: {objective}
 
 Write artifacts under:
 `{packet.output_dir}`
+
+Use this packet-owned scratch directory for temporary files:
+`{packet.scratch_dir}`
+
+Do not write scratch files under `/tmp`, `/var/tmp`, the project repo, the user
+home directory, or any path outside the packet output directory. The worker is
+launched with file access scoped to the packet output directory; scratch files
+outside that tree may be unreadable to the agent and will not be collected.
 
 Required files:
 - `attempts.jsonl` with one JSON object per deliberate observation.
@@ -625,12 +635,14 @@ def execute_plan(plan: Mapping[str, Any], *, include_planner: bool = False) -> d
         engine = _engine_from_mapping(packet_payload.get("engine"), HybridConfig().worker)
         prompt_path = Path(str(packet_payload.get("prompt_path")))
         log_path = output_root / "logs" / f"{slug(packet_id)}.log"
-        Path(str(packet_payload.get("output_dir"))).mkdir(parents=True, exist_ok=True)
+        output_dir = Path(str(packet_payload.get("output_dir")))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        Path(str(packet_payload.get("scratch_dir", output_dir / "scratch"))).mkdir(parents=True, exist_ok=True)
         processes[packet_id] = spawn_cli_engine(
             engine,
             prompt_path=prompt_path,
             log_path=log_path,
-            workdir=Path(str(packet_payload.get("output_dir"))),
+            workdir=output_dir,
             title=f"Hybrid worker {packet_id}",
         )
         statuses[packet_id] = "running"
@@ -638,8 +650,15 @@ def execute_plan(plan: Mapping[str, Any], *, include_planner: bool = False) -> d
 
     for key, process in processes.items():
         returncode = process.wait()
-        sanitize_artifacts(Path(str(_packet_output_dir(plan, key))))
-        statuses[key] = "completed" if returncode == 0 else f"failed:{returncode}"
+        packet_dir = Path(str(_packet_output_dir(plan, key)))
+        sanitize_artifacts(packet_dir)
+        missing_artifacts = missing_required_worker_artifacts(packet_dir)
+        if returncode != 0:
+            statuses[key] = f"failed:{returncode}"
+        elif missing_artifacts:
+            statuses[key] = f"incomplete:missing-artifacts:{','.join(missing_artifacts)}"
+        else:
+            statuses[key] = "completed"
         write_monitor_state(output_root, plan, worker_status=statuses)
     if include_planner:
         planner_config = _engine_from_mapping(plan.get("config", {}).get("planner"), HybridConfig().planner)
@@ -666,6 +685,11 @@ def _packet_output_dir(plan: Mapping[str, Any], packet_id: str) -> str:
         if str(packet_payload.get("packet_id")) == packet_id:
             return str(packet_payload.get("output_dir"))
     return str(Path(str(plan["output_root"])) / "workers" / slug(packet_id))
+
+
+def missing_required_worker_artifacts(packet_dir: Path) -> list[str]:
+    required = ["attempts.jsonl", "summary.md"]
+    return [name for name in required if not (packet_dir / name).is_file()]
 
 
 def sanitize_artifacts(root: Path) -> None:
@@ -745,11 +769,18 @@ def spawn_cli_engine(
         raise NotImplementedError(f"hybrid runner currently executes CLI engines only, got transport={engine.transport}")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     workdir.mkdir(parents=True, exist_ok=True)
+    scratch_dir = workdir / "scratch"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
     command = sanitized_log_command(command_for_engine(engine, prompt_path=prompt_path, workdir=workdir, title=title))
     log_handle = log_path.open("ab")
     env = os.environ.copy()
     env.update(engine.env)
     env.pop("CODEX_HOME", None)
+    env.setdefault("TMPDIR", str(scratch_dir))
+    env.setdefault("TMP", str(scratch_dir))
+    env.setdefault("TEMP", str(scratch_dir))
+    env.setdefault("OPENCODE_WORKER_OUTPUT_DIR", str(workdir))
+    env.setdefault("OPENCODE_WORKER_SCRATCH_DIR", str(scratch_dir))
     process = subprocess.Popen(
         ["bash", "-lc", command],
         cwd=str(workdir),
@@ -805,7 +836,8 @@ def command_for_engine(engine: EngineConfig, *, prompt_path: Path, workdir: Path
             f"{model_arg} --dir {shlex.quote(str(workdir))}"
             f" --file {shlex.quote(str(prompt_path))}"
             f" --title {shlex.quote(title)}"
-            " 'Run the attached hybrid worker packet exactly. Write required artifacts under the packet output directory.'"
+            " 'Run the attached hybrid worker packet exactly. Write required artifacts under the packet output directory. "
+            "Use ./scratch for temporary files; do not use /tmp or paths outside the packet output directory.'"
         )
     if name == "claude":
         return f"claude --print --permission-mode bypassPermissions < {shlex.quote(str(prompt_path))}"

@@ -54,7 +54,7 @@ Any spawned Chromium/Chrome browser used for intercept testing must include:
 
 ```text
 --proxy-server=<resolved-browser-proxy>
---ignore-certificate-errors
+trusted proxy CA in the isolated Chromium profile
 ```
 
 For the harness launcher, prefer:
@@ -64,7 +64,7 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" <program> 
   --url <target-url>
 ```
 
-The launcher adds the runtime `--proxy-server` automatically. Pass `--proxy-server` explicitly only when overriding the route table.
+The launcher adds the runtime `--proxy-server` automatically and imports the mitmproxy CA into the isolated profile by default. Pass `--proxy-server` explicitly only when overriding the route table. Use `--proxy-cert-mode ignore` only for disposable debugging.
 
 ## When To Intercept
 
@@ -120,7 +120,7 @@ Record:
 - browser proxy and Caido MCP endpoint, without secrets
 - PwnFox color/header filter when used
 - browser launch command shape or launcher JSON path
-- whether `--proxy-server` and `--ignore-certificate-errors` were present
+- whether `--proxy-server` was present and the proxy CA status was `trusted`; record explicit certificate-ignore fallback if used
 - intercept/Tamper rule name, source, host/path condition, and sanitized mutation
 - forwarded non-target request count
 - target full URL, method, status, response type, and non-secret app state

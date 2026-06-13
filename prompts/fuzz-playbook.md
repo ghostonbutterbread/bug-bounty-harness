@@ -4,6 +4,12 @@
 
 Use this as a decision tree: seed the target space from recon, choose the narrowest fuzz lane, classify hits by response signal, pivot only where the response suggests a real surface, then report the endpoints that deserve follow-up.
 
+Use this playbook for fuzzing and for adjacent language that means candidate
+enumeration: guessing parameters, trying hidden fields, enumerating request
+keys, brute-forcing paths/files/extensions/vhosts/routes, or testing a large
+set of likely names against a bounded request shape. These tasks should route
+through `/fuzz` rather than a separate policy document.
+
 ## Decision Tree
 
 1. Start from known hosts, paths, and technologies.

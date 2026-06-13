@@ -6,6 +6,23 @@ description: Use when discovering hidden endpoints, parameters, files, routes, d
 
 Discover hidden endpoints, parameters, and files through enumeration.
 
+## Routing Trigger
+
+Load this skill whenever the agent plans to discover unknown application
+surface by trying candidates, even if the word "fuzz" is not used.
+
+Route these phrases and tasks here:
+
+- guess parameters, hidden parameters, parameter discovery, try parameter names
+- enumerate request fields, JSON keys, form fields, headers, cookies, or query keys
+- brute-force paths, files, extensions, vhosts, routes, GraphQL fields, or API actions
+- try many likely values to discover reachable surface or behavior switches
+- build or run a wordlist against one bounded host, route, workflow, or request shape
+
+Do not create a separate policy path for these cases. Once `/fuzz` is loaded,
+the fuzz skill owns the depth, rate-limit, scoping, filtering, artifact, and
+handoff rules for the run.
+
 ## Required Preflight
 
 Read shared state in this order before testing:

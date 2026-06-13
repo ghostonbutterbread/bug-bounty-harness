@@ -80,6 +80,8 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **caido** | `/caido {mcp-url-or-host?}` | `skills/caido/SKILL.md` |
 | **proxy-curl** | `/proxy-curl {raw-request-file}` | `prompts/proxy-curl-playbook.md` |
 | **analyze-endpoint** | `/analyze-endpoint {program} {raw-request-file}` | `prompts/analyze-endpoint-playbook.md` |
+| **request-exploration** | `/request-exploration {program} {request-context}` | `skills/request-exploration/SKILL.md` |
+| **intelligent-fuzzing** | `/intelligent-fuzzing {program} {endpoint-or-surface}` | `skills/intelligent-fuzzing/SKILL.md` |
 | **pwnfox** | `/pwnfox {color}` | `skills/pwnfox/SKILL.md` |
 | **agent-proxy** | `/agent-proxy` | `skills/agent-proxy/SKILL.md` |
 | **ryushe-proxy** | `/ryushe-proxy` | `skills/ryushe-proxy/SKILL.md` |
@@ -87,6 +89,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **mullvad** | `/mullvad` | `prompts/mullvad-playbook.md` |
 | **temporary-email** | `/temporary-email {create|read|show|accounts}` | `skills/temporary-email/SKILL.md` |
 | **account-management** | `/account-management {program}` | `prompts/account-management-playbook.md` |
+| **create-account** | `/create-account {program}` | `skills/create-account/SKILL.md` |
 | **live-map** | `/live-map {program}` | `prompts/live-map-playbook.md` |
 | **deep-hunt** | `/deep-hunt {program} --section {section-or-route-cluster}` | `prompts/deep-hunt-playbook.md` |
 | **error-mapper** | `/error-mapper {program} --url {target_url}` | `prompts/error-mapper-playbook.md` |
@@ -100,6 +103,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **electron** | `/electron {program} {target_path}` | `prompts/electron-playbook.md` |
 | **prompt-injection** | `/prompt-injection {program} {target_url}` | `prompts/prompt-injection-playbook.md` |
 | **ato** | `/ato {program} {auth-or-account-flow}` | `prompts/ato-playbook.md` |
+| **password-reset** | `/password-reset {program} {reset-flow-context}` | `skills/password-reset/SKILL.md` |
 | **payment-testing** | `/payment-testing {program} {checkout-or-billing-context}` | `prompts/payment-testing-playbook.md` |
 | **bypass** | `/bypass {target_url} {type}` | `prompts/bypass-playbook.md` |
 | **403** | `/403 {target_url}` | `skills/403/SKILL.md` |
@@ -110,6 +114,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **chromium-handoff** | `/chromium-handoff {cdp_port}` | `skills/chromium-handoff/SKILL.md` |
 | **pfp** | `/pfp {program} {goal}` | `prompts/pfp-playbook.md` |
 | **shared-skill-creator** | `/shared-skill-creator {project} {skill-name}` | `prompts/shared-skill-creator-playbook.md` |
+| **bountylens** | `/bountylens {sessions|findings|leads|reports}` | `skills/bountylens/SKILL.md` |
 | **me** | `/me {program}` | `skills/me/SKILL.md` |
 
 ---
@@ -146,6 +151,8 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /caido 192.168.0.135
 /proxy-curl /tmp/request.raw
 /analyze-endpoint canva /tmp/request.raw --pwnfox-color green
+/request-exploration canva checkout-update-request
+/intelligent-fuzzing canva https://www.canva.com/api/example
 /pwnfox red
 /agent-proxy
 /ryushe-proxy
@@ -153,6 +160,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /mullvad
 /temporary-email create
 /account-management canva
+/create-account canva signup-flow
 /live-map superdrug --source browser
 /deep-hunt canva --section sso-callbacks
 /error-mapper canva --url "https://www.canva.com/search?q=test"
@@ -164,6 +172,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /appmap-research-librarian init canva --category electron-ipc --research-query electron rce --target-kind electron-exe
 /electron canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --dry-run-prompts
 /prompt-injection canva https://target.example/ai-assistant --mode map
+/password-reset canva forgot-password-flow
 /payment-testing canva checkout-flow
 /bypass https://target.example/admin 403 --program target
 /403 https://target.example/admin --program target
@@ -175,6 +184,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /chromium-handoff 9224
 /pfp canva profile-picture
 /shared-skill-creator bounty-harness bypass "endpoint bypass testing workflow"
+/bountylens sessions --status active
 /me notion --hunt-type source
 /me canva --hunt-type source --lane exe
 /access-control canva project-sharing

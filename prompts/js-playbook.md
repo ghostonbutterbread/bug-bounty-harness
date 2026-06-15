@@ -120,6 +120,14 @@ Review goals per packet:
 - What application area does this JS support?
 - What endpoints, params, request fields, GraphQL operations, or action names
   does it reveal?
+- Which functions actually move data? For each suspicious source, sink, request
+  builder, navigation helper, DOM write, permission check, or object lookup,
+  trace the value through assignments, wrappers, callers, callees, guards, and
+  transformations before deciding whether it matters.
+- Can the value be controlled? Identify whether it comes from URL/search/hash,
+  hidden DOM fields, `data-*` attributes, bootstrap JSON, storage, postMessage,
+  forms, server-rendered state, proxy-observed responses, or only hardcoded
+  constants.
 - How are auth, sessions, CSRF, local/session storage, cookies, and feature
   flags handled?
 - What user/team/org/workspace/project/design/invoice/subscription identifiers
@@ -139,6 +147,11 @@ Review goals per packet:
 - If a suspicious function is only partly visible in one chunk, use
   `packets.jsonl` and the chunk-set manifest to inspect adjacent chunks from the
   same file hash before finalizing the review.
+- If the JavaScript reads hidden or non-rendered page state, compare it with the
+  actual page HTML/source during follow-up. Hidden inputs, hydration scripts,
+  JSON blobs, `data-*` attributes, disabled controls, feature flags, and
+  template fragments can expose IDs or flow switches that are absent from the
+  rendered UI.
 
 ## Signal Priority
 
@@ -146,6 +159,8 @@ High-value JS analysis is flow-first, not secret-first.
 
 Prioritize:
 
+- function-level source-to-sink traces with controllability, not just keywords:
+  `source -> transform/check -> caller/callee -> sink/request/DOM effect`
 - hidden API routes, GraphQL operations, request builders, route templates, and
   client-side API wrappers
 - parameter and field names, especially object IDs, tenant/team/workspace IDs,
@@ -156,6 +171,9 @@ Prioritize:
   injection
 - feature flags, experiments, beta gates, admin/role checks, entitlement names,
   and client-side assumptions that can guide targeted testing
+- hidden or non-rendered page state consumed by JavaScript: hidden inputs,
+  `data-*` attributes, bootstrap JSON, hydration globals, inline config scripts,
+  disabled controls, and template-only form fields
 - third-party service identifiers and API keys only when they plausibly expand
   reachable scope or unlock a real integration path
 
@@ -220,6 +238,9 @@ the whole bundle:
 Lead: <short title>
 Lane: </ato | /access-control | /idor | /dom-xss | /ssrf | /request-exploration | /analyze-endpoint | /create-wordlists>
 Evidence: <exact strings, functions, fields, routes, or packet lines>
+Trace: <source -> transforms/checks -> caller/callee -> sink/request/DOM effect>
+Controllability: <controlled | partly controlled | server-set | hardcoded | unknown, plus why>
+Hidden state check: <DOM/HTML/bootstrap fields to inspect, if any>
 Why it matters: <flow, trust boundary, object boundary, or hidden surface>
 Confidence: <low | medium | high>
 Gating condition: <what must be true before live testing>

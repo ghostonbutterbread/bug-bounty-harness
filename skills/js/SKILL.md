@@ -23,7 +23,9 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
    recon output, Wayback, or source maps.
 3. Use `agents/js_analyzer.py inventory` to download, hash, dedupe, cheaply
    parse, and chunk JavaScript into agent packets.
-4. Deep-review selected packets with page/flow context.
+4. Deep-review selected packets with page/flow context. Require function-level
+   tracing: source value, transforms/checks, callers/callees, sink/request/DOM
+   effect, controllability, and missing proof.
 5. Record coverage through `/url-ingest` and write durable notes/handoffs.
 6. Send generated candidates to `/create-wordlists`, `/use-wordlists`, `/fuzz`,
    or vuln-specific skills such as `/xss`, `/ssrf`, `/sqli`, and `/idor`.
@@ -35,6 +37,10 @@ read-only context. Agents may open public pages to understand title,
 description, parameters, and integration purpose, but must not fuzz, mutate,
 replay, authenticate against, or otherwise test the third-party host unless it
 is explicitly in scope.
+Also look for hidden or non-rendered state consumed by JavaScript, such as
+hidden inputs, `data-*` attributes, inline bootstrap JSON, hydration globals,
+disabled controls, and feature flags. These are mapping leads until verified
+against page HTML/source or proxy-observed responses.
 
 Downloaded JavaScript is content-addressed under
 `~/Shared/web_bounty/<program>/web/recon/js/_library/`. Check the ledger before

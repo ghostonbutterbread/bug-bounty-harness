@@ -68,6 +68,23 @@ def test_extract_signals_prioritizes_flow_and_route_hints():
     assert "server_fetch" in signals["flow_hints"]
 
 
+def test_extract_signals_finds_hidden_bootstrap_state_hints():
+    text = """
+    const csrf = document.querySelector('input[type="hidden"][name="csrf_token"]');
+    const orgId = document.body.dataset.orgId;
+    const boot = JSON.parse(document.getElementById('__NEXT_DATA__').textContent);
+    window.__INITIAL_STATE__ = { featureFlag: 'new_editor' };
+    """
+    signals = J.extract_signals(text, "https://app.example.com/static/app.js")
+
+    hints = set(signals["hidden_state_hints"])
+    assert "querySelector(" in hints
+    assert "dataset" in hints
+    assert "document.getElementById" in hints
+    assert "__NEXT_DATA__" in hints
+    assert "__INITIAL_STATE__" in hints
+
+
 def test_extract_signals_ignores_malformed_urlish_strings():
     signals = J.extract_signals(
         'const noisy = "https://[not-an-ipv6]/bad"; const ok = "/api/v1/me?user_id=1";',
@@ -127,6 +144,8 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
     packet = packets[0].read_text(encoding="utf-8")
     assert "JS Deep Review Packet" in packet
     assert "Nearby In-Scope Extracted Endpoints" in packet
+    assert "Trace:" in packet
+    assert "Hidden/bootstrap state hints" in packet
 
 
 def test_inventory_reuses_ledger_download_and_chunk_set(tmp_path: Path):

@@ -44,6 +44,15 @@ PARAM_NAME_RE = re.compile(
 GRAPHQL_RE = re.compile(r"\b(?:query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)")
 ROUTE_RE = re.compile(r"\b(?:path|route|url|href|to)\s*[:=]\s*['\"]([^'\"]{2,180})['\"]", re.IGNORECASE)
 PATH_PARAM_RE = re.compile(r":([A-Za-z_][A-Za-z0-9_]*)")
+HIDDEN_STATE_RE = re.compile(
+    r"(?:\b(?:"
+    r"hidden|type\s*[:=]\s*['\"]hidden|data-[A-Za-z0-9_-]+|dataset|"
+    r"__NEXT_DATA__|__APOLLO_STATE__|__INITIAL_STATE__|__PRELOADED_STATE__|"
+    r"bootstrap|hydration|hydrate|initialData|initialState|"
+    r"document\.getElementById"
+    r")\b|(?:getAttribute|querySelector)\s*\()",
+    re.IGNORECASE,
+)
 
 SOURCE_KEYWORDS = {
     "location": re.compile(r"\b(?:location|document\.URL|document\.documentURI|URLSearchParams|hash|search)\b"),
@@ -113,6 +122,7 @@ class JsRecord:
     interesting_keys: list[str] = field(default_factory=list)
     graphql_operations: list[str] = field(default_factory=list)
     route_hints: list[str] = field(default_factory=list)
+    hidden_state_hints: list[str] = field(default_factory=list)
     chunk_count: int = 0
 
 
@@ -293,6 +303,7 @@ def extract_signals(text: str, base_url: str, target_host: str | None = None) ->
         hint for hint in set(ROUTE_RE.findall(text))
         if hint.startswith(("/", "http", "api", "v1", "v2", "graphql", "gql"))
     )[:200]
+    hidden_state_hints = sorted(set(match.group(0) for match in HIDDEN_STATE_RE.finditer(text)))[:100]
     for route in route_hints:
         interesting_keys.update(PATH_PARAM_RE.findall(route))
     imports = sorted(set(IMPORT_RE.findall(text)))[:100]
@@ -319,6 +330,7 @@ def extract_signals(text: str, base_url: str, target_host: str | None = None) ->
         "interesting_keys": sorted(interesting_keys)[:300],
         "graphql_operations": graphql_operations,
         "route_hints": route_hints,
+        "hidden_state_hints": hidden_state_hints,
     }
 
 
@@ -586,12 +598,16 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
         f"- Flow hints: {', '.join(record.flow_hints) or 'none detected'}",
         f"- Interesting keys: {', '.join(record.interesting_keys[:40]) or 'none detected'}",
         f"- GraphQL operations: {', '.join(record.graphql_operations[:20]) or 'none detected'}",
+        f"- Hidden/bootstrap state hints: {', '.join(record.hidden_state_hints[:30]) or 'none detected'}",
         f"- Params: {', '.join(record.params[:40]) or 'none detected'}",
         "",
         "## Review Goals",
         "",
         "- Identify flows, endpoints, params, auth/session/storage behavior, source-to-sink paths, object or tenant assumptions, and vuln-lane handoffs.",
         "- Prefer exploitable surface over generic secret scanning: hidden routes, request fields, object IDs, redirect/fetch/import/export/upload/payment/auth behavior, API clients, and dataflow.",
+        "- Do function-level tracing: name the source value, intermediate variables/functions, caller/callee path, final sink or request field, and whether the value appears attacker-controlled.",
+        "- Backtrace suspicious sinks or bad practices to the nearest source. If controllability is unclear, say exactly which caller, event handler, DOM node, bootstrap JSON field, or proxy request must be inspected next.",
+        "- Check hidden page state: hidden inputs, data-* attributes, non-rendered JSON/script blobs, hydration/bootstrap globals, feature flags, and DOM nodes read by this chunk but not visible in the page UI.",
         "- If a function looks important, inspect nearby callers/callees in adjacent chunks from the same chunk set before deciding confidence.",
         "- Treat regex hits as hints, not findings. Verify impact before promotion.",
         "- Keep scope boundaries explicit: Canva-owned endpoints can become test targets; external integration/reference endpoints are read-only context/evidence only unless program scope explicitly includes them.",
@@ -601,6 +617,7 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
         "",
         "- Leads: concise title plus owning lane, for example `/ato`, `/access-control`, `/idor`, `/dom-xss`, `/ssrf`, `/request-exploration`, `/analyze-endpoint`, or `/create-wordlists`.",
         "- Evidence: exact strings, functions, fields, routes, or chunk lines that support the lead.",
+        "- Trace: `source -> transforms/checks -> caller/callee -> sink/request/DOM effect`; include controllability and missing proof.",
         "- Confidence and gating condition: what must be true before this becomes worth live testing.",
         "- Adjacent chunks to inspect: callers, callees, lazy imports, source map modules, or packet numbers from the same chunk set.",
         "- Next test: one bounded follow-up action using owned accounts/resources.",
@@ -736,6 +753,7 @@ def command_inventory(args: argparse.Namespace) -> int:
             interesting_keys=signals["interesting_keys"],
             graphql_operations=signals["graphql_operations"],
             route_hints=signals["route_hints"],
+            hidden_state_hints=signals["hidden_state_hints"],
             chunk_count=len(chunks),
         )
         records.append(record)

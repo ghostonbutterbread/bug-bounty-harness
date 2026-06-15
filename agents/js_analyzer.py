@@ -128,9 +128,12 @@ def normalize_url(value: str, base: str | None = None) -> str | None:
     value = value.strip()
     if not value or value.startswith(("data:", "javascript:", "mailto:")):
         return None
-    if base:
-        value = urllib.parse.urljoin(base, value)
-    parsed = urllib.parse.urlparse(value)
+    try:
+        if base:
+            value = urllib.parse.urljoin(base, value)
+        parsed = urllib.parse.urlparse(value)
+    except ValueError:
+        return None
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return None
     return urllib.parse.urlunparse(parsed._replace(fragment=""))
@@ -176,13 +179,16 @@ def extract_signals(text: str, base_url: str) -> dict:
 
     params = set(PARAM_RE.findall(text))
     for endpoint in endpoints:
-        parsed = urllib.parse.urlparse(endpoint)
+        try:
+            parsed = urllib.parse.urlparse(endpoint)
+        except ValueError:
+            continue
         params.update(name for name, _ in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
 
     source_map = ""
     sm = SOURCE_MAP_RE.search(text[-3000:])
     if sm:
-        source_map = urllib.parse.urljoin(base_url, sm.group("url"))
+        source_map = normalize_url(sm.group("url"), base_url) or ""
 
     secret_hints = sorted(set(m.group(1).lower() for m in SECRET_HINT_RE.finditer(text)))[:50]
     sources = sorted(name for name, pattern in SOURCE_KEYWORDS.items() if pattern.search(text))

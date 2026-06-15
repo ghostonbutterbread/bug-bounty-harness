@@ -24,6 +24,16 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
     assert "dom_write" in signals["sinks"]
 
 
+def test_extract_signals_ignores_malformed_urlish_strings():
+    signals = J.extract_signals(
+        'const noisy = "https://[not-an-ipv6]/bad"; const ok = "/api/v1/me?user_id=1";',
+        "https://app.example.com/static/app.js",
+    )
+
+    assert "https://app.example.com/api/v1/me?user_id=1" in signals["endpoints"]
+    assert "user_id" in signals["params"]
+
+
 def test_inventory_writes_metadata_and_packets(tmp_path: Path):
     input_file = tmp_path / "jsfiles.txt"
     input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")

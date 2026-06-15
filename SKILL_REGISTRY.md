@@ -95,6 +95,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **error-mapper** | `/error-mapper {program} --url {target_url}` | `prompts/error-mapper-playbook.md` |
 | **hybrid** | `/hybrid deep-dive {mode} {program} --input {urls-or-params-file}` | `prompts/hybrid-playbook.md` |
 | **url-ingest** | `/url-ingest {init|ingest|status|mark|search|stats} {program}` | `skills/url-ingest/SKILL.md` |
+| **bounty-notes** | `/bounty-notes {init|note|artifact} {program}` | `prompts/bounty-notes-playbook.md` |
 | **hunter-memory** | `/hunter-memory {program} {surface}` | `prompts/hunter-memory-playbook.md` |
 | **hunter-loop** | `/hunter-loop {program} --goal {objective}` | `prompts/hunter-loop-playbook.md` |
 | **brainstorm-spec** | `/brainstorm-spec {program}` | `prompts/brainstorm-spec-playbook.md` |
@@ -165,6 +166,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /deep-hunt canva --section sso-callbacks
 /error-mapper canva --url "https://www.canva.com/search?q=test"
 /hybrid deep-dive recon canva --input params.txt --planner-model gpt-5.5 --worker opencode --worker-model deepseek/deepseek-v4-pro --max-requests-per-worker 0
+/bounty-notes note canva --bucket hypotheses --title "Avatar metadata reaches admin review" --status untested
 /hunter-memory canva avatar-upload --vulnerability xss
 /hunter-loop canva --goal "map app and dispatch specialists from concrete triggers"
 /brainstorm-spec canva --family binaries --lane exe --target-kind electron-exe

@@ -30,6 +30,7 @@ from recon_store import import_url_artifacts, summarize_url_index
 
 DEFAULT_REMOTE = "ryushe@hoster"
 DEFAULT_SSH_KEY = Path.home() / ".ssh" / "hoster"
+REMOTE_RECON_PATH = "$HOME/go/bin:$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/bin:/bin"
 TOP_LEVEL_ARTIFACTS = (
     "alive.txt",
     "urls.txt",
@@ -281,6 +282,7 @@ def start_remote(args: argparse.Namespace) -> None:
         )
     remote_cmd = (
         "set -eu; "
+        f"export PATH={shell_quote(REMOTE_RECON_PATH)}:\"$PATH\"; "
         "mkdir -p \"$HOME/bounties\" \"$HOME/recon-ry-logs\"; "
         f"mkdir -p {shell_quote(project_dir)}; "
         f"{seed_file_cmds}"

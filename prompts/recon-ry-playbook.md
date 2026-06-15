@@ -37,6 +37,13 @@ The wrapper enforces saved scope before starting:
 
 The wrapper writes `<remote-project>/rate_limit.conf` before launch. Default is conservative: `--rate-limit-rps 2`, `--timeout 300`. Increase only when the program policy allows it.
 
+The wrapper also exports the common Hoster recon tool paths before starting
+`recon-ry`, including `~/go/bin`, `~/.local/bin`, and `~/bin`. This is required
+for non-interactive SSH launches to see Go-installed tools such as Katana.
+When Katana is installed, recon-ry's URL/parameter discovery stages can use it
+for active crawling and JavaScript parsing, and the resulting JavaScript URLs
+flow into `jsfiles.txt`.
+
 The wrapper also stages scope seed files into the remote project before launch:
 
 - `<remote-project>/urls.txt` — exact URLs and exact host/domain entries
@@ -110,7 +117,7 @@ When an agent needs recon data:
 
 - start from `alive.txt` for live hosts, browser checks, live-map, and nuclei-style validation
 - use `params.txt` for endpoint-heavy testing such as XSS, SQLi, SSRF, redirect, request-shape, and IDOR review
-- use `jsfiles.txt` for JavaScript analysis, secrets review, source-map checks, and DOM sink review
+- use `jsfiles.txt` for JavaScript analysis, secrets review, source-map checks, and DOM sink review. `/js` should consume this file and the canonical aggregate, not re-enable crawlers that recon-ry already owns.
 - use `urls.txt` for broad URL discovery, route grouping, and API/path clustering
 - use `wild.txt` for subdomain or host-level follow-up
 - use `history/<newest>/` only when comparing a specific run or checking what changed

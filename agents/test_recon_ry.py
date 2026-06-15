@@ -69,6 +69,7 @@ def test_start_dry_run_uses_hoster_wrapper(capsys) -> None:
     assert "default=2" in output
     assert "urls.txt" in output
     assert "wild.txt" in output
+    assert "export PATH='$HOME/go/bin:$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/bin:/bin':\"$PATH\"" in output
 
 
 def test_build_remote_seed_files_uses_saved_scope(monkeypatch) -> None:

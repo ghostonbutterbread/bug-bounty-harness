@@ -73,6 +73,8 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **ssrf** | `/ssrf {program}` | `prompts/ssrf-playbook.md` |
 | **lfi** | `/lfi {target_url}` | `skills/lfi/SKILL.md` |
 | **fuzz** | `/fuzz {program}` | `prompts/fuzz-playbook.md` |
+| **create-wordlists** | `/create-wordlists {program}` | `prompts/create-wordlists-playbook.md` |
+| **use-wordlists** | `/use-wordlists {program}` | `prompts/use-wordlists-playbook.md` |
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
 | **recon-ry** | `/recon-ry {program}` | `prompts/recon-ry-playbook.md` |
 | **csrf** | `/csrf {program}` | `skills/csrff/SKILL.md` |
@@ -145,6 +147,8 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /ssrf superdrug
 /lfi https://target.example/download?file=test.pdf
 /fuzz superdrug
+/create-wordlists superdrug
+/use-wordlists superdrug
 /recon superdrug
 /recon-ry superdrug --url example.com --profile full
 /csrf superdrug

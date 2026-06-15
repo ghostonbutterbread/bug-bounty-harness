@@ -102,6 +102,8 @@ class JsRecord:
     source: str = ""
     source_map: str = ""
     endpoints: list[str] = field(default_factory=list)
+    in_scope_endpoints: list[str] = field(default_factory=list)
+    external_endpoints: list[str] = field(default_factory=list)
     params: list[str] = field(default_factory=list)
     imports: list[str] = field(default_factory=list)
     secret_hints: list[str] = field(default_factory=list)
@@ -199,7 +201,7 @@ def collect_from_page(page_url: str, page_context: str, target_host: str | None)
     return dedupe(js_urls), page_records
 
 
-def extract_signals(text: str, base_url: str) -> dict:
+def extract_signals(text: str, base_url: str, target_host: str | None = None) -> dict:
     endpoints = set()
     for match in URL_RE.findall(text):
         normalized = normalize_url(match.rstrip(".,;)"), base_url)
@@ -235,8 +237,18 @@ def extract_signals(text: str, base_url: str) -> dict:
         interesting_keys.update(PATH_PARAM_RE.findall(route))
     imports = sorted(set(IMPORT_RE.findall(text)))[:100]
 
+    sorted_endpoints = sorted(endpoints)
+    if target_host:
+        in_scope_endpoints = [endpoint for endpoint in sorted_endpoints if same_host_or_child(endpoint, target_host)]
+        external_endpoints = [endpoint for endpoint in sorted_endpoints if not same_host_or_child(endpoint, target_host)]
+    else:
+        in_scope_endpoints = sorted_endpoints
+        external_endpoints = []
+
     return {
-        "endpoints": sorted(endpoints)[:500],
+        "endpoints": sorted_endpoints[:500],
+        "in_scope_endpoints": in_scope_endpoints[:500],
+        "external_endpoints": external_endpoints[:500],
         "params": sorted(params)[:300],
         "source_map": source_map,
         "imports": imports,
@@ -425,6 +437,8 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
         f"- Chunk byte range: {start}-{end}",
         f"- Page context: {record.page_context or 'unknown'}",
         f"- Source map: {record.source_map or 'none detected'}",
+        f"- In-scope extracted endpoints: {len(record.in_scope_endpoints)}",
+        f"- External integration/reference endpoints: {len(record.external_endpoints)}",
         f"- Sources: {', '.join(record.sources) or 'none detected'}",
         f"- Sinks: {', '.join(record.sinks) or 'none detected'}",
         f"- Flow hints: {', '.join(record.flow_hints) or 'none detected'}",
@@ -438,6 +452,7 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
         "- Prefer exploitable surface over generic secret scanning: hidden routes, request fields, object IDs, redirect/fetch/import/export/upload/payment/auth behavior, API clients, and dataflow.",
         "- If a function looks important, inspect nearby callers/callees in adjacent chunks from the same chunk set before deciding confidence.",
         "- Treat regex hits as hints, not findings. Verify impact before promotion.",
+        "- Keep scope boundaries explicit: Canva-owned endpoints can become test targets; external integration/reference endpoints are evidence only unless program scope explicitly includes them.",
         "- Produce structured notes: endpoints, params, interesting keys, flows, sources, sinks, high-value key signals, confidence, and next tests.",
         "",
         "## Expected Review Output",
@@ -448,10 +463,19 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
         "- Adjacent chunks to inspect: callers, callees, lazy imports, source map modules, or packet numbers from the same chunk set.",
         "- Next test: one bounded follow-up action using owned accounts/resources.",
         "",
-        "## Nearby Extracted Endpoints",
+        "## Nearby In-Scope Extracted Endpoints",
         "",
     ]
-    lines.extend(f"- {endpoint}" for endpoint in record.endpoints[:80])
+    lines.extend(f"- {endpoint}" for endpoint in record.in_scope_endpoints[:80])
+    if record.external_endpoints:
+        lines.extend([
+            "",
+            "## External Integration/Reference Endpoints",
+            "",
+            "Do not test these as targets unless the program scope explicitly includes them. Use them as integration evidence only.",
+            "",
+        ])
+        lines.extend(f"- {endpoint}" for endpoint in record.external_endpoints[:80])
     if record.route_hints:
         lines.extend(["", "## Route Hints", ""])
         lines.extend(f"- {route}" for route in record.route_hints[:80])
@@ -529,7 +553,7 @@ def command_inventory(args: argparse.Namespace) -> int:
             else:
                 artifact_path.write_bytes(body)
         text = body.decode("utf-8", errors="ignore")
-        signals = extract_signals(text, url)
+        signals = extract_signals(text, url, target_host)
         chunks = chunk_text(text, args.chunk_size, args.chunk_overlap)
         chunk_set_key, chunk_manifest_path, chunk_rows, reused_chunks = write_chunk_set(
             chunks_root=library_chunks_dir,
@@ -553,6 +577,8 @@ def command_inventory(args: argparse.Namespace) -> int:
             source=args.input or args.page or "",
             source_map=signals["source_map"],
             endpoints=signals["endpoints"],
+            in_scope_endpoints=signals["in_scope_endpoints"],
+            external_endpoints=signals["external_endpoints"],
             params=signals["params"],
             imports=signals["imports"],
             secret_hints=signals["secret_hints"],

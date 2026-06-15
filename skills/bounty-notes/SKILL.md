@@ -29,6 +29,9 @@ Default lane root:
 
 Write to:
 
+- `notes/_index/` for generated lookup files. Start with `_index/active.md`
+  when the user says "last note," "what were we just testing," or gives a
+  fuzzy request.
 - `working/scratch/<run-id>/` for raw/generated artifacts, extracted JSON,
   screenshots, prompt bundles, and temporary logs.
 - `notes/timeline/YYYY-MM-DD.md` for chronological activity and decisions.
@@ -66,6 +69,8 @@ python3 agents/bounty_notes.py note <program> \
   --status untested \
   --agent codex \
   --run-id <run-id> \
+  --url "https://www.canva.com/api/profile/avatar" \
+  --tag avatar \
   --body "Check filename, EXIF, SVG title, moderation queue, and email render contexts."
 ```
 
@@ -95,13 +100,40 @@ python3 agents/bounty_notes.py artifact <program> \
   --note "Sanitized baseline response shape"
 ```
 
+Search for notes by URL, tag, report/FID, bucket, or text:
+
+```bash
+python3 agents/bounty_notes.py search <program> \
+  --family web_bounty \
+  --lane web \
+  --url "canva.com/api/profile/avatar"
+
+python3 agents/bounty_notes.py search <program> \
+  --family web_bounty \
+  --lane web \
+  --report FID-123
+```
+
+Link an existing hypothesis to a handoff, report stub, or another note:
+
+```bash
+python3 agents/bounty_notes.py link <program> \
+  --family web_bounty \
+  --lane web \
+  --source hypotheses/avatar-metadata-reaches-admin-review.md \
+  --target ../reports/findings/active/FID-123.md \
+  --relationship report
+```
+
 ## Exit Checklist
 
 Before an agent finishes:
 
 1. Put raw/generated material in `working/scratch/<run-id>/`.
-2. Promote reusable learning into `notes/`.
+2. Promote reusable learning into `notes/` with `--url`, `--tag`, `--report`,
+   `--hypothesis`, and `--link` metadata whenever possible.
 3. Add or update each promising hypothesis in `notes/hypotheses/`.
 4. Add a handoff under `notes/handoffs/`.
 5. Import real findings through the finding pipeline.
-6. Mark coverage or URL review state in the right ledger.
+6. Link reports/findings back to the hypothesis or investigation notes.
+7. Mark coverage or URL review state in the right ledger.

@@ -47,6 +47,25 @@ Suggested output root:
 ~/Shared/web_bounty/<program>/web/recon/wordlists/generated/<run-id>/
 ```
 
+This Shared path is the staging area for target-specific evidence-derived
+packs. It keeps private target patterns, proxy-derived candidates, and
+unreviewed generated lists out of the reusable GitHub wordlist project.
+
+Reusable/global packs should be promoted into the GitHub-style wordlist repo:
+
+```text
+~/projects/ghost-wordlists/wordlists/
+```
+
+Promotion rule:
+
+- promote only candidates that are generic or reusable across targets
+- do not promote private target structure, raw proxy-derived paths, secrets, or
+  anything that exposes a specific program's internal naming
+- keep promoted packs in the right subtree, such as `common/`, `purpose/`, or
+  `tech/`
+- update the repo manifest when adding a stable pack
+
 Each run should include:
 
 ```text
@@ -98,4 +117,6 @@ pack to disk.
 - `manifest.json` lists inputs, source paths, counts, and timestamp.
 - Ryushe proxy status is recorded.
 - No raw secrets are written.
+- Reusable packs are promoted to `~/projects/ghost-wordlists/wordlists/` when
+  safe; target-specific packs remain in Shared staging.
 - `/use-wordlists` can consume the pack paths directly.

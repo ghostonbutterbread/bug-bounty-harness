@@ -62,9 +62,14 @@ The helper writes:
 ├── metadata.jsonl
 ├── page_context.jsonl
 ├── packets.jsonl
-├── downloads/<sha256>.js
-├── chunks/<sha-prefix>-NNN.js
 └── packets/<sha-prefix>-NNN.md
+
+~/Shared/web_bounty/<program>/web/recon/js/_library/
+├── ledger.json
+├── downloads/<sha256>.js
+└── chunks/<sha256>/<chunk-set-key>/
+    ├── manifest.json
+    └── NNN.js
 ```
 
 Script responsibilities:
@@ -72,11 +77,30 @@ Script responsibilities:
 - collect JS URLs from pages, aggregated recon, proxy/recon artifacts, Wayback,
   and source maps when available
 - download JS bodies with rate control
-- hash and dedupe by content
-- keep raw bundles on disk
+- check `ledger.json` before fetching a URL that has already been mapped to a
+  content hash
+- hash and dedupe by content so the same bundle from proxy, recon, Wayback, or
+  page collection is stored once
+- keep raw bundles on disk in the shared `_library`
+- record URL aliases under the same file hash when platforms serve the same JS
+  from multiple URLs
 - extract cheap signals: URLs, API paths, params, imports, source maps, secret
   hints, source/sink keywords, framework/router clues
-- write bounded packet files for agents
+- store chunk sets by file hash plus chunk settings, then write bounded packet
+  files for agents
+
+Use `--refresh` only when intentionally checking whether a URL's content has
+changed:
+
+```bash
+python3 agents/js_analyzer.py inventory canva \
+  --input "$HOME/Shared/web_bounty/canva/web/recon/aggregated/jsfiles.txt" \
+  --target-host canva.com \
+  --refresh
+```
+
+Without `--refresh`, the helper reuses the URL-to-hash ledger and avoids another
+download when the artifact is already present.
 
 ## Agent Deep Review
 
@@ -161,6 +185,8 @@ Every meaningful JS run should leave:
 - `manifest.json`: inputs, run id, counts, and output paths
 - `metadata.jsonl`: one row per downloaded JS body
 - `packets.jsonl`: packet/chunk map for agent review
+- `_library/ledger.json`: URL aliases, file hashes, artifact paths, and chunk
+  set metadata
 - packet markdown files used by agents
 - notes/handoff if a human or future agent should continue
 - `/url-ingest` coverage marks for inventory and deep review
@@ -168,9 +194,10 @@ Every meaningful JS run should leave:
 ## Exit Checklist
 
 - Large JS bodies stayed on disk, not in chat.
+- Existing URL aliases, file hashes, and chunk sets were reused unless
+  `--refresh` was intentional.
 - Agent packets were bounded and page-context aware.
 - Cheap signals were treated as leads, not confirmed findings.
 - Reviewed chunks produced structured outputs.
 - Coverage was marked so future agents do not repeat the same depth pass.
 - Wordlist and vuln-lane handoffs were routed to the owning skills.
-

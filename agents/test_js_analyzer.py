@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from unittest.mock import patch
+import json
 
 from agents import js_analyzer as J
 
@@ -37,6 +38,13 @@ def test_extract_signals_splits_in_scope_and_external_endpoints():
     assert "https://static.canva.com/app.js" in signals["in_scope_endpoints"]
     assert "https://www.canva.com/api/apps/install?appId=abc" in signals["in_scope_endpoints"]
     assert "https://slack.com/apps/A06GQJFDUP9" in signals["external_endpoints"]
+
+
+def test_external_url_classification_and_policy():
+    assert J.classify_external_url("https://slack.com/apps/A06GQJFDUP9") == "integration_reference"
+    assert J.classify_external_url("https://docs.example.com/help/canva") == "public_reference"
+    assert J.classify_external_url("https://cdn.example.com/file?token=abc") == "possible_sensitive_reference"
+    assert J.external_action_policy("integration_reference") == "context-only-find-scoped-integration-flow"
 
 
 def test_extract_signals_prioritizes_flow_and_route_hints():
@@ -75,7 +83,7 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
 
     def fake_get(url: str, timeout: int = 20):
         return (
-            b"const endpoint='/api/auth/login?next=/dashboard'; fetch(endpoint);",
+            b"const endpoint='/api/auth/login?next=/dashboard'; const external='https://slack.com/apps/A06GQJFDUP9'; fetch(endpoint);",
             200,
             "application/javascript",
         )
@@ -90,8 +98,12 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
             "example.com",
             "--output-root",
             str(output_root),
+            "--library-root",
+            str(tmp_path / "library"),
             "--run-id",
             "unit",
+            "--integration-index-root",
+            str(tmp_path / "integrations"),
             "--chunk-size",
             "30",
             "--chunk-overlap",
@@ -103,6 +115,10 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
     metadata = (output_root / "metadata.jsonl").read_text(encoding="utf-8")
     assert "https://app.example.com/static/app.js" in metadata
     assert "https://app.example.com/api/auth/login?next=/dashboard" in metadata
+    external_rows = (output_root / "external_integrations.jsonl").read_text(encoding="utf-8")
+    assert "https://slack.com/apps/A06GQJFDUP9" in external_rows
+    host_index = json.loads((tmp_path / "integrations" / "external_hosts.json").read_text(encoding="utf-8"))
+    assert any(host["host"] == "slack.com" for host in host_index["hosts"])
     packets = list((output_root / "packets").glob("*.md"))
     assert packets
     packet = packets[0].read_text(encoding="utf-8")

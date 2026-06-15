@@ -116,6 +116,23 @@ class JsRecord:
     chunk_count: int = 0
 
 
+@dataclass(slots=True)
+class ExternalIntegration:
+    external_url: str
+    host: str
+    classification: str
+    action_policy: str
+    found_in_js_url: str
+    found_in_sha256: str
+    found_in_source: str
+    page_context: str
+    run_id: str
+    evidence_path: str
+    in_scope_target_host: str
+    first_seen: str
+    last_seen: str
+
+
 def utc_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
@@ -177,6 +194,38 @@ def same_host_or_child(url: str, target_host: str | None) -> bool:
         return True
     host = urllib.parse.urlparse(url).hostname or ""
     return host == target_host or host.endswith(f".{target_host}")
+
+
+def url_host(url: str) -> str:
+    try:
+        return urllib.parse.urlparse(url).hostname or ""
+    except ValueError:
+        return ""
+
+
+def classify_external_url(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    host = (parsed.hostname or "").lower()
+    path = parsed.path.lower()
+    query = parsed.query.lower()
+    haystack = f"{host} {path} {query}"
+    if any(token in haystack for token in ("docs", "help", "support", "knowledgebase", "tutorial", "guide", "policy", "terms", "privacy")):
+        return "public_reference"
+    if any(token in haystack for token in ("marketplace", "appxlisting", "/apps/", "integration", "integrations", "plugin", "connect")):
+        return "integration_reference"
+    if any(token in haystack for token in ("callback", "redirect", "return", "oauth", "saml", "provider_id", "client_id", "clientid")):
+        return "auth_or_callback_reference"
+    if any(token in haystack for token in ("token", "key", "secret", "signature", "signed", "expires", "credential")):
+        return "possible_sensitive_reference"
+    return "external_reference"
+
+
+def external_action_policy(classification: str) -> str:
+    if classification == "possible_sensitive_reference":
+        return "sanitize-and-pivot-to-scoped-leak-question"
+    if classification in {"integration_reference", "auth_or_callback_reference"}:
+        return "context-only-find-scoped-integration-flow"
+    return "context-only-do-not-test-host"
 
 
 def collect_from_page(page_url: str, page_context: str, target_host: str | None) -> tuple[list[str], list[dict]]:
@@ -283,6 +332,13 @@ def write_jsonl(path: Path, rows: Iterable[dict]) -> None:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
+def append_jsonl(path: Path, rows: Iterable[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+
 def load_ledger(path: Path) -> dict:
     if not path.exists():
         return {"schema_version": 1, "urls": {}, "files": {}}
@@ -303,6 +359,81 @@ def save_ledger(path: Path, ledger: dict) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(ledger, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+def write_external_integration_index(index_root: Path, rows: list[ExternalIntegration]) -> dict[str, str]:
+    """Append scoped-run external URL evidence to the program integration index."""
+    if not rows:
+        return {}
+    raw_path = index_root / "external_urls.jsonl"
+    raw_rows: list[dict] = []
+    if raw_path.exists():
+        for line in raw_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                raw_rows.append(row)
+    raw_rows.extend(asdict(row) for row in rows)
+    deduped_reversed: list[dict] = []
+    seen_keys: set[tuple[str, str, str]] = set()
+    for row in reversed(raw_rows):
+        key = (
+            str(row.get("external_url") or ""),
+            str(row.get("found_in_sha256") or ""),
+            str(row.get("run_id") or ""),
+        )
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped_reversed.append(row)
+    deduped_rows = list(reversed(deduped_reversed))
+    write_jsonl(raw_path, deduped_rows)
+
+    by_host: dict[str, dict] = {}
+    for row in deduped_rows:
+        host = row.get("host")
+        if not host:
+            continue
+        entry = by_host.setdefault(host, {
+            "host": host,
+            "classifications": [],
+            "first_seen": row.get("first_seen"),
+            "last_seen": row.get("last_seen"),
+            "examples": [],
+        })
+        classification = row.get("classification")
+        if classification and classification not in entry["classifications"]:
+            entry["classifications"].append(classification)
+        if row.get("last_seen") and str(row["last_seen"]) > str(entry.get("last_seen") or ""):
+            entry["last_seen"] = row["last_seen"]
+        if row.get("first_seen") and str(row["first_seen"]) < str(entry.get("first_seen") or row["first_seen"]):
+            entry["first_seen"] = row["first_seen"]
+        if len(entry["examples"]) < 8:
+            entry["examples"].append({
+                "external_url": row.get("external_url"),
+                "found_in_js_url": row.get("found_in_js_url"),
+                "run_id": row.get("run_id"),
+                "classification": classification,
+                "action_policy": row.get("action_policy"),
+                "evidence_path": row.get("evidence_path"),
+            })
+
+    host_index_path = index_root / "external_hosts.json"
+    host_index_path.write_text(
+        json.dumps({
+            "updated": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "hosts": sorted(by_host.values(), key=lambda item: item["host"]),
+        }, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "external_urls": str(raw_path),
+        "external_hosts": str(host_index_path),
+    }
 
 
 def ledger_lookup_url(ledger: dict, url: str) -> str | None:
@@ -495,6 +626,11 @@ def command_inventory(args: argparse.Namespace) -> int:
     run_id = args.run_id or f"js-{utc_stamp()}"
     root = Path(args.output_root).expanduser() if args.output_root else SHARED_WEB_BASE / args.program / "web" / "recon" / "js" / run_id
     library_root = Path(args.library_root).expanduser() if args.library_root else SHARED_WEB_BASE / args.program / "web" / "recon" / "js" / "_library"
+    integration_index_root = (
+        Path(args.integration_index_root).expanduser()
+        if args.integration_index_root
+        else SHARED_WEB_BASE / args.program / "web" / "intel" / "integrations"
+    )
     downloads_dir = library_root / "downloads"
     library_chunks_dir = library_root / "chunks"
     packets_dir = root / "packets"
@@ -528,6 +664,7 @@ def command_inventory(args: argparse.Namespace) -> int:
 
     records: list[JsRecord] = []
     packet_rows: list[dict] = []
+    external_integration_rows: list[ExternalIntegration] = []
     reused_downloads = 0
     reused_chunk_sets = 0
     for index, url in enumerate(normalized_urls, start=1):
@@ -591,6 +728,25 @@ def command_inventory(args: argparse.Namespace) -> int:
             chunk_count=len(chunks),
         )
         records.append(record)
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        for external_url in record.external_endpoints:
+            host = url_host(external_url)
+            classification = classify_external_url(external_url)
+            external_integration_rows.append(ExternalIntegration(
+                external_url=external_url,
+                host=host,
+                classification=classification,
+                action_policy=external_action_policy(classification),
+                found_in_js_url=url,
+                found_in_sha256=digest,
+                found_in_source=record.source,
+                page_context=record.page_context,
+                run_id=run_id,
+                evidence_path=str(root / "metadata.jsonl"),
+                in_scope_target_host=target_host or "",
+                first_seen=now,
+                last_seen=now,
+            ))
         update_ledger_for_file(
             ledger,
             url=url,
@@ -630,6 +786,8 @@ def command_inventory(args: argparse.Namespace) -> int:
     write_jsonl(root / "metadata.jsonl", (asdict(record) for record in records))
     write_jsonl(root / "packets.jsonl", packet_rows)
     write_jsonl(root / "page_context.jsonl", page_records)
+    write_jsonl(root / "external_integrations.jsonl", (asdict(row) for row in external_integration_rows))
+    integration_outputs = write_external_integration_index(integration_index_root, external_integration_rows)
     manifest = {
         "program": args.program,
         "run_id": run_id,
@@ -643,10 +801,13 @@ def command_inventory(args: argparse.Namespace) -> int:
         "downloads_reused": reused_downloads,
         "chunk_sets_reused": reused_chunk_sets,
         "packets": len(packet_rows),
+        "external_integrations": len(external_integration_rows),
         "outputs": {
             "metadata": str(root / "metadata.jsonl"),
             "packets": str(root / "packets.jsonl"),
             "page_context": str(root / "page_context.jsonl"),
+            "external_integrations": str(root / "external_integrations.jsonl"),
+            "integration_index": integration_outputs,
             "ledger": str(ledger_path),
             "library": str(library_root),
             "downloads": str(downloads_dir),
@@ -672,6 +833,7 @@ def build_parser() -> argparse.ArgumentParser:
     inv.add_argument("--run-id", help="Stable run id")
     inv.add_argument("--output-root", help="Override output root")
     inv.add_argument("--library-root", help="Override shared JS library root")
+    inv.add_argument("--integration-index-root", help="Override external integration index root")
     inv.add_argument("--refresh", action="store_true", help="Refetch URLs even if the URL is already mapped in the ledger")
     inv.add_argument("--limit", type=int, help="Maximum JS URLs to download")
     inv.add_argument("--timeout", type=int, default=20)

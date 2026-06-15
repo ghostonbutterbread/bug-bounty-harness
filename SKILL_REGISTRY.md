@@ -95,7 +95,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **error-mapper** | `/error-mapper {program} --url {target_url}` | `prompts/error-mapper-playbook.md` |
 | **hybrid** | `/hybrid deep-dive {mode} {program} --input {urls-or-params-file}` | `prompts/hybrid-playbook.md` |
 | **url-ingest** | `/url-ingest {init|ingest|status|mark|search|stats} {program}` | `skills/url-ingest/SKILL.md` |
-| **bounty-notes** | `/bounty-notes {init|note|artifact} {program}` | `prompts/bounty-notes-playbook.md` |
+| **bounty-notes** | `/bounty-notes {init|note|search|link|artifact} {program}` | `prompts/bounty-notes-playbook.md` |
 | **hunter-memory** | `/hunter-memory {program} {surface}` | `prompts/hunter-memory-playbook.md` |
 | **hunter-loop** | `/hunter-loop {program} --goal {objective}` | `prompts/hunter-loop-playbook.md` |
 | **brainstorm-spec** | `/brainstorm-spec {program}` | `prompts/brainstorm-spec-playbook.md` |

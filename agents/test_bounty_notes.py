@@ -41,15 +41,84 @@ class BountyNotesTests(unittest.TestCase):
                     "Check whether metadata reaches admin review.",
                     "--refs",
                     "notes/timeline/2026-06-15.md",
+                    "--url",
+                    "canva.com/api/designs?b=2&a=1",
+                    "--tag",
+                    "avatar",
+                    "--report",
+                    "FID-123",
                 ]
             )
             self.assertEqual(rc, 0)
             note = Path(tmp) / "web_bounty" / "demo" / "web" / "notes" / "hypotheses" / "avatar-metadata-render.md"
             text = note.read_text(encoding="utf-8")
             self.assertIn("Status: testing", text)
+            self.assertIn("https://canva.com/api/designs?a=1&b=2", text)
+            self.assertIn("#avatar", text)
             self.assertIn("Check whether metadata reaches admin review.", text)
             index = note.parents[1] / "index.md"
             self.assertIn("hypotheses/avatar-metadata-render.md", index.read_text(encoding="utf-8"))
+            machine_index = json.loads((note.parents[1] / "_index" / "notes.json").read_text(encoding="utf-8"))
+            self.assertEqual(machine_index["notes"][0]["urls"], ["https://canva.com/api/designs?a=1&b=2"])
+            self.assertIn("FID-123", machine_index["notes"][0]["reports"])
+            self.assertIn("avatar", machine_index["notes"][0]["tags"])
+
+    def test_search_and_link_use_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = ["demo", "--family", "web_bounty", "--lane", "web", "--root", tmp]
+            bounty_notes.main(
+                [
+                    "note",
+                    *base,
+                    "--bucket",
+                    "hypotheses",
+                    "--title",
+                    "Endpoint ownership",
+                    "--status",
+                    "untested",
+                    "--run-id",
+                    "run-1",
+                    "--body",
+                    "Check object ownership.",
+                    "--url",
+                    "https://canva.com/api/team/1",
+                ]
+            )
+            bounty_notes.main(
+                [
+                    "note",
+                    *base,
+                    "--bucket",
+                    "handoffs",
+                    "--title",
+                    "run-1",
+                    "--slug",
+                    "run-1",
+                    "--run-id",
+                    "run-1",
+                    "--body",
+                    "Continue endpoint ownership.",
+                    "--link",
+                    "hypotheses/endpoint-ownership.md",
+                ]
+            )
+            rc = bounty_notes.main(
+                [
+                    "link",
+                    *base,
+                    "--source",
+                    "hypotheses/endpoint-ownership.md",
+                    "--target",
+                    "handoffs/run-1.md",
+                    "--relationship",
+                    "handoff",
+                ]
+            )
+            self.assertEqual(rc, 0)
+            note = Path(tmp) / "web_bounty" / "demo" / "web" / "notes" / "hypotheses" / "endpoint-ownership.md"
+            self.assertIn("[[handoffs/run-1]]", note.read_text(encoding="utf-8"))
+            by_url = note.parents[1] / "_index" / "by-url.md"
+            self.assertIn("[[hypotheses/endpoint-ownership|Endpoint ownership]]", by_url.read_text(encoding="utf-8"))
 
     def test_artifact_copies_to_scratch_and_writes_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:

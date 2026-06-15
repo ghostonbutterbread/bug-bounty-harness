@@ -18,7 +18,8 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
 
 ## Workflow
 
-1. Read `prompts/js-playbook.md`.
+1. Read the canonical playbook at
+   `/home/ryushe/projects/bug_bounty_harness/prompts/js-playbook.md`.
 2. Resolve inputs from a page URL, `aggregated/jsfiles.txt`, proxy history,
    recon output, Wayback, or source maps.
 3. Use `agents/js_analyzer.py inventory` to download, hash, dedupe, cheaply

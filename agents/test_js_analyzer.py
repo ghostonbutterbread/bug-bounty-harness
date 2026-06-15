@@ -22,6 +22,27 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
     assert "location" in signals["sources"]
     assert "request" in signals["sinks"]
     assert "dom_write" in signals["sinks"]
+    assert "auth" in signals["flow_hints"]
+    assert "user_id" in signals["interesting_keys"]
+
+
+def test_extract_signals_prioritizes_flow_and_route_hints():
+    text = """
+    mutation UpdateInvoice($invoiceId: ID!) { updateInvoice(id: $invoiceId) { id } }
+    const route = { path: "/api/billing/invoices/:invoice_id/refund" };
+    const payload = { tenant_id: tenantId, redirect_uri: nextUrl, featureFlag: "new_checkout" };
+    imagePreview({ remoteUrl: image_url, importPath: file_path });
+    """
+    signals = J.extract_signals(text, "https://app.example.com/static/billing.js")
+
+    assert "UpdateInvoice" in signals["graphql_operations"]
+    assert "/api/billing/invoices/:invoice_id/refund" in signals["route_hints"]
+    assert "invoice_id" in signals["interesting_keys"]
+    assert "tenant_id" in signals["interesting_keys"]
+    assert "redirect_uri" in signals["interesting_keys"]
+    assert "payment" in signals["flow_hints"]
+    assert "access_control" in signals["flow_hints"]
+    assert "server_fetch" in signals["flow_hints"]
 
 
 def test_extract_signals_ignores_malformed_urlish_strings():

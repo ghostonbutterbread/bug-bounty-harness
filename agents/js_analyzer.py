@@ -32,6 +32,18 @@ PARAM_RE = re.compile(r"[?&]([A-Za-z0-9_.:-]{2,80})=")
 SOURCE_MAP_RE = re.compile(r"//#\s*sourceMappingURL=(?P<url>\S+)")
 IMPORT_RE = re.compile(r"\bimport\s*(?:\(|[^;\n]+from\s*)['\"]([^'\"]+)['\"]")
 SECRET_HINT_RE = re.compile(r"\b(api[_-]?key|secret|token|bearer|authorization|password|client[_-]?secret|private[_-]?key)\b", re.IGNORECASE)
+PARAM_NAME_RE = re.compile(
+    r"['\"]?([A-Za-z0-9_.:-]*(?:"
+    r"id|uuid|slug|token|csrf|state|nonce|redirect|return|next|url|uri|callback|"
+    r"role|admin|permission|scope|tenant|team|org|workspace|project|design|owner|"
+    r"invoice|coupon|plan|subscription|entitlement|price|billing|checkout|"
+    r"file|path|template|webhook|import|export|upload|download|preview"
+    r")[A-Za-z0-9_.:-]*)['\"]?\s*[:=]",
+    re.IGNORECASE,
+)
+GRAPHQL_RE = re.compile(r"\b(?:query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)")
+ROUTE_RE = re.compile(r"\b(?:path|route|url|href|to)\s*[:=]\s*['\"]([^'\"]{2,180})['\"]", re.IGNORECASE)
+PATH_PARAM_RE = re.compile(r":([A-Za-z_][A-Za-z0-9_]*)")
 
 SOURCE_KEYWORDS = {
     "location": re.compile(r"\b(?:location|document\.URL|document\.documentURI|URLSearchParams|hash|search)\b"),
@@ -42,9 +54,24 @@ SOURCE_KEYWORDS = {
 
 SINK_KEYWORDS = {
     "dom_write": re.compile(r"\b(?:innerHTML|outerHTML|insertAdjacentHTML|document\.write)\b"),
+    "script_create": re.compile(r"\b(?:createElement\s*\(\s*['\"]script|appendChild|setAttribute\s*\(\s*['\"]src)\b"),
     "navigation": re.compile(r"\b(?:location\.href|location\.assign|open\()\b"),
     "eval": re.compile(r"\b(?:eval|Function|setTimeout|setInterval)\s*\("),
     "request": re.compile(r"\b(?:fetch|XMLHttpRequest|axios|sendBeacon)\b"),
+    "storage_write": re.compile(r"\b(?:localStorage|sessionStorage)\.setItem\b"),
+}
+
+FLOW_HINTS = {
+    "auth": re.compile(r"\b(?:login|logout|oauth|saml|sso|mfa|password|reset|session|csrf|jwt|token)\b", re.IGNORECASE),
+    "access_control": re.compile(r"\b(?:role|permission|admin|owner|tenant|organization|workspace|team|entitlement|scope)(?:\b|[_-])", re.IGNORECASE),
+    "object_ids": re.compile(r"\b(?:design|project|folder|user|account|team|org|workspace|tenant|invoice|subscription)[_-]?id\b", re.IGNORECASE),
+    "payment": re.compile(r"\b(?:billing|checkout|payment|invoice|coupon|subscription|plan|price|refund|tax)\b", re.IGNORECASE),
+    "upload_import_export": re.compile(r"\b(?:upload|import|export|download|attachment|file|blob|media|asset)\b", re.IGNORECASE),
+    "server_fetch": re.compile(r"\b(?:webhook|preview|fetchUrl|fetch_url|remoteUrl|remote_url|imageUrl|image_url|callbackUrl|callback_url)\b", re.IGNORECASE),
+    "redirect": re.compile(r"\b(?:redirect|returnTo|return_to|next|continue|callback|deeplink|deep_link)\b", re.IGNORECASE),
+    "feature_flag": re.compile(r"\b(?:featureFlag|feature_flag|experiment|variant|treatment|rollout|beta)\b", re.IGNORECASE),
+    "graphql": re.compile(r"\b(?:graphql|gql|query|mutation|subscription)\b", re.IGNORECASE),
+    "realtime": re.compile(r"\b(?:websocket|socket|channel|presence|collab|comment|share|invite)\b", re.IGNORECASE),
 }
 
 
@@ -80,6 +107,10 @@ class JsRecord:
     secret_hints: list[str] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)
     sinks: list[str] = field(default_factory=list)
+    flow_hints: list[str] = field(default_factory=list)
+    interesting_keys: list[str] = field(default_factory=list)
+    graphql_operations: list[str] = field(default_factory=list)
+    route_hints: list[str] = field(default_factory=list)
     chunk_count: int = 0
 
 
@@ -193,6 +224,15 @@ def extract_signals(text: str, base_url: str) -> dict:
     secret_hints = sorted(set(m.group(1).lower() for m in SECRET_HINT_RE.finditer(text)))[:50]
     sources = sorted(name for name, pattern in SOURCE_KEYWORDS.items() if pattern.search(text))
     sinks = sorted(name for name, pattern in SINK_KEYWORDS.items() if pattern.search(text))
+    flow_hints = sorted(name for name, pattern in FLOW_HINTS.items() if pattern.search(text))
+    interesting_keys = set(PARAM_NAME_RE.findall(text))
+    graphql_operations = sorted(set(GRAPHQL_RE.findall(text)))[:100]
+    route_hints = sorted(
+        hint for hint in set(ROUTE_RE.findall(text))
+        if hint.startswith(("/", "http", "api", "v1", "v2", "graphql", "gql"))
+    )[:200]
+    for route in route_hints:
+        interesting_keys.update(PATH_PARAM_RE.findall(route))
     imports = sorted(set(IMPORT_RE.findall(text)))[:100]
 
     return {
@@ -203,6 +243,10 @@ def extract_signals(text: str, base_url: str) -> dict:
         "secret_hints": secret_hints,
         "sources": sources,
         "sinks": sinks,
+        "flow_hints": flow_hints,
+        "interesting_keys": sorted(interesting_keys)[:300],
+        "graphql_operations": graphql_operations,
+        "route_hints": route_hints,
     }
 
 
@@ -383,18 +427,26 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
         f"- Source map: {record.source_map or 'none detected'}",
         f"- Sources: {', '.join(record.sources) or 'none detected'}",
         f"- Sinks: {', '.join(record.sinks) or 'none detected'}",
+        f"- Flow hints: {', '.join(record.flow_hints) or 'none detected'}",
+        f"- Interesting keys: {', '.join(record.interesting_keys[:40]) or 'none detected'}",
+        f"- GraphQL operations: {', '.join(record.graphql_operations[:20]) or 'none detected'}",
         f"- Params: {', '.join(record.params[:40]) or 'none detected'}",
         "",
         "## Review Goals",
         "",
-        "- Identify endpoints, params, auth/session/storage behavior, source-to-sink paths, object or tenant assumptions, and vuln-lane handoffs.",
+        "- Identify flows, endpoints, params, auth/session/storage behavior, source-to-sink paths, object or tenant assumptions, and vuln-lane handoffs.",
+        "- Prefer exploitable surface over generic secret scanning: hidden routes, request fields, object IDs, redirect/fetch/import/export/upload/payment/auth behavior, API clients, and dataflow.",
+        "- If a function looks important, inspect nearby callers/callees in adjacent chunks from the same chunk set before deciding confidence.",
         "- Treat regex hits as hints, not findings. Verify impact before promotion.",
-        "- Produce structured notes: endpoints, params, sources, sinks, secrets signals, confidence, and next tests.",
+        "- Produce structured notes: endpoints, params, interesting keys, flows, sources, sinks, high-value key signals, confidence, and next tests.",
         "",
         "## Nearby Extracted Endpoints",
         "",
     ]
     lines.extend(f"- {endpoint}" for endpoint in record.endpoints[:80])
+    if record.route_hints:
+        lines.extend(["", "## Route Hints", ""])
+        lines.extend(f"- {route}" for route in record.route_hints[:80])
     lines.extend([
         "",
         "## Chunk",
@@ -498,6 +550,10 @@ def command_inventory(args: argparse.Namespace) -> int:
             secret_hints=signals["secret_hints"],
             sources=signals["sources"],
             sinks=signals["sinks"],
+            flow_hints=signals["flow_hints"],
+            interesting_keys=signals["interesting_keys"],
+            graphql_operations=signals["graphql_operations"],
+            route_hints=signals["route_hints"],
             chunk_count=len(chunks),
         )
         records.append(record)

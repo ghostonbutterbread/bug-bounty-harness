@@ -13,7 +13,8 @@ interpretation and security reasoning.
 - inventory JavaScript from a page, aggregate file, proxy history, or recon run
 - deep-review selected chunks
 - produce endpoints, params, sinks, sources, source maps, auth/storage notes,
-  framework clues, confidence, and follow-up questions
+  framework clues, flow hints, interesting object/request keys, confidence, and
+  follow-up questions
 
 `generate`:
 
@@ -84,8 +85,12 @@ Script responsibilities:
 - keep raw bundles on disk in the shared `_library`
 - record URL aliases under the same file hash when platforms serve the same JS
   from multiple URLs
-- extract cheap signals: URLs, API paths, params, imports, source maps, secret
-  hints, source/sink keywords, framework/router clues
+- extract cheap signals: URLs, API paths, params, imports, source maps,
+  source/sink keywords, framework/router clues, GraphQL operations, route hints,
+  interesting object/request keys, and flow categories
+- treat generic secret words as secondary context; prioritize usable API keys,
+  GitHub/package/cloud/service identifiers, and keys that expand reachable scope
+  over noisy "token/password/secret" matches
 - store chunk sets by file hash plus chunk settings, then write bounded packet
   files for agents
 
@@ -113,6 +118,8 @@ Review goals per packet:
   does it reveal?
 - How are auth, sessions, CSRF, local/session storage, cookies, and feature
   flags handled?
+- What user/team/org/workspace/project/design/invoice/subscription identifiers
+  appear, and do they suggest `/idor` or `/access-control` follow-up?
 - Are there source-to-sink paths: URL/hash/search/storage/message/form input to
   DOM write, navigation, eval-like calls, request bodies, template rendering, or
   upload/import sinks?
@@ -122,6 +129,37 @@ Review goals per packet:
   server-side fetch hints worth routing to `/ssrf`?
 - Are there search/filter/sort/report/export inputs worth routing to `/sqli`,
   `/xss`, `/ssti`, or `/request-exploration`?
+- If a suspicious function is only partly visible in one chunk, use
+  `packets.jsonl` and the chunk-set manifest to inspect adjacent chunks from the
+  same file hash before finalizing the review.
+
+## Signal Priority
+
+High-value JS analysis is flow-first, not secret-first.
+
+Prioritize:
+
+- hidden API routes, GraphQL operations, request builders, route templates, and
+  client-side API wrappers
+- parameter and field names, especially object IDs, tenant/team/workspace IDs,
+  redirect URLs, callback URLs, file paths, import/export/upload/download fields,
+  payment fields, and authorization fields
+- sources and sinks that imply DOM XSS, open redirect, client-side SSRF-like
+  fetch flows, request manipulation, storage/session handling, or script/HTML
+  injection
+- feature flags, experiments, beta gates, admin/role checks, entitlement names,
+  and client-side assumptions that can guide targeted testing
+- third-party service identifiers and API keys only when they plausibly expand
+  reachable scope or unlock a real integration path
+
+Deprioritize:
+
+- generic "token", "secret", "password", or "authorization" strings without a
+  concrete value, source, route, or impact path
+- minified vendor-library noise unless it exposes app-specific endpoints,
+  wrappers, sinks, or configuration
+- raw secret-scanner style output that duplicates what `secrets.txt` or a basic
+  scanner would already report
 
 ## Page Context
 

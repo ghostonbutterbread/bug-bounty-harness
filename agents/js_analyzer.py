@@ -122,6 +122,7 @@ class ExternalIntegration:
     host: str
     classification: str
     action_policy: str
+    allowed_context_actions: list[str]
     found_in_js_url: str
     found_in_sha256: str
     found_in_source: str
@@ -226,6 +227,16 @@ def external_action_policy(classification: str) -> str:
     if classification in {"integration_reference", "auth_or_callback_reference"}:
         return "context-only-find-scoped-integration-flow"
     return "context-only-do-not-test-host"
+
+
+def allowed_context_actions(classification: str) -> list[str]:
+    """Read-only actions allowed for out-of-scope URLs discovered in scoped JS."""
+    base = ["record_url", "classify_purpose", "preserve_found_location"]
+    if classification in {"integration_reference", "auth_or_callback_reference", "public_reference"}:
+        return base + ["open_public_page_read_only", "capture_title_and_description"]
+    if classification == "possible_sensitive_reference":
+        return base + ["sanitize_url_before_notes", "do_not_open_without_approval"]
+    return base
 
 
 def collect_from_page(page_url: str, page_context: str, target_host: str | None) -> tuple[list[str], list[dict]]:
@@ -583,7 +594,7 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
         "- Prefer exploitable surface over generic secret scanning: hidden routes, request fields, object IDs, redirect/fetch/import/export/upload/payment/auth behavior, API clients, and dataflow.",
         "- If a function looks important, inspect nearby callers/callees in adjacent chunks from the same chunk set before deciding confidence.",
         "- Treat regex hits as hints, not findings. Verify impact before promotion.",
-        "- Keep scope boundaries explicit: Canva-owned endpoints can become test targets; external integration/reference endpoints are evidence only unless program scope explicitly includes them.",
+        "- Keep scope boundaries explicit: Canva-owned endpoints can become test targets; external integration/reference endpoints are read-only context/evidence only unless program scope explicitly includes them.",
         "- Produce structured notes: endpoints, params, interesting keys, flows, sources, sinks, high-value key signals, confidence, and next tests.",
         "",
         "## Expected Review Output",
@@ -603,7 +614,7 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
             "",
             "## External Integration/Reference Endpoints",
             "",
-            "Do not test these as targets unless the program scope explicitly includes them. Use them as integration evidence only.",
+            "Read-only context only: agents may open public pages to understand purpose, title, description, and parameters. Do not fuzz, mutate, replay, authenticate, or probe these hosts unless scope explicitly includes them.",
             "",
         ])
         lines.extend(f"- {endpoint}" for endpoint in record.external_endpoints[:80])
@@ -737,6 +748,7 @@ def command_inventory(args: argparse.Namespace) -> int:
                 host=host,
                 classification=classification,
                 action_policy=external_action_policy(classification),
+                allowed_context_actions=allowed_context_actions(classification),
                 found_in_js_url=url,
                 found_in_sha256=digest,
                 found_in_source=record.source,

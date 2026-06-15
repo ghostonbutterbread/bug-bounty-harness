@@ -45,6 +45,8 @@ def test_external_url_classification_and_policy():
     assert J.classify_external_url("https://docs.example.com/help/canva") == "public_reference"
     assert J.classify_external_url("https://cdn.example.com/file?token=abc") == "possible_sensitive_reference"
     assert J.external_action_policy("integration_reference") == "context-only-find-scoped-integration-flow"
+    assert "open_public_page_read_only" in J.allowed_context_actions("integration_reference")
+    assert "do_not_open_without_approval" in J.allowed_context_actions("possible_sensitive_reference")
 
 
 def test_extract_signals_prioritizes_flow_and_route_hints():
@@ -117,6 +119,7 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
     assert "https://app.example.com/api/auth/login?next=/dashboard" in metadata
     external_rows = (output_root / "external_integrations.jsonl").read_text(encoding="utf-8")
     assert "https://slack.com/apps/A06GQJFDUP9" in external_rows
+    assert "open_public_page_read_only" in external_rows
     host_index = json.loads((tmp_path / "integrations" / "external_hosts.json").read_text(encoding="utf-8"))
     assert any(host["host"] == "slack.com" for host in host_index["hosts"])
     packets = list((output_root / "packets").glob("*.md"))

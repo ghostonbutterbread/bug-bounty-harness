@@ -177,6 +177,11 @@ External URL triage:
 - Safe to open with normal browser hygiene: public documentation, marketplace
   listings, static policy/help pages, and public integration landing pages,
   when the purpose is only to understand the integration flow.
+- When opening these pages, keep the action read-only: record the final URL,
+  title, description, visible purpose, query parameters, and how it relates
+  back to a scoped route. Do not log in, install apps, grant OAuth consent,
+  submit forms, replay requests, mutate parameters, or probe the third-party
+  service.
 - Do not fuzz, mutate, replay, brute-force, authenticate against, or probe the
   third-party host unless it is explicitly in the bounty scope or Ryushe
   explicitly approves a separate target.
@@ -192,8 +197,8 @@ External URL triage:
   - cross-run index: `web/intel/integrations/external_urls.jsonl`
   - host summary: `web/intel/integrations/external_hosts.json`
 - Each row should preserve where it was found: external URL, host,
-  classification, action policy, source JS URL, source SHA256, run id, page
-  context, target host, and evidence path.
+  classification, action policy, allowed read-only context actions, source JS
+  URL, source SHA256, run id, page context, target host, and evidence path.
 - Future agents can load the host summary first, then open only the relevant
   run/packet evidence when asking "where did we see this integration?"
 

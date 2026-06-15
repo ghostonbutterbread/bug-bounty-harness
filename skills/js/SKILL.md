@@ -30,6 +30,11 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
 
 Do not paste huge bundles into prompts. Store raw JS locally, pass bounded
 packets to agents, and treat regex hits as leads until impact is verified.
+When scoped JavaScript references third-party URLs, treat those URLs as
+read-only context. Agents may open public pages to understand title,
+description, parameters, and integration purpose, but must not fuzz, mutate,
+replay, authenticate against, or otherwise test the third-party host unless it
+is explicitly in scope.
 
 Downloaded JavaScript is content-addressed under
 `~/Shared/web_bounty/<program>/web/recon/js/_library/`. Check the ledger before

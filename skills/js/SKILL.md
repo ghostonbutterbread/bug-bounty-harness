@@ -31,3 +31,7 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
 Do not paste huge bundles into prompts. Store raw JS locally, pass bounded
 packets to agents, and treat regex hits as leads until impact is verified.
 
+Downloaded JavaScript is content-addressed under
+`~/Shared/web_bounty/<program>/web/recon/js/_library/`. Check the ledger before
+redownloading; reuse existing URL aliases, file hashes, and chunk sets unless a
+fresh fetch is explicitly requested.

@@ -69,6 +69,8 @@ class JsRecord:
     byte_count: int
     sha256: str
     artifact_path: str
+    reused_download: bool = False
+    reused_chunks: bool = False
     page_context: str = ""
     source: str = ""
     source_map: str = ""
@@ -219,6 +221,150 @@ def write_jsonl(path: Path, rows: Iterable[dict]) -> None:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
+def load_ledger(path: Path) -> dict:
+    if not path.exists():
+        return {"schema_version": 1, "urls": {}, "files": {}}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"schema_version": 1, "urls": {}, "files": {}}
+    if not isinstance(data, dict):
+        return {"schema_version": 1, "urls": {}, "files": {}}
+    data.setdefault("schema_version", 1)
+    data.setdefault("urls", {})
+    data.setdefault("files", {})
+    return data
+
+
+def save_ledger(path: Path, ledger: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(ledger, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def ledger_lookup_url(ledger: dict, url: str) -> str | None:
+    entry = ledger.get("urls", {}).get(url)
+    if isinstance(entry, dict):
+        sha = entry.get("sha256")
+        return sha if isinstance(sha, str) and sha else None
+    if isinstance(entry, str):
+        return entry
+    return None
+
+
+def update_ledger_for_file(
+    ledger: dict,
+    *,
+    url: str,
+    sha256: str,
+    artifact_path: Path,
+    byte_count: int,
+    status: int | None,
+    content_type: str,
+    chunk_set_key: str,
+    chunk_count: int,
+    chunk_manifest_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    urls = ledger.setdefault("urls", {})
+    files = ledger.setdefault("files", {})
+    urls[url] = {
+        "sha256": sha256,
+        "last_seen": now,
+        "status": status,
+        "content_type": content_type,
+    }
+    file_entry = files.setdefault(sha256, {})
+    first_seen = file_entry.get("first_seen") or now
+    known_urls = file_entry.get("urls") if isinstance(file_entry.get("urls"), list) else []
+    if url not in known_urls:
+        known_urls.append(url)
+    chunk_sets = file_entry.get("chunk_sets") if isinstance(file_entry.get("chunk_sets"), dict) else {}
+    chunk_sets[chunk_set_key] = {
+        "chunk_count": chunk_count,
+        "manifest_path": str(chunk_manifest_path),
+        "last_seen": now,
+    }
+    files[sha256] = {
+        "first_seen": first_seen,
+        "last_seen": now,
+        "artifact_path": str(artifact_path),
+        "byte_count": byte_count,
+        "urls": known_urls,
+        "chunk_sets": chunk_sets,
+    }
+
+
+def load_body_from_ledger(
+    ledger: dict,
+    *,
+    url: str,
+    downloads_dir: Path,
+) -> tuple[bytes, str, Path] | None:
+    sha = ledger_lookup_url(ledger, url)
+    if not sha:
+        return None
+    artifact_path = downloads_dir / f"{sha}.js"
+    if not artifact_path.exists():
+        file_entry = ledger.get("files", {}).get(sha, {})
+        candidate = file_entry.get("artifact_path") if isinstance(file_entry, dict) else None
+        if candidate:
+            artifact_path = Path(candidate)
+    if not artifact_path.exists():
+        return None
+    body = artifact_path.read_bytes()
+    actual_sha = hashlib.sha256(body).hexdigest()
+    if actual_sha != sha:
+        return None
+    return body, sha, artifact_path
+
+
+def write_chunk_set(
+    *,
+    chunks_root: Path,
+    sha256: str,
+    chunks: list[tuple[int, int, str]],
+    chunk_size: int,
+    chunk_overlap: int,
+) -> tuple[str, Path, list[dict], bool]:
+    chunk_set_key = f"size-{chunk_size}_overlap-{chunk_overlap}"
+    chunk_dir = chunks_root / sha256 / chunk_set_key
+    manifest_path = chunk_dir / "manifest.json"
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            rows = manifest.get("chunks", [])
+            if isinstance(rows, list) and len(rows) == len(chunks) and all(Path(row.get("chunk_path", "")).exists() for row in rows if isinstance(row, dict)):
+                return chunk_set_key, manifest_path, rows, True
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    rows: list[dict] = []
+    for chunk_index, (start, end, chunk) in enumerate(chunks):
+        chunk_path = chunk_dir / f"{chunk_index + 1:03d}.js"
+        chunk_path.write_text(chunk, encoding="utf-8")
+        rows.append({
+            "sha256": sha256,
+            "chunk_index": chunk_index,
+            "chunk_count": len(chunks),
+            "chunk_path": str(chunk_path),
+            "byte_start": start,
+            "byte_end": end,
+        })
+    manifest = {
+        "sha256": sha256,
+        "chunk_set_key": chunk_set_key,
+        "chunk_size": chunk_size,
+        "chunk_overlap": chunk_overlap,
+        "chunk_count": len(chunks),
+        "chunks": rows,
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return chunk_set_key, manifest_path, rows, False
+
+
 def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk: str) -> str:
     lines = [
         f"# JS Deep Review Packet {chunk_index + 1}/{record.chunk_count}",
@@ -258,12 +404,15 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
 def command_inventory(args: argparse.Namespace) -> int:
     run_id = args.run_id or f"js-{utc_stamp()}"
     root = Path(args.output_root).expanduser() if args.output_root else SHARED_WEB_BASE / args.program / "web" / "recon" / "js" / run_id
-    downloads_dir = root / "downloads"
+    library_root = Path(args.library_root).expanduser() if args.library_root else SHARED_WEB_BASE / args.program / "web" / "recon" / "js" / "_library"
+    downloads_dir = library_root / "downloads"
+    library_chunks_dir = library_root / "chunks"
     packets_dir = root / "packets"
-    chunks_dir = root / "chunks"
     downloads_dir.mkdir(parents=True, exist_ok=True)
+    library_chunks_dir.mkdir(parents=True, exist_ok=True)
     packets_dir.mkdir(parents=True, exist_ok=True)
-    chunks_dir.mkdir(parents=True, exist_ok=True)
+    ledger_path = library_root / "ledger.json"
+    ledger = load_ledger(ledger_path)
 
     target_host = args.target_host
     if not target_host and args.page:
@@ -289,19 +438,42 @@ def command_inventory(args: argparse.Namespace) -> int:
 
     records: list[JsRecord] = []
     packet_rows: list[dict] = []
+    reused_downloads = 0
+    reused_chunk_sets = 0
     for index, url in enumerate(normalized_urls, start=1):
-        if args.delay:
-            time.sleep(args.delay)
-        body, status, content_type = http_get(url, timeout=args.timeout)
-        if not body:
-            continue
-        digest = hashlib.sha256(body).hexdigest()
-        artifact_path = downloads_dir / f"{digest}.js"
-        if not artifact_path.exists():
-            artifact_path.write_bytes(body)
+        reused_download = False
+        cached = None if args.refresh else load_body_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
+        if cached:
+            body, digest, artifact_path = cached
+            status = None
+            content_type = ""
+            reused_download = True
+            reused_downloads += 1
+        else:
+            if args.delay:
+                time.sleep(args.delay)
+            body, status, content_type = http_get(url, timeout=args.timeout)
+            if not body:
+                continue
+            digest = hashlib.sha256(body).hexdigest()
+            artifact_path = downloads_dir / f"{digest}.js"
+            if artifact_path.exists():
+                reused_download = True
+                reused_downloads += 1
+            else:
+                artifact_path.write_bytes(body)
         text = body.decode("utf-8", errors="ignore")
         signals = extract_signals(text, url)
         chunks = chunk_text(text, args.chunk_size, args.chunk_overlap)
+        chunk_set_key, chunk_manifest_path, chunk_rows, reused_chunks = write_chunk_set(
+            chunks_root=library_chunks_dir,
+            sha256=digest,
+            chunks=chunks,
+            chunk_size=args.chunk_size,
+            chunk_overlap=args.chunk_overlap,
+        )
+        if reused_chunks:
+            reused_chunk_sets += 1
         record = JsRecord(
             url=url,
             status=status,
@@ -309,6 +481,8 @@ def command_inventory(args: argparse.Namespace) -> int:
             byte_count=len(body),
             sha256=digest,
             artifact_path=str(artifact_path),
+            reused_download=reused_download,
+            reused_chunks=reused_chunks,
             page_context=args.page_context or "",
             source=args.input or args.page or "",
             source_map=signals["source_map"],
@@ -321,15 +495,30 @@ def command_inventory(args: argparse.Namespace) -> int:
             chunk_count=len(chunks),
         )
         records.append(record)
-        for chunk_index, (start, end, chunk) in enumerate(chunks):
-            chunk_name = f"{digest[:16]}-{chunk_index + 1:03d}.js"
-            chunk_path = chunks_dir / chunk_name
+        update_ledger_for_file(
+            ledger,
+            url=url,
+            sha256=digest,
+            artifact_path=artifact_path,
+            byte_count=len(body),
+            status=status,
+            content_type=content_type,
+            chunk_set_key=chunk_set_key,
+            chunk_count=len(chunks),
+            chunk_manifest_path=chunk_manifest_path,
+        )
+        for chunk_row in chunk_rows:
+            chunk_index = int(chunk_row["chunk_index"])
+            start = int(chunk_row["byte_start"])
+            end = int(chunk_row["byte_end"])
+            chunk_path = Path(str(chunk_row["chunk_path"]))
+            chunk = chunk_path.read_text(encoding="utf-8", errors="ignore")
             packet_path = packets_dir / f"{digest[:16]}-{chunk_index + 1:03d}.md"
-            chunk_path.write_text(chunk, encoding="utf-8")
             packet_path.write_text(build_packet(record, chunk_index, start, end, chunk), encoding="utf-8")
             packet_rows.append({
                 "url": url,
                 "sha256": digest,
+                "chunk_set_key": chunk_set_key,
                 "chunk_index": chunk_index,
                 "chunk_count": len(chunks),
                 "chunk_path": str(chunk_path),
@@ -337,8 +526,11 @@ def command_inventory(args: argparse.Namespace) -> int:
                 "byte_start": start,
                 "byte_end": end,
             })
-        print(f"[{index}/{len(normalized_urls)}] {url} -> {len(chunks)} chunk(s)", file=sys.stderr)
+        reuse_note = " reused" if reused_download else " downloaded"
+        chunk_note = " reused-chunks" if reused_chunks else " chunked"
+        print(f"[{index}/{len(normalized_urls)}] {url} -> {len(chunks)} chunk(s){reuse_note}{chunk_note}", file=sys.stderr)
 
+    save_ledger(ledger_path, ledger)
     write_jsonl(root / "metadata.jsonl", (asdict(record) for record in records))
     write_jsonl(root / "packets.jsonl", packet_rows)
     write_jsonl(root / "page_context.jsonl", page_records)
@@ -352,13 +544,17 @@ def command_inventory(args: argparse.Namespace) -> int:
         "root": str(root),
         "js_urls_seen": len(normalized_urls),
         "js_downloaded": len(records),
+        "downloads_reused": reused_downloads,
+        "chunk_sets_reused": reused_chunk_sets,
         "packets": len(packet_rows),
         "outputs": {
             "metadata": str(root / "metadata.jsonl"),
             "packets": str(root / "packets.jsonl"),
             "page_context": str(root / "page_context.jsonl"),
+            "ledger": str(ledger_path),
+            "library": str(library_root),
             "downloads": str(downloads_dir),
-            "chunks": str(chunks_dir),
+            "chunks": str(library_chunks_dir),
             "packet_dir": str(packets_dir),
         },
     }
@@ -379,6 +575,8 @@ def build_parser() -> argparse.ArgumentParser:
     inv.add_argument("--target-host", help="Host or parent domain to constrain JS URLs")
     inv.add_argument("--run-id", help="Stable run id")
     inv.add_argument("--output-root", help="Override output root")
+    inv.add_argument("--library-root", help="Override shared JS library root")
+    inv.add_argument("--refresh", action="store_true", help="Refetch URLs even if the URL is already mapped in the ledger")
     inv.add_argument("--limit", type=int, help="Maximum JS URLs to download")
     inv.add_argument("--timeout", type=int, default=20)
     inv.add_argument("--delay", type=float, default=0.0, help="Delay between JS downloads")
@@ -397,4 +595,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

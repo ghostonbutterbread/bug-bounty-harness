@@ -161,6 +161,35 @@ Deprioritize:
 - raw secret-scanner style output that duplicates what `secrets.txt` or a basic
   scanner would already report
 
+## Deep Review Output Template
+
+Use this shape for packet reviews so follow-up agents can act without rereading
+the whole bundle:
+
+```text
+Lead: <short title>
+Lane: </ato | /access-control | /idor | /dom-xss | /ssrf | /request-exploration | /analyze-endpoint | /create-wordlists>
+Evidence: <exact strings, functions, fields, routes, or packet lines>
+Why it matters: <flow, trust boundary, object boundary, or hidden surface>
+Confidence: <low | medium | high>
+Gating condition: <what must be true before live testing>
+Adjacent chunks: <packet numbers, chunk files, lazy imports, or source-map modules>
+Next test: <one bounded follow-up using owned accounts/resources>
+```
+
+Example:
+
+```text
+Lead: App integration route/client ID authorization
+Lane: /access-control
+Evidence: Sm/Via/$ia, appId, clientId, source, Pq, context, /your-apps/.../shopify-connect
+Why it matters: client-visible app IDs and connect routes may route into install/open flows.
+Confidence: medium
+Gating condition: proxy traffic shows server endpoints accepting appId/clientId/source fields.
+Adjacent chunks: inspect /apps/ routing chunk and definitions of Rm/Wia/Xia.
+Next test: compare owned-account app-connect requests across allowed vs uninstalled apps.
+```
+
 ## Page Context
 
 Always preserve why the JavaScript was collected.

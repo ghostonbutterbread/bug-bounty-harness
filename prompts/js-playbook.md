@@ -167,6 +167,25 @@ Scope rule:
 - Prefer finding the Canva-owned route, callback, request builder, app-install
   endpoint, or proxy-observed request that uses the integration fields.
 
+External URL triage:
+
+- Safe to inspect as evidence: the URL string itself, its query/field names, the
+  owning integration name, whether it is public documentation/marketplace/help
+  content, and whether the scoped app sends users or server-side requests to it.
+- Safe to open with normal browser hygiene: public documentation, marketplace
+  listings, static policy/help pages, and public integration landing pages,
+  when the purpose is only to understand the integration flow.
+- Do not fuzz, mutate, replay, brute-force, authenticate against, or probe the
+  third-party host unless it is explicitly in the bounty scope or Ryushe
+  explicitly approves a separate target.
+- If a referenced external URL contains what looks like a token, API key,
+  signed URL, private file, or exposed data, preserve only sanitized evidence in
+  notes and pivot back to the scoped program question: did Canva leak it, embed
+  it, proxy it, or expose a Canva-owned endpoint that uses it?
+- If the external URL implies a useful integration, route the next step toward
+  the scoped endpoint that creates, connects, imports, redirects, or callbacks
+  through that integration.
+
 Deprioritize:
 
 - generic "token", "secret", "password", or "authorization" strings without a
@@ -242,6 +261,30 @@ After agent deep review, mark the JS URL or route as `deep_reviewed` for
 
 Use `/bounty-notes` for durable summaries and handoffs when review produces
 learning that future agents need.
+
+For meaningful JS runs, keep the large artifacts under `web/recon/js/` and write
+small linked notes under `notes/`:
+
+```bash
+python3 agents/bounty_notes.py note canva \
+  --family web_bounty \
+  --lane web \
+  --bucket handoffs \
+  --title "<js-run-id>" \
+  --slug "<js-run-id>" \
+  --agent codex \
+  --run-id "<js-run-id>" \
+  --tag js \
+  --url "https://static.canva.com/app.js" \
+  --refs "~/Shared/web_bounty/canva/web/recon/js/<js-run-id>/manifest.json" \
+  --refs "~/Shared/web_bounty/canva/web/recon/js/<js-run-id>/packets/<packet>.md" \
+  --body-file /tmp/js-handoff.md
+```
+
+Use `notes/hypotheses/` for individual testable leads, such as app-install
+authorization, URL import server fetch, content-share IDOR, or folder lookup
+access-control. Link back to packet paths with `--refs`; do not duplicate whole
+packets into notes.
 
 ## Pairing With Other Skills
 

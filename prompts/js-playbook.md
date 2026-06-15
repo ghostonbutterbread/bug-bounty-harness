@@ -88,6 +88,8 @@ Script responsibilities:
 - extract cheap signals: URLs, API paths, params, imports, source maps,
   source/sink keywords, framework/router clues, GraphQL operations, route hints,
   interesting object/request keys, and flow categories
+- split extracted endpoints into in-scope endpoints and external
+  integration/reference endpoints when `--target-host` is provided
 - treat generic secret words as secondary context; prioritize usable API keys,
   GitHub/package/cloud/service identifiers, and keys that expand reachable scope
   over noisy "token/password/secret" matches
@@ -129,6 +131,9 @@ Review goals per packet:
   server-side fetch hints worth routing to `/ssrf`?
 - Are there search/filter/sort/report/export inputs worth routing to `/sqli`,
   `/xss`, `/ssti`, or `/request-exploration`?
+- Are referenced third-party integrations evidence of a Canva-owned connect,
+  callback, import, or app-install flow? Treat third-party URLs as context, not
+  test targets, unless the program scope explicitly includes them.
 - If a suspicious function is only partly visible in one chunk, use
   `packets.jsonl` and the chunk-set manifest to inspect adjacent chunks from the
   same file hash before finalizing the review.
@@ -151,6 +156,16 @@ Prioritize:
   and client-side assumptions that can guide targeted testing
 - third-party service identifiers and API keys only when they plausibly expand
   reachable scope or unlock a real integration path
+
+Scope rule:
+
+- JavaScript file collection should use `--target-host` so fetched bundles come
+  from the program-owned host or child domains.
+- Extracted URLs inside scoped JavaScript can include third-party integrations.
+  Keep those as integration evidence only. Do not test the third party unless
+  the bounty scope explicitly includes it.
+- Prefer finding the Canva-owned route, callback, request builder, app-install
+  endpoint, or proxy-observed request that uses the integration fields.
 
 Deprioritize:
 

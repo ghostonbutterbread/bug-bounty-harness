@@ -26,6 +26,19 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
     assert "user_id" in signals["interesting_keys"]
 
 
+def test_extract_signals_splits_in_scope_and_external_endpoints():
+    text = """
+    const internal = "https://static.canva.com/app.js";
+    const route = "/api/apps/install?appId=abc";
+    const external = "https://slack.com/apps/A06GQJFDUP9";
+    """
+    signals = J.extract_signals(text, "https://www.canva.com/apps", "canva.com")
+
+    assert "https://static.canva.com/app.js" in signals["in_scope_endpoints"]
+    assert "https://www.canva.com/api/apps/install?appId=abc" in signals["in_scope_endpoints"]
+    assert "https://slack.com/apps/A06GQJFDUP9" in signals["external_endpoints"]
+
+
 def test_extract_signals_prioritizes_flow_and_route_hints():
     text = """
     mutation UpdateInvoice($invoiceId: ID!) { updateInvoice(id: $invoiceId) { id } }
@@ -92,7 +105,9 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
     assert "https://app.example.com/api/auth/login?next=/dashboard" in metadata
     packets = list((output_root / "packets").glob("*.md"))
     assert packets
-    assert "JS Deep Review Packet" in packets[0].read_text(encoding="utf-8")
+    packet = packets[0].read_text(encoding="utf-8")
+    assert "JS Deep Review Packet" in packet
+    assert "Nearby In-Scope Extracted Endpoints" in packet
 
 
 def test_inventory_reuses_ledger_download_and_chunk_set(tmp_path: Path):

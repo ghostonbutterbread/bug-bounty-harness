@@ -16,9 +16,12 @@ lists; it does not run fuzzing campaigns.
    continue with recon, local proxy, agent proxy, JS, docs, and technology
    fingerprint sources.
 4. Build separate packs by source and purpose instead of one opaque list.
-5. Write generated target packs under the program recon/wordlist area with
-   source metadata and date.
-6. Hand execution to `/use-wordlists` or `/fuzz`.
+5. Write target-specific generated packs under the program recon/wordlist area
+   with source metadata and date.
+6. Promote reusable, non-sensitive packs into
+   `~/projects/ghost-wordlists/wordlists/` so the GitHub wordlist project stays
+   the canonical home for shared wordlists.
+7. Hand execution to `/use-wordlists` or `/fuzz`.
 
 Do not store raw cookies, bearer tokens, credentials, or unsanitized proxy
 request dumps in generated wordlists or notes.

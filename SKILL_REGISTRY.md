@@ -75,6 +75,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **fuzz** | `/fuzz {program}` | `prompts/fuzz-playbook.md` |
 | **create-wordlists** | `/create-wordlists {program}` | `prompts/create-wordlists-playbook.md` |
 | **use-wordlists** | `/use-wordlists {program}` | `prompts/use-wordlists-playbook.md` |
+| **js** | `/js {analyze|generate|deep} {program-or-url}` | `prompts/js-playbook.md` |
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
 | **recon-ry** | `/recon-ry {program}` | `prompts/recon-ry-playbook.md` |
 | **csrf** | `/csrf {program}` | `skills/csrff/SKILL.md` |
@@ -149,6 +150,9 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /fuzz superdrug
 /create-wordlists superdrug
 /use-wordlists superdrug
+/js analyze canva --from-aggregated-js
+/js analyze canva --page https://www.canva.com/login --page-context "login/auth flow"
+/js generate canva --from-run js-canva-20260615T000000Z
 /recon superdrug
 /recon-ry superdrug --url example.com --profile full
 /csrf superdrug

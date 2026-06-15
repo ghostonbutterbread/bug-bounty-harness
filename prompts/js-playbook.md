@@ -90,6 +90,8 @@ Script responsibilities:
   interesting object/request keys, and flow categories
 - split extracted endpoints into in-scope endpoints and external
   integration/reference endpoints when `--target-host` is provided
+- write external integration/reference URLs into the program integration index
+  under `~/Shared/web_bounty/<program>/web/intel/integrations/`
 - treat generic secret words as secondary context; prioritize usable API keys,
   GitHub/package/cloud/service identifiers, and keys that expand reachable scope
   over noisy "token/password/secret" matches
@@ -185,6 +187,15 @@ External URL triage:
 - If the external URL implies a useful integration, route the next step toward
   the scoped endpoint that creates, connects, imports, redirects, or callbacks
   through that integration.
+- Store external URLs as world/intel facts, not as targetable scope:
+  - per-run copy: `web/recon/js/<run-id>/external_integrations.jsonl`
+  - cross-run index: `web/intel/integrations/external_urls.jsonl`
+  - host summary: `web/intel/integrations/external_hosts.json`
+- Each row should preserve where it was found: external URL, host,
+  classification, action policy, source JS URL, source SHA256, run id, page
+  context, target host, and evidence path.
+- Future agents can load the host summary first, then open only the relevant
+  run/packet evidence when asking "where did we see this integration?"
 
 Deprioritize:
 

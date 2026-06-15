@@ -38,9 +38,13 @@ Use `ffuf` as the primary operator-facing harness. `agents/fuzz_runner.py` exist
 
 ```bash
 ffuf -u https://target.com/FUZZ \
-  -w ~/wordlists/SecLists/Discovery/Web-Content/common.txt \
+  -w /usr/share/wordlists/seclists/Discovery/Web-Content/common.txt \
   -mc 200,204,301,302,307,401,403,405 -fc 404 -rate 5 -c -v
 ```
+
+For multi-list or target-tailored campaigns, load `/use-wordlists` first. It
+owns temporary wordlist composition, fuzz history, Telegram progress updates,
+and URL-ingest handoff.
 
 ## Depth Policy
 
@@ -50,7 +54,7 @@ large. A 50,000-candidate parameter or path campaign is acceptable when it is:
 
 - scoped to a specific host/route/workflow
 - rate-limited with `ffuf -rate` or equivalent pacing
-- chunked so progress and stop conditions are observable
+- tracked with a run manifest and progress checkpoints
 - filtered against wildcard/catch-all responses before promotion
 - routed through the agent MITM proxy when request history matters
 
@@ -71,12 +75,12 @@ state-changing spam, or testing outside scope.
 ```bash
 # Path and endpoint discovery
 ffuf -u https://target.com/FUZZ \
-  -w ~/wordlists/SecLists/Discovery/Web-Content/common.txt \
+  -w /usr/share/wordlists/seclists/Discovery/Web-Content/common.txt \
   -mc 200,204,301,302,307,401,403,405 -fc 404 -rate 5 -c -v
 
 # Parameter discovery on a known endpoint
 ffuf -u 'https://target.com/api/search?FUZZ=test' \
-  -w ~/wordlists/SecLists/Discovery/Web-Content/burp-parameter-names.txt \
+  -w /usr/share/wordlists/seclists/Discovery/Web-Content/burp-parameter-names.txt \
   -mc all -fc 404 -fs 0 -rate 3 -c -v
 ```
 
@@ -101,12 +105,15 @@ ffuf -u 'https://target.com/api/search?FUZZ=test' \
 - **Shared Root:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`
 - **Fuzz Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/fuzz/findings.md`
 - **Fuzz Artifacts:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/fuzz/`
+- **Fuzz History:** `~/Shared/web_bounty/{program}/web/recon/fuzz_history/fuzz_runs.jsonl`
 
 ## Workflow
 
 1. Complete the required preflight reads in shared state order.
 2. Read `prompts/fuzz-playbook.md`.
-3. Run `ffuf` with the smallest wordlist that answers the current question.
-4. Promote only interesting hits into the findings workflow.
-5. Write findings to `agent_shared/findings/fuzz/findings.md`.
-6. Update fuzz entries in `checklist.md`, `todo.md`, and relevant notes.
+3. For tailored or multi-list campaigns, load `/use-wordlists`.
+4. Run `ffuf` with the smallest wordlist set that answers the current question.
+5. Record the URL pattern, date, wordlists, output path, and outcome in fuzz history.
+6. Promote only interesting hits into the findings workflow.
+7. Write findings to `agent_shared/findings/fuzz/findings.md`.
+8. Update fuzz entries in `checklist.md`, `todo.md`, and relevant notes.

@@ -13,6 +13,7 @@ import hashlib
 import html.parser
 import json
 import re
+import sqlite3
 import sys
 import time
 import urllib.error
@@ -142,6 +143,26 @@ class ExternalIntegration:
     in_scope_target_host: str
     first_seen: str
     last_seen: str
+
+
+@dataclass(slots=True)
+class JsProvenance:
+    js_url: str
+    sha256: str
+    run_id: str
+    source: str
+    page_url: str = ""
+    document_url: str = ""
+    page_context: str = ""
+    proxy_request_id: str = ""
+    initiator: str = ""
+    referrer: str = ""
+    frame_url: str = ""
+    method: str = ""
+    status: int | None = None
+    content_type: str = ""
+    timestamp: str = ""
+    related_requests: list[str] = field(default_factory=list)
 
 
 def utc_stamp() -> str:
@@ -362,6 +383,22 @@ def append_jsonl(path: Path, rows: Iterable[dict]) -> None:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
+def read_jsonl(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    rows: list[dict] = []
+    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
 def load_ledger(path: Path) -> dict:
     if not path.exists():
         return {"schema_version": 1, "urls": {}, "files": {}}
@@ -457,6 +494,138 @@ def write_external_integration_index(index_root: Path, rows: list[ExternalIntegr
         "external_urls": str(raw_path),
         "external_hosts": str(host_index_path),
     }
+
+
+def load_provenance_hints(path: Path | None) -> dict[str, list[dict]]:
+    if not path:
+        return {}
+    hints: dict[str, list[dict]] = {}
+    for row in read_jsonl(path):
+        raw_url = str(row.get("js_url") or row.get("url") or "")
+        normalized = normalize_url(raw_url)
+        if not normalized:
+            continue
+        hints.setdefault(normalized, []).append(row)
+    return hints
+
+
+def merge_related_requests(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item)]
+    if isinstance(value, str) and value:
+        return [value]
+    return []
+
+
+def build_provenance_rows(
+    *,
+    record: JsRecord,
+    run_id: str,
+    source: str,
+    page_url: str,
+    target_host: str,
+    hints: list[dict],
+) -> list[JsProvenance]:
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    if not hints:
+        return [JsProvenance(
+            js_url=record.url,
+            sha256=record.sha256,
+            run_id=run_id,
+            source=source,
+            page_url=page_url,
+            document_url=page_url,
+            page_context=record.page_context,
+            status=record.status,
+            content_type=record.content_type,
+            timestamp=now,
+        )]
+
+    rows: list[JsProvenance] = []
+    for hint in hints:
+        hint_page = str(hint.get("page_url") or hint.get("document_url") or page_url or "")
+        rows.append(JsProvenance(
+            js_url=record.url,
+            sha256=record.sha256,
+            run_id=run_id,
+            source=str(hint.get("source") or source),
+            page_url=hint_page,
+            document_url=str(hint.get("document_url") or hint_page),
+            page_context=str(hint.get("page_context") or record.page_context),
+            proxy_request_id=str(hint.get("proxy_request_id") or hint.get("request_id") or ""),
+            initiator=str(hint.get("initiator") or ""),
+            referrer=str(hint.get("referrer") or ""),
+            frame_url=str(hint.get("frame_url") or ""),
+            method=str(hint.get("method") or ""),
+            status=record.status,
+            content_type=record.content_type,
+            timestamp=str(hint.get("timestamp") or now),
+            related_requests=merge_related_requests(hint.get("related_requests")),
+        ))
+    return rows
+
+
+def write_provenance_db(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path) as db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS js_provenance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                js_url TEXT NOT NULL,
+                sha256 TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                source TEXT,
+                page_url TEXT,
+                document_url TEXT,
+                page_context TEXT,
+                proxy_request_id TEXT,
+                initiator TEXT,
+                referrer TEXT,
+                frame_url TEXT,
+                method TEXT,
+                status INTEGER,
+                content_type TEXT,
+                timestamp TEXT,
+                related_requests_json TEXT,
+                UNIQUE(js_url, sha256, run_id, source, page_url, proxy_request_id, timestamp)
+            )
+        """)
+        db.executemany(
+            """
+            INSERT OR IGNORE INTO js_provenance (
+                js_url, sha256, run_id, source, page_url, document_url,
+                page_context, proxy_request_id, initiator, referrer, frame_url,
+                method, status, content_type, timestamp, related_requests_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    str(row.get("js_url") or ""),
+                    str(row.get("sha256") or ""),
+                    str(row.get("run_id") or ""),
+                    str(row.get("source") or ""),
+                    str(row.get("page_url") or ""),
+                    str(row.get("document_url") or ""),
+                    str(row.get("page_context") or ""),
+                    str(row.get("proxy_request_id") or ""),
+                    str(row.get("initiator") or ""),
+                    str(row.get("referrer") or ""),
+                    str(row.get("frame_url") or ""),
+                    str(row.get("method") or ""),
+                    row.get("status") if isinstance(row.get("status"), int) else None,
+                    str(row.get("content_type") or ""),
+                    str(row.get("timestamp") or ""),
+                    json.dumps(row.get("related_requests") or []),
+                )
+                for row in rows
+            ],
+        )
+        db.execute("CREATE INDEX IF NOT EXISTS idx_js_provenance_js_url ON js_provenance(js_url)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_js_provenance_sha256 ON js_provenance(sha256)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_js_provenance_page_url ON js_provenance(page_url)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_js_provenance_source ON js_provenance(source)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_js_provenance_context ON js_provenance(page_context)")
+        db.commit()
 
 
 def ledger_lookup_url(ledger: dict, url: str) -> str | None:
@@ -659,6 +828,7 @@ def command_inventory(args: argparse.Namespace) -> int:
         if args.integration_index_root
         else SHARED_WEB_BASE / args.program / "web" / "intel" / "integrations"
     )
+    provenance_input = Path(args.provenance_input).expanduser() if args.provenance_input else None
     downloads_dir = library_root / "downloads"
     library_chunks_dir = library_root / "chunks"
     packets_dir = root / "packets"
@@ -666,7 +836,10 @@ def command_inventory(args: argparse.Namespace) -> int:
     library_chunks_dir.mkdir(parents=True, exist_ok=True)
     packets_dir.mkdir(parents=True, exist_ok=True)
     ledger_path = library_root / "ledger.json"
+    library_provenance_path = library_root / "provenance.jsonl"
+    provenance_db_path = library_root / "js_provenance.sqlite"
     ledger = load_ledger(ledger_path)
+    provenance_hints = load_provenance_hints(provenance_input)
 
     target_host = args.target_host
     if not target_host and args.page:
@@ -693,6 +866,7 @@ def command_inventory(args: argparse.Namespace) -> int:
     records: list[JsRecord] = []
     packet_rows: list[dict] = []
     external_integration_rows: list[ExternalIntegration] = []
+    provenance_rows: list[JsProvenance] = []
     reused_downloads = 0
     reused_chunk_sets = 0
     for index, url in enumerate(normalized_urls, start=1):
@@ -757,6 +931,14 @@ def command_inventory(args: argparse.Namespace) -> int:
             chunk_count=len(chunks),
         )
         records.append(record)
+        provenance_rows.extend(build_provenance_rows(
+            record=record,
+            run_id=run_id,
+            source=args.provenance_source or args.input or args.page or "",
+            page_url=args.page or "",
+            target_host=target_host or "",
+            hints=provenance_hints.get(url, []),
+        ))
         now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         for external_url in record.external_endpoints:
             host = url_host(external_url)
@@ -816,6 +998,9 @@ def command_inventory(args: argparse.Namespace) -> int:
     write_jsonl(root / "metadata.jsonl", (asdict(record) for record in records))
     write_jsonl(root / "packets.jsonl", packet_rows)
     write_jsonl(root / "page_context.jsonl", page_records)
+    write_jsonl(root / "js_provenance.jsonl", (asdict(row) for row in provenance_rows))
+    append_jsonl(library_provenance_path, (asdict(row) for row in provenance_rows))
+    write_provenance_db(provenance_db_path, read_jsonl(library_provenance_path))
     write_jsonl(root / "external_integrations.jsonl", (asdict(row) for row in external_integration_rows))
     integration_outputs = write_external_integration_index(integration_index_root, external_integration_rows)
     manifest = {
@@ -836,6 +1021,9 @@ def command_inventory(args: argparse.Namespace) -> int:
             "metadata": str(root / "metadata.jsonl"),
             "packets": str(root / "packets.jsonl"),
             "page_context": str(root / "page_context.jsonl"),
+            "js_provenance": str(root / "js_provenance.jsonl"),
+            "library_provenance": str(library_provenance_path),
+            "provenance_db": str(provenance_db_path),
             "external_integrations": str(root / "external_integrations.jsonl"),
             "integration_index": integration_outputs,
             "ledger": str(ledger_path),
@@ -864,6 +1052,8 @@ def build_parser() -> argparse.ArgumentParser:
     inv.add_argument("--output-root", help="Override output root")
     inv.add_argument("--library-root", help="Override shared JS library root")
     inv.add_argument("--integration-index-root", help="Override external integration index root")
+    inv.add_argument("--provenance-input", help="Optional JSONL mapping JS URLs to page/proxy/flow provenance")
+    inv.add_argument("--provenance-source", help="Source label for provenance rows, e.g. ryushe-proxy, katana, playwright")
     inv.add_argument("--refresh", action="store_true", help="Refetch URLs even if the URL is already mapped in the ledger")
     inv.add_argument("--limit", type=int, help="Maximum JS URLs to download")
     inv.add_argument("--timeout", type=int, default=20)

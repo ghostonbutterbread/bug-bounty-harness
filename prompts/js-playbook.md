@@ -115,11 +115,14 @@ The helper writes:
 ├── manifest.json
 ├── metadata.jsonl
 ├── page_context.jsonl
+├── js_provenance.jsonl
 ├── packets.jsonl
 └── packets/<sha-prefix>-NNN.md
 
 ~/Shared/web_bounty/<program>/web/recon/js/_library/
 ├── ledger.json
+├── provenance.jsonl
+├── js_provenance.sqlite
 ├── downloads/<sha256>.js
 └── chunks/<sha256>/<chunk-set-key>/
     ├── manifest.json
@@ -135,11 +138,14 @@ file if page/proxy provenance is available.
 Preserve a JS provenance index whenever collection comes from browser crawl,
 Caido/Burp/MITM proxy history, Playwright/CDP network events, or recon-ry/Katana
 outputs that include referrer/initiator data. Store it beside the JS run and in
-the shared JS library where possible:
+the shared JS library where possible. The append-only JSONL files are the source
+of truth. The SQLite DB is generated from the JSONL and exists so agents can
+query relationships quickly without loading every packet or metadata row.
 
 ```text
 web/recon/js/<run-id>/js_provenance.jsonl
 web/recon/js/_library/provenance.jsonl
+web/recon/js/_library/js_provenance.sqlite
 ```
 
 Recommended row fields:
@@ -156,6 +162,21 @@ Recommended row fields:
   timestamp when the source can provide them
 - `related_requests`: nearby scoped API requests observed in the same page flow,
   with sanitized references to proxy rows or `/analyze-endpoint` artifacts
+
+Use the DB for lookup questions:
+
+- which pages or flows loaded this JavaScript URL?
+- which JS URLs were seen by Ryushe proxy, agent proxy, Katana, Playwright, or
+  manual input?
+- which URLs map to this content hash?
+- which scripts belong to login, billing, editor, admin, upload/import, or
+  integration flows?
+- which proxy request IDs or endpoint contracts are near this script?
+
+Keep citations and durable handoffs tied to the JSONL row, manifest, packet
+path, source JS URL, SHA256, and any sanitized proxy/analyze-endpoint artifact.
+If the SQLite schema changes, rebuild it from `_library/provenance.jsonl`; do
+not treat DB-only rows as durable evidence.
 
 When a deep-review worker selects a packet, it should first ask:
 
@@ -195,6 +216,11 @@ Script responsibilities:
   from multiple URLs
 - preserve provenance for each JS URL when available: page/document URL,
   initiator/referrer, proxy source, request id, and nearby scoped API requests
+- accept optional provenance input JSONL with `--provenance-input` so proxy,
+  browser, or recon-ry collectors can pass page/flow/request relationships into
+  the JS inventory run
+- write per-run `js_provenance.jsonl`, append to `_library/provenance.jsonl`,
+  and refresh `_library/js_provenance.sqlite`
 - extract cheap signals: URLs, API paths, params, imports, source maps,
   source/sink keywords, framework/router clues, GraphQL operations, route hints,
   interesting object/request keys, and flow categories
@@ -215,6 +241,7 @@ changed:
 python3 agents/js_analyzer.py inventory canva \
   --input "$HOME/Shared/web_bounty/canva/web/recon/aggregated/jsfiles.txt" \
   --target-host canva.com \
+  --provenance-source recon-aggregate \
   --refresh
 ```
 

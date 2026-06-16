@@ -30,8 +30,11 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
 5. Correlate JS with provenance and proxy evidence when available: page URL or
    document URL that loaded the script, page context, initiator/referrer, Ryushe
    proxy or agent proxy request references, and nearby scoped API requests.
-6. Record coverage through `/url-ingest` and write durable notes/handoffs.
-7. Send generated candidates to `/create-wordlists`, `/use-wordlists`, `/fuzz`,
+6. Treat provenance JSONL as the durable evidence log and
+   `js_provenance.sqlite` as the query/index layer. Prefer DB lookups during
+   analysis, but keep citations tied to JSONL rows and packet paths.
+7. Record coverage through `/url-ingest` and write durable notes/handoffs.
+8. Send generated candidates to `/create-wordlists`, `/use-wordlists`, `/fuzz`,
    or vuln-specific skills such as `/xss`, `/ssrf`, `/sqli`, and `/idor`.
 
 ## Analysis Lenses
@@ -75,8 +78,14 @@ against page HTML/source or proxy-observed responses.
 Do not analyze JS as a detached file when provenance exists. Prefer the chain:
 JS packet lead -> page/flow that loaded it -> related proxy requests ->
 `/analyze-endpoint` request contract -> bounded owned-account test.
+The provenance shape is:
+`page/flow -> js_url -> sha256 -> chunk_set -> packet -> extracted endpoints -> related proxy requests -> notes/leads`.
 
 Downloaded JavaScript is content-addressed under
 `~/Shared/web_bounty/<program>/web/recon/js/_library/`. Check the ledger before
 redownloading; reuse existing URL aliases, file hashes, and chunk sets unless a
 fresh fetch is explicitly requested.
+Provenance is stored beside it as append-only JSONL plus a generated SQLite
+index:
+`~/Shared/web_bounty/<program>/web/recon/js/_library/provenance.jsonl`
+`~/Shared/web_bounty/<program>/web/recon/js/_library/js_provenance.sqlite`

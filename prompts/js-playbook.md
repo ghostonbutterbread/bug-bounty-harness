@@ -105,7 +105,7 @@ For a single page:
 python3 agents/js_analyzer.py inventory canva \
   --page "https://www.canva.com/login" \
   --page-context "login/auth flow" \
-  --target-host canva.com
+  --target-host "https://www.canva.com/login"
 ```
 
 The helper writes:
@@ -121,8 +121,10 @@ The helper writes:
 
 ~/Shared/web_bounty/<program>/web/recon/js/_library/
 ├── ledger.json
+├── metadata.jsonl
 ├── provenance.jsonl
-├── js_provenance.sqlite
+├── observations.jsonl
+├── js_info.sqlite
 ├── downloads/<sha256>.js
 └── chunks/<sha256>/<chunk-set-key>/
     ├── manifest.json
@@ -144,8 +146,10 @@ query relationships quickly without loading every packet or metadata row.
 
 ```text
 web/recon/js/<run-id>/js_provenance.jsonl
+web/recon/js/_library/metadata.jsonl
 web/recon/js/_library/provenance.jsonl
-web/recon/js/_library/js_provenance.sqlite
+web/recon/js/_library/observations.jsonl
+web/recon/js/_library/js_info.sqlite
 ```
 
 Recommended row fields:
@@ -162,6 +166,16 @@ Recommended row fields:
   timestamp when the source can provide them
 - `related_requests`: nearby scoped API requests observed in the same page flow,
   with sanitized references to proxy rows or `/analyze-endpoint` artifacts
+
+Observation row fields for `agents/js_analyzer.py observe`:
+
+- `sha256`, `js_url`, `packet_path`, `lens`, `run_id`, `agent_id`
+- `title`, `summary`, `status`, `confidence`
+- `evidence`: exact strings, function names, route names, request fields,
+  packet line refs, or artifact refs
+- `next_action`: bounded follow-up such as inspect related proxy request, send
+  to `/idor`, or mark not controllable
+- `artifact_path`: optional worker summary, handoff, or lead JSONL path
 
 Use the DB for lookup questions:
 
@@ -220,7 +234,13 @@ Script responsibilities:
   browser, or recon-ry collectors can pass page/flow/request relationships into
   the JS inventory run
 - write per-run `js_provenance.jsonl`, append to `_library/provenance.jsonl`,
-  and refresh `_library/js_provenance.sqlite`
+  and refresh `_library/js_info.sqlite`
+- write per-run `metadata.jsonl`, append the same enriched rows to
+  `_library/metadata.jsonl`, and index JS files, URL aliases, packets, chunks,
+  and artifact paths in `_library/js_info.sqlite`
+- accept reviewed worker observations with `agents/js_analyzer.py observe`,
+  append them to `_library/observations.jsonl`, and index them in
+  `_library/js_info.sqlite`
 - extract cheap signals: URLs, API paths, params, imports, source maps,
   source/sink keywords, framework/router clues, GraphQL operations, route hints,
   interesting object/request keys, and flow categories
@@ -243,6 +263,14 @@ python3 agents/js_analyzer.py inventory canva \
   --target-host canva.com \
   --provenance-source recon-aggregate \
   --refresh
+```
+
+After a worker reviews packets, write its pre-finding conclusions as JSONL and
+index them:
+
+```bash
+python3 agents/js_analyzer.py observe canva \
+  --input "$RUN_ROOT/worker-observations.jsonl"
 ```
 
 Without `--refresh`, the helper reuses the URL-to-hash ledger and avoids another
@@ -320,11 +348,12 @@ Prioritize:
 
 Scope rule:
 
-- JavaScript file collection should use `--target-host` so fetched bundles come
-  from the program-owned host or child domains.
+- JavaScript file collection should use `--target-host` as the scope hint. It
+  accepts a URL, host, or parent domain. Fetched JS URLs must match that host or
+  child-domain tree.
 - Extracted URLs inside scoped JavaScript can include third-party integrations.
-  Keep those as integration evidence only. Do not test the third party unless
-  the bounty scope explicitly includes it.
+  Keep those as integration/context evidence only. Do not test the third party
+  unless the bounty scope explicitly includes it.
 - Prefer finding the Canva-owned route, callback, request builder, app-install
   endpoint, or proxy-observed request that uses the integration fields.
 
@@ -494,6 +523,10 @@ Every meaningful JS run should leave:
 
 - `manifest.json`: inputs, run id, counts, and output paths
 - `metadata.jsonl`: one row per downloaded JS body
+- `_library/metadata.jsonl`: append-only body metadata across runs, including
+  provenance summary, signal counts, chunk paths, packet paths, and DB links
+- `_library/observations.jsonl`: append-only worker observations and pre-finding
+  notes keyed to JS hash, URL, packet path, lens, run id, and agent id
 - `packets.jsonl`: packet/chunk map for agent review
 - `_library/ledger.json`: URL aliases, file hashes, artifact paths, and chunk
   set metadata

@@ -221,11 +221,42 @@ def normalize_url(value: str, base: str | None = None) -> str | None:
     return urllib.parse.urlunparse(parsed._replace(fragment=""))
 
 
-def same_host_or_child(url: str, target_host: str | None) -> bool:
-    if not target_host:
+def same_host_or_child(url: str, host_or_domain: str | None) -> bool:
+    if not host_or_domain:
         return True
     host = urllib.parse.urlparse(url).hostname or ""
-    return host == target_host or host.endswith(f".{target_host}")
+    return host == host_or_domain or host.endswith(f".{host_or_domain}")
+
+
+def normalize_host_value(value: str) -> str | None:
+    value = value.strip()
+    if not value or value.startswith("#"):
+        return None
+    if "://" in value:
+        host = urllib.parse.urlparse(value).hostname or ""
+    else:
+        host = value.split("/", 1)[0]
+    host = host.strip().lower().rstrip(".")
+    return host or None
+
+
+def build_scope_hosts(*, target_host: str | None, page: str | None) -> list[str]:
+    hosts: list[str] = []
+    if target_host:
+        normalized = normalize_host_value(target_host)
+        if normalized:
+            hosts.append(normalized)
+    if not hosts and page:
+        page_host = urllib.parse.urlparse(page).hostname
+        if page_host:
+            hosts.append(page_host.lower().rstrip("."))
+    return dedupe(hosts)
+
+
+def in_scope_url(url: str, scope_hosts: list[str]) -> bool:
+    if not scope_hosts:
+        return True
+    return any(same_host_or_child(url, scope_host) for scope_host in scope_hosts)
 
 
 def url_host(url: str) -> str:
@@ -270,7 +301,7 @@ def allowed_context_actions(classification: str) -> list[str]:
     return base
 
 
-def collect_from_page(page_url: str, page_context: str, target_host: str | None) -> tuple[list[str], list[dict]]:
+def collect_from_page(page_url: str, page_context: str, scope_hosts: list[str]) -> tuple[list[str], list[dict]]:
     body, status, content_type = http_get(page_url)
     if not body:
         return [], []
@@ -280,7 +311,7 @@ def collect_from_page(page_url: str, page_context: str, target_host: str | None)
     js_urls = []
     for script in parser.scripts:
         normalized = normalize_url(script, page_url)
-        if normalized and same_host_or_child(normalized, target_host):
+        if normalized and in_scope_url(normalized, scope_hosts):
             js_urls.append(normalized)
     page_records = [{
         "page_url": page_url,
@@ -292,7 +323,7 @@ def collect_from_page(page_url: str, page_context: str, target_host: str | None)
     return dedupe(js_urls), page_records
 
 
-def extract_signals(text: str, base_url: str, target_host: str | None = None) -> dict:
+def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = None) -> dict:
     endpoints = set()
     for match in URL_RE.findall(text):
         normalized = normalize_url(match.rstrip(".,;)"), base_url)
@@ -330,9 +361,9 @@ def extract_signals(text: str, base_url: str, target_host: str | None = None) ->
     imports = sorted(set(IMPORT_RE.findall(text)))[:100]
 
     sorted_endpoints = sorted(endpoints)
-    if target_host:
-        in_scope_endpoints = [endpoint for endpoint in sorted_endpoints if same_host_or_child(endpoint, target_host)]
-        external_endpoints = [endpoint for endpoint in sorted_endpoints if not same_host_or_child(endpoint, target_host)]
+    if scope_hosts:
+        in_scope_endpoints = [endpoint for endpoint in sorted_endpoints if in_scope_url(endpoint, scope_hosts)]
+        external_endpoints = [endpoint for endpoint in sorted_endpoints if not in_scope_url(endpoint, scope_hosts)]
     else:
         in_scope_endpoints = sorted_endpoints
         external_endpoints = []
@@ -573,7 +604,78 @@ def build_provenance_rows(
     return rows
 
 
-def write_provenance_db(path: Path, rows: list[dict]) -> None:
+def summarize_provenance(rows: list[dict]) -> dict:
+    page_urls = dedupe(str(row.get("page_url") or "") for row in rows if row.get("page_url"))
+    document_urls = dedupe(str(row.get("document_url") or "") for row in rows if row.get("document_url"))
+    page_contexts = dedupe(str(row.get("page_context") or "") for row in rows if row.get("page_context"))
+    sources = dedupe(str(row.get("source") or "") for row in rows if row.get("source"))
+    proxy_request_ids = dedupe(str(row.get("proxy_request_id") or "") for row in rows if row.get("proxy_request_id"))
+    related_requests: list[str] = []
+    for row in rows:
+        related_requests.extend(str(item) for item in row.get("related_requests") or [] if str(item))
+    return {
+        "row_count": len(rows),
+        "page_urls": page_urls[:50],
+        "document_urls": document_urls[:50],
+        "page_contexts": page_contexts[:50],
+        "sources": sources[:50],
+        "proxy_request_ids": proxy_request_ids[:50],
+        "related_requests": dedupe(related_requests)[:100],
+    }
+
+
+def build_metadata_row(
+    *,
+    record: JsRecord,
+    run_id: str,
+    target_host: str | None,
+    packet_rows: list[dict],
+    provenance_rows: list[dict],
+    library_root: Path,
+    generated_at: str,
+) -> dict:
+    chunk_paths = [str(row.get("chunk_path") or "") for row in packet_rows if row.get("chunk_path")]
+    packet_paths = [str(row.get("packet_path") or "") for row in packet_rows if row.get("packet_path")]
+    chunk_set_keys = dedupe(str(row.get("chunk_set_key") or "") for row in packet_rows if row.get("chunk_set_key"))
+    row = asdict(record)
+    row.update({
+        "metadata_schema_version": 2,
+        "run_id": run_id,
+        "generated_at": generated_at,
+        "target_host": target_host or "",
+        "signal_counts": {
+            "endpoints": len(record.endpoints),
+            "in_scope_endpoints": len(record.in_scope_endpoints),
+            "external_endpoints": len(record.external_endpoints),
+            "params": len(record.params),
+            "imports": len(record.imports),
+            "secret_hints": len(record.secret_hints),
+            "sources": len(record.sources),
+            "sinks": len(record.sinks),
+            "flow_hints": len(record.flow_hints),
+            "interesting_keys": len(record.interesting_keys),
+            "graphql_operations": len(record.graphql_operations),
+            "route_hints": len(record.route_hints),
+            "hidden_state_hints": len(record.hidden_state_hints),
+        },
+        "chunk_set_keys": chunk_set_keys,
+        "chunk_paths": chunk_paths,
+        "packet_paths": packet_paths,
+        "provenance": summarize_provenance(provenance_rows),
+        "artifact_links": {
+            "download": record.artifact_path,
+            "library_root": str(library_root),
+            "library_metadata": str(library_root / "metadata.jsonl"),
+            "library_provenance": str(library_root / "provenance.jsonl"),
+            "js_info_db": str(library_root / "js_info.sqlite"),
+            "chunks": chunk_paths,
+            "packets": packet_paths,
+        },
+    })
+    return row
+
+
+def write_provenance_table(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as db:
         db.execute("""
@@ -634,6 +736,281 @@ def write_provenance_db(path: Path, rows: list[dict]) -> None:
         db.execute("CREATE INDEX IF NOT EXISTS idx_js_provenance_source ON js_provenance(source)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_js_provenance_context ON js_provenance(page_context)")
         db.commit()
+
+
+def write_metadata_db(path: Path, metadata_rows: list[dict], packet_rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path) as db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS js_files (
+                sha256 TEXT PRIMARY KEY,
+                artifact_path TEXT NOT NULL,
+                byte_count INTEGER NOT NULL,
+                content_type TEXT,
+                first_seen TEXT,
+                last_seen TEXT,
+                latest_run_id TEXT,
+                target_host TEXT,
+                source_map TEXT,
+                chunk_count INTEGER,
+                signal_counts_json TEXT,
+                metadata_json TEXT NOT NULL
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS js_url_aliases (
+                js_url TEXT NOT NULL,
+                sha256 TEXT NOT NULL,
+                first_seen TEXT,
+                last_seen TEXT,
+                latest_run_id TEXT,
+                status INTEGER,
+                content_type TEXT,
+                source TEXT,
+                page_context TEXT,
+                PRIMARY KEY (js_url, sha256)
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS js_artifacts (
+                sha256 TEXT NOT NULL,
+                artifact_type TEXT NOT NULL,
+                artifact_path TEXT NOT NULL,
+                run_id TEXT,
+                chunk_set_key TEXT,
+                chunk_index INTEGER,
+                PRIMARY KEY (sha256, artifact_type, artifact_path)
+            )
+        """)
+        db.executemany(
+            """
+            INSERT INTO js_files (
+                sha256, artifact_path, byte_count, content_type, first_seen,
+                last_seen, latest_run_id, target_host, source_map, chunk_count,
+                signal_counts_json, metadata_json
+            ) VALUES (?, ?, ?, ?, COALESCE((SELECT first_seen FROM js_files WHERE sha256 = ?), ?), ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(sha256) DO UPDATE SET
+                artifact_path = excluded.artifact_path,
+                byte_count = excluded.byte_count,
+                content_type = excluded.content_type,
+                last_seen = excluded.last_seen,
+                latest_run_id = excluded.latest_run_id,
+                target_host = excluded.target_host,
+                source_map = excluded.source_map,
+                chunk_count = excluded.chunk_count,
+                signal_counts_json = excluded.signal_counts_json,
+                metadata_json = excluded.metadata_json
+            """,
+            [
+                (
+                    str(row.get("sha256") or ""),
+                    str(row.get("artifact_path") or ""),
+                    int(row.get("byte_count") or 0),
+                    str(row.get("content_type") or ""),
+                    str(row.get("sha256") or ""),
+                    str(row.get("generated_at") or ""),
+                    str(row.get("generated_at") or ""),
+                    str(row.get("run_id") or ""),
+                    str(row.get("target_host") or ""),
+                    str(row.get("source_map") or ""),
+                    int(row.get("chunk_count") or 0),
+                    json.dumps(row.get("signal_counts") or {}, sort_keys=True),
+                    json.dumps(row, sort_keys=True),
+                )
+                for row in metadata_rows
+            ],
+        )
+        db.executemany(
+            """
+            INSERT INTO js_url_aliases (
+                js_url, sha256, first_seen, last_seen, latest_run_id,
+                status, content_type, source, page_context
+            ) VALUES (?, ?, COALESCE((SELECT first_seen FROM js_url_aliases WHERE js_url = ? AND sha256 = ?), ?), ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(js_url, sha256) DO UPDATE SET
+                last_seen = excluded.last_seen,
+                latest_run_id = excluded.latest_run_id,
+                status = excluded.status,
+                content_type = excluded.content_type,
+                source = excluded.source,
+                page_context = excluded.page_context
+            """,
+            [
+                (
+                    str(row.get("url") or ""),
+                    str(row.get("sha256") or ""),
+                    str(row.get("url") or ""),
+                    str(row.get("sha256") or ""),
+                    str(row.get("generated_at") or ""),
+                    str(row.get("generated_at") or ""),
+                    str(row.get("run_id") or ""),
+                    row.get("status") if isinstance(row.get("status"), int) else None,
+                    str(row.get("content_type") or ""),
+                    str(row.get("source") or ""),
+                    str(row.get("page_context") or ""),
+                )
+                for row in metadata_rows
+            ],
+        )
+        artifact_rows: list[tuple] = []
+        for row in metadata_rows:
+            sha = str(row.get("sha256") or "")
+            run_id = str(row.get("run_id") or "")
+            if row.get("artifact_path"):
+                artifact_rows.append((sha, "download", str(row["artifact_path"]), run_id, "", None))
+            for packet_path in row.get("packet_paths") or []:
+                artifact_rows.append((sha, "packet", str(packet_path), run_id, "", None))
+            for chunk_path in row.get("chunk_paths") or []:
+                artifact_rows.append((sha, "chunk", str(chunk_path), run_id, "", None))
+        for packet in packet_rows:
+            sha = str(packet.get("sha256") or "")
+            artifact_rows.append((
+                sha,
+                "packet",
+                str(packet.get("packet_path") or ""),
+                "",
+                str(packet.get("chunk_set_key") or ""),
+                packet.get("chunk_index") if isinstance(packet.get("chunk_index"), int) else None,
+            ))
+            artifact_rows.append((
+                sha,
+                "chunk",
+                str(packet.get("chunk_path") or ""),
+                "",
+                str(packet.get("chunk_set_key") or ""),
+                packet.get("chunk_index") if isinstance(packet.get("chunk_index"), int) else None,
+            ))
+        db.executemany(
+            """
+            INSERT OR IGNORE INTO js_artifacts (
+                sha256, artifact_type, artifact_path, run_id, chunk_set_key, chunk_index
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [row for row in artifact_rows if row[0] and row[2]],
+        )
+        db.execute("CREATE INDEX IF NOT EXISTS idx_js_files_run ON js_files(latest_run_id)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_js_alias_sha ON js_url_aliases(sha256)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_js_alias_url ON js_url_aliases(js_url)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_js_artifacts_sha ON js_artifacts(sha256)")
+        db.commit()
+
+
+def normalize_observation_row(row: dict) -> dict:
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    normalized = dict(row)
+    normalized.setdefault("created_at", now)
+    normalized.setdefault("updated_at", normalized["created_at"])
+    normalized.setdefault("status", "observed")
+    normalized.setdefault("confidence", "")
+    normalized.setdefault("lens", "")
+    normalized.setdefault("run_id", "")
+    normalized.setdefault("agent_id", "")
+    normalized.setdefault("sha256", "")
+    normalized.setdefault("js_url", "")
+    normalized.setdefault("packet_path", "")
+    normalized.setdefault("title", "")
+    normalized.setdefault("summary", "")
+    normalized.setdefault("evidence", [])
+    normalized.setdefault("next_action", "")
+    normalized.setdefault("artifact_path", "")
+    if not normalized.get("observation_id"):
+        identity = json.dumps({
+            "sha256": normalized.get("sha256"),
+            "js_url": normalized.get("js_url"),
+            "packet_path": normalized.get("packet_path"),
+            "lens": normalized.get("lens"),
+            "run_id": normalized.get("run_id"),
+            "title": normalized.get("title"),
+            "summary": normalized.get("summary"),
+        }, sort_keys=True)
+        normalized["observation_id"] = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+    return normalized
+
+
+def write_observations_table(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path) as db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS js_observations (
+                observation_id TEXT PRIMARY KEY,
+                sha256 TEXT,
+                js_url TEXT,
+                packet_path TEXT,
+                lens TEXT,
+                run_id TEXT,
+                agent_id TEXT,
+                title TEXT,
+                summary TEXT,
+                status TEXT,
+                confidence TEXT,
+                evidence_json TEXT,
+                next_action TEXT,
+                artifact_path TEXT,
+                created_at TEXT,
+                updated_at TEXT,
+                observation_json TEXT NOT NULL
+            )
+        """)
+        db.executemany(
+            """
+            INSERT INTO js_observations (
+                observation_id, sha256, js_url, packet_path, lens, run_id,
+                agent_id, title, summary, status, confidence, evidence_json,
+                next_action, artifact_path, created_at, updated_at,
+                observation_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(observation_id) DO UPDATE SET
+                sha256 = excluded.sha256,
+                js_url = excluded.js_url,
+                packet_path = excluded.packet_path,
+                lens = excluded.lens,
+                run_id = excluded.run_id,
+                agent_id = excluded.agent_id,
+                title = excluded.title,
+                summary = excluded.summary,
+                status = excluded.status,
+                confidence = excluded.confidence,
+                evidence_json = excluded.evidence_json,
+                next_action = excluded.next_action,
+                artifact_path = excluded.artifact_path,
+                updated_at = excluded.updated_at,
+                observation_json = excluded.observation_json
+            """,
+            [
+                (
+                    str(row.get("observation_id") or ""),
+                    str(row.get("sha256") or ""),
+                    str(row.get("js_url") or ""),
+                    str(row.get("packet_path") or ""),
+                    str(row.get("lens") or ""),
+                    str(row.get("run_id") or ""),
+                    str(row.get("agent_id") or ""),
+                    str(row.get("title") or ""),
+                    str(row.get("summary") or ""),
+                    str(row.get("status") or ""),
+                    str(row.get("confidence") or ""),
+                    json.dumps(row.get("evidence") or [], sort_keys=True),
+                    str(row.get("next_action") or ""),
+                    str(row.get("artifact_path") or ""),
+                    str(row.get("created_at") or ""),
+                    str(row.get("updated_at") or ""),
+                    json.dumps(row, sort_keys=True),
+                )
+                for row in rows
+            ],
+        )
+        db.execute("CREATE INDEX IF NOT EXISTS idx_js_observations_sha ON js_observations(sha256)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_js_observations_url ON js_observations(js_url)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_js_observations_packet ON js_observations(packet_path)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_js_observations_lens ON js_observations(lens)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_js_observations_run ON js_observations(run_id)")
+        db.commit()
+
+
+def append_observations(*, observations_path: Path, db_path: Path, rows: list[dict]) -> list[dict]:
+    normalized_rows = [normalize_observation_row(row) for row in rows]
+    append_jsonl(observations_path, normalized_rows)
+    write_observations_table(db_path, read_jsonl(observations_path))
+    return normalized_rows
 
 
 def ledger_lookup_url(ledger: dict, url: str) -> str | None:
@@ -845,27 +1222,28 @@ def command_inventory(args: argparse.Namespace) -> int:
     packets_dir.mkdir(parents=True, exist_ok=True)
     ledger_path = library_root / "ledger.json"
     library_provenance_path = library_root / "provenance.jsonl"
-    provenance_db_path = library_root / "js_provenance.sqlite"
+    library_metadata_path = library_root / "metadata.jsonl"
+    library_observations_path = library_root / "observations.jsonl"
+    js_info_db_path = library_root / "js_info.sqlite"
     ledger = load_ledger(ledger_path)
     provenance_hints = load_provenance_hints(provenance_input)
 
-    target_host = args.target_host
-    if not target_host and args.page:
-        target_host = urllib.parse.urlparse(args.page).hostname
+    target_host = normalize_host_value(args.target_host) if args.target_host else None
+    scope_hosts = build_scope_hosts(target_host=target_host, page=args.page)
 
     urls: list[str] = []
     page_records: list[dict] = []
     if args.input:
         urls.extend(read_lines(Path(args.input).expanduser()))
     if args.page:
-        page_urls, records = collect_from_page(args.page, args.page_context or "", target_host)
+        page_urls, records = collect_from_page(args.page, args.page_context or "", scope_hosts)
         urls.extend(page_urls)
         page_records.extend(records)
 
     normalized_urls = []
     for url in urls:
         normalized = normalize_url(url)
-        if normalized and normalized.lower().split("?", 1)[0].endswith(".js") and same_host_or_child(normalized, target_host):
+        if normalized and normalized.lower().split("?", 1)[0].endswith(".js") and in_scope_url(normalized, scope_hosts):
             normalized_urls.append(normalized)
     normalized_urls = dedupe(normalized_urls)
     if args.limit:
@@ -875,6 +1253,7 @@ def command_inventory(args: argparse.Namespace) -> int:
     packet_rows: list[dict] = []
     external_integration_rows: list[ExternalIntegration] = []
     provenance_rows: list[JsProvenance] = []
+    provenance_rows_by_sha: dict[str, list[dict]] = {}
     reused_downloads = 0
     reused_chunk_sets = 0
     for index, url in enumerate(normalized_urls, start=1):
@@ -900,7 +1279,7 @@ def command_inventory(args: argparse.Namespace) -> int:
             else:
                 artifact_path.write_bytes(body)
         text = body.decode("utf-8", errors="ignore")
-        signals = extract_signals(text, url, target_host)
+        signals = extract_signals(text, url, scope_hosts)
         chunks = chunk_text(text, args.chunk_size, args.chunk_overlap)
         chunk_set_key, chunk_manifest_path, chunk_rows, reused_chunks = write_chunk_set(
             chunks_root=library_chunks_dir,
@@ -939,14 +1318,16 @@ def command_inventory(args: argparse.Namespace) -> int:
             chunk_count=len(chunks),
         )
         records.append(record)
-        provenance_rows.extend(build_provenance_rows(
+        record_provenance_rows = build_provenance_rows(
             record=record,
             run_id=run_id,
             source=args.provenance_source or args.input or args.page or "",
             page_url=args.page or "",
             target_host=target_host or "",
             hints=provenance_hints.get(url, []),
-        ))
+        )
+        provenance_rows.extend(record_provenance_rows)
+        provenance_rows_by_sha.setdefault(digest, []).extend(asdict(row) for row in record_provenance_rows)
         now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         for external_url in record.external_endpoints:
             host = url_host(external_url)
@@ -963,7 +1344,7 @@ def command_inventory(args: argparse.Namespace) -> int:
                 page_context=record.page_context,
                 run_id=run_id,
                 evidence_path=str(root / "metadata.jsonl"),
-                in_scope_target_host=target_host or "",
+                in_scope_target_host=",".join(scope_hosts),
                 first_seen=now,
                 last_seen=now,
             ))
@@ -1003,12 +1384,31 @@ def command_inventory(args: argparse.Namespace) -> int:
         print(f"[{index}/{len(normalized_urls)}] {url} -> {len(chunks)} chunk(s){reuse_note}{chunk_note}", file=sys.stderr)
 
     save_ledger(ledger_path, ledger)
-    write_jsonl(root / "metadata.jsonl", (asdict(record) for record in records))
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    packet_rows_by_sha: dict[str, list[dict]] = {}
+    for packet_row in packet_rows:
+        packet_rows_by_sha.setdefault(str(packet_row.get("sha256") or ""), []).append(packet_row)
+    metadata_rows = [
+        build_metadata_row(
+            record=record,
+            run_id=run_id,
+            target_host=",".join(scope_hosts),
+            packet_rows=packet_rows_by_sha.get(record.sha256, []),
+            provenance_rows=provenance_rows_by_sha.get(record.sha256, []),
+            library_root=library_root,
+            generated_at=generated_at,
+        )
+        for record in records
+    ]
+    write_jsonl(root / "metadata.jsonl", metadata_rows)
+    append_jsonl(library_metadata_path, metadata_rows)
     write_jsonl(root / "packets.jsonl", packet_rows)
     write_jsonl(root / "page_context.jsonl", page_records)
     write_jsonl(root / "js_provenance.jsonl", (asdict(row) for row in provenance_rows))
     append_jsonl(library_provenance_path, (asdict(row) for row in provenance_rows))
-    write_provenance_db(provenance_db_path, read_jsonl(library_provenance_path))
+    write_provenance_table(js_info_db_path, read_jsonl(library_provenance_path))
+    write_metadata_db(js_info_db_path, read_jsonl(library_metadata_path), packet_rows)
+    write_observations_table(js_info_db_path, read_jsonl(library_observations_path))
     write_jsonl(root / "external_integrations.jsonl", (asdict(row) for row in external_integration_rows))
     integration_outputs = write_external_integration_index(integration_index_root, external_integration_rows)
     manifest = {
@@ -1018,6 +1418,7 @@ def command_inventory(args: argparse.Namespace) -> int:
         "input": args.input,
         "page": args.page,
         "target_host": target_host,
+        "scope_hosts": scope_hosts,
         "root": str(root),
         "js_urls_seen": len(normalized_urls),
         "js_downloaded": len(records),
@@ -1027,11 +1428,13 @@ def command_inventory(args: argparse.Namespace) -> int:
         "external_integrations": len(external_integration_rows),
         "outputs": {
             "metadata": str(root / "metadata.jsonl"),
+            "library_metadata": str(library_metadata_path),
             "packets": str(root / "packets.jsonl"),
             "page_context": str(root / "page_context.jsonl"),
             "js_provenance": str(root / "js_provenance.jsonl"),
             "library_provenance": str(library_provenance_path),
-            "provenance_db": str(provenance_db_path),
+            "library_observations": str(library_observations_path),
+            "js_info_db": str(js_info_db_path),
             "external_integrations": str(root / "external_integrations.jsonl"),
             "integration_index": integration_outputs,
             "ledger": str(ledger_path),
@@ -1042,6 +1445,31 @@ def command_inventory(args: argparse.Namespace) -> int:
         },
     }
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(json.dumps(manifest, indent=2, sort_keys=True))
+    return 0
+
+
+def command_observe(args: argparse.Namespace) -> int:
+    library_root = Path(args.library_root).expanduser() if args.library_root else SHARED_WEB_BASE / args.program / "web" / "recon" / "js" / "_library"
+    observations_path = library_root / "observations.jsonl"
+    js_info_db_path = library_root / "js_info.sqlite"
+    input_path = Path(args.input).expanduser()
+    rows = read_jsonl(input_path)
+    if not rows:
+        raise SystemExit(f"no observation rows found in {input_path}")
+    normalized_rows = append_observations(
+        observations_path=observations_path,
+        db_path=js_info_db_path,
+        rows=rows,
+    )
+    manifest = {
+        "program": args.program,
+        "observations_added": len(normalized_rows),
+        "outputs": {
+            "library_observations": str(observations_path),
+            "js_info_db": str(js_info_db_path),
+        },
+    }
     print(json.dumps(manifest, indent=2, sort_keys=True))
     return 0
 
@@ -1069,6 +1497,12 @@ def build_parser() -> argparse.ArgumentParser:
     inv.add_argument("--chunk-size", type=int, default=60000)
     inv.add_argument("--chunk-overlap", type=int, default=500)
     inv.set_defaults(func=command_inventory)
+
+    observe = sub.add_parser("observe", help="Append reviewed JS observations and index them in js_info.sqlite")
+    observe.add_argument("program", help="Program name, e.g. canva")
+    observe.add_argument("--input", required=True, help="JSONL file containing JS observation rows")
+    observe.add_argument("--library-root", help="Override shared JS library root")
+    observe.set_defaults(func=command_observe)
     return parser
 
 

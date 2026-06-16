@@ -33,16 +33,20 @@ Use when creating or updating a skill that should live in a project repository a
    - `prompts/{skill-name}-playbook.md` for reusable methodology
    - `skills/{skill-name}/references/` for larger reference docs
    - `skills/{skill-name}/scripts/` for deterministic helpers
-3. Update the repo's skill registry/index if one exists.
-4. Validate frontmatter and any touched scripts/tests.
-5. If the project is a GitHub repo:
+3. For web vulnerability, workflow, or endpoint-analysis skills, add a compact
+   `## JavaScript Lens` section or explain why JavaScript evidence is not
+   relevant. The lens should tell `/js` what to look for in bundles and when to
+   hand evidence to this skill.
+4. Update the repo's skill registry/index if one exists.
+5. Validate frontmatter and any touched scripts/tests.
+6. If the project is a GitHub repo:
    - stage only files touched for this skill
    - commit with a concise message
    - push the current branch
-6. If the project is configured in aiskillsync:
+7. If the project is configured in aiskillsync:
    - run `aiskillsync sync all --repo <bridge-name>`
    - if destinations conflict, report the conflict and do not overwrite user-modified directories unless Ryushe approves adoption/replacement.
-7. Report:
+8. Report:
    - repo path
    - changed files
    - commit hash or reason no commit was made
@@ -54,4 +58,3 @@ Use when creating or updating a skill that should live in a project repository a
 - Keep `SKILL.md` lean. Move long technique docs into a playbook or references.
 - Prefer symlink-based sync through `aiskillsync` over copying provider skills by hand.
 - Do not commit secrets, credentials, cookies, tokens, private configs, or real sensitive files.
-

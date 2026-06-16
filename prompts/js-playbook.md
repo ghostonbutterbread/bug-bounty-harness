@@ -73,6 +73,61 @@ The helper writes:
     └── NNN.js
 ```
 
+## Provenance And Proxy Correlation
+
+JavaScript is most useful when agents know where it came from and what browser
+or proxy traffic happened around that page. Do not treat a JS URL as a detached
+file if page/proxy provenance is available.
+
+Preserve a JS provenance index whenever collection comes from browser crawl,
+Caido/Burp/MITM proxy history, Playwright/CDP network events, or recon-ry/Katana
+outputs that include referrer/initiator data. Store it beside the JS run and in
+the shared JS library where possible:
+
+```text
+web/recon/js/<run-id>/js_provenance.jsonl
+web/recon/js/_library/provenance.jsonl
+```
+
+Recommended row fields:
+
+- `js_url`, `sha256`, `run_id`, `first_seen`, `last_seen`
+- `page_url` or `document_url` that loaded the script
+- `page_context`, such as login/auth, editor, billing, settings, admin, share,
+  app/integration, upload/import, or unknown
+- `source`, such as page crawl, recon aggregate, Ryushe proxy, agent proxy,
+  recon-ry/Katana, Wayback, or manual input
+- `proxy_request_id` or raw-request reference when available, never live cookies
+  or secret headers
+- `initiator`, `referrer`, `frame_url`, `method`, `status`, `content_type`, and
+  timestamp when the source can provide them
+- `related_requests`: nearby scoped API requests observed in the same page flow,
+  with sanitized references to proxy rows or `/analyze-endpoint` artifacts
+
+When a deep-review worker selects a packet, it should first ask:
+
+1. Which page or app flow loaded this JS?
+2. Which scoped proxy requests happened before and after this script loaded?
+3. Do the JS-discovered fields appear in real request bodies, query strings,
+   headers, GraphQL operations, or route params?
+4. Is there a saved `/analyze-endpoint` contract for those requests?
+
+Ryushe proxy and agent proxy are complementary sources:
+
+- Ryushe proxy is read-only historical evidence from manual testing. Use it to
+  learn where features were used, what request shapes appeared, and which
+  account/page context produced them.
+- Agent/local proxy can be used for bounded owned-account reproduction after the
+  JS/proxy correlation gives a concrete scoped request to observe. Replays must
+  keep fresh auth, owned resources, normal rate, and scope controls.
+
+Do not jump from JS evidence directly to mutation. The routing should be:
+
+```text
+JS packet lead -> provenance page/flow -> proxy request candidates ->
+/analyze-endpoint contract -> vuln-lane plan -> bounded owned-account test
+```
+
 Script responsibilities:
 
 - collect JS URLs from pages, aggregated recon, proxy/recon artifacts, Wayback,
@@ -85,6 +140,8 @@ Script responsibilities:
 - keep raw bundles on disk in the shared `_library`
 - record URL aliases under the same file hash when platforms serve the same JS
   from multiple URLs
+- preserve provenance for each JS URL when available: page/document URL,
+  initiator/referrer, proxy source, request id, and nearby scoped API requests
 - extract cheap signals: URLs, API paths, params, imports, source maps,
   source/sink keywords, framework/router clues, GraphQL operations, route hints,
   interesting object/request keys, and flow categories
@@ -118,6 +175,10 @@ Agents consume packet files, not raw program-wide bundle lists.
 Review goals per packet:
 
 - What application area does this JS support?
+- Which page, route, proxy flow, or manual testing path loaded this JS?
+- Do Ryushe proxy or agent-proxy records show this script's fields in real
+  scoped requests, and can those requests be linked to sanitized endpoint
+  contracts?
 - What endpoints, params, request fields, GraphQL operations, or action names
   does it reveal?
 - Which functions actually move data? For each suspicious source, sink, request

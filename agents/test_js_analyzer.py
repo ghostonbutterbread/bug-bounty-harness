@@ -108,6 +108,8 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
         "proxy_request_id": "req-1",
         "initiator": "script",
         "referrer": "https://app.example.com/login",
+        "status": 200,
+        "content_type": "application/javascript",
         "related_requests": ["req-2"],
     }) + "\n", encoding="utf-8")
     output_root = tmp_path / "out"
@@ -156,6 +158,7 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
     assert "unit-proxy" in provenance_rows
     assert "https://app.example.com/login" in provenance_rows
     assert "req-1" in provenance_rows
+    assert "application/javascript" in provenance_rows
     assert (library_root / "provenance.jsonl").exists()
     assert (library_root / "js_provenance.sqlite").exists()
     with sqlite3.connect(library_root / "js_provenance.sqlite") as db:

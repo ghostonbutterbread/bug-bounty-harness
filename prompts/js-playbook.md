@@ -30,6 +30,59 @@ interpretation and security reasoning.
 - spawn bounded specialist agents only when chunks are independent and the user
   wants the budget spent on this task
 
+## Analysis Lenses
+
+`/js` is the JavaScript evidence router. It should not force every worker to
+look at every possible issue class. Pick the lens before deep review, then hand
+concrete leads to the owning skill.
+
+Available lenses:
+
+- `general-map`: map page context, provenance, routes, API clients, params,
+  request builders, source maps, feature areas, and durable notes. Use this as
+  the first pass when the user asks for a general JavaScript review.
+- `secrets`: inspect for usable API keys, provider tokens, GitHub/package/cloud
+  identifiers, signed URLs, public/private config leakage, and scope-expanding
+  secrets. Downgrade generic words like token/password/secret unless there is a
+  concrete value and impact path.
+- `dom-xss`: trace URL/search/hash, storage, postMessage, form, hidden DOM, and
+  bootstrap-state sources into DOM writes, script creation, navigation, template
+  rendering, or eval-like sinks. Hand concrete traces to `/dom-xss` or `/xss`.
+- `access-control`: trace roles, permissions, admin flags, team/org/workspace,
+  brand, entitlement, group, SCIM/class, invite, and ownership logic. Hand
+  request-backed leads to `/access-control`.
+- `idor`: map object identifiers and object-boundary assumptions for designs,
+  folders, files, media, templates, invoices, subscriptions, comments, users,
+  teams, brands, and projects. Hand request-backed leads to `/idor`.
+- `business-logic`: inspect workflow state machines, install/connect flows,
+  feature gates, paid/free gates, share/publish/import/export controls,
+  client-side validation, and unsafe assumptions about server enforcement.
+- `ssrf-import`: inspect URL importers, preview/fetch resolvers, webhooks,
+  embed/codelet loaders, favicon/image fetchers, remote media, redirect
+  handling, and server-side URL resolution hints. Hand request-backed leads to
+  `/ssrf`.
+- `auth-ato`: inspect login, signup, reset, recovery, invite acceptance,
+  OAuth/SSO/SAML, captcha/risk scoring, session binding, identity linking, and
+  email/account-change flows. Hand leads to `/ato` or `/password-reset`.
+- `payment`: inspect checkout, coupons, credits, invoices, subscriptions,
+  refunds, plans, pricing, paid entitlements, and billing object IDs. Hand
+  zero-dollar-first leads to `/payment-testing`.
+- `request-shape`: extract request builders, API clients, GraphQL operations,
+  headers, content types, body schemas, and proxy-observed request contracts.
+  Hand concrete requests to `/analyze-endpoint` before vuln-lane testing.
+
+General review order:
+
+1. Run `general-map` to classify packet families and choose lenses.
+2. Split specialist workers by lens and packet family.
+3. Each worker writes concise findings with source JS URL, SHA, packet path,
+   trace, controllability, provenance/proxy links, confidence, and next skill.
+4. The main agent merges results into dated notes/handoffs and routes only
+   concrete, scoped follow-ups to the owning skills.
+
+Avoid assigning one agent every lens for hundreds of packets. That creates
+shallow output and repeated context burn. Use metadata to rank, then route.
+
 ## Script-First Layer
 
 Use deterministic scripts before asking agents to reason over code.
@@ -392,12 +445,19 @@ packets into notes.
 - `/create-wordlists`: consumes JS-derived route/param/action candidates.
 - `/use-wordlists` and `/fuzz`: run generated candidates with scope/rate/fuzz
   history controls.
-- `/xss` and `/dom-xss`: consume source-to-DOM-sink and route/reflection leads.
-- `/ssrf`: consumes URL fetcher, preview, webhook, importer, and media loader
+- `/xss` and `/dom-xss`: consume source-to-DOM-sink, route/reflection,
+  hidden-state, postMessage, storage, and navigation leads.
+- `/ssrf`: consumes URL fetcher, preview, webhook, importer, embed/codelet,
+  favicon, image/media loader, and redirect leads.
+- `/sqli`: consumes search/filter/sort/report/export parameter and request-body
   leads.
-- `/sqli`: consumes search/filter/sort/report/export parameter leads.
 - `/idor` and `/access-control`: consume object IDs, tenant/team/project IDs,
-  role names, workflow states, and permission-related endpoints.
+  role names, workflow states, permission-related endpoints, and ownership
+  transition flows.
+- `/ato` and `/password-reset`: consume login, recovery, invite, identity,
+  OAuth/SSO, captcha/risk, and session-binding flows.
+- `/payment-testing`: consumes checkout, coupon, invoice, subscription, refund,
+  entitlement, and pricing flows.
 - `/analyze-endpoint`: turns a JS-discovered request shape or proxy request into
   a reusable endpoint contract.
 

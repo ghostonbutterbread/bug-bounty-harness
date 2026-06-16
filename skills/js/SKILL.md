@@ -34,6 +34,33 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
 7. Send generated candidates to `/create-wordlists`, `/use-wordlists`, `/fuzz`,
    or vuln-specific skills such as `/xss`, `/ssrf`, `/sqli`, and `/idor`.
 
+## Analysis Lenses
+
+Use `/js` as the routing layer for JavaScript evidence. Pick one or more lenses
+before deep review, then load the owning skill when a packet produces a concrete
+lead:
+
+- `general-map`: routes, requests, params, page context, provenance, and notes.
+- `secrets`: usable keys, tokens, GitHub/cloud/service identifiers, and leak
+  pivots; generic secret words are low value.
+- `dom-xss`: source-to-sink traces from URL/storage/message/form/bootstrap state
+  into DOM writes, script creation, navigation, or eval-like sinks.
+- `access-control` / `idor`: role, permission, tenant, team, workspace, brand,
+  design, folder, invite, group, and owner IDs.
+- `business-logic`: workflow state, feature gates, entitlement checks, install
+  flows, share/publish/import/export controls, and unsafe client assumptions.
+- `ssrf-import`: URL importers, preview/fetch resolvers, webhooks, media loaders,
+  embeds, favicon fetches, and server-side URL resolution hints.
+- `auth-ato`: login, reset, invite, OAuth/SSO, captcha/risk scoring, session,
+  recovery, and identity-binding flows.
+- `payment`: checkout, coupon, invoice, subscription, refund, entitlement, plan,
+  and billing parameter flows.
+- `request-shape`: request builders, GraphQL operations, API clients, headers,
+  content types, and proxy-observed request contracts.
+
+For a broad review, run the general map first, then split workers by lens. Do
+not ask one worker to deeply analyze every lens across every packet.
+
 Do not paste huge bundles into prompts. Store raw JS locally, pass bounded
 packets to agents, and treat regex hits as leads until impact is verified.
 When scoped JavaScript references third-party URLs, treat those URLs as

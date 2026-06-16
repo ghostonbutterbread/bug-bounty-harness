@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 import json
+import sqlite3
 
 from agents import js_analyzer as J
 
@@ -98,7 +99,19 @@ def test_extract_signals_ignores_malformed_urlish_strings():
 def test_inventory_writes_metadata_and_packets(tmp_path: Path):
     input_file = tmp_path / "jsfiles.txt"
     input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
+    provenance_file = tmp_path / "provenance-input.jsonl"
+    provenance_file.write_text(json.dumps({
+        "js_url": "https://app.example.com/static/app.js",
+        "source": "unit-proxy",
+        "page_url": "https://app.example.com/login",
+        "page_context": "login/auth",
+        "proxy_request_id": "req-1",
+        "initiator": "script",
+        "referrer": "https://app.example.com/login",
+        "related_requests": ["req-2"],
+    }) + "\n", encoding="utf-8")
     output_root = tmp_path / "out"
+    library_root = tmp_path / "library"
 
     def fake_get(url: str, timeout: int = 20):
         return (
@@ -118,11 +131,13 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
             "--output-root",
             str(output_root),
             "--library-root",
-            str(tmp_path / "library"),
+            str(library_root),
             "--run-id",
             "unit",
             "--integration-index-root",
             str(tmp_path / "integrations"),
+            "--provenance-input",
+            str(provenance_file),
             "--chunk-size",
             "30",
             "--chunk-overlap",
@@ -137,6 +152,18 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
     external_rows = (output_root / "external_integrations.jsonl").read_text(encoding="utf-8")
     assert "https://slack.com/apps/A06GQJFDUP9" in external_rows
     assert "open_public_page_read_only" in external_rows
+    provenance_rows = (output_root / "js_provenance.jsonl").read_text(encoding="utf-8")
+    assert "unit-proxy" in provenance_rows
+    assert "https://app.example.com/login" in provenance_rows
+    assert "req-1" in provenance_rows
+    assert (library_root / "provenance.jsonl").exists()
+    assert (library_root / "js_provenance.sqlite").exists()
+    with sqlite3.connect(library_root / "js_provenance.sqlite") as db:
+        count = db.execute(
+            "SELECT count(*) FROM js_provenance WHERE js_url = ? AND page_context = ?",
+            ("https://app.example.com/static/app.js", "login/auth"),
+        ).fetchone()[0]
+    assert count == 1
     host_index = json.loads((tmp_path / "integrations" / "external_hosts.json").read_text(encoding="utf-8"))
     assert any(host["host"] == "slack.com" for host in host_index["hosts"])
     packets = list((output_root / "packets").glob("*.md"))

@@ -64,6 +64,9 @@ Strong signals:
 Check whether the final callback or link step revalidates:
 
 - OAuth `state` and `nonce`
+- `redirect_uri` allowlists, especially whether a trusted-domain open redirect can
+  forward codes, tokens, or account-linking callbacks to an attacker-controlled
+  endpoint
 - stable IdP subject, not just email
 - provider, tenant, organization, and domain
 - currently logged-in local account
@@ -75,6 +78,9 @@ Strong signals:
 
 - IdP B links to Account A without Account A approval.
 - SSO login creates a session for the wrong local account.
+- A provider accepts an allowlisted `redirect_uri` on the target domain, then a
+  same-site open redirect forwards the OAuth code/token/linking result to the
+  wrong owned endpoint.
 - An SSO provider disabled for an account/org can still attach or authenticate.
 - A first-login or onboarding flag changes server-side account binding.
 

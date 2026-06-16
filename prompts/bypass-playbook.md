@@ -75,6 +75,13 @@ Encoding:
 
 URL parser confusion:
 - userinfo, fragments, backslashes, mixed schemes, uppercase schemes, trailing dots, IPv6 brackets, decimal/octal/hex IP forms, DNS rebinding only with explicit approval and safe infrastructure
+- For open redirect work, test whether a trusted-domain redirector can be used as
+  an OAuth `redirect_uri`, for example
+  `https://victim.com/redirect?url=https://attacker.example/callback`. If the
+  OAuth provider accepts the trusted host and the redirector forwards codes,
+  tokens, or account-linking callbacks externally, route the impact through
+  `/ato` as OAuth code/token theft or account-linking abuse, not just generic
+  open redirect.
 
 WAF adaptation:
 - fingerprint first; then use lower request frequency, benign payload reductions, context-specific encoding, header cleanup, and payload minimization. Do not turn WAF bypass into noisy scanning.

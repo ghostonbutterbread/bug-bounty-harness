@@ -517,6 +517,14 @@ def merge_related_requests(value: object) -> list[str]:
     return []
 
 
+def hint_int(value: object, fallback: int | None = None) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return fallback
+
+
 def build_provenance_rows(
     *,
     record: JsRecord,
@@ -557,8 +565,8 @@ def build_provenance_rows(
             referrer=str(hint.get("referrer") or ""),
             frame_url=str(hint.get("frame_url") or ""),
             method=str(hint.get("method") or ""),
-            status=record.status,
-            content_type=record.content_type,
+            status=hint_int(hint.get("status"), record.status),
+            content_type=str(hint.get("content_type") or record.content_type),
             timestamp=str(hint.get("timestamp") or now),
             related_requests=merge_related_requests(hint.get("related_requests")),
         ))

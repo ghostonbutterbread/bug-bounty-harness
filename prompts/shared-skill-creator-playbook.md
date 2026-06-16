@@ -45,6 +45,34 @@ For skills that need findings, coverage, or prior-result context, point agents a
 
 Default new router skills to ledger mode, but include an explicit no-ledger path. In no-ledger mode, agents should not read prior findings or write durable ledger/coverage state; they should still write local notes and handoff cards.
 
+## JavaScript Lens Requirement
+
+For Bug Bounty Harness web skills, treat `/js` as the shared JavaScript
+inventory, chunking, provenance, and routing layer. Do not create a separate JS
+mapper for every vulnerability class.
+
+When creating or updating a web vulnerability, workflow, or endpoint-analysis
+skill, add a compact `## JavaScript Lens` section to `skills/{name}/SKILL.md`
+unless JavaScript evidence is clearly irrelevant. Put deeper examples in the
+playbook or a focused reference pack.
+
+The section should answer:
+
+- What should `/js` look for in JavaScript for this skill? Examples: source and
+  sink patterns, request builders, object IDs, role fields, CORS headers,
+  callback URLs, feature gates, hidden/bootstrap state, storage keys, or
+  provider identifiers.
+- What evidence is enough to route from `/js` into this skill?
+- What must still be confirmed through proxy traffic, page provenance, owned
+  accounts, or `/analyze-endpoint` before live testing?
+- Which adjacent skills should receive non-owned leads instead?
+
+Keep the lens small. It is a routing contract, not a duplicated copy of the
+whole skill playbook. For example, a future `/cors` skill would include a JS
+lens for frontend API origins, credentialed fetch wrappers, CORS error handling,
+callback/origin allowlist hints, and proxy-observed request contracts. The
+actual CORS testing method still belongs in `/cors`.
+
 ## Commit Rules
 
 - Stage only files intentionally changed for the skill.

@@ -27,8 +27,11 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
 4. Deep-review selected packets with page/flow context. Require function-level
    tracing: source value, transforms/checks, callers/callees, sink/request/DOM
    effect, controllability, and missing proof.
-5. Record coverage through `/url-ingest` and write durable notes/handoffs.
-6. Send generated candidates to `/create-wordlists`, `/use-wordlists`, `/fuzz`,
+5. Correlate JS with provenance and proxy evidence when available: page URL or
+   document URL that loaded the script, page context, initiator/referrer, Ryushe
+   proxy or agent proxy request references, and nearby scoped API requests.
+6. Record coverage through `/url-ingest` and write durable notes/handoffs.
+7. Send generated candidates to `/create-wordlists`, `/use-wordlists`, `/fuzz`,
    or vuln-specific skills such as `/xss`, `/ssrf`, `/sqli`, and `/idor`.
 
 Do not paste huge bundles into prompts. Store raw JS locally, pass bounded
@@ -42,6 +45,9 @@ Also look for hidden or non-rendered state consumed by JavaScript, such as
 hidden inputs, `data-*` attributes, inline bootstrap JSON, hydration globals,
 disabled controls, and feature flags. These are mapping leads until verified
 against page HTML/source or proxy-observed responses.
+Do not analyze JS as a detached file when provenance exists. Prefer the chain:
+JS packet lead -> page/flow that loaded it -> related proxy requests ->
+`/analyze-endpoint` request contract -> bounded owned-account test.
 
 Downloaded JavaScript is content-addressed under
 `~/Shared/web_bounty/<program>/web/recon/js/_library/`. Check the ledger before

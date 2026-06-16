@@ -21,7 +21,9 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
 1. Read the canonical playbook at
    `/home/ryushe/projects/bug_bounty_harness/prompts/js-playbook.md`.
 2. Resolve inputs from a page URL, `aggregated/jsfiles.txt`, proxy history,
-   recon output, Wayback, or source maps.
+   recon output, Wayback, or source maps. Use `--target-host` as the scope hint;
+   it accepts a host, domain, or URL and stores non-matching extracted URLs as
+   external context instead of test targets.
 3. Use `agents/js_analyzer.py inventory` to download, hash, dedupe, cheaply
    parse, and chunk JavaScript into agent packets.
 4. Deep-review selected packets with page/flow context. Require function-level
@@ -30,9 +32,11 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
 5. Correlate JS with provenance and proxy evidence when available: page URL or
    document URL that loaded the script, page context, initiator/referrer, Ryushe
    proxy or agent proxy request references, and nearby scoped API requests.
-6. Treat provenance JSONL as the durable evidence log and
-   `js_provenance.sqlite` as the query/index layer. Prefer DB lookups during
-   analysis, but keep citations tied to JSONL rows and packet paths.
+6. Treat provenance/metadata JSONL as the durable evidence logs and
+   `js_info.sqlite` as the query/index layer for provenance, JS files,
+   URL aliases, packets, chunks, artifact paths, and reviewed observations.
+   Prefer DB lookups during analysis, but keep citations tied to JSONL rows and
+   packet paths.
 7. Record coverage through `/url-ingest` and write durable notes/handoffs.
 8. Send generated candidates to `/create-wordlists`, `/use-wordlists`, `/fuzz`,
    or vuln-specific skills such as `/xss`, `/ssrf`, `/sqli`, and `/idor`.
@@ -85,7 +89,12 @@ Downloaded JavaScript is content-addressed under
 `~/Shared/web_bounty/<program>/web/recon/js/_library/`. Check the ledger before
 redownloading; reuse existing URL aliases, file hashes, and chunk sets unless a
 fresh fetch is explicitly requested.
+`--target-host` accepts a URL, host, or parent domain. It controls which JS URLs
+are downloaded and which extracted endpoints count as in-scope; other extracted
+URLs are still stored as external integration/context artifacts.
 Provenance is stored beside it as append-only JSONL plus a generated SQLite
 index:
+`~/Shared/web_bounty/<program>/web/recon/js/_library/metadata.jsonl`
 `~/Shared/web_bounty/<program>/web/recon/js/_library/provenance.jsonl`
-`~/Shared/web_bounty/<program>/web/recon/js/_library/js_provenance.sqlite`
+`~/Shared/web_bounty/<program>/web/recon/js/_library/observations.jsonl`
+`~/Shared/web_bounty/<program>/web/recon/js/_library/js_info.sqlite`

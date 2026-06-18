@@ -73,6 +73,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **ssrf** | `/ssrf {program}` | `prompts/ssrf-playbook.md` |
 | **lfi** | `/lfi {target_url}` | `skills/lfi/SKILL.md` |
 | **fuzz** | `/fuzz {program}` | `prompts/fuzz-playbook.md` |
+| **parameter-mining** | `/parameter-mining {program}` | `prompts/parameter-mining-playbook.md` |
 | **create-wordlists** | `/create-wordlists {program}` | `prompts/create-wordlists-playbook.md` |
 | **use-wordlists** | `/use-wordlists {program}` | `prompts/use-wordlists-playbook.md` |
 | **js** | `/js {analyze|generate|deep} {program-or-url}` | `prompts/js-playbook.md` |
@@ -149,6 +150,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /ssrf superdrug
 /lfi https://target.example/download?file=test.pdf
 /fuzz superdrug
+/parameter-mining superdrug --from-aggregates --from-js --from-proxy --xss-lane
 /create-wordlists superdrug
 /use-wordlists superdrug
 /js analyze canva --from-aggregated-js

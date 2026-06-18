@@ -5,7 +5,7 @@ description: Use when importing, indexing, filtering, queueing, checking, or mar
 # url-ingest — URL Ingestor + Review Tracker
 
 ## What it is
-SQLite-backed URL index and per-lane review tracker. Keeps a durable record of every URL discovered in recon and what kind of analysis (if any) has been done on it per vulnerability lane.
+SQLite-backed URL index, parameter map, and per-lane review tracker. Keeps a durable record of every URL discovered in recon, every observed query parameter, and what kind of analysis has been done at URL, route, or parameter level.
 
 Unified recon-store rule: recon agents and one-off recon tools must preserve raw artifacts first, then ingest URL/host-shaped parsed artifacts into this database. Do not leave amass/recon-ry/proxy/recon output as an isolated text file when it is meant to inform later agents.
 
@@ -94,8 +94,10 @@ This keeps the raw artifact and imports URL/host-shaped records into SQLite.
 
 /url-ingest mark <program> --url <url> --lane <lane> --status <status>
               [--skill <skill>] [--test-family <family>] [--technique <technique>]
+              [--param <name>] [--param-location <query|body|header|path|graphql>]
               [--notes <notes>] [--evidence <path>] [--agent-id <id>] [--run-id <id>]
    Append a test-run event and update the latest summary for a URL in a given lane.
+   Use `--param` when the review is scoped to one parameter rather than the whole URL.
 
    Valid statuses:
      discovered          — seen in recon, not yet reviewed
@@ -112,9 +114,14 @@ This keeps the raw artifact and imports URL/host-shaped records into SQLite.
    Show compact agent-safe totals, top hosts, common parameter keys, and recent imports.
 
 /url-ingest next <program> --lane <lane> [--skill <skill>] [--test-family <family>]
-                            [--param-preset xss|ssrf|lfi|opaque-state] [--limit <n>]
+                            [--param <name>] [--param-preset xss|ssrf|lfi|opaque-state] [--limit <n>]
    List URLs not yet tested for that lane/skill/family combination.
-   Use `--param-preset` for parameter-aware queues instead of generic first-seen ordering.
+   Use `--param` for exact parameter-level queues and `--param-preset` for broader dynamic parameter-aware queues.
+
+/url-ingest params <program> [--lane <lane>] [--param <name>] [--host <host>] [--untested]
+   Show the parameter map derived from ingested URLs: parameter name, location,
+   value shape, lane hints, count of URLs, example URL, and route preview.
+   This is the structured view of `aggregated/params.txt`, not a replacement for it.
 
 /url-ingest history <program> --url <url>
    Show append-only test events for one URL.
@@ -148,11 +155,11 @@ Behavior:
 - no saved scope: `--scope-filter auto` tries the existing pullscope engine against HackerOne, Bugcrowd, and Intigriti before fallback
 - no scope after repull: passive parsing may continue, but the import is labeled `scope_mode=no_scope_after_pull`; agents must not treat this as live-test approval
 
-Before testing a URL in a lane, call `/url-ingest status` to check if it's already `deep_reviewed` or `dismissed` for that lane.
+Before testing a URL in a lane, call `/url-ingest status` to check if it's already `deep_reviewed` or `dismissed` for that lane. If testing a specific parameter, include `--param <name>`.
 
 Before running a specific technique across URLs, call `/url-ingest next` with `--skill` and `--test-family` so agents do not repeat the same work.
 
-After testing, call `/url-ingest mark` with the skill, test family, and technique. This writes an append-only test event, then updates the compact per-lane summary.
+After testing, call `/url-ingest mark` with the skill, test family, technique, and `--param` when relevant. This writes an append-only test event, then updates the compact per-lane summary.
 
 Examples:
 
@@ -160,9 +167,12 @@ Examples:
 python3 agents/url_ingest.py next canva --lane recon --skill user-agent-fuzz --test-family header-behavior --limit 25
 
 python3 agents/url_ingest.py next canva --lane xss --skill xss --test-family reflected-probe --param-preset xss --limit 25
+python3 agents/url_ingest.py next canva --lane xss --skill gf --test-family dynamic-filter --param q --limit 25
 python3 agents/url_ingest.py next canva --lane ssrf --skill ssrf --test-family url-fetcher-probe --param-preset ssrf --limit 25
 python3 agents/url_ingest.py next canva --lane lfi --skill lfi --test-family path-traversal-probe --param-preset lfi --limit 25
 python3 agents/url_ingest.py next canva --lane recon --skill param-fuzz --test-family opaque-state-map --param-preset opaque-state --limit 25
+
+python3 agents/url_ingest.py params canva --lane ssrf --untested --limit 25
 
 python3 agents/url_ingest.py mark canva \
   --url "https://www.canva.com/help/" \
@@ -174,6 +184,15 @@ python3 agents/url_ingest.py mark canva \
   --request-variant "changed User-Agent only" \
   --response-summary "status and length unchanged" \
   --notes "No behavior delta."
+
+python3 agents/url_ingest.py mark canva \
+  --url "https://www.canva.com/search?q=logo" \
+  --lane xss \
+  --status surface_reviewed \
+  --skill gf \
+  --test-family dynamic-filter \
+  --param q \
+  --notes "GF xss candidate reviewed; no reflection observed."
 ```
 
 ## Ingest from Hoster

@@ -98,6 +98,26 @@ class TestIngestRoundtrip(unittest.TestCase):
         finally:
             os.unlink(tf_path)
 
+    def test_ingest_populates_parameter_map_from_query_urls(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tf:
+            tf.write("https://example.com/search?q=test&redirect=https://example.net/\n")
+            tf.flush()
+            tf_path = tf.name
+        try:
+            M.ingest(self.program, source_file=tf_path, run_id="param-map-run")
+            with M.get_conn(self.program) as conn:
+                rows = conn.execute(
+                    "SELECT po.param_key, po.location, po.value_shape, po.lane_hints "
+                    "FROM parameter_observations po ORDER BY po.param_key"
+                ).fetchall()
+            self.assertEqual([row["param_key"] for row in rows], ["q", "redirect"])
+            self.assertTrue(all(row["location"] == "query" for row in rows))
+            redirect = [row for row in rows if row["param_key"] == "redirect"][0]
+            self.assertEqual(redirect["value_shape"], "url")
+            self.assertIn("ssrf", json.loads(redirect["lane_hints"]))
+        finally:
+            os.unlink(tf_path)
+
     def test_ingest_from_stdin_commits_and_logs_import(self):
         import io
         import sys
@@ -399,6 +419,74 @@ class TestMark(unittest.TestCase):
             self.assertEqual(rows[0]["request_variant"], "changed User-Agent only")
             self.assertEqual(rows[1]["skill"], "param-fuzz")
             self.assertEqual(rows[1]["test_family"], "parameter-mining")
+
+    def test_mark_can_track_two_params_for_same_url_and_lane(self):
+        url = "https://example.com/page?q=test&redirect=https://example.net/"
+        M.mark(
+            self.program,
+            url,
+            lane="xss",
+            status="surface_reviewed",
+            skill="gf",
+            test_family="dynamic-filter",
+            param_key="q",
+            run_id="r-q",
+        )
+        M.mark(
+            self.program,
+            url,
+            lane="xss",
+            status="dismissed",
+            skill="gf",
+            test_family="dynamic-filter",
+            param_key="redirect",
+            run_id="r-redirect",
+        )
+
+        with M.get_conn(self.program) as conn:
+            observations = conn.execute(
+                "SELECT lane, param_key, status FROM observations "
+                "WHERE lane='xss' ORDER BY param_key"
+            ).fetchall()
+            tests = conn.execute(
+                "SELECT param_key, skill, test_family FROM test_runs "
+                "WHERE lane='xss' ORDER BY param_key"
+            ).fetchall()
+        self.assertEqual(
+            [(row["param_key"], row["status"]) for row in observations],
+            [("q", "surface_reviewed"), ("redirect", "dismissed")],
+        )
+        self.assertEqual([row["param_key"] for row in tests], ["q", "redirect"])
+        self.assertTrue(all(row["skill"] == "gf" for row in tests))
+
+    def test_query_next_exact_param_ignores_other_params_tested_on_same_url(self):
+        url = "https://example.com/page?q=test&redirect=https://example.net/"
+        M.mark(
+            self.program,
+            url,
+            lane="xss",
+            status="surface_reviewed",
+            skill="gf",
+            test_family="dynamic-filter",
+            param_key="q",
+            run_id="r-q",
+        )
+
+        import io, sys
+
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        M.query_next(
+            self.program,
+            lane="xss",
+            skill="gf",
+            test_family="dynamic-filter",
+            param_key="redirect",
+            limit=10,
+        )
+        output = sys.stdout.getvalue()
+        sys.stdout = old_stdout
+        self.assertIn("redirect=", output)
 
     def test_mark_invalid_status_rejected(self):
         # Should not raise, just prints error and returns

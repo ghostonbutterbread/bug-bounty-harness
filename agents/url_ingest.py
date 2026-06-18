@@ -14,6 +14,7 @@ Usage:
     python3 agents/url_ingest.py history  <program> --url <url>
     python3 agents/url_ingest.py next     <program> --lane <lane> [--skill <skill>] \
                                                  [--test-family <family>] [--limit <n>]
+    python3 agents/url_ingest.py params   <program> [--lane <lane>] [--param <name>] [--host <host>]
     python3 agents/url_ingest.py search   <program> [--route-hash <hash>] [--param-hash <hash>] \
                                                  [--host <host>] [--limit <n>]
     python3 agents/url_ingest.py brief    <program> [--limit <n>]
@@ -122,6 +123,15 @@ PARAM_PRESETS = {
         "type",
     ),
 }
+LANE_HINT_TERMS = {
+    "xss": set(PARAM_PRESETS["xss"]) | {"callback", "jsonp", "redirect", "returnto", "html", "markdown"},
+    "ssrf": set(PARAM_PRESETS["ssrf"]) | {"import", "preview", "feed", "avatar_url", "image_url"},
+    "open-redirect": {"redirect", "redirect_uri", "return", "returnto", "next", "continue", "callback", "url", "uri"},
+    "sqli": {"q", "query", "search", "filter", "sort", "order", "where", "id", "category", "status", "table", "column", "field"},
+    "idor": {"id", "uid", "user", "userid", "user_id", "account", "accountid", "tenant", "org", "workspace", "project", "design", "folder", "owner"},
+    "access-control": {"role", "scope", "permission", "tenant", "owner", "team", "organization", "org", "entitlement", "plan", "admin"},
+    "lfi": set(PARAM_PRESETS["lfi"]) | {"filename", "filepath", "attachment", "locale", "lang"},
+}
 
 AGGREGATED_RECON_FILES = {
     "wild.txt",
@@ -217,6 +227,49 @@ def parse_path_from_url(url: str) -> str:
         return "/"
 
 
+def normalize_param_key(param_key: str | None) -> str:
+    """Normalize a parameter key for stable URL-level test tracking."""
+    return (param_key or "").strip()
+
+
+def infer_value_shape(param_key: str, value: str | None = None) -> str:
+    """Classify a parameter's likely value shape from name and observed value."""
+    key = param_key.lower()
+    value = value or ""
+    if value.startswith(("http://", "https://")):
+        return "url"
+    if key in {"url", "uri", "callback", "webhook", "redirect", "redirect_uri", "next", "return", "returnto"}:
+        return "url"
+    if key.endswith(("_url", "url", "_uri", "uri")):
+        return "url"
+    if key in {"file", "path", "template", "theme", "download", "attachment", "folder", "dir"}:
+        return "path"
+    if key in {"debug", "preview", "beta", "admin", "isadmin", "enabled", "disabled"}:
+        return "boolean"
+    if key == "id" or key.endswith(("id", "_id", "-id")):
+        return "object-id"
+    if value.lower() in {"true", "false", "0", "1", "yes", "no", "on", "off"}:
+        return "boolean"
+    if value.isdigit():
+        return "number"
+    return "unknown"
+
+
+def infer_lane_hints(param_key: str, value_shape: str | None = None) -> list[str]:
+    """Return likely vuln lanes for a parameter name. Hints are prioritization only."""
+    key = param_key.lower().replace("-", "_")
+    compact = key.replace("_", "")
+    hints: set[str] = set()
+    for lane, terms in LANE_HINT_TERMS.items():
+        if key in terms or compact in terms:
+            hints.add(lane)
+    if value_shape == "url":
+        hints.update({"ssrf", "open-redirect"})
+    if value_shape == "path":
+        hints.add("lfi")
+    return sorted(hints)
+
+
 # ---------------------------------------------------------------------------
 # Database helpers
 # ---------------------------------------------------------------------------
@@ -249,6 +302,8 @@ def schema() -> str:
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
         url_id        INTEGER NOT NULL,
         lane          TEXT NOT NULL,
+        param_key     TEXT NOT NULL DEFAULT '',
+        param_location TEXT,
         status        TEXT NOT NULL,
         agent_id      TEXT,
         run_id        TEXT,
@@ -262,6 +317,8 @@ def schema() -> str:
         id               INTEGER PRIMARY KEY AUTOINCREMENT,
         url_id           INTEGER NOT NULL,
         lane             TEXT NOT NULL,
+        param_key        TEXT NOT NULL DEFAULT '',
+        param_location   TEXT,
         skill            TEXT NOT NULL,
         test_family      TEXT NOT NULL,
         technique        TEXT,
@@ -275,6 +332,21 @@ def schema() -> str:
         notes            TEXT,
         started_at       TIMESTAMP NOT NULL,
         completed_at     TIMESTAMP NOT NULL,
+        FOREIGN KEY (url_id) REFERENCES urls(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS parameter_observations (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        url_id        INTEGER NOT NULL,
+        param_key     TEXT NOT NULL,
+        location      TEXT NOT NULL,
+        source        TEXT,
+        source_ref    TEXT,
+        value_shape   TEXT,
+        lane_hints    TEXT,
+        confidence    TEXT NOT NULL DEFAULT 'observed',
+        first_seen    TIMESTAMP NOT NULL,
+        last_seen     TIMESTAMP NOT NULL,
         FOREIGN KEY (url_id) REFERENCES urls(id)
     );
 
@@ -299,15 +371,21 @@ def schema() -> str:
     CREATE INDEX IF NOT EXISTS idx_urls_route_hash        ON urls(route_hash);
     CREATE INDEX IF NOT EXISTS idx_urls_param_hash        ON urls(param_hash);
     CREATE INDEX IF NOT EXISTS idx_urls_host              ON urls(host);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_obs_url_lane    ON observations(url_id, lane);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_obs_url_lane_param ON observations(url_id, lane, param_key);
     CREATE INDEX IF NOT EXISTS idx_obs_status             ON observations(status);
     CREATE INDEX IF NOT EXISTS idx_obs_run_id             ON observations(run_id);
     CREATE INDEX IF NOT EXISTS idx_test_runs_url          ON test_runs(url_id);
     CREATE INDEX IF NOT EXISTS idx_test_runs_lane         ON test_runs(lane);
+    CREATE INDEX IF NOT EXISTS idx_test_runs_param        ON test_runs(param_key);
     CREATE INDEX IF NOT EXISTS idx_test_runs_skill        ON test_runs(skill);
     CREATE INDEX IF NOT EXISTS idx_test_runs_family       ON test_runs(test_family);
     CREATE INDEX IF NOT EXISTS idx_test_runs_run_id       ON test_runs(run_id);
     CREATE INDEX IF NOT EXISTS idx_test_runs_completed_at ON test_runs(completed_at);
+    CREATE INDEX IF NOT EXISTS idx_param_obs_key          ON parameter_observations(param_key);
+    CREATE INDEX IF NOT EXISTS idx_param_obs_location     ON parameter_observations(location);
+    CREATE INDEX IF NOT EXISTS idx_param_obs_url          ON parameter_observations(url_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_param_obs_unique
+        ON parameter_observations(url_id, param_key, location, source, source_ref);
     """
 
 
@@ -331,13 +409,24 @@ def init_db(program: str):
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.executescript(schema())
-    _migrate_import_columns(conn)
+    _migrate_schema(conn)
     conn.close()
     print(f"✓ Initialized DB at {db_path}")
 
 
-def _migrate_import_columns(conn) -> None:
-    """Add import metadata columns for existing URL index databases."""
+def _table_columns(conn, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _add_columns(conn, table: str, columns: dict[str, str]) -> None:
+    existing = _table_columns(conn, table)
+    for name, sql_type in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
+
+
+def _migrate_schema(conn) -> None:
+    """Add metadata columns and indexes for existing URL index databases."""
     existing = {row[1] for row in conn.execute("PRAGMA table_info(imports)").fetchall()}
     columns = {
         "urls_read": "INTEGER",
@@ -352,6 +441,29 @@ def _migrate_import_columns(conn) -> None:
     for name, sql_type in columns.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE imports ADD COLUMN {name} {sql_type}")
+
+    _add_columns(
+        conn,
+        "observations",
+        {
+            "param_key": "TEXT NOT NULL DEFAULT ''",
+            "param_location": "TEXT",
+        },
+    )
+    _add_columns(
+        conn,
+        "test_runs",
+        {
+            "param_key": "TEXT NOT NULL DEFAULT ''",
+            "param_location": "TEXT",
+        },
+    )
+    conn.execute("DROP INDEX IF EXISTS idx_obs_url_lane")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_obs_url_lane_param "
+        "ON observations(url_id, lane, param_key)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_test_runs_param ON test_runs(param_key)")
     conn.commit()
 
 
@@ -864,6 +976,15 @@ def ingest(
             inserted = _upsert_url(
                 conn, canonical, uh, rh, ph, host, path, param_keys, source_for_rows, now
             )
+            url_id = _url_id_by_hash(conn, uh)
+            if url_id:
+                _record_query_parameter_observations(
+                    conn,
+                    url_id=url_id,
+                    canonical_url=canonical,
+                    source=source_for_rows,
+                    now=now,
+                )
             urls_inserted += int(inserted)
 
         conn.execute(
@@ -914,14 +1035,106 @@ def _upsert_url(conn, canonical, url_hash, route_hash, param_hash, host, path,
         return True
 
 
+def _url_id_by_hash(conn, url_hash: str) -> int | None:
+    row = conn.execute("SELECT id FROM urls WHERE url_hash = ?", (url_hash,)).fetchone()
+    return int(row["id"]) if row else None
+
+
+def _record_parameter_observation(
+    conn,
+    *,
+    url_id: int,
+    param_key: str,
+    location: str,
+    source: str,
+    source_ref: str,
+    value_shape: str,
+    lane_hints: list[str],
+    confidence: str,
+    now: str,
+) -> None:
+    normalized_key = normalize_param_key(param_key)
+    if not normalized_key:
+        return
+    lane_hints_json = json.dumps(sorted(set(lane_hints)))
+    existing = conn.execute(
+        "SELECT id FROM parameter_observations "
+        "WHERE url_id = ? AND param_key = ? AND location = ? AND source = ? AND source_ref = ?",
+        (url_id, normalized_key, location, source, source_ref),
+    ).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE parameter_observations SET value_shape = ?, lane_hints = ?, "
+            "confidence = ?, last_seen = ? WHERE id = ?",
+            (value_shape, lane_hints_json, confidence, now, existing["id"]),
+        )
+        return
+    conn.execute(
+        "INSERT INTO parameter_observations "
+        "(url_id, param_key, location, source, source_ref, value_shape, lane_hints, "
+        "confidence, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            url_id,
+            normalized_key,
+            location,
+            source,
+            source_ref,
+            value_shape,
+            lane_hints_json,
+            confidence,
+            now,
+            now,
+        ),
+    )
+
+
+def _record_query_parameter_observations(
+    conn,
+    *,
+    url_id: int,
+    canonical_url: str,
+    source: str,
+    now: str,
+) -> None:
+    parsed = urlparse(canonical_url)
+    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+        value_shape = infer_value_shape(key, value)
+        _record_parameter_observation(
+            conn,
+            url_id=url_id,
+            param_key=key,
+            location="query",
+            source=source,
+            source_ref=canonical_url,
+            value_shape=value_shape,
+            lane_hints=infer_lane_hints(key, value_shape),
+            confidence="observed",
+            now=now,
+        )
+
+
 def _ensure_url(conn, url: str, source: str, now: str) -> int:
     """Return a URL id, inserting a URL record when needed."""
+    canonical = normalize_url(url)
     uh, _, _ = url_hashes(url)
     row = conn.execute("SELECT id FROM urls WHERE url_hash = ?", (uh,)).fetchone()
+    if not row:
+        # Older tests and hand-seeded fixtures sometimes inserted canonical_url
+        # without the current hash. Prefer updating that row over duplicating it.
+        row = conn.execute("SELECT id FROM urls WHERE canonical_url = ?", (canonical,)).fetchone()
+        if row:
+            conn.execute("UPDATE urls SET url_hash = ?, last_seen = ? WHERE id = ?", (uh, now, row["id"]))
     if row:
-        return row["id"]
+        url_id = row["id"]
+        _record_query_parameter_observations(
+            conn,
+            url_id=url_id,
+            canonical_url=canonical,
+            source=source,
+            now=now,
+        )
+        return url_id
 
-    canonical = normalize_url(url)
     uh2, rh, ph = url_hashes(url)
     host = parse_host_from_url(url)
     path = parse_path_from_url(url)
@@ -932,7 +1145,15 @@ def _ensure_url(conn, url: str, source: str, now: str) -> int:
         "param_keys, source, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (canonical, uh2, rh, ph, host, path, param_keys, source, now, now),
     )
-    return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    url_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    _record_query_parameter_observations(
+        conn,
+        url_id=url_id,
+        canonical_url=canonical,
+        source=source,
+        now=now,
+    )
+    return url_id
 
 
 # ---------------------------------------------------------------------------
@@ -941,7 +1162,7 @@ def _ensure_url(conn, url: str, source: str, now: str) -> int:
 
 def query_status(program: str, lane: str = None, url: str = None,
                  route_hash: str = None, param_hash: str = None, host: str = None,
-                 limit: int = 50):
+                 limit: int = 50, param_key: str = None):
     """
     Query URLs by optional filters and return their current status.
     If url is provided, return status for that exact URL.
@@ -949,7 +1170,8 @@ def query_status(program: str, lane: str = None, url: str = None,
     with get_conn(program) as conn:
         base_select = """
             SELECT u.id, u.canonical_url, u.host, u.path, u.source, u.first_seen,
-                   o.lane, o.status, o.notes, o.evidence_path, o.agent_id, o.run_id
+                   o.lane, o.param_key, o.param_location, o.status, o.notes,
+                   o.evidence_path, o.agent_id, o.run_id
             FROM urls u
             LEFT JOIN observations o ON u.id = o.url_id
         """
@@ -976,6 +1198,9 @@ def query_status(program: str, lane: str = None, url: str = None,
         if lane:
             conditions.append("(o.lane = ? OR o.lane IS NULL)")
             params.append(lane)
+        if param_key:
+            conditions.append("(o.param_key = ? OR o.param_key IS NULL)")
+            params.append(normalize_param_key(param_key))
 
         where_clause = " AND ".join(conditions) if conditions else "1=1"
         query = f"{base_select} WHERE {where_clause} ORDER BY u.last_seen DESC LIMIT ?"
@@ -1003,6 +1228,8 @@ def query_status(program: str, lane: str = None, url: str = None,
             if row["lane"]:
                 url_map[uid]["observations"].append({
                     "lane": row["lane"],
+                    "param_key": row["param_key"],
+                    "param_location": row["param_location"],
                     "status": row["status"],
                     "notes": row["notes"],
                     "evidence_path": row["evidence_path"],
@@ -1016,13 +1243,15 @@ def query_status(program: str, lane: str = None, url: str = None,
             print(f"  Source: {info['source']}  First seen: {info['first_seen']}")
             if info["observations"]:
                 for obs in info["observations"]:
-                    print(f"  [{obs['lane']}] {obs['status']}  notes={obs['notes']}  "
+                    param_label = f" param={obs['param_key']}" if obs["param_key"] else ""
+                    location_label = f" location={obs['param_location']}" if obs["param_location"] else ""
+                    print(f"  [{obs['lane']}]{param_label}{location_label} {obs['status']}  notes={obs['notes']}  "
                           f"evidence={obs['evidence_path']}")
             else:
                 print("  Status: discovered (no observations yet)")
 
 
-def query_history(program: str, url: str, limit: int = 50):
+def query_history(program: str, url: str, limit: int = 50, param_key: str = None):
     """Print append-only test history for a URL."""
     with get_conn(program) as conn:
         uh, _, _ = url_hashes(url)
@@ -1038,14 +1267,15 @@ def query_history(program: str, url: str, limit: int = 50):
         tests = conn.execute(
             """
             SELECT lane, skill, test_family, technique, status, depth, agent_id,
-                   run_id, evidence_path, request_variant, response_summary, notes,
+                   param_key, param_location, run_id, evidence_path, request_variant, response_summary, notes,
                    started_at, completed_at
             FROM test_runs
             WHERE url_id = ?
+            {param_filter}
             ORDER BY completed_at DESC, id DESC
             LIMIT ?
-            """,
-            (row["id"], limit),
+            """.format(param_filter="AND param_key = ?" if param_key else ""),
+            (row["id"], normalize_param_key(param_key), limit) if param_key else (row["id"], limit),
         ).fetchall()
         if not tests:
             print("  No test runs logged yet.")
@@ -1055,6 +1285,9 @@ def query_history(program: str, url: str, limit: int = 50):
                 f"  [{test['lane']}] {test['skill']}:{test['test_family']} "
                 f"{test['status']} depth={test['depth']} run={test['run_id']}"
             )
+            if test["param_key"]:
+                location = f" location={test['param_location']}" if test["param_location"] else ""
+                print(f"    param={test['param_key']}{location}")
             if test["technique"]:
                 print(f"    technique={test['technique']}")
             if test["request_variant"]:
@@ -1084,7 +1317,8 @@ def _param_filter_terms(param_preset: str | None, param_key_like: str | None) ->
 
 def query_next(program: str, lane: str, skill: str = None, test_family: str = None,
                host: str = None, limit: int = 50, param_preset: str = None,
-               param_key_like: str = None, has_query: bool = False):
+               param_key_like: str = None, has_query: bool = False,
+               param_key: str = None):
     """Print URLs that have not yet been tested for the requested lane/skill/family."""
     if not lane:
         print("ERROR: --lane is required for next", file=sys.stderr)
@@ -1101,12 +1335,18 @@ def query_next(program: str, lane: str, skill: str = None, test_family: str = No
         if test_family:
             tested_filters.append("tr.test_family = ?")
             tested_params.append(test_family)
+        exact_param = normalize_param_key(param_key)
+        if exact_param:
+            tested_filters.append("tr.param_key = ?")
+            tested_params.append(exact_param)
         filters.append(f"NOT EXISTS (SELECT 1 FROM test_runs tr WHERE {' AND '.join(tested_filters)})")
         params.extend(tested_params)
         if host:
             filters.append("u.host LIKE ?")
             params.append(f"%{host}%")
         param_terms = _param_filter_terms(param_preset, param_key_like)
+        if exact_param:
+            param_terms.append(exact_param.lower())
         if param_preset and not param_terms:
             return
         if has_query:
@@ -1115,6 +1355,11 @@ def query_next(program: str, lane: str, skill: str = None, test_family: str = No
             term_filters = []
             for term in param_terms:
                 term_filters.append("LOWER(u.param_keys) LIKE ?")
+                params.append(f"%{term}%")
+                term_filters.append(
+                    "EXISTS (SELECT 1 FROM parameter_observations po "
+                    "WHERE po.url_id = u.id AND LOWER(po.param_key) LIKE ?)"
+                )
                 params.append(f"%{term}%")
             filters.append(f"({' OR '.join(term_filters)})")
         params.append(limit)
@@ -1144,7 +1389,8 @@ def mark(program: str, url: str, lane: str, status: str,
          notes: str = None, evidence_path: str = None, agent_id: str = None,
          run_id: str = None, skill: str = None, test_family: str = None,
          technique: str = None, request_variant: str = None,
-         response_summary: str = None, depth: str = None):
+         response_summary: str = None, depth: str = None,
+         param_key: str = None, param_location: str = None):
     """Record an append-only test run and update the latest per-lane URL summary."""
     if status not in VALID_STATUSES:
         print(f"ERROR: invalid status '{status}'. Valid: {VALID_STATUSES}", file=sys.stderr)
@@ -1157,6 +1403,8 @@ def mark(program: str, url: str, lane: str, status: str,
     normalized_skill = str(skill or DEFAULT_TEST_SKILL).strip() or DEFAULT_TEST_SKILL
     normalized_family = str(test_family or DEFAULT_TEST_FAMILY).strip() or DEFAULT_TEST_FAMILY
     normalized_depth = str(depth or status).strip() or status
+    normalized_param = normalize_param_key(param_key)
+    normalized_param_location = (param_location or "query" if normalized_param else None)
 
     with get_conn(program) as conn:
         before = conn.execute(
@@ -1167,12 +1415,14 @@ def mark(program: str, url: str, lane: str, status: str,
         url_id = _ensure_url(conn, url, "mark-unknown", now)
 
         conn.execute(
-            "INSERT INTO test_runs (url_id, lane, skill, test_family, technique, status, "
+            "INSERT INTO test_runs (url_id, lane, param_key, param_location, skill, test_family, technique, status, "
             "depth, notes, evidence_path, agent_id, run_id, request_variant, response_summary, "
-            "started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 url_id,
                 lane,
+                normalized_param,
+                normalized_param_location,
                 normalized_skill,
                 normalized_family,
                 technique,
@@ -1191,23 +1441,40 @@ def mark(program: str, url: str, lane: str, status: str,
 
         # Upsert observation
         existing = conn.execute(
-            "SELECT id FROM observations WHERE url_id = ? AND lane = ?",
-            (url_id, lane)
+            "SELECT id FROM observations WHERE url_id = ? AND lane = ? AND param_key = ?",
+            (url_id, lane, normalized_param)
         ).fetchone()
         if existing:
             conn.execute(
-                "UPDATE observations SET status=?, notes=?, evidence_path=?, "
+                "UPDATE observations SET status=?, param_location=?, notes=?, evidence_path=?, "
                 "agent_id=?, run_id=?, created_at=? WHERE id = ?",
-                (status, notes, evidence_path, agent_id, run_id, now, existing["id"])
+                (status, normalized_param_location, notes, evidence_path, agent_id, run_id, now, existing["id"])
             )
-            print(f"✓ Updated observation: {url} [{lane}] = {status}")
+            param_label = f" param={normalized_param}" if normalized_param else ""
+            print(f"✓ Updated observation: {url} [{lane}]{param_label} = {status}")
         else:
             conn.execute(
-                "INSERT INTO observations (url_id, lane, status, notes, evidence_path, "
-                "agent_id, run_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (url_id, lane, status, notes, evidence_path, agent_id, run_id, now)
+                "INSERT INTO observations (url_id, lane, param_key, param_location, status, notes, evidence_path, "
+                "agent_id, run_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (url_id, lane, normalized_param, normalized_param_location, status, notes, evidence_path, agent_id, run_id, now)
             )
-            print(f"✓ Recorded observation: {url} [{lane}] = {status}")
+            param_label = f" param={normalized_param}" if normalized_param else ""
+            print(f"✓ Recorded observation: {url} [{lane}]{param_label} = {status}")
+
+        if normalized_param:
+            value_shape = infer_value_shape(normalized_param)
+            _record_parameter_observation(
+                conn,
+                url_id=url_id,
+                param_key=normalized_param,
+                location=normalized_param_location or "query",
+                source=f"tested:{normalized_skill}",
+                source_ref=url,
+                value_shape=value_shape,
+                lane_hints=infer_lane_hints(normalized_param, value_shape),
+                confidence="observed",
+                now=now,
+            )
         conn.commit()
 
 
@@ -1345,6 +1612,83 @@ def brief(program: str, limit: int = 20):
             print("  (none)")
 
 
+def query_params(
+    program: str,
+    *,
+    lane: str = None,
+    param_key: str = None,
+    host: str = None,
+    location: str = None,
+    untested: bool = False,
+    skill: str = None,
+    test_family: str = None,
+    limit: int = 50,
+) -> None:
+    """Print the parameter map: parameter keys, observed URLs/routes, hints, and test state."""
+    with get_conn(program) as conn:
+        filters = []
+        params: list = []
+        if param_key:
+            filters.append("LOWER(po.param_key) LIKE ?")
+            params.append(f"%{normalize_param_key(param_key).lower()}%")
+        if host:
+            filters.append("u.host LIKE ?")
+            params.append(f"%{host}%")
+        if location:
+            filters.append("po.location = ?")
+            params.append(location)
+        if lane:
+            filters.append("po.lane_hints LIKE ?")
+            params.append(f"%{lane}%")
+        if untested:
+            test_filters = ["tr.url_id = po.url_id", "tr.param_key = po.param_key"]
+            if lane:
+                test_filters.append("tr.lane = ?")
+                params.append(lane)
+            if skill:
+                test_filters.append("tr.skill = ?")
+                params.append(skill)
+            if test_family:
+                test_filters.append("tr.test_family = ?")
+                params.append(test_family)
+            filters.append(f"NOT EXISTS (SELECT 1 FROM test_runs tr WHERE {' AND '.join(test_filters)})")
+
+        where_clause = " AND ".join(filters) if filters else "1=1"
+        params.append(limit)
+        rows = conn.execute(
+            f"""
+            SELECT po.param_key, po.location, po.value_shape, po.lane_hints,
+                   COUNT(DISTINCT po.url_id) AS url_count,
+                   MIN(u.canonical_url) AS example_url,
+                   GROUP_CONCAT(DISTINCT u.path) AS paths
+            FROM parameter_observations po
+            JOIN urls u ON u.id = po.url_id
+            WHERE {where_clause}
+            GROUP BY po.param_key, po.location, po.value_shape, po.lane_hints
+            ORDER BY url_count DESC, po.param_key
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+
+    if not rows:
+        print("No parameter observations found.")
+        return
+    for row in rows:
+        try:
+            hints = ",".join(json.loads(row["lane_hints"] or "[]"))
+        except json.JSONDecodeError:
+            hints = row["lane_hints"] or ""
+        paths = row["paths"] or ""
+        path_preview = ",".join(paths.split(",")[:5])
+        print(
+            f"{row['param_key']}\tlocation={row['location']}\tshape={row['value_shape']}\t"
+            f"hints={hints}\turls={row['url_count']}\texample={row['example_url']}"
+        )
+        if path_preview:
+            print(f"  paths={path_preview}")
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -1355,7 +1699,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
-    parser.add_argument("cmd", choices=["init", "ingest", "aggregate", "status", "mark", "history", "next", "search", "brief", "stats"],
+    parser.add_argument("cmd", choices=["init", "ingest", "aggregate", "status", "mark", "history", "next", "params", "search", "brief", "stats"],
                         help="Sub-command")
     parser.add_argument("program", help="Target program name")
     parser.add_argument("--source", "-s", help="Source file to ingest (default: stdin)")
@@ -1394,6 +1738,9 @@ def main():
     parser.add_argument("--url", help="Exact URL to query")
     parser.add_argument("--route-hash", help="Route hash to search")
     parser.add_argument("--param-hash", help="Param hash to search")
+    parser.add_argument("--param", help="Parameter key to query, mark, or filter")
+    parser.add_argument("--param-location", help="Parameter location for mark, e.g. query, body, header")
+    parser.add_argument("--location", help="Parameter location filter for params command")
     parser.add_argument("--host", help="Host substring to search")
     parser.add_argument("--limit", "-n", type=int, default=50, help="Max results (default: 50)")
     parser.add_argument(
@@ -1409,6 +1756,11 @@ def main():
         "--has-query",
         action="store_true",
         help="For next: only return URLs with query parameters.",
+    )
+    parser.add_argument(
+        "--untested",
+        action="store_true",
+        help="For params: only show parameter observations without matching test runs.",
     )
     parser.add_argument("--status", help=f"Status value: {sorted(VALID_STATUSES)}")
     parser.add_argument("--notes", help="Notes for observation")
@@ -1455,7 +1807,7 @@ def main():
     elif cmd == "status":
         query_status(args.program, lane=args.lane, url=args.url,
                      route_hash=args.route_hash, param_hash=args.param_hash,
-                     host=args.host, limit=args.limit)
+                     host=args.host, limit=args.limit, param_key=args.param)
 
     elif cmd == "mark":
         if not args.url or not args.lane or not args.status:
@@ -1466,13 +1818,14 @@ def main():
              agent_id=args.agent_id, run_id=args.run_id, skill=args.skill,
              test_family=args.test_family, technique=args.technique,
              request_variant=args.request_variant, response_summary=args.response_summary,
-             depth=args.depth)
+             depth=args.depth, param_key=args.param,
+             param_location=args.param_location)
 
     elif cmd == "history":
         if not args.url:
             print("ERROR: --url is required for history", file=sys.stderr)
             sys.exit(1)
-        query_history(args.program, url=args.url, limit=args.limit)
+        query_history(args.program, url=args.url, limit=args.limit, param_key=args.param)
 
     elif cmd == "next":
         if not args.lane:
@@ -1482,12 +1835,26 @@ def main():
                    test_family=args.test_family, host=args.host, limit=args.limit,
                    param_preset=args.param_preset,
                    param_key_like=args.param_key_like,
-                   has_query=args.has_query)
+                   has_query=args.has_query,
+                   param_key=args.param)
+
+    elif cmd == "params":
+        query_params(
+            args.program,
+            lane=args.lane,
+            param_key=args.param,
+            host=args.host,
+            location=args.location,
+            untested=args.untested,
+            skill=args.skill,
+            test_family=args.test_family,
+            limit=args.limit,
+        )
 
     elif cmd == "search":
         query_status(args.program, lane=args.lane, url=args.url,
                      route_hash=args.route_hash, param_hash=args.param_hash,
-                     host=args.host, limit=args.limit)
+                     host=args.host, limit=args.limit, param_key=args.param)
 
     elif cmd == "brief":
         brief(args.program, limit=args.limit)

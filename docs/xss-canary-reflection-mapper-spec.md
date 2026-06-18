@@ -10,7 +10,7 @@ Canonical path: docs/xss-canary-reflection-mapper-spec.md
 Index path: SPEC.md
 Supersedes: none
 Replaced by: none
-Implementation commit: 03b038f3ab4e2c6e82724a1e1137177cf2ad1536
+Implementation commit: 08814caa52d68c854c2b54a9f19b99148c845db9
 Last updated: 2026-06-17
 Last reviewed: 2026-06-17
 ```

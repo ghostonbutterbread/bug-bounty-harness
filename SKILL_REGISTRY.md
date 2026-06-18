@@ -108,6 +108,11 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **appmap-research-librarian** | `/appmap-research-librarian init {program}` | `prompts/appmap-research-librarian-playbook.md` |
 | **electron** | `/electron {program} {target_path}` | `prompts/electron-playbook.md` |
 | **prompt-injection** | `/prompt-injection {program} {target_url}` | `prompts/prompt-injection-playbook.md` |
+| **ai-trust-map** | `/ai-trust-map {program} {target_url-or-feature}` | `prompts/ai-trust-map-playbook.md` |
+| **indirect-injection** | `/indirect-injection {program} {target_url-or-surface}` | `prompts/indirect-injection-playbook.md` |
+| **agent-tool-abuse** | `/agent-tool-abuse {program} {target_url-or-flow}` | `prompts/agent-tool-abuse-playbook.md` |
+| **model-redteam-taxonomy** | `/model-redteam-taxonomy {program-or-lab} {model-or-feature}` | `prompts/model-redteam-taxonomy-playbook.md` |
+| **liberate-fren** | `/liberate-fren {lab-or-provider} {model}` | `prompts/liberate-fren-playbook.md` |
 | **ato** | `/ato {program} {auth-or-account-flow}` | `prompts/ato-playbook.md` |
 | **password-reset** | `/password-reset {program} {reset-flow-context}` | `skills/password-reset/SKILL.md` |
 | **payment-testing** | `/payment-testing {program} {checkout-or-billing-context}` | `prompts/payment-testing-playbook.md` |
@@ -186,6 +191,11 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /appmap-research-librarian init canva --category electron-ipc --research-query electron rce --target-kind electron-exe
 /electron canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar --dry-run-prompts
 /prompt-injection canva https://target.example/ai-assistant --mode map
+/ai-trust-map canva https://target.example/design-ai
+/indirect-injection canva shared-design-comments --callback https://webhook.site/<owned-id>
+/agent-tool-abuse canva design-editor-ai --dry-run --callback https://webhook.site/<owned-id>
+/model-redteam-taxonomy canva design-ai --goal indirect-content-to-document-mutation
+/liberate-fren local llama-3.1 --mode taxonomy
 /password-reset canva forgot-password-flow
 /payment-testing canva checkout-flow
 /bypass https://target.example/admin 403 --program target

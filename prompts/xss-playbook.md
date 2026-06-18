@@ -40,6 +40,34 @@ Minimum artifact expectation for these runs:
 If a worker cannot write these artifacts, the XSS lane is incomplete even when
 the raw log contains useful observations.
 
+## Tool-Assisted Discovery
+
+Use tool output as an input map for the XSS lane, not as final proof.
+
+For install checks, command shapes, output paths, and hybrid handoff packet
+format, read:
+
+- `/home/ryushe/projects/bug_bounty_harness/skills/bounty-tools/SKILL.md`
+- `/home/ryushe/projects/bug_bounty_harness/skills/xss/references/tool-assisted-discovery.md`
+
+Dalfox is preferred for parameter mining and reflection triage across known URL
+sets. Use it to discover hidden parameters, identify reflected inputs, collect
+injectable/free character behavior, and capture WAF clues before deciding which
+payload families or bypasses fit.
+
+Dursgo is preferred for application mapping and browser-aware discovery. Use it
+to crawl route clusters, find forms and endpoints, run JavaScript-rendered SPA
+mapping, and produce `xss-reflected`, `xss-stored`, or `domxss` leads for
+follow-up.
+
+Every Dalfox or Dursgo lead still needs normal lane handling:
+
+- classify the source, sink, and render context
+- route to reflected, stored, or DOM XSS
+- verify browser execution before marking `Confirmed`
+- write tool name, command/config, output path, and stop reason into the lane
+  artifacts
+
 ## 1. Probe
 
 Start by finding every place attacker-controlled data can enter the application.

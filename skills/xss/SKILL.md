@@ -61,6 +61,59 @@ Useful local sources:
 - `/home/ryushe/Shared/word_lists/xss/payloads.txt`
 - `/home/ryushe/.axss/knowledge.db` when curated rows exist
 
+## Discovery And Mapping Tools
+
+Use Dalfox and Dursgo as XSS discovery and application-mapping helpers before
+deep payload work. They should expand the input/sink map, not replace the
+context-aware lane workflow.
+
+For deterministic canary source-to-sink mapping, use the local mapper under:
+
+- `skills/xss/scripts/xss_canary_mapper.py`
+
+The mapper plans inert `GHOST_XSS_*` canaries from URL/tool/source artifacts,
+can fetch planned GET canaries with saved program scope or explicit host
+allowlists, scans responses for reflections, classifies basic render contexts,
+and writes compact `agent_packets/*.md` for XSS lane workers. Use `--offline`
+or the `plan`/`scan` commands when you only want artifact processing.
+
+Before using either tool, read:
+
+- `skills/bounty-tools/SKILL.md`
+- `skills/xss/references/tool-assisted-discovery.md`
+
+Use Dalfox when the task is parameter-focused:
+
+- Mine hidden query parameters and reflected inputs across URL lists.
+- Screen large recon URL batches for reflection, injectable characters, and
+  candidate XSS vectors.
+- Fingerprint WAF behavior and record blocked/free characters before choosing
+  bypass families.
+- Emit structured output for follow-up by `xss_framework.py`,
+  `xss_hunter.py`, `reflected-xss`, or `dom-xss`.
+
+Use Dursgo when the task is application-mapping focused:
+
+- Crawl an app or route cluster to discover URLs, forms, endpoints, and hidden
+  parameters.
+- Use JavaScript rendering for SPA/DOM-heavy surfaces where raw HTTP misses
+  browser-created routes or sinks.
+- Run authenticated sweeps when cookies, bearer tokens, or custom headers are
+  available and in scope.
+- Treat `xss-reflected`, `xss-stored`, and `domxss` output as triage leads that
+  still need lane-specific context classification and browser verification.
+
+Recommended routing:
+
+1. Recon URL list or many unknown parameters: run Dalfox first for parameter
+   mining and reflection screening.
+2. SPA, route cluster, or auth-protected app area: run Dursgo first for crawling,
+   JavaScript-rendered mapping, and broad XSS candidate discovery.
+3. Feed candidate parameters, URLs, sinks, WAF clues, and JSON reports into the
+   normal XSS working loop.
+4. Record tool-derived leads as `Potential` until a lane worker proves source,
+   sink/context, and browser execution.
+
 ## Harnesses
 
 Use `agents/xss_framework.py` for broad XSS work. It handles discovery,

@@ -23,4 +23,7 @@ composition, fuzz campaign manifests, progress updates, and fuzz history logs.
    and outcome.
 8. Ingest discovered URL-like output through `/url-ingest`.
 
+Load `/bounty-tools` before the fuzz command when the run should produce a
+reusable external-tool artifact directory.
+
 Use `/fuzz` for the underlying fuzzing method and safety rules.

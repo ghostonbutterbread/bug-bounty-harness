@@ -101,6 +101,12 @@ usually use one skill:
 Use `/error-mapper` as a helper inside the deep dive when the goal is to learn
 how one parameter or route segment fails. Do not use it as a broad fuzzing pass.
 
+**Child agent briefing rule:** Before briefing any child agent, inject the
+hunter mindset. Every child agent prompt MUST include a reference to
+`$HARNESS_ROOT/prompts/hunter-mindset-playbook.md` and MUST be instructed to
+follow the observe→map→hypothesize→probe→learn→pivot loop. A child that
+sprays payloads without mapping the section has failed.
+
 6. Record attempts.
 
 Every child or parent attempt should log:

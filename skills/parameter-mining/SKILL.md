@@ -16,14 +16,17 @@ This skill is a router and evidence combiner. It does not replace `/js`,
 
 1. Read
    `/home/ryushe/projects/bug_bounty_harness/prompts/parameter-mining-playbook.md`.
-2. Read current aggregate state:
+2. Load `/bounty-storage` and resolve the active Bounty Core family/lane before
+   writing. Do not hard-code legacy `bounty_recon` roots when a
+   `context/target_profile.json` or resolver output exists.
+3. Read current aggregate state from the resolved web lane, commonly:
    `~/Shared/web_bounty/<program>/web/recon/aggregated/`.
-3. Check `/url-ingest brief <program>` and existing lane coverage before
+4. Check `/url-ingest brief <program>` and existing lane coverage before
    assigning agents or fuzzing.
-4. Load `/js` for JavaScript-derived parameters.
-5. Prefer dynamic filters over permanent lane packs. Use GF or another pattern
+5. Load `/js` for JavaScript-derived parameters.
+6. Prefer dynamic filters over permanent lane packs. Use GF or another pattern
    matcher as a pipe over `aggregated/params.txt` when the lane is known.
-6. Load `/fuzz` and `/use-wordlists` before any active parameter probing.
+7. Load `/fuzz` and `/use-wordlists` before any active parameter probing.
 
 ## Canonical Sources
 
@@ -45,11 +48,15 @@ or prompts.
 
 ## Output Contract
 
-Write target-specific artifacts under:
+Write target-specific artifacts under the resolved lane's `recon/` tree. For
+current web-lane targets, this usually means:
 
 ```text
 ~/Shared/web_bounty/<program>/web/recon/parameter_mining/<run-id>/
 ```
+
+If Bounty Core resolves a different family/lane, use that lane root and keep the
+same `recon/parameter_mining/<run-id>/` suffix.
 
 Each run should produce:
 

@@ -79,6 +79,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **js** | `/js {analyze|generate|deep} {program-or-url}` | `prompts/js-playbook.md` |
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
 | **recon-ry** | `/recon-ry {program}` | `prompts/recon-ry-playbook.md` |
+| **focused-recon** | `/focused-recon {program} [--host host] [--top N]` | `prompts/focused-recon-playbook.md` |
 | **csrf** | `/csrf {program}` | `skills/csrff/SKILL.md` |
 | **mental-map** | `/mental-map {program}` | `prompts/mental-map-playbook.md` |
 | **caido** | `/caido {mcp-url-or-host?}` | `skills/caido/SKILL.md` |
@@ -163,6 +164,8 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /js generate canva --from-run js-canva-20260615T000000Z
 /recon superdrug
 /recon-ry superdrug --url example.com --profile full
+/focused-recon canva --top 20
+/focused-recon canva --host labs.canva.tech
 /csrf superdrug
 /mental-map superdrug
 /caido 192.168.0.135

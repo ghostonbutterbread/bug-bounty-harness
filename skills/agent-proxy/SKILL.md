@@ -15,6 +15,14 @@ If Ryushe says "look at the request <request>", the request lookup/source defaul
 
 Replay transport policy: direct HTTP replay with `curl`, `httpx`, or a focused script is preferred for known request shapes. Use the agent-lane MCP/proxy replay only as a fallback when direct replay fails for browser/proxy/client-fingerprint reasons such as Cloudflare or browser-only flow state. Live browser exploration still uses Chromium/Playwright attached to the agent's local browser proxy.
 
+Default MITM policy: generic `curl`, `httpx`, and script traffic should go
+through the resolved agent MITM proxy so requests are recorded. On
+OpenClaw/Ghost this is normally `-x http://hoster:8080`; on Hoster or
+Ryushe's PC this is normally `-x http://localhost:8080`. Spawned agents that
+need isolated traffic should lease a task-specific MITM lane, currently
+`8081-8090` on Hoster, then index the lane into the central proxy store and
+release the lease before finishing.
+
 ## Runtime Resolution
 
 Resolve in this order:
@@ -34,9 +42,15 @@ Resolve in this order:
 
 For browsers launched from the OpenClaw machine, load `openclaw-browser-proxy`; browser traffic should go through `http://hoster:8080`, while MCP remains `http://hoster:3333/mcp`.
 
+For direct replay from the OpenClaw machine, use `curl -x http://hoster:8080`
+or the equivalent `httpx`/script proxy setting unless a leased per-agent lane
+has been assigned.
+
 ## Guardrails
 
 - Do not use `http://ryushespc:3333/mcp` from this skill.
 - Do not treat an MCP URL as a browser proxy listener.
 - Keep traffic lane labels in notes: agent lane, Ryushe lane, or desktop lane.
+- Index task-specific MITM lanes into the proxy store before release when they
+  contain useful traffic.
 - Never print or store raw cookies, tokens, or auth headers from proxy traffic.

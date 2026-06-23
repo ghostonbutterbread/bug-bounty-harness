@@ -33,7 +33,12 @@ This skill is a request-shape preservation skill. It does not decide whether a t
 4. Keep auth/session/context headers together exactly as captured, including `Cookie`, `Authorization`, CSRF headers, and product-specific X-* headers.
 5. Keep all captured headers by default, including `Content-Length`, `Connection`, browser fetch metadata, `Priority`, and duplicate headers. Only drop framing headers with an explicit reason.
 6. Send the exact body bytes/string with `--data-binary @file` for JSON, multipart, GraphQL, form, or opaque bodies.
-7. Do not paste raw cookies, tokens, or generated auth-bearing curl commands into notes, reports, or chat.
+7. For live replay, route `curl` through the resolved agent MITM proxy so the
+   request is recorded. On OpenClaw/Ghost this usually means
+   `curl -x http://hoster:8080 ...`; on Hoster or Ryushe's PC this usually
+   means `curl -x http://localhost:8080 ...`. Use a leased per-agent proxy
+   instead when the task needs isolated traffic.
+8. Do not paste raw cookies, tokens, or generated auth-bearing curl commands into notes, reports, or chat.
 
 ## Stop Conditions
 

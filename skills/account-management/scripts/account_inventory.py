@@ -191,6 +191,8 @@ def cmd_add_account(args: argparse.Namespace) -> int:
             "auth_seed_ref": args.auth_seed_ref,
             "auth_refresh_source": args.auth_refresh_source,
             "auth_refresh_hint": args.auth_refresh_hint,
+            "auth_check_url": args.auth_check_url,
+            "auth_host_filter": args.auth_host_filter,
             "pwnfox_color": args.pwnfox_color,
             "destructible": args.destructible,
             "source": args.source,
@@ -291,6 +293,14 @@ def build_parser() -> argparse.ArgumentParser:
     account.add_argument(
         "--auth-refresh-hint",
         help="Non-secret hint for locating the account in the approved refresh source, such as pwnfox:blue.",
+    )
+    account.add_argument(
+        "--auth-check-url",
+        help="Safe read-only URL used by auth_resolver.py to check whether this account is logged in.",
+    )
+    account.add_argument(
+        "--auth-host-filter",
+        help="Non-secret host substring used to constrain Ryushe-proxy auth lookup, such as canva.com.",
     )
     account.add_argument("--pwnfox-color")
     account.add_argument("--destructible", choices=("yes", "no", "unknown"), default="unknown")

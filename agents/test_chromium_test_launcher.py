@@ -405,6 +405,173 @@ def test_account_color_resolves_locked_down_auth_seed(monkeypatch, tmp_path, cap
     assert "secret-token" not in output
 
 
+def test_missing_account_auth_seed_returns_fallback_plan(monkeypatch, tmp_path, capsys):
+    module = load_launcher_module()
+    shared = tmp_path / "shared"
+    missing_seed = tmp_path / "secure-auth" / "blue.json"
+    inventory = shared / "demo" / "credentials" / "account_inventory.json"
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text(
+        json.dumps(
+            {
+                "program": "demo",
+                "accounts": [
+                    {
+                        "alias": "blue-primary",
+                        "pwnfox_color": "blue",
+                        "credential_ref": f"auth-seed:{missing_seed}",
+                        "auth_refresh_source": "ryushe-proxy",
+                        "auth_refresh_hint": "pwnfox:blue",
+                    }
+                ],
+                "pwnfox_lanes": [{"color": "blue", "account": "blue-primary"}],
+            }
+        )
+    )
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    monkeypatch.setattr(module, "pick_port", lambda requested=None: 9444)
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/usr/bin/chromium")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "chromium_test.py",
+            "demo",
+            "smoke",
+            "--account",
+            "blue",
+            "--no-auth-auto-refresh",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert module.main() == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["auth_seed"]["status"] == "unusable"
+    assert result["auth_next_step"]["status"] == "needs-auth"
+    assert result["auth_next_step"]["auth_refresh_source"] == "ryushe-proxy"
+    assert "try ryushe-proxy" in result["auth_next_step"]["steps"][0]
+    assert any("bitwarden fallback" in step for step in result["auth_next_step"]["steps"])
+    assert any("agent MITM lane" in step for step in result["auth_next_step"]["steps"])
+
+
+def test_missing_account_auth_seed_auto_refreshes_with_resolver(monkeypatch, tmp_path, capsys):
+    module = load_launcher_module()
+    shared = tmp_path / "shared"
+    refreshed_seed = tmp_path / "secure-auth" / "blue.json"
+    inventory = shared / "demo" / "credentials" / "account_inventory.json"
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text(
+        json.dumps(
+            {
+                "program": "demo",
+                "accounts": [
+                    {
+                        "alias": "blue-primary",
+                        "pwnfox_color": "blue",
+                        "auth_refresh_source": "ryushe-proxy",
+                        "auth_refresh_hint": "pwnfox:blue",
+                    }
+                ],
+            }
+        )
+    )
+
+    def fake_run(command, **_kwargs):
+        refreshed_seed.parent.mkdir(parents=True)
+        refreshed_seed.write_text(json.dumps({"account_label": "blue-primary", "cookies": []}))
+        os.chmod(refreshed_seed, 0o600)
+        return module.subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps(
+                {
+                    "status": "refreshed",
+                    "auth_seed": {"path": str(refreshed_seed)},
+                    "proxy_provenance": {"request_id": 123, "cookie_count": 0},
+                    "host_filter": "example.test",
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    monkeypatch.setattr(module, "pick_port", lambda requested=None: 9444)
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/usr/bin/chromium")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "chromium_test.py",
+            "demo",
+            "smoke",
+            "--account",
+            "blue",
+            "--url",
+            "https://app.example.test/account",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert module.main() == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["account_resolution"]["auth_auto_refresh"]["status"] == "refreshed"
+    assert result["auth_seed"]["status"] == "loaded"
+    assert result["auth_seed"]["path"] == str(refreshed_seed)
+
+
+def test_bitwarden_account_ref_returns_bitwarden_fallback_plan(monkeypatch, tmp_path, capsys):
+    module = load_launcher_module()
+    shared = tmp_path / "shared"
+    inventory = shared / "demo" / "credentials" / "account_inventory.json"
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text(
+        json.dumps(
+            {
+                "program": "demo",
+                "accounts": [
+                    {
+                        "alias": "cyan-primary",
+                        "pwnfox_color": "cyan",
+                        "credential_ref": "bitwarden:demo-cyan-primary",
+                    }
+                ],
+            }
+        )
+    )
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    monkeypatch.setattr(module, "pick_port", lambda requested=None: 9444)
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/usr/bin/chromium")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "chromium_test.py",
+            "demo",
+            "smoke",
+            "--account",
+            "cyan",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert module.main() == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["account_resolution"]["credential_ref_type"] == "bitwarden"
+    assert result["auth_seed"]["status"] == "none"
+    assert result["auth_next_step"]["status"] == "needs-auth"
+    assert result["auth_next_step"]["steps"] == [
+        "load bitwarden and use the recorded Bitwarden item reference"
+    ]
+
+
 def test_hoster_default_proxy_prefers_synced_hoster_ca(monkeypatch, tmp_path):
     module = load_launcher_module()
     synced_ca = tmp_path / "mitmproxy-ca-cert.pem"

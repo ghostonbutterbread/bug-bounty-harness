@@ -30,6 +30,36 @@ secret material.
 - owned resource type, resource ID, display name, owner account, full source URL, run/session ID, cleanup/destructible status
 - evidence source: browser, Caido, manual note, API response, signup flow, or child-agent output
 
+## Authentication Resolution
+
+For named accounts or colors, resolve auth in this order:
+
+1. Read the account inventory for the selected alias/color and use the current
+   non-secret references: `auth_seed_ref`, `credential_ref`,
+   `auth_refresh_source`, `auth_refresh_hint`, `auth_check_url`, and
+   `auth_host_filter`.
+2. Try the current stored auth seed/session or secret-store reference in the
+   agent lane.
+3. Use the resolver script instead of hand-rolling host/proxy decisions:
+   ```bash
+   python3 $HARNESS_ROOT/skills/account-management/scripts/auth_resolver.py resolve \
+     --program {program} \
+     --account blue \
+     --json
+   ```
+   The resolver reads the proxy route table to decide whether this runtime can
+   query Ryushe's proxy directly, must use one-shot Hoster SSH, or must fail
+   closed.
+4. If stored auth fails and the account record explicitly allows it, use
+   Ryushe's proxy only as a source lookup or named-account auth-refresh source.
+5. If Ryushe's proxy cannot be reached, has no matching account evidence, or
+   cannot refresh the selected account, load `/bitwarden` and use the recorded
+   Bitwarden credential reference as fallback.
+
+After a proxy-derived refresh, active testing must use the agent MITM lane. Do
+not test through Ryushe's proxy just because the account evidence came from
+there.
+
 ## PwnFox Proxy Config
 
 Use the registry's `proxy_identity.pwnfox` block instead of guessing header names.
@@ -46,7 +76,9 @@ Caido color filter template: req.raw.cont:"X-PwnFox-Color" AND req.raw.cont:"{co
 
 ```bash
 python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py show {program}
-python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-account {program} --alias primary --email ryushe+ai@example.com --user-id USER_ID --credential-ref "bitwarden:item-name" --auth-seed-ref "auth-seed:/secure/path/primary.json" --pwnfox-color blue --destructible no
+python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-account {program} --alias primary --email ryushe+ai@example.com --user-id USER_ID --credential-ref "bitwarden:item-name" --auth-seed-ref "auth-seed:/secure/path/primary.json" --auth-check-url "https://target.example/account" --auth-host-filter "target.example" --pwnfox-color blue --destructible no
+python3 $HARNESS_ROOT/skills/account-management/scripts/auth_resolver.py resolve --program {program} --account blue
+python3 $HARNESS_ROOT/skills/account-management/scripts/auth_resolver.py refresh-from-ryushe-proxy --program {program} --account blue --host-filter target.example
 python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-resource {program} --type design --id DESIGN_ID --name "profile test design" --owner primary --url https://target.example/design/DESIGN_ID --cleanup-needed yes
 python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py link-pwnfox {program} --color blue --account primary
 ```

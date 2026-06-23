@@ -12,6 +12,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Iterable
@@ -29,6 +30,7 @@ DEFAULT_HOSTER_CA_CERT = Path(
     "~/.local/state/ghost/mitm-lanes/hoster-default-8080/mitmproxy/mitmproxy-ca-cert.pem"
 ).expanduser()
 AUTH_SEED_REF_PREFIXES = ("auth-seed:", "auth_seed:", "file:")
+AUTH_RESOLVER = Path(__file__).resolve().parents[2] / "account-management" / "scripts" / "auth_resolver.py"
 CHROME_BINARIES = (
     "chromium",
     "chromium-browser",
@@ -297,6 +299,10 @@ def safe_account_resolution(resolution: dict[str, Any], auth_seed_file: Path | N
         ref_type = "auth-seed"
     elif credential_ref and str(credential_ref).startswith("file:"):
         ref_type = "file"
+    elif credential_ref and str(credential_ref).startswith("bitwarden:"):
+        ref_type = "bitwarden"
+    elif credential_ref and str(credential_ref).startswith("secret-store:"):
+        ref_type = "secret-store"
     elif auth_seed_file:
         ref_type = "path"
     else:
@@ -314,6 +320,72 @@ def safe_account_resolution(resolution: dict[str, Any], auth_seed_file: Path | N
         "credential_ref_type": ref_type,
         "auth_seed_file": str(auth_seed_file) if auth_seed_file else None,
     }
+
+
+def auth_fallback_plan(
+    account_resolution: dict[str, Any],
+    auth_seed_file: str | None,
+    auth_seed_error: str | None = None,
+) -> dict[str, Any]:
+    status = account_resolution.get("status")
+    ref_type = account_resolution.get("credential_ref_type")
+    refresh_source = account_resolution.get("auth_refresh_source")
+    refresh_hint = account_resolution.get("auth_refresh_hint")
+
+    if status == "explicit":
+        if auth_seed_error:
+            return {
+                "status": "blocked",
+                "reason": "explicit-auth-seed-unusable",
+                "next": "fix the provided auth seed path or provide a different approved auth seed",
+            }
+        return {"status": "ready", "source": "explicit-auth-seed"}
+
+    if status != "resolved":
+        return {
+            "status": "unresolved-account",
+            "reason": status or "no-account-selector",
+            "next": "load account-management and register or select an owned account alias/color",
+        }
+
+    if auth_seed_file and not auth_seed_error:
+        return {"status": "ready", "source": "stored-auth-seed"}
+
+    plan: dict[str, Any] = {
+        "status": "needs-auth",
+        "account_alias": account_resolution.get("account_alias"),
+        "reason": "stored auth seed is missing or unusable" if auth_seed_error else "no stored auth seed resolved",
+        "credential_ref_type": ref_type,
+        "auth_refresh_source": refresh_source,
+        "steps": [],
+    }
+    if auth_seed_error:
+        plan["auth_seed_error"] = auth_seed_error
+
+    steps: list[str] = []
+    if refresh_source == "ryushe-proxy":
+        detail = "try ryushe-proxy only as source lookup/auth refresh for this selected account"
+        if refresh_hint:
+            detail += f" using hint {refresh_hint}"
+        steps.append(detail)
+        steps.append("if ryushe-proxy is unreachable or has no matching evidence, use bitwarden fallback")
+        steps.append("after refresh, retry active testing through the agent MITM lane")
+    elif refresh_source == "secret-store":
+        steps.append("try the approved secret-store reference for this selected account")
+        steps.append("if secret-store auth fails or is unavailable, use bitwarden fallback")
+    elif refresh_source == "manual":
+        steps.append("ask Ryushe for manual auth refresh or a new auth seed for this selected account")
+    else:
+        if ref_type == "bitwarden":
+            steps.append("load bitwarden and use the recorded Bitwarden item reference")
+        elif ref_type == "secret-store":
+            steps.append("load the approved secret-store workflow for this selected account")
+            steps.append("if secret-store auth fails or is unavailable, use bitwarden fallback")
+        else:
+            steps.append("load bitwarden as fallback if a credential reference exists or Ryushe approves lookup")
+
+    plan["steps"] = steps
+    return plan
 
 
 def cleanup_profile_dir(profile_dir: Path) -> dict[str, Any]:
@@ -366,6 +438,62 @@ def load_auth_seed(path: str | None) -> dict[str, Any] | None:
     return data
 
 
+def host_filter_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    parsed = urllib.parse.urlsplit(url)
+    return parsed.hostname
+
+
+def maybe_refresh_auth_seed(args: argparse.Namespace, account: dict[str, Any] | None, seed_path: Path | None) -> tuple[Path | None, dict[str, Any] | None]:
+    if not getattr(args, "auth_auto_refresh", True):
+        return seed_path, None
+    selector = args.account or args.account_label
+    if not selector or not account or account.get("auth_refresh_source") != "ryushe-proxy":
+        return seed_path, None
+    if seed_path and seed_path.exists():
+        return seed_path, None
+    if not AUTH_RESOLVER.exists():
+        return seed_path, {"status": "missing-auth-resolver", "path": str(AUTH_RESOLVER)}
+
+    command = [
+        sys.executable,
+        str(AUTH_RESOLVER),
+        "refresh-from-ryushe-proxy",
+        "--program",
+        args.program,
+        "--account",
+        selector,
+    ]
+    host_filter = account.get("auth_host_filter") or host_filter_from_url(args.url)
+    if host_filter:
+        command.extend(["--host-filter", str(host_filter)])
+    proc = subprocess.run(command, text=True, capture_output=True, timeout=45, check=False)
+    if proc.returncode != 0:
+        return seed_path, {
+            "status": "auth-refresh-command-failed",
+            "returncode": proc.returncode,
+            "stderr": proc.stderr.strip()[-500:],
+        }
+    try:
+        result = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return seed_path, {"status": "auth-refresh-invalid-json"}
+    if result.get("status") == "refreshed":
+        refreshed_path = result.get("auth_seed", {}).get("path")
+        if refreshed_path:
+            return Path(refreshed_path).expanduser(), {
+                "status": "refreshed",
+                "provenance": result.get("proxy_provenance", {}),
+                "host_filter": result.get("host_filter"),
+            }
+    return seed_path, {
+        key: result.get(key)
+        for key in ("status", "host_filter", "proxy_query", "safe_next")
+        if result.get(key) is not None
+    }
+
+
 def resolve_auth_seed_file(args: argparse.Namespace) -> tuple[str | None, dict[str, Any]]:
     if args.auth_seed_file:
         return args.auth_seed_file, {
@@ -376,7 +504,12 @@ def resolve_auth_seed_file(args: argparse.Namespace) -> tuple[str | None, dict[s
     resolution = resolve_account_record(args.program, selector)
     account = resolution.get("account") if resolution.get("status") == "resolved" else None
     seed_path = auth_seed_path_from_account(account)
-    return (str(seed_path) if seed_path else None), safe_account_resolution(resolution, seed_path)
+    refresh_result = None
+    seed_path, refresh_result = maybe_refresh_auth_seed(args, account, seed_path)
+    safe = safe_account_resolution(resolution, seed_path)
+    if refresh_result:
+        safe["auth_auto_refresh"] = refresh_result
+    return (str(seed_path) if seed_path else None), safe
 
 
 def resolve_mitm_ca_cert(configured: str, proxy_server: str | None) -> Path:
@@ -540,6 +673,12 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--auth-auto-refresh",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="When --account resolves a permitted missing auth seed, refresh it through auth_resolver.py before launch.",
+    )
+    parser.add_argument(
         "--ephemeral-profile",
         action="store_true",
         help="Create a fresh run-scoped browser profile and include a cleanup command in output.",
@@ -606,8 +745,21 @@ def main() -> int:
     port = pick_port(args.port)
     task = args.task_opt or args.task_arg or "manual"
     resolved_auth_seed_file, account_resolution = resolve_auth_seed_file(args)
-    auth_seed_data = load_auth_seed(resolved_auth_seed_file)
-    auth_seed = auth_seed_metadata(resolved_auth_seed_file)
+    auth_seed_error = None
+    try:
+        auth_seed_data = load_auth_seed(resolved_auth_seed_file)
+        auth_seed = auth_seed_metadata(resolved_auth_seed_file)
+    except SystemExit as exc:
+        auth_seed_data = None
+        auth_seed_error = str(exc)
+        auth_seed = {
+            "status": "unusable",
+            "path": str(Path(resolved_auth_seed_file).expanduser()) if resolved_auth_seed_file else None,
+            "error": auth_seed_error,
+        }
+        if not (args.json or args.dry_run):
+            raise
+    auth_next_step = auth_fallback_plan(account_resolution, resolved_auth_seed_file, auth_seed_error)
     if args.account_label:
         account = args.account_label
     elif auth_seed.get("safe_metadata", {}).get("account_label"):
@@ -695,6 +847,7 @@ def main() -> int:
         "session_source": args.session_source or auth_seed.get("safe_metadata", {}).get("session_source"),
         "account_resolution": account_resolution,
         "auth_seed": auth_seed,
+        "auth_next_step": auth_next_step,
         "port": port,
         "cdp_url": f"http://127.0.0.1:{port}",
         "cdp_version_url": f"http://127.0.0.1:{port}/json/version",
@@ -727,6 +880,13 @@ def main() -> int:
     }
 
     if not args.dry_run:
+        if auth_seed_error:
+            if args.json:
+                print(json.dumps(result, indent=2, sort_keys=True))
+            else:
+                print(f"Auth seed unusable: {auth_seed_error}", file=sys.stderr)
+                print("Next: " + "; ".join(auth_next_step.get("steps", [])), file=sys.stderr)
+            return 2
         proc = subprocess.Popen(
             command,
             stdout=subprocess.DEVNULL,

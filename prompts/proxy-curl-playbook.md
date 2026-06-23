@@ -35,6 +35,9 @@ For auth-sensitive apps, the important pieces are often not just cookies. Preser
    - do not reformat JSON before the baseline replay works
    - do not convert multipart boundaries manually unless replaying the exact captured body
 6. Add replay controls:
+   - `-x <agent-mitm-proxy>` for live replay so traffic lands in the agent
+     proxy store, normally `-x http://hoster:8080` from OpenClaw/Ghost or
+     `-x http://localhost:8080` from Hoster/Ryushe's PC
    - `--compressed` when the request advertises compressed response support
    - `--path-as-is` for path normalization, traversal, or encoded path tests
    - `--max-time` for bounded probes
@@ -81,3 +84,7 @@ Always run one baseline replay before changing a security-relevant field. If the
 - route mismatch: compare full URL, scheme, host, path encoding, query order, and `--path-as-is`
 
 Only mutate after the baseline behaves like the browser/proxy request.
+
+When the goal is active testing or later comparison, a baseline that bypasses
+the MITM proxy is incomplete. Re-run through the resolved agent proxy or an
+assigned per-agent MITM lane before treating the result as recorded evidence.

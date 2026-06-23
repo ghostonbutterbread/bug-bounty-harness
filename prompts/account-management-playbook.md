@@ -41,6 +41,11 @@ spellings unless live traffic proves a second header exists.
 - `role`: user/admin/member/owner/free/paid/etc. when known
 - `tenant_id` or workspace/team/org ID when relevant
 - `credential_ref`: Bitwarden item name or approved pointer, never the secret
+- `auth_seed_ref`: locked-down local auth seed pointer such as `auth-seed:/path/to/account.json`
+- `auth_refresh_source`: approved fallback source such as `ryushe-proxy`, `manual`, or `secret-store`
+- `auth_refresh_hint`: non-secret lookup hint such as `pwnfox:blue`
+- `auth_check_url`: safe read-only account URL for auth validation, such as an account/profile page
+- `auth_host_filter`: non-secret host substring to keep Ryushe-proxy lookup scoped, such as `canva.com`
 - `pwnfox_color`: observed lane if mapped
 - `destructible`: `yes`, `no`, or `unknown`
 - `source`: where the value came from
@@ -61,11 +66,30 @@ spellings unless live traffic proves a second header exists.
 ## Workflow
 
 1. Before testing, run `show` and identify the owned accounts/resources for the lane.
-2. If an account exists but lacks a user ID or PwnFox color, record the missing field once observed.
-3. When creating a document/design/upload/order/workspace, immediately add a resource record.
-4. For cross-account tests, compare only records with clear ownership and destructible status.
-5. If a child agent creates or observes a new ID, it must return a registry update command or JSON patch in its handoff.
-6. After cleanup, update the resource with `cleanup_needed no` and a note.
+2. For named account auth, call the resolver instead of reimplementing host,
+   proxy, and fallback logic:
+   ```bash
+   python3 $HARNESS_ROOT/skills/account-management/scripts/auth_resolver.py resolve \
+     --program <program> \
+     --account <alias-or-pwnfox-color> \
+     --host-filter <target-host-or-domain>
+   ```
+3. The resolver reads the proxy route table and decides whether Ryushe-proxy
+   lookup is direct on Hoster, one-shot SSH through Hoster from OpenClaw/Ghost,
+   same-host localhost on Ryushe PC, or blocked.
+4. For named account auth, the resolver tries the current stored
+   `auth_seed_ref`, `credential_ref`, or approved secret-store reference first.
+5. If stored auth fails and the account record allows `auth_refresh_source`,
+   use that source only for the selected account. For `ryushe-proxy`, pull
+   request shape or refresh the selected auth seed only; active testing still
+   happens through the agent MITM lane.
+6. If Ryushe's proxy is unreachable or has no matching usable evidence, load
+   `/bitwarden` and use the recorded Bitwarden reference as fallback.
+7. If an account exists but lacks a user ID or PwnFox color, record the missing field once observed.
+8. When creating a document/design/upload/order/workspace, immediately add a resource record.
+9. For cross-account tests, compare only records with clear ownership and destructible status.
+10. If a child agent creates or observes a new ID, it must return a registry update command or JSON patch in its handoff.
+11. After cleanup, update the resource with `cleanup_needed no` and a note.
 
 ## Agent Handoff Packet
 

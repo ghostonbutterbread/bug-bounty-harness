@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -628,6 +629,24 @@ def _build_parser() -> argparse.ArgumentParser:
     xref_p = sub.add_parser("rebuild-crossref", help="Regenerate _crossref/ views")
     _add_common(xref_p)
 
+    # migrate-workspace
+    mig_p = sub.add_parser("migrate-workspace", help="Scan workdir for agent notes and migrate to map store")
+    mig_p.add_argument("--source-dir", default="~/workdir/working", help="Source directory to scan (default: ~/workdir/working)")
+    mig_p.add_argument("--program", default=None, help="Limit to specific program (auto-detected if omitted)")
+    mig_p.add_argument("--family", default="web_bounty", help="Storage family")
+    mig_p.add_argument("--lane", default="web", help="Storage lane")
+    mig_p.add_argument("--root", default=None)
+    mig_p.add_argument("--dry-run", action="store_true", help="Show what would happen without writing")
+    mig_p.add_argument("--no-move", action="store_true", help="Don't move source files, just index them")
+
+    # cleanup-profiles
+    cln_p = sub.add_parser("cleanup-profiles", help="Remove chromium profiles from working directories")
+    cln_p.add_argument("--program", required=True)
+    cln_p.add_argument("--family", default="web_bounty")
+    cln_p.add_argument("--lane", default="web")
+    cln_p.add_argument("--root", default=None)
+    cln_p.add_argument("--dry-run", action="store_true", help="Show what would be deleted without deleting")
+
     return parser
 
 
@@ -706,6 +725,193 @@ def _run_rebuild_crossref(store: MapStore, args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Migration helpers
+# ---------------------------------------------------------------------------
+
+_PROGRAM_MAP: dict[str, str | None] = {
+    "canva": "canva", "flourish": "flourish", "portswigger": "portswigger",
+    "juice": "juice-shop", "hacky": "hacky", "csv": "flourish",
+    "tracking": "canva", "access": "canva", "idor": "canva",
+    "ssrf": "canva", "dompurify": "canva", "human": None,
+}
+
+_SURFACE_FROM_DIR: dict[str, str] = {
+    "api": "api", "xss": "xss", "ssrf": "ssrf", "js": "js",
+    "javascript": "js", "sourcesink": "js", "auth": "auth",
+    "idor": "idor", "subdomain": "recon", "brainstorm": "recon",
+    "flow": "api", "integration": "api", "brand": "js",
+    "geo": "recon", "invoice": "api", "partner": "recon",
+    "tracking": "recon", "deepdive": "recon", "newsurface": "recon",
+    "recovery": "auth", "egress": "recon", "magicmedia": "recon",
+    "mcp": "recon", "csv": "api", "design": "api",
+    "apps": "api", "fuzz": "fuzz", "controls": "js",
+    "enum": "recon", "map": "recon", "tester": "api",
+    "explore": "recon", "seeds": "recon", "active": "recon",
+}
+
+_URL_RE = re.compile(r"https?://[^\s)\]`\"<>]+")
+
+
+def _parse_program(dirname: str) -> str | None:
+    first = dirname.split("-")[0]
+    return _PROGRAM_MAP.get(first)
+
+
+def _infer_surface(dirname: str, _content: str = "") -> str:
+    parts = dirname.split("-")
+    for part in parts:
+        if part in _SURFACE_FROM_DIR:
+            return _SURFACE_FROM_DIR[part]
+    return "recon"
+
+
+def _extract_urls(text: str) -> list[str]:
+    seen: set[str] = set()
+    urls: list[str] = []
+    for match in _URL_RE.finditer(text):
+        raw = match.group(0).rstrip(".;,:'\"")
+        normalized = normalize_url(raw)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            urls.append(raw if "://" in raw else normalized)
+    return urls
+
+
+def _infer_tags(dirname: str, content: str, urls: list[str]) -> list[str]:
+    tags: set[str] = set()
+    # Keywords from directory name
+    for part in dirname.split("-"):
+        if part not in _PROGRAM_MAP and part not in _SURFACE_FROM_DIR and len(part) > 2:
+            tags.add(slugify(part))
+    # Vuln-class mentions in content
+    lower = content.lower()
+    if "xss" in lower:
+        tags.add("xss-reflected" if "reflected" in lower else "xss")
+    if "ssrf" in lower:
+        tags.add("ssrf")
+    if "idor" in lower:
+        tags.add("idor")
+    if "csrf" in lower:
+        tags.add("csrf")
+    if "csp" in lower:
+        tags.add("csp")
+    if "jwt" in lower or "bearer" in lower:
+        tags.add("jwt")
+    if "oauth" in lower:
+        tags.add("oauth")
+    if "rate" in lower and ("limit" in lower or "throttl" in lower):
+        tags.add("rate-limit")
+    return sorted(tags)
+
+
+def _run_migrate_workspace(args: argparse.Namespace) -> int:
+    source_dir = Path(args.source_dir).expanduser().resolve()
+    if not source_dir.exists():
+        raise SystemExit(f"Source directory does not exist: {source_dir}")
+
+    migrated = 0
+    skipped = 0
+    moved = 0
+
+    for subdir in sorted(source_dir.iterdir()):
+        if not subdir.is_dir():
+            continue
+        notes_file = subdir / "notes.md"
+        if not notes_file.exists():
+            continue
+
+        dirname = subdir.name
+        program = args.program or _parse_program(dirname)
+        if not program:
+            print(f"SKIP {dirname}: cannot determine program")
+            skipped += 1
+            continue
+
+        print(f"\n{'[DRY RUN] ' if args.dry_run else ''}MIGRATE {dirname} → program={program}")
+
+        content = notes_file.read_text(encoding="utf-8")
+        urls = _extract_urls(content)
+        print(f"  URLs: {len(urls)}")
+        for u in urls[:5]:
+            print(f"    {u}")
+        if len(urls) > 5:
+            print(f"    ... and {len(urls) - 5} more")
+
+        if args.dry_run:
+            migrated += 1
+            continue
+
+        surface = _infer_surface(dirname, content)
+        print(f"  Surface: {surface}")
+
+        primary_url = urls[0] if urls else ""
+        tags = _infer_tags(dirname, content, urls)
+        # Add extracted hostnames as tags for cross-referencing
+        for url in urls:
+            try:
+                host = urlsplit(url).netloc.lower()
+                if host and host not in tags:
+                    tags.append(slugify(host))
+            except Exception:
+                pass
+
+        store = MapStore(
+            program, family=args.family, lane=args.lane, root=args.root
+        )
+        store.init()
+
+        store.write(
+            url=primary_url,
+            surface=surface,
+            body=content,
+            tags=tags,
+            agent="migration",
+            run_id=dirname,
+            title=dirname,
+        )
+        print(f"  Wrote to map store")
+        migrated += 1
+
+        if not args.no_move:
+            layout = store._layout
+            dest = layout.working_root / "scratch" / dirname
+            if not dest.exists():
+                shutil.move(str(subdir), str(dest))
+                print(f"  Moved → {dest}")
+                moved += 1
+            else:
+                print(f"  SKIP move: destination exists {dest}")
+
+    print(f"\nDone: {migrated} migrated, {skipped} skipped, {moved} moved")
+    return 0
+
+
+def _run_cleanup_profiles(args: argparse.Namespace) -> int:
+    store = MapStore(
+        args.program, family=args.family, lane=args.lane, root=args.root
+    )
+    working = store._layout.working_root
+    profiles_dir = working / "chromium-profiles"
+
+    if not profiles_dir.exists():
+        print(f"No chromium-profiles found at {profiles_dir}")
+        return 0
+
+    size = sum(
+        f.stat().st_size for f in profiles_dir.rglob("*") if f.is_file()
+    )
+    size_mb = size / (1024 * 1024)
+
+    if args.dry_run:
+        print(f"[DRY RUN] Would delete {profiles_dir} ({size_mb:.0f} MB)")
+        return 0
+
+    shutil.rmtree(profiles_dir)
+    print(f"Deleted {profiles_dir} ({size_mb:.0f} MB)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -725,6 +931,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_query(store, args)
     elif args.command == "rebuild-crossref":
         return _run_rebuild_crossref(store, args)
+    elif args.command == "migrate-workspace":
+        return _run_migrate_workspace(args)
+    elif args.command == "cleanup-profiles":
+        return _run_cleanup_profiles(args)
     else:
         parser.print_help()
         return 1

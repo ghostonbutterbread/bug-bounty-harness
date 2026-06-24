@@ -64,5 +64,9 @@ python agents/autonomous_recon.py --target https://app.target.com
 2. Read `prompts/recon-playbook.md`.
 3. Run `agents/autonomous_recon.py` for the target host or domain.
 4. Promote only durable surface-mapping outcomes into findings.
-5. Write findings to `agent_shared/findings/recon/findings.md`.
-6. Update recon entries in `checklist.md`, `todo.md`, and relevant notes.
+5. **Write surface observations to `/map-store`** — discovered endpoints,
+   technology stack, auth patterns, headers, and any surface leads. Tag with
+   vuln-class prefixes (`xss-`, `ssrf-`, `idor-`) so downstream agents see them.
+   Use `--scope app` for program-wide deductions.
+6. Write findings to `agent_shared/findings/recon/findings.md`.
+7. Update recon entries in `checklist.md`, `todo.md`, and relevant notes.

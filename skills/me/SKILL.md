@@ -198,10 +198,17 @@ Before testing:
 3. Read the latest `.ghost/notes/handoffs/` entry and relevant `.ghost/notes/faq/` / `.ghost/notes/hypotheses/` entries.
 4. Inspect `ledgers/ledger.json`, `ledgers/coverage.json`, `ledgers/shared_brain/index.json`, and `ledgers/indexes/` if present.
 5. Skim existing `reports/active.md`, `reports/confirmed.md`, `reports/dormant.md`, `reports/findings/`, and `reports/categories/` when present.
-6. Pick work that is not already covered, not currently running, and not assigned to another active profile.
+6. **Query `/map-store` for key URLs or surfaces you plan to test** — reuse
+   prior observations instead of rediscovering CSRF tokens, CSP headers, auth
+   patterns, and sandbox context.
+7. Pick work that is not already covered, not currently running, and not assigned to another active profile.
 
 During testing:
 
+- **Query `/map-store`** for the URL you are about to test — surface
+  observations from JS, recon, mental-map, or auth agents may have already
+  mapped CSRF tokens, CSP headers, framework versions, or sandbox context.
+  Write your own observations back when you discover something new at a URL.
 - Treat `ledgers/shared_brain/index.json` and `coverage.json` as the shared team memory of files/classes/surfaces.
 - Use existing findings and notes to extend or disprove hypotheses instead of duplicating them.
 - If new evidence strengthens an existing FID, update notes/handoff and mention the FID; do not create a competing duplicate report.

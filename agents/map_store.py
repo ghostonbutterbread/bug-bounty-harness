@@ -916,6 +916,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    # Commands that don't need an upfront MapStore
+    if args.command == "migrate-workspace":
+        return _run_migrate_workspace(args)
+    if args.command == "cleanup-profiles":
+        return _run_cleanup_profiles(args)
+
     store = MapStore(
         args.program,
         family=args.family,
@@ -931,10 +937,6 @@ def main(argv: list[str] | None = None) -> int:
         return _run_query(store, args)
     elif args.command == "rebuild-crossref":
         return _run_rebuild_crossref(store, args)
-    elif args.command == "migrate-workspace":
-        return _run_migrate_workspace(args)
-    elif args.command == "cleanup-profiles":
-        return _run_cleanup_profiles(args)
     else:
         parser.print_help()
         return 1

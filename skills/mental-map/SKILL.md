@@ -67,4 +67,10 @@ Each flow file must include:
 4. Group requests into a concrete flow with entry points, dependencies, and state-changing operations.
 5. Write the diagram and structured notes to `agent_shared/application-structure/{flow-type}/{flow-name}.md`.
 6. Ingest reusable route/object/action/auth-boundary observations into `/live-map`.
-7. Update `notes/summary.md`, `notes/observations.md`, and `todo.md` when the map exposes new testing lanes or prerequisites.
+7. **Write surface observations to `/map-store`** for each URL and flow you map —
+   auth patterns (CSRF tokens, session cookies, rate-limit headers), endpoint
+   discoveries, technology clues. Tag with vuln-class prefixes (`xss-`, `ssrf-`,
+   `idor-`) so downstream agents see them. Use `--scope app` for app-wide
+   deductions (e.g., "all forms use CSRF, server-validated").
+8. Update `notes/summary.md`, `notes/observations.md`, and `todo.md` when the map
+   exposes new testing lanes or prerequisites.

@@ -37,7 +37,9 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
    URL aliases, packets, chunks, artifact paths, and reviewed observations.
    Prefer DB lookups during analysis, but keep citations tied to JSONL rows and
    packet paths.
-7. Record coverage through `/url-ingest` and write durable notes/handoffs.
+7. Record coverage through `/url-ingest`, write surface observations to
+   `/map-store` (URL-anchored, tagged with vuln-class prefixes), and write
+   durable notes/handoffs.
 8. Send generated candidates to `/create-wordlists`, `/use-wordlists`, `/fuzz`,
    or vuln-specific skills such as `/xss`, `/ssrf`, `/sqli`, and `/idor`.
 

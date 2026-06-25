@@ -259,6 +259,94 @@ def test_inventory_reuses_ledger_download_and_chunk_set(tmp_path: Path):
     assert '"reused_chunks": true' in metadata
 
 
+def test_inventory_can_skip_cached_url_processing(tmp_path: Path):
+    input_file = tmp_path / "jsfiles.txt"
+    input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
+    library_root = tmp_path / "library"
+    calls = {"count": 0}
+
+    def fake_get(url: str, timeout: int = 20):
+        calls["count"] += 1
+        return (
+            b"const endpoint='/api/auth/login?next=/dashboard'; fetch(endpoint);",
+            200,
+            "application/javascript",
+        )
+
+    args = [
+        "inventory",
+        "demo",
+        "--input",
+        str(input_file),
+        "--target-host",
+        "example.com",
+        "--library-root",
+        str(library_root),
+        "--chunk-size",
+        "30",
+        "--chunk-overlap",
+        "5",
+    ]
+    with patch.object(J, "http_get", side_effect=fake_get):
+        assert J.main(args + ["--output-root", str(tmp_path / "run1"), "--run-id", "unit1"]) == 0
+        assert J.main(args + [
+            "--output-root",
+            str(tmp_path / "run2"),
+            "--run-id",
+            "unit2",
+            "--skip-cached-processing",
+        ]) == 0
+
+    assert calls["count"] == 1
+    manifest = json.loads((tmp_path / "run2" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["js_urls_seen"] == 1
+    assert manifest["cached_urls_skipped"] == 1
+    assert manifest["js_downloaded"] == 0
+    assert manifest["packets"] == 0
+    assert (tmp_path / "run2" / "metadata.jsonl").read_text(encoding="utf-8") == ""
+    assert not list((tmp_path / "run2" / "packets").glob("*.md"))
+
+
+def test_inventory_uses_configured_program_roots(tmp_path: Path):
+    input_file = tmp_path / "jsfiles.txt"
+    input_file.write_text("https://static.example.com/static/app.js\n", encoding="utf-8")
+    config_path = tmp_path / "js_analyzer.json"
+    configured_program_root = tmp_path / "bounty" / "canva"
+    config_path.write_text(json.dumps({
+        "programs": {
+            "canva": {
+                "program_root": str(configured_program_root)
+            }
+        }
+    }) + "\n", encoding="utf-8")
+
+    def fake_get(url: str, timeout: int = 20):
+        return (b"fetch('/api/config?design_id=1')", 200, "application/javascript")
+
+    with patch.object(J, "http_get", side_effect=fake_get):
+        assert J.main([
+            "inventory",
+            "canva",
+            "--input",
+            str(input_file),
+            "--target-host",
+            "example.com",
+            "--config",
+            str(config_path),
+            "--run-id",
+            "configured-unit",
+        ]) == 0
+
+    js_root = configured_program_root / "web" / "recon" / "js"
+    run_root = js_root / "configured-unit"
+    library_root = js_root / "_library"
+    manifest = json.loads((run_root / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["root"] == str(run_root)
+    assert manifest["config"]["program_root"] == str(configured_program_root)
+    assert manifest["outputs"]["library"] == str(library_root)
+    assert (library_root / "ledger.json").exists()
+
+
 def test_inventory_target_host_accepts_url_and_keeps_external_artifacts(tmp_path: Path):
     input_file = tmp_path / "jsfiles.txt"
     input_file.write_text("https://static.example.com/static/app.js\n", encoding="utf-8")

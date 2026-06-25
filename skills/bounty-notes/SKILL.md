@@ -1,6 +1,6 @@
 ---
 name: bounty-notes
-description: Use when bug bounty agents need durable hunt narrative: timeline, decisions, hypotheses, handoffs, blockers, FAQs, next-agent guidance, or sanitized artifact references.
+description: "Use when bug bounty agents need durable hunt narrative: timeline, decisions, hypotheses, handoffs, blockers, FAQs, next-agent guidance, or sanitized artifact references."
 ---
 
 # Bounty Notes

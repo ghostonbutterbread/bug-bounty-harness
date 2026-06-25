@@ -13,9 +13,9 @@ This is a router skill. Keep the first pass small: classify the boundary, load o
 
 1. Read scope, owned-account context, and live-testing policy.
 2. Resolve `$HARNESS_ROOT` first; default is `/home/ryushe/projects/bug_bounty_harness`.
-3. Load `/account-management` and check `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json` for owned accounts, user IDs, PwnFox lanes, object IDs, and destructible/cleanup status.
+3. Load `/account-management` and check `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json` for owned accounts, user IDs, PwnFox lanes, object IDs, and any account-level destructive restrictions.
 4. Read `$HARNESS_ROOT/skills/access-control/references/account-setup.md`.
-5. Confirm the needed owned accounts/resources exist and record whether each is `destructible: yes|no|unknown`. If not, ask for the account path, or use `/temporary-email` when a disposable/destructible account is needed.
+5. Confirm the needed owned accounts/resources exist. If not, ask for the account path, or use `/temporary-email` when a separate test account is needed for account-level destructive flows.
 6. Check `$HARNESS_SHARED_BASE/{program}/agent_shared/application-map/` for existing `/live-map` routes, objects, hypotheses, and handoff packets. Use map entries as exploration leads, not proof.
 7. Read `$HARNESS_ROOT/skills/access-control/references/related-terms.md` for search vocabulary and route/parameter keywords.
 8. Classify the lane:
@@ -45,7 +45,7 @@ The parent agent scouts and classifies. Spawn a focused child when:
 Give the child only:
 - flow summary and full URL(s)
 - account/resource boundary
-- owned account aliases, user/resource IDs, PwnFox colors, role/tenant relationship, and destructible status from `/account-management`
+- owned account aliases, user/resource IDs, PwnFox colors, role/tenant relationship, and any account-level destructive restrictions from `/account-management`
 - one technique pack
 - mutation pack path, if needed
 - token claim/header summary with secrets redacted, if JWT-driven
@@ -59,4 +59,8 @@ Promote only if the evidence shows unauthorized read, list, export, write, delet
 
 Do not promote public data, response-size differences, soft redirects, generic errors, UI-only hiding, or caller-owned data.
 
-Stop on non-owned private data after minimum proof. Also stop before destructive actions unless the account/resource is explicitly marked `destructible: yes`. Capture metadata and ask Ryushe before expanding.
+Stop on non-owned private data after minimum proof. Normal create/update/delete
+actions on owned objects are allowed when they are ordinary application behavior
+for that object, such as deleting an owned note to test whether arbitrary note
+deletion is possible. Stop and ask before account deletion, permanent important
+data loss, paid/staff-visible actions, or changes where ownership is unclear.

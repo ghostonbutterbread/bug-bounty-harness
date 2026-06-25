@@ -55,10 +55,13 @@ High-signal stored fields:
 2. Verify persistence at the storage point.
 3. Find every render point that shows the canary.
 4. Classify each render context separately.
-5. Replace the canary with the smallest context-matched payload only when the
-   resource, viewer, and cleanup path are owned/approved.
+5. Replace the canary with the smallest context-matched payload when the
+   resource and viewer are owned/approved and the payload will not reach
+   non-owned users, staff-visible queues, public blast radius, or hard-to-control
+   notification surfaces.
 6. Verify in the render location with browser or target-owned checker.
-7. Restore/delete/privatize the owned test state when possible.
+7. Restore/delete/privatize the owned test state when useful, or record the
+   remaining owned state if it may affect future agents.
 
 ## Payload Strategy
 
@@ -91,17 +94,17 @@ For cross-account stored XSS:
 - record only account aliases and request metadata
 - stop after minimum proof of execution or reachability
 
-## Cleanup
+## Residue Tracking
 
 Record:
 
 - object/resource ID or alias
 - original value when relevant
 - payload value class, not raw secrets
-- cleanup action taken
-- cleanup verification status
+- cleanup or state-left-behind action taken
+- whether remaining owned state may affect future testing
 
-If cleanup fails, note it loudly in the run summary.
+If payload residue remains, note it loudly in the run summary.
 
 ## Report
 
@@ -115,4 +118,4 @@ Include:
 - execution proof
 - interaction needed
 - blast-radius assessment
-- cleanup status
+- residue or state-left-behind status

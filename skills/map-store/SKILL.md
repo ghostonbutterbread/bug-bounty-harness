@@ -7,6 +7,78 @@ description: Use when an agent discovers or observes anything about an applicati
 
 Write surface observations into the canonical `recon/maps/` directory so every agent can query "what do we know about this URL?" across all surfaces.
 
+## Store Boundaries
+
+`/map-store` is the canonical discovery memory for URL-anchored, surface-wide,
+and app-wide observations. Use it whenever an agent learns something about an
+endpoint, page, API route, auth flow, framework clue, defense, negative test
+result, or vulnerability lead.
+
+It is the source layer for App Stories: structured, queryable explanations of
+how a platform behaves across URLs, surfaces, roles, states, and defenses.
+Agents should be able to ask for only the observations relevant to their current
+surface instead of reading broad narrative notes.
+
+Do not leave those discoveries only in a run-local `notes.md`, a scratch
+directory, a handoff, a chat message, or BountyLens. Those can point to the map,
+but the reusable observation belongs here.
+
+Use neighboring stores for other material:
+
+- `/bounty-notes`: timeline, hypotheses, handoffs, FAQs, and human-readable
+  investigation narrative.
+- `/url-ingest`: bulk URL intake, URL/parameter dedupe, URL queue/review state,
+  and per-lane tested status. It is not the notes layer.
+- `manual_hunter.py` / `/findings`: concrete findings and report material.
+- `/bounty-storage`: deciding whether artifacts belong in `~/Shared`,
+  `/mnt/bounty`, or local scratch.
+
+If the same discovery creates a test idea, write the factual observation here
+and create or update the hypothesis in `/bounty-notes` with the same full URL
+and tags.
+
+## MapStore vs Bounty Notes
+
+MapStore answers: "What is true about this app, URL, endpoint, parameter, flow,
+or defense?"
+
+Bounty Notes answers: "What happened during the hunt, why did we make this
+decision, and what should a human or next agent do next?"
+
+Prefer MapStore for anything another agent may need to filter by URL, surface,
+tag, scope, status, or vuln class. Prefer Bounty Notes for the human-readable
+story around the work.
+
+Fast routing rule:
+
+- Would an agent want this when standing at a specific URL, domain, app surface,
+  role, or defense? Write it to MapStore.
+- Would an agent want this when resuming the overall hunt, understanding why a
+  decision was made, or picking the next work item? Write it to Bounty Notes.
+- If it is both factual app behavior and a next-step idea, split it: factual
+  observation in MapStore, hypothesis or handoff in Bounty Notes, linked by the
+  same full URL and tags.
+
+Examples that belong in MapStore:
+
+- "XSS in Canva render flow lands in a sandboxed viewer; postMessage is the
+  only observed parent communication path."
+- "`https://www.example.com/settings/email` requires a fresh CSRF token and
+  rejects missing `Origin`."
+- "Cloudflare challenge appears across `*.example.com` before authenticated
+  app traffic."
+- "Tested `/api/projects/{id}` with a second account; cross-account IDs return
+  403, not object data."
+
+Examples that should stay in Bounty Notes:
+
+- "Ryushe wants the next agent to focus on sandbox-to-export chains."
+- "Paused because we need a second account before continuing access-control
+  testing."
+- "Today's hunt priority is checkout before profile surfaces."
+- "Handoff: reviewer should inspect the three MapStore entries tagged
+  `xss-sandbox` and decide whether the chain is worth deeper testing."
+
 ## When to use this skill
 
 - You are inspecting URLs, JS, API endpoints, or app pages and learn something about them
@@ -98,9 +170,11 @@ Every agent that inspects application surfaces MUST follow this flow:
 3. **Write back** — `map_store.py write --url <url> --surface <your-surface> ...`
    - Store what you found, even if negative ("CSRF validated, no bypass")
    - Tag with vuln-class prefix if relevant to other agents
-4. **If you deduce something app-wide** — write with `--scope app`
+4. **Promote narrative state** — if the work produced a hypothesis, decision,
+   or takeover summary, write that to `/bounty-notes` too
+5. **If you deduce something app-wide** — write with `--scope app`
    - "Renderer is sandboxed" — every agent needs this
-5. **If you confirm/close a lead** — update the observation
+6. **If you confirm/close a lead** — update the observation
    - `--tags "investigated,low-impact"` so the next agent doesn't re-investigate
 
 ## Storage layout

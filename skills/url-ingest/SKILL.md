@@ -9,6 +9,13 @@ SQLite-backed URL index, parameter map, and per-lane review tracker. Keeps a dur
 
 Unified recon-store rule: recon agents and one-off recon tools must preserve raw artifacts first, then ingest URL/host-shaped parsed artifacts into this database. Do not leave amass/recon-ry/proxy/recon output as an isolated text file when it is meant to inform later agents.
 
+`/url-ingest` is not the notes layer. Use it for bulk URL intake, dedupe,
+parameter inventory, queue selection, and per-lane reviewed/tested state.
+
+Use `/map-store` for technical observations learned while reviewing a URL. Use
+`/bounty-notes` for timeline, hypotheses, handoffs, FAQs, and human-readable
+hunt narrative.
+
 ## Location
 - **Engine:** `agents/url_ingest.py`
 - **Recon artifact recorder:** `agents/recon_store.py`

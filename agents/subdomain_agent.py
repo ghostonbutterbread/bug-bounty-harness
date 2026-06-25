@@ -159,7 +159,7 @@ class SubdomainCollector:
             self.scope = None
 
         # Setup rate limiter
-        self.limiter = RateLimiter(requests_per_second=5) if RateLimiter else None
+        self.limiter = RateLimiter(requests_per_second=int(os.getenv("SUBAGENT_RPS", "5"))) if RateLimiter else None
 
     def is_in_scope(self, url: str) -> bool:
         """Check if URL is in scope. Skip if no scope loaded."""
@@ -806,7 +806,8 @@ def run(target: str, program: str, use_apis: list[str],
     # ---- Phase 2: AGGREGATE & DEDUPE ----
     print("\n[Phase 2] Deduplicating ...")
     all_subs = dedup_with_anew(raw_subs)
-    all_subs = normalize_with_uro(all_subs)
+    # Skip uro normalization — subdomains are not URLs; uro rejects them
+    # all_subs = normalize_with_uro(all_subs)
     print(f"  [+] Deduped       : {len(all_subs)}")
 
     # ---- Phase 3: PROBE ----

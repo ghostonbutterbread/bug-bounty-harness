@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import html.parser
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -26,6 +27,11 @@ from typing import Iterable
 
 
 SHARED_WEB_BASE = Path.home() / "Shared" / "web_bounty"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_CONFIG_PATHS = (
+    REPO_ROOT / "config" / "js_analyzer.json",
+    Path.home() / ".config" / "bug_bounty_harness" / "js_analyzer.json",
+)
 
 URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
 PATH_RE = re.compile(r"['\"](?P<path>/(?:api|v\d|graphql|gql|rest|backend|auth|oauth|login|admin|user|account|billing|checkout)[^'\"<>\s]{0,180})['\"]", re.IGNORECASE)
@@ -187,6 +193,104 @@ def dedupe(items: Iterable[str]) -> list[str]:
             seen.add(item)
             out.append(item)
     return out
+
+
+def read_json_file(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"invalid JSON config {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SystemExit(f"invalid JSON config {path}: expected object")
+    return data
+
+
+def load_config(explicit_path: str | None = None) -> dict:
+    paths: list[Path] = []
+    if explicit_path:
+        paths.append(Path(explicit_path).expanduser())
+    env_path = os.environ.get("JS_ANALYZER_CONFIG")
+    if env_path:
+        paths.append(Path(env_path).expanduser())
+    paths.extend(DEFAULT_CONFIG_PATHS)
+
+    for path in paths:
+        if path.exists():
+            config = read_json_file(path)
+            config["_config_path"] = str(path)
+            return config
+    return {}
+
+
+def program_config(config: dict, program: str) -> dict:
+    merged: dict = {}
+    defaults = config.get("defaults")
+    if isinstance(defaults, dict):
+        merged.update(defaults)
+    programs = config.get("programs")
+    if isinstance(programs, dict):
+        specific = programs.get(program)
+        if isinstance(specific, dict):
+            merged.update(specific)
+    return merged
+
+
+def configured_path(value: object) -> Path | None:
+    if not value:
+        return None
+    if not isinstance(value, str):
+        raise SystemExit(f"invalid path config value: expected string, got {type(value).__name__}")
+    return Path(value).expanduser()
+
+
+def resolve_inventory_paths(args: argparse.Namespace, run_id: str) -> tuple[Path, Path, Path, dict]:
+    config = load_config(getattr(args, "config", None))
+    program_settings = program_config(config, args.program)
+    shared_base = configured_path(program_settings.get("shared_web_base") or config.get("shared_web_base")) or SHARED_WEB_BASE
+    program_root = configured_path(program_settings.get("program_root")) or shared_base / args.program
+    js_root = configured_path(program_settings.get("js_root")) or program_root / "web" / "recon" / "js"
+
+    output_base = configured_path(program_settings.get("output_base")) or js_root
+    root = Path(args.output_root).expanduser() if args.output_root else output_base / run_id
+    library_root = (
+        Path(args.library_root).expanduser()
+        if args.library_root
+        else configured_path(program_settings.get("library_root")) or js_root / "_library"
+    )
+    integration_index_root = (
+        Path(args.integration_index_root).expanduser()
+        if args.integration_index_root
+        else configured_path(program_settings.get("integration_index_root"))
+        or program_root / "web" / "intel" / "integrations"
+    )
+    config_summary = {
+        "config_path": config.get("_config_path", ""),
+        "shared_web_base": str(shared_base),
+        "program_root": str(program_root),
+        "js_root": str(js_root),
+    }
+    return root, library_root, integration_index_root, config_summary
+
+
+def resolve_library_root(args: argparse.Namespace) -> tuple[Path, dict]:
+    config = load_config(getattr(args, "config", None))
+    program_settings = program_config(config, args.program)
+    shared_base = configured_path(program_settings.get("shared_web_base") or config.get("shared_web_base")) or SHARED_WEB_BASE
+    program_root = configured_path(program_settings.get("program_root")) or shared_base / args.program
+    js_root = configured_path(program_settings.get("js_root")) or program_root / "web" / "recon" / "js"
+    library_root = (
+        Path(args.library_root).expanduser()
+        if args.library_root
+        else configured_path(program_settings.get("library_root")) or js_root / "_library"
+    )
+    return library_root, {
+        "config_path": config.get("_config_path", ""),
+        "shared_web_base": str(shared_base),
+        "program_root": str(program_root),
+        "js_root": str(js_root),
+    }
 
 
 def http_get(url: str, timeout: int = 20) -> tuple[bytes, int | None, str]:
@@ -1090,6 +1194,26 @@ def load_body_from_ledger(
     return body, sha, artifact_path
 
 
+def cached_artifact_from_ledger(
+    ledger: dict,
+    *,
+    url: str,
+    downloads_dir: Path,
+) -> tuple[str, Path] | None:
+    sha = ledger_lookup_url(ledger, url)
+    if not sha:
+        return None
+    artifact_path = downloads_dir / f"{sha}.js"
+    if not artifact_path.exists():
+        file_entry = ledger.get("files", {}).get(sha, {})
+        candidate = file_entry.get("artifact_path") if isinstance(file_entry, dict) else None
+        if candidate:
+            artifact_path = Path(candidate)
+    if not artifact_path.exists():
+        return None
+    return sha, artifact_path
+
+
 def write_chunk_set(
     *,
     chunks_root: Path,
@@ -1206,13 +1330,7 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
 
 def command_inventory(args: argparse.Namespace) -> int:
     run_id = args.run_id or f"js-{utc_stamp()}"
-    root = Path(args.output_root).expanduser() if args.output_root else SHARED_WEB_BASE / args.program / "web" / "recon" / "js" / run_id
-    library_root = Path(args.library_root).expanduser() if args.library_root else SHARED_WEB_BASE / args.program / "web" / "recon" / "js" / "_library"
-    integration_index_root = (
-        Path(args.integration_index_root).expanduser()
-        if args.integration_index_root
-        else SHARED_WEB_BASE / args.program / "web" / "intel" / "integrations"
-    )
+    root, library_root, integration_index_root, config_summary = resolve_inventory_paths(args, run_id)
     provenance_input = Path(args.provenance_input).expanduser() if args.provenance_input else None
     downloads_dir = library_root / "downloads"
     library_chunks_dir = library_root / "chunks"
@@ -1256,7 +1374,20 @@ def command_inventory(args: argparse.Namespace) -> int:
     provenance_rows_by_sha: dict[str, list[dict]] = {}
     reused_downloads = 0
     reused_chunk_sets = 0
+    skipped_cached_urls = 0
     for index, url in enumerate(normalized_urls, start=1):
+        if args.skip_cached_processing and not args.refresh:
+            cached_artifact = cached_artifact_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
+            if cached_artifact:
+                skipped_cached_urls += 1
+                sha, artifact_path = cached_artifact
+                print(
+                    f"[{index}/{len(normalized_urls)}] {url} -> skipped cached "
+                    f"{sha[:16]} {artifact_path}",
+                    file=sys.stderr,
+                )
+                continue
+
         reused_download = False
         cached = None if args.refresh else load_body_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
         if cached:
@@ -1401,15 +1532,18 @@ def command_inventory(args: argparse.Namespace) -> int:
         for record in records
     ]
     write_jsonl(root / "metadata.jsonl", metadata_rows)
-    append_jsonl(library_metadata_path, metadata_rows)
     write_jsonl(root / "packets.jsonl", packet_rows)
     write_jsonl(root / "page_context.jsonl", page_records)
     write_jsonl(root / "js_provenance.jsonl", (asdict(row) for row in provenance_rows))
-    append_jsonl(library_provenance_path, (asdict(row) for row in provenance_rows))
-    write_provenance_table(js_info_db_path, read_jsonl(library_provenance_path))
-    write_metadata_db(js_info_db_path, read_jsonl(library_metadata_path), packet_rows)
-    write_observations_table(js_info_db_path, read_jsonl(library_observations_path))
     write_jsonl(root / "external_integrations.jsonl", (asdict(row) for row in external_integration_rows))
+    if metadata_rows:
+        append_jsonl(library_metadata_path, metadata_rows)
+    if provenance_rows:
+        append_jsonl(library_provenance_path, (asdict(row) for row in provenance_rows))
+        write_provenance_table(js_info_db_path, read_jsonl(library_provenance_path))
+    if metadata_rows or packet_rows:
+        write_metadata_db(js_info_db_path, read_jsonl(library_metadata_path), packet_rows)
+        write_observations_table(js_info_db_path, read_jsonl(library_observations_path))
     integration_outputs = write_external_integration_index(integration_index_root, external_integration_rows)
     manifest = {
         "program": args.program,
@@ -1419,9 +1553,11 @@ def command_inventory(args: argparse.Namespace) -> int:
         "page": args.page,
         "target_host": target_host,
         "scope_hosts": scope_hosts,
+        "config": config_summary,
         "root": str(root),
         "js_urls_seen": len(normalized_urls),
         "js_downloaded": len(records),
+        "cached_urls_skipped": skipped_cached_urls,
         "downloads_reused": reused_downloads,
         "chunk_sets_reused": reused_chunk_sets,
         "packets": len(packet_rows),
@@ -1450,7 +1586,7 @@ def command_inventory(args: argparse.Namespace) -> int:
 
 
 def command_observe(args: argparse.Namespace) -> int:
-    library_root = Path(args.library_root).expanduser() if args.library_root else SHARED_WEB_BASE / args.program / "web" / "recon" / "js" / "_library"
+    library_root, config_summary = resolve_library_root(args)
     observations_path = library_root / "observations.jsonl"
     js_info_db_path = library_root / "js_info.sqlite"
     input_path = Path(args.input).expanduser()
@@ -1464,6 +1600,7 @@ def command_observe(args: argparse.Namespace) -> int:
     )
     manifest = {
         "program": args.program,
+        "config": config_summary,
         "observations_added": len(normalized_rows),
         "outputs": {
             "library_observations": str(observations_path),
@@ -1487,10 +1624,16 @@ def build_parser() -> argparse.ArgumentParser:
     inv.add_argument("--run-id", help="Stable run id")
     inv.add_argument("--output-root", help="Override output root")
     inv.add_argument("--library-root", help="Override shared JS library root")
+    inv.add_argument("--config", help="Optional JSON config for default roots")
     inv.add_argument("--integration-index-root", help="Override external integration index root")
     inv.add_argument("--provenance-input", help="Optional JSONL mapping JS URLs to page/proxy/flow provenance")
     inv.add_argument("--provenance-source", help="Source label for provenance rows, e.g. ryushe-proxy, katana, playwright")
     inv.add_argument("--refresh", action="store_true", help="Refetch URLs even if the URL is already mapped in the ledger")
+    inv.add_argument(
+        "--skip-cached-processing",
+        action="store_true",
+        help="For exact URL aliases already mapped to an existing cached artifact, skip signal extraction, chunking, packet generation, metadata, provenance, and DB updates",
+    )
     inv.add_argument("--limit", type=int, help="Maximum JS URLs to download")
     inv.add_argument("--timeout", type=int, default=20)
     inv.add_argument("--delay", type=float, default=0.0, help="Delay between JS downloads")
@@ -1502,6 +1645,7 @@ def build_parser() -> argparse.ArgumentParser:
     observe.add_argument("program", help="Program name, e.g. canva")
     observe.add_argument("--input", required=True, help="JSONL file containing JS observation rows")
     observe.add_argument("--library-root", help="Override shared JS library root")
+    observe.add_argument("--config", help="Optional JSON config for default roots")
     observe.set_defaults(func=command_observe)
     return parser
 

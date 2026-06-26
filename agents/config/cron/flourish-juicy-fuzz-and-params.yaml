@@ -1,0 +1,363 @@
+# Flourish scheduled juicy-target fuzzing + parameter mining example.
+#
+# This is a scheduler config, not an installed system cron entry. It is meant to
+# be consumed by the future BBH cron orchestrator described in:
+# /home/ryushe/.openclaw/workspace/agents/specs/features/2026-06-25-bug-bounty-cron-orchestrator.md
+#
+# Design intent:
+# - Do not run broad recon-ry every night.
+# - Rank recon-ry, naabu/nmap, URL-ingest, and history artifacts to pick one
+#   bounded in-scope target/app area that looks juicy.
+# - Run a tracked ffuf/content fuzz pass that keeps 403/401/405 leads.
+# - Run Arjun-style parameter mining, optionally with an owned authenticated
+#   account lane resolved through the existing account-management auth resolver.
+# - Update fuzz history, params.txt-style aggregates, URL ingest, and map-store
+#   summaries without creating a second source of truth.
+
+version: 1
+default_state: paused
+artifact_root: ~/Shared/web_bounty
+artifact_policy: bounty_directory_structure
+timezone: America/Los_Angeles
+
+defaults:
+  schedule:
+    days: weekdays
+    slots:
+      nightly_2200:
+        local_time: "22:00"
+  rate_limit:
+    unauthenticated_rps: 5
+    authenticated_rps: 2
+    timeout_seconds: 300
+  status_policy:
+    interesting_status_codes:
+      - 200
+      - 204
+      - 301
+      - 302
+      - 307
+      - 401
+      - 403
+      - 405
+      - 429
+      - 500
+    keep_403: true
+    high_403_rate: summarize_continue
+    cloudflare_challenge: throttle_then_pause_host
+    rate_limit_429: throttle_then_pause_job
+    network_errors: bounded_retry_then_unhealthy
+    missing_scope: fail_closed
+
+platforms:
+  bugcrowd:
+    state: active
+
+programs:
+  flourish:
+    platform: bugcrowd
+    state: active
+    family: web_bounty
+    default_lane: web
+    schedule:
+      # Program-specific override. If omitted, the orchestrator uses
+      # defaults.schedule.days.
+      days: weekdays
+    scope:
+      source: ~/Shared/scopes/flourish/
+      in_scope_file: ~/Shared/scopes/flourish/in-scope.txt
+      assets_file: ~/Shared/scopes/flourish/assets.json
+      rules_file: ~/Shared/scopes/flourish/rules-of-engagement.json
+      fail_closed: true
+      notes:
+        - "*.flourish.studio wildcard was removed from saved scope notes; do not infer extra subdomains from it."
+        - "training.flourish.studio is out of scope."
+        - "Rate-limit testing and DoS are blocked by program policy."
+        - "Do not add app.flourish.studio here unless the saved scope is updated to list it."
+    targets:
+      flourish_home:
+        lane: web
+        base_urls:
+          - https://flourish.studio/
+        auth_allowed: false
+      flo_uri:
+        lane: web
+        base_urls:
+          - https://flo.uri.sh
+        auth_allowed: false
+      xyzbmojn:
+        lane: web
+        base_urls:
+          - https://xyzbmojn.net/
+        auth_allowed: false
+      user_templates:
+        lane: web
+        base_urls:
+          - https://flourish-user-templates.com
+        auth_allowed: false
+      user_preview:
+        lane: web
+        base_urls:
+          - https://flourish-user-preview.com
+        auth_allowed: false
+      kiln:
+        lane: web
+        base_urls:
+          - https://*.kiln.it
+        auth_allowed: false
+    target_selection:
+      strategy: recon_ry_ranked_agent_selected_queue
+      default_target: flourish_home
+      queue_file: ~/Shared/web_bounty/flourish/web/recon/cron/_meta/juicy_targets.jsonl
+      agent_review:
+        enabled: true
+        mode: cli
+        top_n: 25
+        select_n: 1
+        require_reason: true
+      ranking_inputs:
+        - ~/Shared/bounty_recon/flourish/alive.txt
+        - ~/Shared/bounty_recon/flourish/urls.txt
+        - ~/Shared/bounty_recon/flourish/params.txt
+        - ~/Shared/bounty_recon/flourish/jsfiles.txt
+        - ~/Shared/bounty_recon/flourish/dirs.txt
+        - ~/Shared/bounty_recon/flourish/history/
+        - ~/Shared/web_bounty/flourish/web/recon/url_index/url_index.sqlite
+        - ~/Shared/web_bounty/flourish/web/recon/aggregated/
+        - ~/Shared/web_bounty/flourish/web/recon/map/
+        - ~/Shared/web_bounty/flourish/web/recon/tools/naabu/global/
+        - ~/Shared/web_bounty/flourish/web/recon/tools/nmap/global/
+        - ~/Shared/web_bounty/flourish/web/recon/fuzz_history/fuzz_runs.jsonl
+      ranking_signals:
+        - api_dev_staging_admin_hostnames
+        - sensitive_word_hits
+        - recon_ry_tech_fingerprints
+        - swagger_openapi_graphql
+        - 401_403_405_boundaries
+        - unusual_status_or_size_clusters
+        - js_discovered_routes
+        - naabu_nonstandard_http_ports
+        - nmap_service_hints
+        - prior_fuzz_hits
+        - untested_in_url_ingest
+        - untested_wordlist_mode_pair
+    auth:
+      allow_stored_auth: true
+      allow_ryushe_proxy_refresh: true
+      default_account: blue
+      allowed_pwnfox_colors:
+        - blue
+      resolver:
+        command_template:
+          - python3
+          - skills/account-management/scripts/auth_resolver.py
+          - resolve
+          - --program
+          - flourish
+          - --account
+          - blue
+          - --target-url
+          - "<selected-base-url>"
+          - --host-filter
+          - "<selected-host>"
+        proxy_refresh_template:
+          - python3
+          - skills/account-management/scripts/auth_resolver.py
+          - refresh-from-ryushe-proxy
+          - --program
+          - flourish
+          - --account
+          - blue
+          - --host-filter
+          - "<selected-host>"
+      pwnfox:
+        header: X-PwnFox-Color
+        color: blue
+    jobs:
+      nmap_enrichment:
+        state: manual_review_required
+        cadence: scheduled
+        days: inherit
+        slot: nightly_2200
+        local_time: "21:30"
+        tool: nmap
+        job_family: service_enrichment
+        target: inherit_target_selection
+        lane: web
+        mode: passive_enrichment_from_naabu
+        inputs:
+          naabu_ports:
+            - ~/Shared/web_bounty/flourish/web/recon/tools/naabu/global/ports.jsonl
+            - ~/Shared/web_bounty/flourish/web/recon/tools/naabu/global/ports.txt
+          allow_explicit_ports_only: true
+          require_saved_scope: true
+          max_hosts_per_run: 3
+          max_ports_per_host: 20
+        command_template:
+          - nmap
+          - -sV
+          - --version-light
+          - -Pn
+          - -T2
+          - -p
+          - "<naabu-discovered-ports>"
+          - -oA
+          - "<run-root>/raw/nmap"
+          - "<selected-host>"
+        outputs:
+          run_root: ~/Shared/web_bounty/flourish/web/recon/tools/nmap/runs/<YYYY-MM-DD>/<run-id>/
+          normalized_services: ~/Shared/web_bounty/flourish/web/recon/tools/nmap/runs/<YYYY-MM-DD>/<run-id>/normalized/services.jsonl
+          global_services: ~/Shared/web_bounty/flourish/web/recon/tools/nmap/global/services.jsonl
+          target_score_inputs: ~/Shared/web_bounty/flourish/web/recon/cron/_meta/service_enrichment.jsonl
+          map_store: ~/Shared/web_bounty/flourish/web/recon/map/
+        post_run:
+          parse_services: true
+          feed_http_services_to_url_ingest: true
+          update_target_scores: true
+          update_map_store_summary: true
+          generate_report: true
+          report_path: ~/Shared/web_bounty/flourish/web/recon/cron/latest_summary.md
+        stop_policy:
+          missing_naabu_output: skip_and_record
+          no_discovered_ports: skip_and_record
+          unknown_scope: fail_closed
+
+      juicy_target_fuzz:
+        state: manual_review_required
+        cadence: scheduled
+        days: inherit
+        slot: nightly_2200
+        local_time: "22:00"
+        tool: ffuf
+        job_family: fuzzing
+        target: inherit_target_selection
+        lane: web
+        mode: unauthenticated
+        url_pattern: "<selected-base-url>/FUZZ"
+        wordlists:
+          strategy: catalog_smart_target_mapping
+          compose_temporary: true
+          catalog_roots:
+            - /usr/share/wordlists
+            - /home/ryushe/wordlists
+            - ~/projects/ghost-wordlists/wordlists
+            - ~/Shared/web_bounty/flourish/web/recon/wordlists/generated
+          selection_signals:
+            - selected_target_tech_stack
+            - selected_target_route_nouns
+            - recon_ry_dirs
+            - js_discovered_routes
+            - nmap_service_hints
+            - prior_fuzz_history
+            - status_code_boundaries
+          tier_limits:
+            baseline_max_files: 3
+            tech_specific_max_files: 3
+            target_generated_max_files: 2
+          include:
+            - /usr/share/wordlists/SecLists/Discovery/Web-Content/common.txt
+            - /usr/share/wordlists/SecLists/Discovery/Web-Content/raft-small-directories.txt
+            - /usr/share/wordlists/OneListForAll/dict/common-api-endpoints_short.txt
+            - ~/Shared/web_bounty/flourish/web/recon/wordlists/generated/latest/routes.txt
+          missing_wordlist_policy: skip_missing_and_record
+        command_template:
+          - ffuf
+          - -u
+          - "<selected-base-url>/FUZZ"
+          - -w
+          - "<composed-wordlist>"
+          - -mc
+          - "200,204,301,302,307,401,403,405,429,500"
+          - -fc
+          - "404"
+          - -rate
+          - "5"
+          - -json
+          - -o
+          - "<run-root>/raw/ffuf.json"
+        outputs:
+          run_root: ~/Shared/web_bounty/flourish/web/recon/tools/ffuf/runs/<YYYY-MM-DD>/<run-id>/
+          fuzz_history: ~/Shared/web_bounty/flourish/web/recon/fuzz_history/fuzz_runs.jsonl
+          status_leads: ~/Shared/web_bounty/flourish/web/recon/cron/_meta/status_leads.jsonl
+          forbidden_leads: ~/Shared/web_bounty/flourish/web/recon/cron/_meta/403_leads.jsonl
+          url_ingest: ~/Shared/web_bounty/flourish/web/recon/url_index/url_index.sqlite
+          map_store: ~/Shared/web_bounty/flourish/web/recon/map/
+        post_run:
+          write_fuzz_history: true
+          write_status_leads: true
+          write_403_leads: true
+          feed_url_ingest: true
+          update_map_store_summary: true
+          generate_report: true
+          report_path: ~/Shared/web_bounty/flourish/web/recon/cron/latest_summary.md
+          handoff_403: true
+          handoff_path: ~/Shared/web_bounty/flourish/web/recon/cron/_meta/403_handoff.md
+        notifications:
+          telegram_topic: fuzzing
+          progress_every: 2h
+          on_finish: true
+          on_failure: true
+        stop_policy:
+          inherit: defaults.status_policy
+
+      authenticated_parameter_mining:
+        state: manual_review_required
+        cadence: scheduled
+        days: inherit
+        slot: nightly_2200
+        local_time: "22:45"
+        tool: arjun
+        job_family: parameter_mining
+        target: inherit_target_selection
+        lane: web
+        mode: authenticated_optional
+        auth:
+          required: false
+          account: blue
+          pwnfox_color: blue
+          resolver: programs.flourish.auth.resolver
+          fallback_to_ryushe_proxy_refresh: true
+          fail_if_auth_missing: false
+        inputs:
+          endpoint_queue: ~/Shared/web_bounty/flourish/web/recon/parameter_mining/latest/queue/recon-hidden-param-patterns.txt
+          fallback_endpoint_sources:
+            - ~/Shared/web_bounty/flourish/web/recon/url_index/url_index.sqlite
+            - ~/Shared/web_bounty/flourish/web/recon/aggregated/params.txt
+            - ~/Shared/web_bounty/flourish/web/recon/aggregated/urls.txt
+            - ~/Shared/web_bounty/flourish/web/recon/cron/_meta/status_leads.jsonl
+        command_template:
+          - arjun
+          - -i
+          - "<endpoint-queue>"
+          - -m
+          - GET,POST
+          - --stable
+          - -oJ
+          - "<run-root>/raw/arjun.json"
+          - -oT
+          - "<run-root>/raw/arjun.txt"
+        authenticated_headers_source:
+          type: auth_resolver_reference
+          secret_material_policy: local_only_never_prompt
+        outputs:
+          run_root: ~/Shared/web_bounty/flourish/web/recon/tools/arjun/runs/<YYYY-MM-DD>/<run-id>/
+          parameter_mining_run: ~/Shared/web_bounty/flourish/web/recon/parameter_mining/<run-id>/
+          parameters_jsonl: ~/Shared/web_bounty/flourish/web/recon/parameter_mining/<run-id>/parameters.jsonl
+          aggregated_params: ~/Shared/web_bounty/flourish/web/recon/aggregated/params.txt
+          parameter_source_log: ~/Shared/web_bounty/flourish/web/recon/cron/_meta/parameter_sources.jsonl
+          url_ingest: ~/Shared/web_bounty/flourish/web/recon/url_index/url_index.sqlite
+          map_store: ~/Shared/web_bounty/flourish/web/recon/map/
+        post_run:
+          normalize_arjun_output: true
+          append_to_aggregated_params: true
+          write_parameter_source_log: true
+          feed_url_ingest: true
+          update_map_store_summary: true
+          generate_report: true
+          report_path: ~/Shared/web_bounty/flourish/web/recon/cron/latest_summary.md
+        notifications:
+          telegram_topic: coding
+          on_finish: true
+          on_failure: true
+        stop_policy:
+          inherit: defaults.status_policy

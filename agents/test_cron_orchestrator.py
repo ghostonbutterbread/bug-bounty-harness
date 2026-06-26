@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Focused tests for cron_orchestrator.py."""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import agents.cron_orchestrator as M
+
+
+class FakeScopeValidator:
+    def __init__(self, program: str, strict: bool = False):
+        self.program = program
+        self.strict = strict
+
+    def is_in_scope(self, target: str) -> bool:
+        return target.endswith("example.com")
+
+
+class TestCronOrchestrator(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.naabu_dir = self.root / "naabu"
+        self.naabu_dir.mkdir()
+        self.naabu_ports = self.naabu_dir / "ports.jsonl"
+        self.naabu_ports.write_text(
+            json.dumps({"host": "api.example.com", "port": 8443}) + "\n"
+            + json.dumps({"host": "api.example.com", "port": 9443}) + "\n",
+            encoding="utf-8",
+        )
+        self.url_db = self.root / "url_index.sqlite"
+        self._init_url_db()
+        self.config = self._config()
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _init_url_db(self) -> None:
+        with sqlite3.connect(self.url_db) as conn:
+            conn.execute("CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT, host TEXT)")
+            conn.execute(
+                "INSERT INTO urls (url, host) VALUES (?, ?)",
+                ("https://api.example.com/v1/users", "api.example.com"),
+            )
+
+    def _config(self) -> dict:
+        return {
+            "version": 1,
+            "platforms": {"bugcrowd": {"state": "active"}},
+            "programs": {
+                "demo": {
+                    "platform": "bugcrowd",
+                    "state": "active",
+                    "targets": {
+                        "home": {"base_urls": ["https://www.example.com"]},
+                        "api": {"base_urls": ["https://api.example.com"]},
+                    },
+                    "target_selection": {
+                        "strategy": "recon_ry_ranked_agent_selected_queue",
+                        "default_target": "home",
+                        "ranking_inputs": [str(self.url_db), str(self.naabu_dir)],
+                    },
+                    "jobs": {
+                        "nmap_enrichment": {
+                            "state": "manual_review_required",
+                            "mode": "passive_enrichment_from_naabu",
+                            "inputs": {
+                                "naabu_ports": [str(self.naabu_ports)],
+                                "require_saved_scope": True,
+                                "max_hosts_per_run": 3,
+                                "max_ports_per_host": 20,
+                            },
+                            "command_template": [
+                                "nmap",
+                                "-sV",
+                                "--version-light",
+                                "-Pn",
+                                "-T2",
+                                "-p",
+                                "<naabu-discovered-ports>",
+                                "<selected-host>",
+                            ],
+                            "outputs": {
+                                "run_root": str(self.root / "tools" / "nmap" / "runs" / "<run-id>"),
+                            },
+                        },
+                        "juicy_target_fuzz": {
+                            "state": "manual_review_required",
+                            "command_template": [
+                                "ffuf",
+                                "-u",
+                                "<selected-base-url>/FUZZ",
+                                "-w",
+                                "<composed-wordlist>",
+                            ],
+                            "wordlists": {
+                                "strategy": "catalog_smart_target_mapping",
+                                "catalog_roots": [str(self.root / "wordlists")],
+                            },
+                        },
+                        "authenticated_parameter_mining": {
+                            "state": "manual_review_required",
+                            "inputs": {"endpoint_queue": str(self.root / "queue.txt")},
+                            "command_template": [
+                                "arjun",
+                                "-i",
+                                "<endpoint-queue>",
+                                "-oJ",
+                                "<run-root>/raw/arjun.json",
+                            ],
+                        },
+                    },
+                }
+            },
+        }
+
+    def test_validate_accepts_configured_jobs(self) -> None:
+        self.assertEqual(M.validate_config(self.config), [])
+
+    def test_validate_rejects_unknown_job(self) -> None:
+        data = yaml.safe_load(yaml.safe_dump(self.config))
+        data["programs"]["demo"]["jobs"]["mystery"] = {}
+        errors = M.validate_config(data)
+        self.assertTrue(any("unknown job mystery" in error for error in errors))
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_plan_selects_api_target_and_builds_nmap_command_from_naabu(self) -> None:
+        payload = M.plan(self.config, "demo")
+        self.assertEqual(payload["selected_target"]["host"], "api.example.com")
+        nmap_job = payload["jobs"][0]
+        self.assertEqual(nmap_job["status"], "planned")
+        self.assertEqual(nmap_job["ports"], [8443, 9443])
+        self.assertEqual(nmap_job["command"][-2:], ["8443,9443", "api.example.com"])
+        self.assertIn("has naabu/nmap service hint", payload["selected_target"]["reasons"])
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_nmap_enrichment_skips_without_naabu_ports(self) -> None:
+        self.naabu_ports.unlink()
+        payload = M.plan(self.config, "demo")
+        nmap_job = payload["jobs"][0]
+        self.assertEqual(nmap_job["status"], "skipped")
+        self.assertEqual(nmap_job["reason"], "missing_naabu_output_or_no_ports_for_selected_host")
+
+    def test_parse_port_line_supports_json_text_and_url(self) -> None:
+        self.assertEqual(M.parse_port_line('{"host":"api.example.com","port":8443}'), ("api.example.com", 8443))
+        self.assertEqual(M.parse_port_line("api.example.com:9443"), ("api.example.com", 9443))
+        self.assertEqual(M.parse_port_line("https://api.example.com:10443"), ("api.example.com", 10443))
+
+
+if __name__ == "__main__":
+    unittest.main()

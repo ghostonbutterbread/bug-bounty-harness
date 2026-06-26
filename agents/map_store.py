@@ -418,13 +418,16 @@ class MapStore:
         if cross_family_entries:
             results.extend(cross_family_entries)
 
-        # Deduplicate by path
-        seen: set[str] = set()
+        # Deduplicate by store-relative identity. Cross-family entries can have
+        # the same relative path as local entries, so include their source.
+        seen: set[tuple[str, str]] = set()
         deduped: list[dict] = []
         for entry in results:
             path = entry.get("path", "")
-            if path not in seen:
-                seen.add(path)
+            source = entry.get("_crossfamily_source") or "local"
+            identity = (source, path)
+            if identity not in seen:
+                seen.add(identity)
                 deduped.append(entry)
 
         deduped.sort(key=lambda e: e.get("timestamp", ""), reverse=True)

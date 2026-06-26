@@ -300,6 +300,31 @@ class TestMapStore:
         surfaces = {r["surface"] for r in results}
         assert surfaces == {"js", "xss", "auth"}
 
+    def test_query_keeps_crossfamily_entry_with_same_relative_path(self, store: MapStore):
+        store.init()
+        store.write(
+            url="https://app.com/login",
+            surface="api",
+            body="Web bounty observation.\n",
+        )
+        local_entry = store._read_index()[0]
+        cross_family_entry = {
+            **local_entry,
+            "body": "Binary observation.",
+            "_crossfamily_source": "binaries/exe",
+        }
+
+        results = store.query(
+            url="https://app.com/login",
+            cross_family_entries=[cross_family_entry],
+        )
+
+        assert len(results) == 2
+        assert {r.get("_crossfamily_source", "local") for r in results} == {
+            "local",
+            "binaries/exe",
+        }
+
     def test_upsert_replaces_same_path(self, store: MapStore):
         store.init()
         store.write(

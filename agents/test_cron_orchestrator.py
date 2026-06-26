@@ -182,6 +182,109 @@ class TestCronOrchestrator(unittest.TestCase):
         self.assertEqual(params["rate_budget"]["allocated_rps"], 7)
         self.assertEqual(fuzz["command"][-1], "7")
 
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_run_prepare_only_writes_manifests_without_execution(self) -> None:
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            payload = M.run(self.config, "demo", execute=False, approve_manual=False)
+
+        nmap_job = next(job for job in payload["jobs"] if job["job"] == "nmap_enrichment")
+        manifest = json.loads(Path(nmap_job["manifest_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(payload["mode"], "prepare-only")
+        self.assertEqual(manifest["status"], "prepared_not_executed")
+        self.assertEqual(manifest["execution_decision"], "execute_flag_not_set")
+        self.assertTrue(Path(nmap_job["run_root"], "command.txt").is_file())
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_run_execute_requires_active_or_manual_approval(self) -> None:
+        self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["state"] = "active"
+        self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["command_template"] = [
+            sys.executable,
+            "-c",
+            "print('cron-ok')",
+        ]
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            payload = M.run(self.config, "demo", execute=True, approve_manual=False)
+
+        nmap_job = next(job for job in payload["jobs"] if job["job"] == "nmap_enrichment")
+        manifest = json.loads(Path(nmap_job["manifest_path"]).read_text(encoding="utf-8"))
+        stdout = Path(nmap_job["run_root"], "logs", "stdout.txt").read_text(encoding="utf-8")
+        self.assertEqual(manifest["status"], "completed")
+        self.assertEqual(manifest["execution_decision"], "active_execute_allowed")
+        self.assertEqual(stdout.strip(), "cron-ok")
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_disabled_platform_blocks_execution_even_when_job_active(self) -> None:
+        self.config["platforms"]["bugcrowd"]["state"] = "paused"
+        self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["state"] = "active"
+        self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["command_template"] = [
+            sys.executable,
+            "-c",
+            "print('should-not-run')",
+        ]
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            payload = M.run(self.config, "demo", execute=True, approve_manual=False)
+
+        nmap_job = next(job for job in payload["jobs"] if job["job"] == "nmap_enrichment")
+        manifest = json.loads(Path(nmap_job["manifest_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(manifest["status"], "blocked")
+        self.assertEqual(manifest["execution_decision"], "platform_bugcrowd_paused")
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_manual_approval_requires_named_job_allowlist(self) -> None:
+        self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["command_template"] = [
+            sys.executable,
+            "-c",
+            "print('manual-ok')",
+        ]
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            blocked = M.run(self.config, "demo", execute=True, approve_manual=True)
+            allowed = M.run(
+                self.config,
+                "demo",
+                execute=True,
+                approve_manual=True,
+                approved_jobs={"nmap_enrichment"},
+            )
+
+        blocked_nmap = next(job for job in blocked["jobs"] if job["job"] == "nmap_enrichment")
+        allowed_nmap = next(job for job in allowed["jobs"] if job["job"] == "nmap_enrichment")
+        blocked_manifest = json.loads(Path(blocked_nmap["manifest_path"]).read_text(encoding="utf-8"))
+        allowed_manifest = json.loads(Path(allowed_nmap["manifest_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(blocked_manifest["status"], "blocked")
+        self.assertEqual(blocked_manifest["execution_decision"], "manual_approval_requires_job_allowlist")
+        self.assertEqual(allowed_manifest["status"], "completed")
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_live_http_job_without_rate_hook_is_blocked(self) -> None:
+        queue = self.root / "queue.txt"
+        queue.write_text("https://api.example.com/v1/users\n", encoding="utf-8")
+        self.config["programs"]["demo"]["jobs"]["authenticated_parameter_mining"]["state"] = "active"
+        self.config["programs"]["demo"]["jobs"]["authenticated_parameter_mining"]["inputs"]["endpoint_queue"] = str(queue)
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            payload = M.run(self.config, "demo", execute=True)
+
+        params = next(job for job in payload["jobs"] if job["job"] == "authenticated_parameter_mining")
+        manifest = json.loads(Path(params["manifest_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(manifest["status"], "blocked")
+        self.assertEqual(manifest["execution_decision"], "live_http_rate_not_enforced_in_command")
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_subprocess_start_failure_is_recorded_and_does_not_abort_run(self) -> None:
+        self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["state"] = "active"
+        self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["command_template"] = [
+            "/definitely/missing/ghost-command",
+        ]
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            payload = M.run(self.config, "demo", execute=True)
+
+        nmap_job = next(job for job in payload["jobs"] if job["job"] == "nmap_enrichment")
+        manifest = json.loads(Path(nmap_job["manifest_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(manifest["status"], "blocked")
+        self.assertEqual(manifest["block_reason"], "subprocess_start_failed")
+
+    def test_run_ids_include_unique_suffix(self) -> None:
+        self.assertNotEqual(M.execution_run_id(), M.execution_run_id())
+
 
 if __name__ == "__main__":
     unittest.main()

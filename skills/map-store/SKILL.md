@@ -21,6 +21,8 @@ tested state, or vulnerability lead.
   status -> `/url-ingest`.
 - Concrete findings, reports, proof packets -> `manual_hunter.py` / `/findings`.
 - Storage destination for artifacts -> `/bounty-storage`.
+- Replay-grade request templates, permission gates, and retest matrices ->
+  `docs/mapstore-request-contracts.md` plus a MapStore pointer.
 
 If a discovery is both fact and next-step idea, split it: factual behavior here,
 hypothesis or handoff in `/bounty-notes`, linked by the same full URL and tags.
@@ -39,6 +41,28 @@ domain, app surface, role, or defense, write it to MapStore.
 6. If the observation changes hunt direction, add the narrative/handoff to
    `/bounty-notes` too.
 
+## Replayable Request Contracts
+
+When an observation records a request that future agents should retest with a
+new auth context, role, SDK token, company account, plan, or parser hypothesis,
+do not rely on free-form tags alone. Create or update a request contract under
+the mounted bounty root and point MapStore to that artifact.
+
+Use `docs/mapstore-request-contracts.md` for the canonical schema. Key rules:
+
+- Store replay shape and source request provenance, not raw cookies, CSRF
+  tokens, bearer values, SDK tokens, or API keys.
+- Put local request artifacts under `recon/requests/<host>/`.
+- Include structured `gate`, `retest_matrix`, `retest_notes`, and
+  `next_retest_when` fields.
+- Retest matrix keys may be target-specific, but must be lowercase snake_case
+  and use `true`, `false`, or `null` values.
+- Generate search tags from controlled fields such as `gate.type`,
+  `gate.reason`, status, and retest matrix state instead of inventing
+  near-duplicate free-form tags.
+- Use `agents/map_request_tags.py explain` to normalize custom retest fields and
+  generate canonical tags before writing request-contract metadata.
+
 ## Commands
 
 Run from `~/projects/bug_bounty_harness` with bounty-core on `PYTHONPATH`.
@@ -54,3 +78,5 @@ python3 agents/map_store.py rebuild-crossref --program <program> --family web_bo
 Open `references/routing-examples.md` for MapStore vs Bounty Notes examples.
 Open `references/map-store-reference.md` for scope levels, surfaces, tags,
 storage layout, family/lane selection, and cross-family pointers.
+Open `docs/mapstore-request-contracts.md` for replayable request contracts,
+source request IDs, retest matrices, and normalized tag generation.

@@ -57,6 +57,13 @@ class TestCronOrchestrator(unittest.TestCase):
     def _config(self) -> dict:
         return {
             "version": 1,
+            "defaults": {
+                "rate_limit": {
+                    "global_http_rps": 15,
+                    "unauthenticated_rps": 15,
+                    "authenticated_rps": 15,
+                }
+            },
             "platforms": {"bugcrowd": {"state": "active"}},
             "programs": {
                 "demo": {
@@ -103,6 +110,8 @@ class TestCronOrchestrator(unittest.TestCase):
                                 "<selected-base-url>/FUZZ",
                                 "-w",
                                 "<composed-wordlist>",
+                                "-rate",
+                                "<effective-rate>",
                             ],
                             "wordlists": {
                                 "strategy": "catalog_smart_target_mapping",
@@ -156,6 +165,22 @@ class TestCronOrchestrator(unittest.TestCase):
         self.assertEqual(M.parse_port_line('{"host":"api.example.com","port":8443}'), ("api.example.com", 8443))
         self.assertEqual(M.parse_port_line("api.example.com:9443"), ("api.example.com", 9443))
         self.assertEqual(M.parse_port_line("https://api.example.com:10443"), ("api.example.com", 10443))
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_rate_budget_splits_same_host_live_http_jobs(self) -> None:
+        self.config["programs"]["demo"]["jobs"]["authenticated_parameter_mining"]["inputs"][
+            "endpoint_queue"
+        ] = str(self.root / "queue.txt")
+        (self.root / "queue.txt").write_text("https://api.example.com/v1/users\n", encoding="utf-8")
+
+        payload = M.plan(self.config, "demo")
+        fuzz = next(job for job in payload["jobs"] if job["job"] == "juicy_target_fuzz")
+        params = next(job for job in payload["jobs"] if job["job"] == "authenticated_parameter_mining")
+
+        self.assertEqual(payload["rate_policy"]["global_http_rps"], 15)
+        self.assertEqual(fuzz["rate_budget"]["allocated_rps"], 7)
+        self.assertEqual(params["rate_budget"]["allocated_rps"], 7)
+        self.assertEqual(fuzz["command"][-1], "7")
 
 
 if __name__ == "__main__":

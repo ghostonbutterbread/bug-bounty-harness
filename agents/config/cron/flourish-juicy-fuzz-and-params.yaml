@@ -27,6 +27,10 @@ defaults:
       nightly_2200:
         local_time: "22:00"
   rate_limit:
+    # Shared cap per normalized host/app-area. If two live HTTP jobs target the
+    # same host in one slot, the orchestrator splits this budget before
+    # rendering tool commands.
+    global_http_rps: 15
     unauthenticated_rps: 5
     authenticated_rps: 2
     timeout_seconds: 300
@@ -234,6 +238,11 @@ programs:
         lane: web
         mode: unauthenticated
         url_pattern: "<selected-base-url>/FUZZ"
+        rate_limit:
+          scope: host
+          desired_rps: inherit_defaults_unauthenticated
+          global_budget: defaults.rate_limit.global_http_rps
+          collision_policy: split_evenly_by_normalized_host
         wordlists:
           strategy: catalog_smart_target_mapping
           compose_temporary: true
@@ -311,6 +320,11 @@ programs:
         target: inherit_target_selection
         lane: web
         mode: authenticated_optional
+        rate_limit:
+          scope: host
+          desired_rps: inherit_defaults_authenticated
+          global_budget: defaults.rate_limit.global_http_rps
+          collision_policy: split_evenly_by_normalized_host
         auth:
           required: false
           account: blue

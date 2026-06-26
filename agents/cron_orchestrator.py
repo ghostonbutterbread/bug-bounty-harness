@@ -54,6 +54,11 @@ SENSITIVE_TARGET_TERMS = (
     "openapi",
 )
 DEFAULT_ARTIFACT_ROOT = Path.home() / "Shared" / "web_bounty"
+LIVE_HTTP_JOBS = {
+    "authenticated_parameter_mining",
+    "juicy_target_fuzz",
+    "parameter_mining",
+}
 
 
 @dataclass
@@ -492,6 +497,75 @@ def build_nmap_plan(program: str, program_cfg: dict[str, Any], selected: TargetC
     }
 
 
+def requested_http_rps(
+    job_name: str,
+    job: dict[str, Any],
+    defaults: dict[str, Any],
+    program_cfg: dict[str, Any],
+) -> int:
+    job_limit = job.get("rate_limit") if isinstance(job.get("rate_limit"), dict) else {}
+    if job_limit.get("rps") is not None:
+        return max(1, int(job_limit["rps"]))
+
+    program_limit = program_cfg.get("rate_limit") if isinstance(program_cfg.get("rate_limit"), dict) else {}
+    default_limit = defaults.get("rate_limit") if isinstance(defaults.get("rate_limit"), dict) else {}
+    merged = {**default_limit, **program_limit}
+    if job_name == "authenticated_parameter_mining":
+        return max(1, int(merged.get("authenticated_rps") or 2))
+    return max(1, int(merged.get("unauthenticated_rps") or 5))
+
+
+def global_http_rps(defaults: dict[str, Any], program_cfg: dict[str, Any]) -> int:
+    default_limit = defaults.get("rate_limit") if isinstance(defaults.get("rate_limit"), dict) else {}
+    program_limit = program_cfg.get("rate_limit") if isinstance(program_cfg.get("rate_limit"), dict) else {}
+    value = program_limit.get("global_http_rps", default_limit.get("global_http_rps", 15))
+    return max(1, int(value))
+
+
+def replace_command_rate(command: list[str], allocated_rps: int) -> list[str]:
+    updated = list(command)
+    for index, part in enumerate(updated):
+        if part == "<effective-rate>":
+            updated[index] = str(allocated_rps)
+        elif part in {"-rate", "--rate"} and index + 1 < len(updated):
+            updated[index + 1] = str(allocated_rps)
+            break
+    return updated
+
+
+def apply_rate_budgets(data: dict[str, Any], program_cfg: dict[str, Any], jobs: list[dict[str, Any]]) -> None:
+    defaults = data.get("defaults") if isinstance(data.get("defaults"), dict) else {}
+    cap = global_http_rps(defaults, program_cfg)
+    grouped: dict[str, list[dict[str, Any]]] = {}
+
+    for job in jobs:
+        if job.get("job") not in LIVE_HTTP_JOBS or job.get("status") != "planned":
+            continue
+        target = job.get("target") if isinstance(job.get("target"), dict) else {}
+        host = str(target.get("host") or "").lower()
+        if not host:
+            continue
+        grouped.setdefault(host, []).append(job)
+
+    for host, host_jobs in grouped.items():
+        split_cap = max(1, cap // len(host_jobs))
+        for job in host_jobs:
+            job_cfg = program_cfg.get("jobs", {}).get(job["job"], {})
+            requested = requested_http_rps(job["job"], job_cfg, defaults, program_cfg)
+            allocated = max(1, min(requested, split_cap))
+            budget = {
+                "scope": f"host:{host}",
+                "global_host_rps": cap,
+                "concurrent_live_http_jobs": len(host_jobs),
+                "requested_rps": requested,
+                "allocated_rps": allocated,
+                "policy": "split_evenly_by_host_then_cap_to_request",
+            }
+            job["rate_budget"] = budget
+            if isinstance(job.get("command"), list):
+                job["command"] = replace_command_rate(job["command"], allocated)
+
+
 def build_fuzz_plan(program_cfg: dict[str, Any], selected: TargetCandidate) -> dict[str, Any]:
     job = program_cfg.get("jobs", {}).get("juicy_target_fuzz", {})
     context = {
@@ -540,6 +614,12 @@ def plan(data: dict[str, Any], program: str, *, write: bool = False) -> dict[str
     selected = select_target(program, program_cfg)
     all_candidates = collect_target_candidates(program, program_cfg)
     candidates = [candidate.to_dict() for candidate in all_candidates[:25]]
+    jobs = [
+        build_nmap_plan(program, program_cfg, selected),
+        build_fuzz_plan(program_cfg, selected),
+        build_parameter_plan(program_cfg, selected),
+    ]
+    apply_rate_budgets(data, program_cfg, jobs)
     payload = {
         "run_id": run_id(),
         "mode": "dry-run",
@@ -547,11 +627,15 @@ def plan(data: dict[str, Any], program: str, *, write: bool = False) -> dict[str
         "selected_target": selected.to_dict(),
         "candidate_count": len(all_candidates),
         "top_candidates": candidates,
-        "jobs": [
-            build_nmap_plan(program, program_cfg, selected),
-            build_fuzz_plan(program_cfg, selected),
-            build_parameter_plan(program_cfg, selected),
-        ],
+        "rate_policy": {
+            "global_http_rps": global_http_rps(
+                data.get("defaults") if isinstance(data.get("defaults"), dict) else {},
+                program_cfg,
+            ),
+            "scope": "per-host-or-app-area",
+            "same_host_behavior": "split_evenly_across_concurrent_live_http_jobs",
+        },
+        "jobs": jobs,
     }
     if write:
         write_plan(program, payload)

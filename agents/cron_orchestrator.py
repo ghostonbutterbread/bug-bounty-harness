@@ -9,11 +9,16 @@ stable and covered by tests.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import json
+import os
 import re
+import subprocess
 import sqlite3
 import sys
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,6 +64,7 @@ LIVE_HTTP_JOBS = {
     "juicy_target_fuzz",
     "parameter_mining",
 }
+EXECUTABLE_PLANNED_JOBS = LIVE_HTTP_JOBS | {"nmap_enrichment"}
 
 
 @dataclass
@@ -102,6 +108,19 @@ def expand_pattern(value: str, context: dict[str, str]) -> str:
     for key, replacement in context.items():
         result = result.replace(f"<{key}>", replacement)
     return result
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def today_utc() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def render_runtime_path(value: str | Path, run_id_value: str) -> Path:
+    rendered = str(value).replace("<YYYY-MM-DD>", today_utc()).replace("<run-id>", run_id_value)
+    return expand_path(rendered)
 
 
 def host_from_url(value: str) -> str:
@@ -489,7 +508,9 @@ def build_nmap_plan(program: str, program_cfg: dict[str, Any], selected: TargetC
         "job": "nmap_enrichment",
         "state": job.get("state", "unknown"),
         "status": "planned",
+        "tool": job.get("tool", "nmap"),
         "mode": job.get("mode"),
+        "target": selected.to_dict(),
         "host": selected.host,
         "ports": ports,
         "command": command,
@@ -522,15 +543,16 @@ def global_http_rps(defaults: dict[str, Any], program_cfg: dict[str, Any]) -> in
     return max(1, int(value))
 
 
-def replace_command_rate(command: list[str], allocated_rps: int) -> list[str]:
+def replace_command_rate(command: list[str], allocated_rps: int) -> tuple[list[str], bool]:
     updated = list(command)
     for index, part in enumerate(updated):
         if part == "<effective-rate>":
             updated[index] = str(allocated_rps)
-        elif part in {"-rate", "--rate"} and index + 1 < len(updated):
+            return updated, True
+        if part in {"-rate", "--rate"} and index + 1 < len(updated):
             updated[index + 1] = str(allocated_rps)
-            break
-    return updated
+            return updated, True
+    return updated, False
 
 
 def apply_rate_budgets(data: dict[str, Any], program_cfg: dict[str, Any], jobs: list[dict[str, Any]]) -> None:
@@ -563,7 +585,8 @@ def apply_rate_budgets(data: dict[str, Any], program_cfg: dict[str, Any], jobs: 
             }
             job["rate_budget"] = budget
             if isinstance(job.get("command"), list):
-                job["command"] = replace_command_rate(job["command"], allocated)
+                job["command"], rate_enforced = replace_command_rate(job["command"], allocated)
+                job["rate_budget"]["command_rate_enforced"] = rate_enforced
 
 
 def build_fuzz_plan(program_cfg: dict[str, Any], selected: TargetCandidate) -> dict[str, Any]:
@@ -603,7 +626,13 @@ def build_parameter_plan(program_cfg: dict[str, Any], selected: TargetCandidate)
 
 
 def run_id() -> str:
-    return "cron-plan-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    return f"cron-plan-{timestamp}-{uuid.uuid4().hex[:8]}"
+
+
+def execution_run_id() -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    return f"cron-run-{timestamp}-{uuid.uuid4().hex[:8]}"
 
 
 def plan(data: dict[str, Any], program: str, *, write: bool = False) -> dict[str, Any]:
@@ -637,6 +666,296 @@ def plan(data: dict[str, Any], program: str, *, write: bool = False) -> dict[str
         },
         "jobs": jobs,
     }
+    if write:
+        write_plan(program, payload)
+    return payload
+
+
+def default_cron_run_root(program: str, run_id_value: str) -> Path:
+    return DEFAULT_ARTIFACT_ROOT / program / "web" / "recon" / "cron" / "_runs" / run_id_value
+
+
+def job_output_root(program: str, job: dict[str, Any], run_id_value: str) -> Path:
+    outputs = job.get("outputs") if isinstance(job.get("outputs"), dict) else {}
+    if outputs.get("run_root"):
+        return render_runtime_path(str(outputs["run_root"]), run_id_value)
+    return default_cron_run_root(program, run_id_value) / "outputs" / str(job.get("job", "job"))
+
+
+def command_has_unresolved_placeholders(command: list[str]) -> bool:
+    return any(bool(re.search(r"<[^>]+>", str(part))) for part in command)
+
+
+def render_command(command: list[str], run_root: Path, run_id_value: str) -> list[str]:
+    context = {
+        "run-root": str(run_root),
+        "YYYY-MM-DD": today_utc(),
+        "run-id": run_id_value,
+    }
+    return [expand_pattern(str(part), context) for part in command]
+
+
+def command_text(command: list[str]) -> str:
+    return " ".join(shlex_quote(part) for part in command)
+
+
+def shlex_quote(value: str) -> str:
+    if re.match(r"^[A-Za-z0-9_./:=,@%+-]+$", value):
+        return value
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def prepare_job_capsule(program: str, job: dict[str, Any], run_id_value: str) -> dict[str, Any]:
+    root = job_output_root(program, job, run_id_value)
+    raw = root / "raw"
+    parsed = root / "parsed"
+    normalized = root / "normalized"
+    logs = root / "logs"
+    for path in (raw, parsed, normalized, logs):
+        path.mkdir(parents=True, exist_ok=True)
+
+    command = render_command([str(part) for part in job.get("command") or ()], root, run_id_value)
+    (root / "command.txt").write_text(command_text(command) + "\n", encoding="utf-8")
+    manifest = {
+        "run_id": run_id_value,
+        "job": job.get("job"),
+        "tool": job.get("tool") or infer_tool(command),
+        "state": job.get("state"),
+        "planned_status": job.get("status"),
+        "target": job.get("target", {}),
+        "rate_budget": job.get("rate_budget"),
+        "command": command,
+        "paths": {
+            "root": str(root),
+            "raw": str(raw),
+            "parsed": str(parsed),
+            "normalized": str(normalized),
+            "logs": str(logs),
+        },
+        "status": "prepared",
+        "started_at": None,
+        "finished_at": None,
+        "exit_code": None,
+    }
+    (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (root / "summary.md").write_text(
+        "\n".join(
+            [
+                f"# {job.get('job')} Run Capsule",
+                "",
+                f"- Status: `prepared`",
+                f"- Planned status: `{job.get('status')}`",
+                f"- Command: `{command_text(command)}`",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return {"root": root, "manifest": manifest, "command": command}
+
+
+def infer_tool(command: list[str]) -> str | None:
+    if not command:
+        return None
+    return Path(command[0]).name
+
+
+def parent_state_reason(data: dict[str, Any], program: str, program_cfg: dict[str, Any]) -> str | None:
+    platform_name = str(program_cfg.get("platform") or "")
+    platforms = data.get("platforms") if isinstance(data.get("platforms"), dict) else {}
+    platform_cfg = platforms.get(platform_name) if isinstance(platforms.get(platform_name), dict) else {}
+    platform_state = str(platform_cfg.get("state") or "active").lower()
+    program_state = str(program_cfg.get("state") or "active").lower()
+    if platform_state != "active":
+        return f"platform_{platform_name or 'unknown'}_{platform_state or 'unknown'}"
+    if program_state != "active":
+        return f"program_{program}_{program_state or 'unknown'}"
+    return None
+
+
+def execution_decision(
+    job: dict[str, Any],
+    *,
+    execute: bool,
+    approve_manual: bool,
+    approved_jobs: set[str] | None = None,
+    parent_block_reason: str | None = None,
+) -> tuple[bool, str]:
+    job_name = str(job.get("job") or "")
+    if parent_block_reason:
+        return False, parent_block_reason
+    if job.get("job") not in EXECUTABLE_PLANNED_JOBS:
+        return False, "job_family_not_executable_by_orchestrator"
+    if job.get("status") != "planned":
+        return False, f"planned_status_{job.get('status')}"
+    if job_name in LIVE_HTTP_JOBS and not job.get("rate_budget", {}).get("command_rate_enforced"):
+        return False, "live_http_rate_not_enforced_in_command"
+    if not execute:
+        return False, "execute_flag_not_set"
+    state = str(job.get("state") or "").lower()
+    if state == "active":
+        return True, "active_execute_allowed"
+    if state == "manual_review_required" and approve_manual and approved_jobs and job_name in approved_jobs:
+        return True, "manual_review_approved"
+    if state == "manual_review_required" and approve_manual:
+        return False, "manual_approval_requires_job_allowlist"
+    return False, f"state_{state or 'unknown'}_not_approved"
+
+
+def lock_scope(job: dict[str, Any]) -> str:
+    target = job.get("target") if isinstance(job.get("target"), dict) else {}
+    host = str(target.get("host") or job.get("host") or "unknown").lower()
+    job_name = str(job.get("job") or "job")
+    if job_name in LIVE_HTTP_JOBS:
+        return f"host-{host}"
+    return f"{job_name}-{host}"
+
+
+@contextlib.contextmanager
+def job_lock(program: str, job: dict[str, Any]):
+    locks_dir = DEFAULT_ARTIFACT_ROOT / program / "web" / "recon" / "tools" / ".locks"
+    locks_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", lock_scope(job)).strip("._") or "lock"
+    path = locks_dir / f"{safe_name}.lock"
+    with path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        handle.seek(0)
+        handle.truncate()
+        handle.write(json.dumps({"pid": os.getpid(), "job": job.get("job"), "locked_at": utc_now()}) + "\n")
+        handle.flush()
+        try:
+            yield str(path)
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def execute_job(
+    program: str,
+    job: dict[str, Any],
+    run_id_value: str,
+    *,
+    execute: bool,
+    approve_manual: bool,
+    approved_jobs: set[str] | None,
+    parent_block_reason: str | None,
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    capsule = prepare_job_capsule(program, job, run_id_value)
+    manifest = capsule["manifest"]
+    command = capsule["command"]
+    root = capsule["root"]
+    allowed, reason = execution_decision(
+        job,
+        execute=execute,
+        approve_manual=approve_manual,
+        approved_jobs=approved_jobs,
+        parent_block_reason=parent_block_reason,
+    )
+    manifest["execution_decision"] = reason
+
+    if not allowed:
+        if reason == "execute_flag_not_set" or reason.startswith("planned_status_"):
+            manifest["status"] = "prepared_not_executed"
+        else:
+            manifest["status"] = "blocked"
+            manifest["block_reason"] = reason
+    elif command_has_unresolved_placeholders(command):
+        manifest["status"] = "blocked"
+        manifest["block_reason"] = "unresolved_command_placeholders"
+    else:
+        manifest["status"] = "running"
+        manifest["started_at"] = utc_now()
+        try:
+            with job_lock(program, job) as lock_path:
+                manifest["lock_path"] = lock_path
+                proc = subprocess.run(
+                    command,
+                    text=True,
+                    capture_output=True,
+                    timeout=timeout_seconds,
+                    check=False,
+                )
+            (root / "logs" / "stdout.txt").write_text(proc.stdout, encoding="utf-8")
+            (root / "logs" / "stderr.txt").write_text(proc.stderr, encoding="utf-8")
+            manifest["exit_code"] = proc.returncode
+            manifest["status"] = "completed" if proc.returncode == 0 else "failed"
+        except BlockingIOError:
+            manifest["status"] = "blocked"
+            manifest["block_reason"] = "run_lock_already_held"
+        except subprocess.TimeoutExpired as exc:
+            manifest["status"] = "failed"
+            manifest["block_reason"] = "timeout"
+            manifest["timeout_seconds"] = timeout_seconds
+            (root / "logs" / "stdout.txt").write_text(exc.stdout or "", encoding="utf-8")
+            (root / "logs" / "stderr.txt").write_text(exc.stderr or "", encoding="utf-8")
+        except OSError as exc:
+            manifest["status"] = "blocked"
+            manifest["block_reason"] = "subprocess_start_failed"
+            manifest["error"] = str(exc)
+            (root / "logs" / "stderr.txt").write_text(str(exc) + "\n", encoding="utf-8")
+
+    manifest["finished_at"] = utc_now()
+    (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (root / "summary.md").write_text(
+        "\n".join(
+            [
+                f"# {job.get('job')} Run Capsule",
+                "",
+                f"- Status: `{manifest['status']}`",
+                f"- Decision: `{manifest.get('execution_decision')}`",
+                f"- Root: `{root}`",
+                f"- Command: `{command_text(command)}`",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    result = dict(job)
+    result["run_root"] = str(root)
+    result["manifest_path"] = str(root / "manifest.json")
+    result["execution_status"] = manifest["status"]
+    result["execution_decision"] = manifest.get("execution_decision")
+    if manifest.get("block_reason"):
+        result["block_reason"] = manifest["block_reason"]
+    return result
+
+
+def run(
+    data: dict[str, Any],
+    program: str,
+    *,
+    execute: bool = False,
+    approve_manual: bool = False,
+    approved_jobs: set[str] | None = None,
+    write: bool = True,
+) -> dict[str, Any]:
+    payload = plan(data, program, write=False)
+    run_id_value = execution_run_id()
+    program_cfg = resolve_program(data, program)
+    defaults = data.get("defaults") if isinstance(data.get("defaults"), dict) else {}
+    rate_limit = defaults.get("rate_limit") if isinstance(defaults.get("rate_limit"), dict) else {}
+    timeout_seconds = int(rate_limit.get("timeout_seconds") or 300)
+    parent_block = parent_state_reason(data, program, program_cfg)
+    results = [
+        execute_job(
+            program,
+            job,
+            run_id_value,
+            execute=execute,
+            approve_manual=approve_manual,
+            approved_jobs=approved_jobs,
+            parent_block_reason=parent_block,
+            timeout_seconds=timeout_seconds,
+        )
+        for job in payload["jobs"]
+    ]
+    payload.update(
+        {
+            "run_id": run_id_value,
+            "mode": "execute" if execute else "prepare-only",
+            "jobs": results,
+        }
+    )
     if write:
         write_plan(program, payload)
     return payload
@@ -684,6 +1003,20 @@ def cmd_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_run(args: argparse.Namespace) -> int:
+    data = load_config(Path(args.config).expanduser())
+    payload = run(
+        data,
+        args.program,
+        execute=args.execute,
+        approve_manual=args.approve_manual,
+        approved_jobs=set(args.job or ()),
+        write=True,
+    )
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="BBH cron orchestrator dry-run planner")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -697,6 +1030,23 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument("--config", required=True)
     plan_parser.add_argument("--write", action="store_true", help="write plan capsule under Shared web bounty storage")
     plan_parser.set_defaults(func=cmd_plan)
+
+    run_parser = subparsers.add_parser("run", help="prepare run capsules and optionally execute approved jobs")
+    run_parser.add_argument("program")
+    run_parser.add_argument("--config", required=True)
+    run_parser.add_argument("--execute", action="store_true", help="execute jobs that pass state and safety gates")
+    run_parser.add_argument(
+        "--approve-manual",
+        action="store_true",
+        help="allow manual_review_required jobs to execute when --execute is also set",
+    )
+    run_parser.add_argument(
+        "--job",
+        action="append",
+        choices=sorted(EXECUTABLE_PLANNED_JOBS),
+        help="allow execution for a specific job name; required for manual_review_required jobs",
+    )
+    run_parser.set_defaults(func=cmd_run)
     return parser
 
 

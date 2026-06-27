@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -130,67 +131,68 @@ def ingest(args: argparse.Namespace) -> Path:
     source = str(args.source)
     source_label = source
     temp_remote_dir: Path | None = None
+    try:
+        if is_remote_source(source):
+            work_dir = Path(args.work_dir).expanduser()
+            work_dir.mkdir(parents=True, exist_ok=True)
+            temp_remote_dir = Path(
+                tempfile.mkdtemp(prefix=f"recon_ry_fetch_{safe_slug(args.program)}_", dir=str(work_dir))
+            )
+            fetch_remote_source(source, temp_remote_dir, Path(args.ssh_key).expanduser() if args.ssh_key else None)
+            source_dir = temp_remote_dir
+        else:
+            source_dir = Path(source).expanduser().resolve(strict=True)
 
-    if is_remote_source(source):
-        temp_remote_dir = Path(args.work_dir).expanduser() / f"recon_ry_fetch_{safe_slug(args.program)}"
-        if temp_remote_dir.exists():
-            shutil.rmtree(temp_remote_dir)
-        fetch_remote_source(source, temp_remote_dir, Path(args.ssh_key).expanduser() if args.ssh_key else None)
-        source_dir = temp_remote_dir
-    else:
-        source_dir = Path(source).expanduser().resolve(strict=True)
+        if not source_dir.is_dir():
+            raise NotADirectoryError(f"source is not a directory: {source_dir}")
 
-    if not source_dir.is_dir():
-        raise NotADirectoryError(f"source is not a directory: {source_dir}")
+        target = args.target or Path(source.rstrip("/")).name or args.program
+        run = start_run(
+            tool="recon-ry",
+            target=safe_slug(target),
+            program=args.program,
+            family=args.family,
+            lane=args.lane,
+            root_override=args.root,
+        )
+        run.command_path.write_text(
+            f"ingest source={source_label}\n",
+            encoding="utf-8",
+        )
+        run.stdout_path.write_text("", encoding="utf-8")
+        run.stderr_path.write_text("", encoding="utf-8")
+        (run.raw_dir / "source_path.txt").write_text(source_label + "\n", encoding="utf-8")
 
-    target = args.target or Path(source.rstrip("/")).name or args.program
-    run = start_run(
-        tool="recon-ry",
-        target=safe_slug(target),
-        program=args.program,
-        family=args.family,
-        lane=args.lane,
-        root_override=args.root,
-    )
-    run.command_path.write_text(
-        f"ingest source={source_label}\n",
-        encoding="utf-8",
-    )
-    run.stdout_path.write_text("", encoding="utf-8")
-    run.stderr_path.write_text("", encoding="utf-8")
-    (run.raw_dir / "source_path.txt").write_text(source_label + "\n", encoding="utf-8")
-
-    raw_files, parsed_files = copy_recon_outputs(source_dir, run.raw_dir, run.parsed_dir)
-    url_index_inputs = [
-        run.parsed_dir / name
-        for name in ("alive.txt", "urls.txt", "params_raw.txt", "jsfiles.txt")
-        if (run.parsed_dir / name).is_file()
-    ]
-    url_index_imports = import_url_artifacts(
-        program=args.program,
-        artifacts=url_index_inputs,
-        run_id=run.run_id,
-        scope_filter="auto",
-        repull_scope=True,
-    )
-    manifest = {
-        "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-        "exit_code": 0,
-        "source": source_label,
-        "mode": "ingest",
-        "raw_files": [str(path) for path in raw_files],
-        "parsed_files": [str(path) for path in parsed_files],
-        "url_index_imports": url_index_imports,
-        "url_index_summary": summarize_url_index(args.program),
-        "counts": build_counts(run.parsed_dir),
-        "promoted_finding_ids": [],
-        "promotion_policy": "No automatic ledger promotion. Recon artifacts are stored for later review.",
-    }
-    manifest_path = write_manifest(run, manifest)
-
-    if temp_remote_dir and not args.keep_fetched:
-        shutil.rmtree(temp_remote_dir, ignore_errors=True)
-    return manifest_path
+        raw_files, parsed_files = copy_recon_outputs(source_dir, run.raw_dir, run.parsed_dir)
+        url_index_inputs = [
+            run.parsed_dir / name
+            for name in ("alive.txt", "urls.txt", "params_raw.txt", "jsfiles.txt")
+            if (run.parsed_dir / name).is_file()
+        ]
+        url_index_imports = import_url_artifacts(
+            program=args.program,
+            artifacts=url_index_inputs,
+            run_id=run.run_id,
+            scope_filter="auto",
+            repull_scope=True,
+        )
+        manifest = {
+            "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "exit_code": 0,
+            "source": source_label,
+            "mode": "ingest",
+            "raw_files": [str(path) for path in raw_files],
+            "parsed_files": [str(path) for path in parsed_files],
+            "url_index_imports": url_index_imports,
+            "url_index_summary": summarize_url_index(args.program),
+            "counts": build_counts(run.parsed_dir),
+            "promoted_finding_ids": [],
+            "promotion_policy": "No automatic ledger promotion. Recon artifacts are stored for later review.",
+        }
+        return write_manifest(run, manifest)
+    finally:
+        if temp_remote_dir and not args.keep_fetched:
+            shutil.rmtree(temp_remote_dir, ignore_errors=True)
 
 
 def ssh_command(remote: str, ssh_key: Path | None, command: str) -> list[str]:

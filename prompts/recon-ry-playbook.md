@@ -37,6 +37,43 @@ The wrapper enforces saved scope before starting:
 
 The wrapper writes `<remote-project>/rate_limit.conf` before launch. Default is conservative: `--rate-limit-rps 2`, `--timeout 300`. Increase only when the program policy allows it.
 
+Authenticated recon is opt-in and should use the existing account resolver:
+
+```bash
+python3 agents/recon_ry.py start <program> \
+  --url <scoped-domain-or-url> \
+  --profile urls \
+  --auth blue
+```
+
+`--auth <alias-or-color>` resolves through
+`skills/account-management/scripts/auth_resolver.py`, refreshes only when the
+account inventory permits it, stages a `0600` auth seed under the remote
+project's `.auth/` directory, and sets `RECON_RY_AUTH_SEED` for recon-ry.
+Manual `--auth-seed-file`, `--auth-header`, and `--cookie` are for approved
+one-off testing only. Dry-run output must show only redacted metadata such as
+cookie count and header names.
+
+Auth-capable recon-ry stages:
+
+- `katana`
+- `httpx`
+- `http_fingerprinting`
+- `param_recon`'s internal Katana path
+- `ffuf`
+- `nuclei`
+
+Auth does not apply to passive sources or network/service discovery:
+
+- subfinder, crt.sh, assetfinder, passive amass, waybackurls, gau, waymore,
+  uro, js file normalization, dorking, and local secret scanning
+- DNS/IP enrichment, naabu, and nmap/service enrichment
+
+When auth is enabled, the wrapper narrows staged seed files to the approved
+`--url` target instead of the whole saved-scope wildcard set. This keeps
+cookies and authorization headers scoped to one host/app area unless Ryushe
+explicitly asks for a broader authenticated run.
+
 The wrapper also exports the common Hoster recon tool paths before starting
 `recon-ry`, including `~/go/bin`, `~/.local/bin`, and `~/bin`. This is required
 for non-interactive SSH launches to see Go-installed tools such as Katana.
@@ -120,6 +157,9 @@ When an agent needs recon data:
 - use `jsfiles.txt` for JavaScript analysis, secrets review, source-map checks, and DOM sink review. `/js` should consume this file and the canonical aggregate, not re-enable crawlers that recon-ry already owns.
 - use `urls.txt` for broad URL discovery, route grouping, and API/path clustering
 - use `wild.txt` for subdomain or host-level follow-up
+- if an authenticated run was used, read `.auth/auth_metadata.json` for safe
+  account/color/session labels. Do not read or copy the raw `.auth/recon-ry-auth.json`
+  seed into prompts, reports, or chat.
 - use `history/<newest>/` only when comparing a specific run or checking what changed
 - treat `secrets.txt` as sensitive; summarize safely and do not paste raw tokens
 

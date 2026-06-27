@@ -1008,7 +1008,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     payload = run(
         data,
         args.program,
-        execute=args.execute,
+        execute=args.run or args.execute,
         approve_manual=args.approve_manual,
         approved_jobs=set(args.job or ()),
         write=True,
@@ -1031,14 +1031,23 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument("--write", action="store_true", help="write plan capsule under Shared web bounty storage")
     plan_parser.set_defaults(func=cmd_plan)
 
-    run_parser = subparsers.add_parser("run", help="prepare run capsules and optionally execute approved jobs")
+    run_parser = subparsers.add_parser("run", help="manually invoke the scheduler pipeline for one program")
     run_parser.add_argument("program")
     run_parser.add_argument("--config", required=True)
-    run_parser.add_argument("--execute", action="store_true", help="execute jobs that pass state and safety gates")
+    run_parser.add_argument(
+        "--run",
+        action="store_true",
+        help="execute jobs that pass state, scope, rate, lock, and manual-approval gates",
+    )
+    run_parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="deprecated alias for --run",
+    )
     run_parser.add_argument(
         "--approve-manual",
         action="store_true",
-        help="allow manual_review_required jobs to execute when --execute is also set",
+        help="allow manual_review_required jobs to execute when --run is also set",
     )
     run_parser.add_argument(
         "--job",

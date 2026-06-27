@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import sqlite3
 import sys
@@ -284,6 +286,30 @@ class TestCronOrchestrator(unittest.TestCase):
 
     def test_run_ids_include_unique_suffix(self) -> None:
         self.assertNotEqual(M.execution_run_id(), M.execution_run_id())
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_cli_run_flag_invokes_execution(self) -> None:
+        self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["state"] = "active"
+        self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["command_template"] = [
+            sys.executable,
+            "-c",
+            "print('flag-ok')",
+        ]
+        config_path = self.root / "config.yaml"
+        config_path.write_text(yaml.safe_dump(self.config), encoding="utf-8")
+
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(
+                    M.main(["run", "demo", "--config", str(config_path), "--run"]),
+                    0,
+                )
+
+        manifests = list((self.root / "tools" / "nmap" / "runs").glob("*/manifest.json"))
+        self.assertEqual(len(manifests), 1)
+        manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
+        self.assertEqual(manifest["status"], "completed")
+        self.assertEqual(manifest["execution_decision"], "active_execute_allowed")
 
 
 if __name__ == "__main__":

@@ -176,7 +176,7 @@ def test_start_dry_run_stages_manual_auth_without_leaking_values(capsys) -> None
 
     output = capsys.readouterr().out
     assert "--auth-seed '/home/ryushe/bounties/demo/.auth/recon-ry-auth.json'" in output
-    assert "env RECON_RY_AUTH_SEED='/home/ryushe/bounties/demo/.auth/recon-ry-auth.json'" in output
+    assert "nohup env RECON_RY_AUTH_SEED='/home/ryushe/bounties/demo/.auth/recon-ry-auth.json' RECON_RY_AUTH_HOST='example.com' \"$HOME/bin/recon-ry\"" in output
     assert '"redacted": true' in output
     assert "SECRET_TOKEN" not in output
     assert "SECRET_COOKIE" not in output

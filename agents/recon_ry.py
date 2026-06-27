@@ -288,9 +288,13 @@ def start_remote(args: argparse.Namespace) -> None:
         }
     remote_auth_seed = stage_remote_auth_seed(args, project_dir, auth_seed, auth_summary)
     auth_file_cmds, _ = remote_auth_seed_commands(project_dir, auth_seed, auth_summary, dry_run=True) if args.dry_run else ("", "")
-    auth_env = f"env RECON_RY_AUTH_SEED={shell_quote(remote_auth_seed)} " if remote_auth_seed else ""
     auth_host = host_from_seed_url(args.url)
-    auth_host_env = f"RECON_RY_AUTH_HOST={shell_quote(auth_host)} " if remote_auth_seed and auth_host else ""
+    auth_env_parts = []
+    if remote_auth_seed:
+        auth_env_parts.append(f"RECON_RY_AUTH_SEED={shell_quote(remote_auth_seed)}")
+    if remote_auth_seed and auth_host:
+        auth_env_parts.append(f"RECON_RY_AUTH_HOST={shell_quote(auth_host)}")
+    auth_env = f"env {' '.join(auth_env_parts)} " if auth_env_parts else ""
     auth_arg = f" --auth-seed {shell_quote(remote_auth_seed)}" if remote_auth_seed else ""
     seed_file_cmds = ""
     for filename, body in seed_files.items():
@@ -311,7 +315,7 @@ def start_remote(args: argparse.Namespace) -> None:
         f"{rate_conf}"
         "RECONRY_RATE_LIMIT\n"
         f"log=\"$HOME/recon-ry-logs/{safe_slug(args.program)}-$(date -u +%Y%m%dT%H%M%SZ).log\"; "
-        f"nohup {auth_host_env}{auth_env}\"$HOME/bin/recon-ry\" recon {profile_flag} --project {shell_quote(project_dir)}{url_part}{auth_arg}{verbose} "
+        f"nohup {auth_env}\"$HOME/bin/recon-ry\" recon {profile_flag} --project {shell_quote(project_dir)}{url_part}{auth_arg}{verbose} "
         "> \"$log\" 2>&1 & "
         "printf 'pid=%s\\nlog=%s\\nproject=%s\\nauth=%s\\n' \"$!\" \"$log\" "
         f"{shell_quote(project_dir)} {shell_quote(str(auth_summary.get('status', 'disabled')))}"

@@ -27,6 +27,18 @@ python3 agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profil
 
 The start command fails closed if saved scope is missing or the URL is out of scope. It also writes a project-local `rate_limit.conf` before launch. Use `--rate-limit-rps` only after checking the program policy; use `--allow-unscoped` only after explicit Ryushe approval.
 
+Authenticated runs are opt-in:
+
+```bash
+python3 agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile urls --auth blue
+```
+
+`--auth <alias-or-color>` resolves through `/account-management` and PwnFox
+metadata, stages a locked-down auth seed on Hoster, and only passes auth to
+supported active HTTP tools. Manual `--auth-seed-file`, `--auth-header`, and
+`--cookie` are available for approved one-off testing, but raw values must not
+be pasted into chat or committed. Dry-run output is redacted.
+
 Before launch, the wrapper stages recon seed files into the remote project:
 
 - `/home/ryushe/bounties/{program}/urls.txt`
@@ -129,3 +141,7 @@ Use ingest/indexing for manifests, counts, and small parsed artifacts. Do not co
 - Prefer root project files for current deduped state; prefer `history/{timestamp}/` for run-specific snapshots.
 - Stop before running high-volume recon on a target without explicit scope/rate approval.
 - Never bypass the saved-scope check unless Ryushe explicitly approves the target and rate limit.
+- Auth is never default. It is applied only to active HTTP-capable tools such as
+  Katana, httpx/http_fingerprinting, param_recon's Katana path, ffuf, and nuclei.
+  Passive recon, DNS/IP enrichment, naabu, nmap/service enrichment, dorking, and
+  local filesystem secret scanning remain unauthenticated.

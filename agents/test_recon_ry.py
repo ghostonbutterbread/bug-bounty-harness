@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from types import SimpleNamespace
 from pathlib import Path
 
 from agents import recon_ry
 
 
-def test_ingest_copies_recon_outputs_and_writes_manifest(tmp_path: Path) -> None:
+def test_ingest_copies_recon_outputs_and_writes_manifest(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(recon_ry, "import_url_artifacts", lambda **_: [])
+    monkeypatch.setattr(recon_ry, "summarize_url_index", lambda _program: {})
     source = tmp_path / "source"
     source.mkdir()
     (source / "alive.txt").write_text("https://a.example\nhttps://b.example\n", encoding="utf-8")
@@ -70,6 +73,133 @@ def test_start_dry_run_uses_hoster_wrapper(capsys) -> None:
     assert "urls.txt" in output
     assert "wild.txt" in output
     assert "export PATH='$HOME/go/bin:$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/bin:/bin':\"$PATH\"" in output
+
+
+def test_start_dry_run_stages_manual_auth_without_leaking_values(capsys) -> None:
+    parser = recon_ry.build_parser()
+    args = parser.parse_args(
+        [
+            "start",
+            "demo",
+            "--url",
+            "https://example.com",
+            "--profile",
+            "urls",
+            "--dry-run",
+            "--allow-unscoped",
+            "--auth-header",
+            "Authorization: Bearer SECRET_TOKEN",
+            "--cookie",
+            "sid=SECRET_COOKIE",
+        ]
+    )
+
+    recon_ry.start_remote(args)
+
+    output = capsys.readouterr().out
+    assert "--auth-seed '/home/ryushe/bounties/demo/.auth/recon-ry-auth.json'" in output
+    assert "env RECON_RY_AUTH_SEED='/home/ryushe/bounties/demo/.auth/recon-ry-auth.json'" in output
+    assert '"redacted": true' in output
+    assert "SECRET_TOKEN" not in output
+    assert "SECRET_COOKIE" not in output
+
+
+def test_start_dry_run_auth_limits_seed_files_to_requested_target(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        recon_ry,
+        "build_remote_seed_files",
+        lambda *_args, **_kwargs: {
+            "urls.txt": "https://example.com\nhttps://api.example.com\n",
+            "wild.txt": "example.com\n",
+        },
+    )
+    parser = recon_ry.build_parser()
+    args = parser.parse_args(
+        [
+            "start",
+            "demo",
+            "--url",
+            "https://example.com",
+            "--profile",
+            "urls",
+            "--dry-run",
+            "--allow-unscoped",
+            "--auth-header",
+            "Authorization: Bearer SECRET_TOKEN",
+        ]
+    )
+
+    recon_ry.start_remote(args)
+
+    output = capsys.readouterr().out
+    assert "https://example.com" in output
+    assert "https://api.example.com" not in output
+    assert "cat > '/home/ryushe/bounties/demo/wild.txt'" in output
+    assert "'RECONRY_WILD_TXT'\nRECONRY_WILD_TXT" in output
+
+
+def test_start_dry_run_uses_explicit_auth_seed_metadata_only(tmp_path: Path, capsys) -> None:
+    seed = tmp_path / "auth.json"
+    seed.write_text(
+        json.dumps(
+            {
+                "account_label": "blue",
+                "session_source": "test",
+                "cookies": [{"name": "sid", "value": "SECRET_COOKIE", "url": "https://example.com"}],
+                "headers": {"Authorization": "Bearer SECRET_TOKEN"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    seed.chmod(0o600)
+    parser = recon_ry.build_parser()
+    args = parser.parse_args(
+        [
+            "start",
+            "demo",
+            "--url",
+            "https://example.com",
+            "--profile",
+            "urls",
+            "--dry-run",
+            "--allow-unscoped",
+            "--auth-seed-file",
+            str(seed),
+        ]
+    )
+
+    recon_ry.start_remote(args)
+
+    output = capsys.readouterr().out
+    assert '"cookie_count": 1' in output
+    assert "Authorization" in output
+    assert "SECRET_TOKEN" not in output
+    assert "SECRET_COOKIE" not in output
+
+
+def test_live_auth_staging_uses_stdin_not_ssh_argv(monkeypatch) -> None:
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(recon_ry.subprocess, "run", fake_run)
+    args = SimpleNamespace(remote="ryushe@hoster", ssh_key="/tmp/key", dry_run=False)
+    seed = {
+        "headers": {"Authorization": "Bearer SECRET_TOKEN"},
+        "cookies": [{"name": "sid", "value": "SECRET_COOKIE", "url": "https://example.com"}],
+    }
+
+    path = recon_ry.stage_remote_auth_seed(args, "/home/ryushe/bounties/demo", seed, {"status": "enabled"})
+
+    assert path == "/home/ryushe/bounties/demo/.auth/recon-ry-auth.json"
+    assert calls
+    command, kwargs = calls[0]
+    assert "SECRET_TOKEN" not in " ".join(command)
+    assert "SECRET_COOKIE" not in " ".join(command)
+    assert "SECRET_TOKEN" in kwargs["input"]
+    assert "SECRET_COOKIE" in kwargs["input"]
 
 
 def test_build_remote_seed_files_uses_saved_scope(monkeypatch) -> None:

@@ -12,6 +12,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import urlparse
 
 _AGENT_DIR = Path(__file__).resolve().parent
 if str(_AGENT_DIR) not in sys.path:
@@ -43,6 +44,7 @@ TOP_LEVEL_ARTIFACTS = (
     "rate_limit.conf",
 )
 DIR_ARTIFACTS = ("dirs_status", "history", "eyewitness")
+AUTH_RESOLVER = Path(__file__).resolve().parents[1] / "skills" / "account-management" / "scripts" / "auth_resolver.py"
 
 
 def safe_slug(value: str, *, default: str = "target") -> str:
@@ -115,9 +117,13 @@ def fetch_remote_source(source: str, destination: Path, ssh_key: Path | None = N
     ssh_key_args = ["-i", str(ssh_key)] if ssh_key else []
     if shutil.which("rsync"):
         ssh = "ssh " + " ".join(ssh_key_args) if ssh_key_args else "ssh"
-        subprocess.run(["rsync", "-a", "-e", ssh, source.rstrip("/") + "/", str(destination) + "/"], check=True)
+        subprocess.run(
+            ["rsync", "-a", "--exclude", ".auth/", "-e", ssh, source.rstrip("/") + "/", str(destination) + "/"],
+            check=True,
+        )
         return
     subprocess.run(["scp", "-r", *ssh_key_args, source.rstrip("/"), str(destination)], check=True)
+    shutil.rmtree(destination / ".auth", ignore_errors=True)
 
 
 def ingest(args: argparse.Namespace) -> Path:
@@ -272,6 +278,18 @@ def start_remote(args: argparse.Namespace) -> None:
     verbose = " -vv" if args.very_verbose else " -v"
     rate_conf = rate_limit_conf_body(args.rate_limit_rps, args.timeout)
     seed_files = build_remote_seed_files(args.program, args.url, allow_unscoped=args.allow_unscoped)
+    auth_seed, auth_summary = resolve_auth_seed(args)
+    if auth_seed:
+        seed_files = {
+            "urls.txt": args.url.strip() + "\n",
+            "wild.txt": "",
+        }
+    remote_auth_seed = stage_remote_auth_seed(args, project_dir, auth_seed, auth_summary)
+    auth_file_cmds, _ = remote_auth_seed_commands(project_dir, auth_seed, auth_summary, dry_run=True) if args.dry_run else ("", "")
+    auth_env = f"env RECON_RY_AUTH_SEED={shell_quote(remote_auth_seed)} " if remote_auth_seed else ""
+    auth_host = host_from_seed_url(args.url)
+    auth_host_env = f"RECON_RY_AUTH_HOST={shell_quote(auth_host)} " if remote_auth_seed and auth_host else ""
+    auth_arg = f" --auth-seed {shell_quote(remote_auth_seed)}" if remote_auth_seed else ""
     seed_file_cmds = ""
     for filename, body in seed_files.items():
         marker = f"RECONRY_{filename.upper().replace('.', '_')}"
@@ -286,14 +304,15 @@ def start_remote(args: argparse.Namespace) -> None:
         "mkdir -p \"$HOME/bounties\" \"$HOME/recon-ry-logs\"; "
         f"mkdir -p {shell_quote(project_dir)}; "
         f"{seed_file_cmds}"
+        f"{auth_file_cmds}"
         f"cat > {shell_quote(project_dir + '/rate_limit.conf')} <<'RECONRY_RATE_LIMIT'\n"
         f"{rate_conf}"
         "RECONRY_RATE_LIMIT\n"
         f"log=\"$HOME/recon-ry-logs/{safe_slug(args.program)}-$(date -u +%Y%m%dT%H%M%SZ).log\"; "
-        f"nohup \"$HOME/bin/recon-ry\" recon {profile_flag} --project {shell_quote(project_dir)}{url_part}{verbose} "
+        f"nohup {auth_host_env}{auth_env}\"$HOME/bin/recon-ry\" recon {profile_flag} --project {shell_quote(project_dir)}{url_part}{auth_arg}{verbose} "
         "> \"$log\" 2>&1 & "
-        "printf 'pid=%s\\nlog=%s\\nproject=%s\\n' \"$!\" \"$log\" "
-        f"{shell_quote(project_dir)}"
+        "printf 'pid=%s\\nlog=%s\\nproject=%s\\nauth=%s\\n' \"$!\" \"$log\" "
+        f"{shell_quote(project_dir)} {shell_quote(str(auth_summary.get('status', 'disabled')))}"
     )
     if args.dry_run:
         print(remote_cmd)
@@ -316,6 +335,148 @@ def shell_quote(value: str) -> str:
     return "'" + str(value).replace("'", "'\"'\"'") + "'"
 
 
+def parse_cookie_header(header: str, target_url: str) -> list[dict[str, str | bool]]:
+    cookies: list[dict[str, str | bool]] = []
+    for chunk in re.split(r";\s*", header.strip()):
+        if not chunk or "=" not in chunk:
+            continue
+        name, value = chunk.split("=", 1)
+        name = name.strip()
+        if not name:
+            continue
+        cookies.append({"name": name, "value": value.strip(), "url": target_url, "path": "/", "secure": True})
+    return cookies
+
+
+def host_from_seed_url(value: str) -> str:
+    parsed = urlparse(value if "://" in value else f"https://{value}")
+    return (parsed.hostname or "").lower()
+
+
+def load_owner_only_json(path: Path) -> dict:
+    mode = path.stat().st_mode & 0o777
+    if mode & 0o077:
+        raise SystemExit(f"Auth seed must be owner-only: {path} mode={oct(mode)}")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise SystemExit(f"Auth seed must be a JSON object: {path}")
+    return data
+
+
+def auth_seed_summary(seed: dict, *, source: str, selector: str | None = None) -> dict[str, object]:
+    headers = seed.get("headers") if isinstance(seed.get("headers"), dict) else {}
+    cookies = seed.get("cookies") if isinstance(seed.get("cookies"), list) else []
+    return {
+        "status": "enabled",
+        "source": source,
+        "selector": selector,
+        "account_label": seed.get("account_label"),
+        "pwnfox_color": seed.get("pwnfox_color"),
+        "session_source": seed.get("session_source"),
+        "cookie_count": len(cookies),
+        "header_names": sorted(str(key) for key in headers.keys()),
+    }
+
+
+def resolve_auth_seed(args: argparse.Namespace) -> tuple[dict | None, dict[str, object]]:
+    sources = [bool(args.auth), bool(args.auth_seed_file), bool(args.auth_header), bool(args.cookie)]
+    if sum(1 for enabled in sources if enabled) == 0:
+        return None, {"status": "disabled"}
+    if args.auth and (args.auth_seed_file or args.auth_header or args.cookie):
+        raise SystemExit("--auth cannot be combined with --auth-seed-file, --auth-header, or --cookie")
+    if args.auth_seed_file and (args.auth_header or args.cookie):
+        raise SystemExit("--auth-seed-file cannot be combined with --auth-header or --cookie")
+
+    if args.auth:
+        command = [
+            sys.executable,
+            str(AUTH_RESOLVER),
+            "resolve",
+            "--program",
+            args.program,
+            "--account",
+            args.auth,
+            "--target-url",
+            args.url,
+        ]
+        if not args.dry_run:
+            command.append("--refresh")
+        proc = subprocess.run(command, text=True, capture_output=True, check=False)
+        if proc.returncode != 0:
+            raise SystemExit(f"auth resolver failed: {proc.stderr.strip()[-500:]}")
+        try:
+            resolved = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            raise SystemExit("auth resolver returned invalid JSON") from exc
+        seed_info = resolved.get("auth_seed") if isinstance(resolved.get("auth_seed"), dict) else {}
+        seed_path = seed_info.get("path")
+        if resolved.get("status") != "ready" or not seed_path:
+            raise SystemExit(f"auth resolver did not return a ready auth seed: {resolved.get('status')}")
+        seed = load_owner_only_json(Path(str(seed_path)).expanduser())
+        return seed, auth_seed_summary(seed, source="resolver", selector=args.auth)
+
+    if args.auth_seed_file:
+        seed = load_owner_only_json(Path(args.auth_seed_file).expanduser())
+        return seed, auth_seed_summary(seed, source="auth-seed-file")
+
+    seed = {
+        "program": args.program,
+        "account_label": "manual-cli",
+        "session_source": "manual-cli",
+        "headers": {},
+        "cookies": [],
+    }
+    if args.auth_header:
+        for header in args.auth_header:
+            if ":" not in header:
+                raise SystemExit("--auth-header must use 'Name: value' format")
+            name, value = header.split(":", 1)
+            seed["headers"][name.strip()] = value.strip()
+    if args.cookie:
+        for cookie in args.cookie:
+            seed["cookies"].extend(parse_cookie_header(cookie, args.url))
+    return seed, auth_seed_summary(seed, source="manual-cli")
+
+
+def remote_auth_seed_commands(project_dir: str, seed: dict | None, summary: dict[str, object], *, dry_run: bool) -> tuple[str, str]:
+    if not seed:
+        return "", ""
+    auth_dir = f"{project_dir}/.auth"
+    auth_path = f"{auth_dir}/recon-ry-auth.json"
+    marker = "RECONRY_AUTH_SEED"
+    body = json.dumps(seed, indent=2, sort_keys=True) + "\n"
+    if dry_run:
+        body = json.dumps({"redacted": True, "summary": summary}, indent=2, sort_keys=True) + "\n"
+    commands = (
+        f"umask 077; mkdir -p {shell_quote(auth_dir)}; "
+        f"cat > {shell_quote(auth_path)} <<'{marker}'\n"
+        f"{body}"
+        f"{marker}\n"
+        f"chmod 600 {shell_quote(auth_path)}; "
+    )
+    return commands, auth_path
+
+
+def stage_remote_auth_seed(args: argparse.Namespace, project_dir: str, seed: dict | None, summary: dict[str, object]) -> str:
+    if not seed:
+        return ""
+    auth_dir = f"{project_dir}/.auth"
+    auth_path = f"{auth_dir}/recon-ry-auth.json"
+    if args.dry_run:
+        return auth_path
+    command = (
+        f"umask 077; mkdir -p {shell_quote(auth_dir)}; "
+        f"cat > {shell_quote(auth_path)}; chmod 600 {shell_quote(auth_path)}"
+    )
+    subprocess.run(
+        ssh_command(args.remote, Path(args.ssh_key).expanduser() if args.ssh_key else None, command),
+        input=json.dumps(seed, indent=2, sort_keys=True) + "\n",
+        text=True,
+        check=True,
+    )
+    return auth_path
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run or ingest recon-ry artifacts.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -330,6 +491,10 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--rate-limit-rps", type=float, default=2.0, help="Project-local recon-ry rate limit written before start.")
     start_parser.add_argument("--timeout", type=int, default=300, help="Per-tool timeout written to rate_limit.conf.")
     start_parser.add_argument("--allow-unscoped", action="store_true", help="Bypass saved-scope fail-closed check after explicit approval.")
+    start_parser.add_argument("--auth", help="Resolve an owned account alias or PwnFox color through account-management, such as blue.")
+    start_parser.add_argument("--auth-seed-file", help="Use an explicit locked-down auth seed JSON file.")
+    start_parser.add_argument("--auth-header", action="append", help="Manual header for supported HTTP tools; repeatable. Redacted from dry-run output.")
+    start_parser.add_argument("--cookie", action="append", help="Manual Cookie header value for supported HTTP tools; repeatable. Redacted from dry-run output.")
     start_parser.add_argument("--very-verbose", action="store_true")
     start_parser.add_argument("--dry-run", action="store_true")
     start_parser.set_defaults(func=start_remote)

@@ -47,6 +47,84 @@ def test_ingest_copies_recon_outputs_and_writes_manifest(tmp_path: Path, monkeyp
     assert (manifest_path.parent / "raw" / "dirs_status" / "200.txt").exists()
 
 
+def test_remote_ingest_uses_unique_fetch_dir_and_cleans_on_failure(tmp_path: Path, monkeypatch) -> None:
+    fetched_dirs: list[Path] = []
+
+    def fake_fetch(_source: str, destination: Path, _ssh_key: Path | None = None) -> None:
+        fetched_dirs.append(destination)
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / ".auth").mkdir()
+        (destination / ".auth" / "recon-ry-auth.json").write_text("secret", encoding="utf-8")
+        (destination / "alive.txt").write_text("https://a.example\n", encoding="utf-8")
+
+    def fail_import(**_kwargs):
+        raise RuntimeError("import failed")
+
+    monkeypatch.setattr(recon_ry, "fetch_remote_source", fake_fetch)
+    monkeypatch.setattr(recon_ry, "import_url_artifacts", fail_import)
+    monkeypatch.setattr(recon_ry, "summarize_url_index", lambda _program: {})
+    args = recon_ry.build_parser().parse_args(
+        [
+            "ingest",
+            "demo",
+            "--source",
+            "ryushe@hoster:/home/ryushe/bounties/demo",
+            "--target",
+            "app.example",
+            "--root",
+            str(tmp_path / "shared"),
+            "--work-dir",
+            str(tmp_path / "fetch-work"),
+        ]
+    )
+
+    try:
+        recon_ry.ingest(args)
+    except RuntimeError as exc:
+        assert "import failed" in str(exc)
+    else:
+        raise AssertionError("expected import failure")
+
+    assert len(fetched_dirs) == 1
+    assert fetched_dirs[0].name.startswith("recon_ry_fetch_demo_")
+    assert not fetched_dirs[0].exists()
+
+
+def test_remote_ingest_keep_fetched_uses_per_run_dirs(tmp_path: Path, monkeypatch) -> None:
+    fetched_dirs: list[Path] = []
+
+    def fake_fetch(_source: str, destination: Path, _ssh_key: Path | None = None) -> None:
+        fetched_dirs.append(destination)
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "alive.txt").write_text("https://a.example\n", encoding="utf-8")
+
+    monkeypatch.setattr(recon_ry, "fetch_remote_source", fake_fetch)
+    monkeypatch.setattr(recon_ry, "import_url_artifacts", lambda **_kwargs: [])
+    monkeypatch.setattr(recon_ry, "summarize_url_index", lambda _program: {})
+
+    for _ in range(2):
+        args = recon_ry.build_parser().parse_args(
+            [
+                "ingest",
+                "demo",
+                "--source",
+                "ryushe@hoster:/home/ryushe/bounties/demo",
+                "--target",
+                "app.example",
+                "--root",
+                str(tmp_path / "shared"),
+                "--work-dir",
+                str(tmp_path / "fetch-work"),
+                "--keep-fetched",
+            ]
+        )
+        recon_ry.ingest(args)
+
+    assert len(fetched_dirs) == 2
+    assert fetched_dirs[0] != fetched_dirs[1]
+    assert all(path.exists() for path in fetched_dirs)
+
+
 def test_start_dry_run_uses_hoster_wrapper(capsys) -> None:
     parser = recon_ry.build_parser()
     args = parser.parse_args(

@@ -180,6 +180,28 @@ def parse_hackerone_scope(html_content: str) -> dict:
     return {"domains": domains, "urls": urls}
 
 
+def add_bugcrowd_target_to_scope(domains: set[str], urls: set[str], *, name: str, uri: str) -> None:
+    """Normalize a Bugcrowd target into scope sets without losing wildcard semantics."""
+    value = uri or name
+    if not value:
+        return
+
+    if value.startswith("http"):
+        host = urlparse(value).netloc
+        if "*" in host:
+            domains.add(host)
+        else:
+            urls.add(value)
+            # Bugcrowd sometimes uses a wildcard name with a root URI.
+            # Preserve the wildcard target so scope validation can match subdomains.
+            if name.startswith("*."):
+                domains.add(name)
+        return
+
+    if "." in value and " " not in value:
+        domains.add(value)
+
+
 def parse_bugcrowd_public_engagement(program: str, html_content: str) -> dict:
     """Parse Bugcrowd's public /engagements/<slug> page and brief JSON."""
     api_endpoints = extract_json_attr(html_content, "data-api-endpoints") or {}
@@ -227,15 +249,7 @@ def parse_bugcrowd_public_engagement(program: str, html_content: str) -> dict:
             if not group.get("inScope"):
                 out_of_scope.append(target_entry)
                 continue
-            value = uri or name
-            if value.startswith("http"):
-                host = urlparse(value).netloc
-                if "*" in host:
-                    domains.add(host)
-                else:
-                    urls.add(value)
-            elif "." in value and " " not in value:
-                domains.add(value)
+            add_bugcrowd_target_to_scope(domains, urls, name=name, uri=uri)
         assets.append(group_entry)
 
     rules_text = "\n\n".join(

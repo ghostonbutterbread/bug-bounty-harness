@@ -6,6 +6,7 @@
 #
 # Options:
 #   --init          Initialize directories and sync skills
+#   --install-tools Install local helper commands and tool dependencies
 #   --sync          Sync skills to Claude Code and Codex
 #   --prompt        Display agent prompt (use --prompt --program NAME for custom)
 #   --config        Show current config
@@ -18,9 +19,12 @@
 #   CLAUDE_SKILLS_DIR      - Claude Code skills directory
 #   CODEX_SKILLS_DIR       - Codex skills directory
 #   GHOST_SKILLS_DIR       - Ghost/OpenClaw workspace skills directory
+#   LOCAL_BIN_DIR          - User-local command directory
+#   RECON_RY_HOME          - recon-ry checkout used by EyeWitness wrapper
 #
 # Examples:
 #   ./setup.sh --init                    # Full setup
+#   ./setup.sh --install-tools          # Install helper commands/deps
 #   ./setup.sh --sync                   # Just sync skills
 #   ./setup.sh --prompt --program xss-lab # Show agent prompt for program
 #   HARNESS_ROOT=/custom/path ./setup.sh --sync  # Override with env var
@@ -62,6 +66,8 @@ load_config() {
     : "${CLAUDE_SKILLS_DIR:=${HOME}/.claude/skills}"
     : "${CODEX_SKILLS_DIR:=${HOME}/.agents/skills}"
     : "${GHOST_SKILLS_DIR:=${HOME}/.openclaw/workspace/skills}"
+    : "${LOCAL_BIN_DIR:=${HOME}/.local/bin}"
+    : "${RECON_RY_HOME:=${HOME}/tools/recon-ry}"
 }
 
 # =============================================================================
@@ -130,6 +136,100 @@ sync_skills() {
 }
 
 # =============================================================================
+# Install local helper commands and tool dependencies
+# =============================================================================
+
+install_eyewitness_incremental() {
+    echo "Installing EyeWitness incremental helper..."
+
+    if [ ! -x "$RECON_RY_HOME/main.sh" ]; then
+        echo "  Error: recon-ry not found at $RECON_RY_HOME"
+        echo "  Set RECON_RY_HOME=/path/to/recon-ry and rerun ./setup.sh --install-tools"
+        return 1
+    fi
+
+    mkdir -p "$LOCAL_BIN_DIR"
+
+    local launcher="$LOCAL_BIN_DIR/eyewitness-incremental"
+    cat > "$launcher" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+RECON_RY_HOME="\${RECON_RY_HOME:-$RECON_RY_HOME}"
+
+exec "\$RECON_RY_HOME/main.sh" eye_chunks \\
+  --eyewitness "\$RECON_RY_HOME/tools/EyeWitness/Python/EyeWitness.py" \\
+  --python "\$RECON_RY_HOME/tools/EyeWitness/eyewitness-venv/bin/python" \\
+  "\$@"
+EOF
+    chmod +x "$launcher"
+    echo "  ✓ $launcher"
+
+    local eyewitness_dir="$RECON_RY_HOME/tools/EyeWitness"
+    if [ ! -f "$eyewitness_dir/Python/EyeWitness.py" ]; then
+        echo "  Installing native EyeWitness under recon-ry..."
+        mkdir -p "$RECON_RY_HOME/tools"
+        if [ -e "$eyewitness_dir" ] && [ ! -d "$eyewitness_dir/.git" ]; then
+            echo "  Error: $eyewitness_dir exists but is not a git checkout"
+            return 1
+        fi
+        git clone https://github.com/RedSiege/EyeWitness.git "$eyewitness_dir"
+    else
+        echo "  - native EyeWitness exists"
+    fi
+
+    local venv_dir="$eyewitness_dir/eyewitness-venv"
+    local venv_python="$venv_dir/bin/python"
+    if [ ! -x "$venv_python" ] || ! "$venv_python" -m pip --version >/dev/null 2>&1; then
+        echo "  Creating or repairing EyeWitness Python venv..."
+        if ! python3 -m venv --clear "$venv_dir" || ! "$venv_python" -m pip --version >/dev/null 2>&1; then
+            install_python_venv_dependency
+            python3 -m venv --clear "$venv_dir"
+        fi
+    fi
+
+    if ! "$venv_python" -c "import selenium" >/dev/null 2>&1; then
+        echo "  Installing EyeWitness Python requirements..."
+        "$venv_python" -m pip install --upgrade pip
+        "$venv_python" -m pip install -r "$eyewitness_dir/setup/requirements.txt"
+    else
+        echo "  - EyeWitness Python requirements exist"
+    fi
+
+    "$venv_python" -c "import selenium; print('  ✓ selenium', selenium.__version__)"
+
+    if command -v chromium >/dev/null 2>&1 || command -v chromium-browser >/dev/null 2>&1 || command -v google-chrome >/dev/null 2>&1; then
+        echo "  ✓ Chromium/Chrome found"
+    else
+        echo "  ! Chromium/Chrome was not found in PATH; EyeWitness may rely on Selenium Manager or need a browser install"
+    fi
+
+    echo ""
+}
+
+install_python_venv_dependency() {
+    if ! command -v apt-get >/dev/null 2>&1; then
+        echo "  Error: python3 venv support is missing and this system does not use apt-get"
+        return 1
+    fi
+    if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true 2>/dev/null; then
+        echo "  Error: python3 venv support is missing and passwordless sudo is unavailable"
+        echo "  Install python3-venv or python$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')-venv, then rerun ./setup.sh --install-tools"
+        return 1
+    fi
+
+    local py_version
+    py_version="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+    echo "  Installing python${py_version}-venv with apt..."
+    sudo apt-get update
+    sudo apt-get install -y "python${py_version}-venv" || sudo apt-get install -y python3-venv
+}
+
+install_tools() {
+    install_eyewitness_incremental
+}
+
+# =============================================================================
 # Show config
 # =============================================================================
 
@@ -148,6 +248,8 @@ show_config() {
     echo "  CLAUDE_SKILLS_DIR:   $CLAUDE_SKILLS_DIR"
     echo "  CODEX_SKILLS_DIR:    $CODEX_SKILLS_DIR"
     echo "  GHOST_SKILLS_DIR:    $GHOST_SKILLS_DIR"
+    echo "  LOCAL_BIN_DIR:       $LOCAL_BIN_DIR"
+    echo "  RECON_RY_HOME:       $RECON_RY_HOME"
     echo ""
     echo "OS: $(detect_os)"
     echo ""
@@ -188,6 +290,7 @@ show_prompt() {
 
 init() {
     create_directories
+    install_tools
     sync_skills
     
     echo "========================================"
@@ -228,6 +331,9 @@ main() {
             ;;
         --sync|-s)
             sync_skills
+            ;;
+        --install-tools|--tools)
+            install_tools
             ;;
         --config|-c)
             show_config

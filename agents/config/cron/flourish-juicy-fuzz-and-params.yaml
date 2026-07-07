@@ -265,7 +265,6 @@ programs:
         wordlists:
           strategy: catalog_smart_target_mapping
           compose_temporary: true
-          max_source_files: 5
           catalog_roots:
             - /usr/share/wordlists
             - /home/ryushe/wordlists

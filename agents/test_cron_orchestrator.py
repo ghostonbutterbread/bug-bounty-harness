@@ -284,6 +284,20 @@ class TestCronOrchestrator(unittest.TestCase):
         self.assertIn(str(composed), command)
 
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_run_blocks_when_program_cron_lock_is_already_held(self) -> None:
+        shared = self.root / "shared"
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", shared):
+            with M.cron_run_lock("demo"):
+                payload = M.run(self.config, "demo", execute=True, approve_manual=True)
+
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["block_reason"], "cron_run_lock_already_held")
+        self.assertIsNone(payload["run_lock_path"])
+        self.assertTrue(payload["jobs"])
+        self.assertTrue(all(job["execution_status"] == "blocked" for job in payload["jobs"]))
+        self.assertTrue(all(job["block_reason"] == "cron_run_lock_already_held" for job in payload["jobs"]))
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
     def test_run_execute_requires_active_or_manual_approval(self) -> None:
         self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["state"] = "active"
         self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["command_template"] = [

@@ -931,6 +931,23 @@ def job_lock(program: str, job: dict[str, Any]):
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+@contextlib.contextmanager
+def cron_run_lock(program: str):
+    locks_dir = DEFAULT_ARTIFACT_ROOT / program / "web" / "recon" / "cron" / ".locks"
+    locks_dir.mkdir(parents=True, exist_ok=True)
+    path = locks_dir / "orchestrator.lock"
+    with path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        handle.seek(0)
+        handle.truncate()
+        handle.write(json.dumps({"pid": os.getpid(), "program": program, "locked_at": utc_now()}) + "\n")
+        handle.flush()
+        try:
+            yield str(path)
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def _wordlist_size(manifest: dict[str, Any]) -> int:
     """Extract the expected request count.
 
@@ -1171,26 +1188,41 @@ def run(
     rate_limit = defaults.get("rate_limit") if isinstance(defaults.get("rate_limit"), dict) else {}
     timeout_seconds = _compute_timeout(rate_limit, payload, program_cfg)
     parent_block = parent_state_reason(data, program, program_cfg)
-    results = [
-        execute_job(
-            program,
-            job,
-            run_id_value,
-            execute=execute,
-            approve_manual=approve_manual,
-            approved_jobs=approved_jobs,
-            parent_block_reason=parent_block,
-            timeout_seconds=timeout_seconds,
-        )
-        for job in payload["jobs"]
-    ]
+    try:
+        with cron_run_lock(program) as run_lock_path:
+            results = [
+                execute_job(
+                    program,
+                    job,
+                    run_id_value,
+                    execute=execute,
+                    approve_manual=approve_manual,
+                    approved_jobs=approved_jobs,
+                    parent_block_reason=parent_block,
+                    timeout_seconds=timeout_seconds,
+                )
+                for job in payload["jobs"]
+            ]
+    except BlockingIOError:
+        run_lock_path = None
+        results = []
+        for job in payload["jobs"]:
+            result = dict(job)
+            result["execution_status"] = "blocked"
+            result["execution_decision"] = "cron_run_lock_already_held"
+            result["block_reason"] = "cron_run_lock_already_held"
+            results.append(result)
     payload.update(
         {
             "run_id": run_id_value,
             "mode": "execute" if execute else "prepare-only",
+            "run_lock_path": run_lock_path,
             "jobs": results,
         }
     )
+    if run_lock_path is None:
+        payload["status"] = "blocked"
+        payload["block_reason"] = "cron_run_lock_already_held"
     if write:
         write_plan(program, payload)
     return payload

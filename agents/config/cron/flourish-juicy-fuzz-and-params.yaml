@@ -135,6 +135,7 @@ programs:
         - ~/Shared/web_bounty/flourish/web/recon/url_index/url_index.sqlite
         - ~/Shared/web_bounty/flourish/web/recon/aggregated/
         - ~/Shared/web_bounty/flourish/web/recon/map/
+        - ~/Shared/web_bounty/flourish/web/recon/maps/map.jsonl
         - ~/Shared/web_bounty/flourish/web/recon/services/
         - ~/Shared/web_bounty/flourish/web/recon/fuzz_history/fuzz_runs.jsonl
       ranking_signals:
@@ -273,6 +274,8 @@ programs:
           tech_sources:
             - ~/Shared/web_bounty/flourish/web/recon/recon-ry/flourish-auth-full-20260627/runs/2026-06-27/20260627T231208Z_18f8f690/raw/history/6-27-2026/.baseline/httpx.jsonl
             - ~/Shared/web_bounty/flourish/web/recon/recon-ry/flourish-auth-test-20260627/runs/2026-06-27/20260627T200550Z_6bcc3188/raw/history/6-27-2026/.baseline/httpx.jsonl
+            - ~/Shared/web_bounty/flourish/web/recon/maps/map.jsonl
+            - ~/Shared/bounty_recon/flourish/ghost/headers/cors-blue-20260701/summary.sanitized.json
           tech_wordlists:
             api:
               - /usr/share/wordlists/SecLists/Discovery/Web-Content/common-api-endpoints-mazen160.txt

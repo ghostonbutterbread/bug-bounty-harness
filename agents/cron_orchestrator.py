@@ -13,6 +13,7 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -192,7 +193,7 @@ def candidate_from_url(
     return TargetCandidate(key=f"{key_prefix}_{digest}", base_url=base_url, host=host, source=source)
 
 
-def read_lines(path: Path, *, limit: int = 5000) -> list[str]:
+def read_lines(path: Path, *, limit: int | None = None) -> list[str]:
     if not path.is_file():
         return []
     rows: list[str] = []
@@ -202,7 +203,7 @@ def read_lines(path: Path, *, limit: int = 5000) -> list[str]:
             if not value or value.startswith("#"):
                 continue
             rows.append(value)
-            if len(rows) >= limit:
+            if limit is not None and len(rows) >= limit:
                 break
     return rows
 
@@ -291,13 +292,18 @@ def scope_filter_candidates(
     ]
 
 
-def urls_from_url_ingest(path: Path, *, limit: int = 5000) -> list[str]:
+def urls_from_url_ingest(path: Path, *, limit: int | None = None) -> list[str]:
     try:
         with sqlite3.connect(path) as conn:
-            rows = conn.execute(
-                "SELECT url FROM urls ORDER BY id DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            if limit is None:
+                rows = conn.execute(
+                    "SELECT url FROM urls ORDER BY id DESC"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT url FROM urls ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
         return [str(row[0]) for row in rows if row and row[0]]
     except sqlite3.Error:
         return []
@@ -689,6 +695,8 @@ def command_has_unresolved_placeholders(command: list[str]) -> bool:
 def render_command(command: list[str], run_root: Path, run_id_value: str) -> list[str]:
     context = {
         "run-root": str(run_root),
+        "ffuf-run-root": str(run_root),
+        "arjun-run-root": str(run_root),
         "YYYY-MM-DD": today_utc(),
         "run-id": run_id_value,
     }
@@ -705,6 +713,55 @@ def shlex_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
+def _target_wordlist_fallback(job: dict[str, Any]) -> list[str]:
+    target = job.get("target") if isinstance(job.get("target"), dict) else {}
+    host = str(target.get("host") or "")
+    parsed = urlparse(str(target.get("base_url") or ""))
+    candidates = ["api", "admin", "assets", "static", "login"]
+    candidates.extend(part for part in host.split(".") if part and part not in {"www", "com", "net", "org"})
+    candidates.extend(part for part in parsed.path.strip("/").split("/") if part)
+    return list(dict.fromkeys(candidates))
+
+
+def materialize_fuzz_wordlist(job: dict[str, Any], root: Path) -> dict[str, Any]:
+    wordlists = job.get("wordlists") if isinstance(job.get("wordlists"), dict) else {}
+    batch_dir = root / "_batches"
+    batch_dir.mkdir(parents=True, exist_ok=True)
+    composed = batch_dir / "composed-wordlist.txt"
+    seen: set[str] = set()
+    candidates: list[str] = []
+    sources: list[dict[str, Any]] = []
+    missing: list[str] = []
+
+    for raw_path in wordlists.get("include") or ():
+        path = expand_path(str(raw_path))
+        if not path.is_file():
+            missing.append(str(path))
+            continue
+        before = len(candidates)
+        for value in read_lines(path):
+            if value not in seen:
+                seen.add(value)
+                candidates.append(value)
+        sources.append({"path": str(path), "candidates_added": len(candidates) - before})
+
+    if not candidates:
+        for value in _target_wordlist_fallback(job):
+            if value not in seen:
+                seen.add(value)
+                candidates.append(value)
+        sources.append({"path": "target-derived-fallback", "candidates_added": len(candidates)})
+
+    composed.write_text("\n".join(candidates) + ("\n" if candidates else ""), encoding="utf-8")
+    return {
+        "path": str(composed),
+        "candidate_count": len(candidates),
+        "source_count": len(sources),
+        "sources": sources,
+        "missing": missing,
+    }
+
+
 def prepare_job_capsule(program: str, job: dict[str, Any], run_id_value: str) -> dict[str, Any]:
     root = job_output_root(program, job, run_id_value)
     raw = root / "raw"
@@ -714,7 +771,19 @@ def prepare_job_capsule(program: str, job: dict[str, Any], run_id_value: str) ->
     for path in (raw, parsed, normalized, logs):
         path.mkdir(parents=True, exist_ok=True)
 
-    command = render_command([str(part) for part in job.get("command") or ()], root, run_id_value)
+    materialized_inputs: dict[str, Any] = {}
+    command_parts = [str(part) for part in job.get("command") or ()]
+    if job.get("job") == "juicy_target_fuzz":
+        wordlist = materialize_fuzz_wordlist(job, root)
+        materialized_inputs["wordlist"] = wordlist
+        command_parts = [
+            str(part)
+            .replace("<composed-wordlist>", wordlist["path"])
+            .replace("<dry-run-composed-wordlist>", wordlist["path"])
+            for part in command_parts
+        ]
+
+    command = render_command(command_parts, root, run_id_value)
     (root / "command.txt").write_text(command_text(command) + "\n", encoding="utf-8")
     manifest = {
         "run_id": run_id_value,
@@ -737,6 +806,8 @@ def prepare_job_capsule(program: str, job: dict[str, Any], run_id_value: str) ->
         "finished_at": None,
         "exit_code": None,
     }
+    if materialized_inputs:
+        manifest["materialized_inputs"] = materialized_inputs
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (root / "summary.md").write_text(
         "\n".join(
@@ -773,6 +844,25 @@ def parent_state_reason(data: dict[str, Any], program: str, program_cfg: dict[st
     return None
 
 
+def _target_in_scope(program: str, host: str) -> bool:
+    """Check whether *host* is in the saved scope for *program*.
+
+    Uses ScopeValidator in non-strict mode so partial wildcard matches
+    (e.g. ``*.example.com``) still resolve.
+    """
+    if not host:
+        return False
+    try:
+        validator = ScopeValidator(program, strict=False)
+        if validator.is_in_scope(host):
+            return True
+        if validator.is_in_scope(f"https://{host}"):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def execution_decision(
     job: dict[str, Any],
     *,
@@ -780,7 +870,14 @@ def execution_decision(
     approve_manual: bool,
     approved_jobs: set[str] | None = None,
     parent_block_reason: str | None = None,
+    program: str = "",
 ) -> tuple[bool, str]:
+    """Decide whether a job should execute.
+
+    When approve_manual is True and either the job is in approved_jobs
+    OR the target is in the saved scope, the manual-approval gate is
+    bypassed (auto-allowlist).
+    """
     job_name = str(job.get("job") or "")
     if parent_block_reason:
         return False, parent_block_reason
@@ -798,6 +895,11 @@ def execution_decision(
     if state == "manual_review_required" and approve_manual and approved_jobs and job_name in approved_jobs:
         return True, "manual_review_approved"
     if state == "manual_review_required" and approve_manual:
+        # Auto-allowlist: if the target is in scope, bypass the manual gate.
+        target = job.get("target") if isinstance(job.get("target"), dict) else {}
+        host = str(target.get("host") or "")
+        if _target_in_scope(program, host):
+            return True, "manual_review_approved_by_scope"
         return False, "manual_approval_requires_job_allowlist"
     return False, f"state_{state or 'unknown'}_not_approved"
 
@@ -829,6 +931,133 @@ def job_lock(program: str, job: dict[str, Any]):
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+def _wordlist_size(manifest: dict[str, Any]) -> int:
+    """Extract the expected request count.
+
+    Tries the manifest's materialized_inputs first, then falls back to
+    counting lines in any composed-wordlist.txt in the batch directory."""
+    materialized = manifest.get("materialized_inputs") if isinstance(manifest.get("materialized_inputs"), dict) else {}
+    wordlist_info = materialized.get("wordlist", {})
+    if isinstance(wordlist_info, dict):
+        try:
+            count = int(wordlist_info.get("candidate_count") or 0)
+        except (TypeError, ValueError):
+            count = 0
+        if count:
+            return count
+    paths = manifest.get("paths") if isinstance(manifest.get("paths"), dict) else {}
+    batch_file = Path(str(paths.get("root", ""))) / "_batches" / "composed-wordlist.txt"
+    if batch_file.is_file():
+        try:
+            return sum(1 for _ in batch_file.open("rb"))
+        except OSError:
+            pass
+    return 0
+
+
+def _compute_timeout(
+    rate_limit: dict[str, Any],
+    payload: dict[str, Any],
+    program_cfg: dict[str, Any],
+) -> int:
+    """Compute per-run timeout from wordlist size and rate.
+
+    Falls back to the config's timeout_seconds when no wordlist info is
+    available. Uses wordlist_size / rate * margin, with an optional ceiling
+    only when timeout_seconds_max is explicitly set.
+    """
+    floor = int(rate_limit.get("timeout_seconds") or 300)
+    ceiling_raw = rate_limit.get("timeout_seconds_max")
+    ceiling = int(ceiling_raw) if ceiling_raw not in (None, "", False) else None
+    margin = float(rate_limit.get("timeout_margin") or 1.5)
+
+    # Find the effective rate for this run
+    effective_rate: float | None = None
+    for job in payload.get("jobs") or ():
+        budget = job.get("rate_budget") if isinstance(job.get("rate_budget"), dict) else {}
+        rps = float(budget.get("allocated_rps") or 0)
+        if rps > 0:
+            effective_rate = rps
+            break
+    if effective_rate is None:
+        effective_rate = float(rate_limit.get("unauthenticated_rps") or 5)
+
+    # Estimate wordlist size from the fuzz job's wordlists config
+    wordlist_count = 0
+    for job in payload.get("jobs") or ():
+        if job.get("job") != "juicy_target_fuzz":
+            continue
+        include = job.get("wordlists", {}).get("include") or ()
+        for wl_path in include:
+            wl = Path(str(wl_path)).expanduser()
+            if wl.is_file():
+                try:
+                    with wl.open("rb") as handle:
+                        wordlist_count += sum(1 for _ in handle)
+                except OSError:
+                    pass
+        break
+
+    if wordlist_count > 0 and effective_rate > 0:
+        estimated = max(floor, math.ceil(wordlist_count / effective_rate * margin))
+        return min(ceiling, estimated) if ceiling is not None else estimated
+    return floor
+
+
+def _read_stderr(root: Path) -> str:
+    """Read stderr log if it exists."""
+    stderr_path = root / "logs" / "stderr.txt"
+    if stderr_path.is_file():
+        return stderr_path.read_text(encoding="utf-8", errors="ignore")
+    return ""
+
+
+def _check_cf_block(
+    program: str,
+    job: dict[str, Any],
+    root: Path,
+    manifest: dict[str, Any],
+) -> None:
+    """Run Cloudflare / WAF block detection on ffuf JSON output.
+
+    When a block is detected the classification is written to the manifest
+    and recorded to the program's cf_blocked.jsonl / cf_blocked_hosts.txt.
+    """
+    try:
+        from agents.cloudflare_detector import classify, record as cf_record
+    except Exception:
+        return
+
+    ffuf_json = root / "raw" / "ffuf.json"
+    if not ffuf_json.is_file():
+        return
+
+    try:
+        results = json.loads(ffuf_json.read_text(encoding="utf-8"))
+        rows = results.get("results") if isinstance(results, dict) else results
+        if not isinstance(rows, list) or not rows:
+            return
+    except (json.JSONDecodeError, OSError):
+        return
+
+    cf = classify(
+        rows,
+        expected_requests=_wordlist_size(manifest),
+        stderr_text=_read_stderr(root),
+    )
+    if cf is None:
+        return
+
+    target = job.get("target") if isinstance(job.get("target"), dict) else {}
+    host = str(target.get("host") or "unknown")
+    manifest["cloudflare_block"] = cf
+
+    try:
+        cf_record(program, host, cf, target_url=str(target.get("base_url") or ""))
+    except Exception:
+        pass
+
+
 def execute_job(
     program: str,
     job: dict[str, Any],
@@ -850,8 +1079,10 @@ def execute_job(
         approve_manual=approve_manual,
         approved_jobs=approved_jobs,
         parent_block_reason=parent_block_reason,
+        program=program,
     )
     manifest["execution_decision"] = reason
+    manifest["timeout_seconds"] = timeout_seconds
 
     if not allowed:
         if reason == "execute_flag_not_set" or reason.startswith("planned_status_"):
@@ -895,6 +1126,10 @@ def execute_job(
             (root / "logs" / "stderr.txt").write_text(str(exc) + "\n", encoding="utf-8")
 
     manifest["finished_at"] = utc_now()
+
+    if job.get("job") == "juicy_target_fuzz" and manifest.get("status") in ("completed", "failed"):
+        _check_cf_block(program, job, root, manifest)
+
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (root / "summary.md").write_text(
         "\n".join(
@@ -934,7 +1169,7 @@ def run(
     program_cfg = resolve_program(data, program)
     defaults = data.get("defaults") if isinstance(data.get("defaults"), dict) else {}
     rate_limit = defaults.get("rate_limit") if isinstance(defaults.get("rate_limit"), dict) else {}
-    timeout_seconds = int(rate_limit.get("timeout_seconds") or 300)
+    timeout_seconds = _compute_timeout(rate_limit, payload, program_cfg)
     parent_block = parent_state_reason(data, program, program_cfg)
     results = [
         execute_job(

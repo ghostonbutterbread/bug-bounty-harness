@@ -31,9 +31,13 @@ defaults:
     # same host in one slot, the orchestrator splits this budget before
     # rendering tool commands.
     global_http_rps: 15
-    unauthenticated_rps: 5
-    authenticated_rps: 2
+    unauthenticated_rps: 15
+    authenticated_rps: 15
     timeout_seconds: 300
+    # Optional hard ceiling. Leave null so large wordlists are limited by rate,
+    # not by an arbitrary wall-clock cap.
+    timeout_seconds_max: null
+    timeout_margin: 1.5
   status_policy:
     interesting_status_codes:
       - 200
@@ -48,9 +52,11 @@ defaults:
       - 500
     keep_403: true
     high_403_rate: summarize_continue
-    cloudflare_challenge: throttle_then_pause_host
-    rate_limit_429: throttle_then_pause_job
-    network_errors: bounded_retry_then_unhealthy
+    cloudflare_challenge: stop_domain_and_record
+    domain_wide_waf_block: stop_domain_and_record
+    rate_limit_429: summarize_continue
+    network_errors: record_continue
+    fuzz_errors: record_continue
     missing_scope: fail_closed
 
 platforms:
@@ -129,8 +135,7 @@ programs:
         - ~/Shared/web_bounty/flourish/web/recon/url_index/url_index.sqlite
         - ~/Shared/web_bounty/flourish/web/recon/aggregated/
         - ~/Shared/web_bounty/flourish/web/recon/map/
-        - ~/Shared/web_bounty/flourish/web/recon/tools/naabu/global/
-        - ~/Shared/web_bounty/flourish/web/recon/tools/nmap/global/
+        - ~/Shared/web_bounty/flourish/web/recon/services/
         - ~/Shared/web_bounty/flourish/web/recon/fuzz_history/fuzz_runs.jsonl
       ranking_signals:
         - api_dev_staging_admin_hostnames
@@ -191,8 +196,8 @@ programs:
         mode: passive_enrichment_from_naabu
         inputs:
           naabu_ports:
-            - ~/Shared/web_bounty/flourish/web/recon/tools/naabu/global/ports.jsonl
-            - ~/Shared/web_bounty/flourish/web/recon/tools/naabu/global/ports.txt
+            - ~/Shared/web_bounty/flourish/web/recon/services/ports.jsonl
+            - ~/Shared/web_bounty/flourish/web/recon/services/ports.txt
           allow_explicit_ports_only: true
           require_saved_scope: true
           max_hosts_per_run: 3
@@ -211,8 +216,8 @@ programs:
         outputs:
           run_root: ~/Shared/web_bounty/flourish/web/recon/tools/nmap/runs/<YYYY-MM-DD>/<run-id>/
           normalized_services: ~/Shared/web_bounty/flourish/web/recon/tools/nmap/runs/<YYYY-MM-DD>/<run-id>/normalized/services.jsonl
-          global_services: ~/Shared/web_bounty/flourish/web/recon/tools/nmap/global/services.jsonl
-          target_score_inputs: ~/Shared/web_bounty/flourish/web/recon/cron/_meta/service_enrichment.jsonl
+          global_services: ~/Shared/web_bounty/flourish/web/recon/services/services.jsonl
+          target_score_inputs: ~/Shared/web_bounty/flourish/web/recon/services/service_enrichment.jsonl
           map_store: ~/Shared/web_bounty/flourish/web/recon/map/
         post_run:
           parse_services: true
@@ -237,6 +242,20 @@ programs:
         target: inherit_target_selection
         lane: web
         mode: unauthenticated
+        active_profile: default
+        profiles:
+          default:
+            desired_rps: 15
+            max_duration_seconds: null
+            checkpoint_every: 2000
+            progress_every: 2h
+            purpose: standard 15rps discovery pass
+          long_run:
+            desired_rps: 2
+            max_duration_seconds: 28800
+            checkpoint_every: 5000
+            progress_every: 2h
+            purpose: all-day low-rate broad discovery pass
         url_pattern: "<selected-base-url>/FUZZ"
         rate_limit:
           scope: host
@@ -246,13 +265,28 @@ programs:
         wordlists:
           strategy: catalog_smart_target_mapping
           compose_temporary: true
+          max_source_files: 5
           catalog_roots:
             - /usr/share/wordlists
             - /home/ryushe/wordlists
             - ~/projects/ghost-wordlists/wordlists
             - ~/Shared/web_bounty/flourish/web/recon/wordlists/generated
+          tech_sources:
+            - ~/Shared/web_bounty/flourish/web/recon/recon-ry/flourish-auth-full-20260627/runs/2026-06-27/20260627T231208Z_18f8f690/raw/history/6-27-2026/.baseline/httpx.jsonl
+            - ~/Shared/web_bounty/flourish/web/recon/recon-ry/flourish-auth-test-20260627/runs/2026-06-27/20260627T200550Z_6bcc3188/raw/history/6-27-2026/.baseline/httpx.jsonl
+          tech_wordlists:
+            api:
+              - /usr/share/wordlists/SecLists/Discovery/Web-Content/common-api-endpoints-mazen160.txt
+              - /usr/share/wordlists/OneListForAll/dict/api_objects_short.txt
+              - /usr/share/wordlists/OneListForAll/dict/api_actions_short.txt
+            graphql:
+              - /usr/share/wordlists/SecLists/Discovery/Web-Content/graphql.txt
+              - /usr/share/wordlists/OneListForAll/dict/swagger_short.txt
+            javascript:
+              - /usr/share/wordlists/SecLists/Discovery/Web-Content/JavaScript-Miners.txt
           selection_signals:
             - selected_target_tech_stack
+            - saved_header_or_httpx_evidence
             - selected_target_route_nouns
             - recon_ry_dirs
             - js_discovered_routes
@@ -279,16 +313,17 @@ programs:
           - "200,204,301,302,307,401,403,405,429,500"
           - -fc
           - "404"
+          - -r
           - -rate
-          - "5"
+          - "15"
           - -json
           - -o
           - "<run-root>/raw/ffuf.json"
         outputs:
           run_root: ~/Shared/web_bounty/flourish/web/recon/tools/ffuf/runs/<YYYY-MM-DD>/<run-id>/
           fuzz_history: ~/Shared/web_bounty/flourish/web/recon/fuzz_history/fuzz_runs.jsonl
-          status_leads: ~/Shared/web_bounty/flourish/web/recon/cron/_meta/status_leads.jsonl
-          forbidden_leads: ~/Shared/web_bounty/flourish/web/recon/cron/_meta/403_leads.jsonl
+          status_leads: ~/Shared/web_bounty/flourish/web/recon/fuzz/status_leads.jsonl
+          forbidden_leads: ~/Shared/web_bounty/flourish/web/recon/fuzz/403.jsonl
           url_ingest: ~/Shared/web_bounty/flourish/web/recon/url_index/url_index.sqlite
           map_store: ~/Shared/web_bounty/flourish/web/recon/map/
         post_run:
@@ -300,7 +335,7 @@ programs:
           generate_report: true
           report_path: ~/Shared/web_bounty/flourish/web/recon/cron/latest_summary.md
           handoff_403: true
-          handoff_path: ~/Shared/web_bounty/flourish/web/recon/cron/_meta/403_handoff.md
+          handoff_path: ~/Shared/web_bounty/flourish/web/recon/fuzz/403_handoff.md
         notifications:
           telegram_topic: fuzzing
           progress_every: 2h
@@ -338,13 +373,18 @@ programs:
             - ~/Shared/web_bounty/flourish/web/recon/url_index/url_index.sqlite
             - ~/Shared/web_bounty/flourish/web/recon/aggregated/params.txt
             - ~/Shared/web_bounty/flourish/web/recon/aggregated/urls.txt
-            - ~/Shared/web_bounty/flourish/web/recon/cron/_meta/status_leads.jsonl
+            - ~/Shared/web_bounty/flourish/web/recon/fuzz/status_leads.jsonl
+            - ~/Shared/bounty_recon/flourish/params.txt
+            - ~/Shared/bounty_recon/flourish/params_raw.txt
+            - ~/Shared/bounty_recon/flourish/urls.txt
         command_template:
           - arjun
           - -i
           - "<endpoint-queue>"
           - -m
           - GET,POST
+          - --rate-limit
+          - "<effective-rate>"
           - --stable
           - -oJ
           - "<run-root>/raw/arjun.json"
@@ -358,7 +398,7 @@ programs:
           parameter_mining_run: ~/Shared/web_bounty/flourish/web/recon/parameter_mining/<run-id>/
           parameters_jsonl: ~/Shared/web_bounty/flourish/web/recon/parameter_mining/<run-id>/parameters.jsonl
           aggregated_params: ~/Shared/web_bounty/flourish/web/recon/aggregated/params.txt
-          parameter_source_log: ~/Shared/web_bounty/flourish/web/recon/cron/_meta/parameter_sources.jsonl
+          parameter_source_log: ~/Shared/web_bounty/flourish/web/recon/parameter_mining/parameter_sources.jsonl
           url_ingest: ~/Shared/web_bounty/flourish/web/recon/url_index/url_index.sqlite
           map_store: ~/Shared/web_bounty/flourish/web/recon/map/
         post_run:

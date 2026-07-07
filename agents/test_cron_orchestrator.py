@@ -145,6 +145,23 @@ class TestCronOrchestrator(unittest.TestCase):
         errors = M.validate_config(data)
         self.assertTrue(any("unknown job mystery" in error for error in errors))
 
+    def test_read_lines_defaults_to_unlimited(self) -> None:
+        path = self.root / "large.txt"
+        path.write_text("\n".join(f"https://{index}.example.com" for index in range(6001)), encoding="utf-8")
+
+        self.assertEqual(len(M.read_lines(path)), 6001)
+        self.assertEqual(len(M.read_lines(path, limit=3)), 3)
+
+    def test_urls_from_url_ingest_defaults_to_unlimited(self) -> None:
+        with sqlite3.connect(self.url_db) as conn:
+            conn.executemany(
+                "INSERT INTO urls (url, host) VALUES (?, ?)",
+                [(f"https://api.example.com/{index}", "api.example.com") for index in range(6000)],
+            )
+
+        self.assertEqual(len(M.urls_from_url_ingest(self.url_db)), 6001)
+        self.assertEqual(len(M.urls_from_url_ingest(self.url_db, limit=10)), 10)
+
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
     def test_plan_selects_api_target_and_builds_nmap_command_from_naabu(self) -> None:
         payload = M.plan(self.config, "demo")
@@ -185,6 +202,56 @@ class TestCronOrchestrator(unittest.TestCase):
         self.assertEqual(fuzz["command"][-1], "7")
 
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_timeout_scales_with_wordlist_size_without_default_ceiling(self) -> None:
+        wordlist = self.root / "big-wordlist.txt"
+        wordlist.write_text("\n".join(f"candidate-{index}" for index in range(10000)), encoding="utf-8")
+        self.config["programs"]["demo"]["jobs"]["juicy_target_fuzz"]["wordlists"]["include"] = [str(wordlist)]
+        payload = M.plan(self.config, "demo")
+
+        timeout = M._compute_timeout(
+            {"timeout_seconds": 300, "timeout_seconds_max": None, "timeout_margin": 1.5},
+            payload,
+            self.config["programs"]["demo"],
+        )
+
+        self.assertEqual(timeout, 1000)
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_timeout_ceiling_is_only_applied_when_explicit(self) -> None:
+        wordlist = self.root / "huge-wordlist.txt"
+        wordlist.write_text("\n".join(f"candidate-{index}" for index in range(10000)), encoding="utf-8")
+        self.config["programs"]["demo"]["jobs"]["juicy_target_fuzz"]["wordlists"]["include"] = [str(wordlist)]
+        payload = M.plan(self.config, "demo")
+
+        timeout = M._compute_timeout(
+            {"timeout_seconds": 300, "timeout_seconds_max": 700, "timeout_margin": 1.5},
+            payload,
+            self.config["programs"]["demo"],
+        )
+
+        self.assertEqual(timeout, 700)
+
+    def test_non_waf_fuzz_errors_do_not_create_stop_annotation(self) -> None:
+        root = self.root / "ffuf-run"
+        (root / "raw").mkdir(parents=True)
+        (root / "logs").mkdir()
+        (root / "raw" / "ffuf.json").write_text(
+            json.dumps({"results": [{"status": 200, "length": 123}, {"status": 404, "length": 50}]}),
+            encoding="utf-8",
+        )
+        (root / "logs" / "stdout.txt").write_text(
+            "\n".join(["[ERROR] connection reset"] * 3000),
+            encoding="utf-8",
+        )
+        (root / "logs" / "stderr.txt").write_text("connection reset\n" * 3000, encoding="utf-8")
+        manifest = {"paths": {"root": str(root)}, "materialized_inputs": {"wordlist": {"candidate_count": 6001}}}
+
+        M._check_cf_block("demo", {"job": "juicy_target_fuzz"}, root, manifest)
+
+        self.assertNotIn("cloudflare_block", manifest)
+        self.assertNotIn("consecutive_error_burst", manifest)
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
     def test_run_prepare_only_writes_manifests_without_execution(self) -> None:
         with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
             payload = M.run(self.config, "demo", execute=False, approve_manual=False)
@@ -195,6 +262,26 @@ class TestCronOrchestrator(unittest.TestCase):
         self.assertEqual(manifest["status"], "prepared_not_executed")
         self.assertEqual(manifest["execution_decision"], "execute_flag_not_set")
         self.assertTrue(Path(nmap_job["run_root"], "command.txt").is_file())
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_prepare_fuzz_materializes_large_wordlist_without_truncation(self) -> None:
+        wordlist = self.root / "large-fuzz.txt"
+        wordlist.write_text("\n".join(f"candidate-{index}" for index in range(6001)), encoding="utf-8")
+        self.config["programs"]["demo"]["jobs"]["juicy_target_fuzz"]["wordlists"]["include"] = [str(wordlist)]
+
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            payload = M.run(self.config, "demo", execute=False, approve_manual=False)
+
+        fuzz = next(job for job in payload["jobs"] if job["job"] == "juicy_target_fuzz")
+        manifest = json.loads(Path(fuzz["manifest_path"]).read_text(encoding="utf-8"))
+        command = Path(fuzz["run_root"], "command.txt").read_text(encoding="utf-8")
+        composed = Path(manifest["materialized_inputs"]["wordlist"]["path"])
+        self.assertEqual(manifest["materialized_inputs"]["wordlist"]["candidate_count"], 6001)
+        self.assertEqual(len(M.read_lines(composed)), 6001)
+        self.assertNotIn("<dry-run-composed-wordlist>", command)
+        self.assertNotIn("<ffuf-run-root>", command)
+        self.assertNotIn(" -nc ", command)
+        self.assertIn(str(composed), command)
 
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
     def test_run_execute_requires_active_or_manual_approval(self) -> None:
@@ -232,14 +319,16 @@ class TestCronOrchestrator(unittest.TestCase):
         self.assertEqual(manifest["execution_decision"], "platform_bugcrowd_paused")
 
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
-    def test_manual_approval_requires_named_job_allowlist(self) -> None:
+    def test_manual_approval_auto_allowlists_in_scope_targets(self) -> None:
         self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["command_template"] = [
             sys.executable,
             "-c",
             "print('manual-ok')",
         ]
         with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
-            blocked = M.run(self.config, "demo", execute=True, approve_manual=True)
+            # In-scope target + approve_manual → auto-allowlisted even without explicit approved_jobs
+            scoped = M.run(self.config, "demo", execute=True, approve_manual=True)
+            # Explicit allowlist still works as before
             allowed = M.run(
                 self.config,
                 "demo",
@@ -248,13 +337,14 @@ class TestCronOrchestrator(unittest.TestCase):
                 approved_jobs={"nmap_enrichment"},
             )
 
-        blocked_nmap = next(job for job in blocked["jobs"] if job["job"] == "nmap_enrichment")
+        scoped_nmap = next(job for job in scoped["jobs"] if job["job"] == "nmap_enrichment")
         allowed_nmap = next(job for job in allowed["jobs"] if job["job"] == "nmap_enrichment")
-        blocked_manifest = json.loads(Path(blocked_nmap["manifest_path"]).read_text(encoding="utf-8"))
+        scoped_manifest = json.loads(Path(scoped_nmap["manifest_path"]).read_text(encoding="utf-8"))
         allowed_manifest = json.loads(Path(allowed_nmap["manifest_path"]).read_text(encoding="utf-8"))
-        self.assertEqual(blocked_manifest["status"], "blocked")
-        self.assertEqual(blocked_manifest["execution_decision"], "manual_approval_requires_job_allowlist")
+        self.assertEqual(scoped_manifest["status"], "completed")
+        self.assertEqual(scoped_manifest["execution_decision"], "manual_review_approved_by_scope")
         self.assertEqual(allowed_manifest["status"], "completed")
+        self.assertEqual(allowed_manifest["execution_decision"], "manual_review_approved")
 
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
     def test_live_http_job_without_rate_hook_is_blocked(self) -> None:

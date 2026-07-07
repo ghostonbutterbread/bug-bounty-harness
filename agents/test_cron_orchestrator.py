@@ -267,7 +267,12 @@ class TestCronOrchestrator(unittest.TestCase):
     def test_prepare_fuzz_materializes_large_wordlist_without_truncation(self) -> None:
         wordlist = self.root / "large-fuzz.txt"
         wordlist.write_text("\n".join(f"candidate-{index}" for index in range(6001)), encoding="utf-8")
+        tech_wordlist = self.root / "api-fuzz.txt"
+        tech_wordlist.write_text("candidate-6000\napi-only\n", encoding="utf-8")
         self.config["programs"]["demo"]["jobs"]["juicy_target_fuzz"]["wordlists"]["include"] = [str(wordlist)]
+        self.config["programs"]["demo"]["jobs"]["juicy_target_fuzz"]["wordlists"]["tech_wordlists"] = {
+            "api": [str(tech_wordlist)]
+        }
 
         with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
             payload = M.run(self.config, "demo", execute=False, approve_manual=False)
@@ -276,8 +281,9 @@ class TestCronOrchestrator(unittest.TestCase):
         manifest = json.loads(Path(fuzz["manifest_path"]).read_text(encoding="utf-8"))
         command = Path(fuzz["run_root"], "command.txt").read_text(encoding="utf-8")
         composed = Path(manifest["materialized_inputs"]["wordlist"]["path"])
-        self.assertEqual(manifest["materialized_inputs"]["wordlist"]["candidate_count"], 6001)
-        self.assertEqual(len(M.read_lines(composed)), 6001)
+        self.assertEqual(manifest["materialized_inputs"]["wordlist"]["candidate_count"], 6002)
+        self.assertEqual(len(M.read_lines(composed)), 6002)
+        self.assertIn("api-only", M.read_lines(composed))
         self.assertNotIn("<dry-run-composed-wordlist>", command)
         self.assertNotIn("<ffuf-run-root>", command)
         self.assertNotIn(" -nc ", command)

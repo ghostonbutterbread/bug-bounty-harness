@@ -67,6 +67,41 @@ LIVE_HTTP_JOBS = {
 }
 EXECUTABLE_PLANNED_JOBS = LIVE_HTTP_JOBS | {"nmap_enrichment"}
 
+TECH_WORDLIST_SIGNALS = {
+    "api": {
+        "api",
+        "application/json",
+        "openapi",
+        "swagger",
+        "rest",
+        "oauth",
+        "jwt",
+        "mcp",
+        "graphql",
+    },
+    "graphql": {"graphql", "graphiql", "apollo", "__schema"},
+    "javascript": {
+        ".js",
+        "javascript",
+        "webpack",
+        "vite",
+        "react",
+        "vue",
+        "angular",
+        "svelte",
+        "source-map",
+        "sourcemap",
+        "_next",
+    },
+}
+
+WAF_SIGNALS = {
+    "cloudflare": {"cloudflare", "cf-ray", "cf-cache-status"},
+    "aws": {"awselb", "x-amzn", "cloudfront", "x-cache"},
+    "akamai": {"akamai", "akamai-ghost", "x-akamai"},
+    "fastly": {"fastly", "x-served-by", "x-cache-hits"},
+}
+
 
 @dataclass
 class TargetCandidate:
@@ -449,6 +484,137 @@ def normalize_host_port(host: str, port_value: Any) -> tuple[str, int] | None:
     return host, port
 
 
+def _json_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
+    if isinstance(value, dict):
+        return " ".join(f"{key} {_json_text(item)}" for key, item in value.items())
+    if isinstance(value, list):
+        return " ".join(_json_text(item) for item in value)
+    return str(value)
+
+
+def _source_matches_target(text: str, selected: TargetCandidate) -> bool:
+    lowered = text.lower()
+    return selected.host in lowered or selected.base_url.lower() in lowered
+
+
+def _iter_technology_source_files(program_cfg: dict[str, Any], wordlists: dict[str, Any]) -> list[Path]:
+    raw_paths: list[str] = []
+    raw_paths.extend(str(path) for path in wordlists.get("tech_sources") or ())
+    selection = program_cfg.get("target_selection") if isinstance(program_cfg.get("target_selection"), dict) else {}
+    raw_paths.extend(str(path) for path in selection.get("ranking_inputs") or ())
+
+    files: list[Path] = []
+    seen: set[Path] = set()
+    interesting_names = ("httpx", "header", "headers", "tech", "waf", "map", "summary", "service")
+    for raw_path in raw_paths:
+        path = expand_path(raw_path)
+        candidates: list[Path]
+        if path.is_dir():
+            candidates = [
+                child
+                for child in path.rglob("*")
+                if child.is_file()
+                and child.suffix.lower() in {".json", ".jsonl", ".md", ".txt"}
+                and any(marker in child.name.lower() or marker in str(child.parent).lower() for marker in interesting_names)
+            ]
+        elif path.is_file():
+            candidates = [path]
+        else:
+            continue
+        for candidate in candidates:
+            if candidate not in seen:
+                seen.add(candidate)
+                files.append(candidate)
+    return files
+
+
+def _read_technology_source(path: Path, selected: TargetCandidate, *, max_records: int = 2000) -> list[str]:
+    texts: list[str] = []
+    try:
+        if path.suffix.lower() == ".jsonl":
+            for index, line in enumerate(read_lines(path, limit=max_records)):
+                if index >= max_records:
+                    break
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    payload = line
+                text = _json_text(payload)
+                if _source_matches_target(text, selected):
+                    texts.append(text)
+            return texts
+        raw = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return texts
+
+    if not _source_matches_target(raw, selected):
+        return texts
+    if path.suffix.lower() == ".json":
+        try:
+            raw = _json_text(json.loads(raw))
+        except json.JSONDecodeError:
+            pass
+    texts.append(raw[:20000])
+    return texts
+
+
+def build_technology_map(program_cfg: dict[str, Any], selected: TargetCandidate) -> dict[str, Any]:
+    jobs = program_cfg.get("jobs") if isinstance(program_cfg.get("jobs"), dict) else {}
+    fuzz_job = jobs.get("juicy_target_fuzz") if isinstance(jobs.get("juicy_target_fuzz"), dict) else {}
+    wordlists = fuzz_job.get("wordlists") if isinstance(fuzz_job.get("wordlists"), dict) else {}
+    available_groups = set((wordlists.get("tech_wordlists") or {}).keys())
+
+    signals: dict[str, list[str]] = {}
+    wafs: dict[str, list[str]] = {}
+    selected_groups: list[str] = []
+    sources: list[str] = []
+
+    def add_signal(kind: str, evidence: str, source: Path) -> None:
+        signals.setdefault(kind, [])
+        if evidence not in signals[kind]:
+            signals[kind].append(evidence)
+        source_text = str(source)
+        if source_text not in sources:
+            sources.append(source_text)
+
+    for source in _iter_technology_source_files(program_cfg, wordlists):
+        for text in _read_technology_source(source, selected):
+            lowered = text.lower()
+            for group, keywords in TECH_WORDLIST_SIGNALS.items():
+                if group not in available_groups:
+                    continue
+                matched = sorted(keyword for keyword in keywords if keyword in lowered)
+                if matched:
+                    add_signal(group, ", ".join(matched[:6]), source)
+            for waf_name, keywords in WAF_SIGNALS.items():
+                matched = sorted(keyword for keyword in keywords if keyword in lowered)
+                if matched:
+                    wafs.setdefault(waf_name, [])
+                    evidence = ", ".join(matched[:4])
+                    if evidence not in wafs[waf_name]:
+                        wafs[waf_name].append(evidence)
+                    source_text = str(source)
+                    if source_text not in sources:
+                        sources.append(source_text)
+
+    for group in sorted(available_groups):
+        if signals.get(group):
+            selected_groups.append(group)
+
+    return {
+        "target": selected.to_dict(),
+        "selected_wordlist_groups": selected_groups,
+        "signals": signals,
+        "wafs": wafs,
+        "source_count": len(sources),
+        "sources": sources[:50],
+    }
+
+
 def resolve_program(data: dict[str, Any], program: str) -> dict[str, Any]:
     programs = data.get("programs") if isinstance(data.get("programs"), dict) else {}
     program_cfg = programs.get(program)
@@ -597,6 +763,7 @@ def apply_rate_budgets(data: dict[str, Any], program_cfg: dict[str, Any], jobs: 
 
 def build_fuzz_plan(program_cfg: dict[str, Any], selected: TargetCandidate) -> dict[str, Any]:
     job = program_cfg.get("jobs", {}).get("juicy_target_fuzz", {})
+    technology_map = build_technology_map(program_cfg, selected)
     context = {
         "selected-base-url": selected.base_url,
         "composed-wordlist": "<dry-run-composed-wordlist>",
@@ -609,6 +776,8 @@ def build_fuzz_plan(program_cfg: dict[str, Any], selected: TargetCandidate) -> d
         "status": "planned",
         "target": selected.to_dict(),
         "wordlists": job.get("wordlists", {}),
+        "technology_map": technology_map,
+        "selected_tech_wordlist_groups": technology_map.get("selected_wordlist_groups", []),
         "command": command,
     }
 
@@ -723,11 +892,16 @@ def _target_wordlist_fallback(job: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(candidates))
 
 
-def _configured_fuzz_wordlist_paths(wordlists: dict[str, Any]) -> list[str]:
+def _configured_fuzz_wordlist_paths(
+    wordlists: dict[str, Any],
+    selected_tech_groups: list[str] | tuple[str, ...] | set[str] | None = None,
+) -> list[str]:
     configured_paths: list[str] = [str(raw_path) for raw_path in wordlists.get("include") or ()]
     tech_wordlists = wordlists.get("tech_wordlists")
     if isinstance(tech_wordlists, dict):
-        for group_paths in tech_wordlists.values():
+        groups = list(selected_tech_groups) if selected_tech_groups is not None else list(tech_wordlists.keys())
+        for group in groups:
+            group_paths = tech_wordlists.get(str(group)) or ()
             configured_paths.extend(str(raw_path) for raw_path in group_paths or ())
     return configured_paths
 
@@ -742,7 +916,11 @@ def materialize_fuzz_wordlist(job: dict[str, Any], root: Path) -> dict[str, Any]
     sources: list[dict[str, Any]] = []
     missing: list[str] = []
 
-    for raw_path in _configured_fuzz_wordlist_paths(wordlists):
+    selected_groups = job.get("selected_tech_wordlist_groups")
+    for raw_path in _configured_fuzz_wordlist_paths(
+        wordlists,
+        selected_groups if isinstance(selected_groups, list) else None,
+    ):
         path = expand_path(str(raw_path))
         if not path.is_file():
             missing.append(str(path))
@@ -1014,7 +1192,11 @@ def _compute_timeout(
         if job.get("job") != "juicy_target_fuzz":
             continue
         wordlists = job.get("wordlists") if isinstance(job.get("wordlists"), dict) else {}
-        for wl_path in _configured_fuzz_wordlist_paths(wordlists):
+        selected_groups = job.get("selected_tech_wordlist_groups")
+        for wl_path in _configured_fuzz_wordlist_paths(
+            wordlists,
+            selected_groups if isinstance(selected_groups, list) else None,
+        ):
             wl = Path(str(wl_path)).expanduser()
             if wl.is_file():
                 seen_words.update(read_lines(wl))

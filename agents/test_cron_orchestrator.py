@@ -269,7 +269,13 @@ class TestCronOrchestrator(unittest.TestCase):
         wordlist.write_text("\n".join(f"candidate-{index}" for index in range(6001)), encoding="utf-8")
         tech_wordlist = self.root / "api-fuzz.txt"
         tech_wordlist.write_text("candidate-6000\napi-only\n", encoding="utf-8")
+        tech_source = self.root / "httpx.jsonl"
+        tech_source.write_text(
+            json.dumps({"url": "https://api.example.com", "tech": ["api"], "content_type": "application/json"}) + "\n",
+            encoding="utf-8",
+        )
         self.config["programs"]["demo"]["jobs"]["juicy_target_fuzz"]["wordlists"]["include"] = [str(wordlist)]
+        self.config["programs"]["demo"]["jobs"]["juicy_target_fuzz"]["wordlists"]["tech_sources"] = [str(tech_source)]
         self.config["programs"]["demo"]["jobs"]["juicy_target_fuzz"]["wordlists"]["tech_wordlists"] = {
             "api": [str(tech_wordlist)]
         }
@@ -284,6 +290,8 @@ class TestCronOrchestrator(unittest.TestCase):
         self.assertEqual(manifest["materialized_inputs"]["wordlist"]["candidate_count"], 6002)
         self.assertEqual(len(M.read_lines(composed)), 6002)
         self.assertIn("api-only", M.read_lines(composed))
+        self.assertEqual(fuzz["selected_tech_wordlist_groups"], ["api"])
+        self.assertIn("application/json", fuzz["technology_map"]["signals"]["api"][0])
         self.assertNotIn("<dry-run-composed-wordlist>", command)
         self.assertNotIn("<ffuf-run-root>", command)
         self.assertNotIn(" -nc ", command)

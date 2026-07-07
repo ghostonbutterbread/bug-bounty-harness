@@ -300,6 +300,7 @@ programs:
           include:
             - /usr/share/wordlists/SecLists/Discovery/Web-Content/common.txt
             - /usr/share/wordlists/SecLists/Discovery/Web-Content/raft-small-directories.txt
+            - /usr/share/wordlists/SecLists/Discovery/Web-Content/raft-large-words-lowercase.txt
             - /usr/share/wordlists/SecLists/Discovery/Web-Content/combined_words.txt
             - /usr/share/wordlists/OneListForAll/dict/common-api-endpoints_short.txt
             - ~/Shared/web_bounty/flourish/web/recon/wordlists/generated/latest/routes.txt

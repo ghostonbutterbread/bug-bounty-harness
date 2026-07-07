@@ -723,6 +723,15 @@ def _target_wordlist_fallback(job: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(candidates))
 
 
+def _configured_fuzz_wordlist_paths(wordlists: dict[str, Any]) -> list[str]:
+    configured_paths: list[str] = [str(raw_path) for raw_path in wordlists.get("include") or ()]
+    tech_wordlists = wordlists.get("tech_wordlists")
+    if isinstance(tech_wordlists, dict):
+        for group_paths in tech_wordlists.values():
+            configured_paths.extend(str(raw_path) for raw_path in group_paths or ())
+    return configured_paths
+
+
 def materialize_fuzz_wordlist(job: dict[str, Any], root: Path) -> dict[str, Any]:
     wordlists = job.get("wordlists") if isinstance(job.get("wordlists"), dict) else {}
     batch_dir = root / "_batches"
@@ -733,13 +742,7 @@ def materialize_fuzz_wordlist(job: dict[str, Any], root: Path) -> dict[str, Any]
     sources: list[dict[str, Any]] = []
     missing: list[str] = []
 
-    configured_paths: list[str] = [str(raw_path) for raw_path in wordlists.get("include") or ()]
-    tech_wordlists = wordlists.get("tech_wordlists")
-    if isinstance(tech_wordlists, dict):
-        for group_paths in tech_wordlists.values():
-            configured_paths.extend(str(raw_path) for raw_path in group_paths or ())
-
-    for raw_path in configured_paths:
+    for raw_path in _configured_fuzz_wordlist_paths(wordlists):
         path = expand_path(str(raw_path))
         if not path.is_file():
             missing.append(str(path))
@@ -1006,26 +1009,18 @@ def _compute_timeout(
         effective_rate = float(rate_limit.get("unauthenticated_rps") or 5)
 
     # Estimate wordlist size from the fuzz job's wordlists config
-    wordlist_count = 0
+    seen_words: set[str] = set()
     for job in payload.get("jobs") or ():
         if job.get("job") != "juicy_target_fuzz":
             continue
         wordlists = job.get("wordlists") if isinstance(job.get("wordlists"), dict) else {}
-        configured_paths = [str(wl_path) for wl_path in wordlists.get("include") or ()]
-        tech_wordlists = wordlists.get("tech_wordlists")
-        if isinstance(tech_wordlists, dict):
-            for group_paths in tech_wordlists.values():
-                configured_paths.extend(str(wl_path) for wl_path in group_paths or ())
-        for wl_path in configured_paths:
+        for wl_path in _configured_fuzz_wordlist_paths(wordlists):
             wl = Path(str(wl_path)).expanduser()
             if wl.is_file():
-                try:
-                    with wl.open("rb") as handle:
-                        wordlist_count += sum(1 for _ in handle)
-                except OSError:
-                    pass
+                seen_words.update(read_lines(wl))
         break
 
+    wordlist_count = len(seen_words)
     if wordlist_count > 0 and effective_rate > 0:
         estimated = max(floor, math.ceil(wordlist_count / effective_rate * margin))
         return min(ceiling, estimated) if ceiling is not None else estimated

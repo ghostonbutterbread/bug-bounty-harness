@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from agents.map_store import (
     iso_now,
     normalize_url,
     observation_slug,
+    parse_time_filter,
     slugify,
     url_to_dirname,
     APP_SCOPE,
@@ -100,6 +102,20 @@ class TestSlugify:
             )
             == "recon-href-sweep-run-1"
         )
+
+
+class TestTimeFilters:
+    def test_parse_iso_time_filter(self):
+        parsed = parse_time_filter("2026-07-08T15:00:00Z")
+        assert parsed == datetime(2026, 7, 8, 15, 0, tzinfo=timezone.utc)
+
+    def test_parse_date_time_filter(self):
+        parsed = parse_time_filter("2026-07-08")
+        assert parsed == datetime(2026, 7, 8, 0, 0, tzinfo=timezone.utc)
+
+    def test_parse_relative_time_filter(self):
+        parsed = parse_time_filter("24h")
+        assert parsed.tzinfo is not None
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +536,28 @@ class TestMapStore:
         store.init()
         results = store.query(url="https://app.com/login")
         assert results == []
+
+    def test_query_filters_by_since_until_and_limit(self, store: MapStore):
+        store.init()
+        store.write(url="https://app.com/old", surface="xss", body="Old", title="old")
+        store.write(url="https://app.com/new", surface="xss", body="New", title="new")
+        entries = store._read_index()
+        for entry in entries:
+            if entry["title"] == "old":
+                entry["timestamp"] = "2026-07-07T12:00:00Z"
+            elif entry["title"] == "new":
+                entry["timestamp"] = "2026-07-08T12:00:00Z"
+        store._write_index(entries)
+
+        recent = store.query(since=parse_time_filter("2026-07-08"))
+        assert [entry["title"] for entry in recent] == ["new"]
+
+        older = store.query(until=parse_time_filter("2026-07-07T23:59:59Z"))
+        assert [entry["title"] for entry in older] == ["old"]
+
+        limited = store.query(limit=1)
+        assert len(limited) == 1
+        assert limited[0]["title"] == "new"
 
     def test_index_sorted_newest_first(self, store: MapStore):
         store.init()

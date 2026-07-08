@@ -47,7 +47,7 @@ import json
 import re
 import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
@@ -100,6 +100,44 @@ def utc_now() -> datetime:
 
 def iso_now() -> str:
     return utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def parse_time_filter(value: str) -> datetime:
+    """Parse an ISO/date/relative time filter into an aware UTC datetime."""
+    value = value.strip()
+    if not value:
+        raise ValueError("time filter cannot be empty")
+
+    relative = re.fullmatch(r"(\d+)([hdw])", value.lower())
+    if relative:
+        amount = int(relative.group(1))
+        unit = relative.group(2)
+        if unit == "h":
+            delta = timedelta(hours=amount)
+        elif unit == "d":
+            delta = timedelta(days=amount)
+        else:
+            delta = timedelta(weeks=amount)
+        return utc_now() - delta
+
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        parsed = datetime.fromisoformat(value)
+    else:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _entry_time(entry: dict) -> datetime | None:
+    timestamp = str(entry.get("timestamp") or "").strip()
+    if not timestamp:
+        return None
+    try:
+        return parse_time_filter(timestamp)
+    except ValueError:
+        return None
 
 
 def slugify(value: str, *, fallback: str = "observation") -> str:
@@ -413,6 +451,9 @@ class MapStore:
         url: str | None = None,
         surface: str | None = None,
         scope: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int | None = None,
         cross_family: bool = False,
         cross_family_entries: list[dict] | None = None,
     ) -> list[dict]:
@@ -424,6 +465,9 @@ class MapStore:
             surface: Filter to this surface type. Also includes entries
                 tagged ``{surface}-relevant`` from other surfaces.
             scope: Filter to ``app``, ``surface``, or ``url``.
+            since: Include observations at or after this UTC timestamp.
+            until: Include observations at or before this UTC timestamp.
+            limit: Maximum number of observations to return after sorting.
             cross_family: When True, also searches other family maps
                 that have ``crossfamily`` pointing to this one.
             cross_family_entries: Pre-fetched cross-family entries (used
@@ -445,6 +489,7 @@ class MapStore:
             entry_surface = entry.get("surface", "")
             entry_scope = entry.get("scope", "")
             entry_tags = entry.get("tags", [])
+            entry_time = _entry_time(entry)
 
             # --- URL matching -------------------------------------------------
             if url and entry_scope == URL_SCOPE:
@@ -460,6 +505,15 @@ class MapStore:
             # --- Scope filtering ----------------------------------------------
             if scope and entry_scope != scope:
                 continue
+
+            # --- Timestamp filtering -----------------------------------------
+            if since or until:
+                if entry_time is None:
+                    continue
+                if since and entry_time < since:
+                    continue
+                if until and entry_time > until:
+                    continue
 
             # --- Surface filtering --------------------------------------------
             if surface:
@@ -496,6 +550,8 @@ class MapStore:
                 deduped.append(entry)
 
         deduped.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+        if limit is not None and limit >= 0:
+            deduped = deduped[:limit]
         return deduped
 
     # -- read observation file ------------------------------------------------
@@ -690,6 +746,10 @@ def _build_parser() -> argparse.ArgumentParser:
     query_p.add_argument("--url", default=None, help="URL to query")
     query_p.add_argument("--surface", default=None, help="Surface filter")
     query_p.add_argument("--scope", default=None, choices=sorted(VALID_SCOPES))
+    query_p.add_argument("--since", default=None, help="Only show observations since ISO time/date or relative value like 24h, 7d, 2w")
+    query_p.add_argument("--until", default=None, help="Only show observations until ISO time/date or relative value like 24h, 7d, 2w")
+    query_p.add_argument("--recent-days", type=int, default=None, help="Shortcut for --since now minus N days")
+    query_p.add_argument("--limit", type=int, default=None, help="Maximum observations to show")
     query_p.add_argument("--cross-family", action="store_true", help="Include cross-family observations")
     query_p.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -750,10 +810,22 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
     if args.cross_family:
         cross_entries = store.find_crossfamily_entries(surface=args.surface)
 
+    since = None
+    until = None
+    if args.recent_days is not None:
+        since = utc_now() - timedelta(days=args.recent_days)
+    if args.since:
+        since = parse_time_filter(args.since)
+    if args.until:
+        until = parse_time_filter(args.until)
+
     results = store.query(
         url=args.url,
         surface=args.surface,
         scope=args.scope,
+        since=since,
+        until=until,
+        limit=args.limit,
         cross_family=args.cross_family,
         cross_family_entries=cross_entries,
     )

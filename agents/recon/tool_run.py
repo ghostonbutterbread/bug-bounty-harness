@@ -256,6 +256,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def split_argv(argv: Iterable[str] | None) -> tuple[list[str], list[str]]:
     values = list(sys.argv[1:] if argv is None else argv)
+    if any(value in {"-h", "--help"} for value in values):
+        return values, []
     if "--" not in values:
         raise SystemExit("missing command separator; use: tool-run <program> -- <command>")
     separator = values.index("--")

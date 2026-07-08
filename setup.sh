@@ -226,7 +226,47 @@ install_python_venv_dependency() {
 }
 
 install_tools() {
+    install_tool_run
+    install_recon_bus
     install_eyewitness_incremental
+}
+
+install_tool_run() {
+    echo "Installing tool-run helper..."
+
+    mkdir -p "$LOCAL_BIN_DIR"
+
+    local launcher="$LOCAL_BIN_DIR/tool-run"
+    cat > "$launcher" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+HARNESS_ROOT="\${HARNESS_ROOT:-$HARNESS_ROOT}"
+
+exec python3 "\$HARNESS_ROOT/scripts/tool_run.py" "\$@"
+EOF
+    chmod +x "$launcher"
+    echo "  ✓ $launcher"
+    echo ""
+}
+
+install_recon_bus() {
+    echo "Installing recon-bus helper..."
+
+    mkdir -p "$LOCAL_BIN_DIR"
+
+    local launcher="$LOCAL_BIN_DIR/recon-bus"
+    cat > "$launcher" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+HARNESS_ROOT="\${HARNESS_ROOT:-$HARNESS_ROOT}"
+
+exec python3 "\$HARNESS_ROOT/scripts/recon_bus.py" "\$@"
+EOF
+    chmod +x "$launcher"
+    echo "  ✓ $launcher"
+    echo ""
 }
 
 # =============================================================================

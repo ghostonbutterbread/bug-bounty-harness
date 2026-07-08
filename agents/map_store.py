@@ -43,10 +43,12 @@ CLI Usage::
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import re
 import shutil
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -84,6 +86,7 @@ from agents.storage_resolver import ensure_layout, resolve_storage  # noqa: E402
 
 MAP_DIRNAME = "maps"
 MAP_INDEX = "map.jsonl"
+LOCK_FILE = ".mapstore.lock"
 APP_SCOPE = "app"
 SURFACE_SCOPE = "surface"
 URL_SCOPE = "url"
@@ -138,6 +141,13 @@ def _entry_time(entry: dict) -> datetime | None:
         return parse_time_filter(timestamp)
     except ValueError:
         return None
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.tmp")
+    tmp_path.write_text(text, encoding="utf-8")
+    tmp_path.replace(path)
 
 
 def slugify(value: str, *, fallback: str = "observation") -> str:
@@ -248,28 +258,44 @@ class MapStore:
         return self._maps_root / MAP_INDEX
 
     @property
+    def lock_path(self) -> Path:
+        return self._maps_root / LOCK_FILE
+
+    @property
     def program(self) -> str:
         return self._program
 
     # -- init ----------------------------------------------------------------
 
+    @contextmanager
+    def _locked(self):
+        """Serialize MapStore writers across concurrent agent processes."""
+        self._maps_root.mkdir(parents=True, exist_ok=True)
+        with self.lock_path.open("a+", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
     def init(self) -> Path:
         """Create the maps directory structure. Idempotent."""
         self._maps_root.mkdir(parents=True, exist_ok=True)
-        # App-wide
-        (self._maps_root / APP_DIR).mkdir(parents=True, exist_ok=True)
-        app_index = self._maps_root / APP_DIR / OBSERVATION_FILE
-        if not app_index.exists():
-            app_index.write_text(
-                f"# App-Wide: {self._program}\n\n"
-                "Observations that apply to the entire application.\n",
-                encoding="utf-8",
-            )
-        # Index file
-        if not self.index_path.exists():
-            self.index_path.write_text("", encoding="utf-8")
-        # Crossref dir
-        (self._maps_root / CROSSREF_DIR).mkdir(parents=True, exist_ok=True)
+        with self._locked():
+            # App-wide
+            (self._maps_root / APP_DIR).mkdir(parents=True, exist_ok=True)
+            app_index = self._maps_root / APP_DIR / OBSERVATION_FILE
+            if not app_index.exists():
+                _atomic_write_text(
+                    app_index,
+                    f"# App-Wide: {self._program}\n\n"
+                    "Observations that apply to the entire application.\n",
+                )
+            # Index file
+            if not self.index_path.exists():
+                _atomic_write_text(self.index_path, "")
+            # Crossref dir
+            (self._maps_root / CROSSREF_DIR).mkdir(parents=True, exist_ok=True)
         return self._maps_root
 
     # -- index read/write ----------------------------------------------------
@@ -293,9 +319,8 @@ class MapStore:
 
     def _write_index(self, entries: list[dict]) -> None:
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.index_path.open("w", encoding="utf-8") as fh:
-            for entry in entries:
-                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        content = "".join(json.dumps(entry, ensure_ascii=False) + "\n" for entry in entries)
+        _atomic_write_text(self.index_path, content)
 
     def _upsert_entry(self, entry: dict) -> None:
         entries = self._read_index()
@@ -336,6 +361,40 @@ class MapStore:
             suffix += 1
         return candidate
 
+    def _pointer_heading(self, *, scope: str, surface: str, url: str = "") -> str:
+        if scope == APP_SCOPE:
+            return f"App-Wide: {self._program}"
+        if scope == SURFACE_SCOPE:
+            return f"Surface-Wide: {surface}"
+        return f"Observations: {normalize_url(url) if url else surface}"
+
+    def _refresh_pointer_index(self, directory: Path, heading: str) -> None:
+        """Write a small index.md that points agents at child observations."""
+        directory.mkdir(parents=True, exist_ok=True)
+        lines = [
+            f"# {heading}",
+            "",
+            f"Generated: {iso_now()}",
+            "",
+            "## Observations",
+        ]
+        children = sorted(path for path in directory.iterdir() if path.is_dir())
+        if not children:
+            lines.append("")
+            lines.append("(none yet)")
+        for child in children:
+            obs_file = child / OBSERVATION_FILE
+            if not obs_file.exists():
+                continue
+            title = child.name
+            try:
+                first_line = obs_file.read_text(encoding="utf-8").splitlines()[0]
+                title = first_line.lstrip("# ").strip() or title
+            except (IndexError, OSError, UnicodeDecodeError):
+                pass
+            lines.append(f"- [{title}]({child.name}/{OBSERVATION_FILE})")
+        _atomic_write_text(directory / OBSERVATION_FILE, "\n".join(lines).rstrip() + "\n")
+
     # -- write observation ---------------------------------------------------
 
     def write(
@@ -374,6 +433,32 @@ class MapStore:
         tags = tags or []
         crossfamily = crossfamily or []
 
+        with self._locked():
+            return self._write_observation_unlocked(
+                url=url,
+                surface=surface,
+                body=body,
+                scope=scope,
+                tags=tags,
+                crossfamily=crossfamily,
+                agent=agent,
+                run_id=run_id,
+                title=title,
+            )
+
+    def _write_observation_unlocked(
+        self,
+        *,
+        url: str,
+        surface: str,
+        body: str,
+        scope: str,
+        tags: list[str],
+        crossfamily: list[str],
+        agent: str,
+        run_id: str | None,
+        title: str,
+    ) -> Path:
         # Determine file path
         if scope == APP_SCOPE:
             rel_dir = self._observation_dir(
@@ -424,7 +509,7 @@ class MapStore:
             "",
         ])
 
-        obs_path.write_text("\n".join(header) + body.rstrip() + "\n", encoding="utf-8")
+        _atomic_write_text(obs_path, "\n".join(header) + body.rstrip() + "\n")
 
         # Upsert index entry
         entry: dict[str, Any] = {
@@ -440,6 +525,10 @@ class MapStore:
             "title": title_display,
         }
         self._upsert_entry(entry)
+        self._refresh_pointer_index(
+            obs_dir.parent,
+            self._pointer_heading(scope=scope, surface=surface, url=url),
+        )
 
         return obs_path
 

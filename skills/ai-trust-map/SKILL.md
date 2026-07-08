@@ -29,6 +29,8 @@ Write the map under `$HARNESS_SHARED_BASE/{program}/ghost/prompt-injection/` and
 - attacker-controlled inputs
 - private/sensitive context categories, without values
 - tools/actions and confirmation gates
+- actor/execution context, including scanner identity or tool role if present
+- network egress, request-construction authority, and callback evidence if the AI can browse/fetch/scan
 - memory or persistence locations
 - output sinks
 - recommended next lane and safest canary

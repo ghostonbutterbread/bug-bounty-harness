@@ -32,6 +32,9 @@ Bounty Notes:
 
 - Findings directly into final reports; import through `manual_hunter.py`.
 - Already-tested state as prose only; mark coverage or URL review state.
+- Endpoint, domain, surface, or app behavior only in Markdown/JSON artifacts;
+  promote reusable facts and negative deductions to MapStore, then link the
+  artifact path from the MapStore body or Bounty Notes handoff.
 - Raw cookies, bearer tokens, API keys, credentials, private headers, or full
   proxy dumps into notes.
 
@@ -39,12 +42,16 @@ Bounty Notes:
 
 Before finishing:
 
-1. Put raw/generated material in `working/scratch/<run-id>/`.
-2. Write reusable URL/app/surface observations to `/map-store`.
-3. Promote narrative learning into `notes/` with URL, tags, report/hypothesis,
+1. Leave disposable WIP in `~/workdir/`; do not treat it as durable evidence.
+2. Promote durable-but-unpublished notes and sanitized artifacts into
+   `working/scratch/<run-id>/`.
+3. Promote reusable program-specific scripts into `scripts/`.
+4. Write reusable URL/app/surface observations to `/map-store`, including
+   artifact and script pointers when useful.
+5. Promote narrative learning into `notes/` with URL, tags, report/hypothesis,
    and links where possible.
-4. Add or update promising hypotheses.
-5. Add a handoff.
-6. Import findings through the finding pipeline.
-7. Link reports/findings back to hypotheses or notes.
-8. Mark coverage or URL review state in the correct ledger.
+6. Add or update promising hypotheses.
+7. Add a handoff.
+8. Import findings through the finding pipeline.
+9. Link reports/findings back to hypotheses or notes.
+10. Mark coverage or URL review state in the correct ledger.

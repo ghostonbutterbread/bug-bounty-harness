@@ -29,3 +29,24 @@ Write these to Bounty Notes:
 App Stories are built from MapStore observations because agents need structured
 filters such as URL, surface, scope, tag, and status. Bounty Notes may reference
 an App Story, but should not be the only place where app behavior is recorded.
+
+## Artifact-backed Split
+
+During a run, an agent may produce disposable files under `~/workdir/`, then
+promote durable evidence into the lane scratch area, for example:
+
+- `working/scratch/<run-id>/story-media-video-endpoint.md`
+- `working/scratch/<run-id>/story-media-video-endpoint-probe.json`
+- `working/scratch/<run-id>/story-media-video-acl-bypass.json`
+
+keep those as verbose evidence, then promote the reusable conclusion:
+
+- MapStore URL entry: endpoint path, auth gate, tested request variants,
+  callback result, negative/positive deduction, status tags, and sanitized
+  artifact pointers.
+- Bounty Notes handoff: why the path was explored, what account or permission
+  would unblock the next test, and which MapStore entry to read first.
+
+If the run creates a reusable program-specific script, promote it to
+`scripts/<script-name>` in the same program/lane and link that path from
+MapStore when it is useful for retesting.

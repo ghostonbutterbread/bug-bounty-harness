@@ -28,6 +28,9 @@ Use to choose technique families and evaluator design for authorized model/app t
 - instruction-hierarchy confusion
 - role/task inversion
 - persistence and memory poisoning
+- tool/function schema pressure
+- scanner-page poisoning
+- redirect and network indirection
 
 ## Output
 

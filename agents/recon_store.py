@@ -9,6 +9,7 @@ discipline in one place so recon producers do not each reinvent ingestion.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import re
 import shutil
@@ -67,6 +68,69 @@ def line_count(path: Path) -> int:
         return 0
     with path.open("r", encoding="utf-8", errors="ignore") as handle:
         return sum(1 for line in handle if line.strip())
+
+
+def append_deduped_lines(path: Path, lines: Iterable[str]) -> dict[str, int]:
+    """Append non-empty lines while preserving a file-level unique set."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = set(_read_text_lines(path)) if path.is_file() else set()
+    read = 0
+    new_lines: list[str] = []
+    for raw in lines:
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        read += 1
+        if value in existing:
+            continue
+        existing.add(value)
+        new_lines.append(value)
+    if new_lines:
+        with path.open("a", encoding="utf-8") as handle:
+            for line in new_lines:
+                handle.write(line + "\n")
+    return {"read": read, "new": len(new_lines)}
+
+
+def append_deduped_jsonl(path: Path, rows: Iterable[dict], *, key_fields: Iterable[str]) -> dict[str, int]:
+    """Append JSONL rows using stable key fields for dedupe."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    keys = [str(field) for field in key_fields]
+    existing: set[tuple[str, ...]] = set()
+    if path.is_file():
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            for line in handle:
+                with contextlib.suppress(json.JSONDecodeError):
+                    payload = json.loads(line)
+                    if isinstance(payload, dict):
+                        existing.add(tuple(str(payload.get(field) or "") for field in keys))
+
+    read = 0
+    new_rows: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        read += 1
+        key = tuple(str(row.get(field) or "") for field in keys)
+        if key in existing:
+            continue
+        existing.add(key)
+        new_rows.append(row)
+    if new_rows:
+        with path.open("a", encoding="utf-8") as handle:
+            for row in new_rows:
+                handle.write(json.dumps(row, sort_keys=True) + "\n")
+    return {"read": read, "new": len(new_rows)}
+
+
+def _read_text_lines(path: Path) -> list[str]:
+    if not path.is_file():
+        return []
+    return [
+        line.strip()
+        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        if line.strip()
+    ]
 
 
 def looks_urlish(value: str) -> bool:

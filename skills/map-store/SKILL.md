@@ -41,6 +41,39 @@ domain, app surface, role, or defense, write it to MapStore.
 6. If the observation changes hunt direction, add the narrative/handoff to
    `/bounty-notes` too.
 
+## Promotion Requirement
+
+Raw Markdown, JSON, screenshots, callback logs, proxy exports, and tool output
+may live in the artifact lane, but they are not a substitute for MapStore. Use
+`~/workdir/` for disposable WIP and lane `working/scratch/<run-id>/` for
+durable-but-unpublished artifacts or quick notes that are worth keeping but are
+not themselves app observations. Before an agent finishes a bug bounty run,
+every reusable observation must be promoted here:
+
+- URL-specific behavior, tested payloads, response codes, parser results, auth
+  gates, negative outcomes, and deductions -> `--scope url`.
+- Domain or subdomain behavior such as shared headers, WAF/CDN behavior,
+  upload-host behavior, or cross-route auth patterns -> `--scope surface` or
+  `--scope app` with the relevant host/domain in the body.
+- Program-wide behavior such as plan/role limits, common CSRF/session patterns,
+  global rate limits, recurring false positives, or reusable target assumptions
+  -> `--scope app`.
+
+Write what was tried and what was learned, not just that "testing happened".
+Useful negative observations prevent repeated work, so record them with tags
+such as `investigated`, `negative`, `false-positive`, `acl-gated`,
+`parser-tested`, `ssrf-negative`, or the relevant vuln-class prefix.
+
+If verbose evidence remains elsewhere, include a sanitized artifact pointer in
+the MapStore body. If a reusable program-specific helper script was created,
+promote it from `~/workdir/` into the lane `scripts/` directory and include that
+script path in the MapStore body when it helps future agents retest or
+reproduce. Do not put raw secrets, cookies, CSRF tokens, bearer tokens, API
+keys, or full proxy dumps into MapStore.
+
+Exit gate: if a future specialist would need the fact to avoid retesting the
+same URL/domain/surface, the run is not complete until that fact is in MapStore.
+
 ## Replayable Request Contracts
 
 When an observation records a request that future agents should retest with a

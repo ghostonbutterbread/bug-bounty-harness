@@ -145,6 +145,26 @@ class TestCronOrchestrator(unittest.TestCase):
         errors = M.validate_config(data)
         self.assertTrue(any("unknown job mystery" in error for error in errors))
 
+    def test_load_scheduler_config_merges_defaults_and_program_file(self) -> None:
+        config_root = self.root / "cron-config"
+        (config_root / "programs").mkdir(parents=True)
+        defaults = {
+            "version": 1,
+            "runtime": {"mode": "tmux", "tmux": {"enabled": True, "session_template": "{program}-cron-recon"}},
+            "defaults": {"rate_limit": {"global_http_rps": 11, "unauthenticated_rps": 11}},
+            "platforms": {"bugcrowd": {"state": "active"}},
+        }
+        program = {"programs": {"demo": self.config["programs"]["demo"]}}
+        (config_root / "defaults.yaml").write_text(yaml.safe_dump(defaults), encoding="utf-8")
+        (config_root / "programs" / "demo.yaml").write_text(yaml.safe_dump(program), encoding="utf-8")
+
+        data = M.load_scheduler_config("demo", config_root=config_root)
+
+        self.assertEqual(data["runtime"]["mode"], "tmux")
+        self.assertEqual(data["defaults"]["rate_limit"]["global_http_rps"], 11)
+        self.assertIn("demo", data["programs"])
+        self.assertEqual(M.validate_config(data), [])
+
     def test_read_lines_defaults_to_unlimited(self) -> None:
         path = self.root / "large.txt"
         path.write_text("\n".join(f"https://{index}.example.com" for index in range(6001)), encoding="utf-8")
@@ -180,6 +200,35 @@ class TestCronOrchestrator(unittest.TestCase):
         self.assertEqual(nmap_job["status"], "skipped")
         self.assertEqual(nmap_job["reason"], "missing_naabu_output_or_no_ports_for_selected_host")
 
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_missing_nmap_ports_plans_naabu_dependency(self) -> None:
+        self.naabu_ports.unlink()
+        self.config["programs"]["demo"]["jobs"]["naabu_discovery"] = {
+            "state": "manual_review_required",
+            "tool": "naabu",
+            "mode": "selected_host_full_range",
+            "inputs": {"ports": "full", "require_saved_scope": True},
+            "rate_limit": {"desired_pps": 123},
+            "outputs": {
+                "run_root": str(self.root / "tools" / "naabu" / "runs" / "<run-id>"),
+                "global_ports_jsonl": str(self.root / "services" / "ports.jsonl"),
+                "global_ports_txt": str(self.root / "services" / "ports.txt"),
+            },
+        }
+
+        payload = M.plan(self.config, "demo")
+        naabu_job = payload["jobs"][0]
+        nmap_job = payload["jobs"][1]
+
+        self.assertEqual(naabu_job["job"], "naabu_discovery")
+        self.assertEqual(naabu_job["status"], "planned")
+        self.assertEqual(naabu_job["ports"], "-")
+        self.assertEqual(naabu_job["rate"], 123)
+        self.assertIn("naabu", naabu_job["command"][0])
+        self.assertEqual(nmap_job["status"], "waiting_on_dependency")
+        self.assertEqual(nmap_job["dependency"], "naabu_discovery")
+        self.assertEqual(nmap_job["reason"], "waiting_on_naabu_discovery")
+
     def test_parse_port_line_supports_json_text_and_url(self) -> None:
         self.assertEqual(M.parse_port_line('{"host":"api.example.com","port":8443}'), ("api.example.com", 8443))
         self.assertEqual(M.parse_port_line("api.example.com:9443"), ("api.example.com", 9443))
@@ -200,6 +249,122 @@ class TestCronOrchestrator(unittest.TestCase):
         self.assertEqual(fuzz["rate_budget"]["allocated_rps"], 7)
         self.assertEqual(params["rate_budget"]["allocated_rps"], 7)
         self.assertEqual(fuzz["command"][-1], "7")
+
+    @patch.object(M, "resolve_host_addresses", return_value=[])
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_plan_fans_out_scanners_to_selected_targets(self, _resolve) -> None:
+        self.config["programs"]["demo"]["target_selection"]["select_n"] = 2
+
+        payload = M.plan(self.config, "demo")
+        fuzz_jobs = [job for job in payload["jobs"] if job["job"] == "juicy_target_fuzz"]
+        param_jobs = [job for job in payload["jobs"] if job["job"] == "authenticated_parameter_mining"]
+
+        self.assertEqual(len(payload["selected_targets"]), 2)
+        self.assertEqual(len(fuzz_jobs), 2)
+        self.assertEqual(len(param_jobs), 2)
+        self.assertTrue(all(job["job_instance_id"].startswith("juicy_target_fuzz_") for job in fuzz_jobs))
+
+    @patch.object(M, "resolve_host_addresses", return_value=[])
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_rate_budget_keeps_independent_targets_at_configured_rate(self, _resolve) -> None:
+        self.config["programs"]["demo"]["target_selection"]["select_n"] = 2
+
+        payload = M.plan(self.config, "demo")
+        fuzz_jobs = [job for job in payload["jobs"] if job["job"] == "juicy_target_fuzz"]
+
+        self.assertEqual(len(fuzz_jobs), 2)
+        self.assertEqual([job["rate_budget"]["allocated_rps"] for job in fuzz_jobs], [15, 15])
+        self.assertTrue(all(job["rate_budget"]["concurrent_live_http_jobs"] == 1 for job in fuzz_jobs))
+        self.assertNotEqual(fuzz_jobs[0]["rate_budget"]["scope"], fuzz_jobs[1]["rate_budget"]["scope"])
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_rate_budget_splits_targets_with_shared_resolved_ip(self) -> None:
+        self.config["programs"]["demo"]["target_selection"]["select_n"] = 2
+
+        with patch.object(M, "resolve_host_addresses", return_value=["192.0.2.10"]):
+            payload = M.plan(self.config, "demo")
+
+        fuzz_jobs = [job for job in payload["jobs"] if job["job"] == "juicy_target_fuzz"]
+        self.assertEqual([job["rate_budget"]["allocated_rps"] for job in fuzz_jobs], [7, 7])
+        self.assertTrue(all(job["rate_budget"]["bucket_kind"] == "ip" for job in fuzz_jobs))
+        self.assertTrue(all(job["rate_budget"]["scope"] == "ip:192.0.2.10" for job in fuzz_jobs))
+
+    def test_rate_bucket_collapses_cdnish_same_domain_to_domain_bucket(self) -> None:
+        jobs = [
+            {
+                "job": "juicy_target_fuzz",
+                "status": "planned",
+                "target": {"host": "a.example.com"},
+                "technology_map": {"wafs": {"cloudflare": ["cf-ray"]}},
+                "command": ["ffuf", "-rate", "<effective-rate>"],
+            },
+            {
+                "job": "juicy_target_fuzz",
+                "status": "planned",
+                "target": {"host": "b.example.com"},
+                "technology_map": {"wafs": {"cloudflare": ["cf-ray"]}},
+                "command": ["ffuf", "-rate", "<effective-rate>"],
+            },
+        ]
+
+        with patch.object(M, "resolve_host_addresses", side_effect=[["192.0.2.1"], ["192.0.2.2"]]):
+            M.apply_rate_budgets(self.config, self.config["programs"]["demo"], jobs)
+
+        self.assertEqual([job["rate_budget"]["allocated_rps"] for job in jobs], [7, 7])
+        self.assertTrue(all(job["rate_budget"]["bucket_kind"] == "domain" for job in jobs))
+        self.assertTrue(all(job["rate_budget"]["scope"] == "domain:example.com" for job in jobs))
+
+    def test_tmux_invocations_render_session_and_split_panes(self) -> None:
+        panes = [
+            {"shell": "echo first"},
+            {"shell": "echo second"},
+        ]
+
+        invocations = M.render_tmux_invocations("demo-cron-recon", panes)
+
+        self.assertEqual(invocations[0][:5], ["tmux", "new-session", "-d", "-s", "demo-cron-recon"])
+        self.assertEqual(invocations[1][:4], ["tmux", "split-window", "-t", "demo-cron-recon:0"])
+        self.assertEqual(invocations[2], ["tmux", "select-layout", "-t", "demo-cron-recon:0", "tiled"])
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_config_runtime_tmux_writes_manifest_and_resolved_config(self) -> None:
+        data = yaml.safe_load(yaml.safe_dump(self.config))
+        data["runtime"] = {
+            "mode": "tmux",
+            "tmux": {"enabled": True, "session_template": "{program}-cron-recon"},
+        }
+        data["programs"]["demo"]["jobs"]["nmap_enrichment"]["state"] = "active"
+        data["programs"]["demo"]["jobs"]["nmap_enrichment"]["command_template"] = [
+            sys.executable,
+            "-c",
+            "print('queued')",
+        ]
+
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            with patch.object(M, "launch_tmux_session", return_value={"status": "started", "session": "demo-cron-recon"}):
+                payload = M.run(data, "demo", execute=True)
+
+        self.assertEqual(payload["mode"], "tmux")
+        self.assertEqual(payload["tmux"]["session"], "demo-cron-recon")
+        self.assertTrue(Path(payload["resolved_config_path"]).is_file())
+        self.assertTrue(Path(payload["tmux_manifest_path"]).is_file())
+        tmux_manifest = json.loads(Path(payload["tmux_manifest_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(tmux_manifest["session"], "demo-cron-recon")
+        self.assertTrue(tmux_manifest["panes"])
+
+    def test_tmux_launch_reads_manifest_and_allows_session_override(self) -> None:
+        manifest = self.root / "tmux_manifest.json"
+        manifest.write_text(
+            json.dumps({"session": "old-session", "panes": [{"shell": "echo ok"}]}),
+            encoding="utf-8",
+        )
+
+        with patch.object(M, "launch_tmux_session", return_value={"status": "started", "session": "new-session"}) as launch:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(M.main(["tmux-launch", str(manifest), "--session", "new-session"]), 0)
+
+        launch.assert_called_once()
+        self.assertEqual(launch.call_args.args[0], "new-session")
 
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
     def test_timeout_scales_with_wordlist_size_without_default_ceiling(self) -> None:
@@ -328,6 +493,58 @@ class TestCronOrchestrator(unittest.TestCase):
         self.assertEqual(manifest["status"], "completed")
         self.assertEqual(manifest["execution_decision"], "active_execute_allowed")
         self.assertEqual(stdout.strip(), "cron-ok")
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_completed_naabu_run_normalizes_ports_for_nmap_inventory(self) -> None:
+        self.naabu_ports.unlink()
+        services_dir = self.root / "services"
+        self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["inputs"]["naabu_ports"] = [
+            str(services_dir / "ports.jsonl"),
+            str(services_dir / "ports.txt"),
+        ]
+        self.config["programs"]["demo"]["jobs"]["naabu_discovery"] = {
+            "state": "active",
+            "tool": "naabu",
+            "mode": "selected_host_full_range",
+            "inputs": {"ports": "full", "require_saved_scope": True},
+            "rate_limit": {"desired_pps": 100},
+            "command_template": [
+                sys.executable,
+                "-c",
+                (
+                    "from pathlib import Path; "
+                    "p=Path('<run-root>/raw/naabu.jsonl'); "
+                    "p.write_text('{\"host\":\"api.example.com\",\"port\":8443}\\n"
+                    "{\"host\":\"api.example.com\",\"port\":10443}\\n', encoding='utf-8')"
+                ),
+            ],
+            "outputs": {
+                "run_root": str(self.root / "tools" / "naabu" / "runs" / "<run-id>"),
+                "global_ports_jsonl": str(services_dir / "ports.jsonl"),
+                "global_ports_txt": str(services_dir / "ports.txt"),
+            },
+        }
+
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            payload = M.run(self.config, "demo", execute=True)
+
+        naabu_job = next(job for job in payload["jobs"] if job["job"] == "naabu_discovery")
+        nmap_job = next(job for job in payload["jobs"] if job["job"] == "nmap_enrichment")
+        manifest = json.loads(Path(naabu_job["manifest_path"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(manifest["status"], "completed")
+        self.assertEqual(manifest["normalized_outputs"]["normalized_count"], 2)
+        self.assertEqual(nmap_job["status"], "planned")
+        self.assertEqual(nmap_job["ports"], [8443, 10443])
+        self.assertEqual(nmap_job["execution_status"], "blocked")
+        self.assertEqual(nmap_job["execution_decision"], "state_manual_review_required_not_approved")
+        self.assertEqual(
+            M.read_lines(Path(naabu_job["run_root"]) / "normalized" / "ports.txt"),
+            ["api.example.com:8443", "api.example.com:10443"],
+        )
+        self.assertEqual(M.read_lines(services_dir / "ports.txt"), ["api.example.com:8443", "api.example.com:10443"])
+        global_rows = [json.loads(line) for line in M.read_lines(services_dir / "ports.jsonl")]
+        self.assertEqual([(row["host"], row["port"]) for row in global_rows], [("api.example.com", 8443), ("api.example.com", 10443)])
 
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
     def test_disabled_platform_blocks_execution_even_when_job_active(self) -> None:

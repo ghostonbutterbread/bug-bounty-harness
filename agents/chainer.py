@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agents.report_markdown import markdown_link_destinations
+from agents.reporting.markdown import markdown_link_destinations
 from agents.report_paths import canonical_reports_root, report_index_roots_for_read, status_report_path_for_read
 from agents.storage_resolver import resolve_target_identity
 

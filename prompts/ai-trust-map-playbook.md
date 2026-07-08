@@ -44,8 +44,19 @@ For each capability, record read/write, role, and confirmation gate:
 - invite or message users
 - call internal APIs/functions/tools
 - browse or fetch URLs
+- scan or crawl URLs as an AI-powered scanner
+- construct HTTP requests, headers, redirects, or callback URLs
 - write memory or saved project state
 - rank, moderate, approve, reject, recommend, or classify
+
+For scanner or crawler agents, also record:
+
+- scanner identity and account/role used
+- crawl scope and depth if visible
+- whether the scanner follows redirects
+- whether the scanner can alter Host, headers, paths, methods, or request bodies
+- network position: public browser, backend service, authenticated scanner, or internal network
+- whether untrusted page content becomes model-visible instructions during the scan
 
 ## 4. Output Sinks
 
@@ -96,6 +107,12 @@ Never include secrets, cookies, bearer tokens, private document text, PII, or cu
 - Intended task:
 - Roles:
 
+## Actor / Execution Context
+- Human user:
+- Model/agent:
+- Tool/scanner identity:
+- Account/role used:
+
 ## Inputs
 - Trusted instructions:
 - User prompts:
@@ -110,6 +127,20 @@ Never include secrets, cookies, bearer tokens, private document text, PII, or cu
 - Memory:
 - Confirmation gates:
 
+## Network Egress
+- Fetch/scan capability:
+- Redirect behavior:
+- Header/Host control:
+- Internal route exposure:
+- Callback evidence available:
+
+## Tool/API Inventory
+- Tool/API:
+- Arguments:
+- Acting role:
+- Authorization checked by:
+- Logs/traces:
+
 ## Output Sinks
 - Rendered:
 - Structured:
@@ -121,4 +152,5 @@ Never include secrets, cookies, bearer tokens, private document text, PII, or cu
 - Boundary hypothesis:
 - Canary:
 - Stop conditions:
+- Evidence needed:
 ```

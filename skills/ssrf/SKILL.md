@@ -13,6 +13,11 @@ This is a RAG-style skill. Load a small "where to look" reference first, then a
 small "what to try" reference once a fetch surface exists. Treat references as
 idea seeds, not checklists or ceilings.
 
+Do not treat a blocked URL as a dead lane when fetch behavior exists. A public
+callback hit, DNS lookup, parser error, redirect difference, private-IP block,
+scheme-specific error, async queue behavior, or status delta is signal. Signal
+means classify the fetch/filter boundary and enter pressure mode.
+
 ## Load Order
 
 1. Read program scope, owned-account context, and active live-testing policy.
@@ -38,14 +43,48 @@ idea seeds, not checklists or ceilings.
 ## Workflow
 
 1. Identify the server-side fetch sink and parameter.
-2. Confirm a benign controlled outbound fetch when possible.
-3. If no callback, reflection, status change, or visible delta appears, classify
+2. Query MapStore and prior attempts for this URL/fetch surface.
+3. Confirm a benign controlled outbound fetch when possible.
+4. If no callback, reflection, status change, or visible delta appears, classify
    likely controls anyway: allowlist, private-IP block, redirect handling, DNS
    timing, scheme block, URL parser split, sanitizer, WAF, or async fetch.
-4. Use the idea seeds that match the observed or plausible filtering/routing
+5. Use the idea seeds that match the observed or plausible filtering/routing
    behavior, then run a bounded mutation ladder.
-5. Prefer status, banner, callback, or low-risk root proof over secret retrieval.
-6. Stop after proving the boundary reached.
+6. Prefer status, banner, callback, or low-risk root proof over secret retrieval.
+7. Stop after proving the boundary reached or after representative mutation
+   families show the filter boundary is understood.
+
+## Pressure Mode
+
+Write every deliberate SSRF probe to the run's attempts directory. Record the
+exact URL payload, payload family, placement, expected fetch behavior, callback
+or response evidence, observed filter, block reason, and next mutation.
+
+Use this state model:
+
+- `cold`: no fetch, DNS, parser, timing, status, or callback signal yet.
+- `warm`: some fetch/filter behavior appears, but reachability is unproven.
+- `hot`: controlled callback, redirect behavior, parser split, or partial
+  internal-routing clue exists.
+- `exhausted`: representative families failed and the fetch/filter boundary is
+  understood.
+
+Only pivot automatically from `cold` or `exhausted`. If the lane is `warm` or
+`hot`, keep pressure on the same fetch vector with matching mutation families
+unless policy, ownership, rate, or safety gates stop the next probe.
+
+Typical SSRF pressure ladder:
+
+1. identify fetch sink and trigger timing
+2. public callback proof
+3. request-shape capture: method, headers, user agent, redirect behavior, DNS
+   timing, body/content-type, and auth context when visible
+4. block classification: scheme, hostname allowlist, private IP, redirect,
+   parser split, content-type, async queue, WAF, or header requirement
+5. family queue: redirects, DNS tricks, parser confusion, userinfo, IPv6,
+   octal/decimal, suffix/prefix allowlist, protocol smuggling, Host/header
+   trust
+6. impact proof, residual next probe, or exact kill reason
 
 ## Primary Harness
 
@@ -70,4 +109,8 @@ Stop before harvesting secrets, deep internal enumeration, DNS rebinding without
 
 Write findings to `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/ssrf/findings.md` and bypass artifacts to `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/bypass/`.
 
-Record full URL, sink/parameter, loaded reference pack, destination class, callback or response evidence, required bypass/header, confirmation status, and impact boundary reached.
+Record full URL, sink/parameter, loaded reference pack, destination class,
+exact URL payloads or canaries tried, payload family, callback or response
+evidence, observed filter/block reason, required bypass/header, attempts
+artifact path, MapStore pointer, pressure state, confirmation status, and
+impact boundary reached.

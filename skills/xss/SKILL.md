@@ -13,6 +13,11 @@ shape, encodings, parser confusion, sanitizer breakouts, framework quirks, and
 browser/server differences. Be conservative with impact, ownership, rate,
 cleanup, and human-visible side effects.
 
+Do not treat a blocked payload as a dead lane when signal exists. Reflection,
+DOM reachability, sanitizer interaction, browser/server render differences,
+stored re-rendering, or unusual encoding all mean the lane is at least `warm`
+and should enter pressure mode.
+
 ## Required Preflight
 
 Read shared state in this order before testing when the files exist:
@@ -142,13 +147,53 @@ python /home/ryushe/projects/bug_bounty_harness/agents/xss_hunter.py \
 
 1. Identify the input vector: query, path, body, JSON, header, cookie, upload,
    stored object field, router state, storage, or message.
-2. Send an inert marker and record where it lands.
-3. Classify the render context before choosing payloads.
-4. Load `reflected-xss`, `stored-xss`, or `dom-xss`.
-5. Use the lane skill to pick payload families, browser proof, cleanup, and
+2. Query MapStore and prior attempts for this URL, surface, parameter, and
+   render context.
+3. Send an inert marker and record where it lands.
+4. Classify the render context before choosing payloads.
+5. Load `reflected-xss`, `stored-xss`, or `dom-xss`.
+6. Use the lane skill to pick payload families, browser proof, cleanup, and
    report shape.
-6. Escalate to `waf-live-policy` and bypass/mutation work when filtering or
+7. Escalate to `waf-live-policy` and bypass/mutation work when filtering or
    parsing behavior becomes the interesting surface.
+
+## Pressure Mode
+
+Every deliberate probe should write an attempts row in the run's attempts
+directory. Record the exact payload, payload family, encoding, why that payload
+matched the context, observed transform, browser result, block reason, and next
+mutation.
+
+Use this state model:
+
+- `cold`: no reflection, storage, source-to-sink, sanitizer, or browser signal.
+- `warm`: marker reflects, persists, reaches DOM, hits a sanitizer, or changes
+  browser/server output but execution is not proven.
+- `hot`: attacker-controlled bytes influence a dangerous context, sanitizer
+  decision, URL, script/JSON island, DOM sink, or stored render path.
+- `exhausted`: representative families failed and the render/parser boundary is
+  understood.
+
+Only pivot automatically from `cold` or `exhausted`. If the lane is `warm` or
+`hot`, keep pressure on the same vector with context-matched mutation families
+until the block is understood or policy/safety stops the next probe.
+
+Typical XSS pressure ladder:
+
+1. marker reflection or source-to-sink proof
+2. render context classification
+3. dangerous character matrix for `<`, `>`, `"`, `'`, backtick, slash, equals,
+   colon, parentheses, whitespace, and newline
+4. transform check: encoded, stripped, normalized, decoded once/twice,
+   sanitized, re-rendered, or moved between server and browser
+5. family queue: text breakout, attribute breakout, tag breakout, URL scheme,
+   markdown, JSON/script string, DOM reparse, storage/postMessage, sanitizer
+   bypass
+6. browser proof, residual next probe, or exact kill reason
+
+Do not summarize the lane as "blocked" without saying which families were
+tried, what blocked them, what evidence proves the block, and whether any
+source/sink remains unexplored.
 
 ## Deep Default For Hybrid And Deep-Hunt
 
@@ -188,11 +233,14 @@ Record:
 - auth state and account/resource ownership
 - exact vector and parameter/header/body field
 - context where input landed
+- exact payloads or canaries tried, with payload family and encoding
 - payload family and why it matched that context
+- observed transform and block reason
 - browser verification status
 - interaction needed, if any
+- attempts artifact path and MapStore pointer
 - cleanup state for stored payloads
-- stop reason or next lane
+- pressure state and next discriminating probe
 
 ## Status Rules
 

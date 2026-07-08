@@ -1,6 +1,9 @@
-# AI Action Chain Playbook
+# AI Tester / AI Action Chain Playbook
 
 Use this playbook when the bug bounty question is not just "can the model be jailbroken?" but "can attacker-controlled context make the AI cross a real app boundary?"
+
+Use `/ai-tester` as the user-facing command. `/ai-action-chain` remains a
+compatibility name for this same methodology.
 
 The loop is evidence-driven. Every pass should map, notice signals, keep a short hypothesis queue, choose the smallest next proof, verify with observable evidence, classify the result, and adapt.
 
@@ -38,6 +41,7 @@ Boundary:
 Smallest next proof:
 Evidence required:
 Pivot/kill condition:
+Pressure state:
 Narrow skill handoff:
 ```
 
@@ -48,6 +52,8 @@ Rules:
 - If a probe yields only a report, summary, or assistant claim, pivot to evidence: request shape, tool args, backend logs, callbacks, or state delta.
 - If evidence contradicts the model/scanner narrative, trust the evidence.
 - Kill stale hypotheses explicitly so the next agent does not repeat them.
+- If there is signal plus a block, classify the block and keep pressure on the
+  same boundary before pivoting to an unrelated vector.
 
 ## 1. Action Surface Map
 
@@ -254,6 +260,19 @@ After each attempt, classify the result before mutating:
 - `tool-action-signal`: action/tool/request occurred
 - `cross-boundary-impact`: unauthorized object/action/data/output boundary was crossed
 
+Pressure state:
+
+- `cold`: no model, tool, output-sink, callback, request, state, or schema
+  signal yet.
+- `warm`: signal exists but no boundary crossing is proven.
+- `hot`: attacker-controlled content influenced tool args, output sinks,
+  requests, callbacks, object selection, or workflow state.
+- `exhausted`: representative families failed and the block is understood.
+
+Only pivot automatically from `cold` or `exhausted`. For `warm` or `hot`, keep
+pressure on the same AI/tool/action boundary unless safety gates block the next
+probe.
+
 Mutation rule:
 
 - Refusal -> change family, not just wording.
@@ -330,7 +349,7 @@ Safe first probes:
 ## Output Template
 
 ```md
-# AI Action Chain Run
+# AI Tester Run
 
 ## Target
 - Program/lab:
@@ -361,6 +380,8 @@ Safe first probes:
 - Attempt:
 - Expected evidence:
 - Stop/mutation rule:
+- Pressure state:
+- Attempts artifact:
 
 ## Run Log
 - Attempt:
@@ -376,5 +397,6 @@ Safe first probes:
 - Confidence:
 - Handoff:
 - Next step:
+- MapStore pointer:
 - Killed hypotheses:
 ```

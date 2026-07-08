@@ -5,9 +5,9 @@ description: "Use when orchestrating a goal-driven bounty-hunter loop that maps 
 
 # Hunter Loop
 
-Use this when Ryushe wants Hackbot to behave like a bounty hunter instead of a
-scanner: map broadly, learn from each attempt, then send focused specialists
-only when the app surface justifies it.
+Use this when Ryushe wants the agent to behave like a bounty hunter instead of
+a scanner: map one app slice, interact with it, learn from each response, then
+send focused specialists only when the app surface justifies it.
 
 Hunter Loop is the parent orchestration skill. It does not replace `/xss`,
 `/access-control`, `/idor`, `/jwt-auth`, `/ato`, `/payment-testing`,
@@ -23,9 +23,11 @@ and what scoped packet they should receive.
    - `/live-map` application-map summary and handoff packets
    - `/url-ingest` stats/history for route and parameter review depth
    - program knowledge and prior findings
-4. Start or resume a target memory pack.
-5. Map one app area at a time, then dispatch specialists on evidence-backed
-   triggers.
+4. Query `/map-store` for the URL, host, surface, and relevant vuln class before
+   new testing.
+5. Start or resume a target memory pack.
+6. Map one app area at a time through live interaction, then dispatch
+   specialists on evidence-backed triggers.
 
 ## Commands
 
@@ -54,6 +56,45 @@ The parent agent owns:
 
 The parent should not deep-test every vulnerability class itself.
 
+## Interactive Mapping Rule
+
+Hunter Loop is not a passive crawler. Default to this cycle:
+
+```text
+map a little -> touch the app -> observe behavior -> write facts ->
+form hypotheses -> test one boundary -> update the map -> repeat
+```
+
+Do not try to understand the whole application from overhead before the agent
+has seen runtime behavior. Use browser/CDP, proxy, or a small controlled request
+to learn how the selected surface actually behaves, then update MapStore with
+stable facts.
+
+Before dispatching a specialist, the parent packet should include the observed
+behavior that justifies the handoff: reflection context, parser error,
+callback evidence, auth boundary, object ID clue, sanitizer behavior, redirect
+behavior, or another concrete signal.
+
+## Attempts And Pressure State
+
+Each specialist packet should name an attempts directory under the program
+lane, for example:
+
+```text
+agent_shared/attempts/<vuln-class>/<surface>/<run-id>/
+```
+
+Use this pressure-state vocabulary when merging specialist results:
+
+- `cold`: no signal yet; use small probes to learn whether the vector exists.
+- `warm`: signal exists but no exploit; keep classifying defenses.
+- `hot`: partial control or bypass clue; continue deliberate mutation.
+- `exhausted`: representative families failed and the block is understood.
+
+The parent may pivot automatically from `cold` or `exhausted`. For `warm` or
+`hot`, prefer another discriminating probe on the same vector unless policy,
+ownership, rate, or safety gates block it.
+
 ## Specialist Trigger Examples
 
 - `user_id`, `org_id`, `team_id`, `accountId`, object ownership hints:
@@ -81,6 +122,7 @@ Each specialist receives only:
 - account/resource boundary and cleanup/destructible status
 - selected skill and required policy skills
 - relevant Hunter Memory attempts, constraints, and claims
+- attempts directory and required pressure-state fields
 - evidence standard for success
 
 Do not pass raw cookies, bearer tokens, passwords, reset links, private headers,
@@ -103,4 +145,3 @@ Recommended files:
 
 Promote vulnerabilities only through the owning specialist's proof standard and
 normal findings pipeline.
-

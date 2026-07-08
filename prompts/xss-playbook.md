@@ -40,6 +40,40 @@ Minimum artifact expectation for these runs:
 If a worker cannot write these artifacts, the XSS lane is incomplete even when
 the raw log contains useful observations.
 
+## Pressure Mode
+
+Use pressure mode when the vector has signal but no execution yet. Signal
+includes reflection, storage, DOM reachability, sanitizer interaction,
+browser/server render differences, unusual encoding, WAF-specific blocking, or
+partial control of a dangerous sink.
+
+State model:
+
+- `cold`: no signal yet; use small canaries to decide whether this vector exists.
+- `warm`: signal exists but no exploit; classify context and defenses.
+- `hot`: partial control or bypass clue; keep deliberate mutation pressure.
+- `exhausted`: representative families failed and the block is understood.
+
+The worker may pivot automatically from `cold` or `exhausted`. For `warm` or
+`hot`, continue on the same vector unless policy, ownership, rate, browser
+access, or cleanup safety blocks the next probe.
+
+Each attempts row should include:
+
+- hypothesis and boundary being tested
+- exact payload or canary
+- payload family
+- encoding or placement
+- why this payload was selected
+- observed transform
+- evidence path or response/browser summary
+- block reason
+- next mutation or kill condition
+- pressure state
+
+Do not report only "payload blocked." Report what transformed it, which
+families were tried, and what remains worth testing.
+
 ## Tool-Assisted Discovery
 
 Use tool output as an input map for the XSS lane, not as final proof.
@@ -246,6 +280,12 @@ by raw request count. Typical families:
 Stop increasing volume when representative probes prove the context inert.
 Escalate by changing the source/sink hypothesis, not by spraying unrelated
 polyglots.
+
+If the context is `warm` or `hot`, representative probes should cover the
+family that matches the observed boundary before moving away. For example, do
+not leave an attribute-context reflection after only a script-tag payload; test
+the quote/whitespace/event-handler boundary and record the exact encoding or
+sanitizer reason that stopped it.
 
 ### Status Rules
 

@@ -50,3 +50,28 @@ keep those as verbose evidence, then promote the reusable conclusion:
 If the run creates a reusable program-specific script, promote it to
 `scripts/<script-name>` in the same program/lane and link that path from
 MapStore when it is useful for retesting.
+
+## Attempts-backed Split
+
+When a specialist is actively testing a vulnerability class, keep exact
+payloads and response details in an attempts folder:
+
+- `agent_shared/attempts/xss/search/2026-07-08T150000Z/attempts.jsonl`
+- `agent_shared/attempts/ssrf/import-url/2026-07-08T153000Z/attempts.jsonl`
+
+Then write the durable conclusion to MapStore:
+
+- "Search param `q` reflects into a quoted attribute. Double quotes and angle
+  brackets are encoded, spaces and single quotes survive, and client-side
+  reparse still strips event handlers. Pressure state: warm. Attempts:
+  `agent_shared/attempts/xss/search/2026-07-08T150000Z/attempts.jsonl`. Next probe:
+  markdown/link URL sink from the same value."
+- "Image import `url` triggers a backend fetch to public callbacks. Direct
+  RFC1918 targets are blocked before fetch; redirect handling remains unknown.
+  Pressure state: hot. Attempts:
+  `agent_shared/attempts/ssrf/import-url/2026-07-08T153000Z/attempts.jsonl`. Next
+  probe: compare public redirect vs private redirect."
+
+Bounty Notes should explain why the agent kept pressure, paused, pivoted, or
+left the remaining next probe for another agent. Do not make Bounty Notes the
+only place where the URL/surface behavior is recorded.

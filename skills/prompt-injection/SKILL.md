@@ -62,7 +62,9 @@ Use the narrow skill when the feature shape is clear:
 
 - `/ai-trust-map` for inventorying model-visible inputs, tools, memory, output sinks, and trust boundaries before probes.
 - `/indirect-injection` for attacker-controlled docs, pages, comments, templates, files, OCR, RAG, or shared content.
-- `/ai-action-chain` for evidence-driven AI action loops that combine trust mapping, probe families, tool/action evidence, IDOR/access-control checks, output sinks, SSRF/fetch behavior, and adaptive next probes.
+- `/ai-tester` for evidence-driven AI action loops that combine trust mapping,
+  probe families, tool/action evidence, IDOR/access-control checks, output
+  sinks, SSRF/fetch behavior, pressure-state attempts, and adaptive next probes.
 - `/agent-tool-abuse` for AI tools/actions such as edit, publish, export, email, browser, API, ticket, purchase, scanner/crawler, fetch, or workflow calls.
 - `/model-redteam-taxonomy` for technique-family selection, mutation ideas, and safe evaluator design.
 - `/liberate-fren` for authorized model behavior research on local open-weight models or approved cloud-model test environments.

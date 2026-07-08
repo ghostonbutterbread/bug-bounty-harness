@@ -1,6 +1,6 @@
 # Hunter Loop Playbook
 
-Hunter Loop is Hackbot's parent bounty-hunter control loop. It keeps the broad
+Hunter Loop is the agent's parent bounty-hunter control loop. It keeps the broad
 application model coherent, records learnings, and dispatches specialists when
 the mapped surface gives a reason.
 
@@ -9,7 +9,7 @@ the mapped surface gives a reason.
 Turn a target objective into an adaptive loop:
 
 ```text
-scope -> goal -> map -> observe -> learn -> dispatch -> verify -> merge -> next hypothesis
+scope -> goal -> map a little -> touch the app -> observe -> learn -> dispatch -> verify -> merge -> next hypothesis
 ```
 
 The parent agent is not the main exploit engine. It is the orchestrator that
@@ -38,12 +38,19 @@ passwords, API keys, reset links, private headers, or private config values.
 
 1. Pick one section or goal.
 2. Load prior Hunter Memory, live-map, URL index, findings, and program notes.
-3. Explore with browser/CDP first when the flow is JS-heavy or stateful.
-4. Add runtime routes, forms, scripts, objects, and auth boundaries to the map.
-5. Convert each interesting observation into a trigger or a scoped boundary.
-6. Dispatch specialists only when the trigger has enough context.
-7. Merge specialist results back into the target memory pack.
-8. Choose the next section, next specialist, or stop condition.
+3. Query MapStore for the URL, host, surface, defense, and vuln-class history.
+4. Explore with browser/CDP first when the flow is JS-heavy or stateful.
+5. Perform one normal user action or one small controlled probe to learn how
+   the selected surface behaves.
+6. Add runtime routes, forms, scripts, objects, and auth boundaries to the map.
+7. Convert each interesting observation into a trigger or a scoped boundary.
+8. Dispatch specialists only when the trigger has enough context.
+9. Merge specialist results back into the target memory pack and MapStore.
+10. Choose the next section, next specialist, or stop condition.
+
+Do not wait for a complete overhead map before touching the application. The
+agent should learn by interacting with one surface, observing its real behavior,
+then updating the map.
 
 Browser/CDP should be core for:
 
@@ -101,20 +108,41 @@ Each packet should be small and complete:
 Include full URLs. Include only the relevant app slice. Exclude broad proxy
 dumps, raw secrets, unrelated history, and unsanitized personal data.
 
+Every specialist packet should include an attempts directory, for example
+`agent_shared/attempts/xss/search/2026-07-08T150000Z/`. The specialist writes exact
+payloads, why they were chosen, transformations, evidence, block reasons, and
+next mutations there. MapStore receives the durable conclusion and a pointer to
+the attempts artifact.
+
 ## Specialist Result Contract
 
 Each specialist returns:
 
 - verdict: confirmed, interesting_signal, tested_no_signal, blocked, or needs_followup
 - exact attempts and what changed
+- pressure state: cold, warm, hot, or exhausted
 - evidence file references
 - constraints learned
 - reusable claims
+- MapStore facts written or proposed, with attempt artifact pointers
 - new routes, IDs, scripts, or flows discovered
 - recommended next specialist or stop condition
 
 The parent merges results into Hunter Memory and the target memory pack. Failed
 attempts become scoped boundaries, not global rejections of a vuln class.
+
+Pressure-state rules:
+
+- `cold`: no signal yet. The parent can pivot if small probes show no behavior.
+- `warm`: signal exists but no exploit. Continue classification and mutation.
+- `hot`: partial control or bypass clue. Keep pressure unless a safety gate
+  blocks the next probe.
+- `exhausted`: representative mutation families failed and the boundary is
+  understood. The parent can pivot or hand off the residual gap.
+
+Do not treat "blocked" as a final answer when the vector is `warm` or `hot`.
+Classify what blocked it, record the exact families tried, and choose the next
+discriminating probe.
 
 ## Human Steering
 
@@ -159,4 +187,3 @@ Stop or ask for steering when:
 - the same lane repeats without new observations
 - the map has enough evidence to move to a better section
 - a confirmed vulnerability is ready for normal report/promotion workflow
-

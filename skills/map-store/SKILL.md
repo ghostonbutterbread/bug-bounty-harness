@@ -23,6 +23,8 @@ tested state, or vulnerability lead.
 - Storage destination for artifacts -> `/bounty-storage`.
 - Replay-grade request templates, permission gates, and retest matrices ->
   `docs/mapstore-request-contracts.md` plus a MapStore pointer.
+- Exact payload/probe history -> lane attempts folders, with MapStore storing
+  the stable conclusion and sanitized artifact pointer.
 
 If a discovery is both fact and next-step idea, split it: factual behavior here,
 hypothesis or handoff in `/bounty-notes`, linked by the same full URL and tags.
@@ -38,7 +40,9 @@ domain, app surface, role, or defense, write it to MapStore.
 4. Use `--scope app` for app-wide facts and `--scope surface` for surface-wide
    facts.
 5. Add vuln-class/status tags so specialist agents can filter.
-6. If the observation changes hunt direction, add the narrative/handoff to
+6. Link relevant attempts artifacts when the observation came from a deliberate
+   probe or mutation family.
+7. If the observation changes hunt direction, add the narrative/handoff to
    `/bounty-notes` too.
 
 ## Promotion Requirement
@@ -63,6 +67,27 @@ Write what was tried and what was learned, not just that "testing happened".
 Useful negative observations prevent repeated work, so record them with tags
 such as `investigated`, `negative`, `false-positive`, `acl-gated`,
 `parser-tested`, `ssrf-negative`, or the relevant vuln-class prefix.
+
+For manual-hunter attempts, do not paste every payload into MapStore. Store:
+
+- durable app behavior
+- defense or parser boundary
+- pressure state: `cold`, `warm`, `hot`, or `exhausted`
+- representative payload families tried
+- concise block reason or bypass clue
+- attempts artifact path for exact payloads/responses
+- next discriminating probe, if any
+
+Example body:
+
+```text
+Search param `q` reflects into an HTML attribute in the React preview. Double
+quotes are entity-encoded, single quotes and spaces survive, angle brackets are
+encoded, and DOMPurify strips event handlers after client reparse. Pressure
+state: warm. Attempts:
+agent_shared/attempts/xss/search/2026-07-08T150000Z/attempts.jsonl. Next probe:
+check markdown/link URL sink from the same value before more attribute payloads.
+```
 
 If verbose evidence remains elsewhere, include a sanitized artifact pointer in
 the MapStore body. If a reusable program-specific helper script was created,

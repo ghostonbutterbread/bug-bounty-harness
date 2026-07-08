@@ -166,6 +166,7 @@ class TestMapStore:
             title="XSS at /login",
         )
         assert path.exists()
+        assert "xss/app.com_s_login/xss-at-login/index.md" in str(path)
         content = path.read_text(encoding="utf-8")
         assert "CSRF Token" in content
         assert "Surface: xss" in content
@@ -381,24 +382,52 @@ class TestMapStore:
             "binaries/exe",
         }
 
-    def test_upsert_replaces_same_path(self, store: MapStore):
+    def test_url_scope_writes_do_not_overwrite_same_endpoint_surface(self, store: MapStore):
         store.init()
-        store.write(
+        first = store.write(
             url="https://app.com/login",
             surface="js",
             body="First version.\n",
             tags=["v1"],
+            title="script inventory",
         )
-        # Write again — same URL + surface → same path, should replace
-        store.write(
+        second = store.write(
             url="https://app.com/login",
             surface="js",
             body="Updated version.\n",
             tags=["v2"],
+            title="sourcemap gap",
         )
+
+        assert first != second
+        assert "First version" in first.read_text(encoding="utf-8")
+        assert "Updated version" in second.read_text(encoding="utf-8")
         entries = store._read_index()
-        assert len(entries) == 1
-        assert entries[0]["tags"] == ["v2"]
+        assert len(entries) == 2
+        assert {entry["title"] for entry in entries} == {"script inventory", "sourcemap gap"}
+
+    def test_url_scope_duplicate_titles_get_collision_safe_paths(self, store: MapStore):
+        store.init()
+        first = store.write(
+            url="https://app.com/upload",
+            surface="xss",
+            body="Filename marker reflected.\n",
+            tags=["xss"],
+            title="filename parameter",
+        )
+        second = store.write(
+            url="https://app.com/upload",
+            surface="xss",
+            body="Filename quote transform tested.\n",
+            tags=["xss"],
+            title="filename parameter",
+        )
+
+        assert first != second
+        assert first.parent.name == "filename-parameter"
+        assert second.parent.name == "filename-parameter-2"
+        results = store.query(url="https://app.com/upload", surface="xss")
+        assert len(results) == 2
 
     def test_read_obs(self, store: MapStore):
         store.init()

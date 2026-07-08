@@ -13,7 +13,7 @@ Layout::
     ├── {surface}/
     │   ├── _surface/index.md         # Surface-wide overview
     │   ├── _surface/{observation}/index.md  # Surface-wide observations
-    │   └── {url_path}/index.md       # URL-specific observations (scope=url)
+    │   └── {url_path}/{observation}/index.md  # URL observations
     └── _crossref/
         └── {url_path}/index.md       # Auto-regenerated: all surfaces for this URL
 
@@ -117,8 +117,9 @@ def observation_slug(
     run_id: str | None = None,
     tags: list[str] | None = None,
 ) -> str:
-    """Build a stable readable slug for non-URL observation files."""
-    pieces = [surface, title or run_id or " ".join(tags or []) or scope]
+    """Build a stable readable slug for observation files."""
+    descriptor = title or run_id or " ".join(tags or []) or "observation"
+    pieces = [descriptor] if scope == URL_SCOPE else [surface, descriptor]
     if title and run_id:
         pieces.append(run_id)
     return slugify(" ".join(piece for piece in pieces if piece), fallback="observation")
@@ -268,23 +269,27 @@ class MapStore:
         entries.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
         self._write_index(entries)
 
-    def _non_url_observation_dir(
+    def _observation_dir(
         self,
         *,
         scope: str,
         surface: str,
+        url: str = "",
         title: str = "",
         run_id: str | None = None,
         tags: list[str] | None = None,
     ) -> str:
-        """Return a collision-free directory for app/surface observations."""
+        """Return a collision-free directory for an observation."""
         slug = observation_slug(
             surface=surface, scope=scope, title=title, run_id=run_id, tags=tags
         )
         if scope == APP_SCOPE:
             base = f"{APP_DIR}/{slug}"
-        else:
+        elif scope == SURFACE_SCOPE:
             base = f"{surface}/{SURFACE_INDEX_DIR}/{slug}"
+        else:
+            url_dir = url_to_dirname(url)
+            base = f"{surface}/{url_dir}/{slug}"
 
         candidate = base
         suffix = 2
@@ -333,7 +338,7 @@ class MapStore:
 
         # Determine file path
         if scope == APP_SCOPE:
-            rel_dir = self._non_url_observation_dir(
+            rel_dir = self._observation_dir(
                 scope=scope,
                 surface=surface,
                 title=title,
@@ -341,7 +346,7 @@ class MapStore:
                 tags=tags,
             )
         elif scope == SURFACE_SCOPE:
-            rel_dir = self._non_url_observation_dir(
+            rel_dir = self._observation_dir(
                 scope=scope,
                 surface=surface,
                 title=title,
@@ -349,8 +354,14 @@ class MapStore:
                 tags=tags,
             )
         else:
-            url_dir = url_to_dirname(url)
-            rel_dir = f"{surface}/{url_dir}"
+            rel_dir = self._observation_dir(
+                scope=scope,
+                surface=surface,
+                url=url,
+                title=title,
+                run_id=run_id,
+                tags=tags,
+            )
 
         obs_dir = self._maps_root / rel_dir
         obs_dir.mkdir(parents=True, exist_ok=True)

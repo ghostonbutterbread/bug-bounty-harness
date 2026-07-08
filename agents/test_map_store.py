@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -170,6 +171,7 @@ class TestMapStore:
         assert (root / "map.jsonl").exists()
         assert (root / "_app" / "index.md").exists()
         assert (root / "_crossref").exists()
+        assert (root / ".mapstore.lock").exists()
 
     def test_write_url_scope(self, store: MapStore):
         store.init()
@@ -444,6 +446,68 @@ class TestMapStore:
         assert second.parent.name == "filename-parameter-2"
         results = store.query(url="https://app.com/upload", surface="xss")
         assert len(results) == 2
+
+    def test_write_updates_parent_pointer_index(self, store: MapStore):
+        store.init()
+        store.write(
+            url="https://app.com/upload",
+            surface="xss",
+            body="Filename marker reflected.\n",
+            tags=["xss"],
+            title="filename baseline",
+        )
+        store.write(
+            url="https://app.com/upload",
+            surface="xss",
+            body="Quote transform tested.\n",
+            tags=["xss"],
+            title="quote transform",
+        )
+
+        pointer = store.maps_root / "xss" / url_to_dirname("https://app.com/upload") / "index.md"
+        content = pointer.read_text(encoding="utf-8")
+        assert "Observations: https://app.com/upload" in content
+        assert "[filename baseline](filename-baseline/index.md)" in content
+        assert "[quote transform](quote-transform/index.md)" in content
+
+    def test_parallel_cli_writes_preserve_all_observations(self, store: MapStore):
+        store.init()
+        repo_root = Path(__file__).resolve().parents[1]
+        root = str(store._layout.base_root)
+        procs = []
+        for idx in range(4):
+            procs.append(subprocess.Popen([
+                sys.executable,
+                "agents/map_store.py",
+                "write",
+                "--program",
+                "testprog",
+                "--root",
+                root,
+                "--url",
+                "https://app.com/upload",
+                "--surface",
+                "xss",
+                "--title",
+                f"parallel note {idx}",
+                "--tags",
+                "xss,parallel",
+                "--body",
+                f"Parallel body {idx}",
+            ], cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
+
+        for proc in procs:
+            stdout, stderr = proc.communicate(timeout=20)
+            assert proc.returncode == 0, f"stdout={stdout}\nstderr={stderr}"
+
+        results = store.query(url="https://app.com/upload", surface="xss")
+        assert len(results) == 4
+        assert {entry["title"] for entry in results} == {
+            "parallel note 0",
+            "parallel note 1",
+            "parallel note 2",
+            "parallel note 3",
+        }
 
     def test_read_obs(self, store: MapStore):
         store.init()

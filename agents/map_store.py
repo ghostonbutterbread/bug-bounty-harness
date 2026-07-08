@@ -8,9 +8,11 @@ Layout::
 
     recon/maps/
     ├── map.jsonl                     # Index: one JSONL line per observation
-    ├── _app/index.md                 # App-wide observations (scope=app)
+    ├── _app/index.md                 # App-wide overview
+    ├── _app/{observation}/index.md   # App-wide observations (scope=app)
     ├── {surface}/
-    │   ├── _surface/index.md         # Surface-wide observations (scope=surface)
+    │   ├── _surface/index.md         # Surface-wide overview
+    │   ├── _surface/{observation}/index.md  # Surface-wide observations
     │   └── {url_path}/index.md       # URL-specific observations (scope=url)
     └── _crossref/
         └── {url_path}/index.md       # Auto-regenerated: all surfaces for this URL
@@ -105,6 +107,21 @@ def slugify(value: str, *, fallback: str = "observation") -> str:
     value = re.sub(r"[^a-z0-9]+", "-", value)
     value = value.strip("-")
     return value or fallback
+
+
+def observation_slug(
+    *,
+    surface: str,
+    scope: str,
+    title: str = "",
+    run_id: str | None = None,
+    tags: list[str] | None = None,
+) -> str:
+    """Build a stable readable slug for non-URL observation files."""
+    pieces = [surface, title or run_id or " ".join(tags or []) or scope]
+    if title and run_id:
+        pieces.append(run_id)
+    return slugify(" ".join(piece for piece in pieces if piece), fallback="observation")
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +268,31 @@ class MapStore:
         entries.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
         self._write_index(entries)
 
+    def _non_url_observation_dir(
+        self,
+        *,
+        scope: str,
+        surface: str,
+        title: str = "",
+        run_id: str | None = None,
+        tags: list[str] | None = None,
+    ) -> str:
+        """Return a collision-free directory for app/surface observations."""
+        slug = observation_slug(
+            surface=surface, scope=scope, title=title, run_id=run_id, tags=tags
+        )
+        if scope == APP_SCOPE:
+            base = f"{APP_DIR}/{slug}"
+        else:
+            base = f"{surface}/{SURFACE_INDEX_DIR}/{slug}"
+
+        candidate = base
+        suffix = 2
+        while (self._maps_root / candidate / OBSERVATION_FILE).exists():
+            candidate = f"{base}-{suffix}"
+            suffix += 1
+        return candidate
+
     # -- write observation ---------------------------------------------------
 
     def write(
@@ -291,9 +333,21 @@ class MapStore:
 
         # Determine file path
         if scope == APP_SCOPE:
-            rel_dir = APP_DIR
+            rel_dir = self._non_url_observation_dir(
+                scope=scope,
+                surface=surface,
+                title=title,
+                run_id=run_id,
+                tags=tags,
+            )
         elif scope == SURFACE_SCOPE:
-            rel_dir = f"{surface}/{SURFACE_INDEX_DIR}"
+            rel_dir = self._non_url_observation_dir(
+                scope=scope,
+                surface=surface,
+                title=title,
+                run_id=run_id,
+                tags=tags,
+            )
         else:
             url_dir = url_to_dirname(url)
             rel_dir = f"{surface}/{url_dir}"

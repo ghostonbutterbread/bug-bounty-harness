@@ -16,6 +16,7 @@ from agents.map_store import (
     MapStore,
     iso_now,
     normalize_url,
+    observation_slug,
     slugify,
     url_to_dirname,
     APP_SCOPE,
@@ -88,6 +89,17 @@ class TestSlugify:
 
     def test_fallback(self):
         assert slugify("!!!", fallback="unknown") == "unknown"
+
+    def test_observation_slug_uses_title_and_run(self):
+        assert (
+            observation_slug(
+                surface="recon",
+                scope=APP_SCOPE,
+                title="Href sweep",
+                run_id="run-1",
+            )
+            == "recon-href-sweep-run-1"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +180,8 @@ class TestMapStore:
             scope=APP_SCOPE,
             tags=["sandboxed-renderer"],
         )
-        assert "_app/index.md" in str(path)
+        assert "_app/electron-sandboxed-renderer/index.md" in str(path)
+        assert (store.maps_root / "_app" / "index.md").exists()
 
     def test_write_surface_scope(self, store: MapStore):
         store.init()
@@ -178,7 +191,50 @@ class TestMapStore:
             scope=SURFACE_SCOPE,
             tags=["sandbox-only"],
         )
-        assert "_surface/index.md" in str(path)
+        assert "xss/_surface/xss-sandbox-only/index.md" in str(path)
+        assert (store.maps_root / "xss" / "_surface").exists()
+
+    def test_app_scope_writes_do_not_overwrite_each_other(self, store: MapStore):
+        store.init()
+        first = store.write(
+            surface="recon",
+            body="Href sweep found navigation endpoints.\n",
+            scope=APP_SCOPE,
+            title="href-sweep",
+        )
+        second = store.write(
+            surface="recon",
+            body="Sourcemap gap remains unresolved.\n",
+            scope=APP_SCOPE,
+            title="sourcemap-gap",
+        )
+
+        assert first != second
+        assert "Href sweep" in first.read_text(encoding="utf-8")
+        assert "Sourcemap gap" in second.read_text(encoding="utf-8")
+        entries = store.query(scope=APP_SCOPE)
+        assert len(entries) == 2
+        assert {entry["title"] for entry in entries} == {"href-sweep", "sourcemap-gap"}
+
+    def test_app_scope_duplicate_titles_get_collision_safe_paths(self, store: MapStore):
+        store.init()
+        first = store.write(
+            surface="recon",
+            body="First app-wide note.\n",
+            scope=APP_SCOPE,
+            title="shared title",
+        )
+        second = store.write(
+            surface="recon",
+            body="Second app-wide note.\n",
+            scope=APP_SCOPE,
+            title="shared title",
+        )
+
+        assert first != second
+        assert first.parent.name == "recon-shared-title"
+        assert second.parent.name == "recon-shared-title-2"
+        assert len(store.query(scope=APP_SCOPE)) == 2
 
     def test_write_updates_index(self, store: MapStore):
         store.init()

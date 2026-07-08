@@ -31,7 +31,9 @@ standardizes tool execution and artifact handling.
 3. Check program scope, auth state, and interpreted rate limits before live
    traffic.
 4. Pick a bounded tool goal, target, and stop condition.
-5. Create a run root before executing the tool.
+5. For tools that emit reusable URL-like recon data, use `tool-run <program> --
+   <command>` so the run root, manifest, and promotion are handled
+   consistently.
 
 ## Canonical Run Root
 
@@ -45,6 +47,12 @@ Tool-level cumulative root:
 
 ```text
 ~/Shared/web_bounty/<program>/web/recon/tools/<tool>/global/
+```
+
+Cross-tool service inventory:
+
+```text
+~/Shared/web_bounty/<program>/web/recon/services/
 ```
 
 Cross-tool URL aggregate:
@@ -117,16 +125,32 @@ would likely help, and the recommended next step. Route WAF/rate behavior to
 
 After preserving raw output:
 
-1. Write URL-like artifacts into `normalized/`.
-2. Run `/url-ingest aggregate` for URL, host, JS, directory, and parameter
-   output that should inform future agents.
-3. Keep tool-specific global files under `tools/<tool>/global/`.
-4. Use specialist lanes for validation and findings. Tool output alone is not a
+1. Prefer `tool-run <program> -- <command>` for spawned tools. The wrapper
+   creates the canonical run root, captures stdout/stderr, writes a manifest,
+   and promotes known outputs when the command exits successfully.
+2. Write URL-like artifacts into `normalized/` using known names such as
+   `urls.txt`, `alive.txt`, `params_raw.txt`, `jsfiles.txt`, `hosts.txt`, and
+   `dirs.txt`. Treat `params_raw.txt` as the only canonical parameter write
+   target; `params.txt` is regenerated from it with URO.
+3. For immediate agent discoveries, run `scripts/recon_bus.py append` so new
+   URLs, alive URLs, params, JS URLs, dirs, and hosts land in the aggregate
+   store without waiting for a full tool run.
+4. For completed tool run directories that were not launched through
+   `tool-run`, run `scripts/recon_bus.py promote-run <program> --run-root
+   <run-root>`. For long-running or delayed jobs, use
+   `scripts/recon_bus.py watch-runs <program> --root <recon-or-tool-root>`.
+5. Keep tool-specific global files under `tools/<tool>/global/`, except
+   service and port facts. Normalize service/port facts from producers such as
+   `naabu`, `nmap`, and `httpx` into `recon/services/` so target scoring and
+   agents have one current inventory.
+6. Use specialist lanes for validation and findings. Tool output alone is not a
    confirmed vulnerability.
 
 ## Related Skills
 
-- `/url-ingest` — aggregate and index URL/host/parameter output.
+- `/url-ingest` — triage large URL lists, narrow scope, queue agent review, and
+  answer whether a URL or parameter has already been inspected for a given
+  lane, skill, or test family.
 - `/bounty-notes` — durable notes, scratch artifacts, hypotheses, and handoffs.
 - `/use-wordlists` and `/fuzz` — wordlist composition and fuzz campaign rules.
 - `/waf` and `/error-triage` — rate-limit, WAF, CAPTCHA, and block handling.

@@ -5,10 +5,20 @@
 - Engine: `agents/url_ingest.py`
 - Recon artifact recorder: `agents/recon_store.py`
 - Playbook: `prompts/url-ingest-playbook.md`
-- DB: `~/Shared/web_bounty/<program>/web/recon/url_index/url_index.sqlite`
-- Aggregates: `~/Shared/web_bounty/<program>/web/recon/aggregated/`
+- Review DB: `~/Shared/web_bounty/<program>/web/recon/url_index/url_index.sqlite`
+- Recon-bus aggregates: `~/Shared/web_bounty/<program>/web/recon/aggregated/`
 
-## Canonical Aggregate Files
+## Role Split
+
+Recon-bus owns canonical aggregate promotion. Use `tool-run`,
+`scripts/recon_bus.py append`, `promote-run`, or `watch-runs` when a discovery
+or tool output should update shared recon inventory.
+
+URL Ingest owns the SQLite review index. Use it when agents need to filter a
+large URL set, select the next scoped review batch, check whether a URL or
+parameter has already been inspected, or mark review/test coverage after work.
+
+## Recon-Bus Inventory Files
 
 - `urls.txt` - all HTTP(S) URLs and exact URL-like targets
 - `alive.txt` - probed live URLs/hosts; `live.txt` normalizes here
@@ -18,9 +28,14 @@
 - `wild.txt` - host/subdomain-shaped discoveries
 - `dirs.txt` - directory/content-discovery leads
 
-Standalone files are raw evidence. Aggregates and SQLite are shared working
-state. `anew` prevents exact duplicate lines; `uro` reduces URL clutter; SQLite
-canonicalization is authoritative for dedupe/review.
+Standalone files are raw evidence. Recon-bus aggregates are shared recon
+inventory. SQLite is shared review state. `anew` prevents exact duplicate lines
+in aggregate stores; `uro` reduces URL clutter for `params.txt`; SQLite
+canonicalization is authoritative for review dedupe and tested/untested state.
+Recon-bus auto-indexes URL-shaped stores (`urls.txt`, `alive.txt`,
+`params_raw.txt`, `jsfiles.txt`) into URL Ingest by default. `wild.txt` and
+`dirs.txt` stay aggregate inventory until a later step turns them into concrete
+URLs or alive targets.
 
 ## Status Semantics
 

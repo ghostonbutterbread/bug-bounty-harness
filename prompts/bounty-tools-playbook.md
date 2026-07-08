@@ -14,6 +14,7 @@ For web bounty work, use:
 ├── global/
 │   ├── hosts.txt
 │   ├── urls.txt
+│   ├── params_raw.txt
 │   ├── params.txt
 │   ├── jsfiles.txt
 │   └── manifest.json
@@ -36,8 +37,43 @@ tool-level cumulative view. The cross-tool current view remains:
 ~/Shared/web_bounty/<program>/web/recon/aggregated/
 ```
 
-Use `/url-ingest aggregate` to update the cross-tool aggregate and SQLite review
-state from a completed tool run.
+Use `tool-run` for spawned tools that emit reusable URL-like recon data. It
+creates the run capsule, captures stdout/stderr, writes the manifest, and calls
+recon-bus promotion when the command exits successfully. Use recon-bus
+`promote-run` or `watch-runs` for completed run directories that were produced
+outside the wrapper.
+
+## Tool-Run Wrapper
+
+When an agent runs a recon/mapping/fuzzing tool that can produce URLs, alive
+URLs, params, JS URLs, hosts, or dirs, prefer:
+
+```bash
+tool-run <program> -- <command>
+```
+
+Example:
+
+```bash
+tool-run flourish -- katana -u https://target.example -o normalized/urls.txt
+```
+
+The wrapper infers the tool name from the first command token. Use
+`--tool <name>` only when the inferred name would be misleading.
+
+Inside the wrapper's working directory, tools should write known outputs under
+`normalized/`:
+
+- `urls.txt`
+- `alive.txt`
+- `params_raw.txt`
+- `jsfiles.txt`
+- `hosts.txt`
+- `dirs.txt`
+
+For params, keep the mental model simple: append/promote into `params_raw.txt`;
+recon bus regenerates `params.txt` with URO. Do not hand-edit aggregate
+`params.txt` as a canonical input.
 
 ## Run ID
 
@@ -208,18 +244,47 @@ Write extracted reusable data into `normalized/`:
 - `urls.txt`
 - `alive.txt`
 - `params_raw.txt`
-- `params.txt`
 - `jsfiles.txt`
 - `dirs.txt`
 
-Then ingest:
+`params.txt` is a derived URO-cleaned view. If a legacy tool emits only
+`params.txt`, recon-bus can use it as fallback input, but normal tools should
+write `params_raw.txt`.
+
+`hosts.txt`, `wild.txt`, and `dirs.txt` are aggregate inventory for subdomain
+enumeration and content-discovery/fuzzing workflows. They are not automatically
+inserted into the URL review index. Promote confirmed URL/alive output
+separately when those leads become concrete HTTP targets.
+
+For direct discoveries made by an agent during exploration, append through the
+recon bus instead of hand-editing aggregate files:
 
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
-python3 agents/url_ingest.py aggregate <program> \
-  --input "<run-root>/normalized" \
-  --run-id "<run-id>" \
-  --scope-filter auto
+python3 scripts/recon_bus.py append <program> --kind url --input new_urls.txt
+python3 scripts/recon_bus.py append <program> --kind url --input new_urls.txt --liveness probe
+python3 scripts/recon_bus.py append <program> --kind alive --input httpx_alive.txt
+python3 scripts/recon_bus.py append <program> --kind param --input params_raw.txt
+python3 scripts/recon_bus.py append <program> --kind js --input jsfiles.txt
+```
+
+Use `--liveness probe` only when live probing is approved for the target. It
+appends candidates to `aggregated/urls.txt`, runs `httpx` only against the new
+delta, and appends confirmed output to `aggregated/alive.txt`.
+
+For completed run directories that were not launched through `tool-run`, ingest:
+
+```bash
+cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
+python3 scripts/recon_bus.py promote-run <program> --run-root "<run-root>"
+```
+
+For long-running jobs or delayed workers, use the watcher as a one-shot cron or
+heartbeat-safe pass:
+
+```bash
+cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
+python3 scripts/recon_bus.py watch-runs <program> --root "$HOME/Shared/web_bounty/<program>/web/recon/tools"
 ```
 
 If output is not URL-like, keep it in `parsed/` and summarize the useful leads in
@@ -229,15 +294,33 @@ If output is not URL-like, keep it in `parsed/` and summarize the useful leads i
 
 Tool-level `global/` files are cumulative per tool. Use append/dedupe helpers
 such as `anew` where available. Do not treat `global/` as proof that a target
-was tested; the authoritative review state is `/url-ingest` and lane-specific
-coverage.
+was tested. Recon-bus aggregates are the lightweight cross-tool inventory;
+`url_ingest` is the review/queue/state system for large URL lists and for
+answering whether a URL or parameter has already been inspected for a given
+lane, skill, or test family.
 
 Minimum global files by tool type:
 
-- URL collectors: `global/urls.txt`, `global/params.txt`, `global/jsfiles.txt`
+- URL collectors: `global/urls.txt`, `global/params_raw.txt`, `global/jsfiles.txt`
 - content fuzzers: `global/dirs.txt`, `global/urls.txt`
-- host scanners: `global/hosts.txt`, `global/services.jsonl`
-- XSS mappers: `global/params.txt`, `global/xss_candidates.jsonl`
+- host scanners: `global/hosts.txt` for tool-local host output
+- XSS mappers: `global/params_raw.txt`, `global/xss_candidates.jsonl`
+
+Service and port facts are cross-tool, not nmap-only. Preserve each producer's
+raw output under its run capsule, then normalize rows into:
+
+```text
+~/Shared/<family>/<program>/<lane>/recon/services/
+├── ports.jsonl
+├── ports.txt
+├── services.jsonl
+└── hosts/<host>.jsonl
+```
+
+Use `naabu` as a fast port producer, `nmap` as a bounded service/version
+enrichment producer, and `httpx` as HTTP fingerprint evidence. Do not bury this
+inventory in `cron/_meta`; `_meta` should only keep scheduler decisions,
+locks, run indexes, and routing hints.
 
 ## Agent Handoff
 
@@ -268,7 +351,10 @@ not become a finding.
 - `command.txt` sanitized.
 - Raw output preserved.
 - Parsed/normalized output written when useful.
-- URL-like output ingested through `/url-ingest`.
+- URL-like output promoted through `tool-run`, `promote-run`, or `append`.
+- Large review sets queued or status-tracked through `url_ingest` when agents
+  need scoped batches or need to check whether a URL/param has already been
+  looked at for the current lane, skill, or test family.
 - Tool `global/` view updated when useful.
 - `summary.md` includes stop reason, rate/concurrency, and next handoff.
 - Findings, if any, are routed to the owning specialist skill.

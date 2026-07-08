@@ -15,6 +15,43 @@ See `prompts/ssrf-reference.md` for metadata targets, parser-confusion families,
 5. If only alternate schemes might work, test those after plain HTTP and HTTPS are understood.
 6. Report the exact fetch primitive, evidence of internal reach, and any bypass needed.
 
+## Pressure Mode
+
+Use pressure mode when a fetch vector has signal but no impact yet. Signal
+includes a public callback hit, DNS lookup, parser error, redirect difference,
+status delta, private-IP block, allowlist error, scheme-specific error, async
+queue behavior, or visible request-shape clue.
+
+State model:
+
+- `cold`: no fetch, parser, timing, DNS, status, or callback signal.
+- `warm`: fetch/filter behavior exists but reachability is unproven.
+- `hot`: controlled callback, redirect behavior, parser split, or internal
+  routing clue exists.
+- `exhausted`: representative families failed and the filter boundary is
+  understood.
+
+The worker may pivot automatically from `cold` or `exhausted`. For `warm` or
+`hot`, continue on the same fetch vector unless policy, ownership, rate, or
+safety blocks the next probe.
+
+Each attempts row should include:
+
+- hypothesis and boundary being tested
+- exact URL payload or canary
+- payload family
+- placement and encoding
+- why this payload was selected
+- expected fetch behavior
+- observed request/callback/response evidence
+- block reason
+- next mutation or kill condition
+- pressure state
+
+Do not report only "blocked." Report what blocked it, which mutation families
+were tried, and whether redirect, parser, DNS, scheme, header, or async behavior
+remains unresolved.
+
 ## 1. Probe
 
 Start by mapping every feature that causes the server to request a URL or network resource.
@@ -42,6 +79,11 @@ Start by mapping every feature that causes the server to request a URL or networ
    - status or error disclosure
    - blind timing only
    - webhook side effects
+
+If the benign external URL produces a callback or clear fetch evidence, the
+lane is at least `warm`. Do not leave the surface until you classify the filter
+that separates public destinations from blocked destinations, or until a safety
+gate stops the next comparison.
 
 ## 2. Classify Fetch Behavior
 

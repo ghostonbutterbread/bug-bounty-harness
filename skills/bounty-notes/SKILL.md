@@ -19,6 +19,11 @@ was killed, or which condition gates further testing, promote the factual part
 to `/map-store` and use Bounty Notes only for the hunt narrative, handoff, or
 next-step decision.
 
+Exact payload and probe history belongs in attempts folders, not directly in
+Bounty Notes. Use Bounty Notes to explain why the agent kept pressure, pivoted,
+paused, or killed a hypothesis, then link the MapStore entry and attempts
+artifact.
+
 ## Fast Routing
 
 - URL/app/surface behavior -> `/map-store`.
@@ -26,6 +31,8 @@ next-step decision.
   report-polish notes -> `/bounty-notes`.
 - Bulk URL queue/review state -> `/url-ingest`.
 - Already-tested coverage -> `me_ledger.py` / coverage ledgers.
+- Exact payload/probe attempts -> `agent_shared/attempts/<vuln-class>/<surface>/<run-id>/`
+  with MapStore pointers.
 - Concrete findings and proof packets -> `manual_hunter.py` / `/findings`.
 
 If both are true, split it: factual behavior in `/map-store`, hypothesis or
@@ -55,6 +62,8 @@ Default lane root: `~/Shared/{family}/{program}/{lane}/`
 - `notes/handoffs/<run-id>.md` - takeover-ready summaries
 - `notes/faq/<slug>.md` - stable solved target facts
 - `notes/_index/` and `notes/index.md` - generated lookup/pointers
+- `agent_shared/attempts/<vuln-class>/<surface>/<run-id>/` - exact payload/probe
+  attempts, transformations, evidence, block reasons, and next mutations
 - `working/scratch/<run-id>/` - durable-but-unpublished quick notes and
   sanitized artifacts promoted from `~/workdir/`
 - `scripts/` - reusable program-specific helper scripts, PoCs, repro tools, or

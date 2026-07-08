@@ -111,7 +111,8 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **prompt-injection** | `/prompt-injection {program} {target_url}` | `prompts/prompt-injection-playbook.md` |
 | **ai-trust-map** | `/ai-trust-map {program} {target_url-or-feature}` | `prompts/ai-trust-map-playbook.md` |
 | **indirect-injection** | `/indirect-injection {program} {target_url-or-surface}` | `prompts/indirect-injection-playbook.md` |
-| **ai-action-chain** | `/ai-action-chain {program-or-lab} {target_url-or-feature} --goal {boundary}` | `prompts/ai-action-chain-playbook.md` |
+| **ai-tester** | `/ai-tester {program-or-lab} {target_url-or-feature} --goal {boundary}` | `prompts/ai-action-chain-playbook.md` |
+| **ai-action-chain** | `/ai-action-chain {program-or-lab} {target_url-or-feature} --goal {boundary}` | compatibility alias for `ai-tester` |
 | **agent-tool-abuse** | `/agent-tool-abuse {program} {target_url-or-flow}` | `prompts/agent-tool-abuse-playbook.md` |
 | **model-redteam-taxonomy** | `/model-redteam-taxonomy {program-or-lab} {model-or-feature}` | `prompts/model-redteam-taxonomy-playbook.md` |
 | **liberate-fren** | `/liberate-fren {lab-or-provider} {model}` | `prompts/liberate-fren-playbook.md` |
@@ -197,7 +198,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /prompt-injection canva https://target.example/ai-assistant --mode map
 /ai-trust-map canva https://target.example/design-ai
 /indirect-injection canva shared-design-comments --callback https://webhook.site/<owned-id>
-/ai-action-chain flourish design-ai --goal model-mediated-idor --dry-run
+/ai-tester flourish design-ai --goal model-mediated-idor --dry-run
 /agent-tool-abuse canva design-editor-ai --dry-run --callback https://webhook.site/<owned-id>
 /model-redteam-taxonomy canva design-ai --goal indirect-content-to-document-mutation
 /liberate-fren local llama-3.1 --mode taxonomy

@@ -140,6 +140,15 @@ class ReconToolRunTests(unittest.TestCase):
             ["https://example.com/from-tool"],
         )
 
+    def test_help_does_not_require_command_separator(self):
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            with self.assertRaises(SystemExit) as raised:
+                M.main(["--help"])
+
+        self.assertEqual(raised.exception.code, 0)
+        self.assertIn("Run a recon tool", stdout.getvalue())
+
     def invoke(self, argv: list[str]) -> int:
         with contextlib.redirect_stdout(io.StringIO()):
             return M.main(argv)

@@ -149,6 +149,15 @@ Skills are synced to:
 
 See `SKILL_TEMPLATE.md` for the template chooser.
 
+## Directory Conventions
+
+BBH code is being cleaned up incrementally. New reusable implementation code
+should live in responsibility-owned packages under `agents/`. Update in-repo
+imports to canonical package paths and delete old flat wrappers when tests and
+review show no known consumers remain. Keep temporary shims only for known
+public compatibility needs. See `docs/directory-conventions.md` before moving
+modules or adding new harness helpers.
+
 ---
 
 ## Tools

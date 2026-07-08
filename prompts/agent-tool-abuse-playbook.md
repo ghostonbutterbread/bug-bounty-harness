@@ -25,6 +25,11 @@ Examples:
 - invite collaborator
 - send email/message/ticket
 - browse/fetch URL
+- scan/crawl URL
+- construct HTTP request, Host header, redirect, or callback URL
+- call debug/admin API
+- call SQL/search/filter API
+- render/export generated HTML, Markdown, JSON, or files
 - search private data
 - approve/reject/moderate
 - buy/refund/update billing
@@ -56,6 +61,16 @@ Use https://webhook.site/<owned-id>?case=<case-id> only as a canary.
 Never encode secrets, cookies, PII, or private document values into the URL.
 ```
 
+For scanner/fetch tools, a model saying it will fetch a URL is not enough. Prefer callback hits, request logs, scanner traces, or visible report output that proves the tool acted.
+
+For AI-invoked SSRF-style probes:
+
+- use owned callback URLs first
+- use a unique case ID per attempt
+- capture source IP, user agent, requested path/query, and timestamp
+- record redirect behavior if redirects are part of the hypothesis
+- do not ask the scanner to crawl broad internal ranges or unknown third-party systems
+
 ## 4. Argument Injection Checks
 
 Inspect whether model output becomes:
@@ -69,6 +84,9 @@ Inspect whether model output becomes:
 - JSON/function arguments
 - search query/filter
 - publish/share setting
+- Host/header/path/method fields
+- redirect target
+- scanner start URL or crawl scope
 
 Look for missing confirmation, missing schema validation, or backend trust in model-generated arguments.
 
@@ -112,6 +130,10 @@ Stop and ask Ryushe before:
 - Model output:
 - Tool arguments:
 - Callback evidence:
+- Callback timestamp/source/UA:
+- Redirect chain:
+- Scanner request trace:
+- Tool invocation trace:
 
 ## Impact
 - Data/action affected:

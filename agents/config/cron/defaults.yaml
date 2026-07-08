@@ -1,0 +1,47 @@
+# Global BBH cron scheduler defaults. Program configs under programs/*.yaml override these values.
+version: 1
+default_state: paused
+artifact_root: ~/Shared/web_bounty
+artifact_policy: bounty_directory_structure
+timezone: America/Los_Angeles
+runtime:
+  mode: prepare-only
+  tmux:
+    enabled: false
+    session_template: '{program}-cron-recon'
+defaults:
+  schedule:
+    days: weekdays
+    slots:
+      nightly_2200:
+        local_time: '22:00'
+  rate_limit:
+    global_http_rps: 15
+    unauthenticated_rps: 15
+    authenticated_rps: 15
+    timeout_seconds: 300
+    timeout_seconds_max: null
+    timeout_margin: 1.5
+  status_policy:
+    interesting_status_codes:
+    - 200
+    - 204
+    - 301
+    - 302
+    - 307
+    - 401
+    - 403
+    - 405
+    - 429
+    - 500
+    keep_403: true
+    high_403_rate: summarize_continue
+    cloudflare_challenge: stop_domain_and_record
+    domain_wide_waf_block: stop_domain_and_record
+    rate_limit_429: summarize_continue
+    network_errors: record_continue
+    fuzz_errors: record_continue
+    missing_scope: fail_closed
+platforms:
+  bugcrowd:
+    state: active

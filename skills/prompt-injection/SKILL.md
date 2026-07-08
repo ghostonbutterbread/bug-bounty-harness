@@ -62,9 +62,11 @@ Use the narrow skill when the feature shape is clear:
 
 - `/ai-trust-map` for inventorying model-visible inputs, tools, memory, output sinks, and trust boundaries before probes.
 - `/indirect-injection` for attacker-controlled docs, pages, comments, templates, files, OCR, RAG, or shared content.
-- `/agent-tool-abuse` for AI tools/actions such as edit, publish, export, email, browser, API, ticket, purchase, or workflow calls.
+- `/ai-action-chain` for evidence-driven AI action loops that combine trust mapping, probe families, tool/action evidence, IDOR/access-control checks, output sinks, SSRF/fetch behavior, and adaptive next probes.
+- `/agent-tool-abuse` for AI tools/actions such as edit, publish, export, email, browser, API, ticket, purchase, scanner/crawler, fetch, or workflow calls.
 - `/model-redteam-taxonomy` for technique-family selection, mutation ideas, and safe evaluator design.
 - `/liberate-fren` for authorized model behavior research on local open-weight models or approved cloud-model test environments.
+- `/ssrf` or `/headers` after `/ai-trust-map` when prompt injection can steer a scanner/tool into URL, Host, header, redirect, or internal-routing behavior.
 
 For callback/canary tests, prefer operator-owned callback URLs such as webhook.site. Use callback probes only to prove that an output sink or tool attempted an external request; do not encode secrets, cookies, PII, or private documents into callback paths or query strings.
 
@@ -76,6 +78,8 @@ For callback/canary tests, prefer operator-owned callback URLs such as webhook.s
 - `tools`: model is induced to call tools, APIs, browser actions, or state-changing functions outside user intent.
 - `persistence`: injected instructions survive through memory, saved content, profiles, comments, docs, or later sessions.
 - `output`: model output becomes unsafe HTML/Markdown/JSON/URL/action parameters.
+- `scanner`: AI scanner/crawler behavior, authenticated scan context, request construction, callback evidence, and AI-invoked SSRF routing.
+- `ssrf`: prompt injection that steers a model/tool/scanner into fetch, callback, Host/header, redirect, or internal request behavior.
 - `all`: run mapping first, then the applicable focused modes.
 
 ## Reporting Standard

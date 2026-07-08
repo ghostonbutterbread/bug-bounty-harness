@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.bounty_artifact_map import map_path, normalize_entry, upsert_entry
+from agents.artifacts.map import map_path, normalize_entry, upsert_entry
 
 
 class BountyArtifactMapTests(unittest.TestCase):
@@ -20,6 +22,12 @@ class BountyArtifactMapTests(unittest.TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         self.tmp = Path(self.tempdir.name)
+
+    def test_package_and_module_import_paths_share_public_functions(self) -> None:
+        new_module = importlib.import_module("agents.artifacts.map")
+        package_module = importlib.import_module("agents.artifacts")
+
+        self.assertIs(package_module.map_path, new_module.map_path)
 
     def test_web_map_path_uses_shared_artifacts_directory(self) -> None:
         path = map_path(self.tmp / "Shared", "demo", "web", "screenshots")
@@ -72,6 +80,24 @@ class BountyArtifactMapTests(unittest.TestCase):
         self.assertEqual(saved["status"], "regenerate")
         self.assertEqual(saved["health"], "stale_pointer_missing_target")
         self.assertFalse(saved["observed_exists"])
+
+    def test_new_and_legacy_cli_help_smoke(self) -> None:
+        commands = [
+            [sys.executable, "-m", "agents.artifacts.map", "--help"],
+        ]
+
+        for command in commands:
+            with self.subTest(command=command):
+                result = subprocess.run(
+                    command,
+                    cwd=ROOT,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("RuntimeWarning", result.stderr)
+                self.assertIn("Upsert/check Shared bounty artifact map entries.", result.stdout)
 
 
 if __name__ == "__main__":

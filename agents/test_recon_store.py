@@ -115,3 +115,44 @@ def test_record_recon_artifacts_indexes_subdomain_outputs(tmp_path: Path):
     payload = __import__("json").loads(manifest.read_text(encoding="utf-8"))
     assert payload["counts"]["url_indexed_artifacts"] == 2
     assert payload["url_index_summary"]["total_urls"] == 2
+
+
+def test_append_deduped_lines_preserves_unique_current_view(tmp_path: Path):
+    path = tmp_path / "aggregated" / "urls.txt"
+    first = R.append_deduped_lines(path, ["https://api.example.com/a", "https://api.example.com/a", ""])
+    second = R.append_deduped_lines(path, ["https://api.example.com/a", "https://api.example.com/b"])
+
+    assert first == {"read": 2, "new": 1}
+    assert second == {"read": 2, "new": 1}
+    assert path.read_text(encoding="utf-8").splitlines() == [
+        "https://api.example.com/a",
+        "https://api.example.com/b",
+    ]
+
+
+def test_append_deduped_jsonl_uses_stable_keys(tmp_path: Path):
+    path = tmp_path / "fuzz" / "status_leads.jsonl"
+    first = R.append_deduped_jsonl(
+        path,
+        [
+            {"url": "https://api.example.com/admin", "status": 403, "run_id": "run1"},
+            {"url": "https://api.example.com/admin", "status": 403, "run_id": "run1-duplicate"},
+        ],
+        key_fields=("url", "status"),
+    )
+    second = R.append_deduped_jsonl(
+        path,
+        [
+            {"url": "https://api.example.com/admin", "status": 403, "run_id": "run2"},
+            {"url": "https://api.example.com/admin", "status": 405, "run_id": "run2"},
+        ],
+        key_fields=("url", "status"),
+    )
+
+    rows = [__import__("json").loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert first == {"read": 2, "new": 1}
+    assert second == {"read": 2, "new": 1}
+    assert [(row["url"], row["status"]) for row in rows] == [
+        ("https://api.example.com/admin", 403),
+        ("https://api.example.com/admin", 405),
+    ]

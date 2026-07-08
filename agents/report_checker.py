@@ -19,7 +19,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agents.ledger import read_team_findings, update_team_finding
-from agents.report_markdown import markdown_link_destinations
+from agents.reporting.markdown import markdown_link_destinations
 from agents.source_roots import source_root_candidates
 from agents.storage_resolver import resolve_family_lane, resolve_storage
 from agents.report_paths import (

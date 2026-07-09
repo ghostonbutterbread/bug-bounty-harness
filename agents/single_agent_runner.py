@@ -216,7 +216,7 @@ class SingleAgentTeam(BaseTeam):
         context_block = _format_literal(self._context_block())
         hypothesis_block = _format_literal(self._hypothesis_block())
         goal = _format_literal(self.goal)
-        fresh_line = "- Treat prior coverage as advisory only; start from the supplied goal and current target state." if self.fresh else "- Use prior ledger and coverage as coordination inputs before adding findings."
+        fresh_line = "- Treat prior coverage as advisory only; start from the supplied goal and current target state." if self.fresh else "- Use prior ledger and coverage only as targeted coordination inputs after selecting the live surface or before adding findings; never treat historical confirmed findings as satisfying this run's goal."
         return f"""You are the only active Bug Bounty Harness agent for this run.
 
 Program: {{program}}
@@ -249,7 +249,7 @@ Operational constraints:
 - Run as one focused agent only. Do not ask for or start parallel subagents.
 - Respect single-resource sequencing for VM, desktop, dynamic instrumentation, and Ghidra work; assume only one Ghidra instance is available.
 - Use the injected ledger, report, notes, and trace paths for coordination and evidence.
-- Check existing ledger/coverage before treating a result as new.
+- Do not start by broadly reading historical findings. Check existing ledger/coverage only for targeted duplicate avoidance, exact tested-state, or report write coordination.
 - Do not fabricate findings. If there is no concrete issue, exit with concise notes and no finding JSON.
 - For Canva or other live testing, do not publish, spam, purchase, send invites or messages, perform mass actions, or mutate vendor/customer data.
 {fresh_line}

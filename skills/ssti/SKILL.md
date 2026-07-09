@@ -11,7 +11,7 @@ Keep this lane small: prove server-side expression evaluation, identify the engi
 
 ## Required Preflight
 
-Read shared state in this order before testing:
+Read the relevant notes for the concrete surface when they exist:
 
 1. Program scope and live-testing rules.
 2. `notes/summary.md`

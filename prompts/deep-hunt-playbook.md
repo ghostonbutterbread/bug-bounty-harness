@@ -45,7 +45,9 @@ with useful notes over a large batch with shallow coverage.
 
 2. Gather context.
 
-Read existing artifacts before probing:
+Read only the existing artifacts needed to begin safely and understand the
+chosen section. Do not start live testing with a broad findings-ledger or
+MapStore review:
 
 - URL-index stats, `next`, `history`, route/param-shape related URLs
 - live-map routes, flows, auth boundaries, state actions, and handoffs
@@ -53,6 +55,18 @@ Read existing artifacts before probing:
 - related JavaScript files, bootstrap data, source maps, route manifests, API
   calls, and frontend sink/source clues
 - approved accounts, object/resource IDs, cleanup status, and scope notes
+
+Prior findings are advisory coordination only. They help avoid duplicate
+retests, identify tested boundaries, or add fresh evidence to an existing FID.
+They do not satisfy the current section goal by themselves unless the goal
+explicitly asks for status, portfolio review, duplicate triage, report cleanup,
+or revalidation of that exact historical finding.
+
+MapStore is a targeted memory lookup and write-back layer, not the creative
+starting point. Use it to ask "was this exact URL/surface/class already tested?"
+after the section is selected, then keep or pivot hypotheses based on the
+current runtime behavior. Do not inherit the prior entry's vuln class as the
+default lane.
 
 3. Build a section map.
 

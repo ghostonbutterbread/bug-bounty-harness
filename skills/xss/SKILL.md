@@ -18,9 +18,11 @@ DOM reachability, sanitizer interaction, browser/server render differences,
 stored re-rendering, or unusual encoding all mean the lane is at least `warm`
 and should enter pressure mode.
 
-## Required Preflight
+## Context
 
-Read shared state in this order before testing when the files exist:
+First identify the current input/render surface from the user goal, browser,
+proxy, or response. Then read only the notes needed for that exact URL,
+parameter, render context, or cleanup boundary when the files exist:
 
 1. `notes/summary.md`
 2. `notes/observations.md`
@@ -147,12 +149,10 @@ python /home/ryushe/projects/bug_bounty_harness/agents/xss_hunter.py \
 
 1. Identify the input vector: query, path, body, JSON, header, cookie, upload,
    stored object field, router state, storage, or message.
-2. Query MapStore and prior attempts for this URL, surface, parameter, and
-   render context.
-3. Send an inert marker and record where it lands.
-4. Classify the render context before choosing payloads.
-5. Load `reflected-xss`, `stored-xss`, or `dom-xss`.
-6. Use the lane skill to pick payload families, browser proof, cleanup, and
+2. Send an inert marker and record where it lands.
+3. Classify the render context before choosing payloads.
+4. Load `reflected-xss`, `stored-xss`, or `dom-xss`.
+5. Use the lane skill to pick payload families, browser proof, cleanup, and
    report shape.
 7. Escalate to `waf-live-policy` and bypass/mutation work when filtering or
    parsing behavior becomes the interesting surface.
@@ -238,7 +238,7 @@ Record:
 - observed transform and block reason
 - browser verification status
 - interaction needed, if any
-- attempts artifact path and MapStore pointer
+- attempts artifact path
 - cleanup state for stored payloads
 - pressure state and next discriminating probe
 

@@ -32,17 +32,25 @@ hypothesis or handoff in `/bounty-notes`, linked by the same full URL and tags.
 Rule of thumb: if an agent would want it while standing at a specific URL,
 domain, app surface, role, or defense, write it to MapStore.
 
-## Mandatory Agent Flow
+## Live Agent Flow
 
-1. Query first for the URL/surface.
-2. Do the work.
-3. Write back important positive and negative observations.
-4. Use `--scope app` for app-wide facts and `--scope surface` for surface-wide
+1. Start from the user goal and the live surface in front of you. Do not make a
+   broad MapStore or findings-ledger read the opening move for creative live
+   testing.
+2. Query MapStore only when you have a concrete URL, endpoint, surface,
+   parameter, role boundary, or vuln class and need targeted tested-state,
+   duplicate avoidance, or reusable app facts.
+3. Treat MapStore results as constraints and prior observations, not as the
+   hypothesis generator. If prior notes are narrow, pivot to adjacent untested
+   classes instead of inheriting their tunnel vision.
+4. Do the work.
+5. Write back important positive and negative observations.
+6. Use `--scope app` for app-wide facts and `--scope surface` for surface-wide
    facts.
-5. Add vuln-class/status tags so specialist agents can filter.
-6. Link relevant attempts artifacts when the observation came from a deliberate
+7. Add vuln-class/status tags so specialist agents can filter.
+8. Link relevant attempts artifacts when the observation came from a deliberate
    probe or mutation family.
-7. If the observation changes hunt direction, add the narrative/handoff to
+9. If the observation changes hunt direction, add the narrative/handoff to
    `/bounty-notes` too.
 
 ## Gadget Entries

@@ -8,7 +8,7 @@ Test for race conditions, state desynchronization, and concurrent workflow flaws
 
 ## Required Preflight
 
-Read shared state in this order before testing:
+Read the relevant notes for the concrete surface when they exist:
 
 1. `notes/summary.md`
 2. `notes/observations.md`

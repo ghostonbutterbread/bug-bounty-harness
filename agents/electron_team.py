@@ -302,7 +302,7 @@ class ElectronTeam(BaseTeam):
         fresh_line = (
             "- Treat prior coverage as advisory only; start from the supplied target and injected context."
             if self.fresh
-            else "- Check existing ledger, reports, notes, and coverage before treating a result as new."
+            else "- Use existing ledger, reports, notes, and coverage only for targeted duplicate checks or write coordination after selecting the current surface."
         )
         return f"""You are a beta Electron Team static-analysis hunter focused on "{profile.key}" ({profile.title}).
 

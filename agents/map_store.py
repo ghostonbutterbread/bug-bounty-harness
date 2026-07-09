@@ -37,6 +37,12 @@ CLI Usage::
     python3 agents/map_store.py query --program canva \\
         --url "app.com/login" --surface xss
 
+    # Archive a stale gadget/note after current testing proves it no longer works
+    python3 agents/map_store.py update-status --program canva \\
+        --path "xss/app.com_s_login/old-gadget/index.md" \\
+        --status archived \\
+        --reason "Retested current login flow twice; sink no longer renders."
+
     # Rebuild cross-reference views
     python3 agents/map_store.py rebuild-crossref --program canva
 """
@@ -92,6 +98,20 @@ APP_SCOPE = "app"
 SURFACE_SCOPE = "surface"
 URL_SCOPE = "url"
 VALID_SCOPES = {APP_SCOPE, SURFACE_SCOPE, URL_SCOPE}
+ACTIVE_STATUS = "active"
+CANDIDATE_STATUS = "candidate"
+FAILED_STATUS = "failed"
+NEEDS_RECHECK_STATUS = "needs_recheck"
+STALE_STATUS = "stale"
+ARCHIVED_STATUS = "archived"
+VALID_STATUSES = {
+    ACTIVE_STATUS,
+    CANDIDATE_STATUS,
+    FAILED_STATUS,
+    NEEDS_RECHECK_STATUS,
+    STALE_STATUS,
+    ARCHIVED_STATUS,
+}
 CROSSREF_DIR = "_crossref"
 APP_DIR = "_app"
 SURFACE_INDEX_DIR = "_surface"
@@ -172,6 +192,40 @@ def observation_slug(
     if title and run_id:
         pieces.append(run_id)
     return slugify(" ".join(piece for piece in pieces if piece), fallback="observation")
+
+
+def normalize_status(value: str | None, *, default: str = ACTIVE_STATUS) -> str:
+    """Normalize a lifecycle status from CLI/index input."""
+    status = slugify(value or default, fallback=default).replace("-", "_")
+    aliases = {
+        "fail": FAILED_STATUS,
+        "failed_once": FAILED_STATUS,
+        "recheck": NEEDS_RECHECK_STATUS,
+        "needs-recheck": NEEDS_RECHECK_STATUS,
+        "archive": ARCHIVED_STATUS,
+    }
+    status = aliases.get(status, status)
+    if status not in VALID_STATUSES:
+        raise ValueError(
+            f"Invalid status: {value!r}. Use one of: {', '.join(sorted(VALID_STATUSES))}"
+        )
+    return status
+
+
+def _entry_status(entry: dict) -> str:
+    try:
+        return normalize_status(str(entry.get("status") or ACTIVE_STATUS))
+    except ValueError:
+        return ACTIVE_STATUS
+
+
+def _format_status_note(*, timestamp: str, status: str, agent: str, reason: str) -> str:
+    reason = reason.strip() or "No reason recorded."
+    return (
+        "\n\n## Lifecycle Update\n\n"
+        f"- {timestamp}: status -> `{status}` by `{agent}`\n"
+        f"  Reason: {reason}\n"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +464,7 @@ class MapStore:
         agent: str = "ghost",
         run_id: str | None = None,
         title: str = "",
+        status: str = ACTIVE_STATUS,
     ) -> Path:
         """Write a surface observation and index it.
 
@@ -424,6 +479,7 @@ class MapStore:
             agent: Agent name.
             run_id: Run identifier.
             title: Observation title for the markdown header and index.
+            status: Lifecycle status for opportunistic memory hygiene.
 
         Returns:
             Path to the written observation file.
@@ -433,6 +489,7 @@ class MapStore:
 
         tags = tags or []
         crossfamily = crossfamily or []
+        status = normalize_status(status)
 
         with self._locked():
             return self._write_observation_unlocked(
@@ -445,6 +502,7 @@ class MapStore:
                 agent=agent,
                 run_id=run_id,
                 title=title,
+                status=status,
             )
 
     def _write_observation_unlocked(
@@ -459,6 +517,7 @@ class MapStore:
         agent: str,
         run_id: str | None,
         title: str,
+        status: str,
     ) -> Path:
         # Determine file path
         if scope == APP_SCOPE:
@@ -490,6 +549,7 @@ class MapStore:
         obs_dir = self._maps_root / rel_dir
         obs_dir.mkdir(parents=True, exist_ok=True)
         obs_path = obs_dir / OBSERVATION_FILE
+        timestamp = iso_now()
 
         # Build markdown content
         title_display = title or (f"{surface}/{url_to_dirname(url)}" if url else f"{surface}/{scope}")
@@ -498,6 +558,7 @@ class MapStore:
             "",
             f"Surface: {surface}",
             f"Scope: {scope}",
+            f"Status: {status}",
         ]
         if url:
             header.append(f"URL: {url}")
@@ -506,7 +567,7 @@ class MapStore:
         header.extend([
             f"Agent: {agent}",
             f"Run: {run_id or 'manual'}",
-            f"Updated: {iso_now()}",
+            f"Updated: {timestamp}",
             "",
         ])
 
@@ -520,10 +581,14 @@ class MapStore:
             "path": obs_path.relative_to(self._maps_root).as_posix(),
             "tags": sorted({slugify(t) for t in tags}),
             "crossfamily": sorted(set(crossfamily)),
-            "timestamp": iso_now(),
+            "timestamp": timestamp,
             "agent": agent,
             "run_id": run_id or "",
             "title": title_display,
+            "status": status,
+            "status_updated": timestamp,
+            "status_agent": agent,
+            "status_reason": "initial write",
         }
         self._upsert_entry(entry)
         self._refresh_pointer_index(
@@ -532,6 +597,80 @@ class MapStore:
         )
 
         return obs_path
+
+    # -- update observation lifecycle ---------------------------------------
+
+    def update_status(
+        self,
+        *,
+        path: str,
+        status: str,
+        reason: str,
+        agent: str = "ghost",
+    ) -> dict:
+        """Update the lifecycle status for an existing observation.
+
+        Status changes are evidence-backed annotations from agents that tried a
+        gadget/note or saw current app behavior change. They do not delete the
+        observation; archived entries remain queryable with explicit filters.
+        """
+        status = normalize_status(status)
+        reason = reason.strip()
+        if not reason:
+            raise ValueError("status update reason is required")
+
+        with self._locked():
+            entries = self._read_index()
+            match: dict | None = None
+            for entry in entries:
+                if entry.get("path") == path:
+                    match = entry
+                    break
+            if match is None:
+                raise ValueError(f"No MapStore entry found for path: {path}")
+
+            obs_path = self._maps_root / path
+            if not obs_path.exists():
+                raise ValueError(f"Observation file is missing: {path}")
+
+            timestamp = iso_now()
+            match["status"] = status
+            match["status_updated"] = timestamp
+            match["status_agent"] = agent
+            match["status_reason"] = reason
+            history = match.get("status_history")
+            if not isinstance(history, list):
+                history = []
+            history.append({
+                "timestamp": timestamp,
+                "status": status,
+                "agent": agent,
+                "reason": reason,
+            })
+            match["status_history"] = history
+            entries.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+            self._write_index(entries)
+
+            content = obs_path.read_text(encoding="utf-8")
+            lines = content.splitlines()
+            replaced = False
+            for idx, line in enumerate(lines):
+                if line.startswith("Status: "):
+                    lines[idx] = f"Status: {status}"
+                    replaced = True
+                    break
+            if not replaced:
+                insert_at = 4 if len(lines) >= 4 else len(lines)
+                lines.insert(insert_at, f"Status: {status}")
+            content = "\n".join(lines).rstrip() + _format_status_note(
+                timestamp=timestamp,
+                status=status,
+                agent=agent,
+                reason=reason,
+            )
+            _atomic_write_text(obs_path, content.rstrip() + "\n")
+
+            return dict(match)
 
     # -- query ---------------------------------------------------------------
 
@@ -542,6 +681,8 @@ class MapStore:
         surface: str | None = None,
         scope: str | None = None,
         tags: list[str] | None = None,
+        statuses: list[str] | None = None,
+        include_archived: bool = False,
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int | None = None,
@@ -557,6 +698,9 @@ class MapStore:
                 tagged ``{surface}-relevant`` from other surfaces.
             scope: Filter to ``app``, ``surface``, or ``url``.
             tags: Filter to entries that contain every listed tag.
+            statuses: Filter to entries with any listed lifecycle status.
+            include_archived: Include archived entries when no explicit status
+                filter is provided.
             since: Include observations at or after this UTC timestamp.
             until: Include observations at or before this UTC timestamp.
             limit: Maximum number of observations to return after sorting.
@@ -573,6 +717,9 @@ class MapStore:
             entries = entries + cross_family_entries
         results: list[dict] = []
         required_tags = {slugify(tag) for tag in tags or [] if tag}
+        required_statuses = {
+            normalize_status(status) for status in statuses or [] if status
+        }
 
         if url:
             normalized = normalize_url(url)
@@ -584,6 +731,7 @@ class MapStore:
             entry_surface = entry.get("surface", "")
             entry_scope = entry.get("scope", "")
             entry_tags = entry.get("tags", [])
+            entry_status = _entry_status(entry)
             entry_time = _entry_time(entry)
             entry_tag_set = {slugify(tag) for tag in entry_tags}
 
@@ -613,6 +761,13 @@ class MapStore:
 
             # --- Tag filtering ------------------------------------------------
             if required_tags and not required_tags.issubset(entry_tag_set):
+                continue
+
+            # --- Lifecycle status filtering ---------------------------------
+            if required_statuses:
+                if entry_status not in required_statuses:
+                    continue
+            elif entry_status == ARCHIVED_STATUS and not include_archived:
                 continue
 
             # --- Surface filtering --------------------------------------------
@@ -837,6 +992,7 @@ def _build_parser() -> argparse.ArgumentParser:
     write_p.add_argument("--agent", default="ghost")
     write_p.add_argument("--run-id", default=None)
     write_p.add_argument("--title", default="")
+    write_p.add_argument("--status", default=ACTIVE_STATUS, choices=sorted(VALID_STATUSES), help="Lifecycle status for this observation")
 
     # query
     query_p = sub.add_parser("query", help="Query observations by URL and/or surface")
@@ -845,12 +1001,23 @@ def _build_parser() -> argparse.ArgumentParser:
     query_p.add_argument("--surface", default=None, help="Surface filter")
     query_p.add_argument("--scope", default=None, choices=sorted(VALID_SCOPES))
     query_p.add_argument("--tags", default="", help="Comma-separated required tags")
+    query_p.add_argument("--status", default="", help="Comma-separated lifecycle statuses to include")
+    query_p.add_argument("--include-archived", action="store_true", help="Include archived entries when no explicit --status filter is set")
     query_p.add_argument("--since", default=None, help="Only show observations since ISO time/date or relative value like 24h, 7d, 2w")
     query_p.add_argument("--until", default=None, help="Only show observations until ISO time/date or relative value like 24h, 7d, 2w")
     query_p.add_argument("--recent-days", type=int, default=None, help="Shortcut for --since now minus N days")
     query_p.add_argument("--limit", type=int, default=None, help="Maximum observations to show")
     query_p.add_argument("--cross-family", action="store_true", help="Include cross-family observations")
     query_p.add_argument("--json", action="store_true", help="Output as JSON")
+
+    # update-status
+    status_p = sub.add_parser("update-status", help="Update an observation lifecycle status")
+    _add_common(status_p)
+    status_p.add_argument("--path", required=True, help="MapStore-relative observation path from query output")
+    status_p.add_argument("--status", required=True, choices=sorted(VALID_STATUSES))
+    status_p.add_argument("--reason", required=True, help="Evidence-backed reason for the status change")
+    status_p.add_argument("--agent", default="ghost")
+    status_p.add_argument("--json", action="store_true", help="Output updated index entry as JSON")
 
     # rebuild-crossref
     xref_p = sub.add_parser("rebuild-crossref", help="Regenerate _crossref/ views")
@@ -901,6 +1068,7 @@ def _run_write(store: MapStore, args: argparse.Namespace) -> int:
         agent=args.agent,
         run_id=args.run_id,
         title=args.title,
+        status=args.status,
     )
     print(str(path))
     return 0
@@ -925,6 +1093,8 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
         surface=args.surface,
         scope=args.scope,
         tags=[t.strip() for t in args.tags.split(",") if t.strip()],
+        statuses=[s.strip() for s in args.status.split(",") if s.strip()],
+        include_archived=args.include_archived,
         since=since,
         until=until,
         limit=args.limit,
@@ -946,9 +1116,11 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
             title = entry.get("title", "")
             path = entry.get("path", "")
             tags = ", ".join(entry.get("tags", []))
+            status = _entry_status(entry)
             cf_source = entry.get("_crossfamily_source", "")
 
             print(f"{ts} | {surface_name}/{scope} | {title}")
+            print(f"  Status: {status}")
             print(f"  URL: {url_val}")
             print(f"  Path: {path}")
             if tags:
@@ -957,6 +1129,20 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
                 print(f"  From: {cf_source} (cross-family)")
             print()
 
+    return 0
+
+
+def _run_update_status(store: MapStore, args: argparse.Namespace) -> int:
+    entry = store.update_status(
+        path=args.path,
+        status=args.status,
+        reason=args.reason,
+        agent=args.agent,
+    )
+    if args.json:
+        print(json.dumps(entry, indent=2, sort_keys=True))
+    else:
+        print(f"{entry.get('path')} -> {entry.get('status')}")
     return 0
 
 
@@ -1177,6 +1363,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_write(store, args)
     elif args.command == "query":
         return _run_query(store, args)
+    elif args.command == "update-status":
+        return _run_update_status(store, args)
     elif args.command == "rebuild-crossref":
         return _run_rebuild_crossref(store, args)
     else:

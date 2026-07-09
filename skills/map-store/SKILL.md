@@ -53,6 +53,32 @@ domain, app surface, role, or defense, write it to MapStore.
 9. If the observation changes hunt direction, add the narrative/handoff to
    `/bounty-notes` too.
 
+## Opportunistic Lifecycle Hygiene
+
+Do not run a background cleanup pass over MapStore before hunting. Update entry
+status only when current testing gives you evidence.
+
+Lifecycle statuses:
+
+- `active`: default; still useful as a current observation or gadget.
+- `candidate`: observed or promising, but not proven reusable yet.
+- `failed`: tried in the current context and did not work; include what was
+  tried and why it failed.
+- `needs_recheck`: useful enough to revisit, but current evidence is
+  incomplete, ambiguous, or environment-dependent.
+- `stale`: app behavior appears to have changed since the note was written.
+- `archived`: do not present as an active lead unless the agent explicitly
+  reviews archived material.
+
+When a gadget/note fails, do not immediately bury it after one weak attempt.
+Write the attempt context or mark `failed`/`needs_recheck`. Use `stale` or
+`archived` when repeated testing or clear app behavior proves it should stop
+appearing as an active lead.
+
+Every lifecycle downgrade must include an evidence-backed reason. Good reasons
+say what was tested, where, and why the observation no longer applies. Avoid
+generic reasons such as "old" or "did not work".
+
 ## Gadget Entries
 
 Add the `gadget` tag only when an observation is a confirmed, exploitable
@@ -194,7 +220,10 @@ PYTHONPATH=".:$HOME/projects/bounty-core"
 python3 agents/map_store.py init --program <program> --family web_bounty --lane web
 python3 agents/map_store.py query --program <program> --family web_bounty --lane web --url "https://app.example/path" --surface xss
 python3 agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget,confirmed
+python3 agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget --status active,candidate
+python3 agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget --include-archived
 python3 agents/map_store.py write --program <program> --family web_bounty --lane web --url "https://app.example/path" --surface xss --scope url --tags "xss-sandbox,investigated" --agent "<agent>" --body-file /tmp/mapstore-body.md
+python3 agents/map_store.py update-status --program <program> --family web_bounty --lane web --path "xss/app.example_s_path/example/index.md" --status archived --reason "Retested against current preview flow twice; title no longer reaches the victim preview context." --agent "<agent>"
 python3 agents/map_store.py rebuild-crossref --program <program> --family web_bounty --lane web
 ```
 

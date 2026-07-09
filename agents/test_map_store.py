@@ -18,6 +18,7 @@ from agents.map_store import (
     MapStore,
     iso_now,
     normalize_url,
+    ARCHIVED_STATUS,
     observation_slug,
     parse_time_filter,
     slugify,
@@ -269,8 +270,89 @@ class TestMapStore:
         assert entries[0]["url"] == "https://app.com/login"
         assert entries[0]["surface"] == "js"
         assert entries[0]["scope"] == "url"
+        assert entries[0]["status"] == "active"
         assert "csp" in entries[0]["tags"]
         assert "xss-relevant" in entries[0]["tags"]
+
+    def test_write_accepts_candidate_status(self, store: MapStore):
+        store.init()
+        path = store.write(
+            url="https://app.com/gadget",
+            surface="xss",
+            body="Promising render primitive, not proven reusable yet.\n",
+            tags=["gadget"],
+            status="candidate",
+            title="candidate gadget",
+        )
+
+        entries = store.query(statuses=["candidate"])
+        assert len(entries) == 1
+        assert entries[0]["status"] == "candidate"
+        assert "Status: candidate" in path.read_text(encoding="utf-8")
+
+    def test_update_status_archives_with_reason_and_hides_by_default(self, store: MapStore):
+        store.init()
+        path = store.write(
+            url="https://app.com/gadget",
+            surface="ssrf",
+            body="Webhook import fetches attacker URL.\n",
+            tags=["gadget"],
+            title="webhook gadget",
+        )
+        rel_path = path.relative_to(store.maps_root).as_posix()
+
+        updated = store.update_status(
+            path=rel_path,
+            status=ARCHIVED_STATUS,
+            reason="Retested current import flow twice; endpoint no longer performs server fetch.",
+            agent="ssrf-worker",
+        )
+
+        assert updated["status"] == ARCHIVED_STATUS
+        assert updated["status_agent"] == "ssrf-worker"
+        assert updated["status_history"][0]["status"] == ARCHIVED_STATUS
+        content = path.read_text(encoding="utf-8")
+        assert "Status: archived" in content
+        assert "endpoint no longer performs server fetch" in content
+        assert store.query(tags=["gadget"]) == []
+        archived = store.query(tags=["gadget"], include_archived=True)
+        assert len(archived) == 1
+        assert archived[0]["status"] == ARCHIVED_STATUS
+
+    def test_cli_update_status_archives_observation(self, store: MapStore):
+        store.init()
+        repo_root = Path(__file__).resolve().parents[1]
+        path = store.write(
+            url="https://app.com/gadget",
+            surface="xss",
+            body="Stored title reaches preview.\n",
+            tags=["gadget"],
+            title="stored preview gadget",
+        )
+        rel_path = path.relative_to(store.maps_root).as_posix()
+
+        proc = subprocess.run([
+            sys.executable,
+            "agents/map_store.py",
+            "update-status",
+            "--program",
+            "testprog",
+            "--root",
+            str(store._layout.base_root),
+            "--path",
+            rel_path,
+            "--status",
+            "failed",
+            "--reason",
+            "Current preview sanitizes titles in the tested account.",
+            "--agent",
+            "xss-worker",
+        ], cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
+        results = store.query(statuses=["failed"])
+        assert len(results) == 1
+        assert results[0]["status_reason"] == "Current preview sanitizes titles in the tested account."
 
     def test_query_by_url_and_surface(self, store: MapStore):
         store.init()

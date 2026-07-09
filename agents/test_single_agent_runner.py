@@ -48,6 +48,7 @@ def test_single_agent_profile_and_prompt_include_goal_storage_safety_context_and
     assert "Respect single-resource sequencing" in prompt
     assert "only one Ghidra instance is available" in prompt
     assert "do not publish, spam, purchase" in prompt
+    assert "never treat historical confirmed findings as satisfying this run's goal" in prompt
     assert "AppMap context: renderer route reaches import flow." in prompt
     assert "Hypothesis id: H-7" in prompt
     assert f"Brainstorm spec: {brainstorm}" in prompt

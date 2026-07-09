@@ -25,7 +25,6 @@ from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.coverage_store import CoverageStore
 from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.ledger import (
-    create_team_ledger,
     create_team_ledger_from_storage,
     update_team_finding,
 )
@@ -145,21 +144,6 @@ def _display_path(path: Path) -> str:
     return str(resolved)
 
 
-def _finding_file_ref(finding: dict[str, Any]) -> str:
-    file_ref = _normalize_text(finding.get("file"))
-    line = _safe_int(finding.get("line"))
-    if file_ref and line > 0:
-        return f"{file_ref}:{line}"
-    return file_ref or "?"
-
-
-def _review_tier_label(value: Any) -> str:
-    text = _normalize_text(value)
-    if not text:
-        return "UNKNOWN"
-    return text.replace("-", "_").upper()
-
-
 def _group_surface_entries(entries: list[dict[str, Any]]) -> list[tuple[str, list[str]]]:
     grouped: dict[str, set[str]] = {}
     for entry in entries:
@@ -251,18 +235,6 @@ def _build_hunt_context(
         else (storage.reports_root / "raw").resolve(strict=False)
     )
     snapshot_identity = get_snapshot_identity(target_root, version_label=version_label)
-    ledger = create_team_ledger(
-        program_slug,
-        target_root=target_root,
-        version_label=str(snapshot_identity.get("version_label") or ""),
-        snapshot_identity=snapshot_identity,
-        agent="manual-hunter",
-        lane="apk",
-        family="binaries",
-        root_override=resolved_storage_root,
-    )
-    findings = ledger.list_all()
-
     examined_rows: list[dict[str, Any]] = []
     unexplored_rows: list[dict[str, Any]] = []
     coverage_note = ""
@@ -301,30 +273,24 @@ def _build_hunt_context(
         context_parts.extend(
             [
                 "Fresh context — you don't know what other agents have found. Hunt freely, but findings will be coordinated with other agents via the shared ledger.",
+                "Historical findings are never a success condition for this run; the current hunt must produce new evidence, document exhausted lanes, or hit a current-run proof threshold.",
                 "",
             ]
         )
         context_parts.extend(_coordination_briefing(program_slug, resolved_reports_dir))
         return "\n".join(context_parts)
 
-    context_parts.append("## Current findings (from ledger):")
-    if findings:
-        for finding in findings[:40]:
-            fid = _normalize_text(finding.get("fid")) or "?"
-            finding_type = _normalize_text(finding.get("title") or finding.get("type")) or "?"
-            file_ref = _finding_file_ref(finding)
-            class_name = _normalize_text(
-                finding.get("vuln_class") or finding.get("class_name")
-            ) or "?"
-            tier = _review_tier_label(finding.get("status"))
-            context_parts.append(
-                f"- {fid}: {finding_type} — {file_ref} — {class_name} — {tier}"
-            )
-        if len(findings) > 40:
-            context_parts.append(f"- ... truncated {len(findings) - 40} additional findings")
-    else:
-        context_parts.append("- None yet.")
-    context_parts.append("")
+    context_parts.append("## Prior findings lookup:")
+    context_parts.extend(
+        [
+            "Do not read or summarize the full findings ledger as the opening move.",
+            "- Use prior findings only for targeted duplicate checks, status/report tasks, revalidation, or extending an existing FID with fresh evidence.",
+            "- Do not treat a historical confirmed finding as satisfying this hunt unless the task explicitly asks for status, duplicate triage, report cleanup, or revalidation.",
+            "- If you need prior context, query the exact file, URL, surface, class, or FID after you have selected the live surface.",
+            "- A current hunt is complete only after new evidence is produced, the requested lanes are exhausted or blocked, or a current-run finding is ready for report import.",
+            "",
+        ]
+    )
 
     _append_grouped_surface_section(
         context_parts,
@@ -1232,8 +1198,8 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument(
         "--hunt",
         action="store_true",
-        help="Hunt with Codex using current Ghost state as context. Loads ledger + coverage, "
-        "spawns Codex with context, then runs sync-reports to import findings.",
+        help="Hunt with Codex using current Ghost state as coordination context. Loads coverage/unexplored "
+        "state without injecting prior findings, then runs sync-reports to import findings.",
     )
     parser.add_argument(
         "--fresh",

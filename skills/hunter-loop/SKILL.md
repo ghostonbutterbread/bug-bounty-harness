@@ -22,12 +22,23 @@ and what scoped packet they should receive.
    - `/hunter-memory` summaries for the program or surface
    - `/live-map` application-map summary and handoff packets
    - `/url-ingest` stats/history for route and parameter review depth
-   - program knowledge and prior findings
-4. Query `/map-store` for the URL, host, surface, and relevant vuln class before
-   new testing.
-5. Start or resume a target memory pack.
-6. Map one app area at a time through live interaction, then dispatch
+   - scoped program knowledge needed for safety or account/resource context
+4. Start or resume a target memory pack.
+5. Map one app area at a time through live interaction, then dispatch
    specialists on evidence-backed triggers.
+
+Prior findings are coordination inputs, not success conditions. Use them to
+avoid duplicate retests, understand tested boundaries, or extend an existing FID
+with new evidence. Do not count a historical confirmed finding, old report, or
+MapStore `#do-not-retest` note as satisfying the current hunt goal unless
+Ryushe explicitly asked for status, portfolio review, duplicate triage, report
+cleanup, or revalidation of that existing finding.
+
+For live testing, do not start by broadly reading the findings ledger or
+MapStore. First pick the user-requested surface and observe the current runtime
+behavior. Query MapStore only after you have a concrete URL, endpoint, surface,
+parameter, role boundary, or vuln class and need targeted tested-state or
+duplicate avoidance. Prior notes must not choose the vuln class for the run.
 
 ## Commands
 

@@ -8,7 +8,7 @@ Auto-detect and bypass WAF blocks in any harness.
 
 ## Required Preflight
 
-Read shared state in this order before testing:
+Read the relevant notes for the concrete surface when they exist:
 
 1. `notes/summary.md`
 2. `notes/observations.md`

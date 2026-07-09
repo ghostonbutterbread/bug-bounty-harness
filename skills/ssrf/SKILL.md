@@ -43,9 +43,8 @@ means classify the fetch/filter boundary and enter pressure mode.
 ## Workflow
 
 1. Identify the server-side fetch sink and parameter.
-2. Query MapStore and prior attempts for this URL/fetch surface.
-3. Confirm a benign controlled outbound fetch when possible.
-4. If no callback, reflection, status change, or visible delta appears, classify
+2. Confirm a benign controlled outbound fetch when possible.
+3. If no callback, reflection, status change, or visible delta appears, classify
    likely controls anyway: allowlist, private-IP block, redirect handling, DNS
    timing, scheme block, URL parser split, sanitizer, WAF, or async fetch.
 5. Use the idea seeds that match the observed or plausible filtering/routing
@@ -112,5 +111,5 @@ Write findings to `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/ssrf/fin
 Record full URL, sink/parameter, loaded reference pack, destination class,
 exact URL payloads or canaries tried, payload family, callback or response
 evidence, observed filter/block reason, required bypass/header, attempts
-artifact path, MapStore pointer, pressure state, confirmation status, and
-impact boundary reached.
+artifact path, pressure state, confirmation status, and impact boundary
+reached.

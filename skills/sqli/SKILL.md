@@ -18,7 +18,8 @@ complete ceiling.
 
 1. Read scope, owned-account context, and active live-testing policy.
 2. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
-3. Read shared state in this order before testing:
+3. After selecting a likely SQL-backed URL/parameter, read relevant shared
+   state in this order when it helps understand the surface:
    - `notes/summary.md`
    - `notes/observations.md`
    - `checklist.md` (SQLi items only)

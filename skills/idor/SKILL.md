@@ -10,7 +10,11 @@ For broader broken access control work, start with `/access-control`. Use `/idor
 
 ## Required Preflight
 
-Read shared state in this order before testing:
+Before swapping object identifiers, read the owned-account/resource registry
+and any notes for the exact object family, endpoint, role boundary, or workflow
+you are about to compare.
+
+Read shared state in this order when needed:
 
 1. `/account-management` registry at `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json`
 2. `notes/summary.md`

@@ -251,10 +251,20 @@ class ManualHunterTests(unittest.TestCase):
         self.assertIn(f"Program: {self.program}", context)
         self.assertIn(f"Target: {self.target_root}", context)
         self.assertIn("Output: ~/Shared/binaries/notion/apk/reports/raw", context)
-        self.assertIn("D01: SQLite injection via exposed IPC port", context)
+        self.assertNotIn("D01: SQLite injection via exposed IPC port", context)
+        self.assertIn("## Prior findings lookup:", context)
+        self.assertIn("Do not read or summarize the full findings ledger as the opening move.", context)
+        self.assertIn("Do not treat a historical confirmed finding as satisfying this hunt", context)
         self.assertIn(".webpack/renderer/preload.js (native-module-abuse) ✅", context)
         self.assertIn("renderer/view.js (dom-xss)", context)
         self.assertIn("updater.ts (exec-sink-reachability)", context)
+
+    def test_build_hunt_context_fresh_mode_rejects_historical_findings_as_success(self) -> None:
+        context = _build_hunt_context(self.program, source_root=self.target_root, fresh=True)
+
+        self.assertIn("Fresh context", context)
+        self.assertIn("Historical findings are never a success condition", context)
+        self.assertNotIn("## Current findings (from ledger):", context)
 
     def test_build_subagent_handoff_bundle_includes_context_files(self) -> None:
         hunter = ManualHunter(self.program, source_root=self.target_root)

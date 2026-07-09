@@ -37,16 +37,30 @@ passwords, API keys, reset links, private headers, or private config values.
 ## Mapping Loop
 
 1. Pick one section or goal.
-2. Load prior Hunter Memory, live-map, URL index, findings, and program notes.
-3. Query MapStore for the URL, host, surface, defense, and vuln-class history.
-4. Explore with browser/CDP first when the flow is JS-heavy or stateful.
-5. Perform one normal user action or one small controlled probe to learn how
+2. Load only scoped safety/account context and route state needed to begin.
+   Do not start with a broad findings-ledger or MapStore review.
+3. Explore with browser/CDP first when the flow is JS-heavy or stateful.
+4. Perform one normal user action or one small controlled probe to learn how
    the selected surface behaves.
+5. Query MapStore only for the concrete URL, host, surface, defense, or
+   vuln-class boundary you are about to test or dedupe.
 6. Add runtime routes, forms, scripts, objects, and auth boundaries to the map.
 7. Convert each interesting observation into a trigger or a scoped boundary.
 8. Dispatch specialists only when the trigger has enough context.
 9. Merge specialist results back into the target memory pack and MapStore.
 10. Choose the next section, next specialist, or stop condition.
+
+Prior findings are advisory coordination only. They help the parent avoid
+duplicate work, choose adjacent untested surfaces, or merge fresh evidence into
+an existing FID. They do not satisfy the current goal by themselves unless the
+goal explicitly asks for status, portfolio review, duplicate triage, report
+cleanup, or revalidation of that exact historical finding.
+
+MapStore is a targeted memory lookup and write-back layer, not the creative
+starting point. Use it to ask "was this exact URL/surface/class already tested?"
+after the live surface is selected, then keep or pivot hypotheses based on the
+current runtime behavior. Do not inherit the prior entry's vuln class as the
+default lane.
 
 Do not wait for a complete overhead map before touching the application. The
 agent should learn by interacting with one surface, observing its real behavior,
@@ -186,4 +200,4 @@ Stop or ask for steering when:
 - a specialist needs credentials or sensitive material not already approved
 - the same lane repeats without new observations
 - the map has enough evidence to move to a better section
-- a confirmed vulnerability is ready for normal report/promotion workflow
+- a current-run confirmed vulnerability is ready for normal report/promotion workflow

@@ -20,11 +20,24 @@ bounded lane at a time.
    - `/url-ingest` stats/next/history for the program
    - `/live-map` summary and relevant handoff packets
    - `/hunter-memory` summaries for the section or vulnerability lane
-   - program knowledge and prior findings
+   - scoped program knowledge needed for safety or account/resource context
 4. Choose one URL, one section, or one tight route cluster.
 5. Create a hypothesis board for that URL/section.
 6. Spawn or brief focused child lanes only after each packet has a clear
    boundary, safety rule, and stop condition.
+
+Prior findings are coordination inputs, not success conditions. Use them to
+avoid duplicate retests, understand tested boundaries, or extend an existing FID
+with new evidence. Do not count a historical confirmed finding, old report, or
+MapStore `#do-not-retest` note as satisfying the current deep-hunt goal unless
+Ryushe explicitly asked for status, portfolio review, duplicate triage, report
+cleanup, or revalidation of that existing finding.
+
+For live testing, do not start by broadly reading the findings ledger or
+MapStore. First define the section and observe the current runtime behavior.
+Query MapStore only after you have a concrete URL, endpoint, surface,
+parameter, role boundary, or vuln class and need targeted tested-state or
+duplicate avoidance. Prior notes must not choose the vuln class for the section.
 
 ## Commands
 

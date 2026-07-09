@@ -196,23 +196,36 @@ Before testing:
 1. Read `context/target_profile.json` and `context/me_context.md` for program, family, lane, canonical roots, and report states.
 2. Resolve the current source/version root, then read or create `<source-version-root>/.ghost/INDEX.md`.
 3. Read the latest `.ghost/notes/handoffs/` entry and relevant `.ghost/notes/faq/` / `.ghost/notes/hypotheses/` entries.
-4. Inspect `ledgers/ledger.json`, `ledgers/coverage.json`, `ledgers/shared_brain/index.json`, and `ledgers/indexes/` if present.
-5. Skim existing `reports/active.md`, `reports/confirmed.md`, `reports/dormant.md`, `reports/findings/`, and `reports/categories/` when present.
-6. **Query `/map-store` for key URLs or surfaces you plan to test** — reuse
-   prior observations instead of rediscovering CSRF tokens, CSP headers, auth
-   patterns, and sandbox context.
-7. Pick work that is not already covered, not currently running, and not assigned to another active profile.
+4. Use `ledgers/coverage.json`, `ledgers/shared_brain/index.json`, and
+   `ledgers/indexes/` only for targeted coordination: active claims, tested
+   state for the exact surface, and unexplored candidates.
+5. Do not broadly skim confirmed reports or current findings before live
+   testing unless the task explicitly asks for status, duplicate triage, report
+   cleanup, revalidation, or extending a known FID.
+6. Pick work from the user goal, live surface, and uncovered areas; prior notes
+   should not choose the vulnerability class.
+7. Query `/map-store` only after you have a concrete URL, endpoint, surface,
+   parameter, role boundary, or vuln class and need targeted tested-state,
+   duplicate avoidance, or reusable app facts.
 
 During testing:
 
-- **Query `/map-store`** for the URL you are about to test — surface
-  observations from JS, recon, mental-map, or auth agents may have already
-  mapped CSRF tokens, CSP headers, framework versions, or sandbox context.
-  Write your own observations back when you discover something new at a URL.
+- Use `/map-store` as a targeted check-in after selecting or observing a
+  concrete live surface. Surface observations from JS, recon, mental-map, or
+  auth agents may help avoid duplicate retests, but they must not become the
+  default vuln-class lane for the run. Write your own observations back when you
+  discover something new at a URL.
 - Treat `ledgers/shared_brain/index.json` and `coverage.json` as the shared team memory of files/classes/surfaces.
 - Use existing findings and notes to extend or disprove hypotheses instead of duplicating them.
 - If new evidence strengthens an existing FID, update notes/handoff and mention the FID; do not create a competing duplicate report.
 - If a finding is real enough to track, submit/import it with `manual_hunter.py` so it enters the same ledger/report lifecycle as team findings.
+
+Prior-finding boundary:
+
+- Historical confirmed findings, reports, and MapStore `#do-not-retest` notes are coordination inputs only.
+- They can justify skipping an exact duplicate PoC, selecting adjacent untested work, or extending an existing FID with fresh evidence.
+- They must not satisfy a new hunt/testing goal by themselves unless Ryushe explicitly asked for status, portfolio review, report cleanup, duplicate triage, or revalidation of an existing finding.
+- A hunt goal is complete only when the current run produces new evidence for the requested target/surface, documents that the requested lanes are exhausted or blocked, or reaches a current-run proof/report threshold.
 
 After testing:
 
@@ -311,7 +324,7 @@ Use CDP only for observation, navigation, screenshots, and source-backed validat
 
 ## Context modes
 
-Default `/me`: load current ledger, coverage, shared_brain, resolved target root, and unexplored surfaces. Prefer unexplored areas and avoid duplicating known findings.
+Default `/me`: load resolved target root, coverage/shared_brain coordination, and unexplored surfaces. Do not inject prior confirmed findings into the opening hunt prompt unless the task asks for status, duplicate triage, report cleanup, revalidation, or extending a known FID. Treat prior findings as advisory coordination only; prefer unexplored areas and avoid duplicating known findings.
 
 `/me --fresh`: skip prior findings/coverage in the prompt. Hunt freely, but still use the ledger before writing; duplicates are expected to be caught by the pipeline.
 

@@ -107,7 +107,7 @@ def test_prepare_builds_valid_offline_campaign(tmp_path: Path) -> None:
     assert spec.metadata["Execution mode"] == "offline"
     assert spec.metadata["Live requests allowed"] == "false"
     assert spec.metadata["Target kind"] == "web-js"
-    assert spec.metadata["MapStore candidates path"] == "mapstore_candidates.jsonl"
+    assert spec.metadata["MapStore candidates path"] == str(campaign_root / "mapstore_candidates.jsonl")
     agent_keys = [agent for hyp in spec.hypotheses for agent in hyp.suggested_agents]
     assert "js-general-map" in agent_keys
     assert "js-anomaly-hunter" in agent_keys

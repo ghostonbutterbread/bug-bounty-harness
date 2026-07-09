@@ -369,6 +369,9 @@ run-local candidate file:
 <js-run-root>/offline_campaign/mapstore_candidates.jsonl
 ```
 
+The generated brainstorm spec uses the absolute path for this file because
+`zero_day_team` workers run from per-agent working directories.
+
 Use the generated schema:
 
 ```text

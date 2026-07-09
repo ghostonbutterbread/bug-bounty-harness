@@ -30,6 +30,17 @@ interpretation and security reasoning.
 - spawn bounded specialist agents only when chunks are independent and the user
   wants the budget spent on this task
 
+`offline-fanout`:
+
+- use when Ryushe says "dig into the JS", "vuln test the JS", "run JS deep",
+  or similar language that implies broad local review
+- consume an existing `js_analyzer.py inventory` run
+- build a local JavaScript artifact campaign with `js_offline_campaign.py`
+- run generated web-JS brainstorm specs through `zero_day_team` without live
+  target requests
+- synthesize outputs into findings, MapStore gadget candidates, endpoint
+  handoffs, or live-validation hypotheses
+
 ## Analysis Lenses
 
 `/js` is the JavaScript evidence router. It should not force every worker to
@@ -82,6 +93,13 @@ General review order:
 
 Avoid assigning one agent every lens for hundreds of packets. That creates
 shallow output and repeated context burn. Use metadata to rank, then route.
+
+For broad offline review, the classifier is an accelerator, not a boundary.
+Cheap signals decide where agents start; they do not prove other vulnerability
+classes are irrelevant. Include a classless anomaly hunter when budget allows.
+That agent should look for surprising code, odd trust assumptions, hidden
+flows, rare modules, dead routes, debug/admin hints, custom parsers, strange
+state machines, and other weirdness the lens matrix may miss.
 
 ## Script-First Layer
 
@@ -275,6 +293,69 @@ python3 agents/js_analyzer.py observe canva \
 
 Without `--refresh`, the helper reuses the URL-to-hash ledger and avoids another
 download when the artifact is already present.
+
+## Offline Fanout Campaign
+
+Use offline fanout when the user wants a deep JavaScript vulnerability review
+and the inventory run has enough packets to justify multi-agent review.
+
+Prepare the campaign:
+
+```bash
+python3 agents/js_offline_campaign.py prepare \
+  --js-run-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>" \
+  --mode deep
+```
+
+Inspect the generated `zero_day_team` command without starting agents:
+
+```bash
+python3 agents/js_offline_campaign.py run \
+  --campaign-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>/offline_campaign"
+```
+
+Start the offline fanout only when the task budget is meant for this run:
+
+```bash
+python3 agents/js_offline_campaign.py run \
+  --campaign-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>/offline_campaign" \
+  --execute
+```
+
+The generated campaign layout is:
+
+```text
+<js-run-root>/offline_campaign/
+├── manifest.json
+├── offline_target/
+│   ├── index.json
+│   └── packets/*.md
+└── brainstorm/spec.md
+```
+
+The wrapper intentionally hides the raw `zero_day_team` flags. Internally it
+uses the local `offline_target`, stores output in the web lane, identifies the
+target as `web-js`, and uses `--brainstorm-only` so the generated web-JS lanes
+run instead of the default built-in source/Desktop profile set.
+
+Offline fanout modes:
+
+- `quick`: cartography, request-shape, DOM XSS, and anomaly lanes.
+- `look`: cartography, request-shape, common web-JS lanes, anomaly, plus lanes
+  triggered by cheap inventory signals.
+- `deep`: broad web-JS class matrix plus anomaly.
+- `full`: current alias for `deep`, reserved for future heavier behavior.
+
+Keep this stage offline. Agents may produce:
+
+- reviewed findings when packet evidence is already strong enough
+- MapStore gadget candidates for reusable primitives or app behavior
+- `/analyze-endpoint` and `/create-wordlists` handoffs
+- live-validation hypotheses with packet/provenance evidence, proposed request
+  or browser action, ownership/rate/safety notes, and stop conditions
+
+Do not let offline agents validate against the live app directly. Live testing
+starts from the selected hypothesis queue and follows `live-testing-policy`.
 
 ## Agent Deep Review
 

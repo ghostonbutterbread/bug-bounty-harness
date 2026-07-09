@@ -24,6 +24,37 @@
 Use lowercase hyphenated tags. Tags beginning with `{surface}-` are visible to
 that surface's agent.
 
+## Lifecycle Status
+
+Lifecycle status is separate from tags. Use tags for classification and
+filtering; use status for whether an observation should appear as an active
+lead.
+
+Statuses:
+
+- `active`: default current observation.
+- `candidate`: promising but not proven reusable.
+- `failed`: tested in a current context and did not work.
+- `needs_recheck`: ambiguous or environment-dependent; revisit when useful.
+- `stale`: app behavior likely changed.
+- `archived`: keep searchable, but hide from default query results.
+
+Archived entries remain in MapStore. Query them explicitly with
+`--include-archived` or `--status archived`.
+
+Update status when an agent has evidence from the current surface:
+
+```bash
+python3 agents/map_store.py update-status \
+  --program canva \
+  --family web_bounty \
+  --lane web \
+  --path "xss/app.canva.com_s_report/stored-preview-gadget/index.md" \
+  --status stale \
+  --reason "Retested current report preview twice; title is escaped before render." \
+  --agent xss-worker
+```
+
 ### Gadget Capability Convention
 
 Use the `gadget` tag only for genuinely confirmed, exploitable primitives that
@@ -100,6 +131,10 @@ python3 agents/map_store.py query \
   --lane web \
   --tags gadget,confirmed
 ```
+
+Default queries hide `archived` entries. Use `--status active,candidate` for
+active gadget synthesis and `--include-archived` when intentionally reviewing
+old material.
 
 ## Family/Lane
 

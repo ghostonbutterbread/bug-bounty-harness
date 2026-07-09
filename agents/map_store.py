@@ -540,6 +540,7 @@ class MapStore:
         url: str | None = None,
         surface: str | None = None,
         scope: str | None = None,
+        tags: list[str] | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int | None = None,
@@ -554,6 +555,7 @@ class MapStore:
             surface: Filter to this surface type. Also includes entries
                 tagged ``{surface}-relevant`` from other surfaces.
             scope: Filter to ``app``, ``surface``, or ``url``.
+            tags: Filter to entries that contain every listed tag.
             since: Include observations at or after this UTC timestamp.
             until: Include observations at or before this UTC timestamp.
             limit: Maximum number of observations to return after sorting.
@@ -566,7 +568,10 @@ class MapStore:
             List of matching index entries, newest first.
         """
         entries = self._read_index()
+        if cross_family_entries:
+            entries = entries + cross_family_entries
         results: list[dict] = []
+        required_tags = {slugify(tag) for tag in tags or [] if tag}
 
         if url:
             normalized = normalize_url(url)
@@ -579,6 +584,7 @@ class MapStore:
             entry_scope = entry.get("scope", "")
             entry_tags = entry.get("tags", [])
             entry_time = _entry_time(entry)
+            entry_tag_set = {slugify(tag) for tag in entry_tags}
 
             # --- URL matching -------------------------------------------------
             if url and entry_scope == URL_SCOPE:
@@ -604,6 +610,10 @@ class MapStore:
                 if until and entry_time > until:
                     continue
 
+            # --- Tag filtering ------------------------------------------------
+            if required_tags and not required_tags.issubset(entry_tag_set):
+                continue
+
             # --- Surface filtering --------------------------------------------
             if surface:
                 # Same surface → always include
@@ -621,10 +631,6 @@ class MapStore:
                     continue
 
             results.append(entry)
-
-        # --- Cross-family -------------------------------------------------
-        if cross_family_entries:
-            results.extend(cross_family_entries)
 
         # Deduplicate by store-relative identity. Cross-family entries can have
         # the same relative path as local entries, so include their source.
@@ -835,6 +841,7 @@ def _build_parser() -> argparse.ArgumentParser:
     query_p.add_argument("--url", default=None, help="URL to query")
     query_p.add_argument("--surface", default=None, help="Surface filter")
     query_p.add_argument("--scope", default=None, choices=sorted(VALID_SCOPES))
+    query_p.add_argument("--tags", default="", help="Comma-separated required tags")
     query_p.add_argument("--since", default=None, help="Only show observations since ISO time/date or relative value like 24h, 7d, 2w")
     query_p.add_argument("--until", default=None, help="Only show observations until ISO time/date or relative value like 24h, 7d, 2w")
     query_p.add_argument("--recent-days", type=int, default=None, help="Shortcut for --since now minus N days")
@@ -912,6 +919,7 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
         url=args.url,
         surface=args.surface,
         scope=args.scope,
+        tags=[t.strip() for t in args.tags.split(",") if t.strip()],
         since=since,
         until=until,
         limit=args.limit,

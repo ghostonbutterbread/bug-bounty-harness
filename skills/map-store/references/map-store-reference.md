@@ -19,9 +19,44 @@
 - Vuln-class: `xss-reflected`, `xss-stored`, `ssrf-webhook`, `idor-user-id`
 - Cross-surface: `xss-relevant`, `ssrf-relevant`
 - Status: `investigated`, `low-impact`, `confirmed`, `false-positive`
+- Chain synthesis: `gadget`
 
 Use lowercase hyphenated tags. Tags beginning with `{surface}-` are visible to
 that surface's agent.
+
+### Gadget Capability Convention
+
+Use the `gadget` tag only for genuinely confirmed, exploitable primitives that
+could participate in an attack chain. Do not use it for hypotheses,
+interesting behavior, negative results, generic leads, or unconfirmed sink
+shape.
+
+When writing a `gadget` entry, include a compact capability block near the top
+of the body:
+
+```text
+Capability:
+- grants: same-origin JS execution in victim session
+- requires: attacker can create a published report; victim visits report page
+- crosses: attacker-content->victim-browser
+- crosses_detail: stored attacker-controlled title renders in a victim-owned
+  report preview context
+```
+
+Fields:
+
+- `grants`: what access, effect, or primitive this finding gives.
+- `requires`: preconditions such as auth level, account tier, object ownership,
+  user interaction, processing delay, or plan gate.
+- `crosses`: a short, stable boundary label using `source->destination` form
+  when possible, such as `attacker-content->victim-browser`,
+  `anonymous->authenticated`, `client->server`, `same-account->cross-account`,
+  `sandboxed-iframe->root-origin`, or `user-input->server-fetch`.
+- `crosses_detail`: optional free text for target-specific nuance.
+
+The short `crosses` value should be stable enough for cheap filtering. Put
+messy target-specific details in `crosses_detail` instead of inventing many
+near-duplicate boundary labels.
 
 ## Storage Layout
 
@@ -36,6 +71,16 @@ recon/maps/
 ```
 
 Agents query `map.jsonl`; do not parse the directory tree directly.
+
+Query confirmed gadgets across every surface:
+
+```bash
+python3 agents/map_store.py query \
+  --program canva \
+  --family web_bounty \
+  --lane web \
+  --tags gadget,confirmed
+```
 
 ## Family/Lane
 

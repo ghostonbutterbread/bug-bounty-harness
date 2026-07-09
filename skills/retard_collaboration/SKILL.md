@@ -21,6 +21,7 @@ Examples:
 ```
 /retard_collaboration evernote
 /retard_collaboration evernote --source ~/Shared/bounty_recon/evernote/0day_team/
+/retard_collaboration flourish --from-mapstore-gadgets --family web_bounty --lane web
 ```
 
 ## Harness Location
@@ -28,10 +29,13 @@ Examples:
 
 ## Workflow Position
 ```
-zero_day_team → retard_collaboration → chainer
+zero_day_team/MapStore gadgets → retard_collaboration → chainer
 ```
 
-Run zero_day_team first to get findings, then feed the findings to retard_collaboration to generate creative chains.
+Run zero_day_team first to get findings, or use the MapStore gadget adapter for
+interactive hunts where confirmed primitives are recorded as `gadget` entries.
+Then feed the resulting context to retard_collaboration to generate creative
+chains.
 
 ## How It Works
 
@@ -44,6 +48,7 @@ Run zero_day_team first to get findings, then feed the findings to retard_collab
   synthesizer/chains.md       ← novel chains (gpt-5.4)
   shared_context/
     zero_day_findings.txt     ← from zero_day_team
+    mapstore_gadgets.jsonl    ← from MapStore gadget adapter, when used
     app_map.txt               ← optional app map
     task.txt
 ```
@@ -85,6 +90,19 @@ python3 agents/retard_collaboration.py evernote --source ~/Shared/bounty_recon/e
 python3 agents/chainer.py evernote --source ~/Shared/bounty_recon/evernote/ghost/collaboration/
 ```
 
+For interactive MapStore-routed hunts, query confirmed gadgets directly:
+
+```bash
+python3 agents/retard_collaboration.py flourish \
+  --from-mapstore-gadgets \
+  --family web_bounty \
+  --lane web \
+  --mapstore-tags gadget,confirmed
+```
+
+Use this when the hunt produced confirmed MapStore primitives rather than a
+zero_day_team `findings.jsonl` dump.
+
 ## Why "Retard"?
 
 The name reflects a real technique: deliberately impaired or unconventional reasoning
@@ -100,6 +118,11 @@ The creative chaos agent uses:
 - `--skip-creative` — Skip creative stage (if output already exists)
 - `--skip-analyst` — Skip analyst stage
 - `--verbose` — Print raw agent output
+- `--from-mapstore-gadgets` — Use MapStore entries matching `--mapstore-tags`
+  as synthesis input
+- `--mapstore-tags` — Required MapStore tags for gadget input, default
+  `gadget,confirmed`
+- `--family`, `--lane`, `--root` — MapStore location controls for gadget input
 
 ## Credits
 Concept inspired by research on impaired agents and creative diversity in LLM ensembles.

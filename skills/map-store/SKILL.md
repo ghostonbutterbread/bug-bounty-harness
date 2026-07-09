@@ -45,6 +45,36 @@ domain, app surface, role, or defense, write it to MapStore.
 7. If the observation changes hunt direction, add the narrative/handoff to
    `/bounty-notes` too.
 
+## Gadget Entries
+
+Add the `gadget` tag only when an observation is a confirmed, exploitable
+primitive that could participate in a stronger cross-class chain. Do not tag
+hypotheses, generic leads, unconfirmed sink shape, or negative findings as
+`gadget`.
+
+Every `gadget` body must include this capability block:
+
+```text
+Capability:
+- grants: <access/effect this primitive gives>
+- requires: <preconditions, auth/resource state, user interaction, plan gate>
+- crosses: <short source->destination boundary label>
+- crosses_detail: <optional target-specific nuance>
+```
+
+Use stable `crosses` labels where possible, for example
+`attacker-content->victim-browser`, `client->server`,
+`anonymous->authenticated`, `same-account->cross-account`,
+`sandboxed-iframe->root-origin`, or `user-input->server-fetch`. Keep messy
+target-specific explanation in `crosses_detail`.
+
+Query the current gadget ledger with:
+
+```bash
+PYTHONPATH=".:$HOME/projects/bounty-core" \
+python3 agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget
+```
+
 ## Promotion Requirement
 
 Raw Markdown, JSON, screenshots, callback logs, proxy exports, and tool output
@@ -129,6 +159,7 @@ Run from `~/projects/bug_bounty_harness` with bounty-core on `PYTHONPATH`.
 PYTHONPATH=".:$HOME/projects/bounty-core"
 python3 agents/map_store.py init --program <program> --family web_bounty --lane web
 python3 agents/map_store.py query --program <program> --family web_bounty --lane web --url "https://app.example/path" --surface xss
+python3 agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget,confirmed
 python3 agents/map_store.py write --program <program> --family web_bounty --lane web --url "https://app.example/path" --surface xss --scope url --tags "xss-sandbox,investigated" --agent "<agent>" --body "Observation..."
 python3 agents/map_store.py rebuild-crossref --program <program> --family web_bounty --lane web
 ```

@@ -15,10 +15,11 @@ Output → ~/Shared/bounty_recon/{program}/ghost/collaboration/
 
 Usage:
     python agents/retard_collaboration.py evernote --source ~/Shared/bounty_recon/evernote/0day_team/
+    python agents/retard_collaboration.py flourish --from-mapstore-gadgets --family web_bounty --lane web
     python agents/retard_collaboration.py evernote --source ~/Shared/bounty_recon/evernote/0day_team/ --target ~/source/
 
 Workflow:
-    zero_day_team → retard_collaboration → chainer
+    zero_day_team/MapStore gadgets → retard_collaboration → chainer
 """
 
 from __future__ import annotations
@@ -357,6 +358,61 @@ def _render_findings_for_prompt(findings: list[dict]) -> str:
     if len(findings) > 20:
         lines.append(f"\n[... +{len(findings) - 20} more findings]")
     return "\n".join(lines)
+
+
+def _parse_tag_csv(raw: str) -> list[str]:
+    return [tag.strip() for tag in raw.split(",") if tag.strip()]
+
+
+def _load_mapstore_gadgets(
+    program: str,
+    *,
+    family: str,
+    lane: str,
+    root: str | None,
+    tags: list[str],
+    limit: int | None,
+) -> tuple[list[dict], str]:
+    """Load confirmed gadget entries from MapStore for synthesis context."""
+    try:
+        from map_store import MapStore
+    except ImportError as exc:
+        raise SystemExit(f"Could not import MapStore adapter: {exc}") from exc
+
+    store = MapStore(program, family=family, lane=lane, root=root, create=False)
+    entries = store.query(tags=tags, limit=limit)
+    lines = [
+        f"Found {len(entries)} MapStore gadget entries for synthesis.",
+        f"Required tags: {', '.join(tags) if tags else '(none)'}",
+    ]
+    rendered_entries: list[dict] = []
+
+    for i, entry in enumerate(entries, 1):
+        body = store.read_obs(entry.get("path", "")) or ""
+        body_excerpt = body[:2500]
+        rendered_entries.append({**entry, "body_excerpt": body_excerpt})
+        lines.extend(
+            [
+                "",
+                f"[{i}] {entry.get('title') or entry.get('path')}",
+                f"    Surface: {entry.get('surface', '')}",
+                f"    Scope: {entry.get('scope', '')}",
+                f"    URL: {entry.get('url', '') or '(app-wide)'}",
+                f"    Tags: {', '.join(entry.get('tags', []))}",
+                f"    Path: {entry.get('path', '')}",
+                "    Body excerpt:",
+                body_excerpt.strip() or "    (empty body)",
+            ]
+        )
+
+    if not entries:
+        lines.append(
+            "\nNo MapStore gadget entries matched. Confirm that findings are tagged "
+            "with `gadget` and the requested status tag, or run a broader "
+            "`agents/map_store.py query --tags gadget` check."
+        )
+
+    return rendered_entries, "\n".join(lines)
 
 
 def _load_app_map(workdir: Path) -> str:
@@ -804,17 +860,49 @@ def main():
         epilog="""
 Examples:
   python agents/retard_collaboration.py evernote --source ~/Shared/bounty_recon/evernote/0day_team/
+  python agents/retard_collaboration.py flourish --from-mapstore-gadgets --family web_bounty --lane web
   python agents/retard_collaboration.py evernote --source ~/Shared/bounty_recon/evernote/0day_team/ --target ~/source/
 
-Workflow: zero_day_team -> retard_collaboration -> chainer
+Workflow: zero_day_team/MapStore gadgets -> retard_collaboration -> chainer
         """,
     )
     parser.add_argument("program", help="Bug bounty program name")
     parser.add_argument(
         "--source",
         dest="source",
-        required=True,
+        default=None,
         help="Path to zero_day_team output directory (contains findings.jsonl)",
+    )
+    parser.add_argument(
+        "--from-mapstore-gadgets",
+        action="store_true",
+        help="Use MapStore entries matching --mapstore-tags as synthesis input",
+    )
+    parser.add_argument(
+        "--mapstore-tags",
+        default="gadget,confirmed",
+        help="Comma-separated required MapStore tags for --from-mapstore-gadgets",
+    )
+    parser.add_argument(
+        "--family",
+        default="web_bounty",
+        help="MapStore family for --from-mapstore-gadgets",
+    )
+    parser.add_argument(
+        "--lane",
+        default="web",
+        help="MapStore lane for --from-mapstore-gadgets",
+    )
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="Optional MapStore root override for --from-mapstore-gadgets",
+    )
+    parser.add_argument(
+        "--mapstore-limit",
+        type=int,
+        default=50,
+        help="Maximum MapStore gadget entries to include",
     )
     parser.add_argument(
         "--target",
@@ -840,7 +928,9 @@ Workflow: zero_day_team -> retard_collaboration -> chainer
     args = parser.parse_args()
 
     program = _sanitize_program_name(args.program)
-    source_path = Path(args.source).expanduser().resolve()
+    if not args.source and not args.from_mapstore_gadgets:
+        parser.error("one of --source or --from-mapstore-gadgets is required")
+    source_path = Path(args.source).expanduser().resolve() if args.source else None
     target_path = Path(args.target).expanduser().resolve() if args.target else None
 
     # Logger
@@ -848,7 +938,8 @@ Workflow: zero_day_team -> retard_collaboration -> chainer
     if _HAS_LOGGER:
         try:
             logger = SubagentLogger("retard_collab", program)
-            logger.start(target=f"source={source_path}", source=args.source)
+            source_label = str(source_path) if source_path else f"mapstore:{args.mapstore_tags}"
+            logger.start(target=f"source={source_label}", source=source_label)
         except Exception:
             logger = None
 
@@ -868,27 +959,50 @@ Workflow: zero_day_team -> retard_collaboration -> chainer
         d.mkdir(parents=True, exist_ok=True)
 
     # Copy/populate shared context
-    findings_jsonl = source_path / FINDINGS_FILENAME
-    if findings_jsonl.exists():
-        findings = _load_jsonl(findings_jsonl)
-        text = _render_findings_for_prompt(findings)
+    if args.from_mapstore_gadgets:
+        mapstore_tags = _parse_tag_csv(args.mapstore_tags)
+        gadget_entries, text = _load_mapstore_gadgets(
+            program,
+            family=args.family,
+            lane=args.lane,
+            root=args.root,
+            tags=mapstore_tags,
+            limit=args.mapstore_limit,
+        )
         (shared_dir / "zero_day_findings.txt").write_text(text, encoding="utf-8")
-        # Also copy the raw JSONL
-        import shutil
-        shutil.copy(findings_jsonl, shared_dir / "zero_day_findings.jsonl")
-        print(f"[+] Loaded {len(findings)} zero-day findings from {findings_jsonl}")
+        (shared_dir / "mapstore_gadgets.jsonl").write_text(
+            "".join(json.dumps(entry, ensure_ascii=False) + "\n" for entry in gadget_entries),
+            encoding="utf-8",
+        )
+        print(f"[+] Loaded {len(gadget_entries)} MapStore gadget entries")
         if logger:
-            logger.step(f"Loaded {len(findings)} zero-day findings from source")
+            logger.step(f"Loaded {len(gadget_entries)} MapStore gadget entries")
+    elif source_path:
+        findings_jsonl = source_path / FINDINGS_FILENAME
+        if findings_jsonl.exists():
+            findings = _load_jsonl(findings_jsonl)
+            text = _render_findings_for_prompt(findings)
+            (shared_dir / "zero_day_findings.txt").write_text(text, encoding="utf-8")
+            # Also copy the raw JSONL
+            import shutil
+            shutil.copy(findings_jsonl, shared_dir / "zero_day_findings.jsonl")
+            print(f"[+] Loaded {len(findings)} zero-day findings from {findings_jsonl}")
+            if logger:
+                logger.step(f"Loaded {len(findings)} zero-day findings from source")
+        else:
+            print(f"[!] WARNING: {findings_jsonl} not found — creative agent will have no context")
+            if logger:
+                logger.step("WARNING: findings.jsonl not found in source")
     else:
-        print(f"[!] WARNING: {findings_jsonl} not found — creative agent will have no context")
-        if logger:
-            logger.step("WARNING: findings.jsonl not found in source")
+        (shared_dir / "zero_day_findings.txt").write_text("No source context loaded.", encoding="utf-8")
 
     # Copy app_map if found, otherwise auto-generate from shared_brain
     app_map_candidates = [
-        source_path / "app_map.txt",
-        source_path.parent / "app_map.txt",
-        source_path.parent.parent / "app_map.txt",
+        *((
+            source_path / "app_map.txt",
+            source_path.parent / "app_map.txt",
+            source_path.parent.parent / "app_map.txt",
+        ) if source_path else ()),
     ]
     app_map_written = False
     for candidate in app_map_candidates:
@@ -920,7 +1034,8 @@ Workflow: zero_day_team -> retard_collaboration -> chainer
     print(f"[+] Collaboration state loaded ({state.get('runs', 0)} previous runs)")
 
     # Write task.txt
-    task_parts = [f"Program: {program}", f"Source: {source_path}"]
+    source_label = str(source_path) if source_path else f"MapStore tags: {args.mapstore_tags}"
+    task_parts = [f"Program: {program}", f"Source: {source_label}"]
     if target_path:
         task_parts.append(f"Target source: {target_path}")
     task_parts.append(f"Date: {today}")

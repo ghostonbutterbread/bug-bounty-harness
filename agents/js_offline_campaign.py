@@ -439,8 +439,8 @@ def spec_header(
 ) -> list[str]:
     target_rel = target_root.relative_to(campaign_root)
     created = datetime.now(UTC).strftime("%Y-%m-%d")
-    candidates_rel = mapstore_candidates_path.relative_to(campaign_root)
-    schema_rel = mapstore_schema_path.relative_to(campaign_root)
+    candidates_ref = str(mapstore_candidates_path)
+    schema_ref = str(mapstore_schema_path)
     return [
         f"# Brainstorm Spec: {program} JavaScript Offline Fanout",
         "",
@@ -456,8 +456,8 @@ def spec_header(
         "- Live requests allowed: false",
         f"- JS inventory run id: {inventory_manifest.get('run_id') or 'unknown'}",
         f"- JS offline mode: {mode}",
-        f"- MapStore candidates path: {candidates_rel}",
-        f"- MapStore candidate schema: {schema_rel}",
+        f"- MapStore candidates path: {candidates_ref}",
+        f"- MapStore candidate schema: {schema_ref}",
         "",
         "## Target mental model",
         "This is an offline JavaScript artifact campaign. Agents review local packet files produced by /js inventory, not the live target. "
@@ -466,8 +466,8 @@ def spec_header(
         "MapStore is available as lazy retrieval, not mandatory prompt baggage. When your current evidence gives you a concrete URL, surface, field, or tag set, query MapStore before calling a lead a duplicate or a durable primitive. If MapStore has no match, treat the lead as unlinked/new-to-current-index and continue analysis normally; do not overclaim global novelty from a missing query result.",
         "",
         "Do not write durable MapStore entries directly. Proposed reusable app memory, gadgets, negative observations, and live-validation state should be appended as JSONL candidates to:",
-        f"- {candidates_rel}",
-        f"Use the schema at {schema_rel}. A later synthesis/promoter pass dedupes and promotes selected rows.",
+        f"- {candidates_ref}",
+        f"Use the schema at {schema_ref}. A later synthesis/promoter pass dedupes and promotes selected rows.",
         "",
         "## Impact primitives",
         "### P001 - Offline JavaScript packet evidence",
@@ -480,7 +480,7 @@ def spec_header(
     ]
 
 
-def hypothesis_block(index: int, lane: JsOfflineLane, target_rel: Path, mapstore_candidates_rel: Path) -> list[str]:
+def hypothesis_block(index: int, lane: JsOfflineLane, target_rel: Path, mapstore_candidates_path: Path) -> list[str]:
     hid = f"H{index:03d}"
     agent_key = f"js-{lane.key}"
     tags = ", ".join(lane.tags)
@@ -501,7 +501,7 @@ def hypothesis_block(index: int, lane: JsOfflineLane, target_rel: Path, mapstore
         "- Evidence:",
         f"  - {target_rel}/index.json",
         "- Notes: Stay offline. Do not make live requests. Preserve packet/provenance references. Specialists should stay in-lane but include unexpected off-lane primitives in a peripheral-vision field. Query MapStore lazily only when concrete evidence gives you a URL, surface, field, or tag set. Missing MapStore context means new-to-current-index, not proven globally novel. Append reusable gadget, negative-test, or live-validation memory proposals to "
-        f"{mapstore_candidates_rel}; do not write durable MapStore entries directly.",
+        f"{mapstore_candidates_path}; do not write durable MapStore entries directly.",
         "",
     ]
 
@@ -520,7 +520,6 @@ def build_spec(
     brainstorm_dir = campaign_root / "brainstorm"
     spec_path = brainstorm_dir / "spec.md"
     target_rel = target_root.relative_to(campaign_root)
-    candidates_rel = mapstore_candidates_path.relative_to(campaign_root)
     lines = spec_header(
         program=program,
         campaign_root=campaign_root,
@@ -531,7 +530,7 @@ def build_spec(
         mapstore_schema_path=mapstore_schema_path,
     )
     for index, lane in enumerate(lanes, 1):
-        lines.extend(hypothesis_block(index, lane, target_rel, candidates_rel))
+        lines.extend(hypothesis_block(index, lane, target_rel, mapstore_candidates_path))
     lines.extend(
         [
             "## Coverage log",

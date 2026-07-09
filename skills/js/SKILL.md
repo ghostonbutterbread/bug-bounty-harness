@@ -91,6 +91,15 @@ provenance, writes `zero_day_team` brainstorm specs, and emits findings,
 MapStore gadget candidates, or live-validation hypotheses. Live validation is a
 separate handoff through the normal live-testing policy.
 
+For offline fanout, treat MapStore as lazy retrieval instead of prompt baggage:
+agents should query it only when current packet evidence gives a concrete URL,
+surface, field, or tag set. Missing MapStore context means a lead is
+unlinked/new-to-current-index, not automatically globally novel. Offline agents
+write proposed durable observations to
+`offline_campaign/mapstore_candidates.jsonl` using the generated schema; a
+later synthesis/promoter pass dedupes and promotes selected entries into
+durable MapStore.
+
 Do not paste huge bundles into prompts. Store raw JS locally, pass bounded
 packets to agents, and treat regex hits as leads until impact is verified.
 When scoped JavaScript references third-party URLs, treat those URLs as

@@ -41,6 +41,9 @@ Capability:
 - crosses: attacker-content->victim-browser
 - crosses_detail: stored attacker-controlled title renders in a victim-owned
   report preview context
+- chain_status: watch
+- chain_watch: revisit if another gadget grants notification delivery,
+  cross-account share injection, report auto-open, or trusted embed navigation
 ```
 
 Fields:
@@ -53,10 +56,26 @@ Fields:
   `anonymous->authenticated`, `client->server`, `same-account->cross-account`,
   `sandboxed-iframe->root-origin`, or `user-input->server-fetch`.
 - `crosses_detail`: optional free text for target-specific nuance.
+- `chain_status`: soft synthesis state. Use `ready`, `deferred`, or `watch`.
+  This is not a permanent exhausted/retired flag.
+- `chain_watch`: the future primitive, app condition, or capability crossing
+  that should make agents reconsider this gadget.
 
 The short `crosses` value should be stable enough for cheap filtering. Put
 messy target-specific details in `crosses_detail` instead of inventing many
 near-duplicate boundary labels.
+
+Use `chain_status` and `chain_watch` to keep old gadgets findable without
+dumping every historical primitive into every synthesis context. A gadget can
+be `deferred` after one synthesis pass and still become high-priority when a new
+matching primitive appears.
+
+Suggested values:
+
+- `ready`: include in normal synthesis passes.
+- `deferred`: already reviewed against current known gadgets; wake when
+  `chain_watch` conditions appear.
+- `watch`: especially relevant if the named future primitive appears.
 
 ## Storage Layout
 

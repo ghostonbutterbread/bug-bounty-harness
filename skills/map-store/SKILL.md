@@ -60,6 +60,8 @@ Capability:
 - requires: <preconditions, auth/resource state, user interaction, plan gate>
 - crosses: <short source->destination boundary label>
 - crosses_detail: <optional target-specific nuance>
+- chain_status: ready|deferred|watch
+- chain_watch: <what future primitive or condition should wake this gadget>
 ```
 
 Use stable `crosses` labels where possible, for example
@@ -67,6 +69,30 @@ Use stable `crosses` labels where possible, for example
 `anonymous->authenticated`, `same-account->cross-account`,
 `sandboxed-iframe->root-origin`, or `user-input->server-fetch`. Keep messy
 target-specific explanation in `crosses_detail`.
+
+Use `chain_status` and `chain_watch` as soft synthesis state, not as gadget
+retirement. A gadget that did not chain during the last checkpoint can still be
+valuable when a new primitive appears. Prefer:
+
+- `ready`: keep in normal synthesis consideration.
+- `deferred`: reviewed against current known gadgets; revisit only when
+  `chain_watch` conditions appear.
+- `watch`: especially relevant if the named future primitive or app condition
+  appears.
+
+Example:
+
+```text
+Capability:
+- grants: same-origin JS execution in victim session
+- requires: victim opens a published report page
+- crosses: attacker-content->victim-browser
+- crosses_detail: stored attacker-controlled title reaches a victim-owned report
+  preview context
+- chain_status: watch
+- chain_watch: revisit when another gadget grants cross-account delivery,
+  notification injection, report auto-open, or trusted embed navigation
+```
 
 Query the current gadget ledger with:
 

@@ -375,6 +375,36 @@ class TestMapStore:
         surfaces = {r["surface"] for r in results}
         assert surfaces == {"js", "xss", "auth"}
 
+    def test_query_filters_by_required_tags_across_surfaces(self, store: MapStore):
+        store.init()
+        store.write(
+            url="https://app.com/report",
+            surface="xss",
+            body="Stored render primitive.\n",
+            tags=["gadget", "confirmed", "xss-stored"],
+        )
+        store.write(
+            url="https://app.com/report",
+            surface="idor",
+            body="Interesting but not confirmed.\n",
+            tags=["idor-user-id"],
+        )
+        store.write(
+            url="https://app.com/import",
+            surface="ssrf",
+            body="Confirmed fetch primitive.\n",
+            tags=["gadget", "confirmed", "ssrf-webhook"],
+        )
+
+        results = store.query(tags=["gadget"])
+        assert {r["surface"] for r in results} == {"xss", "ssrf"}
+
+        confirmed_gadgets = store.query(tags=["gadget", "confirmed"])
+        assert {r["surface"] for r in confirmed_gadgets} == {"xss", "ssrf"}
+
+        no_match = store.query(tags=["gadget", "idor-user-id"])
+        assert no_match == []
+
     def test_query_keeps_crossfamily_entry_with_same_relative_path(self, store: MapStore):
         store.init()
         store.write(

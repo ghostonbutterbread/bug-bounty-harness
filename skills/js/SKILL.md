@@ -15,6 +15,9 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
   wordlist, and vuln-lane handoffs.
 - `deep` - spend the task budget on selected chunks instead of scanning a huge
   JS list shallowly.
+- `offline-fanout` - after inventory, build a local JavaScript artifact
+  campaign and run broad specialist review through `zero_day_team` without live
+  target requests.
 
 ## Workflow
 
@@ -26,21 +29,27 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
    external context instead of test targets.
 3. Use `agents/js_analyzer.py inventory` to download, hash, dedupe, cheaply
    parse, and chunk JavaScript into agent packets.
-4. Deep-review selected packets with page/flow context. Require function-level
+4. For natural-language requests such as "dig into the JS", "vuln test the JS",
+   "run JS deep", or "look at the JS for vulnerabilities", prefer the offline
+   fanout path when the run has enough packets to justify multi-agent review:
+   use `agents/js_offline_campaign.py prepare` to create a local campaign, then
+   `agents/js_offline_campaign.py run --execute` when Ryushe wants the
+   `zero_day_team` review to start.
+5. Deep-review selected packets with page/flow context. Require function-level
    tracing: source value, transforms/checks, callers/callees, sink/request/DOM
    effect, controllability, and missing proof.
-5. Correlate JS with provenance and proxy evidence when available: page URL or
+6. Correlate JS with provenance and proxy evidence when available: page URL or
    document URL that loaded the script, page context, initiator/referrer, Ryushe
    proxy or agent proxy request references, and nearby scoped API requests.
-6. Treat provenance/metadata JSONL as the durable evidence logs and
+7. Treat provenance/metadata JSONL as the durable evidence logs and
    `js_info.sqlite` as the query/index layer for provenance, JS files,
    URL aliases, packets, chunks, artifact paths, and reviewed observations.
    Prefer DB lookups during analysis, but keep citations tied to JSONL rows and
    packet paths.
-7. Record coverage through `/url-ingest`, write surface observations to
+8. Record coverage through `/url-ingest`, write surface observations to
    `/map-store` (URL-anchored, tagged with vuln-class prefixes), and write
    durable notes/handoffs.
-8. Send generated candidates to `/create-wordlists`, `/use-wordlists`, `/fuzz`,
+9. Send generated candidates to `/create-wordlists`, `/use-wordlists`, `/fuzz`,
    or vuln-specific skills such as `/xss`, `/ssrf`, `/sqli`, and `/idor`.
 
 ## Analysis Lenses
@@ -69,6 +78,18 @@ lead:
 
 For a broad review, run the general map first, then split workers by lens. Do
 not ask one worker to deeply analyze every lens across every packet.
+
+For offline fanout, use the classifier as an accelerator, not a boundary:
+classifier signals decide which packet/lane combinations start first, but
+missing signals do not prove a vulnerability class is irrelevant. Include a
+classless anomaly lane when budget allows; it should look for surprising trust
+assumptions, rare modules, dead routes, debug/admin hints, custom parsers,
+strange state machines, and other weirdness that does not fit the known lenses.
+
+The offline fanout path must stay offline. It reads local JS packets and
+provenance, writes `zero_day_team` brainstorm specs, and emits findings,
+MapStore gadget candidates, or live-validation hypotheses. Live validation is a
+separate handoff through the normal live-testing policy.
 
 Do not paste huge bundles into prompts. Store raw JS locally, pass bounded
 packets to agents, and treat regex hits as leads until impact is verified.

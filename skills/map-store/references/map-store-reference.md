@@ -113,6 +113,6 @@ python3 agents/map_store.py query \
 python3 agents/map_store.py write \
   --program canva --family binaries --lane exe \
   --surface electron --scope app \
-  --body "Renderer sandboxed." \
+  --body-file /tmp/mapstore-body.md \
   --crossfamily "web_bounty/canva/web"
 ```

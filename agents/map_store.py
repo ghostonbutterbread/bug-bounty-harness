@@ -23,9 +23,10 @@ CLI Usage::
     python3 agents/map_store.py init --program canva --family web_bounty --lane web
 
     # Write an observation
+    printf '%s\n' 'CSRF token `_csrf`, reflected XSS in `?redirect=`.' > /tmp/mapstore-body.md
     python3 agents/map_store.py write --program canva \\
         --url "https://app.com/login" --surface js \\
-        --body "CSRF token _csrf, reflected XSS in ?redirect=" \\
+        --body-file /tmp/mapstore-body.md \\
         --tags "csrf,xss-reflected" --scope url
 
     # Query by URL
@@ -826,8 +827,10 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_common(write_p)
     write_p.add_argument("--url", default="", help="Normalised URL (empty for app/surface-wide)")
     write_p.add_argument("--surface", required=True, help="Surface type: js, xss, auth, etc.")
-    write_p.add_argument("--body", required=True, help="Markdown observation content")
-    write_p.add_argument("--body-file", help="Read body from file")
+    body_group = write_p.add_mutually_exclusive_group(required=True)
+    body_group.add_argument("--body", help="Markdown observation content. Prefer --body-file or --body-stdin for content with shell metacharacters.")
+    body_group.add_argument("--body-file", help="Read Markdown observation content from file")
+    body_group.add_argument("--body-stdin", action="store_true", help="Read Markdown observation content from stdin")
     write_p.add_argument("--scope", default=URL_SCOPE, choices=sorted(VALID_SCOPES))
     write_p.add_argument("--tags", default="", help="Comma-separated tags")
     write_p.add_argument("--crossfamily", default="", help="Comma-separated family/program/lane refs")
@@ -884,6 +887,8 @@ def _run_write(store: MapStore, args: argparse.Namespace) -> int:
     body = args.body
     if args.body_file:
         body = Path(args.body_file).read_text(encoding="utf-8").strip()
+    elif args.body_stdin:
+        body = sys.stdin.read().strip()
     tags = [t.strip() for t in args.tags.split(",") if t.strip()]
     crossfamily = [c.strip() for c in args.crossfamily.split(",") if c.strip()]
     path = store.write(

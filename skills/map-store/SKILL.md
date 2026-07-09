@@ -186,9 +186,13 @@ PYTHONPATH=".:$HOME/projects/bounty-core"
 python3 agents/map_store.py init --program <program> --family web_bounty --lane web
 python3 agents/map_store.py query --program <program> --family web_bounty --lane web --url "https://app.example/path" --surface xss
 python3 agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget,confirmed
-python3 agents/map_store.py write --program <program> --family web_bounty --lane web --url "https://app.example/path" --surface xss --scope url --tags "xss-sandbox,investigated" --agent "<agent>" --body "Observation..."
+python3 agents/map_store.py write --program <program> --family web_bounty --lane web --url "https://app.example/path" --surface xss --scope url --tags "xss-sandbox,investigated" --agent "<agent>" --body-file /tmp/mapstore-body.md
 python3 agents/map_store.py rebuild-crossref --program <program> --family web_bounty --lane web
 ```
+
+Prefer `--body-file` or `--body-stdin` for Markdown observations. Inline
+`--body` is only for simple text; backticks and other shell metacharacters can
+be interpreted by the shell before MapStore receives them.
 
 Open `references/routing-examples.md` for MapStore vs Bounty Notes examples.
 Open `references/map-store-reference.md` for scope levels, surfaces, tags,

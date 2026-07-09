@@ -539,6 +539,61 @@ class TestMapStore:
             "parallel note 3",
         }
 
+    def test_cli_write_body_file_does_not_require_inline_body(self, store: MapStore, tmp_path):
+        store.init()
+        repo_root = Path(__file__).resolve().parents[1]
+        body_file = tmp_path / "body.md"
+        body_file.write_text("Token `_csrf` preserved from file.\n", encoding="utf-8")
+
+        proc = subprocess.run([
+            sys.executable,
+            "agents/map_store.py",
+            "write",
+            "--program",
+            "testprog",
+            "--root",
+            str(store._layout.base_root),
+            "--url",
+            "https://app.com/login",
+            "--surface",
+            "xss",
+            "--title",
+            "body file",
+            "--body-file",
+            str(body_file),
+        ], cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
+        results = store.query(url="https://app.com/login", surface="xss")
+        assert len(results) == 1
+        assert "Token `_csrf` preserved from file." in (store.maps_root / results[0]["path"]).read_text(encoding="utf-8")
+
+    def test_cli_write_body_stdin_preserves_backticks(self, store: MapStore):
+        store.init()
+        repo_root = Path(__file__).resolve().parents[1]
+
+        proc = subprocess.run([
+            sys.executable,
+            "agents/map_store.py",
+            "write",
+            "--program",
+            "testprog",
+            "--root",
+            str(store._layout.base_root),
+            "--url",
+            "https://app.com/login",
+            "--surface",
+            "xss",
+            "--title",
+            "stdin body",
+            "--body-stdin",
+        ], input="Header preserves `inline-code` safely.\n", cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
+        results = store.query(url="https://app.com/login", surface="xss")
+        assert len(results) == 1
+        assert "Header preserves `inline-code` safely." in (store.maps_root / results[0]["path"]).read_text(encoding="utf-8")
+
     def test_read_obs(self, store: MapStore):
         store.init()
         path = store.write(

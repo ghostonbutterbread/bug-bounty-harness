@@ -20,6 +20,8 @@ from typing import Iterable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+MAPSTORE_CANDIDATES_FILENAME = "mapstore_candidates.jsonl"
+MAPSTORE_CANDIDATE_SCHEMA_FILENAME = "mapstore_candidate_schema.json"
 
 
 @dataclass(frozen=True)
@@ -381,9 +383,64 @@ def build_target_index(
     return index
 
 
-def spec_header(*, program: str, campaign_root: Path, target_root: Path, mode: str, inventory_manifest: dict) -> list[str]:
+def mapstore_candidate_schema() -> dict:
+    return {
+        "schema": "js-offline-mapstore-candidate.v1",
+        "required_fields": [
+            "kind",
+            "surface",
+            "scope",
+            "tags",
+            "title",
+            "body",
+            "evidence_refs",
+            "promote_reason",
+            "dedupe_hint",
+        ],
+        "fields": {
+            "kind": "Always mapstore_candidate.",
+            "surface": "MapStore surface or JS lane, for example js/access-control.",
+            "scope": "One of app, surface, or url.",
+            "url": "Full URL when the observation is URL-specific; omit for app/surface scope.",
+            "tags": "Search tags such as js, gadget, access-control, needs-live-validation, negative.",
+            "title": "Short durable observation title.",
+            "body": "Concise reusable app behavior, primitive, negative result, or validation-state note.",
+            "evidence_refs": "Local packet, manifest, provenance, or report paths that support the candidate.",
+            "promote_reason": "Why future agents should see this in MapStore.",
+            "dedupe_hint": "Stable hint for merging similar candidates before durable MapStore promotion.",
+            "linked_fids": "Optional reviewed ledger FIDs if the candidate later maps to a finding.",
+        },
+        "notes": [
+            "Agents append proposed durable observations here; they do not write recon/maps directly.",
+            "A synthesis/promoter pass dedupes these rows against MapStore before promotion.",
+            "Missing MapStore matches mean the lead is new-to-current-index, not globally novel.",
+        ],
+    }
+
+
+def create_candidate_files(campaign_root: Path) -> tuple[Path, Path]:
+    candidates_path = campaign_root / MAPSTORE_CANDIDATES_FILENAME
+    schema_path = campaign_root / MAPSTORE_CANDIDATE_SCHEMA_FILENAME
+    candidates_path.parent.mkdir(parents=True, exist_ok=True)
+    candidates_path.write_text("", encoding="utf-8")
+    write_json(schema_path, mapstore_candidate_schema())
+    return candidates_path, schema_path
+
+
+def spec_header(
+    *,
+    program: str,
+    campaign_root: Path,
+    target_root: Path,
+    mode: str,
+    inventory_manifest: dict,
+    mapstore_candidates_path: Path,
+    mapstore_schema_path: Path,
+) -> list[str]:
     target_rel = target_root.relative_to(campaign_root)
     created = datetime.now(UTC).strftime("%Y-%m-%d")
+    candidates_rel = mapstore_candidates_path.relative_to(campaign_root)
+    schema_rel = mapstore_schema_path.relative_to(campaign_root)
     return [
         f"# Brainstorm Spec: {program} JavaScript Offline Fanout",
         "",
@@ -399,10 +456,18 @@ def spec_header(*, program: str, campaign_root: Path, target_root: Path, mode: s
         "- Live requests allowed: false",
         f"- JS inventory run id: {inventory_manifest.get('run_id') or 'unknown'}",
         f"- JS offline mode: {mode}",
+        f"- MapStore candidates path: {candidates_rel}",
+        f"- MapStore candidate schema: {schema_rel}",
         "",
         "## Target mental model",
         "This is an offline JavaScript artifact campaign. Agents review local packet files produced by /js inventory, not the live target. "
         "The classifier accelerates routing but never excludes a class. Report concrete findings only when packet evidence is strong; otherwise produce hypotheses, MapStore gadget candidates, endpoint handoffs, or live-validation plans.",
+        "",
+        "MapStore is available as lazy retrieval, not mandatory prompt baggage. When your current evidence gives you a concrete URL, surface, field, or tag set, query MapStore before calling a lead a duplicate or a durable primitive. If MapStore has no match, treat the lead as unlinked/new-to-current-index and continue analysis normally; do not overclaim global novelty from a missing query result.",
+        "",
+        "Do not write durable MapStore entries directly. Proposed reusable app memory, gadgets, negative observations, and live-validation state should be appended as JSONL candidates to:",
+        f"- {candidates_rel}",
+        f"Use the schema at {schema_rel}. A later synthesis/promoter pass dedupes and promotes selected rows.",
         "",
         "## Impact primitives",
         "### P001 - Offline JavaScript packet evidence",
@@ -415,7 +480,7 @@ def spec_header(*, program: str, campaign_root: Path, target_root: Path, mode: s
     ]
 
 
-def hypothesis_block(index: int, lane: JsOfflineLane, target_rel: Path) -> list[str]:
+def hypothesis_block(index: int, lane: JsOfflineLane, target_rel: Path, mapstore_candidates_rel: Path) -> list[str]:
     hid = f"H{index:03d}"
     agent_key = f"js-{lane.key}"
     tags = ", ".join(lane.tags)
@@ -435,7 +500,8 @@ def hypothesis_block(index: int, lane: JsOfflineLane, target_rel: Path) -> list[
         f"- Tags: {tags}",
         "- Evidence:",
         f"  - {target_rel}/index.json",
-        "- Notes: Stay offline. Do not make live requests. Preserve packet/provenance references. Specialists should stay in-lane but include unexpected off-lane primitives in a peripheral-vision field.",
+        "- Notes: Stay offline. Do not make live requests. Preserve packet/provenance references. Specialists should stay in-lane but include unexpected off-lane primitives in a peripheral-vision field. Query MapStore lazily only when concrete evidence gives you a URL, surface, field, or tag set. Missing MapStore context means new-to-current-index, not proven globally novel. Append reusable gadget, negative-test, or live-validation memory proposals to "
+        f"{mapstore_candidates_rel}; do not write durable MapStore entries directly.",
         "",
     ]
 
@@ -448,19 +514,24 @@ def build_spec(
     lanes: list[JsOfflineLane],
     mode: str,
     inventory_manifest: dict,
+    mapstore_candidates_path: Path,
+    mapstore_schema_path: Path,
 ) -> Path:
     brainstorm_dir = campaign_root / "brainstorm"
     spec_path = brainstorm_dir / "spec.md"
     target_rel = target_root.relative_to(campaign_root)
+    candidates_rel = mapstore_candidates_path.relative_to(campaign_root)
     lines = spec_header(
         program=program,
         campaign_root=campaign_root,
         target_root=target_root,
         mode=mode,
         inventory_manifest=inventory_manifest,
+        mapstore_candidates_path=mapstore_candidates_path,
+        mapstore_schema_path=mapstore_schema_path,
     )
     for index, lane in enumerate(lanes, 1):
-        lines.extend(hypothesis_block(index, lane, target_rel))
+        lines.extend(hypothesis_block(index, lane, target_rel, candidates_rel))
     lines.extend(
         [
             "## Coverage log",
@@ -532,6 +603,7 @@ def command_prepare(args: argparse.Namespace) -> int:
         shutil.rmtree(campaign_root)
     target_root = campaign_root / "offline_target"
     target_root.mkdir(parents=True, exist_ok=True)
+    mapstore_candidates_path, mapstore_schema_path = create_candidate_files(campaign_root)
 
     copied_packets = copy_packets(js_run_root, target_root, packet_rows)
     if not copied_packets:
@@ -552,6 +624,8 @@ def command_prepare(args: argparse.Namespace) -> int:
         lanes=lanes,
         mode=args.mode,
         inventory_manifest=inventory_manifest,
+        mapstore_candidates_path=mapstore_candidates_path,
+        mapstore_schema_path=mapstore_schema_path,
     )
     command = zero_day_command(
         program=program,
@@ -571,6 +645,8 @@ def command_prepare(args: argparse.Namespace) -> int:
         "target_root": str(target_root),
         "target_index": str(target_root / "index.json"),
         "brainstorm_spec": str(spec_path),
+        "mapstore_candidates": str(mapstore_candidates_path),
+        "mapstore_candidate_schema": str(mapstore_schema_path),
         "lanes": [asdict(lane) for lane in lanes],
         "packet_count": len(copied_packets),
         "metadata_rows": len(metadata_rows),

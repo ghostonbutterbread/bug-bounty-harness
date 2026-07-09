@@ -88,13 +88,26 @@ def test_prepare_builds_valid_offline_campaign(tmp_path: Path) -> None:
     assert "--brainstorm-only" in manifest["zero_day_command"]
     assert "--hunt-type" in manifest["zero_day_command"]
     assert "web-js" in manifest["zero_day_command"]
+    assert manifest["mapstore_candidates"].endswith("mapstore_candidates.jsonl")
+    assert manifest["mapstore_candidate_schema"].endswith("mapstore_candidate_schema.json")
     assert (campaign_root / "offline_target" / "index.json").exists()
+    assert (campaign_root / "mapstore_candidates.jsonl").exists()
+    schema = json.loads((campaign_root / "mapstore_candidate_schema.json").read_text(encoding="utf-8"))
+    assert schema["schema"] == "js-offline-mapstore-candidate.v1"
+    assert "dedupe_hint" in schema["required_fields"]
     assert list((campaign_root / "offline_target" / "packets").glob("*.md"))
 
-    spec = parse_brainstorm_spec(campaign_root / "brainstorm" / "spec.md")
+    spec_path = campaign_root / "brainstorm" / "spec.md"
+    spec_text = spec_path.read_text(encoding="utf-8")
+    assert "new-to-current-index" in spec_text
+    assert "mapstore_candidates.jsonl" in spec_text
+    assert "do not overclaim global novelty" in spec_text
+
+    spec = parse_brainstorm_spec(spec_path)
     assert spec.metadata["Execution mode"] == "offline"
     assert spec.metadata["Live requests allowed"] == "false"
     assert spec.metadata["Target kind"] == "web-js"
+    assert spec.metadata["MapStore candidates path"] == "mapstore_candidates.jsonl"
     agent_keys = [agent for hyp in spec.hypotheses for agent in hyp.suggested_agents]
     assert "js-general-map" in agent_keys
     assert "js-anomaly-hunter" in agent_keys

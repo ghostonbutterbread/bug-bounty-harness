@@ -17,6 +17,12 @@ lenses, synthesize, and hand only selected hypotheses to live testing later.
 - Always include a classless anomaly lane when budget allows.
 - Promote outputs into findings, MapStore gadget candidates, endpoint handoffs,
   or live-validation hypotheses.
+- Treat MapStore as lazy retrieval, not prompt baggage. Query it when current
+  evidence gives a concrete URL, surface, field, or tag set.
+- Missing MapStore context means a lead is unlinked/new-to-current-index, not
+  automatically globally novel.
+- Agents write MapStore proposals to the run-local candidate file; a later
+  synthesis/promoter pass decides what becomes durable MapStore memory.
 
 ## Flow
 
@@ -66,6 +72,8 @@ Offline campaign outputs live under:
 ```text
 <js-run-root>/offline_campaign/
 ├── manifest.json
+├── mapstore_candidates.jsonl
+├── mapstore_candidate_schema.json
 ├── offline_target/
 │   ├── index.json
 │   └── packets/*.md
@@ -80,6 +88,40 @@ The offline campaign should produce:
 - wordlist or route candidates for `/create-wordlists`
 - live-validation hypotheses with exact provenance, ownership/rate/safety
   notes, and stop conditions
+
+## MapStore Candidate Flow
+
+Offline agents must not write durable `recon/maps/` observations directly.
+When an agent sees reusable app memory, a gadget, a negative result, or
+validation state that future agents may need, it appends one JSON object to:
+
+```text
+<js-run-root>/offline_campaign/mapstore_candidates.jsonl
+```
+
+Use the generated schema:
+
+```text
+<js-run-root>/offline_campaign/mapstore_candidate_schema.json
+```
+
+Required candidate fields:
+
+- `kind`: `mapstore_candidate`
+- `surface`: MapStore surface or JS lane, such as `js/access-control`
+- `scope`: `app`, `surface`, or `url`
+- `tags`: search tags such as `js`, `gadget`, `negative`,
+  `needs-live-validation`, and the relevant vuln class
+- `title`: short durable observation title
+- `body`: concise reusable behavior or primitive
+- `evidence_refs`: packet, manifest, provenance, or report paths
+- `promote_reason`: why future agents should see this
+- `dedupe_hint`: stable key for merging similar candidates before promotion
+
+The synthesis/promoter pass queries existing MapStore, dedupes candidates, and
+promotes only useful durable observations. If a query has no match, the lead is
+new-to-current-index; continue normal analysis and avoid claiming global
+novelty from absence alone.
 
 Do not let offline agents validate against the live app directly. Live testing
 starts from the selected hypothesis queue and follows `live-testing-policy`.

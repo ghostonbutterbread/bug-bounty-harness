@@ -327,6 +327,8 @@ The generated campaign layout is:
 ```text
 <js-run-root>/offline_campaign/
 ├── manifest.json
+├── mapstore_candidates.jsonl
+├── mapstore_candidate_schema.json
 ├── offline_target/
 │   ├── index.json
 │   └── packets/*.md
@@ -353,6 +355,30 @@ Keep this stage offline. Agents may produce:
 - `/analyze-endpoint` and `/create-wordlists` handoffs
 - live-validation hypotheses with packet/provenance evidence, proposed request
   or browser action, ownership/rate/safety notes, and stop conditions
+
+MapStore is lazy retrieval, not prompt baggage. Offline agents should query it
+only when current evidence gives a concrete URL, surface, field, or tag set. If
+MapStore has no matching entry, treat the lead as unlinked/new-to-current-index
+and continue normal analysis; do not claim global novelty from absence alone.
+
+Agents must not write durable `recon/maps/` entries directly. Reusable app
+memory, gadgets, negative observations, and validation-state notes go to the
+run-local candidate file:
+
+```text
+<js-run-root>/offline_campaign/mapstore_candidates.jsonl
+```
+
+Use the generated schema:
+
+```text
+<js-run-root>/offline_campaign/mapstore_candidate_schema.json
+```
+
+Candidate rows should include `kind`, `surface`, `scope`, optional `url`,
+`tags`, `title`, `body`, `evidence_refs`, `promote_reason`, and `dedupe_hint`.
+The synthesis/promoter pass dedupes these rows against existing MapStore and
+promotes only useful durable observations.
 
 Do not let offline agents validate against the live app directly. Live testing
 starts from the selected hypothesis queue and follows `live-testing-policy`.

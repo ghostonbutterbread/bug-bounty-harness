@@ -118,11 +118,44 @@ Escalate gradually. Keep the payload semantically tied to the classified context
 
 ### Advanced Polyglots
 
-Use only after you already know the context and need a harder bypass:
+Use only after you already know the context and need a harder bypass. See
+`agents/xss_bypasses/polyglot.py` (`POLYGLOT_PAYLOADS`) for the runnable bank
+these are drawn from — each entry there has a comment explaining exactly which
+parsing/filter assumption it breaks.
 
 ```text
 jaVasCript:/*-/*`/*\`/*'/*"/**/(/* */alert(1))//
 ```
+
+Unorthodox / kitchen-sink techniques worth knowing, each targeting a specific
+assumption rather than just spraying volume:
+
+- **Double URL-encoding** (`%250A` -> `%0A` -> newline) to survive a WAF or
+  proxy that only decodes once: `javascript://%250Aalert?.(1)//`
+- **Attribute casting via an unknown tag** — `contentEditable`/`autoFocus`
+  turn a made-up tag name into a focusable target, defeating allowlists that
+  only strip known-dangerous tag names: `<k/contentEditable/autoFocus/OnFocus=alert(1)>`
+- **Raw-text element closer chains** — close every common raw-text parsing
+  context (`title`/`style`/`script`/`textarea`/`iframe`/`noscript`) in
+  sequence so whichever one the input actually landed in gets terminated:
+  `</title></style></script></textarea></iframe></noscript><svg onload=alert(1)>`
+- **Quote/backtick/entity comment-closer chains** — cover unescaped and
+  escaped single quote, double quote, backtick, and the HTML entity
+  apostrophe together, so whichever quoting style wraps the injection point
+  lines up without needing to know the context in advance:
+
+  ```text
+  //'/*\'/*"/*\"/*`/*\`/*&apos;)/*<svg onload=alert(1)>
+  ```
+- **`<base>` hijack + trailing comment swallow** — redirects every relative
+  resource URL on the page to an attacker host, then a trailing `<!--`
+  absorbs whatever markup follows; useful when `<script>`/`on*` is stripped
+  but `<base>` isn't on the denylist.
+
+These are noisy and hard to reason about — use them as last-resort
+hail-mary probes after context-specific payloads are exhausted, not as a
+first move, and expect to spend more time confirming a real hit than with a
+targeted payload.
 
 ## Framework-Specific Sinks And Bypasses
 

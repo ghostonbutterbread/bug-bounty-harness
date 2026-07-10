@@ -174,6 +174,16 @@ class TestMapStore:
         assert (root / "_crossref").exists()
         assert (root / ".mapstore.lock").exists()
 
+    def test_init_does_not_create_report_or_ledger_layout(self, tmp_path: Path):
+        store = MapStore("testprog", root=str(tmp_path), create=True)
+
+        root = store.init()
+
+        assert root == tmp_path / "web_bounty" / "testprog" / "web" / "recon" / "maps"
+        assert root.exists()
+        assert not (tmp_path / "web_bounty" / "testprog" / "web" / "reports").exists()
+        assert not (tmp_path / "web_bounty" / "testprog" / "web" / "ledgers").exists()
+
     def test_write_url_scope(self, store: MapStore):
         store.init()
         path = store.write(

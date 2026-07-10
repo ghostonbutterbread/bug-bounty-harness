@@ -85,7 +85,7 @@ except ImportError:
         query = "&".join(f"{key}={val}" if val else key for key, val in query_pairs)
         return urlunsplit((parsed.scheme.lower() or "https", host, path, query, ""))
 
-from agents.storage_resolver import ensure_layout, resolve_storage  # noqa: E402
+from agents.storage_resolver import resolve_storage  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -296,10 +296,8 @@ class MapStore:
         self._family = family
         self._lane = lane
         self._layout = resolve_storage(
-            program, family=family, lane=lane, root_override=root, create=create
+            program, family=family, lane=lane, root_override=root, create=False
         )
-        if create:
-            ensure_layout(self._layout)
         self._maps_root = self._layout.recon_root / MAP_DIRNAME
 
     # -- properties ----------------------------------------------------------

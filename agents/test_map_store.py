@@ -319,6 +319,70 @@ class TestMapStore:
         assert len(archived) == 1
         assert archived[0]["status"] == ARCHIVED_STATUS
 
+    def test_archived_observation_is_removed_from_pointer_index(self, store: MapStore):
+        store.init()
+        keep = store.write(
+            url="https://app.com/gadget",
+            surface="ssrf",
+            body="Webhook import still fetches attacker URL.\n",
+            tags=["gadget"],
+            title="current webhook gadget",
+        )
+        archived = store.write(
+            url="https://app.com/gadget",
+            surface="ssrf",
+            body="Old webhook import behavior.\n",
+            tags=["gadget"],
+            title="old webhook gadget",
+        )
+
+        store.update_status(
+            path=archived.relative_to(store.maps_root).as_posix(),
+            status=ARCHIVED_STATUS,
+            reason="Retested current import flow twice; old fetch path is gone.",
+            agent="ssrf-worker",
+        )
+
+        pointer = keep.parent.parent / "index.md"
+        content = pointer.read_text(encoding="utf-8")
+        assert "current webhook gadget" in content
+        assert "old webhook gadget" not in content
+
+    def test_rebuild_crossref_excludes_archived_observations(self, store: MapStore):
+        store.init()
+        store.write(
+            url="https://app.com/report",
+            surface="xss",
+            body="Current report title behavior.\n",
+            tags=["xss"],
+            title="current report behavior",
+        )
+        archived = store.write(
+            url="https://app.com/report",
+            surface="ssrf",
+            body="Old import fetch behavior.\n",
+            tags=["gadget"],
+            title="old import gadget",
+        )
+        store.update_status(
+            path=archived.relative_to(store.maps_root).as_posix(),
+            status=ARCHIVED_STATUS,
+            reason="Retested current report import twice; server fetch no longer happens.",
+            agent="ssrf-worker",
+        )
+
+        count = store.rebuild_crossref()
+        assert count == 1
+        crossref_file = (
+            store.maps_root
+            / "_crossref"
+            / url_to_dirname("https://app.com/report")
+            / "index.md"
+        )
+        content = crossref_file.read_text(encoding="utf-8")
+        assert "current report behavior" in content
+        assert "old import gadget" not in content
+
     def test_cli_update_status_archives_observation(self, store: MapStore):
         store.init()
         repo_root = Path(__file__).resolve().parents[1]

@@ -18,16 +18,25 @@ DOM reachability, sanitizer interaction, browser/server render differences,
 stored re-rendering, or unusual encoding all mean the lane is at least `warm`
 and should enter pressure mode.
 
-## Context
+## Required Preflight
 
-First identify the current input/render surface from the user goal, browser,
-proxy, or response. Then read only the notes needed for that exact URL,
-parameter, render context, or cleanup boundary when the files exist:
+Follow the Cold-Start Doctrine from `agents/index.md`:
 
-1. `notes/summary.md`
-2. `notes/observations.md`
-3. `checklist.md` (XSS items only)
-4. `todo.md` (XSS items only)
+1. **Scope Gate** — Check `~/Shared/scopes/{program}/` first, then
+   `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
+   `/pullscope`. If the program has no published scope, write `no scope` stub.
+2. **Cold Surface Pass** — Look at the target URL/parameter with fresh eyes.
+   Send an inert marker, observe where it lands, classify the render context.
+   Do NOT query MapStore or prior attempts yet.
+3. **Novelty Quota** — Identify 3-5 fresh parameters, sinks, render contexts,
+   or input vectors from direct observation before pulling prior state.
+4. **Memory Overlay** — Now read shared state in this order when the files
+   exist:
+   - `notes/summary.md`
+   - `notes/observations.md`
+   - `checklist.md` (XSS items only)
+   - `todo.md` (XSS items only)
+   Then query MapStore and prior attempts for the target URL/surface.
 
 Also load:
 
@@ -149,10 +158,12 @@ python /home/ryushe/projects/bug_bounty_harness/agents/xss_hunter.py \
 
 1. Identify the input vector: query, path, body, JSON, header, cookie, upload,
    stored object field, router state, storage, or message.
-2. Send an inert marker and record where it lands.
-3. Classify the render context before choosing payloads.
-4. Load `reflected-xss`, `stored-xss`, or `dom-xss`.
-5. Use the lane skill to pick payload families, browser proof, cleanup, and
+2. Query MapStore and prior attempts for this URL, surface, parameter, and
+   render context.
+3. Send an inert marker and record where it lands.
+4. Classify the render context before choosing payloads.
+5. Load `reflected-xss`, `stored-xss`, or `dom-xss`.
+6. Use the lane skill to pick payload families, browser proof, cleanup, and
    report shape.
 7. Escalate to `waf-live-policy` and bypass/mutation work when filtering or
    parsing behavior becomes the interesting surface.
@@ -238,7 +249,7 @@ Record:
 - observed transform and block reason
 - browser verification status
 - interaction needed, if any
-- attempts artifact path
+- attempts artifact path and MapStore pointer
 - cleanup state for stored payloads
 - pressure state and next discriminating probe
 

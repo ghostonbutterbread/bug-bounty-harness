@@ -10,17 +10,24 @@ For broader broken access control work, start with `/access-control`. Use `/idor
 
 ## Required Preflight
 
-Before swapping object identifiers, read the owned-account/resource registry
-and any notes for the exact object family, endpoint, role boundary, or workflow
-you are about to compare.
+Follow the Cold-Start Doctrine from `agents/index.md`:
 
-Read shared state in this order when needed:
-
-1. `/account-management` registry at `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json`
-2. `notes/summary.md`
-3. `notes/observations.md`
-4. `checklist.md` (IDOR items only)
-5. `todo.md` (IDOR items only)
+1. **Scope Gate** — Check `~/Shared/scopes/{program}/` first, then
+   `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
+   `/pullscope`. If the program has no published scope, write `no scope` stub.
+2. **Cold Surface Pass** — Look at the target object/endpoint with fresh eyes.
+   Observe object IDs, auth boundaries, and response patterns directly.
+   Do NOT query MapStore or prior attempts yet.
+3. **Novelty Quota** — Identify 3-5 fresh object references, ID patterns, role
+   differences, or auth boundaries from direct observation before pulling
+   prior state.
+4. **Memory Overlay** — Now read shared state in this order:
+   - `/account-management` registry at
+     `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json`
+   - `notes/summary.md`
+   - `notes/observations.md`
+   - `checklist.md` (IDOR items only)
+   - `todo.md` (IDOR items only)
 
 Use the registry to identify owned account aliases, user IDs, PwnFox colors,
 resource IDs, owner relationships, and destructible/cleanup status before

@@ -16,29 +16,26 @@ and what scoped packet they should receive.
 
 ## Load Order
 
-1. Read scope, account/resource context, and the active live-testing policy.
-2. Read `$HARNESS_ROOT/prompts/hunter-loop-playbook.md`.
-3. Load existing state when present:
+Follow the Cold-Start Doctrine from `agents/index.md`:
+
+1. **Scope Gate** — Read scope, account/resource context, and the active
+   live-testing policy. Check `~/Shared/scopes/{program}/` first, then
+   `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
+   `/pullscope`. If the program has no published scope, write `no scope` stub.
+2. **Cold Surface Pass** — Read `$HARNESS_ROOT/prompts/hunter-loop-playbook.md`.
+   Look at the app with fresh eyes. Browse, map endpoints, observe behavior.
+   Do NOT query MapStore, ledger, or prior leads yet.
+3. **Novelty Quota** — Identify 3-5 fresh surfaces, flows, parameters, roles,
+   or assumptions from direct observation before following any existing leads.
+4. **Memory Overlay** — Now query prior state as needed:
    - `/hunter-memory` summaries for the program or surface
    - `/live-map` application-map summary and handoff packets
    - `/url-ingest` stats/history for route and parameter review depth
-   - scoped program knowledge needed for safety or account/resource context
-4. Start or resume a target memory pack.
-5. Map one app area at a time through live interaction, then dispatch
+   - program knowledge and prior findings
+   - `/map-store` for the URL, host, surface, and relevant vuln class
+5. Start or resume a target memory pack.
+6. Map one app area at a time through live interaction, then dispatch
    specialists on evidence-backed triggers.
-
-Prior findings are coordination inputs, not success conditions. Use them to
-avoid duplicate retests, understand tested boundaries, or extend an existing FID
-with new evidence. Do not count a historical confirmed finding, old report, or
-MapStore `#do-not-retest` note as satisfying the current hunt goal unless
-Ryushe explicitly asked for status, portfolio review, duplicate triage, report
-cleanup, or revalidation of that existing finding.
-
-For live testing, do not start by broadly reading the findings ledger or
-MapStore. First pick the user-requested surface and observe the current runtime
-behavior. Query MapStore only after you have a concrete URL, endpoint, surface,
-parameter, role boundary, or vuln class and need targeted tested-state or
-duplicate avoidance. Prior notes must not choose the vuln class for the run.
 
 ## Commands
 

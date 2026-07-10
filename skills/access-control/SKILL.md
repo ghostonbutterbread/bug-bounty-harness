@@ -11,14 +11,33 @@ This is a router skill. Keep the first pass small: classify the boundary, load o
 
 ## Load Order
 
-1. Read scope, owned-account context, and live-testing policy.
-2. Resolve `$HARNESS_ROOT` first; default is `/home/ryushe/projects/bug_bounty_harness`.
-3. Load `/account-management` and check `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json` for owned accounts, user IDs, PwnFox lanes, object IDs, and any account-level destructive restrictions.
-4. Read `$HARNESS_ROOT/skills/access-control/references/account-setup.md`.
-5. Confirm the needed owned accounts/resources exist. If not, ask for the account path, or use `/temporary-email` when a separate test account is needed for account-level destructive flows.
-6. Check `$HARNESS_SHARED_BASE/{program}/agent_shared/application-map/` for existing `/live-map` routes, objects, hypotheses, and handoff packets. Use map entries as exploration leads, not proof.
-7. Read `$HARNESS_ROOT/skills/access-control/references/related-terms.md` for search vocabulary and route/parameter keywords.
-8. Classify the lane:
+Follow the Cold-Start Doctrine from `agents/index.md`:
+
+1. **Scope Gate** — Read scope, owned-account context, and live-testing
+   policy. Check `~/Shared/scopes/{program}/` first, then
+   `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
+   `/pullscope`. If the program has no published scope, write `no scope` stub.
+2. **Cold Surface Pass** — Resolve `$HARNESS_ROOT` first; default is
+   `/home/ryushe/projects/bug_bounty_harness`. Look at the target
+   endpoint/object with fresh eyes. Observe auth boundaries and response
+   patterns directly. Do NOT query prior maps or MapStore yet.
+3. **Novelty Quota** — Identify 3-5 fresh object references, role differences,
+   auth boundaries, or access patterns from direct observation.
+4. **Memory Overlay** — Now load prior state:
+   - Load `/account-management` and check
+     `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json` for
+     owned accounts, user IDs, PwnFox lanes, object IDs, and any account-level
+     destructive restrictions.
+   - Read `$HARNESS_ROOT/skills/access-control/references/account-setup.md`.
+   - Confirm the needed owned accounts/resources exist. If not, ask for the
+     account path, or use `/temporary-email` when a separate test account is
+     needed for account-level destructive flows.
+   - Check `$HARNESS_SHARED_BASE/{program}/agent_shared/application-map/` for
+     existing `/live-map` routes, objects, hypotheses, and handoff packets.
+     Use map entries as exploration leads, not proof.
+5. Read `$HARNESS_ROOT/skills/access-control/references/related-terms.md` for
+   search vocabulary and route/parameter keywords.
+6. Classify the lane:
    - peer object/resource access -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/horizontal.md`
    - admin/support/owner/moderator/paid functionality -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/vertical.md`
    - org/workspace/team/project/store isolation -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/tenant.md`

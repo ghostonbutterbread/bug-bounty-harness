@@ -15,11 +15,22 @@ It selects and organizes the next useful work.
 
 ## Load Order
 
-1. Read scope, rate policy, and the active live-testing policy.
-2. Read `/home/ryushe/projects/bug_bounty_harness/prompts/focused-recon-playbook.md`.
-3. Load current recon artifacts from the program lane, usually
-   `~/Shared/web_bounty/<program>/web/recon/aggregated/` and latest
-   `recon-ry/*/runs/*/*/` outputs.
+Follow the Cold-Start Doctrine from `agents/index.md`:
+
+1. **Scope Gate** — Read scope, rate policy, and the active live-testing
+   policy. Check `~/Shared/scopes/{program}/` first, then
+   `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
+   `/pullscope`. If the program has no published scope, write `no scope` stub.
+2. **Cold Surface Pass** — Read
+   `/home/ryushe/projects/bug_bounty_harness/prompts/focused-recon-playbook.md`.
+   Look at the raw recon artifacts and current hosts directly before pulling
+   prior analysis. Do NOT query MapStore or prior map state yet.
+3. **Novelty Quota** — Identify 3-5 fresh hosts, route clusters, endpoints, or
+   surface patterns from the raw data before following existing leads.
+4. **Memory Overlay** — Now load current recon artifacts from the program
+   lane, usually `~/Shared/web_bounty/<program>/web/recon/aggregated/` and
+   latest `recon-ry/*/runs/*/*/` outputs. Query MapStore for prior surface
+   observations on discovered hosts.
 4. Write all focused recon output under
    `~/Shared/web_bounty/<program>/web/recon/map/`.
 5. Use GF-style lenses to build lane queues, then map one target packet deeply

@@ -11,10 +11,23 @@ This is a payment workflow router. Most tests should stop before a real purchase
 
 ## Load Order
 
-1. Read scope, owned-account context, and active live-testing policy.
-2. Read `/payment-testing-policy` before touching payment forms, payment methods, purchases, subscriptions, refunds, credits, gift cards, invoices, or entitlements.
-3. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
-4. Read `$HARNESS_ROOT/prompts/payment-testing-context-pack.md`.
+Follow the Cold-Start Doctrine from `agents/index.md`:
+
+1. **Scope Gate** — Read scope, owned-account context, and active
+   live-testing policy. Check `~/Shared/scopes/{program}/` first, then
+   `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
+   `/pullscope`. If the program has no published scope, write `no scope` stub.
+   Read `/payment-testing-policy` before touching payment forms, payment
+   methods, purchases, subscriptions, refunds, credits, gift cards, invoices,
+   or entitlements.
+2. **Cold Surface Pass** — Resolve `$HARNESS_ROOT`; default is
+   `/home/ryushe/projects/bug_bounty_harness`. Look at the payment flow
+   directly. Browse checkout, observe what the backend trusts. Do NOT query
+   prior state yet.
+3. **Novelty Quota** — Identify 3-5 fresh price fields, coupon flows,
+   entitlement boundaries, or processor behaviors from direct observation.
+4. **Memory Overlay** — Now read
+   `$HARNESS_ROOT/prompts/payment-testing-context-pack.md` and prior state.
 5. Read only the focused technique pack matching observed behavior:
    - cart total can reach `$0` -> `zero-dollar.md`
    - request has `paid`, `success`, `status`, `price`, `currency`, `amount`, `quantity`, `plan`, `seats`, or entitlement fields -> `client-trust.md`

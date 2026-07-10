@@ -25,12 +25,21 @@ handoff rules for the run.
 
 ## Required Preflight
 
-Read the relevant notes for the concrete surface when they exist:
+Follow the Cold-Start Doctrine from `agents/index.md`:
 
-1. `notes/summary.md`
-2. `notes/observations.md`
-3. `checklist.md` (fuzz items only)
-4. `todo.md` (fuzz items only)
+1. **Scope Gate** — Check `~/Shared/scopes/{program}/` first, then
+   `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
+   `/pullscope`. If the program has no published scope, write `no scope` stub.
+2. **Cold Surface Pass** — Look at the target host/routes with fresh eyes.
+   Probe a few endpoints directly before reading prior notes. Do NOT query
+   MapStore or prior state yet.
+3. **Novelty Quota** — Identify 3-5 fresh routes, parameters, or response
+   patterns from direct probing before pulling prior state.
+4. **Memory Overlay** — Now read shared state in this order:
+   - `notes/summary.md`
+   - `notes/observations.md`
+   - `checklist.md` (fuzz items only)
+   - `todo.md` (fuzz items only)
 
 ## Primary Harness
 

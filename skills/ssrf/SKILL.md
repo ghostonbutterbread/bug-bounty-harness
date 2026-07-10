@@ -20,11 +20,20 @@ means classify the fetch/filter boundary and enter pressure mode.
 
 ## Load Order
 
-1. Read program scope, owned-account context, and active live-testing policy.
-2. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
-3. Read `injection-testing-policy` once a URL/fetch sink exists or is strongly
-   suspected. Do not stop just because the first callback or response canary
-   produces no visible signal.
+Follow the Cold-Start Doctrine from `agents/index.md`:
+
+1. **Scope Gate** — Read program scope, owned-account context, and
+   live-testing policy. Check `~/Shared/scopes/{program}/` first, then
+   `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
+   `/pullscope`. If the program has no published scope, write `no scope` stub.
+2. **Cold Surface Pass** — Resolve `$HARNESS_ROOT`; default is
+   `/home/ryushe/projects/bug_bounty_harness`. Look at the target for
+   fetch/URL-handling surfaces directly. Observe what the app does with URLs.
+   Do NOT query prior state yet.
+3. **Novelty Quota** — Identify 3-5 fetch surfaces, URL parameters, webhook
+   endpoints, or import flows from direct observation.
+4. **Memory Overlay** — Now read `injection-testing-policy` once a URL/fetch
+   sink exists or is strongly suspected. Read prior MapStore/hunt entries.
 4. Read `references/common-locations.md` to decide where to hunt.
 5. After finding a fetch surface, read `references/idea-seeds.md` for bypass,
    parser, metadata, header, WAF, and segmentation ideas.
@@ -43,8 +52,9 @@ means classify the fetch/filter boundary and enter pressure mode.
 ## Workflow
 
 1. Identify the server-side fetch sink and parameter.
-2. Confirm a benign controlled outbound fetch when possible.
-3. If no callback, reflection, status change, or visible delta appears, classify
+2. Query MapStore and prior attempts for this URL/fetch surface.
+3. Confirm a benign controlled outbound fetch when possible.
+4. If no callback, reflection, status change, or visible delta appears, classify
    likely controls anyway: allowlist, private-IP block, redirect handling, DNS
    timing, scheme block, URL parser split, sanitizer, WAF, or async fetch.
 5. Use the idea seeds that match the observed or plausible filtering/routing
@@ -111,5 +121,5 @@ Write findings to `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/ssrf/fin
 Record full URL, sink/parameter, loaded reference pack, destination class,
 exact URL payloads or canaries tried, payload family, callback or response
 evidence, observed filter/block reason, required bypass/header, attempts
-artifact path, pressure state, confirmation status, and impact boundary
-reached.
+artifact path, MapStore pointer, pressure state, confirmation status, and
+impact boundary reached.

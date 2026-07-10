@@ -11,10 +11,22 @@ This is a router skill. The first job is to understand which identity proof the 
 
 ## Load Order
 
-1. Read scope, owned-account context, `/account-testing-policy`, and the active live-testing policy.
-2. Confirm every account, email address, IdP account, workspace, invite, recovery artifact, and resource is owned or explicitly approved.
-3. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
-4. Read `$HARNESS_ROOT/prompts/ato-context-pack.md`.
+Follow the Cold-Start Doctrine from `agents/index.md`:
+
+1. **Scope Gate** — Read scope, owned-account context,
+   `/account-testing-policy`, and live-testing policy. Check
+   `~/Shared/scopes/{program}/` first, then
+   `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
+   `/pullscope`. If the program has no published scope, write `no scope` stub.
+2. **Cold Surface Pass** — Confirm every account, email address, IdP account,
+   workspace, invite, recovery artifact, and resource is owned or explicitly
+   approved. Resolve `$HARNESS_ROOT`; default is
+   `/home/ryushe/projects/bug_bounty_harness`. Look at the target auth/identity
+   flow with fresh eyes. Observe the flow directly. Do NOT query prior state yet.
+3. **Novelty Quota** — Identify 3-5 fresh identity flows, auth boundaries, or
+   session behaviors from direct observation.
+4. **Memory Overlay** — Now read `$HARNESS_ROOT/prompts/ato-context-pack.md`
+   and any prior hunt state.
 5. Classify one lane:
    - forgot-password, reset link/code, recovery code, password change by token -> `/password-reset`
    - email change, recovery email, alternate email, verification code, identity merge -> `$HARNESS_ROOT/prompts/ato-playbook.md`

@@ -14,30 +14,26 @@ bounded lane at a time.
 
 ## Load Order
 
-1. Read scope, approved account/resource context, and live-testing policy.
-2. Read `$HARNESS_ROOT/prompts/deep-hunt-playbook.md`.
-3. Load existing state when present:
+Follow the Cold-Start Doctrine from `agents/index.md`:
+
+1. **Scope Gate** — Read scope, approved account/resource context, and
+   live-testing policy. Check `~/Shared/scopes/{program}/` first, then
+   `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
+   `/pullscope`. If the program has no published scope, write `no scope` stub.
+2. **Cold Surface Pass** — Read `$HARNESS_ROOT/prompts/deep-hunt-playbook.md`.
+   Look at the target URL/section with fresh eyes. Observe behavior directly.
+   Do NOT query MapStore, ledger, url-ingest, or prior leads yet.
+3. **Novelty Quota** — Identify 3-5 fresh surfaces, flows, parameters, roles,
+   or assumptions from direct observation before following any existing leads.
+4. **Memory Overlay** — Now query prior state as needed:
    - `/url-ingest` stats/next/history for the program
    - `/live-map` summary and relevant handoff packets
    - `/hunter-memory` summaries for the section or vulnerability lane
-   - scoped program knowledge needed for safety or account/resource context
-4. Choose one URL, one section, or one tight route cluster.
-5. Create a hypothesis board for that URL/section.
-6. Spawn or brief focused child lanes only after each packet has a clear
+   - program knowledge and prior findings
+5. Choose one URL, one section, or one tight route cluster.
+6. Create a hypothesis board for that URL/section.
+7. Spawn or brief focused child lanes only after each packet has a clear
    boundary, safety rule, and stop condition.
-
-Prior findings are coordination inputs, not success conditions. Use them to
-avoid duplicate retests, understand tested boundaries, or extend an existing FID
-with new evidence. Do not count a historical confirmed finding, old report, or
-MapStore `#do-not-retest` note as satisfying the current deep-hunt goal unless
-Ryushe explicitly asked for status, portfolio review, duplicate triage, report
-cleanup, or revalidation of that existing finding.
-
-For live testing, do not start by broadly reading the findings ledger or
-MapStore. First define the section and observe the current runtime behavior.
-Query MapStore only after you have a concrete URL, endpoint, surface,
-parameter, role boundary, or vuln class and need targeted tested-state or
-duplicate avoidance. Prior notes must not choose the vuln class for the section.
 
 ## Commands
 

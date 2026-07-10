@@ -8,12 +8,20 @@ Enumerate targets, discover endpoints, map attack surface.
 
 ## Required Preflight
 
-Read the relevant notes for the concrete surface when they exist:
+Follow the Cold-Start Doctrine from `agents/index.md`:
 
-1. `notes/summary.md`
-2. `notes/observations.md`
-3. `checklist.md` (recon items only)
-4. `todo.md` (recon items only)
+1. **Scope Gate** — Check `~/Shared/scopes/{program}/` first, then
+   `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
+   `/pullscope`. If the program has no published scope, write `no scope` stub.
+2. **Cold Surface Pass** — Observe the target directly. Probe the app,
+   browse, identify live hosts and services before reading prior state.
+3. **Novelty Quota** — Identify 3-5 fresh surfaces, hosts, services, or
+   technology observations before pulling prior recon notes.
+4. **Memory Overlay** — Now read shared state in this order:
+   - `notes/summary.md`
+   - `notes/observations.md`
+   - `checklist.md` (recon items only)
+   - `todo.md` (recon items only)
 
 ## Primary Harness
 

@@ -14,7 +14,7 @@ bounded lane at a time.
 
 ## Load Order
 
-Follow the Cold-Start Doctrine from `agents/index.md`:
+Read `general-security-testing-policy` first and follow its Cold-Start guidance (mirrored in `agents/index.md`):
 
 1. **Scope Gate** — Read scope, approved account/resource context, and
    live-testing policy. Check `~/Shared/scopes/{program}/` first, then
@@ -22,8 +22,8 @@ Follow the Cold-Start Doctrine from `agents/index.md`:
    `/pullscope`. If the program has no published scope, write `no scope` stub.
 2. **Cold Surface Pass** — Read `$HARNESS_ROOT/prompts/deep-hunt-playbook.md`.
    Look at the target URL/section with fresh eyes. Observe behavior directly.
-   Do NOT query MapStore, ledger, url-ingest, or prior leads yet.
-3. **Novelty Quota** — Identify 3-5 fresh surfaces, flows, parameters, roles,
+   Avoid broad MapStore, ledger, url-ingest, or prior-lead reads until the agent has current observations.
+3. **Fresh Observations** — Aim to identify 3-5 fresh surfaces, flows, parameters, roles,
    or assumptions from direct observation before following any existing leads.
 4. **Memory Overlay** — Now query prior state as needed:
    - `/url-ingest` stats/next/history for the program

@@ -15,7 +15,7 @@ It selects and organizes the next useful work.
 
 ## Load Order
 
-Follow the Cold-Start Doctrine from `agents/index.md`:
+Read `general-security-testing-policy` first and follow its Cold-Start guidance (mirrored in `agents/index.md`):
 
 1. **Scope Gate** — Read scope, rate policy, and the active live-testing
    policy. Check `~/Shared/scopes/{program}/` first, then
@@ -26,9 +26,9 @@ Follow the Cold-Start Doctrine from `agents/index.md`:
    Load raw source artifacts from the program lane, usually
    `~/Shared/web_bounty/<program>/web/recon/aggregated/` and latest
    `recon-ry/*/runs/*/*/` outputs. Treat raw recon data as evidence from the
-   current surface, not prior analysis. Do NOT query MapStore or prior curated
-   map state yet.
-3. **Novelty Quota** — Identify 3-5 fresh hosts, route clusters, endpoints, or
+   current surface, not prior analysis. Avoid broad MapStore or prior curated
+   map reads until the agent has current observations.
+3. **Fresh Observations** — Aim to identify 3-5 fresh hosts, route clusters, endpoints, or
    surface patterns from the raw data before following existing leads.
 4. **Memory Overlay** — Now query MapStore, prior focused maps, and previous
    handoffs for the hosts, routes, and patterns discovered in the cold pass.

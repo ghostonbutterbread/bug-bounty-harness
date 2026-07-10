@@ -11,7 +11,7 @@ This is a router skill. The first job is to understand which identity proof the 
 
 ## Load Order
 
-Follow the Cold-Start Doctrine from `agents/index.md`:
+Read `general-security-testing-policy` first and follow its Cold-Start guidance (mirrored in `agents/index.md`):
 
 1. **Scope Gate** — Read scope, owned-account context,
    `/account-testing-policy`, and live-testing policy. Check
@@ -22,8 +22,8 @@ Follow the Cold-Start Doctrine from `agents/index.md`:
    workspace, invite, recovery artifact, and resource is owned or explicitly
    approved. Resolve `$HARNESS_ROOT`; default is
    `/home/ryushe/projects/bug_bounty_harness`. Look at the target auth/identity
-   flow with fresh eyes. Observe the flow directly. Do NOT query prior state yet.
-3. **Novelty Quota** — Identify 3-5 fresh identity flows, auth boundaries, or
+   flow with fresh eyes. Observe the flow directly. Avoid broad prior-state reads until the agent has current observations.
+3. **Fresh Observations** — Aim to identify 3-5 fresh identity flows, auth boundaries, or
    session behaviors from direct observation.
 4. **Memory Overlay** — Now read `$HARNESS_ROOT/prompts/ato-context-pack.md`
    and any prior hunt state.

@@ -16,7 +16,7 @@ and what scoped packet they should receive.
 
 ## Load Order
 
-Follow the Cold-Start Doctrine from `agents/index.md`:
+Read `general-security-testing-policy` first and follow its Cold-Start guidance (mirrored in `agents/index.md`):
 
 1. **Scope Gate** — Read scope, account/resource context, and the active
    live-testing policy. Check `~/Shared/scopes/{program}/` first, then
@@ -24,8 +24,8 @@ Follow the Cold-Start Doctrine from `agents/index.md`:
    `/pullscope`. If the program has no published scope, write `no scope` stub.
 2. **Cold Surface Pass** — Read `$HARNESS_ROOT/prompts/hunter-loop-playbook.md`.
    Look at the app with fresh eyes. Browse, map endpoints, observe behavior.
-   Do NOT query MapStore, ledger, or prior leads yet.
-3. **Novelty Quota** — Identify 3-5 fresh surfaces, flows, parameters, roles,
+   Avoid broad MapStore, ledger, or prior-lead reads until the agent has current observations.
+3. **Fresh Observations** — Aim to identify 3-5 fresh surfaces, flows, parameters, roles,
    or assumptions from direct observation before following any existing leads.
 4. **Memory Overlay** — Now query prior state as needed:
    - `/hunter-memory` summaries for the program or surface

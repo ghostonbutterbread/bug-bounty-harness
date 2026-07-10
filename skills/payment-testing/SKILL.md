@@ -11,7 +11,7 @@ This is a payment workflow router. Most tests should stop before a real purchase
 
 ## Load Order
 
-Follow the Cold-Start Doctrine from `agents/index.md`:
+Read `general-security-testing-policy` first and follow its Cold-Start guidance (mirrored in `agents/index.md`):
 
 1. **Scope Gate** — Read scope, owned-account context, and active
    live-testing policy. Check `~/Shared/scopes/{program}/` first, then
@@ -22,9 +22,9 @@ Follow the Cold-Start Doctrine from `agents/index.md`:
    or entitlements.
 2. **Cold Surface Pass** — Resolve `$HARNESS_ROOT`; default is
    `/home/ryushe/projects/bug_bounty_harness`. Look at the payment flow
-   directly. Browse checkout, observe what the backend trusts. Do NOT query
-   prior state yet.
-3. **Novelty Quota** — Identify 3-5 fresh price fields, coupon flows,
+   directly. Browse checkout, observe what the backend trusts. Avoid broad
+   prior-state reads until the agent has current observations.
+3. **Fresh Observations** — Aim to identify 3-5 fresh price fields, coupon flows,
    entitlement boundaries, or processor behaviors from direct observation.
 4. **Memory Overlay** — Now read
    `$HARNESS_ROOT/prompts/payment-testing-context-pack.md` and prior state.

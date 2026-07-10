@@ -20,7 +20,7 @@ means classify the fetch/filter boundary and enter pressure mode.
 
 ## Load Order
 
-Follow the Cold-Start Doctrine from `agents/index.md`:
+Read `general-security-testing-policy` first and follow its Cold-Start guidance (mirrored in `agents/index.md`):
 
 1. **Scope Gate** — Read program scope, owned-account context, and
    live-testing policy. Check `~/Shared/scopes/{program}/` first, then
@@ -29,8 +29,8 @@ Follow the Cold-Start Doctrine from `agents/index.md`:
 2. **Cold Surface Pass** — Resolve `$HARNESS_ROOT`; default is
    `/home/ryushe/projects/bug_bounty_harness`. Look at the target for
    fetch/URL-handling surfaces directly. Observe what the app does with URLs.
-   Do NOT query prior state yet.
-3. **Novelty Quota** — Identify 3-5 fetch surfaces, URL parameters, webhook
+   Avoid broad prior-state reads until the agent has current observations.
+3. **Fresh Observations** — Aim to identify 3-5 fetch surfaces, URL parameters, webhook
    endpoints, or import flows from direct observation.
 4. **Memory Overlay** — Now read `injection-testing-policy` once a URL/fetch
    sink exists or is strongly suspected. Query prior MapStore/hunt entries for

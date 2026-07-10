@@ -25,15 +25,15 @@ handoff rules for the run.
 
 ## Required Preflight
 
-Follow the Cold-Start Doctrine from `agents/index.md`:
+Read `general-security-testing-policy` first and follow its Cold-Start guidance (mirrored in `agents/index.md`):
 
 1. **Scope Gate** — Check `~/Shared/scopes/{program}/` first, then
    `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
    `/pullscope`. If the program has no published scope, write `no scope` stub.
 2. **Cold Surface Pass** — Look at the target host/routes with fresh eyes.
-   Probe a few endpoints directly before reading prior notes. Do NOT query
-   MapStore or prior state yet.
-3. **Novelty Quota** — Identify 3-5 fresh routes, parameters, or response
+   Probe a few endpoints directly before reading prior notes. Avoid broad
+   MapStore or prior-state reads until the agent has current observations.
+3. **Fresh Observations** — Aim to identify 3-5 fresh routes, parameters, or response
    patterns from direct probing before pulling prior state.
 4. **Memory Overlay** — Now read shared state in this order:
    - `notes/summary.md`

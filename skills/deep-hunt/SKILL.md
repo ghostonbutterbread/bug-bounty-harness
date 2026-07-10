@@ -35,6 +35,14 @@ Follow the Cold-Start Doctrine from `agents/index.md`:
 7. Spawn or brief focused child lanes only after each packet has a clear
    boundary, safety rule, and stop condition.
 
+Historical confirmed findings, old reports, ledger entries, and MapStore
+`#do-not-retest` notes are coordination inputs, not success conditions. Use
+them to avoid duplicate retests, understand tested boundaries, or extend an
+existing FID with new evidence. Do not count old findings as satisfying the
+current deep-hunt goal unless Ryushe explicitly asked for status, portfolio
+review, duplicate triage, report cleanup, revalidation, or extending a known
+finding.
+
 ## Commands
 
 ```text

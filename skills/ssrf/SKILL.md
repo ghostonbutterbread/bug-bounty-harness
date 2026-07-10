@@ -33,17 +33,20 @@ Follow the Cold-Start Doctrine from `agents/index.md`:
 3. **Novelty Quota** — Identify 3-5 fetch surfaces, URL parameters, webhook
    endpoints, or import flows from direct observation.
 4. **Memory Overlay** — Now read `injection-testing-policy` once a URL/fetch
-   sink exists or is strongly suspected. Read prior MapStore/hunt entries.
-4. Read `references/common-locations.md` to decide where to hunt.
-5. After finding a fetch surface, read `references/idea-seeds.md` for bypass,
+   sink exists or is strongly suspected. Query prior MapStore/hunt entries for
+   the concrete URL, parameter, fetch surface, or parser boundary the agent
+   found. Use prior results to rebound from known boundaries and avoid
+   duplicates, not to choose the first target.
+5. Read `references/common-locations.md` to decide where to hunt.
+6. After finding a fetch surface, read `references/idea-seeds.md` for bypass,
    parser, metadata, header, WAF, and segmentation ideas.
-6. Optional deeper packs:
+7. Optional deeper packs:
    - direct outbound fetch -> `references/technique-packs/baseline-fetch.md`
    - allowlist, hostname, IP, redirect, or URL parser filtering -> `references/technique-packs/parser-redirect.md`
    - cloud metadata or internal protocol reachability -> `references/technique-packs/metadata-scheme.md`
-7. Read `$HARNESS_ROOT/prompts/ssrf-playbook.md` only for deep review, stuck
+8. Read `$HARNESS_ROOT/prompts/ssrf-playbook.md` only for deep review, stuck
    analysis, or report writing.
-8. Route instead of duplicating:
+9. Route instead of duplicating:
    - URL/parser/filter bypasses -> `/bypass`
    - header-required metadata or proxy trust behavior -> `/headers`
    - WAF/rate-limit blocks -> `/waf`
@@ -52,15 +55,18 @@ Follow the Cold-Start Doctrine from `agents/index.md`:
 ## Workflow
 
 1. Identify the server-side fetch sink and parameter.
-2. Query MapStore and prior attempts for this URL/fetch surface.
-3. Confirm a benign controlled outbound fetch when possible.
-4. If no callback, reflection, status change, or visible delta appears, classify
+2. Form a first-pass hypothesis about how the app handles that URL/fetch
+   surface from direct behavior.
+3. Query MapStore and prior attempts for this URL/fetch surface to avoid
+   duplicate work and reuse known parser/filter boundaries.
+4. Confirm a benign controlled outbound fetch when possible.
+5. If no callback, reflection, status change, or visible delta appears, classify
    likely controls anyway: allowlist, private-IP block, redirect handling, DNS
    timing, scheme block, URL parser split, sanitizer, WAF, or async fetch.
-5. Use the idea seeds that match the observed or plausible filtering/routing
+6. Use the idea seeds that match the observed or plausible filtering/routing
    behavior, then run a bounded mutation ladder.
-6. Prefer status, banner, callback, or low-risk root proof over secret retrieval.
-7. Stop after proving the boundary reached or after representative mutation
+7. Prefer status, banner, callback, or low-risk root proof over secret retrieval.
+8. Stop after proving the boundary reached or after representative mutation
    families show the filter boundary is understood.
 
 ## Pressure Mode

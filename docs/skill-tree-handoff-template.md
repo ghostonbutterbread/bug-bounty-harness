@@ -298,6 +298,6 @@ Ledger action: notes-only
 ## Maintenance Check
 
 - Existing canonical artifact checked: `SKILL_TEMPLATE.md` now routes between executable harness templates, RAG skill templates, and this handoff template.
-- Neighboring patterns checked: `prompts/pfp-playbook.md`, `prompts/pfp-context-pack.md`, `prompts/shared-skill-creator-playbook.md`.
+- Neighboring patterns checked: `prompts/pfp-playbook.md`, `prompts/pfp-context-pack.md`.
 - Duplicate logic/spec risk: low.
 - Merge/deprecation plan: keep this as the canonical reusable skill-tree template and link to it from skill-creation workflow docs.

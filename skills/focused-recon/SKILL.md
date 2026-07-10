@@ -23,19 +23,21 @@ Follow the Cold-Start Doctrine from `agents/index.md`:
    `/pullscope`. If the program has no published scope, write `no scope` stub.
 2. **Cold Surface Pass** — Read
    `/home/ryushe/projects/bug_bounty_harness/prompts/focused-recon-playbook.md`.
-   Look at the raw recon artifacts and current hosts directly before pulling
-   prior analysis. Do NOT query MapStore or prior map state yet.
+   Load raw source artifacts from the program lane, usually
+   `~/Shared/web_bounty/<program>/web/recon/aggregated/` and latest
+   `recon-ry/*/runs/*/*/` outputs. Treat raw recon data as evidence from the
+   current surface, not prior analysis. Do NOT query MapStore or prior curated
+   map state yet.
 3. **Novelty Quota** — Identify 3-5 fresh hosts, route clusters, endpoints, or
    surface patterns from the raw data before following existing leads.
-4. **Memory Overlay** — Now load current recon artifacts from the program
-   lane, usually `~/Shared/web_bounty/<program>/web/recon/aggregated/` and
-   latest `recon-ry/*/runs/*/*/` outputs. Query MapStore for prior surface
-   observations on discovered hosts.
-4. Write all focused recon output under
+4. **Memory Overlay** — Now query MapStore, prior focused maps, and previous
+   handoffs for the hosts, routes, and patterns discovered in the cold pass.
+   Use them for dedupe, coverage, and rebound ideas.
+5. Write all focused recon output under
    `~/Shared/web_bounty/<program>/web/recon/map/`.
-5. Use GF-style lenses to build lane queues, then map one target packet deeply
+6. Use GF-style lenses to build lane queues, then map one target packet deeply
    before broadening.
-6. Dispatch child skills only from concrete lane evidence.
+7. Dispatch child skills only from concrete lane evidence.
 
 ## Commands
 

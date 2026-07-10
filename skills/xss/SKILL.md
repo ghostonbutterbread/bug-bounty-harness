@@ -36,7 +36,9 @@ Follow the Cold-Start Doctrine from `agents/index.md`:
    - `notes/observations.md`
    - `checklist.md` (XSS items only)
    - `todo.md` (XSS items only)
-   Then query MapStore and prior attempts for the target URL/surface.
+   Then query MapStore and prior attempts for the concrete URL, parameter,
+   render context, or sink the agent found. Use prior results to rebound from
+   known boundaries and avoid duplicates, not to choose the first target.
 
 Also load:
 
@@ -158,10 +160,10 @@ python /home/ryushe/projects/bug_bounty_harness/agents/xss_hunter.py \
 
 1. Identify the input vector: query, path, body, JSON, header, cookie, upload,
    stored object field, router state, storage, or message.
-2. Query MapStore and prior attempts for this URL, surface, parameter, and
+2. Send an inert marker and record where it lands.
+3. Classify the render context before choosing payloads.
+4. Query MapStore and prior attempts for this URL, surface, parameter, and
    render context.
-3. Send an inert marker and record where it lands.
-4. Classify the render context before choosing payloads.
 5. Load `reflected-xss`, `stored-xss`, or `dom-xss`.
 6. Use the lane skill to pick payload families, browser proof, cleanup, and
    report shape.

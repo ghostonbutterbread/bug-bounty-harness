@@ -426,6 +426,10 @@ class MapStore:
     def _refresh_pointer_index(self, directory: Path, heading: str) -> None:
         """Write a small index.md that points agents at child observations."""
         directory.mkdir(parents=True, exist_ok=True)
+        status_by_path = {
+            entry.get("path", ""): _entry_status(entry)
+            for entry in self._read_index()
+        }
         lines = [
             f"# {heading}",
             "",
@@ -441,6 +445,9 @@ class MapStore:
             obs_file = child / OBSERVATION_FILE
             if not obs_file.exists():
                 continue
+            rel_path = obs_file.relative_to(self._maps_root).as_posix()
+            if status_by_path.get(rel_path) == ARCHIVED_STATUS:
+                continue
             title = child.name
             try:
                 first_line = obs_file.read_text(encoding="utf-8").splitlines()[0]
@@ -448,6 +455,9 @@ class MapStore:
             except (IndexError, OSError, UnicodeDecodeError):
                 pass
             lines.append(f"- [{title}]({child.name}/{OBSERVATION_FILE})")
+        if len(lines) == 5:
+            lines.append("")
+            lines.append("(none yet)")
         _atomic_write_text(directory / OBSERVATION_FILE, "\n".join(lines).rstrip() + "\n")
 
     # -- write observation ---------------------------------------------------
@@ -669,6 +679,14 @@ class MapStore:
                 reason=reason,
             )
             _atomic_write_text(obs_path, content.rstrip() + "\n")
+            self._refresh_pointer_index(
+                obs_path.parent.parent,
+                self._pointer_heading(
+                    scope=str(match.get("scope") or URL_SCOPE),
+                    surface=str(match.get("surface") or ""),
+                    url=str(match.get("url") or ""),
+                ),
+            )
 
             return dict(match)
 
@@ -824,6 +842,10 @@ class MapStore:
         entries = self._read_index()
         if cross_family_entries:
             entries = entries + cross_family_entries
+        entries = [
+            entry for entry in entries
+            if _entry_status(entry) != ARCHIVED_STATUS
+        ]
 
         # Group by URL
         by_url: dict[str, list[dict]] = {}

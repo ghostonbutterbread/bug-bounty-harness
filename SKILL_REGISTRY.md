@@ -127,7 +127,6 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **chromium-test** | `/chromium-test {program} {task}` | `prompts/chromium-test-playbook.md` |
 | **chromium-handoff** | `/chromium-handoff {cdp_port}` | `skills/chromium-handoff/SKILL.md` |
 | **pfp** | `/pfp {program} {goal}` | `prompts/pfp-playbook.md` |
-| **shared-skill-creator** | `/shared-skill-creator {project} {skill-name}` | `prompts/shared-skill-creator-playbook.md` |
 | **bountylens** | `/bountylens {sessions|findings|leads|reports}` | `skills/bountylens/SKILL.md` |
 | **me** | `/me {program}` | `skills/me/SKILL.md` |
 
@@ -214,7 +213,6 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /chromium-test canva upload-flow --account qa-primary --url https://www.canva.com/
 /chromium-handoff 9224
 /pfp canva profile-picture
-/shared-skill-creator bounty-harness bypass "endpoint bypass testing workflow"
 /bountylens sessions --status active
 /me notion --hunt-type source
 /me canva --hunt-type source --lane exe
@@ -273,16 +271,15 @@ Per-program knowledge file:
 
 ## Creating New Skills
 
-1. Prefer `/shared-skill-creator <project> <skill-name>` for shared skills.
-2. Create skill wrapper: `skills/{name}/SKILL.md`
-3. Create playbook if needed: `prompts/{name}-playbook.md`
-4. For web vulnerability, workflow, or endpoint-analysis skills, add a compact
+1. Create skill wrapper: `skills/{name}/SKILL.md`
+2. Create playbook if needed: `prompts/{name}-playbook.md`
+3. For web vulnerability, workflow, or endpoint-analysis skills, add a compact
    `## JavaScript Lens` section or state why JS evidence does not apply. The
    lens tells `/js` what bundle/proxy/provenance evidence should route into this
    skill; do not create a separate JS mapper for each vulnerability class.
-5. Create sync metadata if the skill should publish `_meta.json`
-6. Create harness if needed: `agents/{name}_hunter.py`
-7. Add to this registry
+4. Create sync metadata if the skill should publish `_meta.json`
+5. Create harness if needed: `agents/{name}_hunter.py`
+6. Add to this registry
 8. Commit and push the owning repo.
 9. Run `aiskillsync sync all --repo bounty-harness`
 

@@ -112,6 +112,43 @@ VALID_STATUSES = {
     STALE_STATUS,
     ARCHIVED_STATUS,
 }
+DEFAULT_QUERY_INTENT = "default"
+APP_FACTS_INTENT = "app-facts"
+DEDUPE_INTENT = "dedupe"
+COVERAGE_INTENT = "coverage"
+GADGET_INTENT = "gadget"
+OLD_LEADS_INTENT = "old-leads"
+VALID_QUERY_INTENTS = {
+    DEFAULT_QUERY_INTENT,
+    APP_FACTS_INTENT,
+    DEDUPE_INTENT,
+    COVERAGE_INTENT,
+    GADGET_INTENT,
+    OLD_LEADS_INTENT,
+}
+GOAL_RUN_MODES = {
+    "find-vuln",
+    "find-vulnerability",
+    "goal",
+    "goal-run",
+    "hunt",
+    "new-finding",
+}
+REPASS_RUN_MODES = {
+    "cleanup",
+    "duplicate-triage",
+    "evidence-capture",
+    "repass",
+    "retest",
+    "revalidation",
+    "status",
+}
+OLD_LEAD_SOURCES = {
+    "mapstore-old-lead",
+    "mapstore:vuln-leads",
+    "old-lead",
+    "prior-lead",
+}
 CROSSREF_DIR = "_crossref"
 APP_DIR = "_app"
 SURFACE_INDEX_DIR = "_surface"
@@ -212,11 +249,221 @@ def normalize_status(value: str | None, *, default: str = ACTIVE_STATUS) -> str:
     return status
 
 
+def normalize_query_intent(value: str | None) -> str:
+    intent = slugify(value or DEFAULT_QUERY_INTENT, fallback=DEFAULT_QUERY_INTENT)
+    aliases = {
+        "app": APP_FACTS_INTENT,
+        "app-fact": APP_FACTS_INTENT,
+        "app-memory": APP_FACTS_INTENT,
+        "facts": APP_FACTS_INTENT,
+        "tested": DEDUPE_INTENT,
+        "tested-state": DEDUPE_INTENT,
+        "have-we-tested": DEDUPE_INTENT,
+        "gadgets": GADGET_INTENT,
+        "lead": OLD_LEADS_INTENT,
+        "leads": OLD_LEADS_INTENT,
+        "old-lead": OLD_LEADS_INTENT,
+        "vuln-leads": OLD_LEADS_INTENT,
+    }
+    intent = aliases.get(intent, intent)
+    if intent not in VALID_QUERY_INTENTS:
+        raise ValueError(
+            f"Invalid query intent: {value!r}. Use one of: "
+            f"{', '.join(sorted(VALID_QUERY_INTENTS))}"
+        )
+    return intent
+
+
 def _entry_status(entry: dict) -> str:
     try:
         return normalize_status(str(entry.get("status") or ACTIVE_STATUS))
     except ValueError:
         return ACTIVE_STATUS
+
+
+def _entry_tags(entry: dict) -> set[str]:
+    return {slugify(tag) for tag in entry.get("tags", []) if tag}
+
+
+def _entry_test_labels(entry: dict) -> set[str]:
+    """Return concise "tested for" labels from surface and vuln/status tags."""
+    labels: set[str] = set()
+    surface = slugify(str(entry.get("surface") or ""))
+    if surface and surface not in {"recon", "app", "surface"}:
+        labels.add(surface)
+
+    generic_tags = {
+        "active",
+        "candidate",
+        "confirmed",
+        "dedupe",
+        "false-positive",
+        "gadget",
+        "high",
+        "investigated",
+        "lead",
+        "low",
+        "medium",
+        "negative",
+        "needs-recheck",
+        "recon",
+        "tested",
+    }
+    for tag in _entry_tags(entry):
+        if tag in generic_tags:
+            continue
+        if any(
+            tag == prefix or tag.startswith(f"{prefix}-")
+            for prefix in [
+                "access-control",
+                "auth",
+                "bac",
+                "csrf",
+                "dom-xss",
+                "idor",
+                "lfi",
+                "oauth",
+                "open-redirect",
+                "parser",
+                "race",
+                "reflected-xss",
+                "sqli",
+                "ssrf",
+                "stored-xss",
+                "xss",
+            ]
+        ):
+            labels.add(tag)
+    return labels
+
+
+def build_query_intent_summary(
+    results: list[dict],
+    *,
+    intent: str = DEFAULT_QUERY_INTENT,
+) -> dict[str, Any]:
+    """Build a bounded MapStore answer for intent-based agent queries."""
+    intent = normalize_query_intent(intent)
+    tested_for: set[str] = set()
+    statuses: dict[str, int] = {}
+    observations: list[dict[str, Any]] = []
+
+    for entry in results:
+        status = _entry_status(entry)
+        statuses[status] = statuses.get(status, 0) + 1
+        tested_for.update(_entry_test_labels(entry))
+        observations.append({
+            "title": entry.get("title", ""),
+            "url": entry.get("url", ""),
+            "surface": entry.get("surface", ""),
+            "scope": entry.get("scope", ""),
+            "status": status,
+            "tested_for": sorted(_entry_test_labels(entry)),
+            "tags": entry.get("tags", []),
+            "path": entry.get("path", ""),
+            "timestamp": entry.get("timestamp", ""),
+        })
+
+    if not results:
+        tested_state = "unknown"
+    elif any(status in statuses for status in [FAILED_STATUS, NEEDS_RECHECK_STATUS, STALE_STATUS]):
+        tested_state = "partial"
+    else:
+        tested_state = "yes"
+
+    if intent == GADGET_INTENT:
+        observations = [
+            obs for obs in observations
+            if "gadget" in {slugify(tag) for tag in obs.get("tags", [])}
+        ]
+    elif intent == OLD_LEADS_INTENT:
+        observations = [
+            obs for obs in observations
+            if "lead" in {slugify(tag) for tag in obs.get("tags", [])}
+            or obs.get("status") in {CANDIDATE_STATUS, NEEDS_RECHECK_STATUS}
+        ]
+
+    return {
+        "intent": intent,
+        "tested": tested_state,
+        "tested_for": sorted(tested_for),
+        "observation_count": len(results),
+        "status_counts": statuses,
+        "observations": observations,
+    }
+
+
+def evaluate_tunnel_vision_guard(
+    events: list[dict[str, Any]],
+    *,
+    run_mode: str,
+    old_lead_threshold: int = 2,
+    stale_minutes: int = 45,
+) -> dict[str, Any]:
+    """Decide whether a goal-mode run should pause old-lead MapStore queries.
+
+    ``events`` are newest-last run breadcrumbs. Each event can include:
+    ``source`` (for example ``mapstore-old-lead`` or ``current-run``),
+    ``fresh_observation`` (bool), and ``minutes_since_fresh``.
+    """
+    mode = slugify(run_mode, fallback="goal")
+    if mode in REPASS_RUN_MODES:
+        return {
+            "active": False,
+            "triggered": False,
+            "reason": "disabled-for-repass-mode",
+            "required_action": "",
+        }
+    if mode not in GOAL_RUN_MODES:
+        return {
+            "active": False,
+            "triggered": False,
+            "reason": "not-a-goal-run",
+            "required_action": "",
+        }
+
+    consecutive_old_leads = 0
+    for event in reversed(events):
+        source = slugify(str(event.get("source") or ""), fallback="")
+        if source in OLD_LEAD_SOURCES:
+            consecutive_old_leads += 1
+            continue
+        if event.get("fresh_observation"):
+            break
+        break
+
+    minutes_since_fresh = 0
+    for event in reversed(events):
+        if event.get("fresh_observation"):
+            minutes_since_fresh = 0
+            break
+        value = event.get("minutes_since_fresh")
+        if isinstance(value, (int, float)):
+            minutes_since_fresh = max(minutes_since_fresh, int(value))
+            break
+
+    triggered = (
+        consecutive_old_leads >= old_lead_threshold
+        or minutes_since_fresh >= stale_minutes
+    )
+    reason = ""
+    if consecutive_old_leads >= old_lead_threshold:
+        reason = "consecutive-mapstore-old-leads"
+    elif minutes_since_fresh >= stale_minutes:
+        reason = "stale-current-run-observation"
+
+    return {
+        "active": True,
+        "triggered": triggered,
+        "reason": reason,
+        "consecutive_old_leads": consecutive_old_leads,
+        "minutes_since_fresh": minutes_since_fresh,
+        "required_action": (
+            "Pause old-lead MapStore queries and make 3 fresh current-app "
+            "observations before following another old lead."
+            if triggered else ""
+        ),
+    }
 
 
 def _format_status_note(*, timestamp: str, status: str, agent: str, reason: str) -> str:
@@ -1028,6 +1275,7 @@ def _build_parser() -> argparse.ArgumentParser:
     query_p.add_argument("--recent-days", type=int, default=None, help="Shortcut for --since now minus N days")
     query_p.add_argument("--limit", type=int, default=None, help="Maximum observations to show")
     query_p.add_argument("--cross-family", action="store_true", help="Include cross-family observations")
+    query_p.add_argument("--intent", default=DEFAULT_QUERY_INTENT, choices=sorted(VALID_QUERY_INTENTS), help="Bound output for a specific agent question")
     query_p.add_argument("--json", action="store_true", help="Output as JSON")
 
     # update-status
@@ -1122,11 +1370,36 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
         cross_family_entries=cross_entries,
     )
 
+    intent = normalize_query_intent(args.intent)
     if args.json:
-        print(json.dumps(results, indent=2))
+        payload: Any = results
+        if intent != DEFAULT_QUERY_INTENT:
+            payload = build_query_intent_summary(results, intent=intent)
+        print(json.dumps(payload, indent=2))
     else:
         if not results:
             print("(no observations found)")
+            return 0
+        if intent != DEFAULT_QUERY_INTENT:
+            summary = build_query_intent_summary(results, intent=intent)
+            print(f"Intent: {summary['intent']}")
+            print(f"Tested: {summary['tested']}")
+            tested_for = ", ".join(summary["tested_for"]) or "(none inferred)"
+            print(f"Tested for: {tested_for}")
+            print(f"Observations: {summary['observation_count']}")
+            if summary["status_counts"]:
+                statuses = ", ".join(
+                    f"{status}={count}"
+                    for status, count in sorted(summary["status_counts"].items())
+                )
+                print(f"Statuses: {statuses}")
+            print("Pointers:")
+            for obs in summary["observations"][: args.limit or 10]:
+                labels = ", ".join(obs.get("tested_for", [])) or "unclassified"
+                print(
+                    f"- {obs.get('status')} | {labels} | "
+                    f"{obs.get('title')} | {obs.get('path')}"
+                )
             return 0
         for entry in results:
             ts = entry.get("timestamp", "")

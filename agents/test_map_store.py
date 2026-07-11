@@ -26,6 +26,8 @@ from agents.map_store import (
     APP_SCOPE,
     SURFACE_SCOPE,
     URL_SCOPE,
+    build_query_intent_summary,
+    evaluate_tunnel_vision_guard,
 )
 
 
@@ -454,6 +456,107 @@ class TestMapStore:
         assert len(results) == 1
         assert results[0]["surface"] == "xss"
         assert results[0]["url"] == "https://app.com/login"
+
+    def test_dedupe_intent_answers_tested_and_tested_for(self, store: MapStore):
+        store.init()
+        store.write(
+            url="https://app.com/settings/change_email",
+            surface="access-control",
+            body="No-password OAuth email change was confirmed by human.\n",
+            tags=["auth", "oauth", "email-change", "human-confirmed"],
+            title="oauth no-password email change",
+            status="needs_recheck",
+        )
+        store.write(
+            url="https://app.com/settings/change_email",
+            surface="csrf",
+            body="CSRF reachability was not isolated.\n",
+            tags=["csrf", "negative"],
+            title="csrf not isolated",
+            status="failed",
+        )
+
+        results = store.query(url="https://app.com/settings/change_email")
+        summary = build_query_intent_summary(results, intent="dedupe")
+
+        assert summary["tested"] == "partial"
+        assert "auth" in summary["tested_for"]
+        assert "csrf" in summary["tested_for"]
+        assert "oauth" in summary["tested_for"]
+        assert summary["status_counts"]["needs_recheck"] == 1
+        assert summary["status_counts"]["failed"] == 1
+
+    def test_cli_query_intent_dedupe_json(self, store: MapStore):
+        store.init()
+        repo_root = Path(__file__).resolve().parents[1]
+        store.write(
+            url="https://app.com/login",
+            surface="xss",
+            body="Login redirect reflected value tested for reflected XSS.\n",
+            tags=["xss-reflected", "negative"],
+            title="login reflected xss negative",
+            status="failed",
+        )
+
+        proc = subprocess.run([
+            sys.executable,
+            "agents/map_store.py",
+            "query",
+            "--program",
+            "testprog",
+            "--root",
+            str(store._layout.base_root),
+            "--url",
+            "https://app.com/login",
+            "--intent",
+            "dedupe",
+            "--json",
+        ], cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
+        payload = json.loads(proc.stdout)
+        assert payload["intent"] == "dedupe"
+        assert payload["tested"] == "partial"
+        assert "xss" in payload["tested_for"]
+
+    def test_goal_tunnel_guard_triggers_on_consecutive_old_leads(self):
+        decision = evaluate_tunnel_vision_guard(
+            [
+                {"source": "current-run", "fresh_observation": True},
+                {"source": "mapstore-old-lead"},
+                {"source": "mapstore-old-lead"},
+            ],
+            run_mode="find-vuln",
+        )
+
+        assert decision["active"] is True
+        assert decision["triggered"] is True
+        assert decision["reason"] == "consecutive-mapstore-old-leads"
+
+    def test_tunnel_guard_disabled_for_repass(self):
+        decision = evaluate_tunnel_vision_guard(
+            [
+                {"source": "mapstore-old-lead"},
+                {"source": "mapstore-old-lead"},
+            ],
+            run_mode="repass",
+        )
+
+        assert decision["active"] is False
+        assert decision["triggered"] is False
+
+    def test_goal_tunnel_guard_allows_fresh_current_run_observations(self):
+        decision = evaluate_tunnel_vision_guard(
+            [
+                {"source": "mapstore-old-lead"},
+                {"source": "current-run", "fresh_observation": True},
+                {"source": "current-run"},
+            ],
+            run_mode="goal",
+        )
+
+        assert decision["active"] is True
+        assert decision["triggered"] is False
 
     def test_query_url_without_trailing_slash(self, store: MapStore):
         store.init()

@@ -34,24 +34,87 @@ domain, app surface, role, or defense, write it to MapStore.
 
 ## Live Agent Flow
 
-1. Start from the user goal and the live surface in front of you. Do not make a
+1. Load this skill early so the agent knows MapStore is available, but do not
+   ingest broad MapStore contents by default.
+2. Start from the user goal and the live surface in front of you. Do not make a
    broad MapStore or findings-ledger read the opening move for creative live
    testing.
-2. Query MapStore only when you have a concrete URL, endpoint, surface,
+3. Query MapStore only when you have a concrete URL, endpoint, surface,
    parameter, role boundary, or vuln class and need targeted tested-state,
-   duplicate avoidance, or reusable app facts.
-3. Treat MapStore results as constraints and prior observations, not as the
+   duplicate avoidance, reusable app facts, coverage, or gadget context.
+   Every live query should have an explicit intent.
+4. Treat `app-facts`, `dedupe`, and `coverage` as the default allowed intents
+   during normal find-vulnerability goals. `gadget` requires an active candidate
+   vulnerability. `old-leads` is disabled unless the user asked for retest,
+   repass, cleanup, duplicate triage, or old-lead review.
+5. Treat MapStore results as constraints and prior observations, not as the
    hypothesis generator. If prior notes are narrow, pivot to adjacent untested
    classes instead of inheriting their tunnel vision.
-4. Do the work.
-5. Write back important positive and negative observations.
-6. Use `--scope app` for app-wide facts and `--scope surface` for surface-wide
+6. Do the work.
+7. Write back important positive and negative observations.
+8. Use `--scope app` for app-wide facts and `--scope surface` for surface-wide
    facts.
-7. Add vuln-class/status tags so specialist agents can filter.
-8. Link relevant attempts artifacts when the observation came from a deliberate
+9. Add vuln-class/status tags so specialist agents can filter.
+10. Link relevant attempts artifacts when the observation came from a deliberate
    probe or mutation family.
-9. If the observation changes hunt direction, add the narrative/handoff to
+11. If the observation changes hunt direction, add the narrative/handoff to
    `/bounty-notes` too.
+
+## Query Intent Modes
+
+Use intent modes to keep MapStore as lazy retrieval instead of prompt baggage.
+
+- `app-facts`: "What is true about this app/URL/surface?" Use for technology
+  stack, JavaScript/app behavior, auth/session model, defenses, framework
+  quirks, consumers, and trust boundaries.
+- `dedupe`: "Have we tested this, and what did we test it for?" Return bounded
+  tested-state, tested-for labels, status counts, and pointers instead of
+  full historical writeups.
+- `coverage`: "What is thin or already covered for this chosen surface?" Use
+  after the agent selected a current surface or route cluster.
+- `gadget`: "Given an active candidate vulnerability, what primitives could
+  amplify impact?" Use only after the candidate exists.
+- `old-leads`: "Show historical leads." Use only for retest/repass/cleanup,
+  duplicate triage, report work, or explicit user approval.
+
+CLI example for the two common questions:
+
+```bash
+PYTHONPATH=".:$HOME/projects/bounty-core" \
+python3 agents/map_store.py query --program <program> --family web_bounty --lane web \
+  --url "https://app.example/path" --surface xss --intent dedupe
+```
+
+Expected shape:
+
+```text
+Intent: dedupe
+Tested: partial
+Tested for: csrf, xss-reflected
+Observations: 2
+Pointers:
+- failed | xss-reflected | reflected search negative | xss/app.example_s_search/...
+```
+
+## Goal-Run Tunnel Guard
+
+Apply this guard only to find-vulnerability / goal / hunt / new-finding runs.
+Do not apply it to repass, retest, cleanup, duplicate triage, evidence capture,
+or status-review runs.
+
+If the last two test targets were chosen mainly from `old-leads` / old
+MapStore entries, or the run has gone roughly 30-45 minutes without a fresh
+current-run observation, pause old-lead querying. Before following another old
+lead, make three fresh observations from the current app/session, such as:
+
+- a new route, panel, role boundary, or surface
+- new JavaScript/API behavior
+- changed feature flag, plan, entitlement, or account behavior
+- a new trust boundary, renderer, export path, or consumer
+
+This guard does not block `app-facts`, `dedupe`, or `coverage` queries. It only
+prevents old vulnerability leads from becoming the path of least resistance in
+normal goal runs.
 
 ## Opportunistic Lifecycle Hygiene
 

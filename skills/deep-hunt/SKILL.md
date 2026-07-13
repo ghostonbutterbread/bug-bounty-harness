@@ -29,7 +29,8 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    - `/url-ingest` stats/next/history for the program
    - `/live-map` summary and relevant handoff packets
    - `/hunter-memory` summaries for the section or vulnerability lane
-   - program knowledge and prior findings
+   - raw or normalized recon artifacts for additional services, routes,
+     parameters, features, roles, and technologies
 5. Choose one URL, one section, or one tight route cluster.
 6. Create a hypothesis board for that URL/section.
 7. Spawn or brief focused child lanes only after each packet has a clear
@@ -42,6 +43,14 @@ existing FID with new evidence. Do not count old findings as satisfying the
 current deep-hunt goal unless Ryushe explicitly asked for status, portfolio
 review, duplicate triage, report cleanup, revalidation, or extending a known
 finding.
+
+For new-finding goals, do not use prior confirmed findings, old report drafts,
+manual findings, high/medium vulnerability lists, MapStore `old-leads`, or
+`#do-not-retest` entries as target-selection input. If Ryushe says to use recon
+data, mine discovery artifacts for more services, routes, parameters,
+features, roles, and technologies. Treat old vulnerability material as dedupe,
+coverage, safety, rebound, or explicitly requested revalidation context only
+after a current surface exists.
 
 ## Commands
 

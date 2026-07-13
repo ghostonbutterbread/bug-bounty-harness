@@ -31,8 +31,14 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    - `/hunter-memory` summaries for the program or surface
    - `/live-map` application-map summary and handoff packets
    - `/url-ingest` stats/history for route and parameter review depth
-   - program knowledge and prior findings
+   - raw or normalized recon artifacts for additional services, routes,
+     parameters, features, roles, and technologies
    - `/map-store` for the URL, host, surface, and relevant vuln class
+   Do not use prior confirmed findings, old report drafts, manual findings,
+   high/medium vulnerability lists, MapStore `old-leads`, or `#do-not-retest`
+   entries as target-selection input for new-finding goals. Use them only for
+   dedupe, coverage, safety, rebound ideas, or explicitly requested
+   revalidation/extension after a current surface exists.
 5. Start or resume a target memory pack.
 6. Map one app area at a time through live interaction, then dispatch
    specialists on evidence-backed triggers.

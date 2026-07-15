@@ -158,8 +158,28 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
 6. If a replay is needed after capture, hand the sanitized request shape to direct HTTP replay through MITM first.
 7. Close and delete disposable browser profiles after the lane has been indexed
    unless Ryushe explicitly asks to preserve the profile for manual debugging.
+   Deleting a profile directory is **not** sufficient cleanup: first stop the
+   matching root Chromium process, then verify its CDP endpoint is unreachable
+   and no process still uses that profile path. Do not rely on a broad `pgrep`
+   command that can match its own shell; check the recorded root PID or filter
+   the process list so the verifier command is excluded.
 8. Stop the proxy lane and release its lease so another agent can use the port.
 9. Save screenshots, request notes, and reproduction details under the program evidence directory.
+
+### Required Exit Verification
+
+A run may claim browser cleanup only after all three are recorded:
+
+```text
+root browser PID: stopped
+CDP endpoint: closed/unreachable
+run-scoped profile directory: absent
+```
+
+If a profile-cleanup helper removes the directory while its Chromium root is
+still alive, treat cleanup as incomplete: terminate the root, wait briefly for
+children to exit, re-check the three predicates, and correct the artifact rather
+than reporting a false clean state.
 
 ## Guardrails
 
@@ -172,7 +192,7 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
 - Auth seed files must be local JSON files with owner-only permissions such as
   `0600`. The launcher may report safe metadata and which secret field names
   exist, but must never print cookie, bearer, CSRF, or token values.
-- Verify the launch command includes `--proxy-server=<browser-proxy>` and that `proxy_cert_status` is `trusted` when proxy TLS interception is expected. If the launcher falls back to `--ignore-certificate-errors`, record that as debug/fallback behavior.
+- Verify the launcher output or the local Chromium root-process command includes `--proxy-server=<browser-proxy>` and that `proxy_cert_status` is `trusted` when proxy TLS interception is expected. Do **not** infer a missing proxy from CDP `Browser.getBrowserCommandLine`: Chrome returns that command only when started with `--enable-automation`. If the launcher falls back to `--ignore-certificate-errors`, record that as debug/fallback behavior.
 - Live browser traffic should be observed from this browser's MITM proxy lane. Do not pull live browser requests from Ryushe's proxy unless Ryushe specifically asks for Ryushe-lane comparison or request lookup.
 - Named-account auth fallback is allowed when Ryushe asked for that account,
   for example "blue credentials", and the account inventory explicitly permits

@@ -143,7 +143,11 @@ allowed. Do not infer those permissions from a generic live-target policy.
   context; and the owned or lab-local action that demonstrates impact.
 - Use an action ladder: harmless sink proof -> controlled owned/disposable
   action proof -> explicitly authorized lab-objective action. A primitive
-  alone is not completion when the stated benchmark is a chain.
+  alone is not completion when the stated benchmark is a chain. Once the next
+  owned/disposable edge is evidence-backed and permitted, it is the default
+  continuation target—not a risky escalation to avoid. The steward must either
+  test it, record the specific scope/ownership/stability blocker, or hand the
+  same warm/hot chain to its next continuity card.
 - In a real program, stop before a non-owned or third-party state change even
   if the chain is otherwise proven. In a training lab, such a fixture action is
   allowed only when the scope gate names the lab objective and the user has

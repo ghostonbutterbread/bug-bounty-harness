@@ -35,6 +35,9 @@
 - Required policies/skills:
 - Rate/request constraints:
 - Account/resource boundary and approved alias/seed reference:
+- Owned/disposable impact edge to prove if the active primitive is reproduced:
+- Normal owned action permitted for that proof (create/edit/delete/revoke/reset/read),
+  its expected interpretations, and cleanup/residue plan:
 - Cleanup requirement:
 
 ## In scope for this worker

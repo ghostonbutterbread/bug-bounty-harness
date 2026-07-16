@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Build offline JavaScript fanout campaigns for zero_day_team.
+"""Build local-only JavaScript review packets and brainstorm artifacts.
 
-This adapter keeps /js responsible for JavaScript-specific inventory and packet
-shaping, then hands a local, no-network campaign to zero_day_team through a
-generated brainstorm spec.
+This adapter deliberately stops at offline artifact preparation. It does not
+invoke or generate a runtime handoff to zero_day_team.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-import subprocess
+
 import sys
 import tempfile
 from dataclasses import asdict, dataclass
@@ -683,53 +682,6 @@ def build_spec(
     return spec_path
 
 
-def zero_day_command(
-    *,
-    program: str,
-    target_root: Path,
-    spec_path: Path,
-    parallel: bool,
-    scheduler: str,
-    agent_wave_size: str,
-    category_master_mode: bool,
-) -> list[str]:
-    command = [
-        sys.executable,
-        str(REPO_ROOT / "agents" / "zero_day_team.py"),
-        program,
-        str(target_root),
-        "--hunt-type",
-        "web",
-        "--target-kind",
-        "web-js",
-        "--brainstorm-spec",
-        str(spec_path),
-        "--brainstorm-only",
-        "--scheduler",
-        scheduler,
-        "--agent-wave-size",
-        str(agent_wave_size),
-    ]
-    if category_master_mode:
-        command.extend(["--category-master-mode", "--max-hypotheses-per-master-agent", "6"])
-    if parallel:
-        command.append("--parallel")
-    return command
-
-
-def shell_join(command: list[str]) -> str:
-    return " ".join(sh_quote(part) for part in command)
-
-
-def sh_quote(value: str) -> str:
-    if not value:
-        return "''"
-    safe = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_+-=.,/:"
-    if all(char in safe for char in value):
-        return value
-    return "'" + value.replace("'", "'\"'\"'") + "'"
-
-
 def prepare_campaign(args: argparse.Namespace) -> dict:
     js_run_root = Path(args.js_run_root).expanduser().resolve(strict=False)
     manifest_path = js_run_root / "manifest.json"
@@ -781,15 +733,7 @@ def prepare_campaign(args: argparse.Namespace) -> dict:
         mapstore_candidates_path=mapstore_candidates_path,
         mapstore_schema_path=mapstore_schema_path,
     )
-    command = zero_day_command(
-        program=program,
-        target_root=target_root,
-        spec_path=spec_path,
-        parallel=not args.no_parallel,
-        scheduler=args.scheduler,
-        agent_wave_size=args.agent_wave_size,
-        category_master_mode=not args.no_category_master_mode,
-    )
+
     manifest = {
         "schema": "js-offline-campaign.v1",
         "program": program,
@@ -808,13 +752,8 @@ def prepare_campaign(args: argparse.Namespace) -> dict:
         "lanes": [asdict(lane) for lane in lanes],
         "packet_count": len(copied_packets),
         "metadata_rows": len(metadata_rows),
-        "scheduler": {
-            "mode": args.scheduler,
-            "agent_wave_size": args.agent_wave_size,
-            "category_master_mode": not args.no_category_master_mode,
-        },
-        "zero_day_command": command,
-        "zero_day_command_text": shell_join(command),
+        "runtime_handoff": "none",
+        "review_note": "Offline JS artifacts are intentionally disconnected from zero_day_team and any live-capable runtime.",
         "target": {
             "inventory_run_id": target_index["inventory"]["run_id"],
             "target_host": target_index["inventory"]["target_host"],
@@ -856,15 +795,9 @@ def command_run(args: argparse.Namespace) -> int:
     else:
         raise SystemExit("run requires --js-run-root or --campaign-root")
     manifest = read_json(campaign_root / "manifest.json")
-    command = [str(part) for part in manifest.get("zero_day_command") or []]
-    if not command:
-        raise SystemExit(f"zero_day_command missing from {campaign_root / 'manifest.json'}")
     if args.execute:
-        raise SystemExit(
-            "--execute is disabled for JS offline campaigns until zero_day_team has a runner-enforced "
-            "offline/no-network mode. The generated command is a review handoff, not an executable artifact."
-        )
-    print(shell_join(command))
+        raise SystemExit("--execute is unavailable: JS offline campaigns are disconnected from zero_day_team and all runtimes.")
+    print(json.dumps({"campaign_root": str(campaign_root), "brainstorm_spec": manifest["brainstorm_spec"], "runtime_handoff": "none"}, indent=2))
     return 0
 
 
@@ -891,11 +824,10 @@ def command_dry_run(args: argparse.Namespace) -> int:
             no_category_master_mode=args.no_category_master_mode,
         )
         manifest = prepare_campaign(prepare_args)
-        command = [str(part) for part in manifest.get("zero_day_command") or []]
         summary = {
             "schema": "js-offline-dry-run.v1",
             "dry_run": True,
-            "would_execute_zero_day_team": False,
+            "runtime_handoff": "none",
             "live_requests_allowed": False,
             "durable_aftermath": bool(args.campaign_root),
             "campaign_root": str(campaign_root) if args.campaign_root else "(temporary; removed after dry run)",
@@ -906,7 +838,7 @@ def command_dry_run(args: argparse.Namespace) -> int:
             "metadata_rows": manifest["metadata_rows"],
             "lanes": [f"js-{lane['key']}" for lane in manifest["lanes"]],
             "always_on_anomaly_hunter": any(lane["key"] == "anomaly-hunter" for lane in manifest["lanes"]),
-            "zero_day_command_text": shell_join(command),
+
         }
         print(json.dumps(summary, indent=2, sort_keys=True))
         return 0

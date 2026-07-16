@@ -637,19 +637,10 @@ class TestCronOrchestrator(unittest.TestCase):
         self.assertEqual(tmux_manifest["session"], "demo-cron-recon")
         self.assertTrue(tmux_manifest["panes"])
 
-    def test_tmux_launch_reads_manifest_and_allows_session_override(self) -> None:
-        manifest = self.root / "tmux_manifest.json"
-        manifest.write_text(
-            json.dumps({"session": "old-session", "panes": [{"shell": "echo ok"}]}),
-            encoding="utf-8",
-        )
-
-        with patch.object(M, "launch_tmux_session", return_value={"status": "started", "session": "new-session"}) as launch:
-            with contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(M.main(["tmux-launch", str(manifest), "--session", "new-session"]), 0)
-
-        launch.assert_called_once()
-        self.assertEqual(launch.call_args.args[0], "new-session")
+    def test_tmux_launch_command_is_not_available_for_untrusted_manifests(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                M.main(["tmux-launch", str(self.root / "malicious-manifest.json")])
 
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
     def test_timeout_scales_with_wordlist_size_without_default_ceiling(self) -> None:

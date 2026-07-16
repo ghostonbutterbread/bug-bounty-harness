@@ -3321,25 +3321,6 @@ def cmd_queue_worker(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_tmux_launch(args: argparse.Namespace) -> int:
-    manifest_path = Path(args.manifest).expanduser()
-    if not manifest_path.is_file():
-        print(f"ERROR: tmux manifest not found: {manifest_path}", file=sys.stderr)
-        return 1
-    try:
-        manifest = load_config(manifest_path)
-    except (OSError, yaml.YAMLError, ValueError) as exc:
-        print(f"ERROR: could not read tmux manifest: {exc}", file=sys.stderr)
-        return 1
-    if not isinstance(manifest.get("panes"), list):
-        print("ERROR: tmux manifest must contain panes", file=sys.stderr)
-        return 1
-    session = safe_slug(args.session or str(manifest.get("session") or "cron-recon"))
-    result = launch_tmux_session(session, manifest["panes"])
-    print(json.dumps(result, indent=2, sort_keys=True))
-    return 0
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="BBH cron orchestrator dry-run planner")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -3475,10 +3456,6 @@ def build_parser() -> argparse.ArgumentParser:
     queue_worker_parser.add_argument("--forever", action="store_true", help="keep waiting after empty polls")
     queue_worker_parser.set_defaults(func=cmd_queue_worker)
 
-    tmux_parser = subparsers.add_parser("tmux-launch", help="launch a generated tmux manifest")
-    tmux_parser.add_argument("manifest")
-    tmux_parser.add_argument("--session", help="override tmux session name from the manifest")
-    tmux_parser.set_defaults(func=cmd_tmux_launch)
     return parser
 
 

@@ -860,7 +860,10 @@ def command_run(args: argparse.Namespace) -> int:
     if not command:
         raise SystemExit(f"zero_day_command missing from {campaign_root / 'manifest.json'}")
     if args.execute:
-        return subprocess.call(command, cwd=REPO_ROOT)
+        raise SystemExit(
+            "--execute is disabled for JS offline campaigns until zero_day_team has a runner-enforced "
+            "offline/no-network mode. The generated command is a review handoff, not an executable artifact."
+        )
     print(shell_join(command))
     return 0
 
@@ -947,7 +950,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--no-parallel", action="store_true", help="Do not include --parallel in the generated zero_day_team command")
     prepare.set_defaults(func=command_prepare)
 
-    run = sub.add_parser("run", help="Print or execute the generated zero_day_team command")
+    run = sub.add_parser("run", help="Prepare and print the generated zero_day_team review handoff")
     run.add_argument("--js-run-root", help="Prepare from this JS run before printing/executing")
     run.add_argument("--campaign-root", help="Existing or output campaign root")
     run.add_argument("--program", help="Program override when preparing from --js-run-root")
@@ -972,7 +975,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--force", action="store_true", help="Replace an existing campaign root when preparing")
     run.add_argument("--no-parallel", action="store_true", help="Do not include --parallel in the generated zero_day_team command")
-    run.add_argument("--execute", action="store_true", help="Actually run zero_day_team. Without this, print the command only.")
+    run.add_argument(
+        "--execute",
+        action="store_true",
+        help="Rejected: execution remains disabled until zero_day_team enforces offline/no-network mode.",
+    )
     run.set_defaults(func=command_run)
 
     dry_run = sub.add_parser("dry-run", help="Exercise /js offline fanout planning without executing agents or leaving campaign artifacts")

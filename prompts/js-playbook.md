@@ -35,9 +35,10 @@ interpretation and security reasoning.
 - use when Ryushe says "dig into the JS", "vuln test the JS", "run JS deep",
   or similar language that implies broad local review
 - consume an existing `js_analyzer.py inventory` run
-- build a local JavaScript artifact campaign with `js_offline_campaign.py`
-- run generated web-JS brainstorm specs through `zero_day_team` without live
-  target requests
+- use `js_team.py` as the high-level staged wrapper: mapper/anomaly first,
+  then selected follow-up category lanes
+- use `js_offline_campaign.py` only as the lower-level campaign adapter or when
+  one-shot all-lane execution is intentionally desired
 - synthesize outputs into findings, MapStore gadget candidates, endpoint
   handoffs, or live-validation hypotheses
 
@@ -299,7 +300,39 @@ download when the artifact is already present.
 Use offline fanout when the user wants a deep JavaScript vulnerability review
 and the inventory run has enough packets to justify multi-agent review.
 
-Prepare the campaign:
+Preview the staged plan without starting agents or leaving a durable campaign:
+
+```bash
+python3 agents/js_team.py dry-run \
+  --js-run-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>" \
+  --mode deep
+```
+
+Run only the mapper/anomaly first wave:
+
+```bash
+python3 agents/js_team.py run \
+  --js-run-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>" \
+  --mode deep \
+  --stage planner \
+  --execute
+```
+
+After reviewing mapper/anomaly output, select follow-up category lanes:
+
+```bash
+python3 agents/js_team.py run \
+  --js-run-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>" \
+  --follow-up-lane api-request-contracts \
+  --follow-up-lane auth-account-tenant \
+  --stage follow-up \
+  --execute
+```
+
+Use `--auto-follow-up-from-signals` only when deterministic cheap metadata
+signals should select the follow-up wave before human review of mapper output.
+
+Lower-level adapter command for direct campaign inspection:
 
 ```bash
 python3 agents/js_offline_campaign.py prepare \
@@ -307,14 +340,15 @@ python3 agents/js_offline_campaign.py prepare \
   --mode deep
 ```
 
-Inspect the generated `zero_day_team` command without starting agents:
+Inspect the generated one-shot `zero_day_team` command without starting agents:
 
 ```bash
 python3 agents/js_offline_campaign.py run \
   --campaign-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>/offline_campaign"
 ```
 
-Start the offline fanout only when the task budget is meant for this run:
+Start the lower-level one-shot offline fanout only when the task budget is
+intentionally meant to run the generated lane set at once:
 
 ```bash
 python3 agents/js_offline_campaign.py run \
@@ -335,10 +369,13 @@ The generated campaign layout is:
 └── brainstorm/spec.md
 ```
 
-The wrapper intentionally hides the raw `zero_day_team` flags. Internally it
-uses the local `offline_target`, stores output in the web lane, identifies the
-target as `web-js`, and uses `--brainstorm-only` so the generated web-JS lanes
-run instead of the default built-in source/Desktop profile set.
+The staged wrapper writes `js_team_plan.json` beside the campaign manifest and
+uses the generated `zero_day_team` command with `--brainstorm-hypothesis` so
+only the intended hypothesis/lane runs in each wave. The lower-level adapter
+still hides the raw `zero_day_team` flags. Internally it uses the local
+`offline_target`, stores output in the web lane, identifies the target as
+`web-js`, and uses `--brainstorm-only` so the generated web-JS lanes run
+instead of the default built-in source/Desktop profile set.
 
 Offline fanout modes:
 

@@ -60,6 +60,57 @@ domain, app surface, role, or defense, write it to MapStore.
 11. If the observation changes hunt direction, add the narrative/handoff to
    `/bounty-notes` too.
 
+## Impact Waivers And Dead Ends
+
+Use MapStore to steer future agents away from scoped but non-reportable rabbit
+holes. An impact waiver is not an out-of-scope marker; it is a record that the
+surface was considered, the program-payable impact is missing, and the agent
+should pivot unless a specific wake condition appears.
+
+Write a waiver when the stable lesson is about reportability or hunting
+direction, for example:
+
+- a vulnerability pattern is isolated to a context with no account, data,
+  action, victim-binding, or trusted-boundary impact
+- behavior looks like a vulnerability class but is the intended purpose of the
+  feature and does not cross a protected boundary
+- a domain, feature family, or input path has already been tested for a pattern
+  the program does not pay for or explicitly deprioritizes
+
+Use broad scope when broad guidance is intended:
+
+- `--scope surface` for one domain, feature family, or vuln class
+- `--scope app` for program-wide triage rules or recurring false positives
+- `status archived` for clear dead ends hidden from default lead queries
+- `status needs_recheck` when account state, environment, or program policy is
+  still ambiguous
+
+Recommended tags: `impact-waiver`, `dead-end`, `low-impact`,
+`no-bounty-impact`, `intended-behavior`, plus the relevant class or surface tag.
+
+Put this block near the top of the body:
+
+```text
+Impact Waiver:
+- intended_behavior: <what the feature/domain is meant to do>
+- attacker_capability: <what control was proven>
+- impact_blocker: <why this does not bind to account/data/action/security impact>
+- program_fit: <HackerOne/Bugcrowd/program rule or VRT/CVSS reasoning>
+- status: dead_end|hold_for_chain|needs_recheck
+- wake_when: <specific primitive or app change that should reopen the trail>
+```
+
+Keep the block concise. Move detailed attempts, screenshots, and raw responses
+to artifacts or attempts folders, then link them from the waiver.
+
+See `references/map-store-reference.md` and `references/routing-examples.md`
+for impact-waiver examples.
+
+Do not tag these as `gadget` unless the primitive is confirmed and chainable.
+If intended feature behavior may become useful later, record it as
+`intended-behavior` plus `hold_for_chain` or `impact-waiver`, not as a
+vulnerability.
+
 ## Query Intent Modes
 
 Use intent modes to keep MapStore as lazy retrieval instead of prompt baggage.

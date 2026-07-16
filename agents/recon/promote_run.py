@@ -8,11 +8,13 @@ import json
 from collections import defaultdict
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import urlparse
 
 from agents.recon import bus
 
 
-DIRECTORY_NAMES = ("normalized", "parsed")
+DIRECTORY_NAMES = ("normalized", "parsed", "raw")
+PORT_MARKERS = ("naabu", "ports", "port")
 
 FILENAME_KIND_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("params_raw", "params"), "param"),
@@ -35,6 +37,8 @@ def is_params_raw(path: Path) -> bool:
 def classify_path(path: Path) -> str | None:
     """Return the recon bus aggregate kind implied by a known output filename."""
     stem = path.stem.lower()
+    if any(marker in stem for marker in PORT_MARKERS):
+        return "port"
     for markers, kind in FILENAME_KIND_RULES:
         if any(marker in stem for marker in markers):
             return kind
@@ -156,6 +160,154 @@ def append_kind(
     return bus.append(append_args)
 
 
+def normalize_host_port(host: object, port_value: object) -> tuple[str, int] | None:
+    host_text = str(host or "").strip().lower()
+    if "://" in host_text:
+        parsed = urlparse(host_text)
+        host_text = (parsed.hostname or "").lower()
+        if port_value is None:
+            port_value = parsed.port
+    if isinstance(port_value, str) and "/" in port_value:
+        port_value = port_value.split("/", 1)[0]
+    try:
+        port = int(port_value)
+    except (TypeError, ValueError):
+        return None
+    if not host_text or port < 1 or port > 65535:
+        return None
+    return host_text, port
+
+
+def parse_port_line(line: str) -> tuple[str, int] | None:
+    value = str(line or "").strip()
+    if not value:
+        return None
+    if value.startswith("{"):
+        try:
+            payload = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        host = payload.get("host") or payload.get("ip") or payload.get("url")
+        port_value = payload.get("port")
+        if port_value is None and isinstance(payload.get("ports"), list) and payload["ports"]:
+            port_value = payload["ports"][0]
+        return normalize_host_port(host, port_value)
+    if "://" in value:
+        parsed = urlparse(value)
+        return normalize_host_port(parsed.hostname, parsed.port)
+    if ":" in value:
+        host, port_value = value.rsplit(":", 1)
+        return normalize_host_port(host, port_value)
+    return None
+
+
+def _read_port_records(files: Iterable[Path], program: str, run_root: Path) -> tuple[list[dict[str, object]], list[str]]:
+    seen: set[tuple[str, int]] = set()
+    rows: list[dict[str, object]] = []
+    lines: list[str] = []
+    for path in files:
+        for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            parsed = parse_port_line(raw)
+            if not parsed:
+                continue
+            host, port = parsed
+            key = (host, port)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(
+                {
+                    "program": program,
+                    "host": host,
+                    "port": port,
+                    "source": "promote-run",
+                    "source_file": str(path),
+                    "run_root": str(run_root),
+                }
+            )
+            lines.append(f"{host}:{port}")
+    rows.sort(key=lambda row: (str(row["host"]), int(row["port"])))
+    lines = [f"{row['host']}:{row['port']}" for row in rows]
+    return rows, lines
+
+
+def _append_jsonl(path: Path, rows: Iterable[dict[str, object]]) -> dict[str, int]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing_keys: set[tuple[str, int]] = set()
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            parsed = normalize_host_port(payload.get("host") or payload.get("ip") or payload.get("url"), payload.get("port"))
+            if parsed:
+                existing_keys.add(parsed)
+    new_rows = []
+    for row in rows:
+        parsed = normalize_host_port(row.get("host"), row.get("port"))
+        if not parsed or parsed in existing_keys:
+            continue
+        existing_keys.add(parsed)
+        new_rows.append(row)
+    if new_rows:
+        with path.open("a", encoding="utf-8") as handle:
+            for row in new_rows:
+                handle.write(json.dumps(row, sort_keys=True) + "\n")
+    return {"read": len(list(rows)) if not isinstance(rows, list) else len(rows), "new": len(new_rows)}
+
+
+def _append_lines(path: Path, lines: Iterable[str]) -> dict[str, int]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = set(bus.read_file_lines(path))
+    new_lines = [line for line in lines if line not in existing]
+    if new_lines:
+        with path.open("a", encoding="utf-8") as handle:
+            for line in new_lines:
+                handle.write(line + "\n")
+    return {"read": len(list(lines)) if not isinstance(lines, list) else len(lines), "new": len(new_lines)}
+
+
+def promote_ports(
+    *,
+    program: str,
+    files: list[Path],
+    run_root: Path,
+    shared_base: str | None,
+) -> dict[str, object]:
+    original_shared_base = bus.SHARED_BASE
+    if shared_base:
+        bus.SHARED_BASE = Path(shared_base).expanduser()
+    try:
+        rows, lines = _read_port_records(files, program, run_root)
+        services_root = bus.recon_root(program) / "services"
+        services_jsonl = services_root / "ports.jsonl"
+        services_txt = services_root / "ports.txt"
+        services_append_jsonl = _append_jsonl(services_jsonl, rows)
+        services_append_txt = _append_lines(services_txt, lines)
+        aggregate_root = bus.aggregate_root(program)
+        aggregate_jsonl = aggregate_root / "ports.jsonl"
+        aggregate_txt = aggregate_root / "ports.txt"
+        aggregate_append_jsonl = _append_jsonl(aggregate_jsonl, rows)
+        aggregate_append_txt = _append_lines(aggregate_txt, lines)
+        return {
+            "files": [str(path) for path in files],
+            "normalized_count": len(rows),
+            "services_ports_jsonl": str(services_jsonl),
+            "services_ports_txt": str(services_txt),
+            "aggregated_ports_jsonl": str(aggregate_jsonl),
+            "aggregated_ports_txt": str(aggregate_txt),
+            "append": {
+                "services_ports_jsonl": services_append_jsonl,
+                "services_ports_txt": services_append_txt,
+                "aggregated_ports_jsonl": aggregate_append_jsonl,
+                "aggregated_ports_txt": aggregate_append_txt,
+            },
+        }
+    finally:
+        bus.SHARED_BASE = original_shared_base
+
+
 def promote_run(args: argparse.Namespace) -> dict[str, object]:
     run_root = Path(args.run_root).expanduser()
     if not run_root.is_dir():
@@ -164,6 +316,8 @@ def promote_run(args: argparse.Namespace) -> dict[str, object]:
     discovered = discover_candidate_files(run_root)
     appends: dict[str, dict[str, object]] = {}
     for kind, files in discovered.items():
+        if kind == "port":
+            continue
         appends[kind] = append_kind(
             program=args.program,
             kind=kind,
@@ -172,11 +326,20 @@ def promote_run(args: argparse.Namespace) -> dict[str, object]:
             shared_base=args.shared_base,
             no_index=args.no_index,
         )
+    services = None
+    if discovered.get("port"):
+        services = promote_ports(
+            program=args.program,
+            files=discovered["port"],
+            run_root=run_root,
+            shared_base=args.shared_base,
+        )
 
     return {
         "program": args.program,
         "run_root": str(run_root),
         "discovered": {kind: [str(path) for path in files] for kind, files in discovered.items()},
         "appends": appends,
+        "services": services,
         "status": "ok",
     }

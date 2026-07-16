@@ -3,17 +3,21 @@
 Use this reference when Ryushe asks to "dig into the JS", "vuln test the JS",
 "run JS deep", or otherwise spend agent budget on local JavaScript artifacts.
 
-The purpose is broad offline depth: download once, review locally with many
-lenses, synthesize, and hand only selected hypotheses to live testing later.
+The purpose is broad offline depth: download once, review locally with
+mapper-led category agents, synthesize, and hand only selected hypotheses to
+live testing later. The intended high-level entrypoint is `agents/js_team.py`;
+`agents/js_offline_campaign.py` is the lower-level adapter that builds the
+offline target, brainstorm spec, and zero_day_team command.
 
 ## Principles
 
 - The classifier accelerates routing; it never excludes a class.
-- Offline agents may fan out widely because they read local packets, not the
-  target application.
+- Offline agents should fan out by broad attack-surface category by default.
+  Use the old narrow lens matrix only when Ryushe intentionally chooses that
+  spend.
 - Live requests are not allowed in the offline campaign.
-- Specialist agents stay in their lane but report off-lane primitives in a
-  peripheral-vision field.
+- Category agents stay in their broad family but report narrower specialist
+  follow-up needs in a peripheral-vision field.
 - Always include a classless anomaly lane when budget allows.
 - Promote outputs into findings, MapStore gadget candidates, endpoint handoffs,
   or live-validation hypotheses.
@@ -28,7 +32,43 @@ lenses, synthesize, and hand only selected hypotheses to live testing later.
 
 1. Run `agents/js_analyzer.py inventory` to collect, hash, dedupe, chunk, and
    packet JavaScript.
-2. Build a local campaign from the inventory run:
+2. Preview the staged JavaScript Team plan. Deep mode starts with only
+   `js-general-map` and `js-anomaly-hunter`; follow-up categories are selected
+   after reviewing their output. Without `--campaign-root` or `--write-plan`,
+   this uses a temporary campaign and removes it after printing the plan:
+
+   ```bash
+   python3 agents/js_team.py dry-run \
+     --js-run-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id> \
+     --mode deep
+   ```
+
+3. Run the planner/anomaly wave when agent budget is intended:
+
+   ```bash
+   python3 agents/js_team.py run \
+     --js-run-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id> \
+     --mode deep \
+     --stage planner \
+     --execute
+   ```
+
+4. After reading mapper/anomaly output, run selected follow-up lanes:
+
+   ```bash
+   python3 agents/js_team.py run \
+     --js-run-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id> \
+     --follow-up-lane api-request-contracts \
+     --follow-up-lane auth-account-tenant \
+     --stage follow-up \
+     --execute
+   ```
+
+   Use `--auto-follow-up-from-signals` only when you want deterministic
+   metadata-triggered follow-ups before mapper output has been reviewed.
+
+5. To inspect the lower-level generated campaign directly, build it from the
+   inventory run:
 
    ```bash
    python3 agents/js_offline_campaign.py prepare \
@@ -36,15 +76,29 @@ lenses, synthesize, and hand only selected hypotheses to live testing later.
      --mode deep
    ```
 
-3. Inspect the generated command without starting agents:
+6. For a no-aftermath dry run of the lower-level fanout adapter, preview
+   the generated campaign and team command in a temporary directory. This does
+   not start `zero_day_team`, does not make live requests, and removes the temp
+   campaign by default:
+
+   ```bash
+   python3 agents/js_offline_campaign.py dry-run \
+     --js-run-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id> \
+     --mode deep
+   ```
+
+   Add `--campaign-root <path>` or `--keep-artifacts` only when the generated
+   spec needs to be inspected afterward.
+
+7. Inspect the generated command from a kept campaign without starting agents:
 
    ```bash
    python3 agents/js_offline_campaign.py run \
      --campaign-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id>/offline_campaign
    ```
 
-4. Start the offline `zero_day_team` fanout only when that is the intended use
-   of budget:
+8. Start the lower-level offline `zero_day_team` fanout only when one-shot
+   all-lane execution is intentionally desired:
 
    ```bash
    python3 agents/js_offline_campaign.py run \
@@ -54,16 +108,35 @@ lenses, synthesize, and hand only selected hypotheses to live testing later.
 
 The wrapper hides the raw `zero_day_team` flags. The generated command uses a
 local `offline_target`, `--hunt-type web` for storage routing, `--target-kind
-web-js` for artifact identity, and `--brainstorm-only` so only the generated
-web-JS profiles run.
+web-js` for artifact identity, `--brainstorm-only` so only the generated web-JS
+profiles run, and the policy-aware scheduler/category-master flags so the
+runtime keeps using shared ledger/review/coverage primitives.
+
+Default `--granularity category` creates broad agents:
+
+- `js-general-map`: planner and JavaScript surface map
+- `js-client-side-trust`: DOM, postMessage, storage, workers, browser trust
+- `js-auth-account-tenant`: auth, ATO, access control, IDOR, tenants
+- `js-api-request-contracts`: API clients, request shape, GraphQL, headers,
+  parser/normalization
+- `js-import-export-fetch-media`: uploads, imports, exports, URL fetchers,
+  webhooks, media/file flows
+- `js-commerce-feature-logic`: payment, entitlements, feature gates, cache,
+  workflow state
+- `js-secrets-config-integrations`: usable secrets, config, external pivots
+- `js-anomaly-hunter`: classless weirdness and missed assumptions
+
+Use `--granularity lens` only for deliberate high-budget runs that should
+preserve the old narrow matrix (`js-dom-xss`, `js-idor`, `js-payment`, etc.).
 
 ## Modes
 
-- `quick`: cartography, request-shape, DOM XSS, and anomaly lanes.
-- `look`: cartography, request-shape, common web-JS lanes, anomaly, plus lanes
-  triggered by cheap inventory signals.
-- `deep`: broad web-JS class matrix plus anomaly.
-- `full`: same current lane set as `deep`; reserved for future heavier modes.
+- `quick`: planner, client-side trust, API/request contracts, and anomaly.
+- `look`: planner, common web-JS categories, anomaly, plus categories triggered
+  by cheap inventory signals.
+- `deep`: the full broad category set.
+- `full`: same current category set as `deep`; reserved for future heavier
+  modes.
 
 ## Expected Outputs
 

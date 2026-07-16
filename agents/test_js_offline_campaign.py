@@ -83,9 +83,13 @@ def test_prepare_builds_valid_offline_campaign(tmp_path: Path) -> None:
     manifest = json.loads((campaign_root / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["execution_mode"] == "offline"
     assert manifest["live_requests_allowed"] is False
+    assert manifest["agent_granularity"] == "category"
     assert manifest["packet_count"] == 1
     assert manifest["zero_day_command"][-1] == "--parallel"
     assert "--brainstorm-only" in manifest["zero_day_command"]
+    assert "--scheduler" in manifest["zero_day_command"]
+    assert "policy-aware" in manifest["zero_day_command"]
+    assert "--category-master-mode" in manifest["zero_day_command"]
     assert "--hunt-type" in manifest["zero_day_command"]
     assert "web-js" in manifest["zero_day_command"]
     assert manifest["mapstore_candidates"].endswith("mapstore_candidates.jsonl")
@@ -107,12 +111,14 @@ def test_prepare_builds_valid_offline_campaign(tmp_path: Path) -> None:
     assert spec.metadata["Execution mode"] == "offline"
     assert spec.metadata["Live requests allowed"] == "false"
     assert spec.metadata["Target kind"] == "web-js"
+    assert spec.metadata["Agent granularity"] == "category"
     assert spec.metadata["MapStore candidates path"] == str(campaign_root / "mapstore_candidates.jsonl")
     agent_keys = [agent for hyp in spec.hypotheses for agent in hyp.suggested_agents]
     assert "js-general-map" in agent_keys
+    assert "js-client-side-trust" in agent_keys
+    assert "js-api-request-contracts" in agent_keys
     assert "js-anomaly-hunter" in agent_keys
-    assert "js-payment" in agent_keys
-    assert "js-dom-xss" in agent_keys
+    assert "js-dom-xss" not in agent_keys
 
 
 def test_look_mode_adds_signal_triggered_lanes(tmp_path: Path) -> None:
@@ -136,9 +142,39 @@ def test_look_mode_adds_signal_triggered_lanes(tmp_path: Path) -> None:
 
     spec = parse_brainstorm_spec(campaign_root / "brainstorm" / "spec.md")
     agent_keys = [agent for hyp in spec.hypotheses for agent in hyp.suggested_agents]
+    assert "js-commerce-feature-logic" in agent_keys
+    assert "js-api-request-contracts" in agent_keys
+    assert "js-anomaly-hunter" in agent_keys
+
+
+def test_lens_granularity_preserves_legacy_narrow_lanes(tmp_path: Path) -> None:
+    js_run = _write_js_run(tmp_path)
+    campaign_root = tmp_path / "campaign"
+
+    assert (
+        C.main(
+            [
+                "prepare",
+                "--js-run-root",
+                str(js_run),
+                "--campaign-root",
+                str(campaign_root),
+                "--mode",
+                "look",
+                "--granularity",
+                "lens",
+            ]
+        )
+        == 0
+    )
+
+    manifest = json.loads((campaign_root / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["agent_granularity"] == "lens"
+    spec = parse_brainstorm_spec(campaign_root / "brainstorm" / "spec.md")
+    agent_keys = [agent for hyp in spec.hypotheses for agent in hyp.suggested_agents]
     assert "js-payment" in agent_keys
     assert "js-graphql" in agent_keys
-    assert "js-anomaly-hunter" in agent_keys
+    assert "js-dom-xss" in agent_keys
 
 
 def test_run_prints_generated_zero_day_command(tmp_path: Path, capsys) -> None:
@@ -151,3 +187,22 @@ def test_run_prints_generated_zero_day_command(tmp_path: Path, capsys) -> None:
     assert "zero_day_team.py" in output
     assert "--brainstorm-only" in output
     assert "--target-kind web-js" in output
+
+
+def test_dry_run_previews_flow_without_durable_campaign(tmp_path: Path, capsys) -> None:
+    js_run = _write_js_run(tmp_path)
+
+    assert C.main(["dry-run", "--js-run-root", str(js_run), "--mode", "deep"]) == 0
+
+    output = capsys.readouterr().out
+    summary = json.loads(output)
+    assert summary["dry_run"] is True
+    assert summary["would_execute_zero_day_team"] is False
+    assert summary["live_requests_allowed"] is False
+    assert summary["durable_aftermath"] is False
+    assert summary["campaign_root"] == "(temporary; removed after dry run)"
+    assert summary["packet_count"] == 1
+    assert "js-general-map" in summary["lanes"]
+    assert "js-anomaly-hunter" in summary["lanes"]
+    assert summary["always_on_anomaly_hunter"] is True
+    assert "--brainstorm-only" in summary["zero_day_command_text"]

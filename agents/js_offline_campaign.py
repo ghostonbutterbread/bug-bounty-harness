@@ -13,6 +13,7 @@ import json
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,7 +37,112 @@ class JsOfflineLane:
     trigger_hints: tuple[str, ...] = ()
 
 
-LANES: tuple[JsOfflineLane, ...] = (
+CATEGORY_LANES: tuple[JsOfflineLane, ...] = (
+    JsOfflineLane(
+        key="general-map",
+        title="Planner and JavaScript surface map",
+        surface="js-application-map",
+        tags=("js", "cartography", "routes", "trust-boundaries", "planner"),
+        priority="high",
+        purpose=(
+            "Map app areas, routes, request builders, objects, trust boundaries, hidden state, feature flags, "
+            "and integrations. Act as the planner/dispatcher: identify which broad JS attack-surface families "
+            "deserve follow-up, without requiring an obvious vulnerability lead first."
+        ),
+        expected_chain="JS packet evidence -> app/flow/trust-boundary map -> broad category routing and synthesis",
+    ),
+    JsOfflineLane(
+        key="client-side-trust",
+        title="Client-side trust, DOM, message, and storage review",
+        surface="js-client-side-trust",
+        tags=("js", "dom-xss", "postmessage", "storage", "workers", "client-trust"),
+        priority="high",
+        purpose=(
+            "Review browser-controlled sources and client-side trust boundaries across URL/hash/search, "
+            "storage/bootstrap state, postMessage/frame flows, workers, DOM writes, navigation, script creation, "
+            "template rendering, and eval-like sinks."
+        ),
+        expected_chain="browser-controlled source or message -> client trust boundary -> DOM/action/data exposure hypothesis",
+        trigger_hints=("dom_write", "script_create", "navigation", "eval", "location", "storage", "message", "hidden_state", "realtime"),
+    ),
+    JsOfflineLane(
+        key="auth-account-tenant",
+        title="Auth, account, role, tenant, and object-boundary review",
+        surface="js-auth-account-tenant",
+        tags=("js", "auth", "ato", "access-control", "idor", "tenant", "object-ids"),
+        priority="high",
+        purpose=(
+            "Map login, reset, invite, OAuth/SSO/SAML, session binding, account-change flows, roles, permissions, "
+            "teams, tenants, workspaces, ownership checks, and client-visible object identifiers."
+        ),
+        expected_chain="identity/object/role clue in JS -> request or workflow boundary -> owned-account authorization hypothesis",
+        trigger_hints=("auth", "access_control", "object_ids"),
+    ),
+    JsOfflineLane(
+        key="api-request-contracts",
+        title="API, request-shape, GraphQL, parser, and header-contract review",
+        surface="js-api-request-contracts",
+        tags=("js", "request-shape", "graphql", "headers", "cors", "parser", "normalization"),
+        priority="high",
+        purpose=(
+            "Extract API clients, request builders, route templates, headers, content types, GraphQL operations, "
+            "variables/fragments, parser/encoder/decoder behavior, CORS/origin assumptions, and endpoint handoffs."
+        ),
+        expected_chain="JS request builder or parser contract -> endpoint/object/action field -> analyze-endpoint or request-exploration handoff",
+        trigger_hints=("graphql", "request"),
+    ),
+    JsOfflineLane(
+        key="import-export-fetch-media",
+        title="Import, export, upload, URL-fetch, webhook, and media-flow review",
+        surface="js-import-export-fetch-media",
+        tags=("js", "ssrf", "import", "export", "upload", "webhook", "media", "files"),
+        priority="medium",
+        purpose=(
+            "Inspect upload/import/export/download/media flows, URL importers, preview/fetch resolvers, webhooks, "
+            "embeds, favicons, filenames, MIME/metadata fields, transform options, and server-side processing hints."
+        ),
+        expected_chain="file/media/URL JS flow -> server resolver, parser, storage, or transform boundary -> bounded handoff",
+        trigger_hints=("server_fetch", "upload_import_export"),
+    ),
+    JsOfflineLane(
+        key="commerce-feature-logic",
+        title="Payment, entitlement, feature-gate, cache, and workflow-state review",
+        surface="js-commerce-feature-logic",
+        tags=("js", "payment", "billing", "entitlements", "feature-flags", "business-logic", "cache", "workflow"),
+        priority="medium",
+        purpose=(
+            "Inspect checkout, coupons, credits, invoices, subscriptions, refunds, pricing, entitlements, feature "
+            "flags, rollout gates, workflow state machines, publish/share/install/connect flows, cache keys, and "
+            "unsafe client-side assumptions."
+        ),
+        expected_chain="client-visible state or paid/workflow field -> server action or entitlement boundary -> business-logic hypothesis",
+        trigger_hints=("payment", "feature_flag", "upload_import_export", "realtime"),
+    ),
+    JsOfflineLane(
+        key="secrets-config-integrations",
+        title="Secrets, public config, integration, and external-pivot review",
+        surface="js-secrets-config-integrations",
+        tags=("js", "secrets", "tokens", "config", "integrations"),
+        priority="medium",
+        purpose=(
+            "Inspect concrete keys, tokens, signed URLs, provider IDs, cloud/service identifiers, public/private "
+            "config leakage, integration pivots, debug/admin hints, and scope-expanding external references."
+        ),
+        expected_chain="secret/config/integration evidence -> usable or scope-expanding impact path -> sanitized evidence handoff",
+    ),
+    JsOfflineLane(
+        key="anomaly-hunter",
+        title="Classless anomaly and weirdness review",
+        surface="js-anomaly",
+        tags=("js", "anomaly", "weirdness", "classless"),
+        priority="high",
+        purpose="Ignore vuln-class labels and hunt for surprising code, odd trust assumptions, rare modules, dead routes, debug/admin hints, custom parsers, strange state machines, and anything the classifier missed.",
+        expected_chain="unexpected JS behavior or trust assumption -> new hypothesis, MapStore gadget, or specialist handoff",
+    ),
+)
+
+
+LENS_LANES: tuple[JsOfflineLane, ...] = (
     JsOfflineLane(
         key="general-map",
         title="Class-agnostic JavaScript cartography",
@@ -235,6 +341,19 @@ LANES: tuple[JsOfflineLane, ...] = (
 
 
 MODE_LANES: dict[str, tuple[str, ...]] = {
+    "quick": ("general-map", "client-side-trust", "api-request-contracts", "anomaly-hunter"),
+    "look": (
+        "general-map",
+        "client-side-trust",
+        "auth-account-tenant",
+        "api-request-contracts",
+        "anomaly-hunter",
+    ),
+    "deep": tuple(lane.key for lane in CATEGORY_LANES),
+    "full": tuple(lane.key for lane in CATEGORY_LANES),
+}
+
+LENS_MODE_LANES: dict[str, tuple[str, ...]] = {
     "quick": ("general-map", "request-shape", "dom-xss", "anomaly-hunter"),
     "look": (
         "general-map",
@@ -246,8 +365,8 @@ MODE_LANES: dict[str, tuple[str, ...]] = {
         "business-logic",
         "anomaly-hunter",
     ),
-    "deep": tuple(lane.key for lane in LANES),
-    "full": tuple(lane.key for lane in LANES),
+    "deep": tuple(lane.key for lane in LENS_LANES),
+    "full": tuple(lane.key for lane in LENS_LANES),
 }
 
 
@@ -299,12 +418,26 @@ def stable_unique(values: Iterable[str]) -> list[str]:
     return out
 
 
-def selected_lanes(mode: str, metadata_rows: list[dict]) -> list[JsOfflineLane]:
-    lane_by_key = {lane.key: lane for lane in LANES}
-    keys = list(MODE_LANES[mode])
+def lanes_for_granularity(granularity: str) -> tuple[JsOfflineLane, ...]:
+    if granularity == "lens":
+        return LENS_LANES
+    return CATEGORY_LANES
+
+
+def mode_lanes_for_granularity(granularity: str) -> dict[str, tuple[str, ...]]:
+    if granularity == "lens":
+        return LENS_MODE_LANES
+    return MODE_LANES
+
+
+def selected_lanes(mode: str, metadata_rows: list[dict], *, granularity: str = "category") -> list[JsOfflineLane]:
+    lane_source = lanes_for_granularity(granularity)
+    mode_lanes = mode_lanes_for_granularity(granularity)
+    lane_by_key = {lane.key: lane for lane in lane_source}
+    keys = list(mode_lanes[mode])
     if mode == "look":
         hints = collect_signal_hints(metadata_rows)
-        for lane in LANES:
+        for lane in lane_source:
             if lane.key in keys:
                 continue
             if any(hint in hints for hint in lane.trigger_hints):
@@ -433,6 +566,7 @@ def spec_header(
     campaign_root: Path,
     target_root: Path,
     mode: str,
+    granularity: str,
     inventory_manifest: dict,
     mapstore_candidates_path: Path,
     mapstore_schema_path: Path,
@@ -456,12 +590,15 @@ def spec_header(
         "- Live requests allowed: false",
         f"- JS inventory run id: {inventory_manifest.get('run_id') or 'unknown'}",
         f"- JS offline mode: {mode}",
+        f"- Agent granularity: {granularity}",
         f"- MapStore candidates path: {candidates_ref}",
         f"- MapStore candidate schema: {schema_ref}",
         "",
         "## Target mental model",
         "This is an offline JavaScript artifact campaign. Agents review local packet files produced by /js inventory, not the live target. "
         "The classifier accelerates routing but never excludes a class. Report concrete findings only when packet evidence is strong; otherwise produce hypotheses, MapStore gadget candidates, endpoint handoffs, or live-validation plans.",
+        "",
+        "Default category granularity uses broad mapper-led agents instead of many narrow fixed lenses. The general-map agent should build the app map and route future broad categories; category agents should search their whole attack-surface family and note narrower specialist follow-ups only when evidence justifies another wave.",
         "",
         "MapStore is available as lazy retrieval, not mandatory prompt baggage. When your current evidence gives you a concrete URL, surface, field, or tag set, query MapStore before calling a lead a duplicate or a durable primitive. If MapStore has no match, treat the lead as unlinked/new-to-current-index and continue analysis normally; do not overclaim global novelty from a missing query result.",
         "",
@@ -513,6 +650,7 @@ def build_spec(
     target_root: Path,
     lanes: list[JsOfflineLane],
     mode: str,
+    granularity: str,
     inventory_manifest: dict,
     mapstore_candidates_path: Path,
     mapstore_schema_path: Path,
@@ -525,6 +663,7 @@ def build_spec(
         campaign_root=campaign_root,
         target_root=target_root,
         mode=mode,
+        granularity=granularity,
         inventory_manifest=inventory_manifest,
         mapstore_candidates_path=mapstore_candidates_path,
         mapstore_schema_path=mapstore_schema_path,
@@ -544,7 +683,16 @@ def build_spec(
     return spec_path
 
 
-def zero_day_command(*, program: str, target_root: Path, spec_path: Path, parallel: bool) -> list[str]:
+def zero_day_command(
+    *,
+    program: str,
+    target_root: Path,
+    spec_path: Path,
+    parallel: bool,
+    scheduler: str,
+    agent_wave_size: str,
+    category_master_mode: bool,
+) -> list[str]:
     command = [
         sys.executable,
         str(REPO_ROOT / "agents" / "zero_day_team.py"),
@@ -557,7 +705,13 @@ def zero_day_command(*, program: str, target_root: Path, spec_path: Path, parall
         "--brainstorm-spec",
         str(spec_path),
         "--brainstorm-only",
+        "--scheduler",
+        scheduler,
+        "--agent-wave-size",
+        str(agent_wave_size),
     ]
+    if category_master_mode:
+        command.extend(["--category-master-mode", "--max-hypotheses-per-master-agent", "6"])
     if parallel:
         command.append("--parallel")
     return command
@@ -576,7 +730,7 @@ def sh_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
-def command_prepare(args: argparse.Namespace) -> int:
+def prepare_campaign(args: argparse.Namespace) -> dict:
     js_run_root = Path(args.js_run_root).expanduser().resolve(strict=False)
     manifest_path = js_run_root / "manifest.json"
     if not manifest_path.is_file():
@@ -615,13 +769,14 @@ def command_prepare(args: argparse.Namespace) -> int:
         metadata_rows=metadata_rows,
         copied_packets=copied_packets,
     )
-    lanes = selected_lanes(args.mode, metadata_rows)
+    lanes = selected_lanes(args.mode, metadata_rows, granularity=args.granularity)
     spec_path = build_spec(
         program=program,
         campaign_root=campaign_root,
         target_root=target_root,
         lanes=lanes,
         mode=args.mode,
+        granularity=args.granularity,
         inventory_manifest=inventory_manifest,
         mapstore_candidates_path=mapstore_candidates_path,
         mapstore_schema_path=mapstore_schema_path,
@@ -631,11 +786,15 @@ def command_prepare(args: argparse.Namespace) -> int:
         target_root=target_root,
         spec_path=spec_path,
         parallel=not args.no_parallel,
+        scheduler=args.scheduler,
+        agent_wave_size=args.agent_wave_size,
+        category_master_mode=not args.no_category_master_mode,
     )
     manifest = {
         "schema": "js-offline-campaign.v1",
         "program": program,
         "mode": args.mode,
+        "agent_granularity": args.granularity,
         "created_at": utc_now(),
         "execution_mode": "offline",
         "live_requests_allowed": False,
@@ -649,6 +808,11 @@ def command_prepare(args: argparse.Namespace) -> int:
         "lanes": [asdict(lane) for lane in lanes],
         "packet_count": len(copied_packets),
         "metadata_rows": len(metadata_rows),
+        "scheduler": {
+            "mode": args.scheduler,
+            "agent_wave_size": args.agent_wave_size,
+            "category_master_mode": not args.no_category_master_mode,
+        },
         "zero_day_command": command,
         "zero_day_command_text": shell_join(command),
         "target": {
@@ -658,6 +822,11 @@ def command_prepare(args: argparse.Namespace) -> int:
         },
     }
     write_json(campaign_root / "manifest.json", manifest)
+    return manifest
+
+
+def command_prepare(args: argparse.Namespace) -> int:
+    manifest = prepare_campaign(args)
     print(json.dumps(manifest, indent=2, sort_keys=True))
     return 0
 
@@ -671,8 +840,12 @@ def command_run(args: argparse.Namespace) -> int:
             mode=args.mode,
             force=args.force,
             no_parallel=args.no_parallel,
+            granularity=args.granularity,
+            scheduler=args.scheduler,
+            agent_wave_size=args.agent_wave_size,
+            no_category_master_mode=args.no_category_master_mode,
         )
-        command_prepare(prepare_args)
+        prepare_campaign(prepare_args)
         campaign_root = (
             Path(args.campaign_root).expanduser().resolve(strict=False)
             if args.campaign_root
@@ -692,6 +865,53 @@ def command_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_dry_run(args: argparse.Namespace) -> int:
+    """Exercise the /js offline fanout path without durable campaign aftermath."""
+    if args.campaign_root:
+        campaign_root = Path(args.campaign_root).expanduser().resolve(strict=False)
+        temporary_campaign = False
+    else:
+        campaign_root = Path(tempfile.mkdtemp(prefix="js-offline-dry-run-"))
+        temporary_campaign = True
+
+    try:
+        prepare_args = argparse.Namespace(
+            js_run_root=args.js_run_root,
+            campaign_root=str(campaign_root),
+            program=args.program,
+            mode=args.mode,
+            force=True,
+            no_parallel=args.no_parallel,
+            granularity=args.granularity,
+            scheduler=args.scheduler,
+            agent_wave_size=args.agent_wave_size,
+            no_category_master_mode=args.no_category_master_mode,
+        )
+        manifest = prepare_campaign(prepare_args)
+        command = [str(part) for part in manifest.get("zero_day_command") or []]
+        summary = {
+            "schema": "js-offline-dry-run.v1",
+            "dry_run": True,
+            "would_execute_zero_day_team": False,
+            "live_requests_allowed": False,
+            "durable_aftermath": bool(args.campaign_root),
+            "campaign_root": str(campaign_root) if args.campaign_root else "(temporary; removed after dry run)",
+            "program": manifest["program"],
+            "mode": manifest["mode"],
+            "agent_granularity": manifest["agent_granularity"],
+            "packet_count": manifest["packet_count"],
+            "metadata_rows": manifest["metadata_rows"],
+            "lanes": [f"js-{lane['key']}" for lane in manifest["lanes"]],
+            "always_on_anomaly_hunter": any(lane["key"] == "anomaly-hunter" for lane in manifest["lanes"]),
+            "zero_day_command_text": shell_join(command),
+        }
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return 0
+    finally:
+        if temporary_campaign and not args.keep_artifacts:
+            shutil.rmtree(campaign_root, ignore_errors=True)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build offline JS fanout campaigns for zero_day_team")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -701,6 +921,28 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--campaign-root", help="Output campaign root. Defaults to <js-run-root>/offline_campaign")
     prepare.add_argument("--program", help="Program override if manifest lacks program")
     prepare.add_argument("--mode", choices=sorted(MODE_LANES), default="deep")
+    prepare.add_argument(
+        "--granularity",
+        choices=("category", "lens"),
+        default="category",
+        help="Agent shape: category uses broad mapper-led lanes; lens preserves the old narrow JS lens matrix.",
+    )
+    prepare.add_argument(
+        "--scheduler",
+        choices=("off", "legacy", "policy-aware"),
+        default="policy-aware",
+        help="zero_day_team scheduler mode for the generated command. Default: policy-aware.",
+    )
+    prepare.add_argument(
+        "--agent-wave-size",
+        default="all",
+        help="Generated zero_day_team --agent-wave-size value. Default: all category agents.",
+    )
+    prepare.add_argument(
+        "--no-category-master-mode",
+        action="store_true",
+        help="Do not include zero_day_team --category-master-mode in the generated command.",
+    )
     prepare.add_argument("--force", action="store_true", help="Replace an existing campaign root")
     prepare.add_argument("--no-parallel", action="store_true", help="Do not include --parallel in the generated zero_day_team command")
     prepare.set_defaults(func=command_prepare)
@@ -710,10 +952,59 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--campaign-root", help="Existing or output campaign root")
     run.add_argument("--program", help="Program override when preparing from --js-run-root")
     run.add_argument("--mode", choices=sorted(MODE_LANES), default="deep")
+    run.add_argument(
+        "--granularity",
+        choices=("category", "lens"),
+        default="category",
+        help="Agent shape when preparing from --js-run-root.",
+    )
+    run.add_argument(
+        "--scheduler",
+        choices=("off", "legacy", "policy-aware"),
+        default="policy-aware",
+        help="zero_day_team scheduler mode when preparing from --js-run-root.",
+    )
+    run.add_argument("--agent-wave-size", default="all", help="Generated zero_day_team --agent-wave-size value.")
+    run.add_argument(
+        "--no-category-master-mode",
+        action="store_true",
+        help="Do not include zero_day_team --category-master-mode when preparing.",
+    )
     run.add_argument("--force", action="store_true", help="Replace an existing campaign root when preparing")
     run.add_argument("--no-parallel", action="store_true", help="Do not include --parallel in the generated zero_day_team command")
     run.add_argument("--execute", action="store_true", help="Actually run zero_day_team. Without this, print the command only.")
     run.set_defaults(func=command_run)
+
+    dry_run = sub.add_parser("dry-run", help="Exercise /js offline fanout planning without executing agents or leaving campaign artifacts")
+    dry_run.add_argument("--js-run-root", required=True, help="Existing js_analyzer.py inventory run root")
+    dry_run.add_argument("--campaign-root", help="Optional output campaign root to keep for inspection")
+    dry_run.add_argument("--program", help="Program override if manifest lacks program")
+    dry_run.add_argument("--mode", choices=sorted(MODE_LANES), default="deep")
+    dry_run.add_argument(
+        "--granularity",
+        choices=("category", "lens"),
+        default="category",
+        help="Agent shape to preview.",
+    )
+    dry_run.add_argument(
+        "--scheduler",
+        choices=("off", "legacy", "policy-aware"),
+        default="policy-aware",
+        help="zero_day_team scheduler mode to include in the generated command.",
+    )
+    dry_run.add_argument("--agent-wave-size", default="all", help="Generated zero_day_team --agent-wave-size value.")
+    dry_run.add_argument(
+        "--no-category-master-mode",
+        action="store_true",
+        help="Do not include zero_day_team --category-master-mode in the generated command.",
+    )
+    dry_run.add_argument("--no-parallel", action="store_true", help="Do not include --parallel in the generated zero_day_team command")
+    dry_run.add_argument(
+        "--keep-artifacts",
+        action="store_true",
+        help="Keep the temporary campaign root for inspection when --campaign-root is omitted.",
+    )
+    dry_run.set_defaults(func=command_dry_run)
     return parser
 
 

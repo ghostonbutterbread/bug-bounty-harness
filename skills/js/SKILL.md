@@ -30,11 +30,14 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
 3. Use `agents/js_analyzer.py inventory` to download, hash, dedupe, cheaply
    parse, and chunk JavaScript into agent packets.
 4. For natural-language requests such as "dig into the JS", "vuln test the JS",
-   "run JS deep", or "look at the JS for vulnerabilities", prefer the offline
-   fanout path when the run has enough packets to justify multi-agent review:
-   use `agents/js_offline_campaign.py prepare` to create a local campaign, then
-   `agents/js_offline_campaign.py run --execute` when Ryushe wants the
-   `zero_day_team` review to start.
+   "run JS deep", or "look at the JS for vulnerabilities", prefer the staged
+   JavaScript Team wrapper when the run has enough packets to justify
+   multi-agent review. Use `agents/js_team.py dry-run` first to preview the
+   mapper/anomaly-first plan without starting agents or leaving a campaign
+   unless `--campaign-root` or `--write-plan` is supplied. Use
+   `agents/js_team.py run --execute --stage planner` to run only the
+   general-map and anomaly wave. After reviewing mapper/anomaly output, select
+   follow-up lanes with `--follow-up-lane` and run `--stage follow-up`.
 5. Deep-review selected packets with page/flow context. Require function-level
    tracing: source value, transforms/checks, callers/callees, sink/request/DOM
    effect, controllability, and missing proof.
@@ -76,15 +79,25 @@ lead:
 - `request-shape`: request builders, GraphQL operations, API clients, headers,
   content types, and proxy-observed request contracts.
 
-For a broad review, run the general map first, then split workers by lens. Do
-not ask one worker to deeply analyze every lens across every packet.
+For a broad review, run the general map first, then split workers by broad
+attack-surface category. Do not ask one worker to deeply analyze every lens
+across every packet.
 
-For offline fanout, use the classifier as an accelerator, not a boundary:
-classifier signals decide which packet/lane combinations start first, but
-missing signals do not prove a vulnerability class is irrelevant. Include a
-classless anomaly lane when budget allows; it should look for surprising trust
-assumptions, rare modules, dead routes, debug/admin hints, custom parsers,
-strange state machines, and other weirdness that does not fit the known lenses.
+For offline fanout, default to broad category agents, not the old fixed narrow
+lens matrix. The intended `/js deep` entrypoint is `agents/js_team.py`, which
+stages execution: `js-general-map` and `js-anomaly-hunter` run first, then only
+selected follow-up categories run after mapper/anomaly output is reviewed.
+Category agents cover related lenses together, for example client-side trust
+includes DOM/postMessage/storage/workers, and auth-account-tenant includes ATO,
+access-control, IDOR, roles, tenants, and owned objects. Use `--granularity
+lens` only when deliberately spending budget on the old narrow matrix.
+
+Use the classifier as an accelerator, not a boundary: classifier signals decide
+which packet/category combinations start first, but missing signals do not
+prove a vulnerability class is irrelevant. Include a classless anomaly lane
+when budget allows; it should look for surprising trust assumptions, rare
+modules, dead routes, debug/admin hints, custom parsers, strange state
+machines, and other weirdness that does not fit the known categories.
 
 The offline fanout path must stay offline. It reads local JS packets and
 provenance, writes `zero_day_team` brainstorm specs, and emits findings,

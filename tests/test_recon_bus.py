@@ -16,6 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import agents.recon.bus as M
+from agents.recon import promote_run
 
 
 def args(**overrides):
@@ -220,6 +221,48 @@ class ReconBusTests(unittest.TestCase):
 
         self.assertNotEqual(first, second)
         self.assertRegex(first, r"^\d{8}T\d{12}Z$")
+
+    def test_promote_run_promotes_ports_to_services_inventory(self):
+        run_root = Path(self.tmp.name) / "tool-run"
+        normalized = run_root / "normalized"
+        normalized.mkdir(parents=True)
+        (normalized / "ports.txt").write_text(
+            "api.example.com:8443\nhttps://www.example.com:10443\nedge.example.com:9443/tcp\n",
+            encoding="utf-8",
+        )
+        (run_root / "raw").mkdir()
+        (run_root / "raw" / "naabu.jsonl").write_text(
+            '{"host":"api.example.com","port":8443}\n{"ip":"edge.example.com","port":9443}\n',
+            encoding="utf-8",
+        )
+
+        result = promote_run.promote_run(
+            argparse.Namespace(
+                program="demo",
+                run_root=str(run_root),
+                shared_base=str(M.SHARED_BASE),
+                no_index=True,
+            )
+        )
+
+        self.assertIn("port", result["discovered"])
+        self.assertEqual(result["services"]["normalized_count"], 3)
+        self.assertEqual(
+            self.aggregate("ports.txt").read_text(encoding="utf-8").splitlines(),
+            [
+                "api.example.com:8443",
+                "edge.example.com:9443",
+                "www.example.com:10443",
+            ],
+        )
+        self.assertEqual(
+            self.recon("services", "ports.txt").read_text(encoding="utf-8").splitlines(),
+            [
+                "api.example.com:8443",
+                "edge.example.com:9443",
+                "www.example.com:10443",
+            ],
+        )
 
     def make_fake_httpx(self) -> Path:
         path = Path(self.tmp.name) / "httpx"

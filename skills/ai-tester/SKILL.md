@@ -81,6 +81,36 @@ facts and pointers; Bounty Notes gets the narrative and handoff.
    hypothesis based on that reason.
 9. Hand off to the narrow skill when a concrete vulnerability class emerges.
 
+### Output-Sink And Indirect-Chain Rule
+
+Do not stop an AI/output-sink investigation at direct reflection. Once a
+candidate output sink appears, explicitly distinguish:
+
+1. direct user echo from model-mediated re-emission;
+2. attacker-controlled indirect sources the model can retrieve or summarize
+   (reviews, documents, comments, product data, RAG); and
+3. the browser or tool execution context in which the resulting output acts.
+
+If the application exposes both an attacker-writable content source and a
+model feature that retrieves information from that source, create a bounded
+`indirect -> retrieval/function -> output` hypothesis before declaring the
+action boundary absent. A browser-side sink is not a model tool; its impact may
+be demonstrated by a controlled owned/disposable browser action instead.
+
+For an authorized training lab, the scope packet may authorize this ladder:
+harmless sink canary -> owned/disposable state-change proof -> named lab
+objective. For real programs, retain the normal non-owned-impact stop rule.
+
+### AI Verification Under Response Variance
+
+A clean verifier must independently reproduce the same *behavioral predicate*,
+not merely submit unrelated markup in a fresh session. Keep the model task,
+retrieval source, expected role/context, and success signal stable enough to
+test the claim; vary the operator/profile and independently construct the safe
+proof. Classify a different model response as `inconclusive/response variance`,
+not as a failed exploit primitive. Record both the source-to-output condition
+and any response variance in the attempts artifact.
+
 ## Stop Conditions
 
 Pause before real destructive actions, real external messages/invites,

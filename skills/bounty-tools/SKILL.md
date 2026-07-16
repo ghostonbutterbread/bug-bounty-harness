@@ -55,7 +55,7 @@ Cross-tool service inventory:
 ~/Shared/web_bounty/<program>/web/recon/services/
 ```
 
-Cross-tool URL aggregate:
+Cross-tool aggregate front door:
 
 ```text
 ~/Shared/web_bounty/<program>/web/recon/aggregated/
@@ -140,9 +140,11 @@ After preserving raw output:
    <run-root>`. For long-running or delayed jobs, use
    `scripts/recon_bus.py watch-runs <program> --root <recon-or-tool-root>`.
 5. Keep tool-specific global files under `tools/<tool>/global/`, except
-   service and port facts. Normalize service/port facts from producers such as
-   `naabu`, `nmap`, and `httpx` into `recon/services/` so target scoring and
-   agents have one current inventory.
+   service and port facts. Normalize producer-owned port facts from tools such
+   as `naabu` into `recon/services/ports.*`, then append/dedupe those same rows
+   into `recon/aggregated/ports.*` so target scoring and agents have one
+   front-door inventory. `promote-run` recognizes `ports.txt`, `ports.jsonl`,
+   and `naabu.jsonl` outputs and performs both writes.
 6. Use specialist lanes for validation and findings. Tool output alone is not a
    confirmed vulnerability.
 

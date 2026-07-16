@@ -9,6 +9,12 @@ runtime:
   tmux:
     enabled: false
     session_template: '{program}-cron-recon'
+  queue:
+    path: ~/Shared/web_bounty/{program}/web/recon/cron/queue.json
+  worker:
+    limit: 1
+    idle_sleep_seconds: 60
+    max_idle_cycles: 0
 defaults:
   schedule:
     days: weekdays
@@ -19,7 +25,7 @@ defaults:
     global_http_rps: 15
     unauthenticated_rps: 15
     authenticated_rps: 15
-    timeout_seconds: 300
+    timeout_seconds: null
     timeout_seconds_max: null
     timeout_margin: 1.5
   status_policy:

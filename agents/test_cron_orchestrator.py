@@ -97,7 +97,7 @@ class TestCronOrchestrator(unittest.TestCase):
                                 "-Pn",
                                 "-T2",
                                 "-p",
-                                "<naabu-discovered-ports>",
+                                "<selected-ports>",
                                 "<selected-host>",
                             ],
                             "outputs": {
@@ -135,6 +135,133 @@ class TestCronOrchestrator(unittest.TestCase):
                 }
             },
         }
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_scheduler_config_expands_program_placeholders_in_program_values(self) -> None:
+        config_root = self.root / "config"
+        (config_root / "programs").mkdir(parents=True)
+        (config_root / "defaults.yaml").write_text("version: 1\n", encoding="utf-8")
+        (config_root / "programs" / "demo.yaml").write_text(
+            "programs:\n  demo:\n    aggregate: ~/Shared/web_bounty/<program>/web/recon/aggregated/alive.txt\n",
+            encoding="utf-8",
+        )
+
+        loaded = M.load_scheduler_config("demo", config_root=config_root)
+
+        self.assertEqual(
+            loaded["programs"]["demo"]["aggregate"],
+            "~/Shared/web_bounty/demo/web/recon/aggregated/alive.txt",
+        )
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_postprocess_ffuf_writes_deduped_leads_handoff_and_report(self) -> None:
+        root = self.root / "ffuf-run"
+        raw = root / "raw"
+        raw.mkdir(parents=True)
+        (raw / "ffuf.json").write_text(
+            json.dumps(
+                {
+                    "results": [
+                        {"url": "https://api.example.com/admin", "status": 403, "length": 12, "words": 2, "lines": 1},
+                        {"url": "https://api.example.com/openapi.json", "status": 200, "length": 30, "words": 4, "lines": 2},
+                        {"url": "https://api.example.com/admin", "status": 403, "length": 12, "words": 2, "lines": 1},
+                        {"url": "https://outside.invalid/redirect", "status": 200, "length": 99, "words": 9, "lines": 1},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        outputs = {
+            "fuzz_history": str(self.root / "fuzz_history.jsonl"),
+            "status_leads": str(self.root / "status_leads.jsonl"),
+            "forbidden_leads": str(self.root / "403.jsonl"),
+        }
+        job = {"job": "juicy_target_fuzz", "target": {"host": "api.example.com", "base_url": "https://api.example.com"}, "outputs": outputs, "post_run": {"handoff_path": str(self.root / "403_handoff.md"), "report_path": str(self.root / "report.md")}}
+        manifest = {"paths": {"root": str(root)}}
+
+        summary = M.postprocess_completed_job("demo", job, root, "run-1", manifest)
+
+        self.assertEqual(summary["status_leads"]["new"], 2)
+        self.assertEqual(summary["forbidden_leads"]["new"], 1)
+        self.assertEqual(len([json.loads(line) for line in M.read_lines(Path(outputs["status_leads"]))]), 2)
+        self.assertIn("https://api.example.com/admin", Path(self.root / "403_handoff.md").read_text(encoding="utf-8"))
+        self.assertIn("403", Path(self.root / "report.md").read_text(encoding="utf-8"))
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_postprocess_arjun_writes_parameter_artifacts_and_endpoint_queue(self) -> None:
+        root = self.root / "arjun-run"
+        raw = root / "raw"
+        raw.mkdir(parents=True)
+        (raw / "arjun.json").write_text(
+            json.dumps({"https://api.example.com/v1/users": {"parameters": ["limit", "cursor"]}, "https://outside.invalid/admin": {"parameters": ["debug"]}}),
+            encoding="utf-8",
+        )
+        outputs = {
+            "parameters_jsonl": str(self.root / "parameters.jsonl"),
+            "aggregated_params": str(self.root / "params.txt"),
+            "parameter_source_log": str(self.root / "parameter_sources.jsonl"),
+            "endpoint_queue": str(self.root / "next-endpoints.txt"),
+        }
+        job = {"job": "authenticated_parameter_mining", "target": {"host": "api.example.com"}, "outputs": outputs, "post_run": {"report_path": str(self.root / "params-report.md")}}
+        manifest = {"paths": {"root": str(root)}}
+
+        summary = M.postprocess_completed_job("demo", job, root, "run-2", manifest)
+
+        self.assertEqual(summary["parameters"]["new"], 2)
+        self.assertEqual(M.read_lines(Path(outputs["aggregated_params"])), ["cursor", "limit"])
+        self.assertEqual(M.read_lines(Path(outputs["endpoint_queue"])), ["https://api.example.com/v1/users"])
+        self.assertIn("parameter", Path(self.root / "params-report.md").read_text(encoding="utf-8").lower())
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_parameter_plan_materializes_selected_host_endpoints_from_params_source(self) -> None:
+        params = self.root / "params.txt"
+        params.write_text(
+            "https://api.example.com/v1/users?limit=10\n"
+            "https://api.example.com/v1/search?q=ghost\n"
+            "https://www.example.com/?utm_source=test\n"
+            "https://outside.invalid/admin?debug=true\n",
+            encoding="utf-8",
+        )
+        job_cfg = self.config["programs"]["demo"]["jobs"]["authenticated_parameter_mining"]
+        job_cfg["inputs"].update({"parameter_url_sources": [str(params)], "max_endpoints_per_run": 10})
+        selected = M.TargetCandidate(key="api", base_url="https://api.example.com", host="api.example.com", source="test")
+
+        plan = M.build_parameter_plan(self.config["programs"]["demo"], selected)
+        capsule = M.prepare_job_capsule("demo", plan, "run-params")
+
+        materialized = capsule["manifest"]["materialized_inputs"]["parameter_endpoints"]
+        self.assertEqual(materialized["candidate_count"], 2)
+        self.assertEqual(M.read_lines(Path(materialized["path"])), ["https://api.example.com/v1/search", "https://api.example.com/v1/users"])
+        self.assertIn(materialized["path"], capsule["command"])
+        self.assertEqual(capsule["manifest"]["planned_status"], "planned")
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_structured_agent_review_can_select_only_scoped_candidate_and_allowed_groups(self) -> None:
+        review = self.root / "review.json"
+        review.write_text(
+            json.dumps({"selected_target": "https://api.example.com", "reason": "API evidence", "wordlist_groups": ["api", "invalid"]}),
+            encoding="utf-8",
+        )
+        self.config["programs"]["demo"]["target_selection"]["agent_review"] = {"enabled": True, "mode": "structured_response_file", "response_file": str(review)}
+        self.config["programs"]["demo"]["jobs"]["juicy_target_fuzz"]["wordlists"]["tech_wordlists"] = {"api": [str(self.root / "api.txt")]}
+
+        payload = M.plan(self.config, "demo")
+
+        self.assertEqual(payload["selected_target"]["base_url"], "https://api.example.com")
+        self.assertEqual(payload["agent_review"]["outcome"], "accepted")
+        self.assertEqual(payload["agent_review"]["accepted_wordlist_groups"], ["api"])
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_invalid_structured_agent_review_falls_back_to_deterministic_target(self) -> None:
+        review = self.root / "review.json"
+        review.write_text(json.dumps({"selected_target": "https://outside.invalid", "wordlist_groups": ["api"]}), encoding="utf-8")
+        self.config["programs"]["demo"]["target_selection"]["agent_review"] = {"enabled": True, "mode": "structured_response_file", "response_file": str(review)}
+
+        payload = M.plan(self.config, "demo")
+
+        self.assertNotEqual(payload["selected_target"]["base_url"], "https://outside.invalid")
+        self.assertEqual(payload["agent_review"]["outcome"], "fallback")
+        self.assertEqual(payload["agent_review"]["reason"], "selected_target_not_in_scoped_candidates")
 
     def test_validate_accepts_configured_jobs(self) -> None:
         self.assertEqual(M.validate_config(self.config), [])
@@ -189,8 +316,163 @@ class TestCronOrchestrator(unittest.TestCase):
         nmap_job = payload["jobs"][0]
         self.assertEqual(nmap_job["status"], "planned")
         self.assertEqual(nmap_job["ports"], [8443, 9443])
-        self.assertEqual(nmap_job["command"][-2:], ["8443,9443", "api.example.com"])
+        self.assertIn("-p", nmap_job["command"])
+        self.assertIn("8443,9443", nmap_job["command"])
+        self.assertNotIn("-p-", nmap_job["command"])
+        self.assertEqual(nmap_job["command"][-1], "api.example.com")
         self.assertIn("has naabu/nmap service hint", payload["selected_target"]["reasons"])
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_naabu_uses_scoped_hosts_from_aggregated_domain_sources(self) -> None:
+        aggregate = self.root / "alive.txt"
+        aggregate.write_text("https://www.example.com/\napi.example.com\nhttps://outside.invalid/\n", encoding="utf-8")
+        naabu = self.config["programs"]["demo"]["jobs"].setdefault("naabu_discovery", {})
+        naabu.update({
+            "state": "manual_review_required",
+            "inputs": {
+                "require_saved_scope": True,
+                "batch_candidate_limit": 10,
+                "aggregated_domain_sources": [str(aggregate)],
+            },
+            "command_template": ["naabu", "-list", "<naabu-hosts-file>", "-json"],
+        })
+        self.naabu_ports.unlink()
+        selected = M.TargetCandidate(key="api", base_url="https://api.example.com", host="api.example.com", source="test")
+
+        plan = M.build_naabu_plan("demo", self.config["programs"]["demo"], selected)
+
+        self.assertEqual(plan["candidate_hosts"], ["api.example.com", "www.example.com"])
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_naabu_source_first_skips_hosts_already_covered_by_recon_inventory(self) -> None:
+        naabu = self.config["programs"]["demo"]["jobs"].setdefault("naabu_discovery", {})
+        naabu.update({
+            "state": "manual_review_required",
+            "inputs": {"require_saved_scope": True, "batch_candidate_limit": 2, "source_first": True},
+            "command_template": ["naabu", "-list", "<naabu-hosts-file>", "-json"],
+        })
+        candidates = [
+            M.TargetCandidate(key="api", base_url="https://api.example.com", host="api.example.com", source="test"),
+            M.TargetCandidate(key="home", base_url="https://www.example.com", host="www.example.com", source="test"),
+        ]
+
+        plan = M.build_naabu_plan("demo", self.config["programs"]["demo"], candidates[0], candidates=candidates)
+
+        self.assertEqual(plan["candidate_hosts"], ["www.example.com"])
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_naabu_materializes_a_scoped_ranked_host_batch(self) -> None:
+        self.naabu_ports.unlink()
+        naabu = self.config["programs"]["demo"]["jobs"].setdefault("naabu_discovery", {})
+        naabu.update({
+            "state": "manual_review_required",
+            "inputs": {"require_saved_scope": True, "batch_candidate_limit": 2},
+            "command_template": ["naabu", "-list", "<naabu-hosts-file>", "-json"],
+        })
+        candidates = [
+            M.TargetCandidate(key="api", base_url="https://api.example.com", host="api.example.com", source="test"),
+            M.TargetCandidate(key="home", base_url="https://www.example.com", host="www.example.com", source="test"),
+        ]
+        plan = M.build_naabu_plan("demo", self.config["programs"]["demo"], candidates[0], candidates=candidates)
+        capsule = M.prepare_job_capsule("demo", plan, "run-naabu")
+
+        hosts = capsule["manifest"]["materialized_inputs"]["naabu_hosts"]
+        self.assertEqual(M.read_lines(Path(hosts["path"])), ["api.example.com", "www.example.com"])
+        self.assertIn(hosts["path"], capsule["command"])
+
+    def test_naabu_normalization_attributes_ip_only_output_to_unique_planned_hostname(self) -> None:
+        root = self.root / "naabu-ip-only-run"
+        raw = root / "raw"
+        raw.mkdir(parents=True)
+        (raw / "naabu.jsonl").write_text(
+            json.dumps({"ip": "203.0.113.9", "port": 8443}) + "\n", encoding="utf-8"
+        )
+        aggregate = self.root / "ip-only-aggregate.jsonl"
+        job = {
+            "candidate_hosts": ["api.example.com"],
+            "outputs": {"aggregated_ports_jsonl": str(aggregate)},
+        }
+        with patch.object(M.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("203.0.113.9", 0))]):
+            M.normalize_naabu_output("demo", job, root, "run-naabu", {})
+
+        row = json.loads(aggregate.read_text(encoding="utf-8"))
+        self.assertEqual(row["host"], "api.example.com")
+        self.assertEqual(row["input_host"], "api.example.com")
+        self.assertEqual(row["resolved_ip"], "203.0.113.9")
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_naabu_normalization_preserves_input_hostname_and_resolved_ip_for_nmap(self) -> None:
+        root = self.root / "naabu-run"
+        raw = root / "raw"
+        raw.mkdir(parents=True)
+        (raw / "naabu.jsonl").write_text(
+            json.dumps({"host": "api.example.com", "ip": "203.0.113.9", "port": 8443}) + "\n"
+            + json.dumps({"host": "203.0.113.10", "port": 9443}) + "\n",
+            encoding="utf-8",
+        )
+        aggregate = self.root / "aggregated-ports.jsonl"
+        job = {
+            "outputs": {"aggregated_ports_jsonl": str(aggregate)},
+        }
+        manifest: dict[str, object] = {}
+
+        alias_record = json.dumps({"host": "203.0.113.9", "input_host": "api.example.com", "port": 8443})
+        self.assertEqual(M.parse_port_line(alias_record), ("api.example.com", 8443))
+
+        M.normalize_naabu_output("demo", job, root, "run-naabu", manifest)
+
+        rows = [json.loads(line) for line in aggregate.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(rows[0]["host"], "api.example.com")
+        self.assertEqual(rows[0]["input_host"], "api.example.com")
+        self.assertEqual(rows[0]["resolved_ip"], "203.0.113.9")
+        self.assertEqual(rows[1]["input_host"], "")
+        self.assertEqual(rows[1]["resolved_ip"], "203.0.113.10")
+
+        nmap = self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]
+        nmap["inputs"]["naabu_ports"] = [str(aggregate)]
+        nmap["inputs"].update({"interesting_ports_only": True, "common_web_ports": [80, 443]})
+        selected = M.TargetCandidate(key="api", base_url="https://api.example.com", host="api.example.com", source="test")
+        plan = M.build_nmap_plan("demo", self.config["programs"]["demo"], selected)
+        self.assertEqual(plan["status"], "planned")
+        self.assertEqual(plan["host"], "api.example.com")
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_nmap_drops_unscoped_historic_ip_records_and_keeps_scoped_hostname_evidence(self) -> None:
+        self.naabu_ports.write_text(
+            json.dumps({"host": "203.0.113.9", "port": 8443}) + "\n"
+            + json.dumps({"host": "api.example.com", "port": 8443}) + "\n",
+            encoding="utf-8",
+        )
+        nmap = self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]
+        nmap["inputs"].update({
+            "interesting_ports_only": True,
+            "common_web_ports": [80, 443],
+            "max_hosts_per_run": 1,
+        })
+        selected = M.TargetCandidate(key="api", base_url="https://api.example.com", host="api.example.com", source="test")
+
+        plan = M.build_nmap_plan("demo", self.config["programs"]["demo"], selected)
+
+        self.assertEqual(plan["status"], "planned")
+        self.assertEqual(plan["target"]["host"], "api.example.com")
+        self.assertNotIn("203.0.113.9", json.dumps(plan))
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_nmap_prefers_unusual_naabu_services_over_common_web_ports(self) -> None:
+        self.naabu_ports.write_text(
+            json.dumps({"host": "api.example.com", "port": 80}) + "\n"
+            + json.dumps({"host": "admin.example.com", "port": 8443}) + "\n",
+            encoding="utf-8",
+        )
+        inputs = self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["inputs"]
+        inputs.update({"interesting_ports_only": True, "common_web_ports": [80, 443]})
+        selected = M.TargetCandidate(key="api", base_url="https://api.example.com", host="api.example.com", source="test")
+
+        nmap = M.build_nmap_plan("demo", self.config["programs"]["demo"], selected)
+
+        self.assertEqual(nmap["status"], "planned")
+        self.assertEqual(nmap["target"]["host"], "admin.example.com")
+        self.assertEqual(nmap["ports"], [8443])
 
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
     def test_nmap_enrichment_skips_without_naabu_ports(self) -> None:
@@ -211,8 +493,10 @@ class TestCronOrchestrator(unittest.TestCase):
             "rate_limit": {"desired_pps": 123},
             "outputs": {
                 "run_root": str(self.root / "tools" / "naabu" / "runs" / "<run-id>"),
-                "global_ports_jsonl": str(self.root / "services" / "ports.jsonl"),
-                "global_ports_txt": str(self.root / "services" / "ports.txt"),
+                "aggregated_ports_jsonl": str(self.root / "aggregated" / "ports.jsonl"),
+                "aggregated_ports_txt": str(self.root / "aggregated" / "ports.txt"),
+                "services_ports_jsonl": str(self.root / "services" / "ports.jsonl"),
+                "services_ports_txt": str(self.root / "services" / "ports.txt"),
             },
         }
 
@@ -232,6 +516,7 @@ class TestCronOrchestrator(unittest.TestCase):
     def test_parse_port_line_supports_json_text_and_url(self) -> None:
         self.assertEqual(M.parse_port_line('{"host":"api.example.com","port":8443}'), ("api.example.com", 8443))
         self.assertEqual(M.parse_port_line("api.example.com:9443"), ("api.example.com", 9443))
+        self.assertEqual(M.parse_port_line("api.example.com:9443/tcp"), ("api.example.com", 9443))
         self.assertEqual(M.parse_port_line("https://api.example.com:10443"), ("api.example.com", 10443))
 
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
@@ -396,6 +681,14 @@ class TestCronOrchestrator(unittest.TestCase):
 
         self.assertEqual(timeout, 700)
 
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_timeout_defaults_to_none_without_configured_wall_clock_budget(self) -> None:
+        payload = M.plan(self.config, "demo")
+
+        timeout = M._compute_timeout({}, payload, self.config["programs"]["demo"])
+
+        self.assertIsNone(timeout)
+
     def test_non_waf_fuzz_errors_do_not_create_stop_annotation(self) -> None:
         root = self.root / "ffuf-run"
         (root / "raw").mkdir(parents=True)
@@ -427,6 +720,279 @@ class TestCronOrchestrator(unittest.TestCase):
         self.assertEqual(manifest["status"], "prepared_not_executed")
         self.assertEqual(manifest["execution_decision"], "execute_flag_not_set")
         self.assertTrue(Path(nmap_job["run_root"], "command.txt").is_file())
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_run_enqueue_writes_shared_queue_sections_and_dedupes(self) -> None:
+        queue = self.root / "queue.txt"
+        queue.write_text("https://api.example.com/v1/users\n", encoding="utf-8")
+        self.config["programs"]["demo"]["jobs"]["authenticated_parameter_mining"]["inputs"]["endpoint_queue"] = str(queue)
+
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            first = M.run(self.config, "demo", enqueue=True)
+            second = M.run(self.config, "demo", enqueue=True)
+
+        queue_path = Path(first["queue"]["queue_path"])
+        queue_data = json.loads(queue_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(first["mode"], "enqueue")
+        self.assertEqual(first["queue"]["created"], 3)
+        self.assertEqual(second["queue"]["created"], 0)
+        self.assertEqual(second["queue"]["deduped"], 3)
+        self.assertEqual(set(queue_data["queues"]), {"fuzz", "nmap", "parameter_mining"})
+        self.assertTrue(all(entry["state"] == "pending" for section in queue_data["queues"].values() for entry in section))
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_queue_drain_executes_only_selected_run_type(self) -> None:
+        self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["state"] = "active"
+        self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["command_template"] = [
+            sys.executable,
+            "-c",
+            "print('queued-nmap')",
+        ]
+
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            enqueued = M.run(self.config, "demo", enqueue=True)
+            drained = M.drain_queue(self.config, "demo", run_type="nmap", execute=True, limit=1)
+
+        queue_data = json.loads(Path(enqueued["queue"]["queue_path"]).read_text(encoding="utf-8"))
+        nmap_entry = queue_data["queues"]["nmap"][0]
+        fuzz_entry = queue_data["queues"]["fuzz"][0]
+        stdout = Path(drained["jobs"][0]["run_root"], "logs", "stdout.txt").read_text(encoding="utf-8")
+
+        self.assertEqual(drained["mode"], "queue-drain")
+        self.assertEqual(drained["selected_count"], 1)
+        self.assertEqual(nmap_entry["state"], "completed")
+        self.assertEqual(fuzz_entry["state"], "pending")
+        self.assertEqual(stdout.strip(), "queued-nmap")
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_queue_worker_drains_selected_lane_until_idle(self) -> None:
+        self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["state"] = "active"
+        self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["command_template"] = [
+            sys.executable,
+            "-c",
+            "print('worker-nmap')",
+        ]
+
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            enqueued = M.run(self.config, "demo", enqueue=True)
+            worker = M.queue_worker(
+                self.config,
+                "demo",
+                run_type="nmap",
+                execute=True,
+                idle_sleep_seconds=0,
+                max_idle_cycles=1,
+            )
+
+        queue_data = json.loads(Path(enqueued["queue"]["queue_path"]).read_text(encoding="utf-8"))
+        nmap_entry = queue_data["queues"]["nmap"][0]
+        stdout = Path(nmap_entry["run_root"], "logs", "stdout.txt").read_text(encoding="utf-8")
+
+        self.assertEqual(worker["mode"], "queue-worker")
+        self.assertEqual(worker["status"], "idle")
+        self.assertEqual(worker["stop_reason"], "idle_limit_reached")
+        self.assertEqual(worker["cycles"], 2)
+        self.assertEqual(worker["drained_count"], 1)
+        self.assertEqual(nmap_entry["state"], "completed")
+        self.assertEqual(stdout.strip(), "worker-nmap")
+
+    def test_queue_worker_blocks_when_lane_worker_lock_is_held(self) -> None:
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            with M.queue_worker_lock("demo", "nmap"):
+                worker = M.queue_worker(
+                    self.config,
+                    "demo",
+                    run_type="nmap",
+                    execute=True,
+                    idle_sleep_seconds=0,
+                    max_idle_cycles=1,
+                )
+
+        self.assertEqual(worker["status"], "blocked")
+        self.assertEqual(worker["block_reason"], "queue_worker_lock_already_held")
+
+    def test_queue_drain_skips_pending_entry_when_other_lane_runs_same_ip_bucket(self) -> None:
+        def resolve(host: str) -> list[str]:
+            return {
+                "a.example.com": ["192.0.2.10"],
+                "b.example.com": ["192.0.2.10"],
+                "c.example.com": ["192.0.2.20"],
+            }.get(host, [])
+
+        def nmap_entry(entry_id: str, host: str, *, state: str = "pending", priority: int = 50) -> dict:
+            return {
+                "id": entry_id,
+                "version": 1,
+                "program": "demo",
+                "lane": "web",
+                "run_type": "nmap",
+                "job": "nmap_enrichment",
+                "target": {"host": host, "base_url": f"https://{host}", "key": host},
+                "target_host": host,
+                "priority": priority,
+                "state": state,
+                "attempts": 0,
+                "created_at": f"2026-07-13T00:00:0{priority}Z",
+                "updated_at": "2026-07-13T00:00:00Z",
+                "job_payload": {
+                    "job": "nmap_enrichment",
+                    "state": "active",
+                    "status": "planned",
+                    "target": {"host": host, "base_url": f"https://{host}", "key": host},
+                    "command": [sys.executable, "-c", f"print('{host}')"],
+                },
+            }
+
+        queue_data = {
+            "version": 1,
+            "queues": {
+                "fuzz": [
+                    {
+                        "id": "fuzz-running",
+                        "run_type": "fuzz",
+                        "job": "juicy_target_fuzz",
+                        "target": {"host": "a.example.com", "base_url": "https://a.example.com"},
+                        "target_host": "a.example.com",
+                        "state": "running",
+                        "policy": {"rate_budget": {"scope": "ip:192.0.2.10", "resolved_addresses": ["192.0.2.10"]}},
+                    }
+                ],
+                "nmap": [
+                    nmap_entry("nmap-colliding", "b.example.com", priority=1),
+                    nmap_entry("nmap-safe", "c.example.com", priority=2),
+                ],
+            },
+        }
+
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            qpath = M.queue_path(self.config, "demo", self.config["programs"]["demo"])
+            M.write_queue(qpath, queue_data)
+            with patch.object(M, "resolve_host_addresses", side_effect=resolve):
+                drained = M.drain_queue(self.config, "demo", run_type="nmap", execute=True, limit=1)
+
+        updated = json.loads(qpath.read_text(encoding="utf-8"))
+        nmap_section = updated["queues"]["nmap"]
+
+        self.assertEqual(drained["selected_count"], 1)
+        self.assertEqual(drained["bucket_skip_count"], 1)
+        self.assertEqual(drained["jobs"][0]["block_reason"], "queued_target_not_in_current_plan")
+        self.assertEqual(nmap_section[0]["id"], "nmap-safe")
+        self.assertEqual(nmap_section[0]["state"], "blocked")
+        self.assertEqual(nmap_section[-1]["id"], "nmap-colliding")
+        self.assertEqual(nmap_section[-1]["state"], "pending")
+        self.assertEqual(nmap_section[-1]["defer_reason"], "active_shared_bucket")
+
+    def test_queue_drain_skips_same_lane_running_bucket_before_next_pick(self) -> None:
+        def resolve(host: str) -> list[str]:
+            return {
+                "a.example.com": ["192.0.2.10"],
+                "b.example.com": ["192.0.2.10"],
+                "c.example.com": ["192.0.2.20"],
+            }.get(host, [])
+
+        def nmap_entry(entry_id: str, host: str, *, state: str = "pending", priority: int = 50) -> dict:
+            return {
+                "id": entry_id,
+                "run_type": "nmap",
+                "job": "nmap_enrichment",
+                "target": {"host": host, "base_url": f"https://{host}", "key": host},
+                "target_host": host,
+                "priority": priority,
+                "state": state,
+                "created_at": f"2026-07-13T00:00:0{priority}Z",
+                "updated_at": "2026-07-13T00:00:00Z",
+                "job_payload": {
+                    "job": "nmap_enrichment",
+                    "state": "active",
+                    "status": "planned",
+                    "target": {"host": host, "base_url": f"https://{host}", "key": host},
+                    "command": [sys.executable, "-c", f"print('{host}')"],
+                },
+            }
+
+        queue_data = {
+            "version": 1,
+            "queues": {
+                "nmap": [
+                    nmap_entry("nmap-running", "a.example.com", state="running", priority=0),
+                    nmap_entry("nmap-colliding", "b.example.com", priority=1),
+                    nmap_entry("nmap-safe", "c.example.com", priority=2),
+                ],
+            },
+        }
+
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            qpath = M.queue_path(self.config, "demo", self.config["programs"]["demo"])
+            M.write_queue(qpath, queue_data)
+            with patch.object(M, "resolve_host_addresses", side_effect=resolve):
+                drained = M.drain_queue(self.config, "demo", run_type="nmap", execute=True, limit=1)
+
+        updated = json.loads(qpath.read_text(encoding="utf-8"))
+        nmap_section = updated["queues"]["nmap"]
+
+        self.assertEqual(drained["selected_count"], 1)
+        self.assertEqual(drained["bucket_skip_count"], 1)
+        self.assertEqual(drained["jobs"][0]["block_reason"], "queued_target_not_in_current_plan")
+        self.assertEqual(nmap_section[0]["id"], "nmap-running")
+        self.assertEqual(nmap_section[1]["id"], "nmap-safe")
+        self.assertEqual(nmap_section[-1]["id"], "nmap-colliding")
+        self.assertEqual(nmap_section[-1]["defer_reason"], "active_shared_bucket")
+
+    def test_queue_drain_reaps_stale_running_entry_with_dead_worker_pid(self) -> None:
+        queue_data = {
+            "version": 1,
+            "queues": {
+                "fuzz": [
+                    {
+                        "id": "fuzz-stale",
+                        "run_type": "fuzz",
+                        "job": "juicy_target_fuzz",
+                        "target": {"host": "a.example.com", "base_url": "https://a.example.com"},
+                        "target_host": "a.example.com",
+                        "state": "running",
+                        "worker_pid": 99999999,
+                        "policy": {"rate_budget": {"scope": "ip:192.0.2.10", "resolved_addresses": ["192.0.2.10"]}},
+                    }
+                ],
+                "nmap": [
+                    {
+                        "id": "nmap-ready",
+                        "run_type": "nmap",
+                        "job": "nmap_enrichment",
+                        "target": {"host": "b.example.com", "base_url": "https://b.example.com", "key": "b"},
+                        "target_host": "b.example.com",
+                        "priority": 1,
+                        "state": "pending",
+                        "created_at": "2026-07-13T00:00:01Z",
+                        "updated_at": "2026-07-13T00:00:00Z",
+                        "job_payload": {
+                            "job": "nmap_enrichment",
+                            "state": "active",
+                            "status": "planned",
+                            "target": {"host": "b.example.com", "base_url": "https://b.example.com", "key": "b"},
+                            "command": [sys.executable, "-c", "print('ready')"],
+                        },
+                    }
+                ],
+            },
+        }
+
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            qpath = M.queue_path(self.config, "demo", self.config["programs"]["demo"])
+            M.write_queue(qpath, queue_data)
+            with patch.object(M, "resolve_host_addresses", return_value=["192.0.2.10"]):
+                drained = M.drain_queue(self.config, "demo", run_type="nmap", execute=True, limit=1)
+
+        updated = json.loads(qpath.read_text(encoding="utf-8"))
+        stale_entry = updated["queues"]["fuzz"][0]
+        nmap_entry = updated["queues"]["nmap"][0]
+
+        self.assertEqual(drained["stale_reaped_count"], 1)
+        self.assertEqual(stale_entry["state"], "stale")
+        self.assertEqual(stale_entry["stale_reason"], "worker_pid_not_alive")
+        self.assertEqual(nmap_entry["state"], "blocked")
+        self.assertEqual(nmap_entry["block_reason"], "queued_target_not_in_current_plan")
 
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
     def test_prepare_fuzz_materializes_large_wordlist_without_truncation(self) -> None:
@@ -497,10 +1063,11 @@ class TestCronOrchestrator(unittest.TestCase):
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
     def test_completed_naabu_run_normalizes_ports_for_nmap_inventory(self) -> None:
         self.naabu_ports.unlink()
+        aggregated_dir = self.root / "aggregated"
         services_dir = self.root / "services"
         self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["inputs"]["naabu_ports"] = [
-            str(services_dir / "ports.jsonl"),
-            str(services_dir / "ports.txt"),
+            str(aggregated_dir / "ports.jsonl"),
+            str(aggregated_dir / "ports.txt"),
         ]
         self.config["programs"]["demo"]["jobs"]["naabu_discovery"] = {
             "state": "active",
@@ -520,8 +1087,10 @@ class TestCronOrchestrator(unittest.TestCase):
             ],
             "outputs": {
                 "run_root": str(self.root / "tools" / "naabu" / "runs" / "<run-id>"),
-                "global_ports_jsonl": str(services_dir / "ports.jsonl"),
-                "global_ports_txt": str(services_dir / "ports.txt"),
+                "aggregated_ports_jsonl": str(aggregated_dir / "ports.jsonl"),
+                "aggregated_ports_txt": str(aggregated_dir / "ports.txt"),
+                "services_ports_jsonl": str(services_dir / "ports.jsonl"),
+                "services_ports_txt": str(services_dir / "ports.txt"),
             },
         }
 
@@ -542,9 +1111,10 @@ class TestCronOrchestrator(unittest.TestCase):
             M.read_lines(Path(naabu_job["run_root"]) / "normalized" / "ports.txt"),
             ["api.example.com:8443", "api.example.com:10443"],
         )
-        self.assertEqual(M.read_lines(services_dir / "ports.txt"), ["api.example.com:8443", "api.example.com:10443"])
-        global_rows = [json.loads(line) for line in M.read_lines(services_dir / "ports.jsonl")]
+        self.assertEqual(M.read_lines(aggregated_dir / "ports.txt"), ["api.example.com:8443", "api.example.com:10443"])
+        global_rows = [json.loads(line) for line in M.read_lines(aggregated_dir / "ports.jsonl")]
         self.assertEqual([(row["host"], row["port"]) for row in global_rows], [("api.example.com", 8443), ("api.example.com", 10443)])
+        self.assertEqual(M.read_lines(services_dir / "ports.txt"), ["api.example.com:8443", "api.example.com:10443"])
 
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
     def test_disabled_platform_blocks_execution_even_when_job_active(self) -> None:
@@ -590,6 +1160,39 @@ class TestCronOrchestrator(unittest.TestCase):
         self.assertEqual(scoped_manifest["execution_decision"], "manual_review_approved_by_scope")
         self.assertEqual(allowed_manifest["status"], "completed")
         self.assertEqual(allowed_manifest["execution_decision"], "manual_review_approved")
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_approved_jobs_strictly_limits_manual_run_selection(self) -> None:
+        self.config["programs"]["demo"]["jobs"]["nmap_enrichment"]["command_template"] = [
+            sys.executable,
+            "-c",
+            "print('nmap-only')",
+        ]
+        self.config["programs"]["demo"]["jobs"]["juicy_target_fuzz"]["command_template"] = [
+            sys.executable,
+            "-c",
+            "print('should-not-run')",
+            "-rate",
+            "<effective-rate>",
+        ]
+
+        with patch.object(M, "DEFAULT_ARTIFACT_ROOT", self.root / "shared"):
+            payload = M.run(
+                self.config,
+                "demo",
+                execute=True,
+                approve_manual=True,
+                approved_jobs={"nmap_enrichment"},
+            )
+
+        nmap_job = next(job for job in payload["jobs"] if job["job"] == "nmap_enrichment")
+        fuzz_job = next(job for job in payload["jobs"] if job["job"] == "juicy_target_fuzz")
+        nmap_manifest = json.loads(Path(nmap_job["manifest_path"]).read_text(encoding="utf-8"))
+        fuzz_manifest = json.loads(Path(fuzz_job["manifest_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(nmap_manifest["status"], "completed")
+        self.assertEqual(nmap_manifest["execution_decision"], "manual_review_approved")
+        self.assertEqual(fuzz_manifest["status"], "blocked")
+        self.assertEqual(fuzz_manifest["execution_decision"], "job_not_selected")
 
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
     def test_live_http_job_without_rate_hook_is_blocked(self) -> None:

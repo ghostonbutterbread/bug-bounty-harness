@@ -16,8 +16,8 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
 - `deep` - spend the task budget on selected chunks instead of scanning a huge
   JS list shallowly.
 - `offline-fanout` - after inventory, build a local JavaScript artifact
-  campaign and run broad specialist review through `zero_day_team` without live
-  target requests.
+  campaign and run mapper/anomaly plus selected specialist reviews through the
+  dedicated file-tool-only JS worker runner. It never calls `zero_day_team`.
 
 ## Workflow
 
@@ -34,10 +34,12 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
    JavaScript Team wrapper when the run has enough packets to justify
    multi-agent review. Use `agents/js_team.py dry-run` first to preview the
    mapper/anomaly-first plan without starting agents or leaving a campaign
-   unless `--campaign-root` or `--write-plan` is supplied. Use
-   `agents/js_team.py run --execute --stage planner` to run only the
-   general-map and anomaly wave. After reviewing mapper/anomaly output, select
-   follow-up lanes with `--follow-up-lane` and run `--stage follow-up`.
+   unless `--campaign-root` or `--write-plan` is supplied. In normal `/js`
+   work, inspect packets directly and only fan out when evidence/budget warrants
+   it. For `/js deep`, use `agents/js_team.py run --execute --stage planner` to
+   start only the local general-map and anomaly wave. Review their reports, then
+   persist selected follow-up approval with `agents/js_offline_team.py approve`
+   before running `--stage follow-up`.
 5. Deep-review selected packets with page/flow context. Require function-level
    tracing: source value, transforms/checks, callers/callees, sink/request/DOM
    effect, controllability, and missing proof.
@@ -100,7 +102,7 @@ modules, dead routes, debug/admin hints, custom parsers, strange state
 machines, and other weirdness that does not fit the known categories.
 
 The offline fanout path must stay offline. It reads local JS packets and
-provenance, writes `zero_day_team` brainstorm specs, and emits findings,
+provenance, writes brainstorm specs, and emits findings,
 MapStore gadget candidates, or live-validation hypotheses. Live validation is a
 separate handoff through the normal live-testing policy.
 

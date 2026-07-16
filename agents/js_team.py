@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-import subprocess
+
 import sys
 import tempfile
 from pathlib import Path
@@ -23,6 +23,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agents import js_offline_campaign as campaign
+from agents import js_offline_team
 
 
 PLANNER_LANES = ("general-map", "anomaly-hunter")
@@ -189,19 +190,13 @@ def build_staged_plan(args: argparse.Namespace) -> dict:
 
 
 def _execute_stage(plan: dict, stage: str) -> int:
-    stage_names = ["planner", "follow-up"] if stage == "all" else [stage]
-    for stage_name in stage_names:
-        commands = list((plan.get("stages") or {}).get(stage_name, {}).get("commands") or [])
-        if not commands:
-            print(f"[js-team] no commands for stage {stage_name}")
-            continue
-        for item in commands:
-            command = [str(part) for part in item.get("command") or []]
-            print(f"[js-team] running {stage_name}:{item.get('lane')} {item.get('hypothesis_id')}")
-            rc = subprocess.call(command, cwd=campaign.REPO_ROOT)
-            if rc != 0:
-                return rc
-    return 0
+    if stage == "all":
+        raise SystemExit("--execute --stage all is disabled: review planner reports before approving follow-up lanes.")
+    stage_data = (plan.get("stages") or {}).get(stage) or {}
+    lanes = [str(lane) for lane in stage_data.get("lanes") or []]
+    result = js_offline_team.run_stage(Path(plan["campaign_root"]), stage=stage, lanes=lanes)
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0 if result.get("status") == "completed" else 1
 
 
 def command_dry_run(args: argparse.Namespace) -> int:
@@ -226,11 +221,6 @@ def command_dry_run(args: argparse.Namespace) -> int:
 
 def command_run(args: argparse.Namespace) -> int:
     args.dry_run = False
-    if args.execute:
-        raise SystemExit(
-            "--execute is disabled for JS offline campaigns until zero_day_team has a runner-enforced "
-            "offline/no-network mode. This command only prepares a reviewable staged plan."
-        )
     plan = build_staged_plan(args)
     if not args.execute:
         print(json.dumps(plan, indent=2, sort_keys=True))
@@ -264,16 +254,16 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         "--scheduler",
         choices=("off", "legacy", "policy-aware"),
         default="policy-aware",
-        help="zero_day_team scheduler mode for generated commands.",
+        help="Deprecated compatibility option; ignored by the local-only JS worker runner.",
     )
-    parser.add_argument("--agent-wave-size", default="all", help="Generated zero_day_team --agent-wave-size value.")
+    parser.add_argument("--agent-wave-size", default="all", help="Deprecated compatibility option; ignored by the local-only JS worker runner.")
     parser.add_argument(
         "--no-category-master-mode",
         action="store_true",
-        help="Do not include zero_day_team --category-master-mode in generated commands.",
+        help="Deprecated compatibility option; ignored by the local-only JS worker runner.",
     )
     parser.add_argument("--force", action="store_true", help="Replace an existing campaign root")
-    parser.add_argument("--no-parallel", action="store_true", help="Do not include --parallel in generated commands")
+    parser.add_argument("--no-parallel", action="store_true", help="Deprecated compatibility option; ignored by the local-only JS worker runner.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -285,13 +275,13 @@ def build_parser() -> argparse.ArgumentParser:
     dry_run.add_argument("--write-plan", action="store_true", help="Write js_team_plan.json during dry-run")
     dry_run.set_defaults(func=command_dry_run)
 
-    run = sub.add_parser("run", help="Prepare and print a reviewable staged plan")
+    run = sub.add_parser("run", help="Prepare a staged plan or run file-tool-only local review workers")
     _add_common_args(run)
     run.add_argument("--stage", choices=("planner", "follow-up", "all"), default="planner")
     run.add_argument(
         "--execute",
         action="store_true",
-        help="Rejected: execution remains disabled until the downstream runner enforces offline/no-network mode.",
+        help="Run the selected stage through the file-tool-only local JS worker runner.",
     )
     run.set_defaults(func=command_run)
     return parser

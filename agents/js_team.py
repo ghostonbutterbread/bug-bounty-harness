@@ -78,19 +78,12 @@ def _hypothesis_ids_by_lane(manifest: dict) -> dict[str, str]:
 
 
 def _command_for_hypothesis(manifest: dict, hypothesis_id: str) -> list[str]:
-    command = [str(part) for part in manifest.get("zero_day_command") or []]
-    if not command:
-        raise SystemExit("zero_day_command missing from prepared campaign manifest")
-    if "--brainstorm-hypothesis" in command:
-        index = command.index("--brainstorm-hypothesis")
-        if index + 1 < len(command):
-            command[index + 1] = hypothesis_id
-            return command
-        raise SystemExit("invalid zero_day_command contains dangling --brainstorm-hypothesis")
-    insert_at = len(command)
-    if command and command[-1] == "--parallel":
-        insert_at -= 1
-    return [*command[:insert_at], "--brainstorm-hypothesis", hypothesis_id, *command[insert_at:]]
+    """Return a descriptive, non-executable offline review handoff."""
+
+    spec_path = str(manifest.get("brainstorm_spec") or "").strip()
+    if not spec_path:
+        raise SystemExit("brainstorm_spec missing from prepared campaign manifest")
+    return ["offline-review", spec_path, hypothesis_id]
 
 
 def _stage_commands(manifest: dict, lane_keys: list[str]) -> list[dict]:
@@ -106,7 +99,7 @@ def _stage_commands(manifest: dict, lane_keys: list[str]) -> list[dict]:
                 "lane": lane_key,
                 "hypothesis_id": hypothesis_id,
                 "command": command,
-                "command_text": campaign.shell_join(command),
+                "command_text": " ".join(command),
             }
         )
     return commands

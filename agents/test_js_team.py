@@ -76,7 +76,7 @@ def test_dry_run_defaults_to_planner_then_waits_for_follow_up_selection(tmp_path
     assert plan["stages"]["follow-up"]["selection_mode"] == "waiting-for-mapper-output"
     planner_commands = plan["stages"]["planner"]["commands"]
     assert [item["hypothesis_id"] for item in planner_commands] == ["H001", "H008"]
-    assert all("--brainstorm-hypothesis" in item["command"] for item in planner_commands)
+    assert all(item["command"][0] == "offline-review" for item in planner_commands)
     assert plan["campaign_root"] == "(temporary; removed after dry run)"
     assert not (js_run / "offline_campaign").exists()
 

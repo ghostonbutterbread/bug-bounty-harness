@@ -53,6 +53,12 @@ Cron configuration is program-scoped: `programs/<slug>.yaml` is loaded only for 
 
 Inspect reports and generated batches before escalating into deeper manual testing.
 
+### JavaScript module status
+
+The JavaScript module is currently **artifact-only**. It prepares local packet,
+brainstorm, and MapStore-candidate artifacts, but is intentionally disconnected
+from `zero_day_team` and does not invoke a deep-recon/runtime agent path.
+
 ---
 
 ## Configuration

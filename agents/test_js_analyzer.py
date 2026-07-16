@@ -4,8 +4,18 @@ from pathlib import Path
 from unittest.mock import patch
 import json
 import sqlite3
+from argparse import Namespace
 
 from agents import js_analyzer as J
+
+
+def test_default_inventory_paths_use_mounted_bounty_program_js_root():
+    root, library, integrations, summary = J.resolve_inventory_paths(Namespace(program="demo", config=None, output_root=None, library_root=None, integration_index_root=None), "run-1")
+
+    assert root == Path("/mnt/bounty/demo/web/recon/js/run-1")
+    assert library == Path("/mnt/bounty/demo/web/recon/js/_library")
+    assert integrations == Path("/mnt/bounty/demo/web/intel/integrations")
+    assert summary["program_root"] == "/mnt/bounty/demo"
 
 
 def test_extract_signals_finds_endpoints_params_and_sinks():

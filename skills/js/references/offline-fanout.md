@@ -7,8 +7,8 @@ The purpose is broad offline depth: download once, review locally with
 mapper-led category agents, synthesize, and hand only selected hypotheses to
 live testing later. The intended high-level entrypoint is `agents/js_team.py`;
 `agents/js_offline_campaign.py` is the lower-level adapter that builds the
-offline target and brainstorm spec. `agents/js_offline_team.py` runs local JS
-review workers with Hermes' `file` toolset only; it never calls zero_day_team.
+offline target and brainstorm spec. The active CLI agent uses its own native
+subagents to consume staged local review packets; it never calls zero_day_team.
 
 ## Principles
 
@@ -44,27 +44,21 @@ review workers with Hermes' `file` toolset only; it never calls zero_day_team.
      --mode deep
    ```
 
-3. Run the planner/anomaly wave when agent budget is intended. Workers receive
-   only local artifact paths and Hermes' `file` toolset; they have no terminal,
-   web, browser, or proxy tools:
+3. Build the planner/anomaly task packets when agent budget is intended. The
+   active CLI agent spawns its own native subagents from the local paths in the
+   returned plan:
 
    ```bash
    python3 agents/js_team.py run \
-     --js-run-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id> \
+     --js-run-root /mnt/bounty/<program>/web/recon/js/<run-id> \
      --mode deep \
-     --stage planner \
-     --execute
+     --stage planner
    ```
 
-4. After reading mapper/anomaly reports, explicitly approve selected follow-up
-   lanes, then run them:
+4. After reading mapper/anomaly reports, select follow-up lanes and give only
+   those task packets to native subagents:
 
    ```bash
-   python3 agents/js_offline_team.py approve \
-     --campaign-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id>/offline_campaign \
-     --lane api-request-contracts \
-     --lane auth-account-tenant
-
    python3 agents/js_team.py run \
      --js-run-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id> \
      --follow-up-lane api-request-contracts \

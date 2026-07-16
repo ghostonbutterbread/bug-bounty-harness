@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-SHARED_WEB_BASE = Path.home() / "Shared" / "web_bounty"
+SHARED_WEB_BASE = Path("/mnt/bounty")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATHS = (
     REPO_ROOT / "config" / "js_analyzer.json",

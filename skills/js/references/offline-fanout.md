@@ -7,7 +7,8 @@ The purpose is broad offline depth: download once, review locally with
 mapper-led category agents, synthesize, and hand only selected hypotheses to
 live testing later. The intended high-level entrypoint is `agents/js_team.py`;
 `agents/js_offline_campaign.py` is the lower-level adapter that builds the
-offline target, brainstorm spec, and zero_day_team command.
+offline target and brainstorm spec. `agents/js_offline_team.py` runs local JS
+review workers with Hermes' `file` toolset only; it never calls zero_day_team.
 
 ## Principles
 
@@ -43,7 +44,9 @@ offline target, brainstorm spec, and zero_day_team command.
      --mode deep
    ```
 
-3. Run the planner/anomaly wave when agent budget is intended:
+3. Run the planner/anomaly wave when agent budget is intended. Workers receive
+   only local artifact paths and Hermes' `file` toolset; they have no terminal,
+   web, browser, or proxy tools:
 
    ```bash
    python3 agents/js_team.py run \
@@ -53,9 +56,15 @@ offline target, brainstorm spec, and zero_day_team command.
      --execute
    ```
 
-4. After reading mapper/anomaly output, run selected follow-up lanes:
+4. After reading mapper/anomaly reports, explicitly approve selected follow-up
+   lanes, then run them:
 
    ```bash
+   python3 agents/js_offline_team.py approve \
+     --campaign-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id>/offline_campaign \
+     --lane api-request-contracts \
+     --lane auth-account-tenant
+
    python3 agents/js_team.py run \
      --js-run-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id> \
      --follow-up-lane api-request-contracts \

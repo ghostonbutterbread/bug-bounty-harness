@@ -119,13 +119,15 @@ def test_auto_follow_up_from_signals_is_deterministic(tmp_path: Path, capsys) ->
     assert "api-request-contracts" in plan["stages"]["follow-up"]["lanes"]
 
 
-def test_execute_is_rejected_until_the_downstream_runner_enforces_offline_mode(tmp_path: Path, monkeypatch) -> None:
+def test_execute_routes_planner_to_local_only_worker_runner(tmp_path: Path, monkeypatch) -> None:
     js_run = _write_js_run(tmp_path)
-    monkeypatch.setattr(T, "_execute_stage", lambda *_args: (_ for _ in ()).throw(AssertionError("must not execute")))
+    received: dict[str, object] = {}
 
-    try:
-        T.main(["run", "--js-run-root", str(js_run), "--stage", "follow-up", "--execute"])
-    except SystemExit as exc:
-        assert "runner-enforced offline/no-network mode" in str(exc)
-    else:
-        raise AssertionError("offline JS plans must not execute through a live-capable runner")
+    def fake_run_stage(root: Path, *, stage: str, lanes: list[str]) -> dict:
+        received.update({"root": root, "stage": stage, "lanes": lanes})
+        return {"status": "completed"}
+
+    monkeypatch.setattr(T.js_offline_team, "run_stage", fake_run_stage)
+    assert T.main(["run", "--js-run-root", str(js_run), "--stage", "planner", "--execute"]) == 0
+    assert received["stage"] == "planner"
+    assert received["lanes"] == ["general-map", "anomaly-hunter"]

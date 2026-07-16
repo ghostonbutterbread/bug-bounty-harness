@@ -138,6 +138,20 @@ ls -1t /home/ryushe/bounties/<program>/history | head -1
 
 If no `history/` directory exists, use the root files directly.
 
+Large EyeWitness stores should live on the mounted bounty volume, not inside
+`/home/ryushe/bounties`. Hoster recon-ry supports
+`tools.eyewitness.large_project_dir`; when it is set to `/mnt/bounty` and
+`tools.eyewitness.store_dir` is left at the legacy default, the resolved store
+is:
+
+```text
+/mnt/bounty/{program}/web/recon/eyewitness
+```
+
+Use that resolved EyeWitness store for screenshot/source/report lookups. The
+project-local `/home/ryushe/bounties/{program}/eyewitness` path may be only a
+compatibility symlink.
+
 ## Status Pattern
 
 Use status for a short check only:

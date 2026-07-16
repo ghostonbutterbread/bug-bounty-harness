@@ -19,6 +19,8 @@
 - Vuln-class: `xss-reflected`, `xss-stored`, `ssrf-webhook`, `idor-user-id`
 - Cross-surface: `xss-relevant`, `ssrf-relevant`
 - Status: `investigated`, `low-impact`, `confirmed`, `false-positive`
+- Impact waivers: `impact-waiver`, `dead-end`, `no-bounty-impact`,
+  `intended-behavior`, `sandboxed`
 - Chain synthesis: `gadget`
 
 Use lowercase hyphenated tags. Tags beginning with `{surface}-` are visible to
@@ -41,6 +43,11 @@ Statuses:
 
 Archived entries remain in MapStore. Query them explicitly with
 `--include-archived` or `--status archived`.
+
+Use `archived` plus `impact-waiver`/`dead-end` tags when a surface is still
+searchable but should not be selected as an active hunt target without a named
+wake condition. Use `needs_recheck` when the impact depends on unknown account
+state, environment, program-policy ambiguity, or behavior that may change.
 
 Update status when an agent has evidence from the current surface:
 
@@ -107,6 +114,35 @@ Suggested values:
 - `deferred`: already reviewed against current known gadgets; wake when
   `chain_watch` conditions appear.
 - `watch`: especially relevant if the named future primitive appears.
+
+### Impact Waiver Convention
+
+Use an impact waiver for in-scope behavior that future agents should not keep
+retesting as a vulnerability because the reportable impact is absent.
+
+Examples are illustrative. Extract the reasoning pattern; do not anchor future
+target selection to the specific bug class, host type, or feature named in an
+example.
+
+Waivers should use this general shape:
+
+```text
+Impact Waiver:
+- intended_behavior: <what the feature/domain/input path is meant to do>
+- attacker_capability: <what control or access was proven>
+- impact_blocker: <missing account/data/action/trust-boundary/program impact>
+- program_fit: <program rule, provider guidance, VRT/CVSS reasoning, or note>
+- status: hold_for_chain
+- wake_when: <specific boundary or impact path that should reopen this trail>
+```
+
+Prefer these statuses:
+
+- `archived` for a clear dead end that should stay out of default lead queries.
+- `needs_recheck` for a low-impact surface with unresolved account, role,
+  environment, or program-policy dependency.
+- `candidate` only when there is positive evidence that the surface can cross a
+  meaningful boundary.
 
 ## Storage Layout
 

@@ -12,6 +12,7 @@ import argparse
 import contextlib
 import fcntl
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -21,6 +22,7 @@ import socket
 import subprocess
 import sqlite3
 import sys
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -70,6 +72,16 @@ LIVE_HTTP_JOBS = {
     "parameter_mining",
 }
 EXECUTABLE_PLANNED_JOBS = LIVE_HTTP_JOBS | {"naabu_discovery", "nmap_enrichment"}
+QUEUE_TERMINAL_STATES = {"completed", "failed", "blocked", "cancelled", "stale"}
+JOB_RUN_TYPES = {
+    "authenticated_parameter_mining": "parameter_mining",
+    "juicy_target_fuzz": "fuzz",
+    "naabu_discovery": "port_discovery",
+    "nmap_enrichment": "nmap",
+    "parameter_mining": "parameter_mining",
+    "recon_refresh": "recon_refresh",
+    "tech_fingerprint": "tech_fingerprint",
+}
 
 TECH_WORDLIST_SIGNALS = {
     "api": {
@@ -151,6 +163,17 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
     return merged
 
 
+def expand_program_placeholders(value: Any, program: str) -> Any:
+    """Render program-local path/value placeholders without altering config keys."""
+    if isinstance(value, str):
+        return value.replace("<program>", program)
+    if isinstance(value, list):
+        return [expand_program_placeholders(item, program) for item in value]
+    if isinstance(value, dict):
+        return {key: expand_program_placeholders(item, program) for key, item in value.items()}
+    return value
+
+
 def load_scheduler_config(
     program: str | None = None,
     *,
@@ -172,7 +195,7 @@ def load_scheduler_config(
         if not program_path.is_file():
             raise FileNotFoundError(f"program cron config not found: {program_path}")
         data = deep_merge(data, load_config(program_path))
-        return data
+        return expand_program_placeholders(data, program)
 
     programs_dir = root / "programs"
     if programs_dir.is_dir():
@@ -240,6 +263,15 @@ def validate_config(data: dict[str, Any]) -> list[str]:
         targets = program_cfg.get("targets")
         if not isinstance(targets, dict) or not targets:
             errors.append(f"program {program}: targets must be a non-empty mapping")
+        selection = program_cfg.get("target_selection") if isinstance(program_cfg.get("target_selection"), dict) else {}
+        review = selection.get("agent_review") if isinstance(selection.get("agent_review"), dict) else {}
+        if review.get("enabled"):
+            if review.get("mode") != "structured_response_file":
+                errors.append(f"program {program}: agent_review mode must be structured_response_file")
+            if not isinstance(review.get("response_file"), str) or not str(review.get("response_file")).strip():
+                errors.append(f"program {program}: enabled agent_review requires response_file")
+            if not isinstance(review.get("require_reason", False), bool):
+                errors.append(f"program {program}: agent_review require_reason must be boolean")
         jobs = program_cfg.get("jobs")
         if not isinstance(jobs, dict) or not jobs:
             errors.append(f"program {program}: jobs must be a non-empty mapping")
@@ -467,6 +499,7 @@ def collect_naabu_ports(
     selected_host: str | None = None,
     max_hosts: int = 3,
     max_ports: int = 20,
+    exclude_ports: set[int] | None = None,
 ) -> list[dict[str, Any]]:
     jobs = program_cfg.get("jobs") if isinstance(program_cfg.get("jobs"), dict) else {}
     job = jobs.get("nmap_enrichment") if isinstance(jobs.get("nmap_enrichment"), dict) else {}
@@ -478,11 +511,13 @@ def collect_naabu_ports(
             if selected_host and host != selected_host:
                 continue
             records.setdefault(host, set()).add(port)
+    excluded = exclude_ports or set()
     result: list[dict[str, Any]] = []
-    for host in sorted(records)[:max_hosts]:
-        ports = sorted(records[host])[:max_ports]
-        result.append({"host": host, "ports": ports})
-    return result
+    for host, discovered in records.items():
+        ports = sorted(port for port in discovered if port not in excluded)[:max_ports]
+        if ports:
+            result.append({"host": host, "ports": ports})
+    return sorted(result, key=lambda record: (-len(record["ports"]), record["host"]))[:max_hosts]
 
 
 def parse_port_records(path: Path) -> list[tuple[str, int]]:
@@ -505,7 +540,7 @@ def parse_port_line(line: str) -> tuple[str, int] | None:
             payload = json.loads(value)
         except json.JSONDecodeError:
             return None
-        host = str(payload.get("host") or payload.get("ip") or payload.get("url") or "")
+        host = str(payload.get("input_host") or payload.get("host") or payload.get("ip") or payload.get("url") or "")
         port_value = payload.get("port")
         if port_value is None and isinstance(payload.get("ports"), list) and payload["ports"]:
             port_value = payload["ports"][0]
@@ -519,8 +554,57 @@ def parse_port_line(line: str) -> tuple[str, int] | None:
     return None
 
 
+def is_ip_literal(value: str) -> bool:
+    with contextlib.suppress(ValueError):
+        ipaddress.ip_address(value.strip("[]"))
+        return True
+    return False
+
+
+def naabu_port_identity(line: str) -> tuple[str, str, int] | None:
+    """Return (scoped input hostname, resolved IP, port) from a Naabu JSON row.
+
+    The hostname is intentionally the planned input when available; an IP alone
+    is evidence, not an authorization target.
+    """
+    parsed = parse_port_line(line)
+    if not parsed:
+        return None
+    observed_host, port = parsed
+    try:
+        payload = json.loads(line) if line.lstrip().startswith("{") else {}
+    except json.JSONDecodeError:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    raw_candidates = [
+        payload.get("input_host"),
+        payload.get("input"),
+        payload.get("hostname"),
+        payload.get("domain"),
+        payload.get("host"),
+        payload.get("url"),
+    ]
+    input_host = ""
+    for candidate in raw_candidates:
+        candidate_host = host_from_url(str(candidate)) if candidate else ""
+        if candidate_host and not is_ip_literal(candidate_host):
+            input_host = candidate_host
+            break
+    resolved_ip = ""
+    for candidate in (payload.get("ip"), observed_host):
+        value = str(candidate or "").strip("[]")
+        if is_ip_literal(value):
+            resolved_ip = value
+            break
+    return input_host or observed_host, resolved_ip, port
+
+
 def normalize_host_port(host: str, port_value: Any) -> tuple[str, int] | None:
     host = host_from_url(host) if "://" in str(host) else str(host).strip().lower()
+    if isinstance(port_value, str) and "/" in port_value:
+        port_value = port_value.split("/", 1)[0]
     try:
         port = int(port_value)
     except (TypeError, ValueError):
@@ -707,6 +791,104 @@ def select_targets(program: str, program_cfg: dict[str, Any]) -> list[TargetCand
     return [select_target(program, program_cfg)]
 
 
+def structured_agent_review(
+    program_cfg: dict[str, Any], candidates: list[TargetCandidate]
+) -> tuple[TargetCandidate | None, dict[str, Any]]:
+    """Accept a bounded external review decision without delegating execution.
+
+    An external AI/analyst may write JSON to ``response_file``.  This planner
+    accepts only a candidate it already found and scope-filtered, and only
+    wordlist groups explicitly declared by the fuzz configuration.
+    """
+    selection = program_cfg.get("target_selection") if isinstance(program_cfg.get("target_selection"), dict) else {}
+    review_cfg = selection.get("agent_review") if isinstance(selection.get("agent_review"), dict) else {}
+    enabled = bool(review_cfg.get("enabled"))
+    response_file = expand_path(str(review_cfg.get("response_file") or "")) if review_cfg.get("response_file") else None
+    metadata: dict[str, Any] = {
+        "enabled": enabled,
+        "configured": bool(response_file),
+        "response_file": str(response_file) if response_file else None,
+        "allowed_candidate_count": len(candidates),
+        "outcome": "fallback",
+        "reason": "agent_review_not_configured" if not response_file else "response_file_missing",
+        "accepted_wordlist_groups": [],
+    }
+    if not enabled:
+        metadata["reason"] = "agent_review_disabled"
+        return None, metadata
+    if not response_file or not response_file.is_file():
+        return None, metadata
+    try:
+        payload = json.loads(response_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        metadata["reason"] = "response_file_invalid_json"
+        return None, metadata
+    if not isinstance(payload, dict):
+        metadata["reason"] = "response_file_not_object"
+        return None, metadata
+
+    selected_value = payload.get("selected_target")
+    if not isinstance(selected_value, str) or not selected_value.strip():
+        metadata["reason"] = "selected_target_missing_or_invalid"
+        return None, metadata
+    selected_value = selected_value.strip()
+    by_value: dict[str, TargetCandidate] = {}
+    for candidate in candidates:
+        # Hostnames are deliberately excluded: a host can have multiple
+        # origins/paths and is not an exact selection identity.
+        for value in (candidate.key, candidate.base_url):
+            by_value.setdefault(value, candidate)
+    selected = by_value.get(selected_value)
+    if selected is None:
+        metadata["reason"] = "selected_target_not_in_scoped_candidates"
+        return None, metadata
+
+    require_reason = bool(review_cfg.get("require_reason"))
+    reason = payload.get("reason")
+    if require_reason and (not isinstance(reason, str) or not reason.strip()):
+        metadata["reason"] = "required_reason_missing_or_invalid"
+        return None, metadata
+
+    jobs = program_cfg.get("jobs") if isinstance(program_cfg.get("jobs"), dict) else {}
+    fuzz = jobs.get("juicy_target_fuzz") if isinstance(jobs.get("juicy_target_fuzz"), dict) else {}
+    wordlists = fuzz.get("wordlists") if isinstance(fuzz.get("wordlists"), dict) else {}
+    allowed_groups = set((wordlists.get("tech_wordlists") or {}).keys())
+    requested_groups = payload.get("wordlist_groups") or []
+    if not isinstance(requested_groups, list) or not all(isinstance(group, str) for group in requested_groups):
+        metadata["reason"] = "wordlist_groups_must_be_string_list"
+        return None, metadata
+    accepted_groups = [group for group in requested_groups if group in allowed_groups]
+    metadata.update(
+        {
+            "outcome": "accepted",
+            "reason": str(payload.get("reason") or "structured_review_accepted"),
+            "selected_target": selected.to_dict(),
+            "accepted_wordlist_groups": list(dict.fromkeys(accepted_groups)),
+        }
+    )
+    return selected, metadata
+
+
+def select_targets_with_review(program: str, program_cfg: dict[str, Any]) -> tuple[list[TargetCandidate], dict[str, Any]]:
+    candidates = collect_target_candidates(program, program_cfg)
+    if not candidates:
+        selected = [select_target(program, program_cfg)]
+        return selected, {
+            "enabled": False,
+            "configured": False,
+            "allowed_candidate_count": 0,
+            "outcome": "fallback",
+            "reason": "no_ranked_candidates_default_target_used",
+            "accepted_wordlist_groups": [],
+        }
+    selected, metadata = structured_agent_review(program_cfg, candidates)
+    count = target_select_count(program_cfg)
+    if selected is None:
+        return candidates[:count], metadata
+    ordered = [selected, *(candidate for candidate in candidates if candidate.base_url != selected.base_url)]
+    return ordered[:count], metadata
+
+
 def safe_slug(value: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._")
     return slug[:80] or "target"
@@ -721,7 +903,23 @@ def build_nmap_plan(program: str, program_cfg: dict[str, Any], selected: TargetC
     inputs = job.get("inputs") if isinstance(job.get("inputs"), dict) else {}
     max_hosts = int(inputs.get("max_hosts_per_run") or 3)
     max_ports = int(inputs.get("max_ports_per_host") or 20)
-    port_records = collect_naabu_ports(program_cfg, selected_host=selected.host, max_hosts=max_hosts, max_ports=max_ports)
+    interesting_only = bool(inputs.get("interesting_ports_only", False))
+    common_ports = {int(port) for port in inputs.get("common_web_ports", []) if str(port).isdigit()}
+    require_scope = bool(inputs.get("require_saved_scope", False))
+    port_records = collect_naabu_ports(
+        program_cfg,
+        selected_host=None if interesting_only else selected.host,
+        max_hosts=100000 if require_scope else max_hosts,
+        max_ports=max_ports,
+        exclude_ports=common_ports if interesting_only else None,
+    )
+    dropped_out_of_scope_records = 0
+    if require_scope:
+        validator = ScopeValidator(program, strict=False)
+        original_count = len(port_records)
+        port_records = [record for record in port_records if validator.is_in_scope(str(record["host"]))]
+        dropped_out_of_scope_records = original_count - len(port_records)
+        port_records = port_records[:max_hosts]
     if not port_records:
         if isinstance(jobs.get("naabu_discovery"), dict):
             return {
@@ -740,7 +938,17 @@ def build_nmap_plan(program: str, program_cfg: dict[str, Any], selected: TargetC
             "reason": "missing_naabu_output_or_no_ports_for_selected_host",
         }
 
-    if inputs.get("require_saved_scope", False) and not ScopeValidator(program, strict=False).is_in_scope(selected.host):
+    selected_record = port_records[0]
+    selected_host = str(selected_record["host"])
+    nmap_target = selected
+    if selected_host != selected.host:
+        nmap_target = TargetCandidate(
+            key=f"naabu:{selected_host}",
+            base_url=f"{urlparse(selected.base_url).scheme or 'https'}://{selected_host}",
+            host=selected_host,
+            source="naabu_interesting_service",
+        )
+    if inputs.get("require_saved_scope", False) and not ScopeValidator(program, strict=False).is_in_scope(nmap_target.host):
         return {
             "job": "nmap_enrichment",
             "state": job.get("state", "unknown"),
@@ -749,11 +957,12 @@ def build_nmap_plan(program: str, program_cfg: dict[str, Any], selected: TargetC
             "host": selected.host,
         }
 
-    ports = port_records[0]["ports"]
+    ports = selected_record["ports"]
     context = {
         "naabu-discovered-ports": ",".join(str(port) for port in ports),
+        "selected-ports": ",".join(str(port) for port in ports),
         "run-root": str(expand_path(job.get("outputs", {}).get("run_root", "<run-root>"))),
-        "selected-host": selected.host,
+        "selected-host": nmap_target.host,
     }
     command = [expand_pattern(str(part), context) for part in job.get("command_template") or ()]
     return {
@@ -762,9 +971,10 @@ def build_nmap_plan(program: str, program_cfg: dict[str, Any], selected: TargetC
         "status": "planned",
         "tool": job.get("tool", "nmap"),
         "mode": job.get("mode"),
-        "target": selected.to_dict(),
-        "host": selected.host,
+        "target": nmap_target.to_dict(),
+        "host": nmap_target.host,
         "ports": ports,
+        "dropped_out_of_scope_naabu_records": dropped_out_of_scope_records,
         "command": command,
         "outputs": job.get("outputs", {}),
     }
@@ -790,7 +1000,30 @@ def naabu_ports_value(job: dict[str, Any]) -> str:
     return value
 
 
-def build_naabu_plan(program: str, program_cfg: dict[str, Any], selected: TargetCandidate) -> dict[str, Any]:
+def aggregated_domain_hosts(inputs: dict[str, Any]) -> list[str]:
+    """Read deduplicated hostnames from canonical aggregated recon sources."""
+    hosts: set[str] = set()
+    for raw_path in inputs.get("aggregated_domain_sources") or ():
+        path = expand_path(str(raw_path))
+        if not path.is_file():
+            continue
+        for line in read_lines(path):
+            value = line.strip().split(maxsplit=1)[0] if line.strip() else ""
+            if not value:
+                continue
+            parsed = urlparse(value if "://" in value else f"//{value}")
+            if parsed.hostname:
+                hosts.add(parsed.hostname.lower())
+    return sorted(hosts)
+
+
+def build_naabu_plan(
+    program: str,
+    program_cfg: dict[str, Any],
+    selected: TargetCandidate,
+    *,
+    candidates: list[TargetCandidate] | None = None,
+) -> dict[str, Any]:
     jobs = program_cfg.get("jobs") if isinstance(program_cfg.get("jobs"), dict) else {}
     job = jobs.get("naabu_discovery")
     if not isinstance(job, dict):
@@ -798,7 +1031,9 @@ def build_naabu_plan(program: str, program_cfg: dict[str, Any], selected: Target
 
     nmap_job = jobs.get("nmap_enrichment") if isinstance(jobs.get("nmap_enrichment"), dict) else {}
     nmap_inputs = nmap_job.get("inputs") if isinstance(nmap_job.get("inputs"), dict) else {}
-    if collect_naabu_ports(program_cfg, selected_host=selected.host, max_hosts=1, max_ports=1):
+    inputs = job.get("inputs") if isinstance(job.get("inputs"), dict) else {}
+    batch_limit = max(1, int(inputs.get("batch_candidate_limit") or 1))
+    if batch_limit == 1 and collect_naabu_ports(program_cfg, selected_host=selected.host, max_hosts=1, max_ports=1):
         return {
             "job": "naabu_discovery",
             "state": job.get("state", "unknown"),
@@ -808,7 +1043,6 @@ def build_naabu_plan(program: str, program_cfg: dict[str, Any], selected: Target
             "host": selected.host,
         }
 
-    inputs = job.get("inputs") if isinstance(job.get("inputs"), dict) else {}
     require_scope = inputs.get("require_saved_scope", nmap_inputs.get("require_saved_scope", True))
     if require_scope and not ScopeValidator(program, strict=False).is_in_scope(selected.host):
         return {
@@ -820,8 +1054,36 @@ def build_naabu_plan(program: str, program_cfg: dict[str, Any], selected: Target
             "host": selected.host,
         }
 
+    validator = ScopeValidator(program, strict=False)
+    covered_hosts: set[str] = set()
+    if inputs.get("source_first", False):
+        covered_hosts = {
+            str(record["host"]).lower()
+            for record in collect_naabu_ports(program_cfg, max_hosts=100000, max_ports=1)
+        }
+    source_hosts = aggregated_domain_hosts(inputs)
+    candidate_hosts = []
+    host_candidates = source_hosts or [candidate.host for candidate in (candidates or [selected])]
+    for host in host_candidates:
+        host = str(host).lower()
+        if host in covered_hosts:
+            continue
+        if host and validator.is_in_scope(host) and host not in candidate_hosts:
+            candidate_hosts.append(host)
+        if len(candidate_hosts) >= batch_limit:
+            break
+    if not candidate_hosts:
+        return {
+            "job": "naabu_discovery",
+            "state": job.get("state", "unknown"),
+            "status": "blocked",
+            "reason": "no_saved_scope_candidate_hosts",
+            "target": selected.to_dict(),
+        }
+
     context = {
         "selected-host": selected.host,
+        "naabu-hosts-file": "<naabu-hosts-file>",
         "naabu-ports": naabu_ports_value(job),
         "effective-rate": str(naabu_rate(job)),
         "run-root": str(expand_path(job.get("outputs", {}).get("run_root", "<run-root>"))),
@@ -847,6 +1109,7 @@ def build_naabu_plan(program: str, program_cfg: dict[str, Any], selected: Target
         "mode": job.get("mode"),
         "target": selected.to_dict(),
         "host": selected.host,
+        "candidate_hosts": candidate_hosts,
         "ports": context["naabu-ports"],
         "rate": naabu_rate(job),
         "command": command,
@@ -1054,29 +1317,80 @@ def build_fuzz_plan(program_cfg: dict[str, Any], selected: TargetCandidate) -> d
         "status": "planned",
         "target": selected.to_dict(),
         "wordlists": job.get("wordlists", {}),
+        "outputs": job.get("outputs", {}),
+        "post_run": job.get("post_run", {}),
         "technology_map": technology_map,
         "selected_tech_wordlist_groups": technology_map.get("selected_wordlist_groups", []),
         "command": command,
     }
 
 
+def parameter_source_endpoints(job: dict[str, Any], selected: TargetCandidate) -> tuple[list[str], list[str]]:
+    """Shape in-scope parameterized URLs into Arjun endpoint inputs.
+
+    ``params.txt`` is evidence, not a direct command input: retain only HTTP(S)
+    URLs for the selected origin, strip values/query strings, and dedupe routes.
+    """
+    inputs = job.get("inputs") if isinstance(job.get("inputs"), dict) else {}
+    paths = inputs.get("parameter_url_sources") or []
+    endpoints: set[str] = set()
+    sources: list[str] = []
+    for raw_path in paths:
+        path = expand_path(str(raw_path))
+        if not path.is_file():
+            continue
+        sources.append(str(path))
+        for raw in read_lines(path):
+            for value in extract_urls(raw):
+                parsed = urlparse(value)
+                if parsed.scheme not in {"http", "https"} or (parsed.hostname or "").lower() != selected.host:
+                    continue
+                endpoints.add(f"{parsed.scheme}://{parsed.netloc}{parsed.path or '/'}")
+    limit = max(1, int(inputs.get("max_endpoints_per_run") or 50))
+    return sorted(endpoints)[:limit], sources
+
+
+def materialize_parameter_endpoints(job: dict[str, Any], root: Path) -> dict[str, Any]:
+    target = job.get("target") if isinstance(job.get("target"), dict) else {}
+    selected = TargetCandidate(
+        key=str(target.get("key") or "selected"),
+        base_url=str(target.get("base_url") or ""),
+        host=str(target.get("host") or "").lower(),
+        source="prepared_parameter_plan",
+    )
+    endpoints, sources = parameter_source_endpoints(job, selected)
+    path = root / "_batches" / "parameter-endpoints.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(endpoints) + ("\n" if endpoints else ""), encoding="utf-8")
+    return {"path": str(path), "candidate_count": len(endpoints), "sources": sources, "target_host": selected.host}
+
+
 def build_parameter_plan(program_cfg: dict[str, Any], selected: TargetCandidate) -> dict[str, Any]:
     job = program_cfg.get("jobs", {}).get("authenticated_parameter_mining", {})
     technology_map = build_technology_map(program_cfg, selected)
+    inputs = job.get("inputs") if isinstance(job.get("inputs"), dict) else {}
+    source_endpoints, source_paths = parameter_source_endpoints(job, selected)
+    legacy_endpoint_queue = expand_path(inputs.get("endpoint_queue", ""))
+    use_parameter_sources = bool(inputs.get("parameter_url_sources"))
+    endpoint_reference = "<parameter-endpoint-queue>" if use_parameter_sources else str(legacy_endpoint_queue)
     context = {
-        "endpoint-queue": str(expand_path(job.get("inputs", {}).get("endpoint_queue", "<endpoint-queue>"))),
+        "endpoint-queue": endpoint_reference,
         "run-root": "<arjun-run-root>",
     }
     command = [expand_pattern(str(part), context) for part in job.get("command_template") or ()]
-    endpoint_queue = expand_path(job.get("inputs", {}).get("endpoint_queue", ""))
+    status = "planned" if source_endpoints or legacy_endpoint_queue.is_file() else "needs_endpoint_queue"
     return {
         "job": "authenticated_parameter_mining",
         "job_instance_id": "authenticated_parameter_mining",
         "state": job.get("state", "unknown"),
-        "status": "planned" if endpoint_queue.is_file() else "needs_endpoint_queue",
+        "status": status,
         "target": selected.to_dict(),
+        "inputs": inputs,
+        "parameter_source_preview": {"candidate_count": len(source_endpoints), "sources": source_paths},
         "technology_map": technology_map,
         "auth": job.get("auth", {}),
+        "outputs": job.get("outputs", {}),
+        "post_run": job.get("post_run", {}),
         "command": command,
     }
 
@@ -1102,22 +1416,190 @@ def execution_run_id() -> str:
     return f"cron-run-{timestamp}-{uuid.uuid4().hex[:8]}"
 
 
+def job_run_type(job: dict[str, Any]) -> str:
+    return str(job.get("run_type") or JOB_RUN_TYPES.get(str(job.get("job") or ""), job.get("job") or "unknown"))
+
+
+def queue_path(data: dict[str, Any], program: str, program_cfg: dict[str, Any]) -> Path:
+    queue_cfg: dict[str, Any] = {}
+    runtime = runtime_config(data, program_cfg)
+    if isinstance(runtime.get("queue"), dict):
+        queue_cfg = runtime["queue"]
+    if isinstance(program_cfg.get("queue"), dict):
+        queue_cfg = deep_merge(queue_cfg, program_cfg["queue"])
+    configured = queue_cfg.get("path") or queue_cfg.get("queue_file")
+    if configured:
+        return expand_path(render_template(str(configured), {"program": program}))
+    return DEFAULT_ARTIFACT_ROOT / program / "web" / "recon" / "cron" / "queue.json"
+
+
+def queue_worker_stop_path(data: dict[str, Any], program: str, program_cfg: dict[str, Any], run_type: str) -> Path:
+    runtime = runtime_config(data, program_cfg)
+    worker_cfg = runtime.get("worker") if isinstance(runtime.get("worker"), dict) else {}
+    stop_template = worker_cfg.get("stop_file")
+    context = {"program": program, "run_type": safe_slug(run_type)}
+    if stop_template:
+        return expand_path(render_template(str(stop_template), context))
+    return queue_path(data, program, program_cfg).parent / ".stop" / f"{safe_slug(run_type)}.stop"
+
+
+def empty_queue() -> dict[str, Any]:
+    return {"version": 1, "queues": {}}
+
+
+def load_queue(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return empty_queue()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return empty_queue()
+    if not isinstance(data, dict):
+        return empty_queue()
+    if data.get("version") != 1:
+        data["version"] = 1
+    if not isinstance(data.get("queues"), dict):
+        data["queues"] = {}
+    return data
+
+
+def write_queue(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp_path.replace(path)
+
+
+@contextlib.contextmanager
+def locked_queue(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    with lock_path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield load_queue(path)
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def queue_dedupe_key(program: str, job: dict[str, Any]) -> str:
+    target = job.get("target") if isinstance(job.get("target"), dict) else {}
+    host = str(target.get("host") or job.get("host") or "")
+    base_url = str(target.get("base_url") or "")
+    command_hash = hashlib.sha1(json.dumps(job.get("command") or [], sort_keys=True).encode("utf-8")).hexdigest()[:12]
+    raw = "|".join([program, str(job.get("job") or ""), host, base_url, command_hash])
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+def queue_entry_id(run_type: str, dedupe_key: str) -> str:
+    return f"{safe_slug(run_type)}-{dedupe_key[:12]}"
+
+
+def job_queue_entry(program: str, payload: dict[str, Any], job: dict[str, Any]) -> dict[str, Any]:
+    run_type = job_run_type(job)
+    target = job.get("target") if isinstance(job.get("target"), dict) else {}
+    dedupe_key = queue_dedupe_key(program, job)
+    now = utc_now()
+    return {
+        "id": queue_entry_id(run_type, dedupe_key),
+        "version": 1,
+        "program": program,
+        "lane": "web",
+        "run_type": run_type,
+        "job": job.get("job"),
+        "job_instance_id": job.get("job_instance_id") or job.get("job"),
+        "target": target,
+        "target_host": target.get("host") or job.get("host"),
+        "priority": int(job.get("priority") or 50),
+        "reason": job.get("reason") or "planned_by_cron",
+        "source": {
+            "planner": "cron_orchestrator",
+            "plan_run_id": payload.get("run_id"),
+            "selected_target": payload.get("selected_target"),
+        },
+        "policy": {
+            "state": job.get("state"),
+            "rate_budget": job.get("rate_budget"),
+            "mode": job.get("mode"),
+        },
+        "state": "pending",
+        "attempts": 0,
+        "created_at": now,
+        "updated_at": now,
+        "run_root": None,
+        "manifest_path": None,
+        "terminal_status": None,
+        "dedupe_key": dedupe_key,
+        "job_payload": job,
+    }
+
+
+def enqueue_planned_jobs(
+    data: dict[str, Any],
+    program: str,
+    payload: dict[str, Any],
+    *,
+    only_jobs: set[str] | None = None,
+) -> dict[str, Any]:
+    program_cfg = resolve_program(data, program)
+    path = queue_path(data, program, program_cfg)
+    planned_jobs = [
+        job
+        for job in payload.get("jobs", [])
+        if isinstance(job, dict)
+        and job.get("status") == "planned"
+        and (only_jobs is None or str(job.get("job") or "") in only_jobs)
+    ]
+    summary = {"queue_path": str(path), "read": len(planned_jobs), "created": 0, "deduped": 0, "by_run_type": {}}
+    with locked_queue(path) as queue:
+        queues = queue.setdefault("queues", {})
+        for job in planned_jobs:
+            entry = job_queue_entry(program, payload, job)
+            run_type = str(entry["run_type"])
+            section = queues.setdefault(run_type, [])
+            active = [
+                item
+                for item in section
+                if isinstance(item, dict)
+                and item.get("dedupe_key") == entry["dedupe_key"]
+                and str(item.get("state") or "pending") not in QUEUE_TERMINAL_STATES
+            ]
+            if active:
+                active[0]["updated_at"] = utc_now()
+                active[0]["last_seen_plan_run_id"] = payload.get("run_id")
+                summary["deduped"] += 1
+                action = "deduped"
+            else:
+                section.append(entry)
+                summary["created"] += 1
+                action = "created"
+            run_type_summary = summary["by_run_type"].setdefault(run_type, {"created": 0, "deduped": 0})
+            run_type_summary[action] += 1
+        queue["updated_at"] = utc_now()
+        write_queue(path, queue)
+    return summary
+
+
 def plan(data: dict[str, Any], program: str, *, write: bool = False) -> dict[str, Any]:
     errors = validate_config(data)
     if errors:
         raise ValueError("; ".join(errors))
     program_cfg = resolve_program(data, program)
-    selected_targets = select_targets(program, program_cfg)
+    selected_targets, agent_review = select_targets_with_review(program, program_cfg)
     selected = selected_targets[0]
     all_candidates = collect_target_candidates(program, program_cfg)
     candidates = [candidate.to_dict() for candidate in all_candidates[:25]]
     jobs: list[dict[str, Any]] = []
-    naabu_plan = build_naabu_plan(program, program_cfg, selected)
+    naabu_plan = build_naabu_plan(program, program_cfg, selected, candidates=all_candidates)
     if naabu_plan.get("reason") != "job not configured":
         jobs.append(naabu_plan)
     jobs.append(build_nmap_plan(program, program_cfg, selected))
     for target in selected_targets:
-        jobs.append(with_target_instance(build_fuzz_plan(program_cfg, target), len(selected_targets)))
+        fuzz_plan = with_target_instance(build_fuzz_plan(program_cfg, target), len(selected_targets))
+        if target.base_url == selected.base_url and agent_review.get("accepted_wordlist_groups"):
+            fuzz_plan["selected_tech_wordlist_groups"] = list(agent_review["accepted_wordlist_groups"])
+            fuzz_plan["agent_review_wordlist_override"] = True
+        jobs.append(fuzz_plan)
         jobs.append(with_target_instance(build_parameter_plan(program_cfg, target), len(selected_targets)))
     apply_rate_budgets(data, program_cfg, jobs)
     payload = {
@@ -1128,6 +1610,7 @@ def plan(data: dict[str, Any], program: str, *, write: bool = False) -> dict[str
         "selected_targets": [target.to_dict() for target in selected_targets],
         "candidate_count": len(all_candidates),
         "top_candidates": candidates,
+        "agent_review": agent_review,
         "rate_policy": {
             "global_http_rps": global_http_rps(
                 data.get("defaults") if isinstance(data.get("defaults"), dict) else {},
@@ -1344,6 +1827,19 @@ def prepare_job_capsule(program: str, job: dict[str, Any], run_id_value: str) ->
             for part in command_parts
         ]
 
+    if job.get("job") == "naabu_discovery" and "<naabu-hosts-file>" in command_parts:
+        hosts = sorted({str(host).lower() for host in job.get("candidate_hosts") or [] if str(host).strip()})
+        path = root / "_batches" / "naabu-hosts.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(hosts) + ("\n" if hosts else ""), encoding="utf-8")
+        materialized_inputs["naabu_hosts"] = {"path": str(path), "candidate_count": len(hosts)}
+        command_parts = [str(part).replace("<naabu-hosts-file>", str(path)) for part in command_parts]
+
+    if job.get("job") == "authenticated_parameter_mining" and "<parameter-endpoint-queue>" in command_parts:
+        endpoints = materialize_parameter_endpoints(job, root)
+        materialized_inputs["parameter_endpoints"] = endpoints
+        command_parts = [str(part).replace("<parameter-endpoint-queue>", endpoints["path"]) for part in command_parts]
+
     command = render_command(command_parts, root, run_id_value)
     (root / "command.txt").write_text(command_text(command) + "\n", encoding="utf-8")
     manifest = {
@@ -1437,6 +1933,21 @@ def _append_deduped_jsonl(path: Path, rows: list[dict[str, Any]], *, key_fields:
         return {"read": len(rows), "new": len(new_rows)}
 
 
+def naabu_candidate_ip_map(job: dict[str, Any]) -> dict[str, set[str]]:
+    """Map planned hostname inputs to their resolver answers for this Naabu run."""
+    mapping: dict[str, set[str]] = {}
+    for raw_host in job.get("candidate_hosts") or ():
+        host = host_from_url(str(raw_host))
+        if not host or is_ip_literal(host):
+            continue
+        with contextlib.suppress(socket.gaierror):
+            for _family, _type, _proto, _canon, sockaddr in socket.getaddrinfo(host, None):
+                ip = str(sockaddr[0]).strip("[]")
+                if is_ip_literal(ip):
+                    mapping.setdefault(ip, set()).add(host)
+    return mapping
+
+
 def normalize_naabu_output(
     program: str,
     job: dict[str, Any],
@@ -1449,15 +1960,23 @@ def normalize_naabu_output(
         return
 
     observed_at = utc_now()
+    candidate_ip_map = naabu_candidate_ip_map(job)
     rows: list[dict[str, Any]] = []
     lines: list[str] = []
-    seen: set[tuple[str, int]] = set()
+    seen: set[tuple[str, str, int]] = set()
     for line in read_lines(raw_path):
-        parsed = parse_port_line(line)
-        if not parsed:
+        identity = naabu_port_identity(line)
+        if not identity:
             continue
-        host, port = parsed
-        key = (host, port)
+        host, resolved_ip, port = identity
+        attribution = "naabu_hostname" if not is_ip_literal(host) else "unattributed_ip"
+        if is_ip_literal(host) and resolved_ip:
+            mapped_hosts = sorted(candidate_ip_map.get(resolved_ip, set()))
+            if len(mapped_hosts) == 1:
+                host = mapped_hosts[0]
+                attribution = "planned_hostname_dns_match"
+        input_host = "" if is_ip_literal(host) else host
+        key = (host, resolved_ip, port)
         if key in seen:
             continue
         seen.add(key)
@@ -1465,6 +1984,9 @@ def normalize_naabu_output(
             {
                 "program": program,
                 "host": host,
+                "input_host": input_host,
+                "resolved_ip": resolved_ip,
+                "attribution": attribution,
                 "port": port,
                 "source": "naabu",
                 "run_id": run_id_value,
@@ -1483,17 +2005,35 @@ def normalize_naabu_output(
     normalized_txt.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
     outputs = job.get("outputs") if isinstance(job.get("outputs"), dict) else {}
-    global_jsonl = outputs.get("global_ports_jsonl") or outputs.get("services_ports_jsonl")
-    global_txt = outputs.get("global_ports_txt") or outputs.get("services_ports_txt")
+    services_jsonl = outputs.get("services_ports_jsonl")
+    services_txt = outputs.get("services_ports_txt")
+    aggregate_jsonl = (
+        outputs.get("aggregate_ports_jsonl")
+        or outputs.get("aggregated_ports_jsonl")
+        or outputs.get("global_ports_jsonl")
+    )
+    aggregate_txt = (
+        outputs.get("aggregate_ports_txt")
+        or outputs.get("aggregated_ports_txt")
+        or outputs.get("global_ports_txt")
+    )
     append_summary: dict[str, Any] = {"normalized_count": len(rows)}
-    if global_jsonl:
-        append_summary["global_ports_jsonl"] = _append_deduped_jsonl(
-            expand_path(str(global_jsonl)),
+    if services_jsonl:
+        append_summary["services_ports_jsonl"] = _append_deduped_jsonl(
+            expand_path(str(services_jsonl)),
             rows,
-            key_fields=["host", "port"],
+            key_fields=["host", "port", "resolved_ip"],
         )
-    if global_txt:
-        append_summary["global_ports_txt"] = _append_deduped_lines(expand_path(str(global_txt)), lines)
+    if services_txt:
+        append_summary["services_ports_txt"] = _append_deduped_lines(expand_path(str(services_txt)), lines)
+    if aggregate_jsonl:
+        append_summary["aggregated_ports_jsonl"] = _append_deduped_jsonl(
+            expand_path(str(aggregate_jsonl)),
+            rows,
+            key_fields=["host", "port", "resolved_ip"],
+        )
+    if aggregate_txt:
+        append_summary["aggregated_ports_txt"] = _append_deduped_lines(expand_path(str(aggregate_txt)), lines)
     manifest["normalized_outputs"] = {
         "ports_jsonl": str(normalized_jsonl),
         "ports_txt": str(normalized_txt),
@@ -1544,17 +2084,23 @@ def execution_decision(
 ) -> tuple[bool, str]:
     """Decide whether a job should execute.
 
-    When approve_manual is True and either the job is in approved_jobs
-    OR the target is in the saved scope, the manual-approval gate is
-    bypassed (auto-allowlist).
+    When approved_jobs is provided, it is a strict allowlist for this run.
+    Otherwise, approve_manual can auto-approve in-scope manual jobs so a
+    default run can execute every planned job that passes its normal gates.
     """
     job_name = str(job.get("job") or "")
+    target = job.get("target") if isinstance(job.get("target"), dict) else {}
+    target_host = str(target.get("host") or "")
+    if not _target_in_scope(program, target_host):
+        return False, "target_not_in_saved_scope"
     if parent_block_reason:
         return False, parent_block_reason
     if job.get("job") not in EXECUTABLE_PLANNED_JOBS:
         return False, "job_family_not_executable_by_orchestrator"
     if job.get("status") != "planned":
         return False, f"planned_status_{job.get('status')}"
+    if approved_jobs is not None and job_name not in approved_jobs:
+        return False, "job_not_selected"
     if job_name in LIVE_HTTP_JOBS and not job.get("rate_budget", {}).get("command_rate_enforced"):
         return False, "live_http_rate_not_enforced_in_command"
     if not execute:
@@ -1646,14 +2192,16 @@ def _compute_timeout(
     rate_limit: dict[str, Any],
     payload: dict[str, Any],
     program_cfg: dict[str, Any],
-) -> int:
-    """Compute per-run timeout from wordlist size and rate.
+) -> int | None:
+    """Compute per-run timeout only when the config opts into one.
 
-    Falls back to the config's timeout_seconds when no wordlist info is
-    available. Uses wordlist_size / rate * margin, with an optional ceiling
-    only when timeout_seconds_max is explicitly set.
+    A missing/empty timeout_seconds means long-running workers are bounded by
+    rate, locks, and stop conditions rather than a default wall-clock budget.
+    When timeout_seconds is configured, wordlist size can raise that floor and
+    timeout_seconds_max can cap it.
     """
-    floor = int(rate_limit.get("timeout_seconds") or 300)
+    floor_raw = rate_limit.get("timeout_seconds")
+    floor = int(floor_raw) if floor_raw not in (None, "", False) else None
     ceiling_raw = rate_limit.get("timeout_seconds_max")
     ceiling = int(ceiling_raw) if ceiling_raw not in (None, "", False) else None
     margin = float(rate_limit.get("timeout_margin") or 1.5)
@@ -1686,7 +2234,7 @@ def _compute_timeout(
         break
 
     wordlist_count = len(seen_words)
-    if wordlist_count > 0 and effective_rate > 0:
+    if wordlist_count > 0 and effective_rate > 0 and floor is not None:
         estimated = max(floor, math.ceil(wordlist_count / effective_rate * margin))
         return min(ceiling, estimated) if ceiling is not None else estimated
     return floor
@@ -1746,6 +2294,146 @@ def _check_cf_block(
         pass
 
 
+def result_url_is_usable(program: str, raw_url: str, target_host: str) -> bool:
+    """Keep reusable leads pinned to the planned origin and saved program scope."""
+    parsed = urlparse(raw_url)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme not in {"http", "https"} or not host or host != target_host.lower():
+        return False
+    return _target_in_scope(program, host)
+
+
+def postprocess_completed_job(
+    program: str,
+    job: dict[str, Any],
+    root: Path,
+    run_id_value: str,
+    manifest: dict[str, Any],
+) -> dict[str, Any]:
+    """Normalize completed scanner output into small, reviewable recon artifacts.
+
+    Post-processing is intentionally local and best-effort: it must never
+    change a completed scanner result into a failed one.
+    """
+    outputs = job.get("outputs") if isinstance(job.get("outputs"), dict) else {}
+    post_run = job.get("post_run") if isinstance(job.get("post_run"), dict) else {}
+    target = job.get("target") if isinstance(job.get("target"), dict) else {}
+    host = str(target.get("host") or "unknown")
+    summary: dict[str, Any] = {"job": job.get("job"), "run_id": run_id_value, "errors": []}
+
+    try:
+        if job.get("job") == "juicy_target_fuzz":
+            from agents.cloudflare_detector import load_ffuf_results
+
+            rows = load_ffuf_results(root / "raw" / "ffuf.json")
+            normalized: list[dict[str, Any]] = []
+            for row in rows:
+                url = str(row.get("url") or row.get("input", {}).get("FUZZ") or "").strip()
+                try:
+                    status = int(row.get("status") or row.get("status_code"))
+                except (TypeError, ValueError):
+                    continue
+                if not url or not result_url_is_usable(program, url, host):
+                    continue
+                normalized.append(
+                    {
+                        "program": program,
+                        "url": url,
+                        "host": host,
+                        "status": status,
+                        "length": row.get("length"),
+                        "words": row.get("words"),
+                        "lines": row.get("lines"),
+                        "run_id": run_id_value,
+                        "observed_at": utc_now(),
+                    }
+                )
+            default_root = DEFAULT_ARTIFACT_ROOT / program / "web" / "recon" / "fuzz"
+            status_path = expand_path(str(outputs.get("status_leads") or default_root / "status_leads.jsonl"))
+            forbidden_path = expand_path(str(outputs.get("forbidden_leads") or default_root / "403.jsonl"))
+            history_path = expand_path(str(outputs.get("fuzz_history") or DEFAULT_ARTIFACT_ROOT / program / "web" / "recon" / "fuzz_history" / "fuzz_runs.jsonl"))
+            summary["status_leads"] = _append_deduped_jsonl(status_path, normalized, key_fields=["url", "status"])
+            forbidden = [row for row in normalized if row["status"] in {401, 403, 405}]
+            summary["forbidden_leads"] = _append_deduped_jsonl(forbidden_path, forbidden, key_fields=["url", "status"])
+            summary["fuzz_history"] = _append_deduped_jsonl(
+                history_path,
+                [{"program": program, "host": host, "run_id": run_id_value, "result_count": len(normalized), "observed_at": utc_now()}],
+                key_fields=["run_id"],
+            )
+            normalized_urls = root / "normalized" / "urls.txt"
+            _append_deduped_lines(normalized_urls, [row["url"] for row in normalized])
+            if post_run.get("feed_url_ingest"):
+                try:
+                    from agents.recon_store import import_url_artifacts
+
+                    summary["url_ingest"] = import_url_artifacts(
+                        program=program, artifacts=[normalized_urls], run_id=run_id_value, scope_filter="auto", repull_scope=False
+                    )
+                except Exception as exc:
+                    summary["errors"].append(f"url_ingest: {exc}")
+            handoff_path = expand_path(str(post_run.get("handoff_path") or default_root / "403_handoff.md"))
+            handoff_path.parent.mkdir(parents=True, exist_ok=True)
+            handoff_lines = ["# Fuzz boundary review", "", f"- Program: `{program}`", f"- Host: `{host}`", f"- Run: `{run_id_value}`", "", "## 401 / 403 / 405 leads"]
+            handoff_lines.extend(f"- `{row['status']}` {row['url']}" for row in forbidden[:100])
+            if not forbidden:
+                handoff_lines.append("- No boundary responses recorded in this run.")
+            handoff_path.write_text("\n".join(handoff_lines) + "\n", encoding="utf-8")
+            summary["handoff_path"] = str(handoff_path)
+
+        elif job.get("job") in {"authenticated_parameter_mining", "parameter_mining"}:
+            raw_path = root / "raw" / "arjun.json"
+            try:
+                payload = json.loads(raw_path.read_text(encoding="utf-8")) if raw_path.is_file() else {}
+            except (OSError, json.JSONDecodeError):
+                payload = {}
+            parameter_rows: list[dict[str, Any]] = []
+            endpoints: set[str] = set()
+            if isinstance(payload, dict):
+                for endpoint, values in payload.items():
+                    endpoint_text = str(endpoint).strip()
+                    if not result_url_is_usable(program, endpoint_text, host):
+                        continue
+                    names = values.get("parameters") if isinstance(values, dict) else values
+                    if not isinstance(names, list):
+                        continue
+                    endpoints.add(endpoint_text)
+                    for name in names:
+                        if isinstance(name, dict):
+                            name = name.get("name") or name.get("parameter") or name.get("param")
+                        value = str(name or "").strip()
+                        if value:
+                            parameter_rows.append({"program": program, "endpoint": endpoint_text, "parameter": value, "host": host, "run_id": run_id_value, "observed_at": utc_now()})
+            default_root = DEFAULT_ARTIFACT_ROOT / program / "web" / "recon" / "parameter_mining"
+            params_jsonl = expand_path(str(outputs.get("parameters_jsonl") or default_root / "parameters.jsonl"))
+            aggregate_path = expand_path(str(outputs.get("aggregated_params") or DEFAULT_ARTIFACT_ROOT / program / "web" / "recon" / "aggregated" / "params.txt"))
+            source_path = expand_path(str(outputs.get("parameter_source_log") or default_root / "parameter_sources.jsonl"))
+            queue_path_value = expand_path(str(outputs.get("endpoint_queue") or default_root / "latest" / "queue" / "recon-hidden-param-patterns.txt"))
+            summary["parameters"] = _append_deduped_jsonl(params_jsonl, parameter_rows, key_fields=["endpoint", "parameter"])
+            _append_deduped_lines(aggregate_path, sorted({row["parameter"] for row in parameter_rows}))
+            _append_deduped_lines(queue_path_value, sorted(endpoints))
+            summary["parameter_sources"] = _append_deduped_jsonl(source_path, parameter_rows, key_fields=["endpoint", "parameter"])
+            summary["endpoint_queue"] = str(queue_path_value)
+    except Exception as exc:  # post-run artifacts should not break the scanner lifecycle
+        summary["errors"].append(str(exc))
+
+    report_path = expand_path(str(post_run.get("report_path") or DEFAULT_ARTIFACT_ROOT / program / "web" / "recon" / "cron" / "latest_summary.md"))
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_lines = ["# Automated Recon Review", "", f"- Program: `{program}`", f"- Job: `{job.get('job')}`", f"- Run: `{run_id_value}`", f"- Target: `{host}`"]
+    if summary.get("status_leads"):
+        report_lines.append(f"- Interesting status leads added: `{summary['status_leads'].get('new', 0)}`")
+    if summary.get("forbidden_leads"):
+        report_lines.append(f"- Boundary leads (401/403/405) added: `{summary['forbidden_leads'].get('new', 0)}`")
+    if summary.get("parameters"):
+        report_lines.append(f"- Parameters added: `{summary['parameters'].get('new', 0)}`")
+    report_lines.extend(["", "## Next review", "- Review boundary leads and unusual successful routes before deeper testing."])
+    if summary["errors"]:
+        report_lines.append("- Post-processing had recoverable errors; inspect the run manifest.")
+    report_path.write_text("\n".join(report_lines) + "\n", encoding="utf-8")
+    summary["report_path"] = str(report_path)
+    manifest["post_processing"] = summary
+    return summary
+
+
 def execute_job(
     program: str,
     job: dict[str, Any],
@@ -1755,7 +2443,7 @@ def execute_job(
     approve_manual: bool,
     approved_jobs: set[str] | None,
     parent_block_reason: str | None,
-    timeout_seconds: int,
+    timeout_seconds: int | None,
     launch_mode: str = "subprocess",
     tmux_panes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -1834,6 +2522,8 @@ def execute_job(
         _check_cf_block(program, job, root, manifest)
     if job.get("job") == "naabu_discovery" and manifest.get("status") == "completed":
         normalize_naabu_output(program, job, root, run_id_value, manifest)
+    if job.get("job") in {"juicy_target_fuzz", "authenticated_parameter_mining", "parameter_mining"} and manifest.get("status") == "completed":
+        postprocess_completed_job(program, job, root, run_id_value, manifest)
 
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (root / "summary.md").write_text(
@@ -1860,6 +2550,544 @@ def execute_job(
     return result
 
 
+def queue_entry_host(entry: dict[str, Any]) -> str:
+    target = entry.get("target") if isinstance(entry.get("target"), dict) else {}
+    payload = entry.get("job_payload") if isinstance(entry.get("job_payload"), dict) else {}
+    payload_target = payload.get("target") if isinstance(payload.get("target"), dict) else {}
+    return str(
+        target.get("host")
+        or entry.get("target_host")
+        or payload_target.get("host")
+        or payload.get("host")
+        or ""
+    ).lower()
+
+
+def queue_entry_bucket_scopes(entry: dict[str, Any]) -> set[str]:
+    scopes: set[str] = set()
+    host = queue_entry_host(entry)
+    if host:
+        scopes.add(f"host:{host}")
+        domain = registrable_domain(host)
+        if domain:
+            policy = entry.get("policy") if isinstance(entry.get("policy"), dict) else {}
+            budget = policy.get("rate_budget") if isinstance(policy.get("rate_budget"), dict) else {}
+            if str(budget.get("bucket_kind") or "") == "domain":
+                scopes.add(f"domain:{domain}")
+        policy = entry.get("policy") if isinstance(entry.get("policy"), dict) else {}
+        budget = policy.get("rate_budget") if isinstance(policy.get("rate_budget"), dict) else {}
+        addresses = [str(address) for address in budget.get("resolved_addresses") or ()]
+        if not addresses:
+            addresses = resolve_host_addresses(host)
+        scopes.update(f"ip:{address}" for address in addresses)
+
+    policy = entry.get("policy") if isinstance(entry.get("policy"), dict) else {}
+    budget = policy.get("rate_budget") if isinstance(policy.get("rate_budget"), dict) else {}
+    scope = budget.get("scope")
+    if scope:
+        scopes.add(str(scope))
+    return scopes
+
+
+def active_queue_bucket_scopes(queue: dict[str, Any], *, exclude_run_type: str | None = None) -> set[str]:
+    queues = queue.get("queues") if isinstance(queue.get("queues"), dict) else {}
+    scopes: set[str] = set()
+    for run_type, section in queues.items():
+        if exclude_run_type is not None and str(run_type) == exclude_run_type:
+            continue
+        if not isinstance(section, list):
+            continue
+        for entry in section:
+            if isinstance(entry, dict) and str(entry.get("state") or "pending") == "running":
+                scopes.update(queue_entry_bucket_scopes(entry))
+    return scopes
+
+
+def process_is_alive(pid_value: Any) -> bool:
+    try:
+        pid = int(pid_value)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def reap_stale_running_entries(queue: dict[str, Any], *, now: str | None = None) -> list[dict[str, Any]]:
+    queues = queue.get("queues") if isinstance(queue.get("queues"), dict) else {}
+    stale: list[dict[str, Any]] = []
+    checked_at = now or utc_now()
+    for run_type, section in queues.items():
+        if not isinstance(section, list):
+            continue
+        for entry in section:
+            if not isinstance(entry, dict) or str(entry.get("state") or "pending") != "running":
+                continue
+            worker_pid = entry.get("worker_pid")
+            if worker_pid is None or process_is_alive(worker_pid):
+                continue
+            entry["state"] = "stale"
+            entry["terminal_status"] = "stale"
+            entry["stale_reason"] = "worker_pid_not_alive"
+            entry["stale_checked_at"] = checked_at
+            entry["updated_at"] = checked_at
+            stale.append(
+                {
+                    "id": entry.get("id"),
+                    "run_type": run_type,
+                    "target_host": queue_entry_host(entry),
+                    "worker_pid": worker_pid,
+                    "reason": "worker_pid_not_alive",
+                }
+            )
+    return stale
+
+
+def sorted_pending_entries(
+    queue: dict[str, Any],
+    run_type: str,
+    *,
+    limit: int | None = None,
+    avoid_scopes: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    section = queue.get("queues", {}).get(run_type, [])
+    if not isinstance(section, list):
+        return []
+    pending = [
+        entry
+        for entry in section
+        if isinstance(entry, dict) and str(entry.get("state") or "pending") == "pending"
+    ]
+    pending.sort(key=lambda entry: (int(entry.get("priority") or 50), str(entry.get("created_at") or "")))
+    selected: list[dict[str, Any]] = []
+    blocked: list[dict[str, Any]] = []
+    active_scopes = set(avoid_scopes or set())
+    for entry in pending:
+        entry_scopes = queue_entry_bucket_scopes(entry)
+        if active_scopes and entry_scopes.intersection(active_scopes):
+            blocked.append(entry)
+            continue
+        selected.append(entry)
+        # Reserve scopes immediately: a multi-item drain must not select two
+        # same-backend jobs before either one is transitioned to running.
+        active_scopes.update(entry_scopes)
+        if limit is not None and len(selected) >= limit:
+            break
+    if blocked:
+        queue["_last_bucket_skips"] = [
+            {
+                "id": entry.get("id"),
+                "run_type": entry.get("run_type"),
+                "job": entry.get("job"),
+                "target_host": queue_entry_host(entry),
+                "bucket_scopes": sorted(queue_entry_bucket_scopes(entry)),
+                "reason": "active_shared_bucket",
+            }
+            for entry in blocked
+        ]
+    else:
+        queue["_last_bucket_skips"] = []
+    return selected
+
+
+def queue_counts(queue: dict[str, Any]) -> dict[str, dict[str, int]]:
+    counts: dict[str, dict[str, int]] = {}
+    queues = queue.get("queues") if isinstance(queue.get("queues"), dict) else {}
+    for run_type, section in queues.items():
+        if not isinstance(section, list):
+            continue
+        run_counts: dict[str, int] = {}
+        for entry in section:
+            if not isinstance(entry, dict):
+                continue
+            state = str(entry.get("state") or "pending")
+            run_counts[state] = run_counts.get(state, 0) + 1
+        counts[str(run_type)] = run_counts
+    return counts
+
+
+def rotate_bucket_skips_to_tail(queue: dict[str, Any], run_type: str) -> None:
+    skipped_ids = {
+        str(item.get("id"))
+        for item in queue.get("_last_bucket_skips", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    if not skipped_ids:
+        return
+    section = queue.get("queues", {}).get(run_type, [])
+    if not isinstance(section, list):
+        return
+    kept: list[dict[str, Any]] = []
+    moved: list[dict[str, Any]] = []
+    for entry in section:
+        if isinstance(entry, dict) and str(entry.get("id")) in skipped_ids:
+            entry["deferred_at"] = utc_now()
+            entry["defer_reason"] = "active_shared_bucket"
+            moved.append(entry)
+        else:
+            kept.append(entry)
+    section[:] = kept + moved
+
+
+@contextlib.contextmanager
+def queue_worker_lock(program: str, run_type: str):
+    locks_dir = DEFAULT_ARTIFACT_ROOT / program / "web" / "recon" / "cron" / ".locks"
+    locks_dir.mkdir(parents=True, exist_ok=True)
+    path = locks_dir / f"worker-{safe_slug(run_type)}.lock"
+    with path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        handle.seek(0)
+        handle.truncate()
+        handle.write(
+            json.dumps({"pid": os.getpid(), "program": program, "run_type": run_type, "locked_at": utc_now()})
+            + "\n"
+        )
+        handle.flush()
+        try:
+            yield str(path)
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def update_queue_entry(path: Path, run_type: str, entry_id: str, updates: dict[str, Any]) -> None:
+    with locked_queue(path) as queue:
+        section = queue.get("queues", {}).get(run_type, [])
+        if isinstance(section, list):
+            for entry in section:
+                if isinstance(entry, dict) and entry.get("id") == entry_id:
+                    entry.update(updates)
+                    entry["updated_at"] = utc_now()
+                    break
+        queue["updated_at"] = utc_now()
+        write_queue(path, queue)
+
+
+def revalidate_queued_job(data: dict[str, Any], program: str, queued_job: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    """Rebuild a queued job from current scope/config before it can execute.
+
+    Queue JSON is an untrusted transport layer: the stored command is never
+    execution authority. A job must still be selected by the current plan and
+    match its target plus command/rate material before the rebuilt job is run.
+    """
+    target = queued_job.get("target") if isinstance(queued_job.get("target"), dict) else {}
+    base_url = str(target.get("base_url") or "")
+    job_name = str(queued_job.get("job") or "")
+    if not job_name or not base_url:
+        return None, "queued_payload_missing_job_or_target"
+    current_plan = plan(data, program)
+    matches = [
+        job for job in current_plan.get("jobs", [])
+        if isinstance(job, dict)
+        and str(job.get("job") or "") == job_name
+        and isinstance(job.get("target"), dict)
+        and str(job["target"].get("base_url") or "") == base_url
+    ]
+    if len(matches) != 1:
+        return None, "queued_target_not_in_current_plan"
+    rebuilt = matches[0]
+    for field in ("command", "rate_budget"):
+        if queued_job.get(field) != rebuilt.get(field):
+            return None, f"queued_payload_{field}_mismatch_current_plan"
+    return rebuilt, None
+
+
+def drain_queue(
+    data: dict[str, Any],
+    program: str,
+    *,
+    run_type: str,
+    limit: int = 1,
+    execute: bool = False,
+    approve_manual: bool = False,
+    approved_jobs: set[str] | None = None,
+    tmux: bool | None = None,
+    tmux_session: str | None = None,
+) -> dict[str, Any]:
+    program_cfg = resolve_program(data, program)
+    path = queue_path(data, program, program_cfg)
+    run_id_value = execution_run_id()
+    if limit < 1:
+        limit = 1
+    # Queue entries need durable completion reconciliation. Until a pane wrapper
+    # owns that lifecycle, fail closed rather than marking a tmux launch as done.
+    if execute and runtime_tmux_enabled(data, program_cfg, tmux):
+        return {
+            "run_id": run_id_value,
+            "mode": "queue-drain",
+            "program": program,
+            "run_type": run_type,
+            "queue_path": str(path),
+            "status": "blocked",
+            "block_reason": "queue_tmux_requires_durable_completion_wrapper",
+        }
+
+    with locked_queue(path) as queue:
+        stale_entries = reap_stale_running_entries(queue)
+        active_scopes = active_queue_bucket_scopes(queue)
+        selected = sorted_pending_entries(queue, run_type, limit=limit, avoid_scopes=active_scopes)
+        bucket_skips = list(queue.get("_last_bucket_skips") or [])
+        if stale_entries:
+            queue["updated_at"] = utc_now()
+            write_queue(path, queue)
+        if not execute:
+            return {
+                "run_id": run_id_value,
+                "mode": "queue-preview",
+                "program": program,
+                "run_type": run_type,
+                "queue_path": str(path),
+                "selected_count": len(selected),
+                "bucket_skip_count": len(bucket_skips),
+                "bucket_skips": bucket_skips,
+                "active_bucket_scopes": sorted(active_scopes),
+                "stale_reaped_count": len(stale_entries),
+                "stale_reaped": stale_entries,
+                "entries": selected,
+                "counts": queue_counts(queue),
+            }
+        rotate_bucket_skips_to_tail(queue, run_type)
+        selected_ids = {str(entry.get("id")) for entry in selected}
+        section = queue.get("queues", {}).get(run_type, [])
+        if isinstance(section, list):
+            for entry in section:
+                if isinstance(entry, dict) and str(entry.get("id")) in selected_ids:
+                    entry["state"] = "running"
+                    entry["attempts"] = int(entry.get("attempts") or 0) + 1
+                    entry["last_run_id"] = run_id_value
+                    entry["worker_pid"] = os.getpid()
+                    entry["worker_started_at"] = utc_now()
+                    entry["updated_at"] = utc_now()
+        queue["updated_at"] = utc_now()
+        queue.pop("_last_bucket_skips", None)
+        write_queue(path, queue)
+
+    defaults = data.get("defaults") if isinstance(data.get("defaults"), dict) else {}
+    rate_limit = defaults.get("rate_limit") if isinstance(defaults.get("rate_limit"), dict) else {}
+    timeout_seconds = _compute_timeout(rate_limit, {"jobs": []}, program_cfg)
+    parent_block = parent_state_reason(data, program, program_cfg)
+    tmux_panes: list[dict[str, Any]] = []
+    tmux_enabled = runtime_tmux_enabled(data, program_cfg, tmux)
+    launch_mode = "tmux" if tmux_enabled and execute else "subprocess"
+    results: list[dict[str, Any]] = []
+
+    for entry in selected:
+        queued_job = entry.get("job_payload") if isinstance(entry.get("job_payload"), dict) else {}
+        if not queued_job:
+            result = {"queue_entry_id": entry.get("id"), "execution_status": "blocked", "block_reason": "missing_job_payload"}
+        else:
+            job, validation_error = revalidate_queued_job(data, program, queued_job)
+            if validation_error or job is None:
+                result = {
+                    "queue_entry_id": entry.get("id"),
+                    "execution_status": "blocked",
+                    "block_reason": validation_error or "queued_payload_revalidation_failed",
+                }
+            else:
+                result = execute_job(
+                    program,
+                    job,
+                    run_id_value,
+                    execute=execute,
+                    approve_manual=approve_manual,
+                    approved_jobs=approved_jobs,
+                    parent_block_reason=parent_block,
+                    timeout_seconds=timeout_seconds,
+                    launch_mode=launch_mode,
+                    tmux_panes=tmux_panes,
+                )
+                result["queue_entry_id"] = entry.get("id")
+        state = str(result.get("execution_status") or "blocked")
+        if state == "tmux_queued":
+            queue_state = "running"
+        elif state in {"completed", "failed", "blocked"}:
+            queue_state = state
+        else:
+            queue_state = "failed"
+        updates = {
+            "state": queue_state,
+            "terminal_status": None if queue_state == "running" else state,
+            "run_root": result.get("run_root"),
+            "manifest_path": result.get("manifest_path"),
+            "execution_decision": result.get("execution_decision"),
+            "block_reason": result.get("block_reason"),
+            "last_result": {k: v for k, v in result.items() if k not in {"job_payload"}},
+        }
+        update_queue_entry(path, run_type, str(entry.get("id")), updates)
+        results.append(result)
+
+    payload = {
+        "run_id": run_id_value,
+        "mode": "queue-tmux" if launch_mode == "tmux" else "queue-drain",
+        "program": program,
+        "run_type": run_type,
+        "queue_path": str(path),
+        "selected_count": len(selected),
+        "bucket_skip_count": len(bucket_skips),
+        "bucket_skips": bucket_skips,
+            "active_bucket_scopes": sorted(active_scopes),
+            "stale_reaped_count": len(stale_entries),
+            "stale_reaped": stale_entries,
+            "jobs": results,
+        }
+    if launch_mode == "tmux":
+        session = runtime_tmux_session(data, program, program_cfg, tmux_session)
+        payload["tmux"] = {
+            "session": session,
+            "attach_command": f"tmux attach -t {session}",
+            "panes": tmux_panes,
+            "invocations": render_tmux_invocations(session, tmux_panes),
+        }
+        launch_result = launch_tmux_session(session, tmux_panes)
+        payload["tmux"]["launch"] = launch_result
+        if launch_result.get("status") == "blocked":
+            payload["status"] = "blocked"
+            payload["block_reason"] = launch_result.get("reason")
+    return payload
+
+
+def runtime_worker_defaults(data: dict[str, Any], program_cfg: dict[str, Any]) -> dict[str, Any]:
+    runtime = runtime_config(data, program_cfg)
+    worker_cfg = runtime.get("worker") if isinstance(runtime.get("worker"), dict) else {}
+    return {
+        "limit": max(1, int(worker_cfg.get("limit") or 1)),
+        "idle_sleep_seconds": float(worker_cfg.get("idle_sleep_seconds", 60)),
+        "max_idle_cycles": int(worker_cfg.get("max_idle_cycles", 0)),
+        "max_cycles": int(worker_cfg["max_cycles"]) if worker_cfg.get("max_cycles") is not None else None,
+    }
+
+
+def queue_worker(
+    data: dict[str, Any],
+    program: str,
+    *,
+    run_type: str,
+    limit: int | None = None,
+    execute: bool = False,
+    approve_manual: bool = False,
+    approved_jobs: set[str] | None = None,
+    tmux: bool | None = None,
+    tmux_session: str | None = None,
+    idle_sleep_seconds: float | None = None,
+    max_idle_cycles: int | None = None,
+    max_cycles: int | None = None,
+) -> dict[str, Any]:
+    program_cfg = resolve_program(data, program)
+    defaults = runtime_worker_defaults(data, program_cfg)
+    effective_limit = max(1, int(limit if limit is not None else defaults["limit"]))
+    effective_sleep = float(idle_sleep_seconds if idle_sleep_seconds is not None else defaults["idle_sleep_seconds"])
+    effective_max_idle = int(max_idle_cycles if max_idle_cycles is not None else defaults["max_idle_cycles"])
+    effective_max_cycles = max_cycles if max_cycles is not None else defaults["max_cycles"]
+    path = queue_path(data, program, program_cfg)
+    stop_path = queue_worker_stop_path(data, program, program_cfg, run_type)
+    worker_run_id = execution_run_id()
+
+    if not execute:
+        preview = drain_queue(
+            data,
+            program,
+            run_type=run_type,
+            limit=effective_limit,
+            execute=False,
+            approve_manual=approve_manual,
+            approved_jobs=approved_jobs,
+            tmux=tmux,
+            tmux_session=tmux_session,
+        )
+        return {
+            "run_id": worker_run_id,
+            "mode": "queue-worker-preview",
+            "program": program,
+            "run_type": run_type,
+            "queue_path": str(path),
+            "stop_file": str(stop_path),
+            "preview": preview,
+        }
+
+    try:
+        with queue_worker_lock(program, run_type) as lock_path:
+            cycles = 0
+            idle_cycles = 0
+            drained_count = 0
+            drains: list[dict[str, Any]] = []
+            status = "idle"
+            stop_reason = "idle_limit_reached" if effective_max_idle > 0 else "max_cycles_reached"
+
+            while True:
+                if stop_path.is_file():
+                    status = "stopped"
+                    stop_reason = "stop_file_present"
+                    break
+                if effective_max_cycles is not None and cycles >= effective_max_cycles:
+                    status = "stopped"
+                    stop_reason = "max_cycles_reached"
+                    break
+
+                drain = drain_queue(
+                    data,
+                    program,
+                    run_type=run_type,
+                    limit=effective_limit,
+                    execute=True,
+                    approve_manual=approve_manual,
+                    approved_jobs=approved_jobs,
+                    tmux=tmux,
+                    tmux_session=tmux_session,
+                )
+                drains.append(drain)
+                cycles += 1
+                selected = int(drain.get("selected_count") or 0)
+                drained_count += selected
+                if selected:
+                    idle_cycles = 0
+                    status = "running"
+                    continue
+
+                idle_cycles += 1
+                status = "idle"
+                if effective_max_idle > 0 and idle_cycles >= effective_max_idle:
+                    stop_reason = "idle_limit_reached"
+                    break
+                if effective_sleep > 0:
+                    time.sleep(effective_sleep)
+
+            return {
+                "run_id": worker_run_id,
+                "mode": "queue-worker",
+                "status": status,
+                "stop_reason": stop_reason,
+                "program": program,
+                "run_type": run_type,
+                "queue_path": str(path),
+                "worker_lock_path": lock_path,
+                "stop_file": str(stop_path),
+                "limit": effective_limit,
+                "idle_sleep_seconds": effective_sleep,
+                "max_idle_cycles": effective_max_idle,
+                "max_cycles": effective_max_cycles,
+                "cycles": cycles,
+                "idle_cycles": idle_cycles,
+                "drained_count": drained_count,
+                "drains": drains,
+            }
+    except BlockingIOError:
+        return {
+            "run_id": worker_run_id,
+            "mode": "queue-worker",
+            "status": "blocked",
+            "block_reason": "queue_worker_lock_already_held",
+            "program": program,
+            "run_type": run_type,
+            "queue_path": str(path),
+            "stop_file": str(stop_path),
+        }
+
+
 def run(
     data: dict[str, Any],
     program: str,
@@ -1870,10 +3098,26 @@ def run(
     write: bool = True,
     tmux: bool | None = None,
     tmux_session: str | None = None,
+    enqueue: bool = False,
 ) -> dict[str, Any]:
     payload = plan(data, program, write=False)
     run_id_value = execution_run_id()
     program_cfg = resolve_program(data, program)
+    if enqueue:
+        payload["run_id"] = run_id_value
+        payload["mode"] = "enqueue"
+        payload["queue"] = enqueue_planned_jobs(data, program, payload, only_jobs=approved_jobs)
+        payload["jobs"] = [
+            {
+                **job,
+                "queue_status": "eligible" if job.get("status") == "planned" else "not_enqueued",
+            }
+            for job in payload["jobs"]
+        ]
+        if write:
+            write_plan(program, payload, resolved_config=data)
+        return payload
+
     defaults = data.get("defaults") if isinstance(data.get("defaults"), dict) else {}
     rate_limit = defaults.get("rate_limit") if isinstance(defaults.get("rate_limit"), dict) else {}
     timeout_seconds = _compute_timeout(rate_limit, payload, program_cfg)
@@ -2012,10 +3256,66 @@ def cmd_run(args: argparse.Namespace) -> int:
         args.program,
         execute=args.run or args.execute,
         approve_manual=args.approve_manual,
-        approved_jobs=set(args.job or ()),
+        approved_jobs=set(args.job) if args.job else None,
         write=True,
         tmux=True if args.tmux else None,
         tmux_session=args.tmux_session,
+        enqueue=args.enqueue,
+    )
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_queue_list(args: argparse.Namespace) -> int:
+    data = load_scheduler_config(args.program, config_path=args.config, config_root=args.config_root)
+    program_cfg = resolve_program(data, args.program)
+    path = queue_path(data, args.program, program_cfg)
+    queue = load_queue(path)
+    queues = queue.get("queues") if isinstance(queue.get("queues"), dict) else {}
+    if args.run_type:
+        queues = {args.run_type: queues.get(args.run_type, [])}
+    payload = {
+        "program": args.program,
+        "queue_path": str(path),
+        "counts": queue_counts(queue),
+        "queues": queues,
+    }
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_queue_drain(args: argparse.Namespace) -> int:
+    data = load_scheduler_config(args.program, config_path=args.config, config_root=args.config_root)
+    payload = drain_queue(
+        data,
+        args.program,
+        run_type=args.run_type,
+        limit=args.limit,
+        execute=args.run or args.execute,
+        approve_manual=args.approve_manual,
+        approved_jobs=set(args.job) if args.job else None,
+        tmux=True if args.tmux else None,
+        tmux_session=args.tmux_session,
+    )
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_queue_worker(args: argparse.Namespace) -> int:
+    data = load_scheduler_config(args.program, config_path=args.config, config_root=args.config_root)
+    payload = queue_worker(
+        data,
+        args.program,
+        run_type=args.run_type,
+        limit=args.limit,
+        execute=args.run or args.execute,
+        approve_manual=args.approve_manual,
+        approved_jobs=set(args.job) if args.job else None,
+        tmux=True if args.tmux else None,
+        tmux_session=args.tmux_session,
+        idle_sleep_seconds=args.idle_sleep,
+        max_idle_cycles=0 if args.forever else args.max_idle_cycles,
+        max_cycles=args.max_cycles,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
@@ -2080,7 +3380,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--job",
         action="append",
         choices=sorted(EXECUTABLE_PLANNED_JOBS),
-        help="allow execution for a specific job name; required for manual_review_required jobs",
+        help="limit execution to a specific job name; omit to run all planned jobs that pass normal gates",
     )
     run_parser.add_argument(
         "--tmux",
@@ -2091,7 +3391,89 @@ def build_parser() -> argparse.ArgumentParser:
         "--tmux-session",
         help="tmux session name for --tmux; defaults to <program>-cron-recon",
     )
+    run_parser.add_argument(
+        "--enqueue",
+        action="store_true",
+        help="enqueue planned jobs into the shared program queue instead of executing or preparing run capsules",
+    )
     run_parser.set_defaults(func=cmd_run)
+
+    queue_list_parser = subparsers.add_parser("queue-list", help="list the shared queued-run store")
+    queue_list_parser.add_argument("program")
+    queue_list_parser.add_argument("--config")
+    queue_list_parser.add_argument("--config-root", help="cron config root; defaults to agents/config/cron")
+    queue_list_parser.add_argument("--run-type", help="show one queue section, such as nmap, fuzz, or parameter_mining")
+    queue_list_parser.set_defaults(func=cmd_queue_list)
+
+    queue_drain_parser = subparsers.add_parser("queue-drain", help="drain pending work for one run-type section")
+    queue_drain_parser.add_argument("program")
+    queue_drain_parser.add_argument("--config")
+    queue_drain_parser.add_argument("--config-root", help="cron config root; defaults to agents/config/cron")
+    queue_drain_parser.add_argument("--run-type", required=True, help="queue section to drain, such as nmap or fuzz")
+    queue_drain_parser.add_argument("--limit", type=int, default=1, help="maximum pending queue entries to drain")
+    queue_drain_parser.add_argument(
+        "--run",
+        action="store_true",
+        help="execute drained jobs that pass state, scope, rate, lock, and manual-approval gates",
+    )
+    queue_drain_parser.add_argument("--execute", action="store_true", help="deprecated alias for --run")
+    queue_drain_parser.add_argument(
+        "--approve-manual",
+        action="store_true",
+        help="allow manual_review_required queued jobs to execute when --run is also set",
+    )
+    queue_drain_parser.add_argument(
+        "--job",
+        action="append",
+        choices=sorted(EXECUTABLE_PLANNED_JOBS),
+        help="limit queue execution to a specific job name",
+    )
+    queue_drain_parser.add_argument(
+        "--tmux",
+        action="store_true",
+        help="queue drained scanner jobs in an inspectable tmux session instead of blocking in subprocess.run",
+    )
+    queue_drain_parser.add_argument("--tmux-session", help="tmux session name for --tmux")
+    queue_drain_parser.set_defaults(func=cmd_queue_drain)
+
+    queue_worker_parser = subparsers.add_parser("queue-worker", help="keep draining one queued-run section")
+    queue_worker_parser.add_argument("program")
+    queue_worker_parser.add_argument("--config")
+    queue_worker_parser.add_argument("--config-root", help="cron config root; defaults to agents/config/cron")
+    queue_worker_parser.add_argument("--run-type", required=True, help="queue section to drain, such as nmap or fuzz")
+    queue_worker_parser.add_argument("--limit", type=int, help="maximum pending queue entries to drain per cycle")
+    queue_worker_parser.add_argument(
+        "--run",
+        action="store_true",
+        help="execute queued jobs that pass state, scope, rate, lock, and manual-approval gates",
+    )
+    queue_worker_parser.add_argument("--execute", action="store_true", help="deprecated alias for --run")
+    queue_worker_parser.add_argument(
+        "--approve-manual",
+        action="store_true",
+        help="allow manual_review_required queued jobs to execute when --run is also set",
+    )
+    queue_worker_parser.add_argument(
+        "--job",
+        action="append",
+        choices=sorted(EXECUTABLE_PLANNED_JOBS),
+        help="limit queue execution to a specific job name",
+    )
+    queue_worker_parser.add_argument(
+        "--tmux",
+        action="store_true",
+        help="queue drained scanner jobs in an inspectable tmux session instead of blocking in subprocess.run",
+    )
+    queue_worker_parser.add_argument("--tmux-session", help="tmux session name for --tmux")
+    queue_worker_parser.add_argument("--idle-sleep", type=float, help="seconds to sleep between empty queue polls")
+    queue_worker_parser.add_argument(
+        "--max-idle-cycles",
+        type=int,
+        help="stop after this many empty polls; 0 means keep waiting",
+    )
+    queue_worker_parser.add_argument("--max-cycles", type=int, help="stop after this many drain cycles")
+    queue_worker_parser.add_argument("--forever", action="store_true", help="keep waiting after empty polls")
+    queue_worker_parser.set_defaults(func=cmd_queue_worker)
 
     tmux_parser = subparsers.add_parser("tmux-launch", help="launch a generated tmux manifest")
     tmux_parser.add_argument("manifest")

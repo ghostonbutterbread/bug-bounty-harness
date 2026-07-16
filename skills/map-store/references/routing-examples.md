@@ -4,14 +4,25 @@
 
 Write these to MapStore:
 
+These examples are concrete on purpose, but they are not target-selection
+templates. Preserve the reasoning pattern: intended behavior, proven attacker
+capability, missing impact, program fit, and wake condition.
+
 - "XSS in Canva render flow lands in a sandboxed viewer; postMessage is the only
   observed parent communication path."
+- "XSS on `https://sandbox.example.com` is in scope but low/no-impact today:
+  no credentials, no CSRF token, no sensitive data, and no trusted parent-origin
+  message path. Revisit only for sandbox escape, account-binding route, or
+  trusted parent message abuse."
 - "`https://www.example.com/settings/email` requires a fresh CSRF token and
   rejects missing `Origin`."
 - "Cloudflare challenge appears across `*.example.com` before authenticated app
   traffic."
 - "Tested `/api/projects/{id}` with a second account; cross-account IDs return
   403, not object data."
+- "SVG upload intentionally fetches public external URLs for rendering. No
+  private-network reachability, auth-bound response disclosure, or parser impact
+  observed; record as intended behavior / hold-for-chain, not SSRF."
 
 ## Bounty Notes
 

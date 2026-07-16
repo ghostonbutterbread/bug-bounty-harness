@@ -189,6 +189,19 @@ def test_run_prints_generated_zero_day_command(tmp_path: Path, capsys) -> None:
     assert "--target-kind web-js" in output
 
 
+def test_run_execute_is_rejected_until_zero_day_runner_enforces_offline_mode(tmp_path: Path) -> None:
+    js_run = _write_js_run(tmp_path)
+    campaign_root = tmp_path / "campaign"
+    assert C.main(["prepare", "--js-run-root", str(js_run), "--campaign-root", str(campaign_root)]) == 0
+
+    try:
+        C.main(["run", "--campaign-root", str(campaign_root), "--execute"])
+    except SystemExit as exc:
+        assert "runner-enforced offline/no-network mode" in str(exc)
+    else:
+        raise AssertionError("offline JS campaigns must not execute a mutable generated command")
+
+
 def test_dry_run_previews_flow_without_durable_campaign(tmp_path: Path, capsys) -> None:
     js_run = _write_js_run(tmp_path)
 

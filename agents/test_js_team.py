@@ -119,13 +119,13 @@ def test_auto_follow_up_from_signals_is_deterministic(tmp_path: Path, capsys) ->
     assert "api-request-contracts" in plan["stages"]["follow-up"]["lanes"]
 
 
-def test_execute_all_is_rejected_to_preserve_the_human_review_gate(tmp_path: Path, monkeypatch) -> None:
+def test_execute_is_rejected_until_the_downstream_runner_enforces_offline_mode(tmp_path: Path, monkeypatch) -> None:
     js_run = _write_js_run(tmp_path)
     monkeypatch.setattr(T, "_execute_stage", lambda *_args: (_ for _ in ()).throw(AssertionError("must not execute")))
 
     try:
-        T.main(["run", "--js-run-root", str(js_run), "--stage", "all", "--execute"])
+        T.main(["run", "--js-run-root", str(js_run), "--stage", "follow-up", "--execute"])
     except SystemExit as exc:
-        assert "execute planner and follow-up stages separately" in str(exc)
+        assert "runner-enforced offline/no-network mode" in str(exc)
     else:
-        raise AssertionError("--execute --stage all must require an explicit stage boundary")
+        raise AssertionError("offline JS plans must not execute through a live-capable runner")

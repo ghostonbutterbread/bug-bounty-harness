@@ -233,10 +233,10 @@ def command_dry_run(args: argparse.Namespace) -> int:
 
 def command_run(args: argparse.Namespace) -> int:
     args.dry_run = False
-    if args.execute and args.stage == "all":
+    if args.execute:
         raise SystemExit(
-            "--execute --stage all is disabled: execute planner and follow-up stages separately "
-            "so mapper/anomaly output is reviewed before category follow-up."
+            "--execute is disabled for JS offline campaigns until zero_day_team has a runner-enforced "
+            "offline/no-network mode. This command only prepares a reviewable staged plan."
         )
     plan = build_staged_plan(args)
     if not args.execute:
@@ -292,10 +292,14 @@ def build_parser() -> argparse.ArgumentParser:
     dry_run.add_argument("--write-plan", action="store_true", help="Write js_team_plan.json during dry-run")
     dry_run.set_defaults(func=command_dry_run)
 
-    run = sub.add_parser("run", help="Prepare the staged plan and optionally execute one stage")
+    run = sub.add_parser("run", help="Prepare and print a reviewable staged plan")
     _add_common_args(run)
     run.add_argument("--stage", choices=("planner", "follow-up", "all"), default="planner")
-    run.add_argument("--execute", action="store_true", help="Actually run the selected stage commands")
+    run.add_argument(
+        "--execute",
+        action="store_true",
+        help="Rejected: execution remains disabled until the downstream runner enforces offline/no-network mode.",
+    )
     run.set_defaults(func=command_run)
     return parser
 

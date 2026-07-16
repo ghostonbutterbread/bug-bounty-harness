@@ -23,7 +23,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agents import js_offline_campaign as campaign
-from agents import js_offline_team
 
 
 PLANNER_LANES = ("general-map", "anomaly-hunter")
@@ -190,13 +189,11 @@ def build_staged_plan(args: argparse.Namespace) -> dict:
 
 
 def _execute_stage(plan: dict, stage: str) -> int:
-    if stage == "all":
-        raise SystemExit("--execute --stage all is disabled: review planner reports before approving follow-up lanes.")
-    stage_data = (plan.get("stages") or {}).get(stage) or {}
-    lanes = [str(lane) for lane in stage_data.get("lanes") or []]
-    result = js_offline_team.run_stage(Path(plan["campaign_root"]), stage=stage, lanes=lanes)
-    print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if result.get("status") == "completed" else 1
+    raise SystemExit(
+        "--execute is unavailable: the active CLI agent owns native subagents. "
+        "Use this staged plan's local packet/spec paths to spawn mapper/anomaly workers, "
+        "then review their output before selecting follow-up lanes."
+    )
 
 
 def command_dry_run(args: argparse.Namespace) -> int:
@@ -275,13 +272,13 @@ def build_parser() -> argparse.ArgumentParser:
     dry_run.add_argument("--write-plan", action="store_true", help="Write js_team_plan.json during dry-run")
     dry_run.set_defaults(func=command_dry_run)
 
-    run = sub.add_parser("run", help="Prepare a staged plan or run file-tool-only local review workers")
+    run = sub.add_parser("run", help="Prepare a staged plan for the active CLI agent's native subagents")
     _add_common_args(run)
     run.add_argument("--stage", choices=("planner", "follow-up", "all"), default="planner")
     run.add_argument(
         "--execute",
         action="store_true",
-        help="Run the selected stage through the file-tool-only local JS worker runner.",
+        help="Rejected: the active CLI agent owns native subagent spawning.",
     )
     run.set_defaults(func=command_run)
     return parser

@@ -130,7 +130,7 @@ python3 agents/js_analyzer.py inventory canva \
 The helper writes:
 
 ```text
-~/Shared/web_bounty/<program>/web/recon/js/<run-id>/
+/mnt/bounty/<program>/web/recon/js/<run-id>/
 ├── manifest.json
 ├── metadata.jsonl
 ├── page_context.jsonl
@@ -138,7 +138,7 @@ The helper writes:
 ├── packets.jsonl
 └── packets/<sha-prefix>-NNN.md
 
-~/Shared/web_bounty/<program>/web/recon/js/_library/
+/mnt/bounty/<program>/web/recon/js/_library/
 ├── ledger.json
 ├── metadata.jsonl
 ├── provenance.jsonl
@@ -266,7 +266,7 @@ Script responsibilities:
 - split extracted endpoints into in-scope endpoints and external
   integration/reference endpoints when `--target-host` is provided
 - write external integration/reference URLs into the program integration index
-  under `~/Shared/web_bounty/<program>/web/intel/integrations/`
+  under `/mnt/bounty/<program>/web/intel/integrations/`
 - treat generic secret words as secondary context; prioritize usable API keys,
   GitHub/package/cloud/service identifiers, and keys that expand reachable scope
   over noisy "token/password/secret" matches
@@ -607,7 +607,7 @@ python3 agents/url_ingest.py mark canva \
   --skill js \
   --test-family js-inventory \
   --technique script-first-inventory \
-  --evidence "~/Shared/web_bounty/canva/web/recon/js/<run-id>/manifest.json"
+  --evidence "/mnt/bounty/canva/web/recon/js/<run-id>/manifest.json"
 ```
 
 After agent deep review, mark the JS URL or route as `deep_reviewed` for
@@ -630,8 +630,8 @@ python3 agents/bounty_notes.py note canva \
   --run-id "<js-run-id>" \
   --tag js \
   --url "https://static.canva.com/app.js" \
-  --refs "~/Shared/web_bounty/canva/web/recon/js/<js-run-id>/manifest.json" \
-  --refs "~/Shared/web_bounty/canva/web/recon/js/<js-run-id>/packets/<packet>.md" \
+  --refs "/mnt/bounty/canva/web/recon/js/<js-run-id>/manifest.json" \
+  --refs "/mnt/bounty/canva/web/recon/js/<js-run-id>/packets/<packet>.md" \
   --body-file /tmp/js-handoff.md
 ```
 

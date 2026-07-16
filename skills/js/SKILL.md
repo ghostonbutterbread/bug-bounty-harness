@@ -16,8 +16,8 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
 - `deep` - spend the task budget on selected chunks instead of scanning a huge
   JS list shallowly.
 - `offline-fanout` - after inventory, build a local JavaScript artifact
-  campaign and run mapper/anomaly plus selected specialist reviews through the
-  dedicated file-tool-only JS worker runner. It never calls `zero_day_team`.
+  campaign and give mapper/anomaly plus selected specialist task packets to the
+  active CLI agent's native subagents. It never calls `zero_day_team`.
 
 ## Workflow
 
@@ -36,10 +36,10 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
    mapper/anomaly-first plan without starting agents or leaving a campaign
    unless `--campaign-root` or `--write-plan` is supplied. In normal `/js`
    work, inspect packets directly and only fan out when evidence/budget warrants
-   it. For `/js deep`, use `agents/js_team.py run --execute --stage planner` to
-   start only the local general-map and anomaly wave. Review their reports, then
-   persist selected follow-up approval with `agents/js_offline_team.py approve`
-   before running `--stage follow-up`.
+   it. For `/js deep`, use `agents/js_team.py run --stage planner` to
+   start only the local general-map and anomaly task packets. The active CLI
+   agent spawns its own native subagents from that plan; review their reports
+   before selecting `--follow-up-lane` task packets.
 5. Deep-review selected packets with page/flow context. Require function-level
    tracing: source value, transforms/checks, callers/callees, sink/request/DOM
    effect, controllability, and missing proof.
@@ -133,7 +133,7 @@ The provenance shape is:
 `page/flow -> js_url -> sha256 -> chunk_set -> packet -> extracted endpoints -> related proxy requests -> notes/leads`.
 
 Downloaded JavaScript is content-addressed under
-`~/Shared/web_bounty/<program>/web/recon/js/_library/`. Check the ledger before
+`/mnt/bounty/<program>/web/recon/js/_library/`. Check the ledger before
 redownloading; reuse existing URL aliases, file hashes, and chunk sets unless a
 fresh fetch is explicitly requested.
 `--target-host` accepts a URL, host, or parent domain. It controls which JS URLs
@@ -141,7 +141,7 @@ are downloaded and which extracted endpoints count as in-scope; other extracted
 URLs are still stored as external integration/context artifacts.
 Provenance is stored beside it as append-only JSONL plus a generated SQLite
 index:
-`~/Shared/web_bounty/<program>/web/recon/js/_library/metadata.jsonl`
-`~/Shared/web_bounty/<program>/web/recon/js/_library/provenance.jsonl`
-`~/Shared/web_bounty/<program>/web/recon/js/_library/observations.jsonl`
-`~/Shared/web_bounty/<program>/web/recon/js/_library/js_info.sqlite`
+`/mnt/bounty/<program>/web/recon/js/_library/metadata.jsonl`
+`/mnt/bounty/<program>/web/recon/js/_library/provenance.jsonl`
+`/mnt/bounty/<program>/web/recon/js/_library/observations.jsonl`
+`/mnt/bounty/<program>/web/recon/js/_library/js_info.sqlite`

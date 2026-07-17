@@ -19,6 +19,40 @@ browser context instead of treating raw HTTP as app-layer coverage.
 
 The launcher prefers Playwright's bundled Chromium when Playwright is installed, then falls back to system Chromium/Chrome.
 
+## Hoster GPU-Backed Headed Escalation
+
+When a genuine bot challenge or browser-fingerprint block prevents normal scoped
+coverage, Hoster is the preferred escalation target: it has a GTX 1070 Ti
+exposed through Mesa/Nouveau and can run a real, **headed** Chromium process.
+Use this to reduce automation/fingerprint mismatch; it is not a guarantee of
+passing a challenge and must not be used to evade program rules or access
+controls.
+
+1. Keep the default headed mode: do **not** pass `--headless`. Connect to the
+   returned CDP endpoint from the automation client or a permitted manual
+   display workflow. Completion: the launch plan has no `--headless` flag.
+2. Launch via the canonical launcher *on Hoster*, with a unique run ID,
+   ephemeral profile, and Hoster-local proxy (`http://localhost:<leased-port>`).
+   Do not launch raw Chrome or reuse an existing Chrome process/profile.
+3. Before treating the run as GPU-backed, verify its recorded browser PID owns
+   `/dev/dri/renderD128` and that `eglinfo -B` reports `NV134`, rather than
+   `llvmpipe`. `nvidia-smi` is not the verification path here: this host uses
+   the Nouveau driver and may not provide it.
+4. Revisit the blocked URL once in that browser and capture only sanitized
+   observations (challenge/app content visible, request shape, screenshots).
+   If it remains blocked, record that outcome and stop escalation rather than
+   retrying indiscriminately.
+5. Follow the normal Hoster lifecycle contract: stop the recorded browser root,
+   confirm CDP is closed, remove the run profile, and release its MITM lane.
+
+Example preflight (read-only; never inspect or terminate unrelated browsers):
+
+```bash
+ssh -i /home/ryushe/.ssh/hoster -o BatchMode=yes -o ConnectTimeout=10 \
+  -o ControlMaster=no -T ryushe@hoster \
+  'eglinfo -B | grep -E "renderer|NV134"; fuser -v /dev/dri/renderD128'
+```
+
 ## Invocation
 
 ```text

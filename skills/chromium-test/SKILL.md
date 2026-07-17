@@ -31,18 +31,24 @@ controls.
 1. Keep the default headed mode: do **not** pass `--headless`. Connect to the
    returned CDP endpoint from the automation client or a permitted manual
    display workflow. Completion: the launch plan has no `--headless` flag.
-2. Launch via the canonical launcher *on Hoster*, with a unique run ID,
+2. **Route to Hoster deliberately.** If the agent is already on Hoster, launch
+   locally. If it is on another machine, use the `hoster-ssh` connection
+   (`ssh -i /home/ryushe/.ssh/hoster … ryushe@hoster`) to run the canonical
+   launcher there; do not attempt to borrow a local GPU or create an interactive
+   SSH shell. Completion: the launcher reports `runtime: hoster` and a
+   Hoster-local profile/CDP endpoint.
+3. Launch via the canonical launcher *on Hoster*, with a unique run ID,
    ephemeral profile, and Hoster-local proxy (`http://localhost:<leased-port>`).
    Do not launch raw Chrome or reuse an existing Chrome process/profile.
-3. Before treating the run as GPU-backed, verify its recorded browser PID owns
+4. Before treating the run as GPU-backed, verify its recorded browser PID owns
    `/dev/dri/renderD128` and that `eglinfo -B` reports `NV134`, rather than
    `llvmpipe`. `nvidia-smi` is not the verification path here: this host uses
    the Nouveau driver and may not provide it.
-4. Revisit the blocked URL once in that browser and capture only sanitized
+5. Revisit the blocked URL once in that browser and capture only sanitized
    observations (challenge/app content visible, request shape, screenshots).
    If it remains blocked, record that outcome and stop escalation rather than
    retrying indiscriminately.
-5. Follow the normal Hoster lifecycle contract: stop the recorded browser root,
+6. Follow the normal Hoster lifecycle contract: stop the recorded browser root,
    confirm CDP is closed, remove the run profile, and release its MITM lane.
 
 Example preflight (read-only; never inspect or terminate unrelated browsers):

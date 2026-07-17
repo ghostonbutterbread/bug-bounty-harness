@@ -166,6 +166,12 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
 8. Stop the proxy lane and release its lease so another agent can use the port.
 9. Save screenshots, request notes, and reproduction details under the program evidence directory.
 
+### Hoster Lifecycle Contract
+
+When the browser runs on Hoster, assign a unique run ID and record the root browser PID, CDP port, profile path, and owning tmux session or service before connecting automation. A browser may not be left behind merely to preserve a reconnect option: a later task must explicitly start a replacement, or Ryushe must explicitly request a named manual-debug session.
+
+Do not start raw Chrome from a detached shell as the default path. Use the canonical launcher; if a raw launch is necessary, give it a bounded timeout or an explicit teardown command tied to the recorded root PID. A completed, failed, or superseded task must terminate its named tmux session/service after browser cleanup. Never use broad `pkill chrome` or unscoped tmux cleanup.
+
 ### Required Exit Verification
 
 A run may claim browser cleanup only after all three are recorded:

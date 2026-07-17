@@ -51,6 +51,36 @@ controls.
 6. Follow the normal Hoster lifecycle contract: stop the recorded browser root,
    confirm CDP is closed, remove the run profile, and release its MITM lane.
 
+### Remote CDP Navigation from Ghost
+
+The remote browser and the agent navigation client are separate processes:
+
+1. Start the headed Chromium process on Hoster under its recorded task owner
+   (the launcher/supervisor). It survives a one-shot SSH launch command; the
+   SSH process that starts it does **not** need to remain open.
+2. Chromium deliberately binds CDP to `127.0.0.1:<remote-cdp-port>` on Hoster.
+   From Ghost, create one tracked SSH local-forward for the active navigation
+   period, mapping `127.0.0.1:<local-cdp-port>` to that remote endpoint:
+   ```bash
+   ssh -i /home/ryushe/.ssh/hoster -N -T \
+     -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=no \
+     -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+     -L 127.0.0.1:<local-cdp-port>:127.0.0.1:<remote-cdp-port> \
+     ryushe@hoster
+   ```
+   Start this as a tracked background process, record its local PID, and keep
+   it only while Ghost needs to drive the browser. Never bind CDP to `0.0.0.0`.
+3. Connect the Ghost-side CDP-aware browser client (or a local Playwright
+   client) to `http://127.0.0.1:<local-cdp-port>`. For Hermes native CDP tools,
+   establish the forward before the new session or use `/browser connect` to
+   attach it. Completion: `http://127.0.0.1:<local-cdp-port>/json/version`
+   is reachable from Ghost.
+4. If the forward drops, the Hoster browser may still run but Ghost can no
+   longer navigate it; create a replacement forward to the same recorded CDP
+   port, rather than launching a second browser. On completion, close the
+   tunnel by its recorded local PID, then perform normal Hoster browser/lane
+   cleanup.
+
 Example preflight (read-only; never inspect or terminate unrelated browsers):
 
 ```bash

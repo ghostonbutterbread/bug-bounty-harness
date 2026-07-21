@@ -75,39 +75,16 @@ See [docs/goal-runs.md](docs/goal-runs.md).
 
 ---
 
-## Scheduled Recon Queue
+## Automated Recon
 
-The cron orchestrator is intentionally safe by default: planning/enqueueing does not run scanners, and live jobs remain subject to program scope, rate, state, and manual-approval gates.
+Scheduled reconnaissance, queue orchestration, authenticated FFUF/Arjun execution,
+and smart-fuzzing automation live in the dedicated private repository:
 
-```bash
-# Validate a program and inspect the deterministic plan.
-PYTHONPATH="$PWD" python3 agents/cron_orchestrator.py validate flourish
-PYTHONPATH="$PWD" python3 agents/cron_orchestrator.py plan flourish
-
-# Queue prepared work; workers remain separate per run type.
-PYTHONPATH="$PWD" python3 agents/cron_orchestrator.py run flourish --enqueue
-PYTHONPATH="$PWD" python3 agents/cron_orchestrator.py queue-worker flourish --run-type fuzz
+```text
+https://github.com/ghostonbutterbread/auto-recon
 ```
 
-### Optional bounded AI review
-
-`target_selection.agent_review.response_file` may contain JSON produced by an external AI/analyst. The orchestrator accepts a decision only if `selected_target` exactly identifies a target it already discovered and scope-filtered. It accepts only configured `wordlist_groups`; it never accepts commands, URLs outside that candidate set, or changed rate/scope policy. Missing or invalid review files fall back to deterministic ranking.
-
-```json
-{
-  "selected_target": "https://api.example.com",
-  "reason": "OpenAPI and authenticated route evidence",
-  "wordlist_groups": ["api", "graphql"]
-}
-```
-
-Completed FFUF and Arjun runs normalize local artifacts into reviewable status/403/parameter queues and reports. Arjun is fed a per-run, value-free endpoint queue shaped from `aggregated/params.txt`: only HTTP(S) URLs on the selected scoped host are retained, query values are removed, and the queue is bounded by `max_endpoints_per_run`.
-
-Naabu is the initial common-port discovery layer: it consumes the program’s canonical `aggregated/alive.txt` and `aggregated/urls.txt` host evidence, reuses existing aggregated Naabu output when a host is already covered, and writes new results into the single aggregated port inventory: `aggregated/ports.jsonl` is the append-friendly evidence ledger and `aggregated/ports.txt` is its deduplicated `host:port` view. Each normalized JSONL row retains `input_host`, `resolved_ip`, `host` (the Nmap-safe hostname when present), `attribution`, `port`, `run_id`, and `observed_at`. If Naabu reports only an IP, normalization compares it with the run’s planned hostname inputs and uses it only when exactly one hostname currently resolves to that IP; shared/ambiguous IPs remain `unattributed_ip`. Nmap is gated behind a Naabu nonstandard-port signal; completed Nmap XML adds open-port/service facts to that same aggregate inventory and writes HTTP-capable endpoints to the Nmap→FFUF and Nmap→Arjun follow-up queues. Historical Naabu rows whose host is not currently in saved scope—including unattributed bare-IP rows—are excluded from Nmap target selection and counted in `dropped_out_of_scope_naabu_records`.
-
-Cron configuration is program-scoped: `programs/<slug>.yaml` is loaded only for the selected `<slug>`, and values containing `<program>` expand to that slug at load time (for example, `~/Shared/web_bounty/<program>/...`). Scope, targets, rules, and any program-specific technology sources still must be explicitly reviewed in each program configuration; only the pipeline shape and storage layout are reusable.
-
-Inspect reports and generated batches before escalating into deeper manual testing.
+Bug Bounty Harness remains the general-purpose research and testing harness.
 
 ### JavaScript module status
 

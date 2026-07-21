@@ -24,11 +24,12 @@ import sqlite3
 import sys
 import time
 import uuid
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import yaml
 
@@ -387,6 +388,22 @@ def collect_target_candidates(program: str, program_cfg: dict[str, Any]) -> list
     for candidate in filtered:
         score_candidate(candidate, program, program_cfg)
     return sorted(filtered, key=lambda item: (-item.score, item.host, item.base_url))
+
+
+def collect_job_target_candidates(program: str, program_cfg: dict[str, Any], source_paths: list[str]) -> list[TargetCandidate]:
+    """Build scoped targets only from one job family's evidence sources."""
+    candidates: dict[str, TargetCandidate] = {}
+    for raw_path in source_paths:
+        path = expand_path(raw_path)
+        if not path.is_file():
+            continue
+        for line in read_lines(path):
+            for url in extract_urls(line):
+                add_or_merge(candidates, candidate_from_url(url, key_prefix="job", source=str(path), collapse_to_origin=True))
+    return sorted(
+        scope_filter_candidates(program, program_cfg, list(candidates.values())),
+        key=lambda item: (item.host, 0 if item.base_url.startswith("https://") else 1, item.base_url),
+    )
 
 
 def scope_filter_candidates(
@@ -1320,6 +1337,8 @@ def build_fuzz_plan(program_cfg: dict[str, Any], selected: TargetCandidate) -> d
         "outputs": job.get("outputs", {}),
         "post_run": job.get("post_run", {}),
         "technology_map": technology_map,
+        "run_auth": (program_cfg.get("runtime") or {}).get("auth", "off") if isinstance(program_cfg.get("runtime"), dict) else "off",
+        "auth_resolver": program_cfg.get("auth", {}),
         "selected_tech_wordlist_groups": technology_map.get("selected_wordlist_groups", []),
         "command": command,
     }
@@ -1334,6 +1353,7 @@ def parameter_source_endpoints(job: dict[str, Any], selected: TargetCandidate) -
     inputs = job.get("inputs") if isinstance(job.get("inputs"), dict) else {}
     paths = inputs.get("parameter_url_sources") or []
     endpoints: set[str] = set()
+    selected_scheme = urlparse(selected.base_url).scheme.lower()
     sources: list[str] = []
     for raw_path in paths:
         path = expand_path(str(raw_path))
@@ -1343,7 +1363,19 @@ def parameter_source_endpoints(job: dict[str, Any], selected: TargetCandidate) -
         for raw in read_lines(path):
             for value in extract_urls(raw):
                 parsed = urlparse(value)
-                if parsed.scheme not in {"http", "https"} or (parsed.hostname or "").lower() != selected.host:
+                path_value = unquote(parsed.path or "/")
+                suffix = Path(path_value).suffix.lower()
+                if (
+                    parsed.scheme not in {"http", "https"}
+                    or (parsed.hostname or "").lower() != selected.host
+                    or (selected_scheme and parsed.scheme != selected_scheme)
+                ):
+                    continue
+                # Crawler artifacts frequently turn third-party asset references into
+                # same-host-looking paths. They are not meaningful Arjun endpoints.
+                if any(char.isspace() for char in path_value) or suffix in {
+                    ".css", ".csv", ".eot", ".gif", ".ico", ".jpg", ".jpeg", ".js", ".map", ".png", ".svg", ".ttf", ".webp", ".woff", ".woff2",
+                }:
                     continue
                 endpoints.add(f"{parsed.scheme}://{parsed.netloc}{parsed.path or '/'}")
     limit = max(1, int(inputs.get("max_endpoints_per_run") or 50))
@@ -1388,6 +1420,8 @@ def build_parameter_plan(program_cfg: dict[str, Any], selected: TargetCandidate)
         "inputs": inputs,
         "parameter_source_preview": {"candidate_count": len(source_endpoints), "sources": source_paths},
         "technology_map": technology_map,
+        "run_auth": (program_cfg.get("runtime") or {}).get("auth", "off") if isinstance(program_cfg.get("runtime"), dict) else "off",
+        "auth_resolver": program_cfg.get("auth", {}),
         "auth": job.get("auth", {}),
         "outputs": job.get("outputs", {}),
         "post_run": job.get("post_run", {}),
@@ -1590,17 +1624,37 @@ def plan(data: dict[str, Any], program: str, *, write: bool = False) -> dict[str
     all_candidates = collect_target_candidates(program, program_cfg)
     candidates = [candidate.to_dict() for candidate in all_candidates[:25]]
     jobs: list[dict[str, Any]] = []
+    # Naabu/Nmap retain their discovery/enrichment selection. Web scanners select
+    # independently from their own durable evidence queues.
     naabu_plan = build_naabu_plan(program, program_cfg, selected, candidates=all_candidates)
     if naabu_plan.get("reason") != "job not configured":
         jobs.append(naabu_plan)
     jobs.append(build_nmap_plan(program, program_cfg, selected))
-    for target in selected_targets:
-        fuzz_plan = with_target_instance(build_fuzz_plan(program_cfg, target), len(selected_targets))
-        if target.base_url == selected.base_url and agent_review.get("accepted_wordlist_groups"):
-            fuzz_plan["selected_tech_wordlist_groups"] = list(agent_review["accepted_wordlist_groups"])
-            fuzz_plan["agent_review_wordlist_override"] = True
-        jobs.append(fuzz_plan)
-        jobs.append(with_target_instance(build_parameter_plan(program_cfg, target), len(selected_targets)))
+
+    configured_jobs = program_cfg.get("jobs") if isinstance(program_cfg.get("jobs"), dict) else {}
+    fuzz_cfg = configured_jobs.get("juicy_target_fuzz") if isinstance(configured_jobs.get("juicy_target_fuzz"), dict) else {}
+    fuzz_inputs = fuzz_cfg.get("inputs") if isinstance(fuzz_cfg.get("inputs"), dict) else {}
+    fuzz_sources = fuzz_inputs.get("target_url_sources")
+    fuzz_targets = (collect_job_target_candidates(program, program_cfg, list(fuzz_sources or ()))[:1]
+                    if fuzz_sources is not None else selected_targets)
+    if fuzz_targets:
+        jobs.extend(with_target_instance(build_fuzz_plan(program_cfg, target), len(fuzz_targets)) for target in fuzz_targets)
+    else:
+        jobs.append({"job": "juicy_target_fuzz", "job_instance_id": "juicy_target_fuzz", "state": fuzz_cfg.get("state", "unknown"), "status": "skipped", "reason": "no_scoped_target_evidence"})
+
+    parameter_cfg = configured_jobs.get("authenticated_parameter_mining") if isinstance(configured_jobs.get("authenticated_parameter_mining"), dict) else {}
+    parameter_inputs = parameter_cfg.get("inputs") if isinstance(parameter_cfg.get("inputs"), dict) else {}
+    parameter_sources = parameter_inputs.get("parameter_url_sources")
+    parameter_targets = (collect_job_target_candidates(program, program_cfg, list(parameter_sources or ()))[:1]
+                         if parameter_sources is not None else selected_targets)
+    if parameter_targets:
+        jobs.extend(with_target_instance(build_parameter_plan(program_cfg, target), len(parameter_targets)) for target in parameter_targets)
+    else:
+        jobs.append({"job": "authenticated_parameter_mining", "job_instance_id": "authenticated_parameter_mining", "state": parameter_cfg.get("state", "unknown"), "status": "skipped", "reason": "no_scoped_target_evidence"})
+    smart_fuzzing = resolve_smart_fuzzing(data, program_cfg, "web")
+    for job in jobs:
+        if job.get("job") == "juicy_target_fuzz":
+            job["smart_fuzzing"] = smart_fuzzing
     apply_rate_budgets(data, program_cfg, jobs)
     payload = {
         "run_id": run_id(),
@@ -1672,6 +1726,18 @@ def render_template(value: str, context: dict[str, str]) -> str:
     for key, replacement in context.items():
         rendered = rendered.replace(f"{{{key}}}", replacement)
     return rendered
+
+
+def resolve_smart_fuzzing(global_cfg: dict[str, Any], program_cfg: dict[str, Any], lane: str) -> dict[str, Any]:
+    """Resolve global → program → lane smart-fuzzing policy without execution authority."""
+    base = global_cfg.get("smart_fuzzing") if isinstance(global_cfg.get("smart_fuzzing"), dict) else {}
+    program = program_cfg.get("smart_fuzzing") if isinstance(program_cfg.get("smart_fuzzing"), dict) else {}
+    merged = deep_merge(base, {key: value for key, value in program.items() if key != "lanes"})
+    lanes = program.get("lanes") if isinstance(program.get("lanes"), dict) else {}
+    lane_cfg = lanes.get(lane) if isinstance(lanes.get(lane), dict) else {}
+    resolved = deep_merge(merged, lane_cfg)
+    resolved["lane"] = lane
+    return resolved
 
 
 def runtime_config(data: dict[str, Any], program_cfg: dict[str, Any]) -> dict[str, Any]:
@@ -1806,6 +1872,40 @@ def materialize_fuzz_wordlist(job: dict[str, Any], root: Path) -> dict[str, Any]
     }
 
 
+def resolve_job_auth(program: str, job: dict[str, Any]) -> dict[str, Any]:
+    """Resolve one run-level auth selector without ever returning header values."""
+    requested = str(job.get("run_auth") or "off").strip().lower()
+    if requested in {"", "off", "none"}:
+        return {"requested": "off", "effective": "off", "status": "not_requested"}
+    cfg = job.get("auth_resolver") if isinstance(job.get("auth_resolver"), dict) else {}
+    template = cfg.get("resolver", {}).get("command_template") if isinstance(cfg.get("resolver"), dict) else None
+    target = job.get("target") if isinstance(job.get("target"), dict) else {}
+    if not isinstance(template, list):
+        return {"requested": requested, "effective": "off", "status": "downgraded", "reason": "resolver_not_configured"}
+    context = {"program": program, "selected-base-url": str(target.get("base_url") or ""), "selected-host": str(target.get("host") or "")}
+    command = [expand_pattern(str(part), context) for part in template]
+    command = [requested if part == "blue" and requested != "blue" else part for part in command]
+    try:
+        proc = subprocess.run(command, text=True, capture_output=True, timeout=20, cwd=str(Path(__file__).resolve().parent.parent))
+        payload = json.loads(proc.stdout) if proc.returncode == 0 else {}
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+        payload = {}
+    seed = payload.get("auth_seed") if isinstance(payload.get("auth_seed"), dict) else {}
+    seed_path = seed.get("path") if seed.get("status") == "available" else None
+    if payload.get("status") == "ready" and isinstance(seed_path, str) and Path(seed_path).is_file():
+        return {"requested": requested, "effective": requested, "status": "ready", "account": requested, "seed_path": seed_path, "header_names": seed.get("header_names", [])}
+    return {"requested": requested, "effective": "off", "status": "downgraded", "reason": str(payload.get("status") or "resolver_unavailable")}
+
+
+def wrap_authenticated_command(command: list[str], auth: dict[str, Any]) -> list[str]:
+    if auth.get("effective") == "off":
+        return command
+    tool = infer_tool(command)
+    if tool not in {"ffuf", "arjun"}:
+        return command
+    return [sys.executable, str(Path(__file__).with_name("authenticated_tool_runner.py")), "--auth-seed", str(auth["seed_path"]), "--tool", tool, "--", *command]
+
+
 def prepare_job_capsule(program: str, job: dict[str, Any], run_id_value: str) -> dict[str, Any]:
     root = job_output_root(program, job, run_id_value)
     raw = root / "raw"
@@ -1841,6 +1941,8 @@ def prepare_job_capsule(program: str, job: dict[str, Any], run_id_value: str) ->
         command_parts = [str(part).replace("<parameter-endpoint-queue>", endpoints["path"]) for part in command_parts]
 
     command = render_command(command_parts, root, run_id_value)
+    auth = resolve_job_auth(program, job)
+    command = wrap_authenticated_command(command, auth)
     (root / "command.txt").write_text(command_text(command) + "\n", encoding="utf-8")
     manifest = {
         "run_id": run_id_value,
@@ -1850,6 +1952,7 @@ def prepare_job_capsule(program: str, job: dict[str, Any], run_id_value: str) ->
         "planned_status": job.get("status"),
         "target": job.get("target", {}),
         "rate_budget": job.get("rate_budget"),
+        "auth": {key: value for key, value in auth.items() if key != "seed_path"},
         "command": command,
         "paths": {
             "root": str(root),
@@ -2248,6 +2351,36 @@ def _read_stderr(root: Path) -> str:
     return ""
 
 
+def write_job_heartbeat(root: Path, manifest: dict[str, Any], *, pid: int, event: str) -> dict[str, Any]:
+    """Persist a compact, independently readable progress signal for a live run."""
+    log_root = root / "logs"
+    stdout_path = log_root / "stdout.txt"
+    stderr_path = log_root / "stderr.txt"
+    heartbeat = {
+        "at": utc_now(),
+        "event": event,
+        "pid": pid,
+        "status": manifest.get("status"),
+        "started_at": manifest.get("started_at"),
+        "stdout_bytes": stdout_path.stat().st_size if stdout_path.is_file() else 0,
+        "stderr_bytes": stderr_path.stat().st_size if stderr_path.is_file() else 0,
+    }
+    (root / "heartbeat.json").write_text(json.dumps(heartbeat, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    manifest["heartbeat"] = heartbeat
+    return heartbeat
+
+
+def progress_interval_seconds(job: dict[str, Any]) -> int:
+    """Return a bounded live-job heartbeat cadence, defaulting to ten minutes."""
+    raw_notifications = job.get("notifications")
+    notifications: dict[str, Any] = raw_notifications if isinstance(raw_notifications, dict) else {}
+    try:
+        interval = int(notifications.get("progress_every_seconds") or 600)
+    except (TypeError, ValueError):
+        interval = 600
+    return max(30, interval)
+
+
 def _check_cf_block(
     program: str,
     job: dict[str, Any],
@@ -2303,6 +2436,118 @@ def result_url_is_usable(program: str, raw_url: str, target_host: str) -> bool:
     return _target_in_scope(program, host)
 
 
+def uniform_ffuf_surface(rows: list[dict[str, Any]], *, threshold: int) -> dict[str, Any] | None:
+    """Classify a large FFUF result set with one indistinguishable response shape.
+
+    A full uniform response set is retained in the run capsule but is not a
+    route-lead set. Requiring every observed row to share the signature avoids
+    dropping an otherwise interesting run that has even one genuine
+    differential response.
+    """
+    if len(rows) < threshold:
+        return None
+    signatures = {
+        (row.get("status"), row.get("length"), row.get("words"), row.get("lines"))
+        for row in rows
+    }
+    if len(signatures) != 1:
+        return None
+    status, length, words, lines = signatures.pop()
+    return {
+        "classification": "uniform_response_surface",
+        "response_count": len(rows),
+        "threshold": threshold,
+        "signature": {"status": status, "length": length, "words": words, "lines": lines},
+    }
+
+
+def normalize_nmap_output(
+    program: str,
+    job: dict[str, Any],
+    root: Path,
+    run_id_value: str,
+) -> dict[str, Any]:
+    """Promote open Nmap ports into the single aggregated evidence store and follow-up queues."""
+    xml_path = root / "raw" / "nmap.xml"
+    outputs = job.get("outputs") if isinstance(job.get("outputs"), dict) else {}
+    target = job.get("target") if isinstance(job.get("target"), dict) else {}
+    input_host = str(target.get("host") or "").lower()
+    if not xml_path.is_file() or not input_host:
+        return {"nmap_open_ports": {"read": 0, "new": 0}, "errors": ["missing_nmap_xml_or_target_host"]}
+    try:
+        document = ET.parse(xml_path)
+    except (ET.ParseError, OSError) as exc:
+        return {"nmap_open_ports": {"read": 0, "new": 0}, "errors": [f"nmap_xml: {exc}"]}
+
+    observed_at = utc_now()
+    rows: list[dict[str, Any]] = []
+    http_rows: list[dict[str, Any]] = []
+    port_lines: list[str] = []
+    endpoint_lines: list[str] = []
+    http_names = {"http", "https", "http-alt", "https-alt", "http-proxy", "ssl/http"}
+    for host_node in document.findall(".//host"):
+        address = host_node.find("address[@addrtype='ipv4']")
+        if address is None:
+            address = host_node.find("address[@addrtype='ipv6']")
+        resolved_ip = str(address.get("addr") if address is not None else "")
+        for port_node in host_node.findall("./ports/port"):
+            state_node = port_node.find("state")
+            if state_node is None or state_node.get("state") != "open":
+                continue
+            with contextlib.suppress(TypeError, ValueError):
+                port = int(str(port_node.get("portid") or ""))
+                service_node = port_node.find("service")
+                service = ""
+                product = ""
+                version = ""
+                tunnel = ""
+                if service_node is not None:
+                    service = str(service_node.get("name") or "")
+                    product = str(service_node.get("product") or "")
+                    version = str(service_node.get("version") or "")
+                    tunnel = str(service_node.get("tunnel") or "")
+                row = {
+                    "program": program,
+                    "host": input_host,
+                    "input_host": input_host,
+                    "resolved_ip": resolved_ip,
+                    "port": port,
+                    "protocol": str(port_node.get("protocol") or "tcp"),
+                    "state": "open",
+                    "service": service,
+                    "product": product,
+                    "version": version,
+                    "source": "nmap",
+                    "run_id": run_id_value,
+                    "observed_at": observed_at,
+                }
+                rows.append(row)
+                port_lines.append(f"{input_host}:{port}")
+                if service.lower() in http_names:
+                    scheme = "https" if "https" in service.lower() or tunnel == "ssl" else "http"
+                    endpoint = f"{scheme}://{input_host}:{port}/"
+                    endpoint_lines.append(endpoint)
+                    http_rows.append({**row, "url": endpoint, "queue": "nmap_http_followup"})
+
+    normalized_root = root / "normalized"
+    normalized_root.mkdir(parents=True, exist_ok=True)
+    (normalized_root / "ports.jsonl").write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8")
+    (normalized_root / "ports.txt").write_text("\n".join(port_lines) + ("\n" if port_lines else ""), encoding="utf-8")
+    aggregate_jsonl = expand_path(str(outputs.get("aggregated_ports_jsonl") or DEFAULT_ARTIFACT_ROOT / program / "web" / "recon" / "aggregated" / "ports.jsonl"))
+    aggregate_txt = expand_path(str(outputs.get("aggregated_ports_txt") or DEFAULT_ARTIFACT_ROOT / program / "web" / "recon" / "aggregated" / "ports.txt"))
+    fuzz_queue = expand_path(str(outputs.get("fuzz_endpoint_queue") or DEFAULT_ARTIFACT_ROOT / program / "web" / "recon" / "queues" / "nmap_http_fuzz.jsonl"))
+    parameter_queue = expand_path(str(outputs.get("parameter_endpoint_queue") or DEFAULT_ARTIFACT_ROOT / program / "web" / "recon" / "queues" / "nmap_http_parameters.txt"))
+    return {
+        "nmap_open_ports": _append_deduped_jsonl(aggregate_jsonl, rows, key_fields=["host", "port", "resolved_ip", "source"]),
+        "aggregated_ports_txt": _append_deduped_lines(aggregate_txt, port_lines),
+        "fuzz_endpoint_queue": _append_deduped_jsonl(fuzz_queue, http_rows, key_fields=["url"]),
+        "parameter_endpoint_queue": _append_deduped_lines(parameter_queue, endpoint_lines),
+        "normalized_ports": len(rows),
+        "http_followups": len(http_rows),
+        "errors": [],
+    }
+
+
 def postprocess_completed_job(
     program: str,
     job: dict[str, Any],
@@ -2322,7 +2567,10 @@ def postprocess_completed_job(
     summary: dict[str, Any] = {"job": job.get("job"), "run_id": run_id_value, "errors": []}
 
     try:
-        if job.get("job") == "juicy_target_fuzz":
+        if job.get("job") == "nmap_enrichment":
+            summary.update(normalize_nmap_output(program, job, root, run_id_value))
+
+        elif job.get("job") == "juicy_target_fuzz":
             from agents.cloudflare_detector import load_ffuf_results
 
             rows = load_ffuf_results(root / "raw" / "ffuf.json")
@@ -2352,17 +2600,32 @@ def postprocess_completed_job(
             status_path = expand_path(str(outputs.get("status_leads") or default_root / "status_leads.jsonl"))
             forbidden_path = expand_path(str(outputs.get("forbidden_leads") or default_root / "403.jsonl"))
             history_path = expand_path(str(outputs.get("fuzz_history") or DEFAULT_ARTIFACT_ROOT / program / "web" / "recon" / "fuzz_history" / "fuzz_runs.jsonl"))
-            summary["status_leads"] = _append_deduped_jsonl(status_path, normalized, key_fields=["url", "status"])
-            forbidden = [row for row in normalized if row["status"] in {401, 403, 405}]
-            summary["forbidden_leads"] = _append_deduped_jsonl(forbidden_path, forbidden, key_fields=["url", "status"])
+            inputs = job.get("inputs") if isinstance(job.get("inputs"), dict) else {}
+            threshold = int(inputs.get("uniform_response_threshold") or 10_000)
+            surface = uniform_ffuf_surface(normalized, threshold=threshold)
+            forbidden: list[dict[str, Any]] = []
+            if surface:
+                quarantine_path = root / "normalized" / "quarantined_uniform_results.jsonl"
+                quarantine_path.parent.mkdir(parents=True, exist_ok=True)
+                quarantine_path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in normalized), encoding="utf-8")
+                surface["quarantine_path"] = str(quarantine_path)
+                manifest["ffuf_surface"] = surface
+                summary["uniform_surface"] = surface
+                summary["status_leads"] = {"read": 0, "new": 0}
+                summary["forbidden_leads"] = {"read": 0, "new": 0}
+            else:
+                summary["status_leads"] = _append_deduped_jsonl(status_path, normalized, key_fields=["url", "status"])
+                forbidden = [row for row in normalized if row["status"] in {401, 403, 405}]
+                summary["forbidden_leads"] = _append_deduped_jsonl(forbidden_path, forbidden, key_fields=["url", "status"])
             summary["fuzz_history"] = _append_deduped_jsonl(
                 history_path,
-                [{"program": program, "host": host, "run_id": run_id_value, "result_count": len(normalized), "observed_at": utc_now()}],
+                [{"program": program, "host": host, "run_id": run_id_value, "result_count": len(normalized), "uniform_surface": bool(surface), "observed_at": utc_now()}],
                 key_fields=["run_id"],
             )
             normalized_urls = root / "normalized" / "urls.txt"
-            _append_deduped_lines(normalized_urls, [row["url"] for row in normalized])
-            if post_run.get("feed_url_ingest"):
+            if surface is None:
+                _append_deduped_lines(normalized_urls, [row["url"] for row in normalized])
+            if surface is None and post_run.get("feed_url_ingest"):
                 try:
                     from agents.recon_store import import_url_artifacts
 
@@ -2374,9 +2637,12 @@ def postprocess_completed_job(
             handoff_path = expand_path(str(post_run.get("handoff_path") or default_root / "403_handoff.md"))
             handoff_path.parent.mkdir(parents=True, exist_ok=True)
             handoff_lines = ["# Fuzz boundary review", "", f"- Program: `{program}`", f"- Host: `{host}`", f"- Run: `{run_id_value}`", "", "## 401 / 403 / 405 leads"]
-            handoff_lines.extend(f"- `{row['status']}` {row['url']}" for row in forbidden[:100])
-            if not forbidden:
-                handoff_lines.append("- No boundary responses recorded in this run.")
+            if surface is not None:
+                handoff_lines.append(f"- Uniform response surface quarantined: `{surface['response_count']}` rows with signature `{surface['signature']}`.")
+            else:
+                handoff_lines.extend(f"- `{row['status']}` {row['url']}" for row in forbidden[:100])
+                if not forbidden:
+                    handoff_lines.append("- No boundary responses recorded in this run.")
             handoff_path.write_text("\n".join(handoff_lines) + "\n", encoding="utf-8")
             summary["handoff_path"] = str(handoff_path)
 
@@ -2490,17 +2756,36 @@ def execute_job(
         try:
             with job_lock(program, job) as lock_path:
                 manifest["lock_path"] = lock_path
-                proc = subprocess.run(
-                    command,
-                    text=True,
-                    capture_output=True,
-                    timeout=timeout_seconds,
-                    check=False,
-                )
-            (root / "logs" / "stdout.txt").write_text(proc.stdout, encoding="utf-8")
-            (root / "logs" / "stderr.txt").write_text(proc.stderr, encoding="utf-8")
-            manifest["exit_code"] = proc.returncode
-            manifest["status"] = "completed" if proc.returncode == 0 else "failed"
+                stdout_path = root / "logs" / "stdout.txt"
+                stderr_path = root / "logs" / "stderr.txt"
+                interval = progress_interval_seconds(job)
+                with stdout_path.open("w", encoding="utf-8") as stdout_handle, stderr_path.open("w", encoding="utf-8") as stderr_handle:
+                    proc = subprocess.Popen(command, text=True, stdout=stdout_handle, stderr=stderr_handle)
+                    manifest["pid"] = proc.pid
+                    write_job_heartbeat(root, manifest, pid=proc.pid, event="started")
+                    (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                    deadline = time.monotonic() + timeout_seconds if timeout_seconds is not None else None
+                    while True:
+                        wait_seconds = interval
+                        if deadline is not None:
+                            remaining = deadline - time.monotonic()
+                            if remaining <= 0:
+                                assert timeout_seconds is not None
+                                proc.kill()
+                                proc.wait()
+                                raise subprocess.TimeoutExpired(command, timeout_seconds)
+                            wait_seconds = min(wait_seconds, remaining)
+                        try:
+                            proc.wait(timeout=wait_seconds)
+                            break
+                        except subprocess.TimeoutExpired:
+                            stdout_handle.flush()
+                            stderr_handle.flush()
+                            write_job_heartbeat(root, manifest, pid=proc.pid, event="progress")
+                            (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                manifest["exit_code"] = proc.returncode
+                manifest["status"] = "completed" if proc.returncode == 0 else "failed"
+                write_job_heartbeat(root, manifest, pid=proc.pid, event="completed")
         except BlockingIOError:
             manifest["status"] = "blocked"
             manifest["block_reason"] = "run_lock_already_held"
@@ -2508,8 +2793,12 @@ def execute_job(
             manifest["status"] = "failed"
             manifest["block_reason"] = "timeout"
             manifest["timeout_seconds"] = timeout_seconds
-            (root / "logs" / "stdout.txt").write_text(exc.stdout or "", encoding="utf-8")
-            (root / "logs" / "stderr.txt").write_text(exc.stderr or "", encoding="utf-8")
+            stdout_path = root / "logs" / "stdout.txt"
+            stderr_path = root / "logs" / "stderr.txt"
+            if not stdout_path.exists():
+                stdout_path.write_text(exc.stdout or "", encoding="utf-8")
+            if not stderr_path.exists():
+                stderr_path.write_text(exc.stderr or "", encoding="utf-8")
         except OSError as exc:
             manifest["status"] = "blocked"
             manifest["block_reason"] = "subprocess_start_failed"
@@ -2522,7 +2811,7 @@ def execute_job(
         _check_cf_block(program, job, root, manifest)
     if job.get("job") == "naabu_discovery" and manifest.get("status") == "completed":
         normalize_naabu_output(program, job, root, run_id_value, manifest)
-    if job.get("job") in {"juicy_target_fuzz", "authenticated_parameter_mining", "parameter_mining"} and manifest.get("status") == "completed":
+    if job.get("job") in {"nmap_enrichment", "juicy_target_fuzz", "authenticated_parameter_mining", "parameter_mining"} and manifest.get("status") == "completed":
         postprocess_completed_job(program, job, root, run_id_value, manifest)
 
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")

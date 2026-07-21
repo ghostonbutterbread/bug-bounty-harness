@@ -5,6 +5,19 @@ programs:
     state: active
     family: web_bounty
     default_lane: web
+    smart_fuzzing:
+      enabled: true
+      ai:
+        enabled: true
+        mode: evidence_pack_only
+        # AI may rank/synthesize sanitized Katana, JS, proxy, and docs evidence.
+        # It cannot change scope, target choice, rate, tool command, or auth mode.
+      lanes:
+        web:
+          enabled: true
+          ai:
+            enabled: true
+            mode: evidence_pack_only
     schedule:
       days: weekdays
     scope:
@@ -14,43 +27,42 @@ programs:
       rules_file: ~/Shared/scopes/<program>/rules-of-engagement.json
       fail_closed: true
       notes:
-      - '*.flourish.studio wildcard was removed from saved scope notes; do not infer
-        extra subdomains from it.'
+      - '*.flourish.studio is authorized by the saved wildcard scope; explicit
+        target entries remain required for automatic selection.'
       - training.flourish.studio is out of scope.
       - Rate-limit testing and DoS are blocked by program policy.
-      - Do not add app.flourish.studio here unless the saved scope is updated to list
-        it.
+    runtime:
+      # One selector for the entire web run: off, blue, or another owned account alias/color.
+      auth: blue
     targets:
+      flourish_app:
+        lane: web
+        base_urls:
+        - https://app.flourish.studio/
       flourish_home:
         lane: web
         base_urls:
         - https://flourish.studio/
-        auth_allowed: false
       flo_uri:
         lane: web
         base_urls:
         - https://flo.uri.sh
-        auth_allowed: false
       xyzbmojn:
         lane: web
         base_urls:
         - https://xyzbmojn.net/
-        auth_allowed: false
       user_templates:
         lane: web
         base_urls:
         - https://flourish-user-templates.com
-        auth_allowed: false
       user_preview:
         lane: web
         base_urls:
         - https://flourish-user-preview.com
-        auth_allowed: false
       kiln:
         lane: web
         base_urls:
         - https://*.kiln.it
-        auth_allowed: false
     target_selection:
       strategy: recon_ry_ranked_agent_selected_queue
       default_target: flourish_home
@@ -79,7 +91,7 @@ programs:
       - ~/Shared/web_bounty/<program>/web/recon/maps/map.jsonl
       - ~/Shared/web_bounty/<program>/web/recon/aggregated/ports.jsonl
       - ~/Shared/web_bounty/<program>/web/recon/aggregated/ports.txt
-      - ~/Shared/web_bounty/<program>/web/recon/services/
+      - ~/Shared/web_bounty/<program>/web/recon/queues/nmap_http_fuzz.jsonl
       - ~/Shared/web_bounty/<program>/web/recon/fuzz_history/fuzz_runs.jsonl
       ranking_signals:
       - api_dev_staging_admin_hostnames
@@ -169,11 +181,9 @@ programs:
           normalized_ports_txt: ~/Shared/web_bounty/<program>/web/recon/tools/naabu/runs/<YYYY-MM-DD>/<run-id>/normalized/ports.txt
           aggregated_ports_jsonl: ~/Shared/web_bounty/<program>/web/recon/aggregated/ports.jsonl
           aggregated_ports_txt: ~/Shared/web_bounty/<program>/web/recon/aggregated/ports.txt
-          services_ports_jsonl: ~/Shared/web_bounty/<program>/web/recon/services/ports.jsonl
-          services_ports_txt: ~/Shared/web_bounty/<program>/web/recon/services/ports.txt
         post_run:
           normalize_ports: true
-          update_service_inventory: true
+          append_to_aggregated_ports: true
           feed_nmap_enrichment: true
         stop_policy:
           unknown_scope: fail_closed
@@ -204,23 +214,26 @@ programs:
         - --version-light
         - -Pn
         - -T2
+        - --stats-every
+        - 10m
         - -p-
         - -oA
         - <run-root>/raw/nmap
         - <selected-host>
         outputs:
           run_root: ~/Shared/web_bounty/<program>/web/recon/tools/nmap/runs/<YYYY-MM-DD>/<run-id>/
-          normalized_services: ~/Shared/web_bounty/<program>/web/recon/tools/nmap/runs/<YYYY-MM-DD>/<run-id>/normalized/services.jsonl
-          global_services: ~/Shared/web_bounty/<program>/web/recon/services/services.jsonl
-          target_score_inputs: ~/Shared/web_bounty/<program>/web/recon/services/service_enrichment.jsonl
-          map_store: ~/Shared/web_bounty/<program>/web/recon/map/
+          aggregated_ports_jsonl: ~/Shared/web_bounty/<program>/web/recon/aggregated/ports.jsonl
+          aggregated_ports_txt: ~/Shared/web_bounty/<program>/web/recon/aggregated/ports.txt
+          fuzz_endpoint_queue: ~/Shared/web_bounty/<program>/web/recon/queues/nmap_http_fuzz.jsonl
+          parameter_endpoint_queue: ~/Shared/web_bounty/<program>/web/recon/queues/nmap_http_parameters.txt
         post_run:
-          parse_services: true
-          feed_http_services_to_url_ingest: true
-          update_target_scores: true
-          update_map_store_summary: true
+          normalize_ports: true
+          append_to_aggregated_ports: true
+          queue_http_followups: true
           generate_report: true
           report_path: ~/Shared/web_bounty/<program>/web/recon/cron/latest_summary.md
+        notifications:
+          progress_every_seconds: 600
         stop_policy:
           missing_naabu_output: skip_and_record
           no_discovered_ports: skip_and_record
@@ -250,6 +263,12 @@ programs:
             checkpoint_every: 5000
             progress_every: 2h
             purpose: all-day low-rate broad discovery pass
+        inputs:
+          # Preserve raw evidence but reject a large fully-uniform response set as route leads.
+          uniform_response_threshold: 10000
+          # Select FFUF targets independently from evidence-gated HTTP service output.
+          target_url_sources:
+          - ~/Shared/web_bounty/<program>/web/recon/queues/nmap_http_fuzz.jsonl
         url_pattern: <selected-base-url>/FUZZ
         rate_limit:
           scope: host
@@ -310,10 +329,10 @@ programs:
         - -mc
         - 200,204,301,302,307,401,403,405,429,500
         - -fc
-        - '404'
-        - -r
+        - "404"
+        - -ac
         - -rate
-        - '15'
+        - <effective-rate>
         - -json
         - -o
         - <run-root>/raw/ffuf.json
@@ -337,6 +356,7 @@ programs:
         notifications:
           telegram_topic: fuzzing
           progress_every: 2h
+          progress_every_seconds: 600
           on_finish: true
           on_failure: true
         stop_policy:
@@ -351,22 +371,11 @@ programs:
         job_family: parameter_mining
         target: inherit_target_selection
         lane: web
-        mode: authenticated_optional
-        rate_limit:
-          scope: host
-          desired_rps: inherit_defaults_authenticated
-          global_budget: defaults.rate_limit.global_http_rps
-          collision_policy: split_evenly_by_normalized_host
-        auth:
-          required: false
-          account: blue
-          pwnfox_color: blue
-          resolver: programs.<program>.auth.resolver
-          fallback_to_ryushe_proxy_refresh: true
-          fail_if_auth_missing: false
+        # Session selection is global at programs.<program>.runtime.auth.
         inputs:
           # params.txt is transformed into a selected-host, value-free Arjun URL queue per run.
           parameter_url_sources:
+          - ~/Shared/web_bounty/<program>/web/recon/queues/nmap_http_parameters.txt
           - ~/Shared/web_bounty/<program>/web/recon/aggregated/params.txt
           - ~/Shared/bounty_recon/<program>/params.txt
           max_endpoints_per_run: 50
@@ -413,6 +422,7 @@ programs:
           report_path: ~/Shared/web_bounty/<program>/web/recon/cron/latest_summary.md
         notifications:
           telegram_topic: coding
+          progress_every_seconds: 600
           on_finish: true
           on_failure: true
         stop_policy:

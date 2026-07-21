@@ -19,6 +19,62 @@ Multi-agent bug bounty hunting framework. Supports XSS, IDOR, SQLi, SSRF, fuzzin
 
 ---
 
+## ResearchMap
+
+ResearchMap is the local CLI for a synced, Markdown-authoritative portable AppSec
+research corpus. It complements target-specific MapStore observations: use it to
+retrieve cited mechanisms and code signals when a plausible surface needs fresh
+hypotheses.
+
+```bash
+python3 scripts/research_map.py init
+python3 scripts/research_map.py validate
+python3 scripts/research_map.py index
+python3 scripts/research_map.py query --terms "sanitizer svg" --class xss
+```
+
+The default corpus is `~/notes/appsec/research/`; the SQLite index is generated
+locally from Markdown cards. Cards have a deliberately high admission bar: one
+narrow, cited technology-specific vector (for example, an endpoint/header or
+parser differential), its recognition signals, a small discriminating check,
+and its limits. Broad methodology, tool descriptions, architecture guidance,
+and mindset material belong outside ResearchMap. See [docs/research-map.md](docs/research-map.md).
+
+## Nightly Learning (beta)
+
+The passive learning loop restores the legacy curated-source model without
+turning external material into agent instructions. Its synced source registry
+is `~/notes/appsec/research/sources/learning-sources.yaml`; the runner fetches
+only whitelisted HTTPS source indexes through `safe-fetch`, deduplicates their
+content hashes in a local SQLite ledger, and emits an auditable review digest.
+
+```bash
+python3 scripts/nightly_learning.py validate
+python3 scripts/nightly_learning.py beta
+```
+
+Beta is deliberately report-only: it never creates cards, notes, skills, or
+target actions. Review an artifact first, then promote concrete portable
+mechanisms into cited ResearchMap cards. Reports and the rebuildable seen ledger
+live under `~/.hermes/learning/nightly/`.
+
+## Explicit `/goal` runs
+
+The explicit `/goal` workflow is opt-in: `goal_router.py` classifies the stated
+bug-bounty objective and
+selects a broad-program, focused-surface, technology-review, continuation, or
+revalidation route without changing ordinary agent behavior.
+
+```bash
+python3 scripts/goal_router.py plan --program example --objective "Find a new vulnerability"
+python3 scripts/goal_router.py init --program example --objective "Assess preview for XSS" \
+  --class xss --run-dir /tmp/example-goal
+```
+
+See [docs/goal-runs.md](docs/goal-runs.md).
+
+---
+
 ## Scheduled Recon Queue
 
 The cron orchestrator is intentionally safe by default: planning/enqueueing does not run scanners, and live jobs remain subject to program scope, rate, state, and manual-approval gates.
@@ -47,7 +103,7 @@ PYTHONPATH="$PWD" python3 agents/cron_orchestrator.py queue-worker flourish --ru
 
 Completed FFUF and Arjun runs normalize local artifacts into reviewable status/403/parameter queues and reports. Arjun is fed a per-run, value-free endpoint queue shaped from `aggregated/params.txt`: only HTTP(S) URLs on the selected scoped host are retained, query values are removed, and the queue is bounded by `max_endpoints_per_run`.
 
-Naabu is the initial common-port discovery layer: it consumes the program’s canonical `aggregated/alive.txt` and `aggregated/urls.txt` host evidence, reuses existing aggregated Naabu output when a host is already covered, and writes new results back to the aggregated service inventory. Each normalized JSONL row retains `input_host`, `resolved_ip`, `host` (the Nmap-safe hostname when present), `attribution`, `port`, `run_id`, and `observed_at`. If Naabu reports only an IP, normalization compares it with the run’s planned hostname inputs and uses it only when exactly one hostname currently resolves to that IP; shared/ambiguous IPs remain `unattributed_ip`. Nmap is gated behind a Naabu nonstandard-port signal; it then performs the user-approved full-range `-p-` service classification for that scoped hostname. Historical Naabu rows whose host is not currently in saved scope—including unattributed bare-IP rows—are excluded from Nmap target selection and counted in `dropped_out_of_scope_naabu_records`.
+Naabu is the initial common-port discovery layer: it consumes the program’s canonical `aggregated/alive.txt` and `aggregated/urls.txt` host evidence, reuses existing aggregated Naabu output when a host is already covered, and writes new results into the single aggregated port inventory: `aggregated/ports.jsonl` is the append-friendly evidence ledger and `aggregated/ports.txt` is its deduplicated `host:port` view. Each normalized JSONL row retains `input_host`, `resolved_ip`, `host` (the Nmap-safe hostname when present), `attribution`, `port`, `run_id`, and `observed_at`. If Naabu reports only an IP, normalization compares it with the run’s planned hostname inputs and uses it only when exactly one hostname currently resolves to that IP; shared/ambiguous IPs remain `unattributed_ip`. Nmap is gated behind a Naabu nonstandard-port signal; completed Nmap XML adds open-port/service facts to that same aggregate inventory and writes HTTP-capable endpoints to the Nmap→FFUF and Nmap→Arjun follow-up queues. Historical Naabu rows whose host is not currently in saved scope—including unattributed bare-IP rows—are excluded from Nmap target selection and counted in `dropped_out_of_scope_naabu_records`.
 
 Cron configuration is program-scoped: `programs/<slug>.yaml` is loaded only for the selected `<slug>`, and values containing `<program>` expand to that slug at load time (for example, `~/Shared/web_bounty/<program>/...`). Scope, targets, rules, and any program-specific technology sources still must be explicitly reviewed in each program configuration; only the pipeline shape and storage layout are reusable.
 

@@ -188,6 +188,58 @@ class TestCronOrchestrator(unittest.TestCase):
         self.assertIn("403", Path(self.root / "report.md").read_text(encoding="utf-8"))
 
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_postprocess_ffuf_quarantines_large_uniform_surface_instead_of_creating_leads(self) -> None:
+        root = self.root / "ffuf-uniform-run"
+        raw = root / "raw"
+        raw.mkdir(parents=True)
+        (raw / "ffuf.json").write_text(
+            json.dumps(
+                {"results": [
+                    {"url": f"https://api.example.com/path-{index}", "status": 301, "length": 167, "words": 1, "lines": 1}
+                    for index in range(3)
+                ]}
+            ),
+            encoding="utf-8",
+        )
+        outputs = {
+            "fuzz_history": str(self.root / "uniform-history.jsonl"),
+            "status_leads": str(self.root / "uniform-status-leads.jsonl"),
+            "forbidden_leads": str(self.root / "uniform-403.jsonl"),
+        }
+        job = {
+            "job": "juicy_target_fuzz",
+            "target": {"host": "api.example.com", "base_url": "https://api.example.com"},
+            "outputs": outputs,
+            "inputs": {"uniform_response_threshold": 3},
+            "post_run": {"report_path": str(self.root / "uniform-report.md")},
+        }
+        manifest = {"paths": {"root": str(root)}}
+
+        summary = M.postprocess_completed_job("demo", job, root, "run-uniform", manifest)
+
+        self.assertEqual(summary["uniform_surface"]["response_count"], 3)
+        self.assertEqual(summary["uniform_surface"]["signature"]["status"], 301)
+        self.assertEqual(summary["status_leads"]["new"], 0)
+        self.assertFalse(Path(outputs["status_leads"]).exists())
+        self.assertTrue((root / "normalized" / "quarantined_uniform_results.jsonl").is_file())
+        self.assertEqual(manifest["ffuf_surface"]["classification"], "uniform_response_surface")
+
+    def test_write_job_heartbeat_records_pid_elapsed_and_log_growth(self) -> None:
+        root = self.root / "heartbeat-run"
+        logs = root / "logs"
+        logs.mkdir(parents=True)
+        (logs / "stdout.txt").write_text("progress\n", encoding="utf-8")
+        manifest = {"started_at": "2026-07-17T00:00:00Z", "status": "running"}
+
+        heartbeat = M.write_job_heartbeat(root, manifest, pid=4242, event="progress")
+
+        self.assertEqual(heartbeat["pid"], 4242)
+        self.assertEqual(heartbeat["event"], "progress")
+        self.assertEqual(heartbeat["stdout_bytes"], len("progress\n"))
+        self.assertTrue((root / "heartbeat.json").is_file())
+        self.assertEqual(json.loads((root / "heartbeat.json").read_text(encoding="utf-8"))["pid"], 4242)
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
     def test_postprocess_arjun_writes_parameter_artifacts_and_endpoint_queue(self) -> None:
         root = self.root / "arjun-run"
         raw = root / "raw"
@@ -218,6 +270,9 @@ class TestCronOrchestrator(unittest.TestCase):
         params.write_text(
             "https://api.example.com/v1/users?limit=10\n"
             "https://api.example.com/v1/search?q=ghost\n"
+            "http://api.example.com/v1/insecure?debug=true\n"
+            "https://api.example.com/assets/app.js\n"
+            "https://api.example.com/%20/not-a-route\n"
             "https://www.example.com/?utm_source=test\n"
             "https://outside.invalid/admin?debug=true\n",
             encoding="utf-8",
@@ -399,6 +454,48 @@ class TestCronOrchestrator(unittest.TestCase):
         self.assertEqual(row["host"], "api.example.com")
         self.assertEqual(row["input_host"], "api.example.com")
         self.assertEqual(row["resolved_ip"], "203.0.113.9")
+
+    @patch.object(M, "ScopeValidator", FakeScopeValidator)
+    def test_nmap_postprocess_promotes_open_ports_to_aggregate_and_http_followup_queues(self) -> None:
+        root = self.root / "nmap-run"
+        raw = root / "raw"
+        raw.mkdir(parents=True)
+        (raw / "nmap.xml").write_text(
+            """<?xml version='1.0'?><nmaprun><host><address addr='203.0.113.9' addrtype='ipv4'/><ports>\
+<port protocol='tcp' portid='8080'><state state='open'/><service name='http' product='nginx' version='1.24'/></port>\
+<port protocol='tcp' portid='8443'><state state='closed'/><service name='https'/></port>\
+</ports></host></nmaprun>""",
+            encoding="utf-8",
+        )
+        aggregate = self.root / "aggregated-ports.jsonl"
+        aggregate_txt = self.root / "aggregated-ports.txt"
+        fuzz_queue = self.root / "nmap-http-fuzz.jsonl"
+        parameter_queue = self.root / "nmap-http-parameters.txt"
+        job = {
+            "job": "nmap_enrichment",
+            "target": {"host": "api.example.com", "base_url": "https://api.example.com"},
+            "outputs": {
+                "aggregated_ports_jsonl": str(aggregate),
+                "aggregated_ports_txt": str(aggregate_txt),
+                "fuzz_endpoint_queue": str(fuzz_queue),
+                "parameter_endpoint_queue": str(parameter_queue),
+            },
+        }
+        manifest: dict[str, object] = {}
+
+        summary = M.postprocess_completed_job("demo", job, root, "run-nmap", manifest)
+
+        rows = [json.loads(line) for line in M.read_lines(aggregate)]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["host"], "api.example.com")
+        self.assertEqual(rows[0]["resolved_ip"], "203.0.113.9")
+        self.assertEqual(rows[0]["port"], 8080)
+        self.assertEqual(rows[0]["service"], "http")
+        self.assertEqual(M.read_lines(aggregate_txt), ["api.example.com:8080"])
+        self.assertEqual(M.read_lines(parameter_queue), ["http://api.example.com:8080/"])
+        queued = [json.loads(line) for line in M.read_lines(fuzz_queue)]
+        self.assertEqual(queued[0]["url"], "http://api.example.com:8080/")
+        self.assertEqual(summary["nmap_open_ports"]["new"], 1)
 
     @patch.object(M, "ScopeValidator", FakeScopeValidator)
     def test_naabu_normalization_preserves_input_hostname_and_resolved_ip_for_nmap(self) -> None:

@@ -35,6 +35,23 @@ The wrapper enforces saved scope before starting:
 - if the seed URL is not in scope, it stops
 - `--allow-unscoped` is only for explicit Ryushe-approved exceptions
 
+### Exact URL-Only Scope
+
+For programs with only exact website/API URL targets and no wildcard scope, use:
+
+```bash
+python3 agents/recon_ry.py start <program> \
+  --url <one-scoped-origin> \
+  --profile exact-urls
+```
+
+`exact-urls` keeps the standard project and artifact schema but omits subdomain
+enumeration, IP/port enrichment, and any promotion of sibling hosts. It runs
+only exact-host web stages: crawl/archive URL discovery, alive checks, HTTP
+fingerprinting, parameter/JS discovery, directory discovery, secret scanning,
+URL ranking, and EyeWitness. URL-bearing outputs are filtered back to the exact
+seed host. Run it once per exact scoped host.
+
 The wrapper writes `<remote-project>/rate_limit.conf` before launch. Default is conservative: `--rate-limit-rps 2`, `--timeout 300`. Increase only when the program policy allows it.
 
 Authenticated recon is opt-in and should use the existing account resolver:

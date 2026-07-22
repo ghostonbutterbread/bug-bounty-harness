@@ -176,6 +176,25 @@ def test_start_dry_run_uses_exact_urls_flag(capsys) -> None:
     assert "--subs" not in output
 
 
+def test_queue_dry_run_uses_one_exact_url_at_a_time(tmp_path: Path, capsys) -> None:
+    urls = tmp_path / "targets.txt"
+    urls.write_text("https://one.example.com\nhttps://two.example.com/\n", encoding="utf-8")
+    args = recon_ry.build_parser().parse_args(
+        [
+            "queue", "demo", "--url-file", str(urls), "--profile", "exact-urls", "--allow-unscoped", "--dry-run"
+        ]
+    )
+
+    recon_ry.queue_remote(args)
+
+    output = capsys.readouterr().out
+    assert "queue_urls.txt" in output
+    assert "--exact-urls" in output
+    assert "one.example.com" in output
+    assert "two.example.com" in output
+    assert "while IFS= read -r target_url" in output
+
+
 def test_start_full_fails_closed_when_scope_has_no_wildcards(monkeypatch) -> None:
     class ExactOnlyScope:
         def __init__(self, program: str, strict: bool = True):

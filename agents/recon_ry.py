@@ -301,7 +301,8 @@ def start_remote(args: argparse.Namespace) -> None:
     rate_conf = rate_limit_conf_body(args.rate_limit_rps, args.timeout)
     seed_files = build_remote_seed_files(args.program, args.url, allow_unscoped=args.allow_unscoped)
     auth_seed, auth_summary = resolve_auth_seed(args)
-    if auth_seed:
+    if auth_seed or args.profile == "exact-urls":
+        # Exact-host mode must never seed sibling scope entries into its project.
         seed_files = {
             "urls.txt": args.url.strip() + "\n",
             "wild.txt": "",
@@ -339,6 +340,79 @@ def start_remote(args: argparse.Namespace) -> None:
         "> \"$log\" 2>&1 & "
         "printf 'pid=%s\\nlog=%s\\nproject=%s\\nauth=%s\\n' \"$!\" \"$log\" "
         f"{shell_quote(project_dir)} {shell_quote(str(auth_summary.get('status', 'disabled')))}"
+    )
+    if args.dry_run:
+        print(remote_cmd)
+        return
+    subprocess.run(ssh_command(args.remote, Path(args.ssh_key).expanduser() if args.ssh_key else None, remote_cmd), check=True)
+
+
+def queue_remote(args: argparse.Namespace) -> None:
+    """Run exact-host recon sequentially for a file of scoped root URLs."""
+    if args.profile != "exact-urls":
+        raise SystemExit("queue currently supports only --profile exact-urls")
+    source = Path(args.url_file).expanduser()
+    if not source.is_file():
+        raise SystemExit(f"URL file not found: {source}")
+    targets: list[str] = []
+    seen: set[str] = set()
+    for raw in source.read_text(encoding="utf-8").splitlines():
+        target = raw.strip()
+        if not target or target.startswith("#"):
+            continue
+        parsed = urlparse(target if "://" in target else f"https://{target}")
+        if not parsed.hostname:
+            raise SystemExit(f"Invalid URL in {source}: {target}")
+        if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+            raise SystemExit(f"Exact-host queue accepts root URLs only; handle path-scoped assets as source review: {target}")
+        normalized = f"{parsed.scheme or 'https'}://{parsed.hostname.lower()}"
+        if normalized in seen:
+            continue
+        # Validate the submitted spelling so exact URL scopes (including a trailing slash) match.
+        validate_start_scope(args.program, target, allow_unscoped=args.allow_unscoped)
+        seen.add(normalized)
+        targets.append(normalized)
+    if not targets:
+        raise SystemExit(f"No usable root URLs in {source}")
+
+    queue_root = args.remote_project or f"/home/ryushe/bounties/{safe_slug(args.program)}/exact-url-queue"
+    queue_file = f"{queue_root}/queue_urls.txt"
+    rate_conf = rate_limit_conf_body(args.rate_limit_rps, args.timeout)
+    auth_seed, auth_summary = resolve_auth_seed(args)
+    remote_auth_seed = stage_remote_auth_seed(args, queue_root, auth_seed, auth_summary)
+    auth_file_cmds, _ = remote_auth_seed_commands(queue_root, auth_seed, auth_summary, dry_run=True) if args.dry_run else ("", "")
+    auth_env = f"env RECON_RY_AUTH_SEED={shell_quote(remote_auth_seed)} RECON_RY_AUTH_HOST=\"$target_host\" " if remote_auth_seed else ""
+    auth_arg = f" --auth-seed {shell_quote(remote_auth_seed)}" if remote_auth_seed else ""
+    queue_body = "\n".join(targets) + "\n"
+    worker = (
+        "set -eu\n"
+        f"queue_root={shell_quote(queue_root)}\n"
+        f"queue_file={shell_quote(queue_file)}\n"
+        "while IFS= read -r target_url || [ -n \"$target_url\" ]; do\n"
+        "  [ -n \"$target_url\" ] || continue\n"
+        "  target_host=$(python3 -c 'from urllib.parse import urlparse; import sys; print(urlparse(sys.argv[1]).hostname)' \"$target_url\")\n"
+        "  project=\"$queue_root/$target_host\"\n"
+        "  mkdir -p \"$project\"\n"
+        "  printf '%s\\n' \"$target_url\" > \"$project/urls.txt\"\n"
+        "  : > \"$project/wild.txt\"\n"
+        "  cp \"$queue_root/rate_limit.conf\" \"$project/rate_limit.conf\"\n"
+        "  item_log=\"$HOME/recon-ry-logs/queue-$(date -u +%Y%m%dT%H%M%SZ)-$target_host.log\"\n"
+        f"  {auth_env}\"$HOME/bin/recon-ry\" recon --exact-urls --project \"$project\" --url \"$target_url\"{auth_arg} -v > \"$item_log\" 2>&1\n"
+        "  printf 'completed target=%s log=%s\\n' \"$target_url\" \"$item_log\"\n"
+        "done < \"$queue_file\"\n"
+    )
+    remote_cmd = (
+        "set -eu; "
+        f"export PATH={shell_quote(REMOTE_RECON_PATH)}:\"$PATH\"; "
+        "mkdir -p \"$HOME/recon-ry-logs\"; "
+        f"mkdir -p {shell_quote(queue_root)}; "
+        f"cat > {shell_quote(queue_file)} <<'RECONRY_QUEUE_URLS'\n{queue_body}RECONRY_QUEUE_URLS\n"
+        f"{auth_file_cmds}"
+        f"cat > {shell_quote(queue_root + '/rate_limit.conf')} <<'RECONRY_RATE_LIMIT'\n{rate_conf}RECONRY_RATE_LIMIT\n"
+        f"master_log=\"$HOME/recon-ry-logs/{safe_slug(args.program)}-exact-url-queue-$(date -u +%Y%m%dT%H%M%SZ).log\"; "
+        f"nohup bash -c {shell_quote(worker)} > \"$master_log\" 2>&1 & "
+        "printf 'pid=%s\\nlog=%s\\nqueue=%s\\ntargets=%s\\nauth=%s\\n' \"$!\" \"$master_log\" "
+        f"{shell_quote(queue_root)} {shell_quote(str(len(targets)))} {shell_quote(str(auth_summary.get('status', 'disabled')))}"
     )
     if args.dry_run:
         print(remote_cmd)
@@ -524,6 +598,23 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--very-verbose", action="store_true")
     start_parser.add_argument("--dry-run", action="store_true")
     start_parser.set_defaults(func=start_remote)
+
+    queue_parser = subparsers.add_parser("queue", help="Queue exact-host recon sequentially from a scoped URL file.")
+    queue_parser.add_argument("program")
+    queue_parser.add_argument("--url-file", required=True, help="One scoped root URL/domain per line; comments and blank lines are ignored.")
+    queue_parser.add_argument("--profile", default="exact-urls")
+    queue_parser.add_argument("--remote-project")
+    queue_parser.add_argument("--remote", default=DEFAULT_REMOTE)
+    queue_parser.add_argument("--ssh-key", default=str(DEFAULT_SSH_KEY))
+    queue_parser.add_argument("--rate-limit-rps", type=float, default=2.0, help="Aggregate sequential queue rate limit in requests per second.")
+    queue_parser.add_argument("--timeout", type=int, default=300, help="Per-tool timeout written to each queued project.")
+    queue_parser.add_argument("--allow-unscoped", action="store_true")
+    queue_parser.add_argument("--auth", help="Resolve an owned account alias or PwnFox color through account-management.")
+    queue_parser.add_argument("--auth-seed-file", help="Use an explicit locked-down auth seed JSON file.")
+    queue_parser.add_argument("--auth-header", action="append", help="Manual header for supported HTTP tools; repeatable.")
+    queue_parser.add_argument("--cookie", action="append", help="Manual Cookie header value for supported HTTP tools; repeatable.")
+    queue_parser.add_argument("--dry-run", action="store_true")
+    queue_parser.set_defaults(func=queue_remote)
 
     ingest_parser = subparsers.add_parser("ingest", help="Import a completed recon-ry project directory.")
     ingest_parser.add_argument("program")

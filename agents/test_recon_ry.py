@@ -153,6 +153,29 @@ def test_start_dry_run_uses_hoster_wrapper(capsys) -> None:
     assert "export PATH='$HOME/go/bin:$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/bin:/bin':\"$PATH\"" in output
 
 
+def test_start_dry_run_uses_exact_urls_flag(capsys) -> None:
+    parser = recon_ry.build_parser()
+    args = parser.parse_args(
+        [
+            "start",
+            "demo",
+            "--url",
+            "https://app.example.com",
+            "--profile",
+            "exact-urls",
+            "--dry-run",
+            "--allow-unscoped",
+        ]
+    )
+
+    recon_ry.start_remote(args)
+
+    output = capsys.readouterr().out
+    assert '"$HOME/bin/recon-ry" recon --exact-urls' in output
+    assert "--full" not in output
+    assert "--subs" not in output
+
+
 def test_start_dry_run_stages_manual_auth_without_leaking_values(capsys) -> None:
     parser = recon_ry.build_parser()
     args = parser.parse_args(

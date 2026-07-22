@@ -275,7 +275,7 @@ def rate_limit_conf_body(rate_limit_rps: float, timeout: int) -> str:
 def start_remote(args: argparse.Namespace) -> None:
     validate_start_scope(args.program, args.url, allow_unscoped=args.allow_unscoped)
     project_dir = args.remote_project or f"/home/ryushe/bounties/{safe_slug(args.program)}"
-    profile_flag = f"--{args.profile}" if args.profile in {"full", "subs", "fast", "urls", "params", "dork", "dir"} else f"--profile {args.profile}"
+    profile_flag = f"--{args.profile}" if args.profile in {"full", "subs", "fast", "urls", "params", "dork", "dir", "exact-urls"} else f"--profile {args.profile}"
     url_part = f" --url {shell_quote(args.url)}" if args.url else ""
     verbose = " -vv" if args.very_verbose else " -v"
     rate_conf = rate_limit_conf_body(args.rate_limit_rps, args.timeout)

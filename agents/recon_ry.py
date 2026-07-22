@@ -218,6 +218,25 @@ def validate_start_scope(program: str, url: str, *, allow_unscoped: bool = False
         raise SystemExit(str(exc)) from exc
 
 
+def validate_profile_scope(program: str, profile: str) -> None:
+    """Reject wildcard-dependent profiles when published scope has exact URLs only."""
+    if profile not in {"full", "subs", "fast", "urls"}:
+        return
+    validator = ScopeValidator(program=program, strict=True)
+    if validator.is_empty():
+        return
+    has_wildcard = any(
+        getattr(entry, "entry_type", "") == "wildcard"
+        or clean_scope_value(getattr(entry, "raw", "")).startswith("*.")
+        for entry in getattr(validator, "_entries", [])
+    )
+    if not has_wildcard:
+        raise SystemExit(
+            f"Profile {profile!r} requires wildcard targets, but {program!r} has no wildcard targets. "
+            "Use --profile exact-urls for exact URL-only scope."
+        )
+
+
 def build_remote_seed_files(program: str, seed_url: str, *, allow_unscoped: bool = False) -> dict[str, str]:
     """Build recon-ry project seed files from saved scope plus the requested seed URL."""
     domains: list[str] = []
@@ -274,6 +293,7 @@ def rate_limit_conf_body(rate_limit_rps: float, timeout: int) -> str:
 
 def start_remote(args: argparse.Namespace) -> None:
     validate_start_scope(args.program, args.url, allow_unscoped=args.allow_unscoped)
+    validate_profile_scope(args.program, args.profile)
     project_dir = args.remote_project or f"/home/ryushe/bounties/{safe_slug(args.program)}"
     profile_flag = f"--{args.profile}" if args.profile in {"full", "subs", "fast", "urls", "params", "dork", "dir", "exact-urls"} else f"--profile {args.profile}"
     url_part = f" --url {shell_quote(args.url)}" if args.url else ""

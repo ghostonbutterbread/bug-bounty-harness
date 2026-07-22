@@ -176,6 +176,30 @@ def test_start_dry_run_uses_exact_urls_flag(capsys) -> None:
     assert "--subs" not in output
 
 
+def test_start_full_fails_closed_when_scope_has_no_wildcards(monkeypatch) -> None:
+    class ExactOnlyScope:
+        def __init__(self, program: str, strict: bool = True):
+            self._entries = [SimpleNamespace(raw="https://api.example.com", entry_type="url_pattern")]
+
+        def is_empty(self) -> bool:
+            return False
+
+        def validate_or_fail(self, _url: str) -> None:
+            return None
+
+    monkeypatch.setattr(recon_ry, "ScopeValidator", ExactOnlyScope)
+    args = recon_ry.build_parser().parse_args(
+        ["start", "demo", "--url", "https://api.example.com", "--profile", "full", "--dry-run"]
+    )
+
+    try:
+        recon_ry.start_remote(args)
+    except SystemExit as exc:
+        assert "no wildcard targets" in str(exc)
+    else:
+        raise AssertionError("expected full profile to reject exact-only scope")
+
+
 def test_start_dry_run_stages_manual_auth_without_leaking_values(capsys) -> None:
     parser = recon_ry.build_parser()
     args = parser.parse_args(

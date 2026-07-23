@@ -40,24 +40,6 @@ parser differential), its recognition signals, a small discriminating check,
 and its limits. Broad methodology, tool descriptions, architecture guidance,
 and mindset material belong outside ResearchMap. See [docs/research-map.md](docs/research-map.md).
 
-## Nightly Learning (beta)
-
-The passive learning loop restores the legacy curated-source model without
-turning external material into agent instructions. Its synced source registry
-is `~/notes/appsec/research/sources/learning-sources.yaml`; the runner fetches
-only whitelisted HTTPS source indexes through `safe-fetch`, deduplicates their
-content hashes in a local SQLite ledger, and emits an auditable review digest.
-
-```bash
-python3 scripts/nightly_learning.py validate
-python3 scripts/nightly_learning.py beta
-```
-
-Beta is deliberately report-only: it never creates cards, notes, skills, or
-target actions. Review an artifact first, then promote concrete portable
-mechanisms into cited ResearchMap cards. Reports and the rebuildable seen ledger
-live under `~/.hermes/learning/nightly/`.
-
 ## Explicit `/goal` runs
 
 The explicit `/goal` workflow is opt-in: `goal_router.py` classifies the stated

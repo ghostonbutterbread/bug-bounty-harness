@@ -597,3 +597,26 @@ def test_explicit_mitm_ca_is_not_overridden_for_hoster_proxy(monkeypatch, tmp_pa
     result = module.resolve_mitm_ca_cert(str(explicit_ca), "http://hoster:8080")
 
     assert result == explicit_ca
+
+
+def test_hoster_launch_rejects_ssh_service_cgroup(monkeypatch):
+    module = load_launcher_module()
+    monkeypatch.setattr(module, "current_cgroup_text", lambda: "0::/system.slice/ssh.service/session-42.scope")
+
+    try:
+        module.assert_hoster_workload_isolated("hoster")
+    except SystemExit as exc:
+        assert "hoster-ssh" in str(exc)
+    else:
+        raise AssertionError("Hoster Chromium launch was allowed from ssh.service")
+
+
+def test_supervise_browser_waits_for_the_recorded_chromium_process():
+    module = load_launcher_module()
+
+    class FakeProcess:
+        def wait(self):
+            return 7
+
+    assert module.wait_for_browser_if_requested(FakeProcess(), supervise=True) == 7
+    assert module.wait_for_browser_if_requested(FakeProcess(), supervise=False) == 0

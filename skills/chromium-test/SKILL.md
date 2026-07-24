@@ -32,14 +32,16 @@ controls.
    returned CDP endpoint from the automation client or a permitted manual
    display workflow. Completion: the launch plan has no `--headless` flag.
 2. **Route to Hoster deliberately.** If the agent is already on Hoster, launch
-   locally. If it is on another machine, use the `hoster-ssh` connection
-   (`ssh -i /home/ryushe/.ssh/hoster … ryushe@hoster`) to run the canonical
-   launcher there; do not attempt to borrow a local GPU or create an interactive
-   SSH shell. Completion: the launcher reports `runtime: hoster` and a
-   Hoster-local profile/CDP endpoint.
+   locally only from a Hoster user-systemd service. If it is on another machine,
+   use the canonical `hoster-ssh` dispatch helper—not a raw remote launcher or
+   interactive SSH shell. Completion: the launcher reports `runtime: hoster`,
+   a Hoster-local profile/CDP endpoint, and a ControlGroup outside
+   `ssh.service`.
 3. Launch via the canonical launcher *on Hoster*, with a unique run ID,
    ephemeral profile, and Hoster-local proxy (`http://localhost:<leased-port>`).
-   Do not launch raw Chrome or reuse an existing Chrome process/profile.
+   Do not launch raw Chrome, reuse an existing Chrome process/profile, or invoke
+   `chromium_test.py` directly from an SSH cgroup: the launcher rejects that
+   unsafe ownership path.
 4. Before treating the run as GPU-backed, verify its recorded browser PID owns
    `/dev/dri/renderD128` and that `eglinfo -B` reports `NV134`, rather than
    `llvmpipe`. `nvidia-smi` is not the verification path here: this host uses
@@ -90,6 +92,35 @@ ssh -i /home/ryushe/.ssh/hoster -o BatchMode=yes -o ConnectTimeout=10 \
 ```
 
 ## Invocation
+
+### From Ghost or another machine
+
+Use `hoster-ssh` to place the whole launcher in a named Hoster user-systemd
+service. Pass `--supervise` so the launcher remains the service's foreground
+owner for Chromium's full lifetime; Chromium therefore remains owned by that
+service rather than `ssh.service`.
+
+```bash
+run_id="$(date -u +%Y%m%dT%H%M%SZ)"
+unit="hoster-chromium-$run_id"
+HELPER=/home/ryushe/.openclaw/workspace/skills/hoster-ssh/scripts/hoster_user_unit.py
+python3 "$HELPER" --unit="$unit" --memory-high=2G --memory-max=3G -- \
+  /bin/bash -lc "cd /home/ryushe/projects/bug_bounty_harness && exec python3 skills/chromium-test/scripts/chromium_test.py <program> <task> --run-id '$run_id' --ephemeral-profile --supervise --json"
+```
+
+Read the launcher JSON (browser PID and CDP endpoint) from the recorded unit:
+
+```bash
+ssh -i /home/ryushe/.ssh/hoster -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=no -T \
+  ryushe@hoster "export XDG_RUNTIME_DIR=/run/user/\$(id -u); export DBUS_SESSION_BUS_ADDRESS=unix:path=\$XDG_RUNTIME_DIR/bus; journalctl --user -u '$unit' --no-pager -n 40"
+```
+
+After dispatch, verify the unit ControlGroup is outside `ssh.service` before
+opening a temporary CDP forward. Reuse a healthy matching run when its recorded
+run ID, CDP endpoint, profile, and unit all match; do not launch a duplicate
+browser merely because a prior task's process is old.
+
+### Local Hoster invocation
 
 ```text
 /chromium-test <program> <task> [--url <url>] [--port <port>] [--remote-allow-origins <value>]

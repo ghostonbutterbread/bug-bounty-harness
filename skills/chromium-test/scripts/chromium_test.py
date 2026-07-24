@@ -103,6 +103,31 @@ def current_runtime() -> str:
     return socket.gethostname().strip().lower()
 
 
+def current_cgroup_text() -> str:
+    """Return this process's Linux cgroup membership, or an empty string when unavailable."""
+    try:
+        return Path("/proc/self/cgroup").read_text()
+    except OSError:
+        return ""
+
+
+def assert_hoster_workload_isolated(runtime: str) -> None:
+    """Refuse durable Hoster launches that would leave descendants in ssh.service."""
+    if runtime != "hoster":
+        return
+    cgroups = current_cgroup_text()
+    if "ssh.service" in cgroups or "sshd.service" in cgroups:
+        raise SystemExit(
+            "Refusing to launch Chromium from ssh.service on Hoster. "
+            "Dispatch it through the hoster-ssh user-systemd helper instead."
+        )
+
+
+def wait_for_browser_if_requested(process: subprocess.Popen[Any], *, supervise: bool) -> int:
+    """Keep a service-owned launcher alive until its Chromium child exits."""
+    return process.wait() if supervise else 0
+
+
 def load_runtime_route(runtime: str) -> dict[str, str]:
     allowed_route_keys = {"browser_proxy", "lane"}
     if DEFAULT_ROUTE_TABLE.exists():
@@ -726,6 +751,11 @@ def parse_args() -> argparse.Namespace:
         help="Use a per-profile HOME so Chrome uses an isolated ~/.pki/nssdb trust store.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Print launch plan only.")
+    parser.add_argument(
+        "--supervise",
+        action="store_true",
+        help="Wait for Chromium to exit; required when this launcher is owned by a systemd service.",
+    )
     parser.add_argument("--json", action="store_true", help="Print JSON output.")
     return parser.parse_args()
 
@@ -879,6 +909,7 @@ def main() -> int:
         "dry_run": args.dry_run,
     }
 
+    proc: subprocess.Popen[Any] | None = None
     if not args.dry_run:
         if auth_seed_error:
             if args.json:
@@ -887,6 +918,7 @@ def main() -> int:
                 print(f"Auth seed unusable: {auth_seed_error}", file=sys.stderr)
                 print("Next: " + "; ".join(auth_next_step.get("steps", [])), file=sys.stderr)
             return 2
+        assert_hoster_workload_isolated(runtime)
         proc = subprocess.Popen(
             command,
             stdout=subprocess.DEVNULL,
@@ -907,7 +939,10 @@ def main() -> int:
             print(f"Browser proxy: {result['proxy_server']}")
             print(f"Proxy cert: {cert_status['status']}")
 
-    return 0
+    if args.dry_run:
+        return 0
+    assert proc is not None
+    return wait_for_browser_if_requested(proc, supervise=args.supervise)
 
 
 if __name__ == "__main__":

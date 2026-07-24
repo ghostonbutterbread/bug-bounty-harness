@@ -56,6 +56,17 @@ def split_csv(values: Iterable[str]) -> list[str]:
     return result
 
 
+def normalize_labels(values: Iterable[str], *, field: str) -> list[str]:
+    labels = []
+    for value in split_csv(values):
+        label = value.lower()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._/-]*", label):
+            raise ValueError(f"{field} values must be lowercase identifiers using letters, digits, '.', '_', '/', or '-'")
+        if label not in labels:
+            labels.append(label)
+    return labels
+
+
 def safe_topic(value: str) -> str:
     topic = value.strip().strip("/")
     if not topic or topic.endswith(".md"):
@@ -111,9 +122,20 @@ def render_document(
     mapstore_refs: list[str],
     recognition_signals: list[str],
     security_questions: list[str],
+    tags: list[str],
+    aliases: list[str],
+    surfaces: list[str],
+    technologies: list[str],
 ) -> str:
-    source_lines = "\n".join(f"  - {source}" for source in sources) or "  - none recorded"
-    mapstore_lines = "\n".join(f"  - {ref}" for ref in mapstore_refs) or "  - none yet"
+    def yaml_list(values: list[str], empty: str) -> str:
+        return "\n".join(f"  - {value}" for value in values) or f"  - {empty}"
+
+    source_lines = yaml_list(sources, "none-recorded")
+    mapstore_lines = yaml_list(mapstore_refs, "none-yet")
+    tag_lines = yaml_list(tags, "untagged")
+    alias_lines = yaml_list(aliases, "none")
+    surface_lines = yaml_list(surfaces, "unspecified")
+    technology_lines = yaml_list(technologies, "unspecified")
     recognition_lines = "\n".join(f"- {signal}" for signal in recognition_signals) or "- No concrete recognition signals recorded yet."
     question_lines = "\n".join(f"- {question}" for question in security_questions) or "- No bounded security questions recorded yet."
     body = body.strip()
@@ -122,6 +144,14 @@ title: {title.strip()}
 topic: {topic}
 status: {status}
 last_verified: {iso_now()}
+tags:
+{tag_lines}
+aliases:
+{alias_lines}
+surfaces:
+{surface_lines}
+technologies:
+{technology_lines}
 sources:
 {source_lines}
 mapstore_refs:
@@ -157,43 +187,82 @@ provider reference and is not proof that unobserved flows behave the same way.
 """
 
 
-def parse_frontmatter(path: Path) -> dict[str, str]:
+def parse_frontmatter(path: Path) -> dict[str, str | list[str]]:
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---\n"):
         return {}
     end = text.find("\n---\n", 4)
     if end < 0:
         return {}
-    fields: dict[str, str] = {}
+    fields: dict[str, str | list[str]] = {}
+    active_list: str | None = None
     for line in text[4:end].splitlines():
-        if ":" in line and not line.startswith((" ", "-")):
+        if line.startswith("  - ") and active_list:
+            value = line[4:].strip()
+            current = fields.setdefault(active_list, [])
+            assert isinstance(current, list)
+            current.append(value)
+        elif ":" in line and not line.startswith((" ", "-")):
             key, value = line.split(":", 1)
-            fields[key.strip()] = value.strip()
+            key, value = key.strip(), value.strip()
+            active_list = key if not value else None
+            fields[key] = [] if not value else value
     return fields
 
 
-def document_summary(path: Path, root: Path) -> dict[str, str]:
+def metadata_values(fields: dict[str, str | list[str]], key: str) -> list[str]:
+    value = fields.get(key, [])
+    return value if isinstance(value, list) else [value]
+
+
+def document_summary(path: Path, root: Path) -> dict[str, object]:
     fields = parse_frontmatter(path)
     text = path.read_text(encoding="utf-8")
     return {
         "topic": str(path.relative_to(root)).removesuffix(".md"),
-        "title": fields.get("title", path.stem.replace("-", " ")),
-        "status": fields.get("status", "unknown"),
+        "title": str(fields.get("title", path.stem.replace("-", " "))),
+        "status": str(fields.get("status", "unknown")),
+        "tags": metadata_values(fields, "tags"),
+        "aliases": metadata_values(fields, "aliases"),
+        "surfaces": metadata_values(fields, "surfaces"),
+        "technologies": metadata_values(fields, "technologies"),
         "path": str(path),
         "search_text": text.lower(),
     }
 
 
-def search(root: Path, query: str) -> list[dict[str, str]]:
+def search(
+    root: Path,
+    query: str = "",
+    *,
+    tags: list[str] | None = None,
+    surfaces: list[str] | None = None,
+    technologies: list[str] | None = None,
+) -> list[dict[str, object]]:
     terms = [term.lower() for term in query.split() if term.strip()]
-    results = []
+    wanted_tags = {value.lower() for value in tags or []}
+    wanted_surfaces = {value.lower() for value in surfaces or []}
+    wanted_technologies = {value.lower() for value in technologies or []}
+    results: list[dict[str, object]] = []
     for path in sorted(root.rglob("*.md")):
         if path.name == README_NAME:
             continue
         summary = document_summary(path, root)
-        if all(term in summary["search_text"] for term in terms):
-            results.append(summary)
-    return results
+        values = lambda key: {str(value).lower() for value in summary[key]}  # type: ignore[index]
+        if wanted_tags and not wanted_tags.issubset(values("tags")):
+            continue
+        if wanted_surfaces and not wanted_surfaces.issubset(values("surfaces")):
+            continue
+        if wanted_technologies and not wanted_technologies.issubset(values("technologies")):
+            continue
+        if terms and not all(term in str(summary["search_text"]) for term in terms):
+            continue
+        metadata_text = " ".join(
+            [str(summary["title"]), str(summary["topic"]), *values("tags"), *values("aliases"), *values("technologies"), *values("surfaces")]
+        ).lower()
+        summary["score"] = sum(metadata_text.count(term) * 10 + str(summary["search_text"]).count(term) for term in terms)
+        results.append(summary)
+    return sorted(results, key=lambda row: (-int(row["score"]), str(row["topic"])))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -218,6 +287,10 @@ def build_parser() -> argparse.ArgumentParser:
     body.add_argument("--body")
     body.add_argument("--body-file")
     body.add_argument("--body-stdin", action="store_true")
+    write.add_argument("--tag", action="append", required=True, help="Discovery tag; repeatable or comma-separated")
+    write.add_argument("--alias", action="append", default=[], help="Alternative identifier agents may use; repeatable or comma-separated")
+    write.add_argument("--surface", action="append", default=[], help="Relevant surface such as auth, xss, or api; repeatable or comma-separated")
+    write.add_argument("--technology", action="append", default=[], help="SDK, provider, framework, or protocol identifier; repeatable or comma-separated")
     write.add_argument("--source", action="append", default=[], help="Source/program documentation URL or sanitized artifact path; repeatable or comma-separated")
     write.add_argument("--mapstore-ref", action="append", default=[], help="Relative MapStore observation path; repeatable or comma-separated")
     write.add_argument("--recognition", action="append", default=[], help="Concrete SDK, endpoint, UI, or code signal for narrow retrieval; repeatable or comma-separated")
@@ -228,9 +301,12 @@ def build_parser() -> argparse.ArgumentParser:
     common(show)
     show.add_argument("--topic", required=True)
 
-    find = sub.add_parser("search", help="Search program documentation by concrete terms")
+    find = sub.add_parser("search", help="Search program documentation by concrete terms or structured discovery metadata")
     common(find)
-    find.add_argument("--query", required=True)
+    find.add_argument("--query", default="", help="Concrete terms; all terms must match")
+    find.add_argument("--tag", action="append", default=[], help="Require discovery tag; repeatable or comma-separated")
+    find.add_argument("--surface", action="append", default=[], help="Require surface; repeatable or comma-separated")
+    find.add_argument("--technology", action="append", default=[], help="Require technology; repeatable or comma-separated")
     find.add_argument("--limit", type=int, default=10)
     find.add_argument("--json", action="store_true")
     return parser
@@ -273,6 +349,10 @@ def main(argv: list[str] | None = None) -> int:
                 mapstore_refs=split_csv(args.mapstore_ref),
                 recognition_signals=split_csv(args.recognition),
                 security_questions=[question.strip() for question in args.question if question.strip()],
+                tags=normalize_labels(args.tag, field="tag"),
+                aliases=normalize_labels(args.alias, field="alias"),
+                surfaces=normalize_labels(args.surface, field="surface"),
+                technologies=normalize_labels(args.technology, field="technology"),
             ),
             encoding="utf-8",
         )
@@ -288,19 +368,31 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "search":
+        requested_tags = normalize_labels(args.tag, field="tag")
+        requested_surfaces = normalize_labels(args.surface, field="surface")
+        requested_technologies = normalize_labels(args.technology, field="technology")
+        if not (args.query.strip() or requested_tags or requested_surfaces or requested_technologies):
+            raise ValueError("search needs --query, --tag, --surface, or --technology")
         if not root.exists():
             print("(no program documentation found)")
             return 0
-        results = search(root, args.query)[: args.limit]
+        results = search(
+            root,
+            args.query,
+            tags=requested_tags,
+            surfaces=requested_surfaces,
+            technologies=requested_technologies,
+        )[: args.limit]
         if args.json:
             import json
-            print(json.dumps([{key: value for key, value in row.items() if key != "search_text"} for row in results], indent=2))
+            print(json.dumps([{key: value for key, value in row.items() if key not in {"search_text", "score"}} for row in results], indent=2))
             return 0
         if not results:
             print("(no matching program documentation found)")
             return 0
         for row in results:
-            print(f"{row['topic']} | {row['status']} | {row['title']} | {row['path']}")
+            tags = ",".join(str(value) for value in row["tags"])
+            print(f"{row['topic']} | {row['status']} | tags={tags} | {row['title']} | {row['path']}")
         return 0
 
     raise AssertionError(f"unsupported command: {args.command}")

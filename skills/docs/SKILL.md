@@ -23,8 +23,10 @@ Do not read a program's docs directory broadly at startup.
 3. Query MapStore only with a concrete URL, integration, technology, or surface
    and an explicit intent.
 4. If the MapStore result points to `docs/<topic>.md`, load that one document.
-5. If a concrete technology or SDK is known but no MapStore pointer is available,
-   use `program_docs.py search` with narrow terms.
+5. If a concrete technology, SDK, or surface is known but no MapStore pointer is
+   available, use `program_docs.py search` with narrow terms and/or structured
+   filters (`--tag`, `--surface`, `--technology`). Do not search with generic
+   vulnerability words alone.
 6. Treat retrieved docs as a scoped working model, not proof. Validate material
    claims against current target evidence.
 
@@ -58,13 +60,18 @@ python3 agents/program_docs.py init --program <program> --family <family> --lane
 python3 agents/program_docs.py search --program <program> --family <family> --lane <lane> \
   --query "poster sdk export"
 
+# Metadata-only discovery when an agent knows the surface or technology but not the topic.
+python3 agents/program_docs.py search --program <program> --family <family> --lane <lane> \
+  --tag sdk --surface auth --technology poster-sdk
+
 python3 agents/program_docs.py show --program <program> --family <family> --lane <lane> \
   --topic integrations/poster-sdk-export-flow
 ```
 
-Create a formatted document by supplying only the target-specific model and
-provenance. The script supplies status, scope, recognition-signal prompts,
-freshness caveats, and link sections:
+Create a formatted document by supplying only the target-specific model,
+provenance, and small controlled discovery metadata. `--tag` is required;
+use stable lowercase identifiers, while aliases capture expected alternate names
+the next agent may use:
 
 ```bash
 python3 agents/program_docs.py write --program <program> --family <family> --lane <lane> \
@@ -72,6 +79,10 @@ python3 agents/program_docs.py write --program <program> --family <family> --lan
   --title "Poster SDK export integration" \
   --status partially-verified \
   --body-file /tmp/poster-sdk-model.md \
+  --tag "sdk,integration,export" \
+  --alias "poster-client,workspace-export" \
+  --surface "api,auth" \
+  --technology "poster-sdk" \
   --source "https://vendor.example/docs/sdk" \
   --source "working/scratch/<run-id>/sdk-notes.md" \
   --mapstore-ref "recon/maps/_app/poster-sdk/index.md" \

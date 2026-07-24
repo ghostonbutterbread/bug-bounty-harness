@@ -29,6 +29,10 @@ def test_write_creates_structured_cross_linked_doc(tmp_path: Path, capsys: pytes
         "--title", "Poster SDK export integration",
         "--body-file", str(body),
         "--source", "https://docs.poster.example/sdk",
+        "--tag", "sdk,export",
+        "--alias", "poster-client",
+        "--surface", "auth",
+        "--technology", "poster-sdk",
         "--mapstore-ref", "recon/maps/_app/poster-sdk/index.md",
         "--recognition", "@imtbl/passport, relayerUrl/v1/transactions",
         "--question", "Does the server bind the submission to the evaluated transaction, account, and session?",
@@ -37,6 +41,9 @@ def test_write_creates_structured_cross_linked_doc(tmp_path: Path, capsys: pytes
     path = tmp_path / "web_bounty" / "poster" / "web" / "docs" / "integrations" / "poster-sdk-export-flow.md"
     content = path.read_text(encoding="utf-8")
     assert "topic: integrations/poster-sdk-export-flow" in content
+    assert "  - sdk" in content
+    assert "  - poster-client" in content
+    assert "  - poster-sdk" in content
     assert "https://docs.poster.example/sdk" in content
     assert "recon/maps/_app/poster-sdk/index.md" in content
     assert "@imtbl/passport" in content
@@ -47,7 +54,7 @@ def test_write_creates_structured_cross_linked_doc(tmp_path: Path, capsys: pytes
 
 def test_write_rejects_accidental_overwrite(tmp_path: Path) -> None:
     command = args(
-        tmp_path, "write", "--topic", "sdk/poster", "--title", "Poster", "--body", "Observed model."
+        tmp_path, "write", "--topic", "sdk/poster", "--title", "Poster", "--body", "Observed model.", "--tag", "sdk"
     )
     assert main(command) == 0
     with pytest.raises(FileExistsError):
@@ -62,6 +69,10 @@ def test_search_uses_concrete_terms_and_skips_readme(tmp_path: Path, capsys: pyt
         "--title", "Poster SDK",
         "--body", "The SDK submits export jobs with workspace authorization.",
         "--status", "partially-verified",
+        "--tag", "sdk,export",
+        "--alias", "poster-client",
+        "--surface", "auth",
+        "--technology", "poster-sdk",
     )) == 0
     root = tmp_path / "web_bounty" / "poster" / "web" / "docs"
     rows = search(root, "sdk workspace")
@@ -70,9 +81,12 @@ def test_search_uses_concrete_terms_and_skips_readme(tmp_path: Path, capsys: pyt
 
     assert main(args(tmp_path, "search", "--query", "sdk workspace")) == 0
     output = capsys.readouterr().out
-    assert "integrations/poster-sdk | partially-verified | Poster SDK" in output
+    assert "integrations/poster-sdk | partially-verified | tags=sdk,export | Poster SDK" in output
+
+    assert main(args(tmp_path, "search", "--tag", "sdk", "--surface", "auth", "--technology", "poster-sdk")) == 0
+    assert "integrations/poster-sdk | partially-verified | tags=sdk,export | Poster SDK" in capsys.readouterr().out
 
 
 def test_topic_rejects_traversal(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
-        main(args(tmp_path, "write", "--topic", "../escape", "--title", "No", "--body", "No."))
+        main(args(tmp_path, "write", "--topic", "../escape", "--title", "No", "--body", "No.", "--tag", "sdk"))

@@ -105,7 +105,7 @@ run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 unit="hoster-chromium-$run_id"
 HELPER=/home/ryushe/.openclaw/workspace/skills/hoster-ssh/scripts/hoster_user_unit.py
 python3 "$HELPER" --unit="$unit" --memory-high=2G --memory-max=3G -- \
-  /bin/bash -lc "cd /home/ryushe/projects/bug_bounty_harness && exec python3 skills/chromium-test/scripts/chromium_test.py <program> <task> --run-id '$run_id' --ephemeral-profile --supervise --json"
+  /bin/bash -lc "cd /home/ryushe/projects/bug_bounty_harness-stable && exec python3 skills/chromium-test/scripts/chromium_test.py <program> <task> --run-id '$run_id' --ephemeral-profile --supervise --json"
 ```
 
 Read the launcher JSON (browser PID and CDP endpoint) from the recorded unit:

@@ -30,6 +30,8 @@ def test_write_creates_structured_cross_linked_doc(tmp_path: Path, capsys: pytes
         "--body-file", str(body),
         "--source", "https://docs.poster.example/sdk",
         "--mapstore-ref", "recon/maps/_app/poster-sdk/index.md",
+        "--recognition", "@imtbl/passport, relayerUrl/v1/transactions",
+        "--question", "Does the server bind the submission to the evaluated transaction, account, and session?",
     )) == 0
 
     path = tmp_path / "web_bounty" / "poster" / "web" / "docs" / "integrations" / "poster-sdk-export-flow.md"
@@ -37,6 +39,8 @@ def test_write_creates_structured_cross_linked_doc(tmp_path: Path, capsys: pytes
     assert "topic: integrations/poster-sdk-export-flow" in content
     assert "https://docs.poster.example/sdk" in content
     assert "recon/maps/_app/poster-sdk/index.md" in content
+    assert "@imtbl/passport" in content
+    assert "Does the server bind the submission" in content
     assert "## Recognition signals" in content
     assert "MapStore pointer: docs/integrations/poster-sdk-export-flow.md" in capsys.readouterr().out
 

@@ -74,7 +74,9 @@ python3 agents/program_docs.py write --program <program> --family <family> --lan
   --body-file /tmp/poster-sdk-model.md \
   --source "https://vendor.example/docs/sdk" \
   --source "working/scratch/<run-id>/sdk-notes.md" \
-  --mapstore-ref "recon/maps/_app/poster-sdk/index.md"
+  --mapstore-ref "recon/maps/_app/poster-sdk/index.md" \
+  --recognition "@imtbl/passport,relayerUrl/v1/transactions" \
+  --question "Does the server bind submission to the Guardian-evaluated transaction?"
 ```
 
 The command prints the canonical relative pointer, for example:

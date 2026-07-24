@@ -101,9 +101,21 @@ path.
 """
 
 
-def render_document(*, title: str, topic: str, status: str, body: str, sources: list[str], mapstore_refs: list[str]) -> str:
+def render_document(
+    *,
+    title: str,
+    topic: str,
+    status: str,
+    body: str,
+    sources: list[str],
+    mapstore_refs: list[str],
+    recognition_signals: list[str],
+    security_questions: list[str],
+) -> str:
     source_lines = "\n".join(f"  - {source}" for source in sources) or "  - none recorded"
     mapstore_lines = "\n".join(f"  - {ref}" for ref in mapstore_refs) or "  - none yet"
+    recognition_lines = "\n".join(f"- {signal}" for signal in recognition_signals) or "- No concrete recognition signals recorded yet."
+    question_lines = "\n".join(f"- {question}" for question in security_questions) or "- No bounded security questions recorded yet."
     body = body.strip()
     return f"""---
 title: {title.strip()}
@@ -126,11 +138,10 @@ provider reference and is not proof that unobserved flows behave the same way.
 {body}
 
 ## Recognition signals
-- Add concrete SDK names, endpoint prefixes, headers, object names, UI flows, or
-  code signals that tell a future agent this document is relevant.
+{recognition_lines}
 
 ## Security-relevant questions
-- Add the next bounded questions that this model makes cheaper to test.
+{question_lines}
 
 ## Limits and freshness
 - Status: `{status}`.
@@ -209,6 +220,8 @@ def build_parser() -> argparse.ArgumentParser:
     body.add_argument("--body-stdin", action="store_true")
     write.add_argument("--source", action="append", default=[], help="Source/program documentation URL or sanitized artifact path; repeatable or comma-separated")
     write.add_argument("--mapstore-ref", action="append", default=[], help="Relative MapStore observation path; repeatable or comma-separated")
+    write.add_argument("--recognition", action="append", default=[], help="Concrete SDK, endpoint, UI, or code signal for narrow retrieval; repeatable or comma-separated")
+    write.add_argument("--question", action="append", default=[], help="Bounded security question created by this model; repeatable")
     write.add_argument("--overwrite", action="store_true", help="Replace an existing topic deliberately")
 
     show = sub.add_parser("show", help="Print one documentation entry")
@@ -258,6 +271,8 @@ def main(argv: list[str] | None = None) -> int:
                 body=body,
                 sources=split_csv(args.source),
                 mapstore_refs=split_csv(args.mapstore_ref),
+                recognition_signals=split_csv(args.recognition),
+                security_questions=[question.strip() for question in args.question if question.strip()],
             ),
             encoding="utf-8",
         )

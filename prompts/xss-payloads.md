@@ -124,6 +124,16 @@ Use only after you already know the context and need a harder bypass:
 jaVasCript:/*-/*`/*\`/*'/*"/**/(/* */alert(1))//
 ```
 
+### Computed Identifier Construction (reported Akamai candidate)
+
+For a **single-quoted JavaScript-string context** where a quote breakout is already established, this avoids literal `prompt` and `cookie` identifiers by constructing them with `String.fromCharCode`. Source: [@0xmicho1, 2026-07-24](https://x.com/0xmicho1/status/2080655008270373255); reported as an Akamai WAF bypass. Treat it as a context-specific candidate, not a universal bypass, and verify the server/WAF transform plus browser parsing.
+
+```text
+micho',%20x:self[String.fromCharCode(112,114,111,109,112,116)](document[String.fromCharCode(99,111,111,107,105,101)]),%20y:'
+```
+
+Use only on an owned/authorized target and prefer a benign proof such as `prompt` over data exfiltration. Record whether the WAF blocks the raw names, the character-code construction, the quote breakout, or the eventual browser execution.
+
 ## Framework-Specific Sinks And Bypasses
 
 ### React

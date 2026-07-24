@@ -21,6 +21,8 @@ tested state, or vulnerability lead.
   status -> `/url-ingest`.
 - Concrete findings, reports, proof packets -> `manual_hunter.py` / `/findings`.
 - Storage destination for artifacts -> `/bounty-storage`.
+- Program-specific SDK, provider, object-model, callback-flow, or architecture
+  explanation -> `/docs` plus a concise MapStore pointer.
 - Replay-grade request templates, permission gates, and retest matrices ->
   `docs/mapstore-request-contracts.md` plus a MapStore pointer.
 - Exact payload/probe history -> lane attempts folders, with MapStore storing
@@ -59,6 +61,28 @@ domain, app surface, role, or defense, write it to MapStore.
    probe or mutation family.
 11. If the observation changes hunt direction, add the narrative/handoff to
    `/bounty-notes` too.
+
+## Linked Program Documentation
+
+Keep MapStore entries concise and queryable. When an observation needs a longer
+program-specific explanation—an SDK/provider integration, object or authorization
+model, callback flow, architecture, or reconstructed program documentation—use
+`/docs`.
+
+1. Create or update the formatted `docs/<topic>.md` entry with
+   `python3 agents/program_docs.py write`.
+2. Write the compact target fact to MapStore and include the script's printed
+   `docs/<topic>.md` pointer in the MapStore body.
+3. Add the MapStore observation path to the documentation entry when known.
+
+Do not create docs for a single response, raw tool output, copied vendor content,
+or unlabelled speculation. A future agent retrieves the matching document only
+when a concrete technology, integration, URL, or surface calls for it; it does
+not ingest the docs directory at startup.
+
+For candidate-only/offline workflows, workers propose the documentation details
+in their candidate packet. The promotion stage writes the final MapStore and
+documentation links.
 
 ## Impact Waivers And Dead Ends
 

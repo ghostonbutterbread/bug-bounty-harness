@@ -14,6 +14,16 @@ Do not confuse this with ResearchMap. ResearchMap is curated, portable knowledge
 promoted from reviewed external learning. Program docs are target-specific work
 created during a program hunt.
 
+## Program Scope Gate
+
+`--program <program>` is a required retrieval and write filter, not a display
+label. Before every `init`, `search`, `show`, or `write`, use the active
+platform/program identifier from the current scope/run (for example,
+`--program immutable`). Never search across programs, infer a program from a
+provider name, or reuse a document solely because another platform uses the
+same SDK. A cross-program pattern belongs in curated ResearchMap only after
+review; target facts remain within that program's lane.
+
 ## Retrieval Rule
 
 Do not read a program's docs directory broadly at startup.

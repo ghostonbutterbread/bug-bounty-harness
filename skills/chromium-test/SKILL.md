@@ -189,7 +189,7 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/hoster_mitm_lane.py" --json 
   --proxy-port <leased-port> \
   --transport browser
 ssh -i /home/ryushe/.ssh/hoster -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=no -T \
-  ryushe@hoster 'cd /home/ryushe/projects/bug_bounty_harness && python3 skills/chromium-test/scripts/proxy_store.py query --program <program> --method POST'
+  ryushe@hoster 'cd /home/ryushe/projects/bug_bounty_harness-stable && python3 skills/chromium-test/scripts/proxy_store.py query --program <program> --method POST'
 python3 "$HARNESS_ROOT/skills/chromium-test/scripts/proxy_store.py" export-request --id <request_id> --output /tmp/request-packet.json
 python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-profile --profile-dir <profile-dir> --json
 ```

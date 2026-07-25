@@ -931,13 +931,13 @@ def main() -> int:
         result["auth_application"] = apply_auth_seed_via_cdp(port, target_url, auth_seed_data)
 
     if args.json or args.dry_run:
-        print(json.dumps(result, indent=2, sort_keys=True))
+        print(json.dumps(result, indent=2, sort_keys=True), flush=True)
     else:
-        print(f"Started Chromium PID {result['pid']} on {result['cdp_url']}")
-        print(f"Profile: {profile_dir}")
+        print(f"Started Chromium PID {result['pid']} on {result['cdp_url']}", flush=True)
+        print(f"Profile: {profile_dir}", flush=True)
         if result["proxy_server"]:
-            print(f"Browser proxy: {result['proxy_server']}")
-            print(f"Proxy cert: {cert_status['status']}")
+            print(f"Browser proxy: {result['proxy_server']}", flush=True)
+            print(f"Proxy cert: {cert_status['status']}", flush=True)
 
     if args.dry_run:
         return 0

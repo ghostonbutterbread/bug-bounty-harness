@@ -210,7 +210,9 @@ Lifecycle statuses:
 - `defended`: a control was exercised and correctly enforced. This is a durable
   fact about the application, not an attempt failure. Record the enforcing
   component, what was tried, and any observed residual. Use this rather than
-  `failed` when the target behaved correctly.
+  `failed` when the target behaved correctly. If a load-bearing component,
+  version, default, or derivation remains only self-sourced, use
+  `needs_recheck` and record the source check required instead.
 - `failed`: the attempt did not work for attempt-specific reasons, such as a
   wrong technique, bad fixture, stale session, or unmet precondition. Include
   what was tried and why. Do not use it for correctly enforced controls.

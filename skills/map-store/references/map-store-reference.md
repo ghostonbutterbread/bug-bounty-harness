@@ -39,6 +39,9 @@ Statuses:
 - `candidate`: promising but not proven reusable.
 - `defended`: a control was exercised and correctly enforced; record the
   enforcing component, tested context, and any observed residual.
+- Use `needs_recheck`, not `defended`, when the conclusion depends on an
+  unverified assumed library, version, default, or derivation; record the
+  missing source or target check.
 - `failed`: the attempt did not work for an attempt-specific reason, not because
   a target control correctly enforced its boundary.
 - `needs_recheck`: ambiguous or environment-dependent; revisit when useful.

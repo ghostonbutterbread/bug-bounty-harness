@@ -9,9 +9,9 @@ Use this only when a task explicitly needs Ryushe’s personal Caido project/his
 
 ## Boundary
 
-Caido is **source history**, not the agent proxy. Agents poll the relevant Ryushe-Caido history from an approved Hoster context, copy only the minimum non-secret request shape needed to understand a flow, and perform every active replay/browser action through the task-scoped agent MITM listener.
+Caido is **source history**, not the agent proxy, unless the agent itself is executing on **Abommie**. Outside Abommie, agents poll relevant Ryushe-Caido history from an approved Hoster context, copy only the minimum non-secret request shape needed to understand a flow, and perform every active replay/browser action through the task-scoped agent MITM listener.
 
-Do not require a Caido MCP connection for normal active testing. Do not route curl, httpx, scripts, browsers, intercepts, or replays through Caido.
+Do not require a Caido MCP connection for normal active testing. Outside Abommie, do not route curl, httpx, scripts, browsers, intercepts, or replays through Caido.
 
 ## Source Workflow
 

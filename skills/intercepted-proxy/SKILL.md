@@ -9,7 +9,7 @@ Use when a live task needs to observe or alter one browser request while its sta
 
 ## Transport Rule
 
-Use a task-owned `mitmproxy`/`mitmdump` listener. Do not route active browser traffic through Caido. Ryushe’s Caido may supply read-only source shape only; the task MITM listener captures the agent’s live browser history.
+Use a task-owned `mitmproxy`/`mitmdump` listener unless the agent itself is executing on **Abommie**, where local Caido is permitted. Outside Abommie, Ryushe’s Caido may supply read-only source shape only; the task MITM listener captures the agent’s live browser history.
 
 ## Preflight
 

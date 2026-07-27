@@ -9,7 +9,7 @@ Use this when an agent needs to send active browser/API traffic or inspect the a
 
 ## Rule
 
-The agent lane is a task-scoped local `mitmproxy`/`mitmdump` listener—not Caido. Ryushe’s Caido is a separate read-only source-history lane; load `ryushe-proxy` only when Ryushe explicitly asks to inspect/compare his traffic or refresh a named approved auth seed.
+The agent lane is a task-scoped local `mitmproxy`/`mitmdump` listener—not Caido—except when the agent is actually executing on **Abommie**, where local Caido is permitted. Outside Abommie, Ryushe’s Caido is a read-only source-history lane; load `ryushe-proxy` only when Ryushe explicitly asks to inspect/compare his traffic or refresh a named approved auth seed.
 
 ## Lease Before Traffic
 
@@ -32,7 +32,7 @@ A request from Ryushe’s Caido is source evidence only. Rebuild its non-secret 
 
 ## Guardrails
 
-- Never send active agent traffic through Caido or a Caido MCP endpoint.
+- Never send active agent traffic through Caido or a Caido MCP endpoint unless the agent is executing locally on Abommie.
 - Never treat an MCP endpoint as an HTTP proxy.
 - Do not use a shared listener without a recorded lease.
 - Do not print or store raw cookies, tokens, authorization headers, or private request bodies outside locked-down auth seeds/flow artifacts.

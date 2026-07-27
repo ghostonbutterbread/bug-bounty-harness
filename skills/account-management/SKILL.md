@@ -56,9 +56,7 @@ For named accounts or colors, resolve auth in this order:
    cannot refresh the selected account, load `/bitwarden` and use the recorded
    Bitwarden credential reference as fallback.
 
-After a proxy-derived refresh, active testing must use the agent MITM lane. Do
-not test through Ryushe's proxy just because the account evidence came from
-there.
+After a proxy-derived refresh, active testing must use the agent MITM lane unless the agent is executing locally on Abommie. Do not test through Ryushe's proxy just because the account evidence came from there.
 
 ## PwnFox Proxy Config
 

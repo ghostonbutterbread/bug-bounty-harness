@@ -115,9 +115,10 @@ For a residual, add:
 - composes_with: <known residual/gadget, or "none known">
 ```
 
-Residuals are observed facts surfaced by a rejection, not findings. Keep their
-status `defended` when the associated control behaved correctly; they remain
-visible to normal queries and composition checkpoints.
+Residuals are material observed facts surfaced by a rejection, not findings.
+They must name the control that disclosed them. Keep their status `defended`
+when the associated control behaved correctly; they remain visible to normal
+queries and composition checkpoints.
 
 The short `crosses` value should be stable enough for cheap filtering. Put
 messy target-specific details in `crosses_detail` instead of inventing many

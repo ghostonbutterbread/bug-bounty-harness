@@ -242,6 +242,9 @@ def normalize_status(value: str | None, *, default: str = ACTIVE_STATUS) -> str:
         "recheck": NEEDS_RECHECK_STATUS,
         "needs-recheck": NEEDS_RECHECK_STATUS,
         "archive": ARCHIVED_STATUS,
+        "defend": DEFENDED_STATUS,
+        "defense_confirmed": DEFENDED_STATUS,
+        "enforced": DEFENDED_STATUS,
     }
     status = aliases.get(status, status)
     if status not in VALID_STATUSES:
@@ -249,6 +252,14 @@ def normalize_status(value: str | None, *, default: str = ACTIVE_STATUS) -> str:
             f"Invalid status: {value!r}. Use one of: {', '.join(sorted(VALID_STATUSES))}"
         )
     return status
+
+
+def parse_status_argument(value: str) -> str:
+    """Argparse adapter that accepts canonical statuses and their aliases."""
+    try:
+        return normalize_status(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def normalize_query_intent(value: str | None) -> str:
@@ -1261,7 +1272,12 @@ def _build_parser() -> argparse.ArgumentParser:
     write_p.add_argument("--agent", default="ghost")
     write_p.add_argument("--run-id", default=None)
     write_p.add_argument("--title", default="")
-    write_p.add_argument("--status", default=ACTIVE_STATUS, choices=sorted(VALID_STATUSES), help="Lifecycle status for this observation")
+    write_p.add_argument(
+        "--status",
+        default=ACTIVE_STATUS,
+        type=parse_status_argument,
+        help="Lifecycle status for this observation (canonical name or supported alias)",
+    )
 
     # query
     query_p = sub.add_parser("query", help="Query observations by URL and/or surface")
@@ -1284,7 +1300,12 @@ def _build_parser() -> argparse.ArgumentParser:
     status_p = sub.add_parser("update-status", help="Update an observation lifecycle status")
     _add_common(status_p)
     status_p.add_argument("--path", required=True, help="MapStore-relative observation path from query output")
-    status_p.add_argument("--status", required=True, choices=sorted(VALID_STATUSES))
+    status_p.add_argument(
+        "--status",
+        required=True,
+        type=parse_status_argument,
+        help="Lifecycle status (canonical name or supported alias)",
+    )
     status_p.add_argument("--reason", required=True, help="Evidence-backed reason for the status change")
     status_p.add_argument("--agent", default="ghost")
     status_p.add_argument("--json", action="store_true", help="Output updated index entry as JSON")

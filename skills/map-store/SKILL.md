@@ -209,9 +209,9 @@ Lifecycle statuses:
 - `candidate`: observed or promising, but not proven reusable yet.
 - `defended`: a control was exercised and correctly enforced. This is a durable
   fact about the application, not an attempt failure. Record the enforcing
-  component, what was tried, and any observed residual. Use this rather than
-  `failed` when the target behaved correctly. If a load-bearing component,
-  version, default, or derivation remains only self-sourced, use
+  component, what was tried, and any material residual it disclosed. Use this
+  rather than `failed` when the target behaved correctly. If a load-bearing
+  component, version, default, or derivation remains only self-sourced, use
   `needs_recheck` and record the source check required instead.
 - `failed`: the attempt did not work for attempt-specific reasons, such as a
   wrong technique, bad fixture, stale session, or unmet precondition. Include
@@ -238,14 +238,16 @@ generic reasons such as "old" or "did not work".
 - **Confirmed gadget:** a reproducible, exploitable primitive that could
   participate in a stronger cross-class chain. Use `chain_status: ready` or
   `deferred`.
-- **Residual:** an observed capability, oracle, trust anchor, reachability fact,
-  format fact, or enforcement point disclosed while a control correctly rejects
-  a request. Tag it `gadget,residual` and use `chain_status: watch`. A residual
-  needs no active candidate, known chain, or confirmed exploit.
+- **Residual:** a material observed capability, oracle, trust anchor,
+  reachability fact, format fact, or enforcement point disclosed while a control
+  correctly rejects a request. Tag it `gadget,residual` and use
+  `chain_status: watch`. A residual needs no active candidate, known chain, or
+  confirmed exploit.
 
-A residual must be demonstrated application behavior—not a theory. Do not tag
-hypotheses, untested guesses, generic leads, unconfirmed sink shape, or a plain
-negative with no material observation as `gadget` or `residual`.
+A residual must be demonstrated, material application behavior—not a theory. It
+must be worth another agent's attention on its own. Do not tag hypotheses,
+untested guesses, generic leads, unconfirmed sink shape, or a plain negative
+with no extracted residual as `gadget` or `residual`.
 
 Every `gadget` body must include this capability block:
 
@@ -268,7 +270,8 @@ For a `residual`, also include:
 ```
 
 `composes_with: none known` is normal. It records that the residual was checked
-against the current ledger rather than silently skipped.
+against the current ledger rather than silently skipped. A residual that cannot
+name the control that disclosed it is a theory; do not write it.
 
 Use stable `crosses` labels where possible, for example
 `attacker-content->victim-browser`, `client->server`,

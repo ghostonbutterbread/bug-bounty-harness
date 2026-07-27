@@ -46,9 +46,12 @@ domain, app surface, role, or defense, write it to MapStore.
    duplicate avoidance, reusable app facts, coverage, or gadget context.
    Every live query should have an explicit intent.
 4. Treat `app-facts`, `dedupe`, and `coverage` as the default allowed intents
-   during normal find-vulnerability goals. `gadget` requires an active candidate
-   vulnerability. `old-leads` is disabled unless the user asked for retest,
-   repass, cleanup, duplicate triage, or old-lead review.
+   during normal find-vulnerability goals. `gadget` reads are allowed for an
+   active candidate and at a composition checkpoint: after recording a residual
+   on a trust plane that already has one, before a lens rotation caused by a
+   prerequisite blocker, or at session end. `gadget` writes are always allowed.
+   `old-leads` is disabled unless the user asked for retest, repass, cleanup,
+   duplicate triage, or old-lead review.
 5. Treat MapStore results as constraints and prior observations, not as the
    hypothesis generator. If prior notes are narrow, pivot to adjacent untested
    classes instead of inheriting their tunnel vision.
@@ -130,7 +133,10 @@ to artifacts or attempts folders, then link them from the waiver.
 See `references/map-store-reference.md` and `references/routing-examples.md`
 for impact-waiver examples.
 
-Do not tag these as `gadget` unless the primitive is confirmed and chainable.
+An impact waiver says a surface is not worth pursuing for its own impact. It
+does not mean the surface disclosed nothing: if it left an observed residual,
+also write a `gadget` + `residual` entry per **Gadget Entries**. This preserves
+chain material while the waiver still steers agents away from the rabbit hole.
 If intended feature behavior may become useful later, record it as
 `intended-behavior` plus `hold_for_chain` or `impact-waiver`, not as a
 vulnerability.
@@ -147,8 +153,9 @@ Use intent modes to keep MapStore as lazy retrieval instead of prompt baggage.
   full historical writeups.
 - `coverage`: "What is thin or already covered for this chosen surface?" Use
   after the agent selected a current surface or route cluster.
-- `gadget`: "Given an active candidate vulnerability, what primitives could
-  amplify impact?" Use only after the candidate exists.
+- `gadget`: "What confirmed gadgets and observed residuals could compose?" Use
+  for an active candidate or at a composition checkpoint; do not use it as a
+  broad historical-lead feed.
 - `old-leads`: "Show historical leads." Use only for retest/repass/cleanup,
   duplicate triage, report work, or explicit user approval.
 
@@ -200,8 +207,13 @@ Lifecycle statuses:
 
 - `active`: default; still useful as a current observation or gadget.
 - `candidate`: observed or promising, but not proven reusable yet.
-- `failed`: tried in the current context and did not work; include what was
-  tried and why it failed.
+- `defended`: a control was exercised and correctly enforced. This is a durable
+  fact about the application, not an attempt failure. Record the enforcing
+  component, what was tried, and any observed residual. Use this rather than
+  `failed` when the target behaved correctly.
+- `failed`: the attempt did not work for attempt-specific reasons, such as a
+  wrong technique, bad fixture, stale session, or unmet precondition. Include
+  what was tried and why. Do not use it for correctly enforced controls.
 - `needs_recheck`: useful enough to revisit, but current evidence is
   incomplete, ambiguous, or environment-dependent.
 - `stale`: app behavior appears to have changed since the note was written.
@@ -219,10 +231,19 @@ generic reasons such as "old" or "did not work".
 
 ## Gadget Entries
 
-Add the `gadget` tag only when an observation is a confirmed, exploitable
-primitive that could participate in a stronger cross-class chain. Do not tag
-hypotheses, generic leads, unconfirmed sink shape, or negative findings as
-`gadget`.
+`gadget` entries have two evidence tiers. Both use the capability block below.
+
+- **Confirmed gadget:** a reproducible, exploitable primitive that could
+  participate in a stronger cross-class chain. Use `chain_status: ready` or
+  `deferred`.
+- **Residual:** an observed capability, oracle, trust anchor, reachability fact,
+  format fact, or enforcement point disclosed while a control correctly rejects
+  a request. Tag it `gadget,residual` and use `chain_status: watch`. A residual
+  needs no active candidate, known chain, or confirmed exploit.
+
+A residual must be demonstrated application behavior—not a theory. Do not tag
+hypotheses, untested guesses, generic leads, unconfirmed sink shape, or a plain
+negative with no material observation as `gadget` or `residual`.
 
 Every `gadget` body must include this capability block:
 
@@ -235,6 +256,17 @@ Capability:
 - chain_status: ready|deferred|watch
 - chain_watch: <what future primitive or condition should wake this gadget>
 ```
+
+For a `residual`, also include:
+
+```text
+- residual_class: reachability|format|enforcement-point|trust-anchor|oracle|capability
+- disclosed_by: <defended control and what it enforced>
+- composes_with: <known residual/gadget, or "none known">
+```
+
+`composes_with: none known` is normal. It records that the residual was checked
+against the current ledger rather than silently skipped.
 
 Use stable `crosses` labels where possible, for example
 `attacker-content->victim-browser`, `client->server`,

@@ -18,8 +18,11 @@ capability, missing impact, program fit, and wake condition.
   rejects missing `Origin`."
 - "Cloudflare challenge appears across `*.example.com` before authenticated app
   traffic."
-- "Tested `/api/projects/{id}` with a second account; cross-account IDs return
-  403, not object data."
+- "Tested `/api/projects/{id}` with a second owned account; the application
+  ownership middleware returns 403 before object serialization. Record
+  `status: defended`, not `failed`; if the response also identifies the
+  identifier format or shared session claim, write that observed fact as a
+  `gadget,residual`."
 - "SVG upload intentionally fetches public external URLs for rendering. No
   private-network reachability, auth-bound response disclosure, or parser impact
   observed; record as intended behavior / hold-for-chain, not SSRF."

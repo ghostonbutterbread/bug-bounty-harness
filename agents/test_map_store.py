@@ -19,6 +19,7 @@ from agents.map_store import (
     iso_now,
     normalize_url,
     ARCHIVED_STATUS,
+    DEFENDED_STATUS,
     observation_slug,
     parse_time_filter,
     slugify,
@@ -301,6 +302,23 @@ class TestMapStore:
         assert len(entries) == 1
         assert entries[0]["status"] == "candidate"
         assert "Status: candidate" in path.read_text(encoding="utf-8")
+
+    def test_defended_status_is_visible_and_distinct_from_failed(self, store: MapStore):
+        store.init()
+        path = store.write(
+            url="https://app.com/wallet/link",
+            surface="idor",
+            body="A second owned account is rejected by the ownership check.\n",
+            tags=["idor", "ownership-enforced"],
+            status=DEFENDED_STATUS,
+            title="wallet-link ownership defense",
+        )
+
+        entries = store.query(statuses=[DEFENDED_STATUS])
+        assert len(entries) == 1
+        assert entries[0]["status"] == DEFENDED_STATUS
+        assert store.query(tags=["ownership-enforced"])[0]["status"] == DEFENDED_STATUS
+        assert "Status: defended" in path.read_text(encoding="utf-8")
 
     def test_update_status_archives_with_reason_and_hides_by_default(self, store: MapStore):
         store.init()

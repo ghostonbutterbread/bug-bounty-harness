@@ -187,6 +187,9 @@ def cmd_add_account(args: argparse.Namespace) -> int:
             "user_id": args.user_id,
             "role": args.role,
             "tenant_id": args.tenant_id,
+            "lifecycle": args.lifecycle,
+            "browser_lease_enabled": (None if args.browser_lease_enabled is None else args.browser_lease_enabled == "yes"),
+            "capabilities": args.capability or None,
             "credential_ref": args.credential_ref,
             "auth_seed_ref": args.auth_seed_ref,
             "auth_refresh_source": args.auth_refresh_source,
@@ -280,6 +283,9 @@ def build_parser() -> argparse.ArgumentParser:
     account.add_argument("--user-id")
     account.add_argument("--role")
     account.add_argument("--tenant-id")
+    account.add_argument("--lifecycle", choices=("active", "inactive", "suspended", "deleted", "unknown"), help="Non-secret account lifecycle state.")
+    account.add_argument("--browser-lease-enabled", choices=("yes", "no"), help="Whether this account may be offered to browser_profile_lease.py.")
+    account.add_argument("--capability", action="append", help="Repeatable non-secret permission/resource label, e.g. org-member or shared-org:owned-team.")
     account.add_argument("--credential-ref")
     account.add_argument(
         "--auth-seed-ref",

@@ -130,6 +130,11 @@ def wait_for_browser_if_requested(process: subprocess.Popen[Any], *, supervise: 
 
 def load_runtime_route(runtime: str) -> dict[str, str]:
     allowed_route_keys = {"browser_proxy", "lane"}
+    defaults = (
+        {"browser_proxy": "http://localhost:8080", "lane": "agent" if runtime == "hoster" else "ryushe"}
+        if runtime in {"hoster", "ryushespc", "abommie"}
+        else {"browser_proxy": "http://hoster:8080", "lane": "agent"}
+    )
     if DEFAULT_ROUTE_TABLE.exists():
         try:
             data = json.loads(DEFAULT_ROUTE_TABLE.read_text())
@@ -139,21 +144,17 @@ def load_runtime_route(runtime: str) -> dict[str, str]:
         if isinstance(runtimes, dict):
             route = runtimes.get(runtime)
             if isinstance(route, dict):
+                # A route table may declare only a lane. Preserve the safe browser
+                # proxy default rather than silently launching Chrome unproxied.
                 return {
-                    str(k): str(v)
-                    for k, v in route.items()
-                    if v is not None and str(k) in allowed_route_keys
+                    **defaults,
+                    **{
+                        str(k): str(v)
+                        for k, v in route.items()
+                        if v is not None and str(k) in allowed_route_keys
+                    },
                 }
-
-    if runtime in {"hoster", "ryushespc", "abommie"}:
-        return {
-            "browser_proxy": "http://localhost:8080",
-            "lane": "agent" if runtime == "hoster" else "ryushe",
-        }
-    return {
-        "browser_proxy": "http://hoster:8080",
-        "lane": "agent",
-    }
+    return defaults
 
 
 def find_playwright_chromium_binary() -> str | None:

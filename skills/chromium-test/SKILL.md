@@ -228,6 +228,8 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
 
 - Playbook: `$HARNESS_ROOT/prompts/chromium-test-playbook.md`
 - Launcher: `$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py`
+- Persistent profile lease/status: `$HARNESS_ROOT/skills/chromium-test/scripts/browser_profile_lease.py`
+- Script walkthrough: `$HARNESS_ROOT/skills/chromium-test/scripts/README.md`
 - Profiles: `$HARNESS_SHARED_BASE/{program}/ghost/chromium-test/profiles/`
 - MITM profile helper: `$HARNESS_ROOT/skills/chromium-test/scripts/mitm_chromium_profile.py`
 - MITM lane helper: `$HARNESS_ROOT/skills/chromium-test/scripts/mitm_lane.py`
@@ -238,6 +240,13 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
 
 ## Workflow
 
+0. For a durable named account profile (for example a color used across a
+   multi-agent owned-account test), first run `browser_profile_lease.py status
+   <program> --account <color>`, then acquire that **exact** account if available.
+   A locked response may show safe, explicitly available alternatives but never
+   authorizes automatic account substitution. Run the helper on the browser
+   profile host. Use the persistent account profile after acquisition; retain
+   `--ephemeral-profile` for disposable one-off runs.
 1. Start an isolated browser with the launcher:
    ```bash
    python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" <program> "<task>"

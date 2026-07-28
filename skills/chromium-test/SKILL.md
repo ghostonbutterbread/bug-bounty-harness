@@ -246,7 +246,10 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
    A locked response may show safe, explicitly available alternatives but never
    authorizes automatic account substitution. Run the helper on the browser
    profile host. Use the persistent account profile after acquisition; retain
-   `--ephemeral-profile` for disposable one-off runs.
+   `--ephemeral-profile` for disposable one-off runs. A lease remains locked
+   while work awaits input: renew it with `--work-state awaiting-input`; only a
+   terminal completion, handoff, or cancellation may call `release`, which must
+   declare a non-secret `--profile-health` for the next agent.
 1. Start an isolated browser with the launcher:
    ```bash
    python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" <program> "<task>"

@@ -119,6 +119,24 @@ def compact_record(values: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value not in (None, "")}
 
 
+def parse_organization_access(values: list[str] | None) -> list[dict[str, str]] | None:
+    """Parse repeatable ORG[:TIER[:PLAN]] records without storing secrets."""
+    if not values:
+        return None
+    records: list[dict[str, str]] = []
+    for value in values:
+        parts = value.split(":", 2)
+        if not parts[0]:
+            raise SystemExit("--organization-access requires ORG[:TIER[:PLAN]]")
+        record = {"organization": parts[0]}
+        if len(parts) > 1 and parts[1]:
+            record["tier"] = parts[1]
+        if len(parts) > 2 and parts[2]:
+            record["plan"] = parts[2]
+        records.append(record)
+    return records
+
+
 def upsert(items: list[dict[str, Any]], record: dict[str, Any], keys: tuple[str, ...]) -> str:
     now = utc_now()
     for item in items:
@@ -186,7 +204,9 @@ def cmd_add_account(args: argparse.Namespace) -> int:
             "username": args.username,
             "user_id": args.user_id,
             "role": args.role,
+            "tier": args.tier,
             "tenant_id": args.tenant_id,
+            "organization_access": parse_organization_access(args.organization_access),
             "lifecycle": args.lifecycle,
             "browser_lease_enabled": (None if args.browser_lease_enabled is None else args.browser_lease_enabled == "yes"),
             "capabilities": args.capability or None,
@@ -282,7 +302,9 @@ def build_parser() -> argparse.ArgumentParser:
     account.add_argument("--username")
     account.add_argument("--user-id")
     account.add_argument("--role")
+    account.add_argument("--tier", choices=("admin", "user", "unknown"), help="Global principal tier; admin is the canonical owner-equivalent tier.")
     account.add_argument("--tenant-id")
+    account.add_argument("--organization-access", action="append", help="Repeatable non-secret ORG[:TIER[:PLAN]] access record for this program.")
     account.add_argument("--lifecycle", choices=("active", "inactive", "suspended", "deleted", "unknown"), help="Non-secret account lifecycle state.")
     account.add_argument("--browser-lease-enabled", choices=("yes", "no"), help="Whether this account may be offered to browser_profile_lease.py.")
     account.add_argument("--capability", action="append", help="Repeatable non-secret permission/resource label, e.g. org-member or shared-org:owned-team.")

@@ -21,8 +21,13 @@
   ```bash
   LEASE="$HARNESS_ROOT/skills/chromium-test/scripts/browser_profile_lease.py"
 
-  # Ask first. This reports account role/capabilities, lock state, and probes a
-  # previously registered local CDP endpoint without disclosing it to non-owners.
+  # Ask by global principal tier; owner roles map to admin. Anonymous has no
+  # account or persistent browser profile and should use an ephemeral lane.
+  python3 "$LEASE" status <program> --tier admin
+  python3 "$LEASE" status <program> --tier anonymous
+
+  # Ask first for a named profile. This reports role, program-specific org/plan
+  # access, capabilities, lock state, and probes a registered local CDP endpoint.
   python3 "$LEASE" status <program> --account green
 
   # Acquire exactly the requested account; it never falls back to another color.
@@ -40,17 +45,23 @@
     --lease-id <lease-id> --agent-id <agent-id> \
     --cdp-url http://127.0.0.1:<port> --service-unit <unit>
 
-  # Renew during a long owned workflow, then release after normal browser cleanup.
-  python3 "$LEASE" renew --lease-id <lease-id> --agent-id <agent-id>
-  python3 "$LEASE" release --lease-id <lease-id> --agent-id <agent-id>
+  # A question/blocker is not terminal: retain and renew the lease instead.
+  python3 "$LEASE" renew --lease-id <lease-id> --agent-id <agent-id> \
+    --work-state awaiting-input
+
+  # Release only after a terminal outcome, recording whether the next agent may
+  # safely reuse the persistent profile.
+  python3 "$LEASE" release --lease-id <lease-id> --agent-id <agent-id> \
+    --disposition completed --profile-health healthy
   ```
 
   `browser_lease_enabled=no` and lifecycle `deleted`/`disabled`/`suspended` are
-  never offered as alternatives. Populate each account's repeatable non-secret
-  `capabilities` labels (for example `org-owner`, `org-member`, or
-  `shared-org:<owned-resource>`) through `account_inventory.py`; these are shown
-  so the caller can choose a compatible fixture rather than merely an unlocked
-  color.
+  never offered as alternatives. Record global principal tier as `admin` (the
+  owner-equivalent) or `user`; `anonymous` is virtual and has no account record.
+  Record program-specific organization access with
+  `--organization-access ORG[:TIER[:PLAN]]`, and program-specific permission
+  labels through repeatable `--capability`. These are shown so the caller can
+  choose a compatible fixture rather than merely an unlocked color.
 
   A locked response may list **explicitly available alternatives**. An agent must
   select and acquire one of them itself; the script never switches identities.

@@ -67,6 +67,8 @@ def args(module, state: Path, command: str, **values):
         argv.append(values.pop("program", "demo"))
         if account := values.pop("account", None):
             argv.extend(["--account", account])
+        if tier := values.pop("tier", None):
+            argv.extend(["--tier", tier])
     for key, value in values.items():
         flag = "--" + key.replace("_", "-")
         argv.extend([flag, str(value)])
@@ -128,13 +130,43 @@ def test_same_owner_renews_and_release_makes_profile_available(monkeypatch, tmp_
     again = module.cmd_acquire(
         args(module, state, "acquire", account="pink", agent_id="agent-a", run_id="run-a", purpose="role-check")
     )
-    released = module.cmd_release(args(module, state, "release", lease_id=first["lease"]["lease_id"], agent_id="agent-a"))
+    waiting = module.cmd_renew(
+        args(module, state, "renew", lease_id=first["lease"]["lease_id"], agent_id="agent-a", work_state="awaiting-input")
+    )
+    released = module.cmd_release(
+        args(module, state, "release", lease_id=first["lease"]["lease_id"], agent_id="agent-a", disposition="completed", profile_health="healthy")
+    )
     status = module.cmd_status(args(module, state, "status", account="pink"))
 
     assert again["status"] == "already-owned"
     assert again["lease"]["lease_id"] == first["lease"]["lease_id"]
+    assert waiting["lease"]["work_state"] == "awaiting-input"
     assert released["status"] == "released"
+    assert released["lease"]["profile_health"] == "healthy"
     assert status["status"] == "available"
+    assert status["last_release"]["profile_health"] == "healthy"
+
+
+def test_global_tiers_map_owner_to_admin_and_anonymous_needs_no_profile(monkeypatch, tmp_path):
+    module = load_module()
+    shared = tmp_path / "shared"
+    state = tmp_path / "state"
+    write_inventory(shared)
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    admins = module.cmd_status(args(module, state, "status", tier="admin"))
+    anonymous = module.cmd_status(args(module, state, "status", tier="anonymous"))
+
+    assert admins["status"] == "ok"
+    assert [row["account"]["alias"] for row in admins["accounts"]] == ["green-owner"]
+    assert admins["accounts"][0]["account"]["tier"] == "admin"
+    assert anonymous == {
+        "status": "anonymous",
+        "program": "demo",
+        "tier": "anonymous",
+        "lease_required": False,
+        "next": "use an ephemeral unauthenticated browser or direct request lane; no account profile is allocated",
+    }
 
 
 def test_status_probes_the_registered_loopback_browser_without_returning_cdp(monkeypatch, tmp_path):

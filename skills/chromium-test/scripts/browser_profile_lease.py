@@ -75,6 +75,9 @@ def init_db(conn: sqlite3.Connection) -> None:
             profile_dir TEXT NOT NULL,
             status TEXT NOT NULL,
             browser_status TEXT NOT NULL DEFAULT 'not-started',
+            work_state TEXT NOT NULL DEFAULT 'active',
+            profile_health TEXT NOT NULL DEFAULT 'unknown',
+            release_disposition TEXT,
             cdp_url TEXT,
             service_unit TEXT,
             created_at REAL NOT NULL,
@@ -87,6 +90,14 @@ def init_db(conn: sqlite3.Connection) -> None:
           ON browser_profile_leases(program, account_alias, status, expires_at);
         """
     )
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(browser_profile_leases)")}
+    for name, definition in {
+        "work_state": "TEXT NOT NULL DEFAULT 'active'",
+        "profile_health": "TEXT NOT NULL DEFAULT 'unknown'",
+        "release_disposition": "TEXT",
+    }.items():
+        if name not in columns:
+            conn.execute(f"ALTER TABLE browser_profile_leases ADD COLUMN {name} {definition}")
 
 
 def load_inventory(program: str) -> dict[str, Any]:
@@ -121,6 +132,14 @@ def resolve_account(program: str, selector: str) -> tuple[dict[str, Any] | None,
     return None, inventory
 
 
+def principal_tier(account: dict[str, Any]) -> str:
+    explicit = str(account.get("tier", "")).lower()
+    if explicit in {"admin", "user"}:
+        return explicit
+    role = str(account.get("role", "")).lower()
+    return "admin" if role in {"admin", "owner"} else "user" if role in {"user", "member"} else "unknown"
+
+
 def account_summary(account: dict[str, Any], inventory: dict[str, Any]) -> dict[str, Any]:
     alias = str(account.get("alias", ""))
     resources = [
@@ -134,8 +153,10 @@ def account_summary(account: dict[str, Any], inventory: dict[str, Any]) -> dict[
     return {
         "alias": alias,
         "color": account.get("pwnfox_color"),
+        "tier": principal_tier(account),
         "role": account.get("role"),
         "tenant_id": account.get("tenant_id"),
+        "organization_access": account.get("organization_access", []),
         "destructible": account.get("destructible", "unknown"),
         "lifecycle": account.get("lifecycle", "active"),
         "browser_lease_enabled": account.get("browser_lease_enabled", True) is not False,
@@ -183,7 +204,10 @@ def safe_lease(row: sqlite3.Row | None, *, include_cdp: bool = False) -> dict[st
         "owner_run_id": row["owner_run_id"],
         "purpose": row["purpose"],
         "status": row["status"],
+        "work_state": row["work_state"],
         "browser_status": row["browser_status"],
+        "profile_health": row["profile_health"],
+        "release_disposition": row["release_disposition"],
         "service_unit": row["service_unit"],
         "created_at": row["created_at"],
         "heartbeat_at": row["heartbeat_at"],
@@ -220,6 +244,26 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
         init_db(conn)
         expire_leases(conn, timestamp)
         conn.commit()
+        if args.tier == "anonymous":
+            return {
+                "status": "anonymous",
+                "program": slug(args.program),
+                "tier": "anonymous",
+                "lease_required": False,
+                "next": "use an ephemeral unauthenticated browser or direct request lane; no account profile is allocated",
+            }
+        if args.tier:
+            tier_accounts = []
+            for candidate in inventory.get("accounts", []):
+                if not isinstance(candidate, dict) or principal_tier(candidate) != args.tier:
+                    continue
+                lease = active_lease(conn, args.program, str(candidate.get("alias", "")), timestamp)
+                tier_accounts.append({
+                    "status": "locked" if lease else "available",
+                    "account": account_summary(candidate, inventory),
+                    "lease": safe_lease(lease),
+                })
+            return {"status": "ok", "program": slug(args.program), "tier": args.tier, "accounts": tier_accounts}
         if selector and account is None:
             return {
                 "status": "account-not-found",
@@ -234,11 +278,22 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
             if lease is not None:
                 lease, browser_probe = probe_lease_browser(conn, lease)
                 conn.commit()
+            last_release = None
+            if lease is None:
+                last_release = conn.execute(
+                    """
+                    SELECT * FROM browser_profile_leases
+                    WHERE program=? AND account_alias=? AND status='released'
+                    ORDER BY released_at DESC LIMIT 1
+                    """,
+                    (slug(args.program), slug(str(account["alias"]))),
+                ).fetchone()
             return {
                 "status": "locked" if lease else "available",
                 "program": slug(args.program),
                 "account": account_summary(account, inventory),
                 "lease": safe_lease(lease),
+                "last_release": safe_lease(last_release),
                 "browser_probe": browser_probe,
                 "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
             }
@@ -373,8 +428,8 @@ def cmd_renew(args: argparse.Namespace) -> dict[str, Any]:
             return {"status": "not-owner-or-expired", "lease_id": args.lease_id}
         expires_at = timestamp + args.ttl_seconds
         conn.execute(
-            "UPDATE browser_profile_leases SET heartbeat_at=?, expires_at=? WHERE lease_id=?",
-            (timestamp, expires_at, args.lease_id),
+            "UPDATE browser_profile_leases SET heartbeat_at=?, expires_at=?, work_state=? WHERE lease_id=?",
+            (timestamp, expires_at, args.work_state, args.lease_id),
         )
         conn.commit()
         updated = conn.execute("SELECT * FROM browser_profile_leases WHERE lease_id=?", (args.lease_id,)).fetchone()
@@ -441,8 +496,13 @@ def cmd_release(args: argparse.Namespace) -> dict[str, Any]:
             conn.commit()
             return {"status": "not-owner-or-missing", "lease_id": args.lease_id}
         conn.execute(
-            "UPDATE browser_profile_leases SET status='released', released_at=?, heartbeat_at=? WHERE lease_id=?",
-            (timestamp, timestamp, args.lease_id),
+            """
+            UPDATE browser_profile_leases
+            SET status='released', released_at=?, heartbeat_at=?, work_state='terminal',
+                release_disposition=?, profile_health=?
+            WHERE lease_id=?
+            """,
+            (timestamp, timestamp, args.disposition, args.profile_health, args.lease_id),
         )
         conn.commit()
         updated = conn.execute("SELECT * FROM browser_profile_leases WHERE lease_id=?", (args.lease_id,)).fetchone()
@@ -458,6 +518,7 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="Show whether a program/account browser profile is available or locked.")
     status.add_argument("program")
     status.add_argument("--account", help="Owned account alias or color. Omit for a program overview.")
+    status.add_argument("--tier", choices=("admin", "user", "anonymous"), help="List accounts in a global principal tier; anonymous has no account lease.")
     status.set_defaults(func=cmd_status)
 
     acquire = sub.add_parser("acquire", help="Exclusively lease one persistent program/account browser profile.")
@@ -473,6 +534,7 @@ def build_parser() -> argparse.ArgumentParser:
     renew.add_argument("--lease-id", required=True)
     renew.add_argument("--agent-id", required=True)
     renew.add_argument("--ttl-seconds", type=int, default=DEFAULT_TTL_SECONDS)
+    renew.add_argument("--work-state", choices=("active", "awaiting-input"), default="active", help="Use awaiting-input while a question/blocker means the work is not terminal.")
     renew.set_defaults(func=cmd_renew)
 
     register = sub.add_parser("register-browser", help="Attach verified local CDP metadata to an owned lease.")
@@ -485,6 +547,8 @@ def build_parser() -> argparse.ArgumentParser:
     release = sub.add_parser("release", help="Release an owned profile lease after browser cleanup or handoff.")
     release.add_argument("--lease-id", required=True)
     release.add_argument("--agent-id", required=True)
+    release.add_argument("--disposition", required=True, choices=("completed", "handoff", "cancelled"), help="Terminal outcome; use renew --work-state awaiting-input instead while work is pending.")
+    release.add_argument("--profile-health", required=True, choices=("healthy", "needs-refresh", "needs-cleanup", "unknown"), help="Non-secret handoff status of the persistent account profile.")
     release.set_defaults(func=cmd_release)
     return parser
 
@@ -494,7 +558,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     result = args.func(args)
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if result.get("status") in {"ok", "available", "locked", "leased", "already-owned", "renewed", "registered", "registered-unreachable", "released", "account-not-found", "account-unavailable"} else 2
+    return 0 if result.get("status") in {"ok", "available", "locked", "anonymous", "leased", "already-owned", "renewed", "registered", "registered-unreachable", "released", "account-not-found", "account-unavailable"} else 2
 
 
 if __name__ == "__main__":

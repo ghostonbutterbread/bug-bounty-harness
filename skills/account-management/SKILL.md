@@ -25,7 +25,7 @@ secret material.
 
 ## What To Record
 
-- account alias, email/username if approved to store, user ID, role, tenant/workspace, lifecycle, non-secret capability/resource labels, browser-lease eligibility, credential reference, auth seed reference, destructible status
+- account alias, global principal tier (`admin` = owner-equivalent, `user`; anonymous has no account record), email/username if approved to store, user ID, role, tenant/workspace, lifecycle, non-secret program-specific capability/resource labels and organization tier/plan access, browser-lease eligibility, credential reference, auth seed reference, destructible status
 - PwnFox color to account alias mapping
 - owned resource type, resource ID, display name, owner account, full source URL, run/session ID, cleanup/destructible status
 - evidence source: browser, Caido, manual note, API response, signup flow, or child-agent output
@@ -74,7 +74,7 @@ Caido color filter template: req.raw.cont:"X-PwnFox-Color" AND req.raw.cont:"{co
 
 ```bash
 python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py show {program}
-python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-account {program} --alias primary --email ryushe+ai@example.com --user-id USER_ID --credential-ref "bitwarden:item-name" --auth-seed-ref "auth-seed:/secure/path/primary.json" --auth-check-url "https://target.example/account" --auth-host-filter "target.example" --pwnfox-color blue --lifecycle active --browser-lease-enabled yes --capability org-owner --capability shared-org:owned-team --destructible no
+python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-account {program} --alias primary --email ryushe+ai@example.com --user-id USER_ID --tier admin --credential-ref "bitwarden:item-name" --auth-seed-ref "auth-seed:/secure/path/primary.json" --auth-check-url "https://target.example/account" --auth-host-filter "target.example" --pwnfox-color blue --lifecycle active --browser-lease-enabled yes --organization-access owned-team:admin:enterprise --capability billing:invoices --capability shared-org:owned-team --destructible no
 python3 $HARNESS_ROOT/skills/account-management/scripts/auth_resolver.py resolve --program {program} --account blue
 python3 $HARNESS_ROOT/skills/account-management/scripts/auth_resolver.py refresh-from-ryushe-proxy --program {program} --account blue --host-filter target.example
 python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-resource {program} --type design --id DESIGN_ID --name "profile test design" --owner primary --url https://target.example/design/DESIGN_ID --cleanup-needed yes

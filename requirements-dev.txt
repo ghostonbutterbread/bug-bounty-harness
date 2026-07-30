@@ -1,0 +1,7 @@
+# Test-only dependencies for the standalone harness.
+pytest>=9,<10
+httpx>=0.28,<1
+requests>=2.34,<3
+PyYAML>=6,<7
+beautifulsoup4>=4.15,<5
+websocket-client>=1.9,<2

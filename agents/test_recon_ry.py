@@ -9,7 +9,7 @@ from agents import recon_ry
 
 
 def test_ingest_copies_recon_outputs_and_writes_manifest(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(recon_ry, "import_url_artifacts", lambda **_: [])
+    monkeypatch.setattr(recon_ry, "promote_run", lambda _args: {"status": "ok", "appends": {}})
     monkeypatch.setattr(recon_ry, "summarize_url_index", lambda _program: {})
     source = tmp_path / "source"
     source.mkdir()
@@ -45,6 +45,8 @@ def test_ingest_copies_recon_outputs_and_writes_manifest(tmp_path: Path, monkeyp
     assert manifest["counts"]["promoted_findings"] == 0
     assert (manifest_path.parent / "parsed" / "alive.txt").read_text(encoding="utf-8").startswith("https://a.example")
     assert (manifest_path.parent / "raw" / "dirs_status" / "200.txt").exists()
+    assert (manifest_path.parent / "parsed" / "dirs_status" / "200.txt").exists()
+    assert manifest["recon_bus_promotion"]["status"] == "ok"
 
 
 def test_remote_ingest_uses_unique_fetch_dir_and_cleans_on_failure(tmp_path: Path, monkeypatch) -> None:
@@ -57,11 +59,11 @@ def test_remote_ingest_uses_unique_fetch_dir_and_cleans_on_failure(tmp_path: Pat
         (destination / ".auth" / "recon-ry-auth.json").write_text("secret", encoding="utf-8")
         (destination / "alive.txt").write_text("https://a.example\n", encoding="utf-8")
 
-    def fail_import(**_kwargs):
-        raise RuntimeError("import failed")
+    def fail_promotion(_args):
+        raise RuntimeError("promotion failed")
 
     monkeypatch.setattr(recon_ry, "fetch_remote_source", fake_fetch)
-    monkeypatch.setattr(recon_ry, "import_url_artifacts", fail_import)
+    monkeypatch.setattr(recon_ry, "promote_run", fail_promotion)
     monkeypatch.setattr(recon_ry, "summarize_url_index", lambda _program: {})
     args = recon_ry.build_parser().parse_args(
         [
@@ -78,12 +80,10 @@ def test_remote_ingest_uses_unique_fetch_dir_and_cleans_on_failure(tmp_path: Pat
         ]
     )
 
-    try:
-        recon_ry.ingest(args)
-    except RuntimeError as exc:
-        assert "import failed" in str(exc)
-    else:
-        raise AssertionError("expected import failure")
+    manifest_path = recon_ry.ingest(args)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["status"] == "partial"
+    assert manifest["recon_bus_promotion"]["status"] == "partial_promotion_failed"
 
     assert len(fetched_dirs) == 1
     assert fetched_dirs[0].name.startswith("recon_ry_fetch_demo_")
@@ -99,7 +99,7 @@ def test_remote_ingest_keep_fetched_uses_per_run_dirs(tmp_path: Path, monkeypatc
         (destination / "alive.txt").write_text("https://a.example\n", encoding="utf-8")
 
     monkeypatch.setattr(recon_ry, "fetch_remote_source", fake_fetch)
-    monkeypatch.setattr(recon_ry, "import_url_artifacts", lambda **_kwargs: [])
+    monkeypatch.setattr(recon_ry, "promote_run", lambda _args: {"status": "ok", "appends": {}})
     monkeypatch.setattr(recon_ry, "summarize_url_index", lambda _program: {})
 
     for _ in range(2):

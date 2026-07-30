@@ -385,6 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     promote_parser.add_argument("program")
     promote_parser.add_argument("--run-root", required=True, help="Completed tool run directory to scan.")
+    promote_parser.add_argument("--run-id", help="Stable source run id used for promoted artifact provenance.")
     promote_parser.add_argument("--shared-base", help="Override Shared web_bounty root for tests or controlled imports.")
     promote_parser.add_argument("--no-index", action="store_true", help="Skip url_index SQLite ingest.")
     promote_parser.add_argument("--no-probe", dest="probe_urls", action="store_false", help="Do not httpx-probe the new URL delta.")

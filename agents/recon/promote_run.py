@@ -151,6 +151,7 @@ def append_kind(
     run_root: Path,
     shared_base: str | None,
     no_index: bool,
+    run_id: str | None = None,
     liveness: str = "unknown",
     httpx_bin: str | None = None,
     values: list[str] | None = None,
@@ -161,7 +162,7 @@ def append_kind(
         value=values or [],
         input=[str(path) for path in files],
         stdin=False,
-        run_id=f"promote-{bus.safe_slug(run_root.name)}-{kind}",
+        run_id=f"{bus.safe_slug(run_id)}-{kind}" if run_id else f"promote-{bus.safe_slug(run_root.name)}-{kind}",
         liveness=liveness,
         httpx_bin=httpx_bin,
         uro_bin=None,
@@ -357,6 +358,7 @@ def promote_run(args: argparse.Namespace) -> dict[str, object]:
             run_root=run_root,
             shared_base=args.shared_base,
             no_index=args.no_index,
+            run_id=getattr(args, "run_id", None),
             liveness="known",
         )
 
@@ -369,6 +371,7 @@ def promote_run(args: argparse.Namespace) -> dict[str, object]:
             run_root=run_root,
             shared_base=args.shared_base,
             no_index=args.no_index,
+            run_id=getattr(args, "run_id", None),
             liveness="probe" if getattr(args, "probe_urls", True) else "unknown",
             httpx_bin=getattr(args, "httpx_bin", None),
         )
@@ -383,6 +386,7 @@ def promote_run(args: argparse.Namespace) -> dict[str, object]:
             run_root=run_root,
             shared_base=args.shared_base,
             no_index=args.no_index,
+            run_id=getattr(args, "run_id", None),
         )
     services = None
     if discovered.get("port"):

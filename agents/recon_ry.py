@@ -27,7 +27,8 @@ from bounty_core.recon import start_run, write_manifest
 
 from scope_validator import OutOfScopeError, ScopeValidator
 from scope_seed_files import clean_scope_value, recon_seed_lines
-from recon_store import import_url_artifacts, summarize_url_index
+from recon_store import summarize_url_index
+from recon.promote_run import promote_run
 
 
 DEFAULT_REMOTE = "ryushe@hoster"
@@ -83,6 +84,7 @@ def copy_recon_outputs(source_dir: Path, raw_dir: Path, parsed_dir: Path) -> tup
 
     for name in DIR_ARTIFACTS:
         copy_if_present(source_dir / name, raw_dir / name, raw_files)
+        copy_if_present(source_dir / name, parsed_dir / name, parsed_files)
 
     return raw_files, parsed_files
 
@@ -164,26 +166,29 @@ def ingest(args: argparse.Namespace) -> Path:
         (run.raw_dir / "source_path.txt").write_text(source_label + "\n", encoding="utf-8")
 
         raw_files, parsed_files = copy_recon_outputs(source_dir, run.raw_dir, run.parsed_dir)
-        url_index_inputs = [
-            run.parsed_dir / name
-            for name in ("alive.txt", "urls.txt", "params_raw.txt", "jsfiles.txt")
-            if (run.parsed_dir / name).is_file()
-        ]
-        url_index_imports = import_url_artifacts(
-            program=args.program,
-            artifacts=url_index_inputs,
-            run_id=run.run_id,
-            scope_filter="auto",
-            repull_scope=True,
-        )
+        try:
+            promotion = promote_run(
+                argparse.Namespace(
+                    program=args.program,
+                    run_root=str(run.parsed_dir),
+                    run_id=run.run_id,
+                    shared_base=str(Path(args.root).expanduser()) if args.root else None,
+                    no_index=False,
+                    probe_urls=True,
+                    httpx_bin=None,
+                )
+            )
+        except Exception as exc:
+            promotion = {"status": "partial_promotion_failed", "error": str(exc)}
         manifest = {
+            "status": "ok" if promotion.get("status") == "ok" else "partial",
             "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "exit_code": 0,
             "source": source_label,
             "mode": "ingest",
             "raw_files": [str(path) for path in raw_files],
             "parsed_files": [str(path) for path in parsed_files],
-            "url_index_imports": url_index_imports,
+            "recon_bus_promotion": promotion,
             "url_index_summary": summarize_url_index(args.program),
             "counts": build_counts(run.parsed_dir),
             "promoted_finding_ids": [],

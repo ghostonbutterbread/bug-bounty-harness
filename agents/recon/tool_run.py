@@ -240,7 +240,12 @@ def run_tool(args: argparse.Namespace) -> dict[str, object]:
         manifest["promotion"] = {"enabled": True, "status": "skipped", "reason": "command-failed"}
     promotion = manifest.get("promotion")
     promotion_result = promotion.get("result") if isinstance(promotion, dict) else None
-    if isinstance(promotion, dict) and promotion.get("status") == "ok" and isinstance(promotion_result, dict):
+    if (
+        isinstance(promotion, dict)
+        and promotion.get("status") == "ok"
+        and isinstance(promotion_result, dict)
+        and promotion_result.get("status") == "ok"
+    ):
         manifest["promoted"] = True
         manifest["promoted_at"] = utc_now().isoformat(timespec="seconds").replace("+00:00", "Z")
         manifest["promoted_counts"] = promotion_counts(promotion_result)

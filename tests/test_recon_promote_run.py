@@ -86,7 +86,7 @@ class PromoteRunTests(unittest.TestCase):
             ["https://example.com/app.js"],
         )
         self.assertEqual(
-            self.aggregate("wild.txt").read_text(encoding="utf-8").splitlines(),
+            self.aggregate("hosts.txt").read_text(encoding="utf-8").splitlines(),
             ["app.example.com"],
         )
         self.assertEqual(self.aggregate("dirs.txt").read_text(encoding="utf-8").splitlines(), ["/admin"])

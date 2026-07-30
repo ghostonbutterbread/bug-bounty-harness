@@ -21,7 +21,8 @@ FILENAME_KIND_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("params_raw", "params"), "param"),
     (("jsfiles", "js_urls", "javascript"), "js"),
     (("alive", "httpx", "live"), "alive"),
-    (("wild", "hosts", "host", "subdomains", "subdomain"), "host"),
+    (("wild",), "wild"),
+    (("hosts", "host", "subdomains", "subdomain"), "host"),
     (("dirs", "directories", "paths"), "dir"),
     (("urls", "url"), "url"),
 )

@@ -227,7 +227,12 @@ def watch_runs(args: argparse.Namespace, *, promote_func: PromoteFunc | None = N
             summary["failed"].append({"manifest": str(manifest_path), "run_root": str(run_root), "error": str(exc)})
             continue
 
-        updated = mark_promoted(manifest_path, manifest, result if isinstance(result, dict) else {"result": result})
+        if not isinstance(result, dict) or result.get("status") != "ok":
+            summary["failed"].append(
+                {"manifest": str(manifest_path), "run_root": str(run_root), "error": str(result)}
+            )
+            continue
+        updated = mark_promoted(manifest_path, manifest, result)
         summary["promoted"] += 1
         summary["updated_manifests"].append(
             {

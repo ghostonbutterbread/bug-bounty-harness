@@ -39,7 +39,7 @@ AGGREGATE_FILES = {
     "param": "params_raw.txt",
     "js": "jsfiles.txt",
     "dir": "dirs.txt",
-    "host": "wild.txt",
+    "host": "hosts.txt",
     "wild": "wild.txt",
 }
 
@@ -51,6 +51,7 @@ MIRRORS = {
     "params_raw.txt": ("params/params_raw.txt",),
     "params.txt": ("urls/params.txt", "params/params.txt"),
     "jsfiles.txt": ("js/js_urls.txt", "js/jsfiles.txt"),
+    "hosts.txt": ("hosts/hosts.txt",),
 }
 
 
@@ -203,10 +204,10 @@ def run_httpx(input_path: Path, output_path: Path, *, httpx_bin: str | None = No
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if not read_file_lines(input_path):
         write_lines(output_path, [])
-        return {"ran": False, "reason": "empty-delta", "output": str(output_path), "count": 0}
+        return {"ran": False, "success": True, "reason": "empty-delta", "output": str(output_path), "count": 0}
     resolved = find_tool("httpx", httpx_bin)
     if not resolved:
-        raise SystemExit("httpx not found; install it or pass --httpx-bin")
+        return {"ran": False, "success": False, "error": "httpx not found; install it or pass --httpx-bin", "output": str(output_path), "count": 0}
     result = subprocess.run(
         [resolved, "-silent", "-no-color", "-l", str(input_path)],
         text=True,
@@ -214,10 +215,10 @@ def run_httpx(input_path: Path, output_path: Path, *, httpx_bin: str | None = No
         check=False,
     )
     if result.returncode != 0:
-        raise SystemExit(f"httpx failed: {result.stderr.strip()[-500:]}")
+        return {"ran": True, "success": False, "error": f"httpx failed: {result.stderr.strip()[-500:]}", "output": str(output_path), "count": 0}
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     write_lines(output_path, dedupe_preserve_order(lines))
-    return {"ran": True, "output": str(output_path), "count": len(lines)}
+    return {"ran": True, "success": True, "output": str(output_path), "count": len(lines)}
 
 
 def mirror_aggregates(program: str) -> dict[str, str]:
@@ -309,10 +310,20 @@ def _append(args: argparse.Namespace) -> dict[str, object]:
 
         if args.kind == "url" and args.liveness == "probe":
             httpx_output = run_dir / "normalized" / "httpx_alive.txt"
-            stats["httpx"] = run_httpx(delta, httpx_output, httpx_bin=args.httpx_bin)
-            alive_delta = delta_dir / "alive.txt"
-            stats["alive"] = merge_with_anew(httpx_output, root / "alive.txt", alive_delta)
-            touched_files.append(alive_delta)
+            pending_path = root / "pending_probe.txt"
+            pending_batch = run_dir / "incoming" / "httpx_pending.txt"
+            pending = dedupe_preserve_order([*read_file_lines(pending_path), *read_file_lines(delta)])
+            write_lines(pending_path, pending)
+            write_lines(pending_batch, pending)
+            stats["pending_probe"] = {"path": str(pending_path), "count": len(pending)}
+            stats["httpx"] = run_httpx(pending_batch, httpx_output, httpx_bin=args.httpx_bin)
+            if stats["httpx"].get("success", stats["httpx"].get("ran", False)):
+                write_lines(pending_path, [])
+                alive_delta = delta_dir / "alive.txt"
+                stats["alive"] = merge_with_anew(httpx_output, root / "alive.txt", alive_delta)
+                touched_files.append(alive_delta)
+            else:
+                stats["status"] = "partial_probe_failed"
         elif args.kind == "url" and args.liveness == "known":
             alive_delta = delta_dir / "alive.txt"
             stats["alive"] = merge_with_anew(delta, root / "alive.txt", alive_delta)

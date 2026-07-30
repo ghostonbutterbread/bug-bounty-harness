@@ -174,12 +174,12 @@ class ReconBusTests(unittest.TestCase):
             ["https://example.com/fresh?x=1"],
         )
 
-    def test_host_alias_updates_wild_store(self):
+    def test_host_writes_hosts_store(self):
         result = M.append(args(kind="host", value=["app.example.com"]))
 
         self.assertEqual(result["primary"]["new"], 1)
         self.assertEqual(
-            self.aggregate("wild.txt").read_text(encoding="utf-8").splitlines(),
+            self.aggregate("hosts.txt").read_text(encoding="utf-8").splitlines(),
             ["app.example.com"],
         )
 
@@ -273,6 +273,32 @@ class ReconBusTests(unittest.TestCase):
         self.assertEqual(alive_args.liveness, "probe")
         result = M.append(alive_args)
         self.assertEqual(result["liveness"], "known")
+
+    def test_probe_failure_retains_pending_delta_for_retry(self):
+        def failed_httpx(input_path: Path, output_path: Path, *, httpx_bin: str | None = None) -> dict[str, object]:
+            return {"ran": True, "success": False, "error": "temporary failure", "output": str(output_path), "count": 0}
+
+        with patch.object(M, "run_httpx", side_effect=failed_httpx):
+            failed = M.append(args(liveness="probe", value=["https://example.com/retry"]))
+        self.assertEqual(failed["status"], "partial_probe_failed")
+        self.assertEqual(self.aggregate("pending_probe.txt").read_text(encoding="utf-8").splitlines(), ["https://example.com/retry"])
+
+        with patch.object(M, "run_httpx", side_effect=self.fake_httpx):
+            recovered = M.append(args(run_id="retry-run", liveness="probe", value=[]))
+        self.assertEqual(recovered["status"], "ok")
+        self.assertEqual(self.aggregate("pending_probe.txt").read_text(encoding="utf-8"), "")
+        self.assertEqual(self.aggregate("alive.txt").read_text(encoding="utf-8").splitlines(), ["https://example.com/retry"])
+
+    def test_hosts_and_wildcards_use_separate_aggregates(self):
+        M.append(args(kind="host", value=["api.example.com"]))
+        M.append(args(kind="wild", value=["*.example.com"]))
+        self.assertEqual(self.aggregate("hosts.txt").read_text(encoding="utf-8").splitlines(), ["api.example.com"])
+        self.assertEqual(self.aggregate("wild.txt").read_text(encoding="utf-8").splitlines(), ["*.example.com"])
+
+    def fake_httpx(self, input_path: Path, output_path: Path, *, httpx_bin: str | None = None) -> dict[str, object]:
+        lines = M.read_file_lines(input_path)
+        M.write_lines(output_path, lines)
+        return {"ran": True, "success": True, "output": str(output_path), "count": len(lines)}
 
     def make_fake_httpx(self) -> Path:
         path = Path(self.tmp.name) / "httpx"

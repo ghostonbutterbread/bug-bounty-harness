@@ -1,5 +1,5 @@
 """
-Program Config — Loads per-program settings from bounty_recon/{program}/.
+Program Config — Loads per-program settings from web_bounty/{program}/web/.
 
 Reads:
 - rate_limit.conf    → requests per second limit
@@ -20,7 +20,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
 
-BASE_DIR = Path.home() / "Shared" / "bounty_recon"
+BASE_DIR = Path.home() / "Shared" / "web_bounty"
 
 
 @dataclass
@@ -49,11 +49,11 @@ class ProgramConfig:
     @classmethod
     def load(cls, program: str) -> "ProgramConfig":
         """
-        Load program config from ~/Shared/bounty_recon/{program}/.
+        Load program config from ~/Shared/web_bounty/{program}/web/.
         Falls back to safe defaults if files not found.
         """
         safe = re.sub(r"[^a-zA-Z0-9_\-]", "", program.lower().replace(" ", "_"))
-        program_dir = BASE_DIR / safe
+        program_dir = BASE_DIR / safe / "web"
         conf_path = program_dir / "rate_limit.conf"
         scope_md_path = program_dir / "scope" / "scope.md"
 

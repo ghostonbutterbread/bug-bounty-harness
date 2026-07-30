@@ -32,7 +32,11 @@ def now() -> float:
 
 
 def shared_base() -> Path:
-    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/bounty_recon")).expanduser()
+    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
+
+
+def artifact_base() -> Path:
+    return Path(os.environ.get("HARNESS_BOUNTY_ARTIFACT_ROOT", "/mnt/bounty")).expanduser()
 
 
 def slug(value: str) -> str:
@@ -42,11 +46,12 @@ def slug(value: str) -> str:
 
 
 def inventory_path(program: str) -> Path:
-    return shared_base() / slug(program) / "credentials" / "account_inventory.json"
+    lane = () if os.environ.get("HARNESS_SHARED_BASE") else ("web",)
+    return shared_base().joinpath(slug(program), *lane, "credentials", "account_inventory.json")
 
 
 def profile_dir(program: str, account_alias: str) -> Path:
-    return shared_base() / slug(program) / "ghost" / "chromium-test" / "profiles" / slug(account_alias)
+    return artifact_base() / slug(program) / "web" / "browser-profiles" / slug(account_alias)
 
 
 def state_db(args: argparse.Namespace) -> Path:

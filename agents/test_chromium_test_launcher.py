@@ -196,9 +196,10 @@ def test_ephemeral_profile_dry_run_includes_cleanup_command(monkeypatch, tmp_pat
 
     result = json.loads(capsys.readouterr().out)
     assert result["profile_lifetime"] == "ephemeral"
-    assert result["profile_dir"].endswith("/demo/ghost/chromium-test/profiles/runs/run-123")
+    assert result["profile_dir"].endswith("/demo/web/browser-profiles/runs/run-123")
+    assert result["profile_dir"].startswith("/mnt/bounty/")
     assert result["cleanup_command"][1] == "cleanup-profile"
-    assert result["cleanup_command"][-2].endswith("/demo/ghost/chromium-test/profiles/runs/run-123")
+    assert result["cleanup_command"][-2].endswith("/demo/web/browser-profiles/runs/run-123")
 
 
 def test_launcher_defaults_to_mitm_route_only(monkeypatch, tmp_path, capsys):

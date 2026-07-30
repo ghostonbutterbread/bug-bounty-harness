@@ -189,8 +189,8 @@ def _cmd_harvest(args: argparse.Namespace) -> int:
 
 
 def _cmd_context(args: argparse.Namespace) -> int:
-    root = Path(args.root or "~/Shared/bounty_recon").expanduser()
-    surface = root / _slugify(args.program) / "hunter_memory" / _slugify(args.vulnerability) / _slugify(args.surface)
+    root = Path(args.root or "~/Shared/web_bounty").expanduser()
+    surface = root / _slugify(args.program) / "web" / "hunter_memory" / _slugify(args.vulnerability) / _slugify(args.surface)
     print(surface)
     return 0
 

@@ -119,12 +119,12 @@ def slug(value: str) -> str:
 
 
 def resolve_shared_base(shared_base: str | Path | None = None) -> Path:
-    raw = shared_base or os.environ.get("HARNESS_SHARED_BASE") or "~/Shared/bounty_recon"
+    raw = shared_base or os.environ.get("HARNESS_SHARED_BASE") or "~/Shared/web_bounty"
     return Path(str(raw)).expanduser().resolve(strict=False)
 
 
 def map_paths(program: str, *, shared_base: str | Path | None = None) -> LiveMapPaths:
-    root = resolve_shared_base(shared_base) / normalize_program(program) / "agent_shared" / "application-map"
+    root = resolve_shared_base(shared_base) / normalize_program(program) / "web" / "recon" / "maps" / "_app"
     return LiveMapPaths(
         root=root,
         routes=root / "routes.jsonl",

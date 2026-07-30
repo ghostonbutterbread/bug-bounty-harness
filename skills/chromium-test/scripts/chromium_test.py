@@ -198,11 +198,10 @@ def find_chrome_binary(explicit: str | None = None) -> str:
 
 def default_profile_dir(program: str, account: str) -> Path:
     return (
-        shared_base()
+        artifact_base()
         / sanitize_slug(program)
-        / "ghost"
-        / "chromium-test"
-        / "profiles"
+        / "web"
+        / "browser-profiles"
         / sanitize_slug(account)
     )
 
@@ -210,22 +209,26 @@ def default_profile_dir(program: str, account: str) -> Path:
 def default_ephemeral_profile_dir(program: str, run_id: str | None) -> Path:
     label = sanitize_slug(run_id or f"run-{int(time.time())}")
     return (
-        shared_base()
+        artifact_base()
         / sanitize_slug(program)
-        / "ghost"
-        / "chromium-test"
-        / "profiles"
+        / "web"
+        / "browser-profiles"
         / "runs"
         / label
     )
 
 
 def shared_base() -> Path:
-    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/bounty_recon")).expanduser()
+    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
+
+
+def artifact_base() -> Path:
+    return Path(os.environ.get("HARNESS_BOUNTY_ARTIFACT_ROOT", "/mnt/bounty")).expanduser()
 
 
 def account_inventory_path(program: str) -> Path:
-    return shared_base() / sanitize_slug(program) / "credentials" / "account_inventory.json"
+    lane = () if os.environ.get("HARNESS_SHARED_BASE") else ("web",)
+    return shared_base().joinpath(sanitize_slug(program), *lane, "credentials", "account_inventory.json")
 
 
 def load_account_inventory(program: str) -> dict[str, Any]:

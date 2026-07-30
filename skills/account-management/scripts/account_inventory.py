@@ -43,11 +43,12 @@ def utc_now() -> str:
 
 
 def shared_base() -> Path:
-    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/bounty_recon")).expanduser()
+    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
 
 
 def inventory_path(program: str) -> Path:
-    return shared_base() / program / "credentials" / "account_inventory.json"
+    lane = () if os.environ.get("HARNESS_SHARED_BASE") else ("web",)
+    return shared_base().joinpath(program, *lane, "credentials", "account_inventory.json")
 
 
 def blank_inventory(program: str) -> dict[str, Any]:

@@ -92,7 +92,8 @@ def test_color_selector_leases_one_persistent_program_account_profile(monkeypatc
     assert result["account"]["owned_resource_count"] == 2
     assert result["account"]["auth_seed_configured"] is True
     assert "/private/green.json" not in json.dumps(result)
-    assert result["lease"]["profile_dir"].endswith("demo/ghost/chromium-test/profiles/green-owner")
+    assert result["lease"]["profile_dir"].endswith("demo/web/browser-profiles/green-owner")
+    assert result["lease"]["profile_dir"].startswith("/mnt/bounty/")
     assert result["launch"]["account"] == "green-owner"
 
 

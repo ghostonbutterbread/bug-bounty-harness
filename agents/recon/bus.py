@@ -145,7 +145,16 @@ def find_tool(name: str, explicit: str | None = None) -> str | None:
         if candidate.exists() and os.access(candidate, os.X_OK):
             return str(candidate)
         return explicit if shutil.which(explicit) else None
-    return shutil.which(name)
+    resolved = shutil.which(name)
+    if resolved:
+        return resolved
+    # Non-interactive SSH/tmux jobs often omit the user-level Go/local bin
+    # directories even though recon tools are installed there.
+    for directory in (Path.home() / "go" / "bin", Path.home() / ".local" / "bin", Path.home() / "bin"):
+        candidate = directory / name
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
 
 
 def merge_with_anew(source_path: Path, target_path: Path, delta_path: Path) -> dict[str, object]:

@@ -274,6 +274,15 @@ class ReconBusTests(unittest.TestCase):
         result = M.append(alive_args)
         self.assertEqual(result["liveness"], "known")
 
+    def test_find_tool_checks_user_tool_directories_when_path_is_minimal(self):
+        home = Path(self.tmp.name) / "home"
+        binary = home / "go" / "bin" / "httpx"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("#!/bin/sh\n", encoding="utf-8")
+        binary.chmod(binary.stat().st_mode | 0o111)
+        with patch.object(M.Path, "home", return_value=home), patch.object(M.shutil, "which", return_value=None):
+            self.assertEqual(M.find_tool("httpx"), str(binary))
+
     def test_probe_failure_retains_pending_delta_for_retry(self):
         def failed_httpx(input_path: Path, output_path: Path, *, httpx_bin: str | None = None) -> dict[str, object]:
             return {"ran": True, "success": False, "error": "temporary failure", "output": str(output_path), "count": 0}

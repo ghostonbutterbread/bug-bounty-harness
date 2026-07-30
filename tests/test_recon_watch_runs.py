@@ -37,6 +37,10 @@ class ReconWatchRunsTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / "recon"
+        self.shared_base = Path(self.tmp.name) / "Shared" / "web_bounty"
+        scope = self.shared_base.parent / "scopes" / "demo" / "in-scope.txt"
+        scope.parent.mkdir(parents=True, exist_ok=True)
+        scope.write_text("example.com\n*.example.com\n", encoding="utf-8")
 
     def write_manifest(self, relative: str, payload: dict) -> Path:
         path = self.root / relative / "manifest.json"

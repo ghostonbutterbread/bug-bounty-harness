@@ -191,9 +191,10 @@ class ScopeValidator:
         "recon/scope.txt",
     ]
 
-    def __init__(self, program: str, strict: bool = True):
+    def __init__(self, program: str, strict: bool = True, scopes_base: Path | None = None):
         self.program = program
         self.strict = strict
+        self.scopes_base = scopes_base or self.SCOPES_BASE
         self.policy: dict = {}
         self.platform = "unknown"
         self.source_url = None
@@ -210,7 +211,7 @@ class ScopeValidator:
         Load scope entries from standard file locations.
         Silently skips missing files — call add_domain() to add manually.
         """
-        canonical_dir = self.SCOPES_BASE / self.program
+        canonical_dir = self.scopes_base / self.program
         legacy_program_dir = self.LEGACY_RECON_BASE / self.program
         self._load_policy(canonical_dir / "rules-of-engagement.json")
         loaded = False

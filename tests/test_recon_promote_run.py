@@ -38,6 +38,9 @@ class PromoteRunTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.original_shared = bus.SHARED_BASE
         bus.SHARED_BASE = Path(self.tmp.name) / "Shared" / "web_bounty"
+        scope = bus.SHARED_BASE.parent / "scopes" / "demo" / "in-scope.txt"
+        scope.parent.mkdir(parents=True, exist_ok=True)
+        scope.write_text("example.com\n*.example.com\n", encoding="utf-8")
         self.run_root = Path(self.tmp.name) / "run"
         self.run_root.mkdir()
 

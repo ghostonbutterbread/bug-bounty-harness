@@ -23,6 +23,9 @@ class ReconToolRunTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.shared_base = Path(self.tmp.name) / "Shared" / "web_bounty"
+        scope = self.shared_base.parent / "scopes" / "flourish" / "in-scope.txt"
+        scope.parent.mkdir(parents=True, exist_ok=True)
+        scope.write_text("example.com\n*.example.com\n", encoding="utf-8")
 
     def test_infers_tool_and_captures_stdout_stderr(self):
         result = self.invoke(

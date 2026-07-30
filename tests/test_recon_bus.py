@@ -37,12 +37,29 @@ def args(**overrides):
     return argparse.Namespace(**defaults)
 
 
+class AllowAllScope:
+    def __init__(self, **_: object):
+        pass
+
+    def is_empty(self) -> bool:
+        return False
+
+    def is_in_scope(self, _: str) -> bool:
+        return True
+
+    def is_wildcard_scope(self, _: str) -> bool:
+        return True
+
+
 class ReconBusTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.original_shared = M.SHARED_BASE
         M.SHARED_BASE = Path(self.tmp.name) / "Shared" / "web_bounty"
+        self.scope_patcher = patch.object(M, "ScopeValidator", AllowAllScope)
+        self.scope_patcher.start()
+        self.addCleanup(self.scope_patcher.stop)
 
     def tearDown(self):
         M.SHARED_BASE = self.original_shared
@@ -273,6 +290,31 @@ class ReconBusTests(unittest.TestCase):
         self.assertEqual(alive_args.liveness, "probe")
         result = M.append(alive_args)
         self.assertEqual(result["liveness"], "known")
+
+    def test_scope_gate_quarantines_and_rejects_out_of_scope_routable_values(self):
+        class ExactOnlyScope(AllowAllScope):
+            def is_in_scope(self, _: str) -> bool:
+                return "in-scope.example" in _
+
+            def is_wildcard_scope(self, _: str) -> bool:
+                return False
+
+        with patch.object(M, "ScopeValidator", ExactOnlyScope):
+            with self.assertRaisesRegex(SystemExit, "out-of-scope"):
+                M.append(args(kind="alive", value=["https://outside.example/"]))
+            with self.assertRaisesRegex(SystemExit, "out-of-scope"):
+                M.append(args(kind="wild", value=["*.in-scope.example"]))
+
+        self.assertEqual(
+            self.recon("quarantine", "out_of_scope_alive.txt").read_text(encoding="utf-8").splitlines(),
+            ["https://outside.example/"],
+        )
+        self.assertEqual(
+            self.recon("quarantine", "out_of_scope_wild.txt").read_text(encoding="utf-8").splitlines(),
+            ["*.in-scope.example"],
+        )
+        self.assertFalse(self.aggregate("alive.txt").exists())
+        self.assertFalse(self.aggregate("wild.txt").exists())
 
     def test_find_tool_checks_user_tool_directories_when_path_is_minimal(self):
         home = Path(self.tmp.name) / "home"

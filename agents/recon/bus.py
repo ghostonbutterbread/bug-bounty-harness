@@ -29,6 +29,7 @@ for _path in (_AGENT_DIR, _RECON_DIR):
         sys.path.insert(0, _path_str)
 
 import url_ingest
+from scope_validator import ScopeValidator
 
 
 SHARED_BASE = Path.home() / "Shared" / "web_bounty"
@@ -241,9 +242,45 @@ def mirror_aggregates(program: str) -> dict[str, str]:
         for relative in destinations:
             destination = base / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
+            sync_generated_mirror(source, destination)
             mirrored[relative] = str(destination)
     return mirrored
+
+
+def sync_generated_mirror(source: Path, destination: Path) -> None:
+    """Regenerate a derived mirror, leaving it non-writable between runs."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        destination.chmod(0o644)
+    shutil.copy2(source, destination)
+    destination.chmod(0o444)
+
+
+def scope_violations(program: str, kind: str, values: Iterable[str]) -> list[str]:
+    """Return values unsafe to promote into the program's routable corpus."""
+    target_kinds = {"url", "alive", "param", "js", "host", "wild"}
+    if kind not in target_kinds:
+        return []
+    validator = ScopeValidator(program=program, strict=True, scopes_base=SHARED_BASE.parent / "scopes")
+    if validator.is_empty():
+        raise SystemExit(f"no in-scope entries loaded for program {program!r}; refusing corpus append")
+    invalid: list[str] = []
+    for value in values:
+        if kind == "wild":
+            base = value[2:] if value.startswith("*.") else value
+            permitted = value.startswith("*.") and validator.is_wildcard_scope(base)
+        else:
+            permitted = validator.is_in_scope(value)
+        if not permitted:
+            invalid.append(value)
+    return invalid
+
+
+def quarantine_scope_violations(program: str, kind: str, values: Iterable[str]) -> Path:
+    path = recon_root(program) / "quarantine" / f"out_of_scope_{kind}.txt"
+    existing = read_file_lines(path)
+    write_lines(path, dedupe_preserve_order([*existing, *values]))
+    return path
 
 
 def index_delta(program: str, files: Iterable[Path], run_id: str, *, enabled: bool) -> list[str]:
@@ -299,6 +336,12 @@ def _append(args: argparse.Namespace) -> dict[str, object]:
         delta_dir = run_dir / "delta"
 
         lines = read_lines(args.input or [], args.value or [], read_stdin=args.stdin)
+        invalid = scope_violations(args.program, args.kind, lines)
+        if invalid:
+            quarantine = quarantine_scope_violations(args.program, args.kind, invalid)
+            raise SystemExit(
+                f"refusing {len(invalid)} out-of-scope {args.kind} value(s); quarantined at {quarantine}"
+            )
         write_lines(incoming, lines)
 
         touched_files: list[Path] = []
@@ -404,12 +447,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     promote_parser.set_defaults(func=promote_run)
 
-    from agents.recon.mirror import mirror
+    from agents.recon.mirror import mirror, verify
 
     mirror_parser = subparsers.add_parser("mirror", help="Rebuild legacy recon compatibility files from aggregates.")
     mirror_parser.add_argument("program")
     mirror_parser.add_argument("--shared-base", help="Override Shared web_bounty root for tests or controlled imports.")
     mirror_parser.set_defaults(func=mirror)
+
+    verify_parser = subparsers.add_parser("verify", help="Fail if generated recon mirrors are missing, stale, or writable.")
+    verify_parser.add_argument("program")
+    verify_parser.add_argument("--shared-base", help="Override Shared web_bounty root for tests or controlled imports.")
+    verify_parser.set_defaults(func=verify)
 
     from agents.recon import watch_runs
 
@@ -422,7 +470,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     args = parser.parse_args(argv)
     result = args.func(args)
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0
+    return int(result.get("exit_code", 0)) if isinstance(result, dict) else 0
 
 
 if __name__ == "__main__":

@@ -77,6 +77,23 @@ class ReconMirrorTests(unittest.TestCase):
             self.recon("js", "jsfiles.txt").read_text(encoding="utf-8").splitlines(),
             ["https://example.com/app.js"],
         )
+        self.assertEqual(self.recon("urls", "urls.txt").stat().st_mode & 0o777, 0o444)
+        self.assertEqual(M.verify_aggregates("demo")["status"], "ok")
+
+    def test_verify_detects_writable_and_content_drift(self):
+        self.write_aggregate("urls.txt", ["https://example.com/a"])
+        M.mirror_aggregates("demo")
+        destination = self.recon("urls", "urls.txt")
+        destination.chmod(0o644)
+        destination.write_text("https://example.com/tampered\n", encoding="utf-8")
+
+        result = M.verify_aggregates("demo")
+
+        self.assertEqual(result["status"], "drift")
+        self.assertEqual(result["exit_code"], 1)
+        self.assertTrue(
+            any(item == {"mirror": "urls/urls.txt", "reason": "content_mismatch"} for item in result["drift"])
+        )
 
     def test_missing_aggregates_are_skipped_safely(self):
         self.write_aggregate("urls.txt", ["https://example.com/a"])

@@ -397,6 +397,12 @@ def promote_run(args: argparse.Namespace) -> dict[str, object]:
             shared_base=args.shared_base,
         )
 
+    append_statuses = {
+        kind: str(result.get("status", "ok"))
+        for kind, result in appends.items()
+        if isinstance(result, dict)
+    }
+    failed_appends = {kind: status for kind, status in append_statuses.items() if status != "ok"}
     return {
         "program": args.program,
         "run_root": str(run_root),
@@ -404,5 +410,6 @@ def promote_run(args: argparse.Namespace) -> dict[str, object]:
         "appends": appends,
         "services": services,
         "probe_urls": bool(getattr(args, "probe_urls", True)),
-        "status": "ok",
+        "status": "ok" if not failed_appends else "partial_promotion_failed",
+        "failed_appends": failed_appends,
     }

@@ -177,6 +177,20 @@ class PromoteRunTests(unittest.TestCase):
             ["https://example.com/root", "https://example.com/search?q=1", "https://example.com/app.js"],
         )
 
+    def test_partial_probe_failure_keeps_promotion_retryable(self):
+        self.write("normalized/urls.txt", ["https://example.com/retry"])
+
+        with patch.object(
+            M.bus,
+            "run_httpx",
+            return_value={"ran": True, "success": False, "error": "temporary failure", "count": 0},
+        ):
+            result = M.promote_run(args(self.run_root, probe_urls=True))
+
+        self.assertEqual(result["status"], "partial_promotion_failed")
+        self.assertEqual(result["failed_appends"], {"url": "partial_probe_failed"})
+        self.assertTrue(self.aggregate("pending_probe.txt").is_file())
+
     def test_promotes_recon_ry_dirs_status_files_as_flat_dir_inventory(self):
         self.write("dirs_status/200.txt", ["https://example.com/admin"])
         self.write("dirs_status/403.txt", ["https://example.com/internal"])

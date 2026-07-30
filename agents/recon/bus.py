@@ -279,7 +279,7 @@ def _append(args: argparse.Namespace) -> dict[str, object]:
     if args.kind not in AGGREGATE_FILES:
         raise SystemExit(f"unsupported kind: {args.kind}")
     if args.kind == "alive" and args.liveness == "probe":
-        raise SystemExit("--kind alive already means liveness is known; use --liveness known or omit it")
+        args.liveness = "known"
 
     run_id = safe_slug(args.run_id or f"recon-bus-{utc_stamp()}")
     root = aggregate_root(args.program)
@@ -359,8 +359,8 @@ def build_parser() -> argparse.ArgumentParser:
     append_parser.add_argument(
         "--liveness",
         choices=("unknown", "known", "probe"),
-        default="unknown",
-        help="For URL inputs: record only, known alive, or probe new delta with httpx.",
+        default="probe",
+        help="For URL inputs: probe the new delta by default; use unknown for record-only imports or known for pre-probed input.",
     )
     append_parser.add_argument("--httpx-bin", help="Override httpx binary path.")
     append_parser.add_argument("--uro-bin", help="Override uro binary path.")
@@ -376,6 +376,9 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser.add_argument("--run-root", required=True, help="Completed tool run directory to scan.")
     promote_parser.add_argument("--shared-base", help="Override Shared web_bounty root for tests or controlled imports.")
     promote_parser.add_argument("--no-index", action="store_true", help="Skip url_index SQLite ingest.")
+    promote_parser.add_argument("--no-probe", dest="probe_urls", action="store_false", help="Do not httpx-probe the new URL delta.")
+    promote_parser.add_argument("--httpx-bin", help="Override httpx binary for automatic URL-delta probing.")
+    promote_parser.set_defaults(probe_urls=True)
     from agents.recon.promote_run import promote_run
 
     promote_parser.set_defaults(func=promote_run)

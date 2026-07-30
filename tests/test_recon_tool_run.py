@@ -109,6 +109,7 @@ class ReconToolRunTests(unittest.TestCase):
                 "--run-id",
                 "promote-run",
                 "--no-index",
+                "--no-probe",
                 "--",
                 sys.executable,
                 "-c",

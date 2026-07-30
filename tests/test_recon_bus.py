@@ -264,6 +264,16 @@ class ReconBusTests(unittest.TestCase):
             ],
         )
 
+    def test_cli_append_probes_urls_by_default_and_treats_alive_as_known(self):
+        parser = M.build_parser()
+        url_args = parser.parse_args(["append", "demo", "--kind", "url", "--value", "https://example.com/a"])
+        alive_args = parser.parse_args(["append", "demo", "--kind", "alive", "--value", "https://example.com/a"])
+
+        self.assertEqual(url_args.liveness, "probe")
+        self.assertEqual(alive_args.liveness, "probe")
+        result = M.append(alive_args)
+        self.assertEqual(result["liveness"], "known")
+
     def make_fake_httpx(self) -> Path:
         path = Path(self.tmp.name) / "httpx"
         path.write_text(

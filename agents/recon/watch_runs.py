@@ -128,6 +128,8 @@ def default_promote_run(
     run_root: Path,
     shared_base: Path | None = None,
     no_index: bool = False,
+    probe_urls: bool = True,
+    httpx_bin: str | None = None,
 ) -> dict[str, Any]:
     """Call the promote-run implementation when present, otherwise its CLI."""
     try:
@@ -147,10 +149,12 @@ def default_promote_run(
                     run_root=str(run_root),
                     shared_base=str(shared_base) if shared_base is not None else None,
                     no_index=no_index,
+                    probe_urls=probe_urls,
+                    httpx_bin=httpx_bin,
                 )
             )
         else:
-            result = promote(program=program, run_root=run_root, shared_base=shared_base, no_index=no_index)
+            result = promote(program=program, run_root=run_root, shared_base=shared_base, no_index=no_index, probe_urls=probe_urls, httpx_bin=httpx_bin)
         return result if isinstance(result, dict) else {"result": result}
 
     script = Path(__file__).resolve().parents[2] / "scripts" / "recon_bus.py"
@@ -159,6 +163,10 @@ def default_promote_run(
         command.extend(["--shared-base", str(shared_base)])
     if no_index:
         command.append("--no-index")
+    if not probe_urls:
+        command.append("--no-probe")
+    if httpx_bin:
+        command.extend(["--httpx-bin", httpx_bin])
     completed = subprocess.run(command, text=True, capture_output=True, check=False)
     if completed.returncode != 0:
         message = completed.stderr.strip() or completed.stdout.strip() or f"exit {completed.returncode}"
@@ -212,6 +220,8 @@ def watch_runs(args: argparse.Namespace, *, promote_func: PromoteFunc | None = N
                 run_root=run_root,
                 shared_base=shared_base,
                 no_index=bool(args.no_index),
+                probe_urls=bool(getattr(args, "probe_urls", True)),
+                httpx_bin=getattr(args, "httpx_bin", None),
             )
         except Exception as exc:
             summary["failed"].append({"manifest": str(manifest_path), "run_root": str(run_root), "error": str(exc)})
@@ -239,5 +249,8 @@ def add_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParse
     parser.add_argument("--shared-base", help="Override Shared web_bounty root for promote-run.")
     parser.add_argument("--dry-run", action="store_true", help="List promotable manifests without promoting or writing.")
     parser.add_argument("--no-index", action="store_true", help="Pass through to promote-run to skip index writes.")
+    parser.add_argument("--no-probe", dest="probe_urls", action="store_false", help="Do not httpx-probe newly promoted URLs.")
+    parser.add_argument("--httpx-bin", help="Override httpx binary for automatic URL-delta probing.")
+    parser.set_defaults(probe_urls=True)
     parser.set_defaults(func=watch_runs)
     return parser

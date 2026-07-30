@@ -128,6 +128,8 @@ def maybe_promote(
     promote_bin: str | None = None,
     shared_base: Path | None = None,
     no_index: bool = False,
+    probe_urls: bool = True,
+    httpx_bin: str | None = None,
 ) -> dict[str, object]:
     if not enabled:
         return {"enabled": False, "status": "disabled"}
@@ -139,6 +141,8 @@ def maybe_promote(
             run_root=str(run_dir),
             shared_base=str(shared_base) if shared_base else None,
             no_index=no_index,
+            probe_urls=probe_urls,
+            httpx_bin=httpx_bin,
         )
         result = promote_run(promote_args)
         return {"enabled": True, "status": "ok", "mode": "in-process", "result": result}
@@ -152,6 +156,8 @@ def maybe_promote(
             str(run_dir),
             *(["--shared-base", str(shared_base)] if shared_base else []),
             *(["--no-index"] if no_index else []),
+            *(["--no-probe"] if not probe_urls else []),
+            *(["--httpx-bin", httpx_bin] if httpx_bin else []),
         ],
         cwd=str(run_dir),
         capture_output=True,
@@ -169,6 +175,8 @@ def maybe_promote(
             str(run_dir),
             *(["--shared-base", str(shared_base)] if shared_base else []),
             *(["--no-index"] if no_index else []),
+            *(["--no-probe"] if not probe_urls else []),
+            *(["--httpx-bin", httpx_bin] if httpx_bin else []),
         ],
         "exit_code": result.returncode,
         "stdout": result.stdout.decode("utf-8", errors="replace"),
@@ -225,6 +233,8 @@ def run_tool(args: argparse.Namespace) -> dict[str, object]:
         promote_bin=args.promote_bin,
         shared_base=shared_base,
         no_index=args.no_index,
+        probe_urls=args.probe_urls,
+        httpx_bin=args.httpx_bin,
     )
     if not args.no_promote and result.returncode != 0:
         manifest["promotion"] = {"enabled": True, "status": "skipped", "reason": "command-failed"}
@@ -250,7 +260,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--shared-base", help="Override ~/Shared/web_bounty for tests or controlled runs.")
     parser.add_argument("--no-promote", action="store_true", help="Do not call promote-run even if it is available.")
     parser.add_argument("--no-index", action="store_true", help="Pass --no-index to promote-run.")
+    parser.add_argument("--no-probe", dest="probe_urls", action="store_false", help="Do not httpx-probe newly promoted URLs.")
+    parser.add_argument("--httpx-bin", help="Override httpx binary for automatic URL-delta probing.")
     parser.add_argument("--promote-bin", help="Override promote-run binary path.")
+    parser.set_defaults(probe_urls=True)
     return parser
 
 

@@ -15,6 +15,7 @@ from agents.recon import bus
 
 DIRECTORY_NAMES = ("normalized", "parsed", "raw")
 PORT_MARKERS = ("naabu", "ports", "port")
+URL_BEARING_KINDS = ("url", "param", "js")
 
 FILENAME_KIND_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("params_raw", "params"), "param"),
@@ -130,6 +131,12 @@ def discover_candidate_files(run_root: Path) -> dict[str, list[Path]]:
         kind = classify_path(path)
         if kind:
             grouped[kind].append(path)
+    # Recon-Ry keeps content-discovery output partitioned by HTTP status under
+    # dirs_status/. Preserve those flat result files as the durable dir queue
+    # rather than requiring every producer to create a duplicate dirs.txt.
+    for status_dir in sorted(path for path in run_root.rglob("dirs_status") if path.is_dir()):
+        grouped["dir"].extend(path for path in sorted(status_dir.rglob("*")) if path.is_file())
+    grouped = {kind: _dedupe_paths(paths) for kind, paths in grouped.items()}
     if any(is_params_raw(path) for path in grouped.get("param", [])):
         grouped["param"] = [path for path in grouped["param"] if not is_params_view(path)]
     return {kind: sorted(paths) for kind, paths in sorted(grouped.items())}
@@ -143,21 +150,39 @@ def append_kind(
     run_root: Path,
     shared_base: str | None,
     no_index: bool,
+    liveness: str = "unknown",
+    httpx_bin: str | None = None,
+    values: list[str] | None = None,
 ) -> dict[str, object]:
     append_args = argparse.Namespace(
         program=program,
         kind=kind,
-        value=[],
+        value=values or [],
         input=[str(path) for path in files],
         stdin=False,
         run_id=f"promote-{bus.safe_slug(run_root.name)}-{kind}",
-        liveness="unknown",
-        httpx_bin=None,
+        liveness=liveness,
+        httpx_bin=httpx_bin,
         uro_bin=None,
         shared_base=shared_base,
         no_index=no_index,
     )
     return bus.append(append_args)
+
+
+def http_urls(files: Iterable[Path]) -> list[str]:
+    """Return deduplicated full HTTP(S) URLs from URL-shaped recon artifacts."""
+    urls: list[str] = []
+    seen: set[str] = set()
+    for path in files:
+        for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            value = raw.strip()
+            parsed = urlparse(value)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc or value in seen:
+                continue
+            seen.add(value)
+            urls.append(value)
+    return urls
 
 
 def normalize_host_port(host: object, port_value: object) -> tuple[str, int] | None:
@@ -315,8 +340,40 @@ def promote_run(args: argparse.Namespace) -> dict[str, object]:
 
     discovered = discover_candidate_files(run_root)
     appends: dict[str, dict[str, object]] = {}
+
+    # A URL may arrive in an URL, parameter, or JavaScript artifact. Promote
+    # every full HTTP(S) URL into the broad URL inventory first, and probe only
+    # its newly deduplicated delta. Flat alive.txt remains a positive tool queue;
+    # absence from it is not a claim that a URL is dead.
+    url_inputs = [path for kind in URL_BEARING_KINDS for path in discovered.get(kind, [])]
+    candidates = http_urls(url_inputs)
+
+    if discovered.get("alive"):
+        appends["alive"] = append_kind(
+            program=args.program,
+            kind="alive",
+            files=discovered["alive"],
+            run_root=run_root,
+            shared_base=args.shared_base,
+            no_index=args.no_index,
+            liveness="known",
+        )
+
+    if candidates:
+        appends["url"] = append_kind(
+            program=args.program,
+            kind="url",
+            files=[],
+            values=candidates,
+            run_root=run_root,
+            shared_base=args.shared_base,
+            no_index=args.no_index,
+            liveness="probe" if getattr(args, "probe_urls", True) else "unknown",
+            httpx_bin=getattr(args, "httpx_bin", None),
+        )
+
     for kind, files in discovered.items():
-        if kind == "port":
+        if kind in {"port", "url", "alive"}:
             continue
         appends[kind] = append_kind(
             program=args.program,
@@ -341,5 +398,6 @@ def promote_run(args: argparse.Namespace) -> dict[str, object]:
         "discovered": {kind: [str(path) for path in files] for kind, files in discovered.items()},
         "appends": appends,
         "services": services,
+        "probe_urls": bool(getattr(args, "probe_urls", True)),
         "status": "ok",
     }

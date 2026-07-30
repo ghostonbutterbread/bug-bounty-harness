@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -24,6 +25,8 @@ def args(run_root: Path, **overrides):
         "run_root": str(run_root),
         "shared_base": None,
         "no_index": True,
+        "probe_urls": False,
+        "httpx_bin": None,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -63,7 +66,12 @@ class PromoteRunTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(
             self.aggregate("urls.txt").read_text(encoding="utf-8").splitlines(),
-            ["https://example.com/live", "https://example.com/a"],
+            [
+                "https://example.com/live",
+                "https://example.com/a",
+                "https://example.com/search?q=1",
+                "https://example.com/app.js",
+            ],
         )
         self.assertEqual(
             self.aggregate("alive.txt").read_text(encoding="utf-8").splitlines(),
@@ -108,7 +116,7 @@ class PromoteRunTests(unittest.TestCase):
         self.assertNotIn(str(outside), result["discovered"]["url"])
         self.assertEqual(
             self.aggregate("urls.txt").read_text(encoding="utf-8").splitlines(),
-            ["https://example.com/from-manifest"],
+            ["https://example.com/from-manifest", "https://example.com/manifest.js"],
         )
         self.assertEqual(
             self.aggregate("jsfiles.txt").read_text(encoding="utf-8").splitlines(),
@@ -142,6 +150,40 @@ class PromoteRunTests(unittest.TestCase):
         self.assertNotIn(
             "https://example.com/view?q=1",
             self.aggregate("params_raw.txt").read_text(encoding="utf-8").splitlines(),
+        )
+    def test_promotes_url_candidates_from_url_param_and_js_with_delta_probe(self):
+        self.write("normalized/urls.txt", ["https://example.com/root"])
+        self.write("normalized/params_raw.txt", ["https://example.com/search?q=1"])
+        self.write("normalized/jsfiles.txt", ["https://example.com/app.js"])
+        def fake_httpx(input_path: Path, output_path: Path, *, httpx_bin: str | None = None) -> dict[str, object]:
+            lines = M.bus.read_file_lines(input_path)
+            M.bus.write_lines(output_path, lines)
+            return {"ran": True, "output": str(output_path), "count": len(lines)}
+
+        with patch.object(M.bus, "run_httpx", side_effect=fake_httpx):
+            result = M.promote_run(args(self.run_root, probe_urls=True))
+
+        self.assertEqual(result["appends"]["url"]["primary"]["new"], 3)
+        self.assertEqual(result["appends"]["url"]["httpx"]["count"], 3)
+        self.assertEqual(
+            self.aggregate("urls.txt").read_text(encoding="utf-8").splitlines(),
+            ["https://example.com/root", "https://example.com/search?q=1", "https://example.com/app.js"],
+        )
+        self.assertEqual(
+            self.aggregate("alive.txt").read_text(encoding="utf-8").splitlines(),
+            ["https://example.com/root", "https://example.com/search?q=1", "https://example.com/app.js"],
+        )
+
+    def test_promotes_recon_ry_dirs_status_files_as_flat_dir_inventory(self):
+        self.write("dirs_status/200.txt", ["https://example.com/admin"])
+        self.write("dirs_status/403.txt", ["https://example.com/internal"])
+
+        result = M.promote_run(args(self.run_root))
+
+        self.assertIn("dir", result["discovered"])
+        self.assertEqual(
+            self.aggregate("dirs.txt").read_text(encoding="utf-8").splitlines(),
+            ["https://example.com/admin", "https://example.com/internal"],
         )
 
 

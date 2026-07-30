@@ -25,6 +25,8 @@ def args(root: Path, **overrides):
         "shared_base": None,
         "dry_run": False,
         "no_index": False,
+        "probe_urls": False,
+        "httpx_bin": None,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)

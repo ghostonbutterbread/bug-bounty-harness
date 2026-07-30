@@ -304,6 +304,8 @@ class ReconBusTests(unittest.TestCase):
                 M.append(args(kind="alive", value=["https://outside.example/"]))
             with self.assertRaisesRegex(SystemExit, "out-of-scope"):
                 M.append(args(kind="wild", value=["*.in-scope.example"]))
+            with self.assertRaisesRegex(SystemExit, "out-of-scope"):
+                M.append(args(kind="dir", value=["https://outside.example/admin"]))
 
         self.assertEqual(
             self.recon("quarantine", "out_of_scope_alive.txt").read_text(encoding="utf-8").splitlines(),

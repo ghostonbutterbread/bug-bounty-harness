@@ -259,7 +259,11 @@ def sync_generated_mirror(source: Path, destination: Path) -> None:
 def scope_violations(program: str, kind: str, values: Iterable[str]) -> list[str]:
     """Return values unsafe to promote into the program's routable corpus."""
     target_kinds = {"url", "alive", "param", "js", "host", "wild"}
-    if kind not in target_kinds:
+    if kind == "dir":
+        values = [value for value in values if value.startswith(("http://", "https://"))]
+    elif kind not in target_kinds:
+        return []
+    if not values:
         return []
     validator = ScopeValidator(program=program, strict=True, scopes_base=SHARED_BASE.parent / "scopes")
     if validator.is_empty():

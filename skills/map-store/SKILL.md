@@ -59,11 +59,51 @@ domain, app surface, role, or defense, write it to MapStore.
 7. Write back important positive and negative observations.
 8. Use `--scope app` for app-wide facts and `--scope surface` for surface-wide
    facts.
-9. Add vuln-class/status tags so specialist agents can filter.
+9. Add vuln-class/status tags so specialist agents can filter. For a
+   stack-grounded pre-probe class decision, add `class-derivation` and, only for
+   a defensible low/not-applicable conclusion, `declined` plus the relevant
+   class/stack tags.
 10. Link relevant attempts artifacts when the observation came from a deliberate
-   probe or mutation family.
+    probe or mutation family.
 11. If the observation changes hunt direction, add the narrative/handoff to
-   `/bounty-notes` too.
+    `/bounty-notes` too.
+
+## Class-Derivation Decisions
+
+Use this record only with `class-derivation-policy` after first mapping has
+produced an evidenced technology fingerprint. It represents a class considered
+against the stack **before** a specific live probe; it is distinct from a
+correctly enforced control (`defended`), an attempt-specific miss (`failed`),
+and an impact waiver after a capability was proven.
+
+Write a considered-and-declined entry only when the stack gives a falsifiable
+reason for a low or not-applicable prior. Do not create taxonomy stubs, and do
+not write "no passive signal" as a conclusion. A missing or guessed stack fact
+is an incomplete derivation, not a decline.
+
+Use `--scope app` for a program-wide stack fact or `--scope surface` when the
+fingerprint is genuinely scoped to one host/domain/feature. Use the tags
+`class-derivation,declined,<vuln-class>,<stack-tag>` and include this block in
+the body:
+
+```text
+Class Derivation:
+- class: <vulnerability class>
+- stack_basis: <specific evidenced fingerprint fact>
+- basis_source: observed | source-derived
+- prior: low | not-applicable
+- reason: <one falsifiable causal sentence>
+- would_reopen_if: <specific stack/workflow discovery or change>
+```
+
+For an elevated or baseline prior, do not write a `declined` entry. Record the
+class-derivation tag with the resulting hypothesis/attempt pointer, or keep the
+hypothesis in `/bounty-notes` until it has a durable app fact to promote.
+
+A class-derivation record is revisitable context. Keep the normal lifecycle
+status (`active` unless current evidence supports another existing status); do
+not invent a `declined` lifecycle status. Future agents should reopen it when
+`would_reopen_if` becomes true rather than treating it as a permanent closure.
 
 ## Linked Program Documentation
 

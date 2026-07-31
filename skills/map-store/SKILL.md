@@ -82,7 +82,11 @@ not write "no passive signal" as a conclusion. A missing or guessed stack fact
 is an incomplete derivation, not a decline.
 
 Use `--scope app` for a program-wide stack fact or `--scope surface` when the
-fingerprint is genuinely scoped to one host/domain/feature. Use the tags
+fingerprint is genuinely scoped to one host/domain/feature. This is specifically
+the **declined-record** shape, so its `prior` enum deliberately permits only
+`low | not-applicable`; for `elevated | baseline`, follow the top-level
+`class-derivation-policy` and record the class-derivation tag plus the resulting
+hypothesis/attempt pointer instead. Use the tags
 `class-derivation,declined,<vuln-class>,<stack-tag>` and include this block in
 the body:
 
@@ -93,7 +97,7 @@ Class Derivation:
 - basis_source: observed | source-derived
 - prior: low | not-applicable
 - reason: <one falsifiable causal sentence>
-- would_reopen_if: <specific stack/workflow discovery or change>
+- would_reopen_if: <specific discovery/change plus the cheap named check to evaluate it>
 ```
 
 For an elevated or baseline prior, do not write a `declined` entry. Record the

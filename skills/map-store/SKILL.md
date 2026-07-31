@@ -102,18 +102,20 @@ Class Derivation:
 - basis_type: stack | program-rule
 - stack_basis: <specific evidenced fingerprint fact; required for stack>
 - program_basis: <quoted/cited ROE or scope rule; required for program-rule>
-- basis_source: observed | source-derived
+- basis_source: observed | source-derived (must be source-derived for program-rule)
 - prior: low | not-applicable
 - reason: <one causal sentence>
 - excluded_scope: <what the program rule does NOT cover; required for program-rule>
 - would_reopen_if: <specific discovery/change plus cheap named check; stack only>
 ```
 
-For `program-rule`, `would_reopen_if: program updates its published ROE/scope`
-is sufficient: the changed policy is the reopening event, so do not manufacture
-an empirical check. `excluded_scope` is mandatory instead. Keep it specific—for
-example, an exclusion of rate-limit testing does not by itself exclude
-race/concurrency, double-submit, or TOCTOU work when those remain authorized.
+For `program-rule`, `basis_source: source-derived` is mandatory because the
+record rests on the cited published ROE/scope. `would_reopen_if: program updates
+its published ROE/scope` is sufficient: the changed policy is the reopening
+event, so do not manufacture an empirical check. `excluded_scope` is mandatory
+instead. Keep it specific—for example, an exclusion of rate-limit testing does
+not by itself exclude race/concurrency, double-submit, or TOCTOU work when those
+remain authorized.
 
 For an elevated or baseline prior, do not write a `declined` entry. Record the
 class-derivation tag with the resulting hypothesis/attempt pointer, or keep the

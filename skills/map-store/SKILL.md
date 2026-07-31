@@ -70,16 +70,21 @@ domain, app surface, role, or defense, write it to MapStore.
 
 ## Class-Derivation Decisions
 
-Use this record only with `class-derivation-policy` after first mapping has
-produced an evidenced technology fingerprint. It represents a class considered
-against the stack **before** a specific live probe; it is distinct from a
+Use this record only with `class-derivation-policy` after first mapping. It
+represents a class considered from an evidenced technology fingerprint or an
+explicit program rule **before** a specific live probe; it is distinct from a
 correctly enforced control (`defended`), an attempt-specific miss (`failed`),
 and an impact waiver after a capability was proven.
 
-Write a considered-and-declined entry only when the stack gives a falsifiable
-reason for a low or not-applicable prior. Do not create taxonomy stubs, and do
-not write "no passive signal" as a conclusion. A missing or guessed stack fact
-is an incomplete derivation, not a decline.
+For `basis_type: stack`, write a considered-and-declined entry only when the
+stack gives a falsifiable reason for a low or not-applicable prior. Do not create
+taxonomy stubs or write "no passive signal" as a conclusion. A missing or
+guessed stack fact is an incomplete derivation, not a decline.
+
+For `basis_type: program-rule`, record only a class or scope boundary the
+published ROE/scope actually names. It is not an application-security claim.
+State what the exclusion does **not** cover so a blocked class does not suppress
+adjacent in-scope work; use `none adjacent` when appropriate.
 
 Use `--scope app` for a program-wide stack fact or `--scope surface` when the
 fingerprint is genuinely scoped to one host/domain/feature. This is specifically
@@ -87,18 +92,28 @@ the **declined-record** shape, so its `prior` enum deliberately permits only
 `low | not-applicable`; for `elevated | baseline`, follow the top-level
 `class-derivation-policy` and record the class-derivation tag plus the resulting
 hypothesis/attempt pointer instead. Use the tags
-`class-derivation,declined,<vuln-class>,<stack-tag>` and include this block in
-the body:
+`class-derivation,declined,<vuln-class>,<stack-tag>` for a stack decline, or
+`class-derivation,declined,program-rule,<vuln-class>` for a program-rule decline,
+and include the applicable fields below:
 
 ```text
 Class Derivation:
 - class: <vulnerability class>
-- stack_basis: <specific evidenced fingerprint fact>
+- basis_type: stack | program-rule
+- stack_basis: <specific evidenced fingerprint fact; required for stack>
+- program_basis: <quoted/cited ROE or scope rule; required for program-rule>
 - basis_source: observed | source-derived
 - prior: low | not-applicable
-- reason: <one falsifiable causal sentence>
-- would_reopen_if: <specific discovery/change plus the cheap named check to evaluate it>
+- reason: <one causal sentence>
+- excluded_scope: <what the program rule does NOT cover; required for program-rule>
+- would_reopen_if: <specific discovery/change plus cheap named check; stack only>
 ```
+
+For `program-rule`, `would_reopen_if: program updates its published ROE/scope`
+is sufficient: the changed policy is the reopening event, so do not manufacture
+an empirical check. `excluded_scope` is mandatory instead. Keep it specific—for
+example, an exclusion of rate-limit testing does not by itself exclude
+race/concurrency, double-submit, or TOCTOU work when those remain authorized.
 
 For an elevated or baseline prior, do not write a `declined` entry. Record the
 class-derivation tag with the resulting hypothesis/attempt pointer, or keep the

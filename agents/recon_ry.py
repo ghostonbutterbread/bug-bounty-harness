@@ -300,12 +300,16 @@ def start_remote(args: argparse.Namespace) -> None:
     validate_start_scope(args.program, args.url, allow_unscoped=args.allow_unscoped)
     validate_profile_scope(args.program, args.profile)
     project_dir = args.remote_project or f"/home/ryushe/bounties/{safe_slug(args.program)}"
-    profile_flag = f"--{args.profile}" if args.profile in {"full", "subs", "fast", "urls", "params", "dork", "dir", "exact-urls"} else f"--profile {args.profile}"
     url_part = f" --url {shell_quote(args.url)}" if args.url else ""
     verbose = " -vv" if args.very_verbose else " -v"
     rate_conf = rate_limit_conf_body(args.rate_limit_rps, args.timeout)
     seed_files = build_remote_seed_files(args.program, args.url, allow_unscoped=args.allow_unscoped)
     auth_seed, auth_summary = resolve_auth_seed(args)
+    # EyeWitness and hakrawler do not accept arbitrary HTTP headers. When a
+    # header-bearing seed is supplied, use the equivalent exact-host profile
+    # that contains only tools with verified header forwarding.
+    effective_profile = "exact-urls-header" if auth_seed and args.profile == "exact-urls" else args.profile
+    profile_flag = f"--{effective_profile}" if effective_profile in {"full", "subs", "fast", "urls", "params", "dork", "dir", "exact-urls"} else f"--profile {effective_profile}"
     if auth_seed or args.profile == "exact-urls":
         # Exact-host mode must never seed sibling scope entries into its project.
         seed_files = {
@@ -384,6 +388,8 @@ def queue_remote(args: argparse.Namespace) -> None:
     queue_file = f"{queue_root}/queue_urls.txt"
     rate_conf = rate_limit_conf_body(args.rate_limit_rps, args.timeout)
     auth_seed, auth_summary = resolve_auth_seed(args)
+    effective_profile = "exact-urls-header" if auth_seed else "exact-urls"
+    profile_flag = f"--{effective_profile}" if effective_profile == "exact-urls" else f"--profile {effective_profile}"
     remote_auth_seed = stage_remote_auth_seed(args, queue_root, auth_seed, auth_summary)
     auth_file_cmds, _ = remote_auth_seed_commands(queue_root, auth_seed, auth_summary, dry_run=True) if args.dry_run else ("", "")
     auth_env = f"env RECON_RY_AUTH_SEED={shell_quote(remote_auth_seed)} RECON_RY_AUTH_HOST=\"$target_host\" " if remote_auth_seed else ""
@@ -402,7 +408,7 @@ def queue_remote(args: argparse.Namespace) -> None:
         "  : > \"$project/wild.txt\"\n"
         "  cp \"$queue_root/rate_limit.conf\" \"$project/rate_limit.conf\"\n"
         "  item_log=\"$HOME/recon-ry-logs/queue-$(date -u +%Y%m%dT%H%M%SZ)-$target_host.log\"\n"
-        f"  {auth_env}\"$HOME/bin/recon-ry\" recon --exact-urls --project \"$project\" --url \"$target_url\"{auth_arg} -v > \"$item_log\" 2>&1\n"
+        f"  {auth_env}\"$HOME/bin/recon-ry\" recon {profile_flag} --project \"$project\" --url \"$target_url\"{auth_arg} -v > \"$item_log\" 2>&1\n"
         "  printf 'completed target=%s log=%s\\n' \"$target_url\" \"$item_log\"\n"
         "done < \"$queue_file\"\n"
     )

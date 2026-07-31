@@ -176,6 +176,32 @@ def test_start_dry_run_uses_exact_urls_flag(capsys) -> None:
     assert "--subs" not in output
 
 
+def test_start_dry_run_uses_header_safe_exact_profile_for_manual_headers(capsys) -> None:
+    parser = recon_ry.build_parser()
+    args = parser.parse_args(
+        [
+            "start",
+            "demo",
+            "--url",
+            "https://app.example.com",
+            "--profile",
+            "exact-urls",
+            "--auth-header",
+            "X-Bugcrowd-Username: ryushe",
+            "--dry-run",
+            "--allow-unscoped",
+        ]
+    )
+
+    recon_ry.start_remote(args)
+
+    output = capsys.readouterr().out
+    assert '"$HOME/bin/recon-ry" recon --profile exact-urls-header' in output
+    assert '"$HOME/bin/recon-ry" recon --exact-urls' not in output
+    assert '"header_names": [' in output
+    assert "X-Bugcrowd-Username" in output
+
+
 def test_queue_dry_run_uses_one_exact_url_at_a_time(tmp_path: Path, capsys) -> None:
     urls = tmp_path / "targets.txt"
     urls.write_text("https://one.example.com\nhttps://two.example.com/\n", encoding="utf-8")

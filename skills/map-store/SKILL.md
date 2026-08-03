@@ -16,7 +16,8 @@ tested state, or vulnerability lead.
 ## Fast Routing
 
 - App/URL/surface fact future agents should query -> `/map-store`.
-- Hunt chronology, decisions, hypotheses, handoffs, blockers -> `/bounty-notes`.
+- Private live-agent hypothesis, branch, reclaimable follow-up, or continuation checkpoint -> `/hypothesis-ledger`.
+- Hunt chronology, decisions, handoffs, blockers -> `/bounty-notes`.
 - Bulk URL intake, parameter inventory, queue state, per-lane reviewed/tested
   status -> `/url-ingest`.
 - Concrete findings, reports, proof packets -> `manual_hunter.py` / `/findings`.
@@ -29,7 +30,9 @@ tested state, or vulnerability lead.
   the stable conclusion and sanitized artifact pointer.
 
 If a discovery is both fact and next-step idea, split it: factual behavior here,
-hypothesis or handoff in `/bounty-notes`, linked by the same full URL and tags.
+private hypothesis in `/hypothesis-ledger`, linked by the same full URL, tags,
+and a non-secret MapStore evidence pointer. Put the hunt narrative in
+`/bounty-notes` only when it affects a handoff or decision.
 
 Rule of thumb: if an agent would want it while standing at a specific URL,
 domain, app surface, role, or defense, write it to MapStore.

@@ -34,6 +34,8 @@ def write_inventory(shared: Path) -> None:
                         "role": "owner",
                         "tenant_id": "owned-team",
                         "capabilities": ["org-owner", "shared-org:demo-team"],
+                        "lifecycle": "active",
+                        "browser_lease_enabled": True,
                         "auth_seed_ref": "auth-seed:/private/green.json",
                     },
                     {
@@ -41,6 +43,8 @@ def write_inventory(shared: Path) -> None:
                         "pwnfox_color": "pink",
                         "role": "member",
                         "capabilities": ["org-member", "shared-org:demo-team"],
+                        "lifecycle": "active",
+                        "browser_lease_enabled": True,
                     },
                     {
                         "alias": "gray-disabled",
@@ -209,6 +213,27 @@ def test_disabled_inventory_account_cannot_be_leased_or_suggested(monkeypatch, t
     assert result["status"] == "account-unavailable"
     assert result["account"]["browser_lease_enabled"] is False
     assert [item["alias"] for item in result["available_alternatives"]] == ["green-owner", "pink-member"]
+
+
+def test_unavailable_account_still_reports_its_active_lease(monkeypatch, tmp_path):
+    module = load_module()
+    shared = tmp_path / "shared"
+    state = tmp_path / "state"
+    write_inventory(shared)
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    acquired = module.cmd_acquire(
+        args(module, state, "acquire", account="green", agent_id="agent-a", run_id="run-a", purpose="auth-map")
+    )
+    inventory_path = shared / "demo" / "credentials" / "account_inventory.json"
+    inventory = json.loads(inventory_path.read_text())
+    inventory["accounts"][0]["browser_lease_enabled"] = False
+    inventory_path.write_text(json.dumps(inventory))
+
+    status = module.cmd_status(args(module, state, "status", account="green"))
+
+    assert status["status"] == "account-unavailable"
+    assert status["lease"]["lease_id"] == acquired["lease"]["lease_id"]
+    assert status["lease"]["owner_agent_id"] == "agent-a"
 
 
 def test_register_browser_rejects_non_loopback_cdp(monkeypatch, tmp_path):

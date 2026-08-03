@@ -78,6 +78,21 @@ def test_route_hoster_uses_direct_ryushe_proxy(tmp_path, monkeypatch, capsys):
     assert result["agent_proxy_server"] == "http://localhost:8080"
 
 
+def test_retired_inventory_fails_loudly(tmp_path, monkeypatch):
+    module = load_resolver_module()
+    shared = tmp_path / "legacy"
+    write_inventory(shared, "demo", {"status": "retired", "replaced_by": "/shared/bounty_web/demo/credentials/account_inventory.json"})
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    try:
+        module.load_inventory("demo")
+    except SystemExit as exc:
+        assert "retired" in str(exc)
+        assert "bounty_web" in str(exc)
+    else:
+        raise AssertionError("retired account inventory was accepted")
+
+
 def test_resolve_blue_missing_seed_returns_proxy_refresh_plan(tmp_path, monkeypatch, capsys):
     module = load_resolver_module()
     shared = tmp_path / "shared"

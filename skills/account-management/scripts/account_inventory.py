@@ -80,7 +80,26 @@ def load_inventory(program: str) -> dict[str, Any]:
         return blank_inventory(program)
     with path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
-    data.setdefault("schema_version", SCHEMA_VERSION)
+    if not isinstance(data, dict):
+        raise SystemExit(f"account inventory must be a JSON object: {path}")
+    if data.get("status") == "retired":
+        replacement = data.get("replaced_by", "the current canonical registry")
+        raise SystemExit(f"account inventory is retired: {path}; use {replacement}")
+    version = data.get("schema_version", 1)
+    if version == 1:
+        # v1 lacked explicit lifecycle/lease fields. Preserve the records while
+        # making the v2 fail-closed defaults visible on the next save.
+        for account in data.get("accounts", []):
+            if not isinstance(account, dict):
+                continue
+            account.setdefault("role", "unknown")
+            account.setdefault("tier", "unknown")
+            account.setdefault("lifecycle", "unknown")
+            account.setdefault("browser_lease_enabled", False)
+            account.setdefault("organization_access", [])
+        data["schema_version"] = SCHEMA_VERSION
+    elif version != SCHEMA_VERSION:
+        raise SystemExit(f"unsupported account inventory schema version {version}: {path}")
     data.setdefault("program", program)
     data.setdefault("accounts", [])
     data.setdefault("resources", [])

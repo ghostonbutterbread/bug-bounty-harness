@@ -60,6 +60,7 @@ SAFE_ACCOUNT_FIELDS = (
     "organization_access",
     "lifecycle",
     "browser_lease_enabled",
+    "capabilities",
     "pwnfox_color",
     "credential_ref",
     "auth_seed_ref",
@@ -91,7 +92,12 @@ def load_json_file(path: Path) -> dict[str, Any]:
 
 
 def load_inventory(program: str) -> dict[str, Any]:
-    return load_json_file(inventory_path(program))
+    path = inventory_path(program)
+    inventory = load_json_file(path)
+    if inventory.get("status") == "retired":
+        replacement = inventory.get("replaced_by", "the current canonical registry")
+        raise SystemExit(f"account inventory is retired: {path}; use {replacement}")
+    return inventory
 
 
 def current_runtime(explicit: str | None = None) -> str:

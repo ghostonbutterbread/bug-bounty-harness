@@ -114,6 +114,9 @@ def load_inventory(program: str) -> dict[str, Any]:
         raise SystemExit(f"account inventory is not valid JSON: {path}") from exc
     if not isinstance(loaded, dict):
         raise SystemExit(f"account inventory must be a JSON object: {path}")
+    if loaded.get("status") == "retired":
+        replacement = loaded.get("replaced_by", "the current canonical registry")
+        raise SystemExit(f"account inventory is retired: {path}; use {replacement}")
     return loaded
 
 
@@ -277,18 +280,18 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
                 "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
             }
         if account is not None:
+            lease = active_lease(conn, args.program, str(account["alias"]), timestamp)
             if not account_lease_eligible(account):
                 return {
                     "status": "account-unavailable",
                     "program": slug(args.program),
                     "account": account_summary(account, inventory),
-                    "lease": None,
+                    "lease": safe_lease(lease),
                     "last_release": None,
                     "browser_probe": None,
                     "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
                     "next": "a current explicit health clearance is required before this profile may be leased",
                 }
-            lease = active_lease(conn, args.program, str(account["alias"]), timestamp)
             browser_probe = None
             if lease is not None:
                 lease, browser_probe = probe_lease_browser(conn, lease)

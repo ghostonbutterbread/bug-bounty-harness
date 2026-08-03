@@ -32,7 +32,7 @@ def now() -> float:
 
 
 def shared_base() -> Path:
-    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
+    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/bounty_web")).expanduser()
 
 
 def artifact_base() -> Path:
@@ -46,8 +46,7 @@ def slug(value: str) -> str:
 
 
 def inventory_path(program: str) -> Path:
-    lane = () if os.environ.get("HARNESS_SHARED_BASE") else ("web",)
-    return shared_base().joinpath(slug(program), *lane, "credentials", "account_inventory.json")
+    return shared_base().joinpath(slug(program), "credentials", "account_inventory.json")
 
 
 def profile_dir(program: str, account_alias: str) -> Path:
@@ -164,7 +163,7 @@ def account_summary(account: dict[str, Any], inventory: dict[str, Any]) -> dict[
         "organization_access": account.get("organization_access", []),
         "destructible": account.get("destructible", "unknown"),
         "lifecycle": account.get("lifecycle", "active"),
-        "browser_lease_enabled": account.get("browser_lease_enabled", True) is not False,
+        "browser_lease_enabled": account.get("browser_lease_enabled") is True,
         "capabilities": [str(value) for value in capabilities],
         "auth_seed_configured": bool(account.get("auth_seed_ref") or account.get("credential_ref")),
         "auth_refresh_source": account.get("auth_refresh_source"),
@@ -225,9 +224,9 @@ def safe_lease(row: sqlite3.Row | None, *, include_cdp: bool = False) -> dict[st
 
 
 def account_lease_eligible(account: dict[str, Any]) -> bool:
-    """Only explicit inventory state can make an account unavailable for leasing."""
-    lifecycle = str(account.get("lifecycle", "active")).lower()
-    return account.get("browser_lease_enabled", True) is not False and lifecycle not in {"deleted", "disabled", "suspended"}
+    """Lease only accounts explicitly health-cleared in the shared inventory."""
+    lifecycle = str(account.get("lifecycle", "unknown")).lower()
+    return account.get("browser_lease_enabled") is True and lifecycle == "active"
 
 
 def alternatives(conn: sqlite3.Connection, program: str, inventory: dict[str, Any], timestamp: float) -> list[dict[str, Any]]:
@@ -278,6 +277,17 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
                 "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
             }
         if account is not None:
+            if not account_lease_eligible(account):
+                return {
+                    "status": "account-unavailable",
+                    "program": slug(args.program),
+                    "account": account_summary(account, inventory),
+                    "lease": None,
+                    "last_release": None,
+                    "browser_probe": None,
+                    "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
+                    "next": "a current explicit health clearance is required before this profile may be leased",
+                }
             lease = active_lease(conn, args.program, str(account["alias"]), timestamp)
             browser_probe = None
             if lease is not None:

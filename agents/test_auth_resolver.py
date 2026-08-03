@@ -235,6 +235,7 @@ def test_seed_from_proxy_items_extracts_cookie_and_auth_headers():
                         "Cookie": ["sid=secret-session; theme=light"],
                         "X-PwnFox-Color": ["blue"],
                         "Authorization": ["Bearer secret-token"],
+                        "X-Bugcrowd-Username": ["researcher@example.test"],
                         "User-Agent": ["browser"],
                     },
                 }
@@ -248,9 +249,12 @@ def test_seed_from_proxy_items_extracts_cookie_and_auth_headers():
     assert result["status"] == "found"
     assert result["seed"]["cookies"][0]["name"] == "sid"
     assert result["seed"]["cookies"][0]["value"] == "secret-session"
-    assert result["seed"]["headers"] == {"Authorization": "Bearer secret-token"}
+    assert result["seed"]["headers"] == {
+        "Authorization": "Bearer secret-token",
+        "X-Bugcrowd-Username": "researcher@example.test",
+    }
     assert result["provenance"]["cookie_count"] == 2
-    assert result["provenance"]["header_names"] == ["Authorization"]
+    assert result["provenance"]["header_names"] == ["Authorization", "X-Bugcrowd-Username"]
 
 
 def test_refresh_from_ryushe_proxy_writes_locked_seed_and_updates_inventory(tmp_path, monkeypatch, capsys):

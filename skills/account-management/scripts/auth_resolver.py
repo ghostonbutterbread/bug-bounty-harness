@@ -32,6 +32,7 @@ AUTH_HEADER_ALLOWLIST = {
     "x-csrf-token",
     "x-xsrf-token",
     "x-requested-with",
+    "x-bugcrowd-username",
 }
 HEADER_PREFIX_ALLOWLIST = ("x-canva-",)
 HEADER_DENYLIST = {
@@ -54,7 +55,11 @@ SAFE_ACCOUNT_FIELDS = (
     "username",
     "user_id",
     "role",
+    "tier",
     "tenant_id",
+    "organization_access",
+    "lifecycle",
+    "browser_lease_enabled",
     "pwnfox_color",
     "credential_ref",
     "auth_seed_ref",
@@ -66,14 +71,11 @@ SAFE_ACCOUNT_FIELDS = (
 
 
 def shared_base() -> Path:
-    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
+    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/bounty_web")).expanduser()
 
 
 def inventory_path(program: str) -> Path:
-    # HARNESS_SHARED_BASE historically meant an explicit per-family test or
-    # compatibility root. The production default is lane-aware.
-    lane = () if os.environ.get("HARNESS_SHARED_BASE") else ("web",)
-    return shared_base().joinpath(program, *lane, "credentials", "account_inventory.json")
+    return shared_base().joinpath(program, "credentials", "account_inventory.json")
 
 
 def load_json_file(path: Path) -> dict[str, Any]:
@@ -566,7 +568,7 @@ def seed_from_proxy_items(
 REMOTE_PROXY_QUERY_SCRIPT = r'''
 import base64, json, re, sys, urllib.request
 COOKIE_SPLIT_RE = re.compile(r";\s*")
-AUTH_HEADER_ALLOWLIST = {"authorization", "x-csrf-token", "x-xsrf-token", "x-requested-with"}
+AUTH_HEADER_ALLOWLIST = {"authorization", "x-csrf-token", "x-xsrf-token", "x-requested-with", "x-bugcrowd-username"}
 HEADER_PREFIX_ALLOWLIST = ("x-canva-",)
 HEADER_DENYLIST = {"cookie", "host", "content-length", "x-pwnfox-color", "user-agent", "accept", "accept-encoding", "accept-language", "connection", "origin", "referer", "priority"}
 def mcp_call(endpoint, tool_name, arguments):

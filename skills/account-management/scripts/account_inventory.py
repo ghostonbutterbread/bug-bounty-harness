@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 FORBIDDEN_HINTS = (
     "password",
     "passwd",
@@ -43,12 +43,16 @@ def utc_now() -> str:
 
 
 def shared_base() -> Path:
-    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
+    """Return the sole shared, non-secret account-registry root.
+
+    Browser profiles and auth seeds remain local/owner-restricted; only inventory
+    metadata is shared here.  Callers may override this in disposable tests.
+    """
+    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/bounty_web")).expanduser()
 
 
 def inventory_path(program: str) -> Path:
-    lane = () if os.environ.get("HARNESS_SHARED_BASE") else ("web",)
-    return shared_base().joinpath(program, *lane, "credentials", "account_inventory.json")
+    return shared_base().joinpath(program, "credentials", "account_inventory.json")
 
 
 def blank_inventory(program: str) -> dict[str, Any]:

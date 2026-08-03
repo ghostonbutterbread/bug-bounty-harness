@@ -57,9 +57,12 @@ The ledger is lane-local at:
 ~/Shared/<family>/<program>/<lane>/hypotheses/hypothesis_ledger.sqlite
 ```
 
-It stores non-secret coordination metadata only. Do not put cookies, tokens,
-credentials, raw requests, or sensitive response bodies in titles, tags,
-evidence references, or expected chains.
+It stores non-secret coordination metadata only. The current access control is a
+**trusted-cooperative agent protocol**, not a security boundary against arbitrary
+same-OS-user processes: callers must use the BBH CLI and must not impersonate
+another agent/run identity. Do not put cookies, tokens, credentials, raw
+requests, or sensitive response bodies in titles, tags, evidence references, or
+expected chains.
 
 ## Completion rule
 

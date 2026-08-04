@@ -128,6 +128,24 @@ browser merely because a prior task's process is old.
 /chromium-test canva upload-flow --account-label qa-primary --url https://www.canva.com/
 ```
 
+### KasmVNC manual-display handoff
+
+For a user-approved headed handoff, opt in explicitly; the default display
+behavior remains unchanged. This creates a dedicated KasmVNC display and a
+loopback-only HTTP viewer while CDP remains on `127.0.0.1`:
+
+```bash
+python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" \
+  <program> "manual handoff" --ephemeral-profile --run-id <run-id> \
+  --display-backend kasmvnc --kasmvnc-display 20 --kasmvnc-web-port 8463 --json
+```
+
+The JSON record includes `kasmvnc.web_url` (`http://127.0.0.1:<port>/`) and a
+scoped `kasmvnc.stop_command`. Use only a task-specific **Tailscale Serve**
+route to terminate HTTPS in front of that local HTTP endpoint; never use
+Funnel or a public/LAN listener. Stop the recorded KasmVNC display after the
+handoff alongside the browser and profile cleanup.
+
 ## MITM Proxy Certificate Handling
 
 The launcher should trust the proxy CA inside each isolated Chromium profile.

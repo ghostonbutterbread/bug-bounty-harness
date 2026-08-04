@@ -621,3 +621,153 @@ def test_supervise_browser_waits_for_the_recorded_chromium_process():
 
     assert module.wait_for_browser_if_requested(FakeProcess(), supervise=True) == 7
     assert module.wait_for_browser_if_requested(FakeProcess(), supervise=False) == 0
+
+
+def load_kasmvnc_session_module():
+    root = Path(__file__).resolve().parents[1]
+    helper = root / "skills" / "chromium-test" / "scripts" / "kasmvnc_session.py"
+    spec = importlib.util.spec_from_file_location("kasmvnc_session", helper)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_kasmvnc_start_uses_dedicated_display_loopback_and_requested_web_port(monkeypatch, tmp_path):
+    module = load_kasmvnc_session_module()
+    launched = {}
+
+    def fake_popen(command, **kwargs):
+        launched["command"] = command
+        class FakeProcess:
+            def poll(self):
+                return None
+            def terminate(self):
+                return None
+        return FakeProcess()
+
+    monkeypatch.setattr(module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(module, "wait_for_web_listener", lambda _port: True)
+
+    result = module.start_session(display=20, web_port=8463, state_dir=tmp_path)
+
+    assert launched["command"] == [
+        "vncserver",
+        ":20",
+        "-geometry",
+        "1400x900",
+        "-depth",
+        "24",
+        "-noxstartup",
+        "-fg",
+        "-interface",
+        "127.0.0.1",
+        "-websocketPort",
+        "8463",
+    ]
+    assert result["display"] == ":20"
+    assert result["web_url"] == "http://127.0.0.1:8463/"
+    assert result["listener_host"] == "127.0.0.1"
+    assert (tmp_path / "display-20.json").exists()
+
+
+def test_kasmvnc_status_reports_only_a_live_loopback_web_listener(monkeypatch, tmp_path):
+    module = load_kasmvnc_session_module()
+    state = tmp_path / "display-20.json"
+    state.write_text(json.dumps({"display": 20, "web_port": 8463}))
+    monkeypatch.setattr(module, "can_connect_localhost", lambda port: port == 8463)
+
+    result = module.session_status(display=20, state_dir=tmp_path)
+
+    assert result == {
+        "display": ":20",
+        "listener_host": "127.0.0.1",
+        "status": "ready",
+        "web_port": 8463,
+        "web_url": "http://127.0.0.1:8463/",
+    }
+
+
+def test_kasmvnc_start_reports_a_clean_error_when_vncserver_is_not_installed(monkeypatch, tmp_path):
+    module = load_kasmvnc_session_module()
+
+    def missing_vncserver(*_args, **_kwargs):
+        raise FileNotFoundError("vncserver")
+
+    monkeypatch.setattr(module.subprocess, "run", missing_vncserver)
+
+    try:
+        module.start_session(display=20, web_port=8463, state_dir=tmp_path)
+    except module.KasmVNCSessionError as exc:
+        assert str(exc) == "vncserver executable was not found"
+    else:
+        raise AssertionError("Expected a clean KasmVNC startup error")
+
+
+def test_explicit_kasmvnc_backend_starts_session_and_passes_display_to_chromium(monkeypatch, tmp_path, capsys):
+    module = load_launcher_module()
+    launched = {}
+
+    class FakeProcess:
+        pid = 12345
+
+    def fake_popen(command, **kwargs):
+        launched["command"] = command
+        launched["env"] = kwargs["env"]
+        return FakeProcess()
+
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/usr/bin/chromium")
+    monkeypatch.setattr(module, "pick_port", lambda requested=None: 9444)
+    monkeypatch.setattr(module, "prepare_profile_ca", lambda *args, **kwargs: {"status": "trusted"})
+    monkeypatch.setattr(module, "start_kasmvnc_session", lambda **kwargs: {
+        "display": ":20",
+        "listener_host": "127.0.0.1",
+        "status": "ready",
+        "web_port": 8463,
+        "web_url": "http://127.0.0.1:8463/",
+    })
+    monkeypatch.setattr(module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "chromium_test.py", "demo", "manual", "--profile-dir", str(tmp_path / "profile"),
+            "--display-backend", "kasmvnc", "--kasmvnc-display", "20", "--kasmvnc-web-port", "8463", "--json",
+        ],
+    )
+
+    assert module.main() == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert launched["env"]["DISPLAY"] == ":20"
+    assert result["display_backend"] == "kasmvnc"
+    assert result["kasmvnc"]["web_url"] == "http://127.0.0.1:8463/"
+    assert result["cdp_url"] == "http://127.0.0.1:9444"
+
+
+def test_kasmvnc_is_not_started_when_auth_validation_blocks_browser_launch(monkeypatch, tmp_path, capsys):
+    module = load_launcher_module()
+    kasmvnc_started = False
+
+    def fake_start(**_kwargs):
+        nonlocal kasmvnc_started
+        kasmvnc_started = True
+        raise AssertionError("KasmVNC should not start before auth validation succeeds")
+
+    missing_seed = tmp_path / "missing-auth.json"
+    monkeypatch.setattr(module, "pick_port", lambda requested=None: 9444)
+    monkeypatch.setattr(module, "start_kasmvnc_session", fake_start)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "chromium_test.py", "demo", "manual", "--profile-dir", str(tmp_path / "profile"),
+            "--auth-seed-file", str(missing_seed), "--display-backend", "kasmvnc", "--json",
+        ],
+    )
+
+    assert module.main() == 2
+
+    assert kasmvnc_started is False
+    assert json.loads(capsys.readouterr().out)["auth_seed"]["status"] == "unusable"

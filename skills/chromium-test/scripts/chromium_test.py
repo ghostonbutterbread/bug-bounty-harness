@@ -18,6 +18,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from kasmvnc_session import LISTENER_HOST as KASMVNC_LISTENER_HOST
+from kasmvnc_session import start_session as start_kasmvnc_session
+from kasmvnc_session import stop_session as stop_kasmvnc_session
 from mitm_chromium_profile import DEFAULT_CA_CERT, DEFAULT_CERT_NAME, prepare_profile_ca
 
 
@@ -744,6 +747,23 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--chrome-binary", help="Override Chromium/Chrome executable.")
     parser.add_argument(
+        "--display-backend",
+        choices=("default", "kasmvnc"),
+        default="default",
+        help="Display backend. The default preserves the existing launcher behavior; kasmvnc starts a task-owned loopback-only display.",
+    )
+    parser.add_argument(
+        "--kasmvnc-display",
+        type=int,
+        default=20,
+        help="Dedicated KasmVNC X display number when --display-backend kasmvnc is selected.",
+    )
+    parser.add_argument(
+        "--kasmvnc-web-port",
+        type=int,
+        help="KasmVNC local HTTP port; omit to select a free loopback port.",
+    )
+    parser.add_argument(
         "--headless",
         action="store_true",
         help="Launch Chromium in headless mode for scripted smoke tests.",
@@ -910,8 +930,25 @@ def main() -> int:
         "proxy_cert_status": cert_status,
         "auth_application": {"status": "dry-run" if auth_seed_data and args.dry_run else "none"},
         "command": command,
+        "display_backend": args.display_backend,
         "dry_run": args.dry_run,
     }
+
+    kasmvnc_session: dict[str, Any] | None = None
+    kasmvnc_state_dir = profile_dir / "kasmvnc"
+    if args.display_backend == "kasmvnc" and args.dry_run:
+        kasmvnc_session = {
+            "display": f":{args.kasmvnc_display}",
+            "listener_host": KASMVNC_LISTENER_HOST,
+            "status": "dry-run",
+            "web_port": args.kasmvnc_web_port or "auto",
+            "web_url": (
+                f"http://{KASMVNC_LISTENER_HOST}:{args.kasmvnc_web_port}/"
+                if args.kasmvnc_web_port
+                else None
+            ),
+        }
+        result["kasmvnc"] = kasmvnc_session
 
     proc: subprocess.Popen[Any] | None = None
     if not args.dry_run:
@@ -923,13 +960,45 @@ def main() -> int:
                 print("Next: " + "; ".join(auth_next_step.get("steps", [])), file=sys.stderr)
             return 2
         assert_hoster_workload_isolated(runtime)
-        proc = subprocess.Popen(
-            command,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env={**os.environ, **({"HOME": str(home_dir)} if home_dir else {})},
-            start_new_session=True,
-        )
+        if args.display_backend == "kasmvnc":
+            kasmvnc_session = start_kasmvnc_session(
+                display=args.kasmvnc_display,
+                web_port=args.kasmvnc_web_port,
+                state_dir=kasmvnc_state_dir,
+            )
+            kasmvnc_session["state_dir"] = str(kasmvnc_state_dir)
+            kasmvnc_session["stop_command"] = [
+                str(Path(__file__).with_name("kasmvnc_session.py")),
+                "stop",
+                "--display",
+                str(args.kasmvnc_display),
+                "--state-dir",
+                str(kasmvnc_state_dir),
+                "--json",
+            ]
+            result["kasmvnc"] = kasmvnc_session
+        try:
+            proc = subprocess.Popen(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env={
+                    **os.environ,
+                    **({"HOME": str(home_dir)} if home_dir else {}),
+                    # Chromium's profile HOME may be task-isolated, while the
+                    # KasmVNC X server uses the operator's Xauthority cookie.
+                    **(
+                        {"DISPLAY": kasmvnc_session["display"], "XAUTHORITY": str(Path.home() / ".Xauthority")}
+                        if kasmvnc_session
+                        else {}
+                    ),
+                },
+                start_new_session=True,
+            )
+        except OSError:
+            if kasmvnc_session:
+                stop_kasmvnc_session(args.kasmvnc_display, kasmvnc_state_dir)
+            raise
         time.sleep(1)
         result["pid"] = proc.pid
         result["auth_application"] = apply_auth_seed_via_cdp(port, target_url, auth_seed_data)

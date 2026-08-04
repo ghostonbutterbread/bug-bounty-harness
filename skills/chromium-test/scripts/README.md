@@ -1,5 +1,37 @@
 # Chromium Test Scripts
 
+## `kasmvnc_session.py`
+
+- **Purpose:** Starts, checks, and stops one task-owned KasmVNC display for a
+  headed Chromium manual handoff. The helper selects a free local HTTP port
+  when requested with `--web-port` omitted and records only display/port
+  metadata under the supplied state directory.
+- **Security:** The KasmVNC endpoint is loopback-only (`127.0.0.1`) and uses
+  HTTP. When remote access is required, publish that local port through a
+  task-specific Tailscale **Serve** route, which terminates HTTPS; never use
+  Funnel or a public/LAN listener. CDP remains loopback-only and is not
+  published through KasmVNC.
+- **Walkthrough:**
+
+  ```bash
+  KASM="$HARNESS_ROOT/skills/chromium-test/scripts/kasmvnc_session.py"
+  python3 "$KASM" start --display 20 --web-port 8463 --json
+  python3 "$KASM" status --display 20 --json
+  python3 "$KASM" stop --display 20 --json
+  ```
+
+  The Chromium launcher owns the normal start path:
+
+  ```bash
+  python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" \
+    <program> "manual handoff" --display-backend kasmvnc \
+    --kasmvnc-display 20 --kasmvnc-web-port 8463 --json
+  ```
+
+  Its JSON result includes the loopback `kasmvnc.web_url` and an exact scoped
+  `kasmvnc.stop_command`. The default display backend is unchanged; KasmVNC is
+  used only with `--display-backend kasmvnc`.
+
 ## `browser_profile_lease.py`
 
 - **Purpose:** Coordinates one persistent Chromium profile per `program/account`

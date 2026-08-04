@@ -129,6 +129,35 @@ def test_locked_profile_returns_explicit_safe_alternatives_without_switching(mon
     assert "lease_id" not in second["available_alternatives"][0]
 
 
+def test_pwnfox_blue_is_an_exact_locked_browser_lane_without_auto_fallback(monkeypatch, tmp_path):
+    module = load_module()
+    shared = tmp_path / "shared"
+    state = tmp_path / "state"
+    write_inventory(shared)
+    inventory_path = shared / "demo" / "credentials" / "account_inventory.json"
+    inventory = json.loads(inventory_path.read_text())
+    inventory["accounts"][0]["alias"] = "blue-primary"
+    inventory["accounts"][0]["pwnfox_color"] = "blue"
+    inventory["resources"][0]["owner"] = "blue-primary"
+    inventory["resources"][1]["owner"] = "blue-primary"
+    inventory_path.write_text(json.dumps(inventory))
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    first = module.cmd_acquire(
+        args(module, state, "acquire", account="blue", agent_id="agent-a", run_id="run-a", purpose="swagger-lab")
+    )
+    second = module.cmd_acquire(
+        args(module, state, "acquire", account="blue", agent_id="agent-b", run_id="run-b", purpose="swagger-lab")
+    )
+
+    assert first["status"] == "leased"
+    assert first["account"]["alias"] == "blue-primary"
+    assert second["status"] == "locked"
+    assert second["lease"]["account_alias"] == "blue-primary"
+    assert [row["alias"] for row in second["available_alternatives"]] == ["pink-member"]
+    assert second["lease"]["account_alias"] != "pink-member"
+
+
 def test_same_owner_renews_and_release_makes_profile_available(monkeypatch, tmp_path):
     module = load_module()
     shared = tmp_path / "shared"

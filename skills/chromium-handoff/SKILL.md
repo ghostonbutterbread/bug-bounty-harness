@@ -32,8 +32,11 @@ this handoff server to the existing CDP endpoint.
   `127.0.0.1` on Hoster. Do not bind CDP to a Tailscale or LAN address.
 - Tailscale is a control/view transport only. It must not change the browser's
   existing proxy/effective egress IP.
-- Use the fixed handoff UI port `9231`; each task's CDP port remains dynamic
-  and loopback-only.
+- Handoff UI ports are allocated atomically from `9501–9599`; this is separate
+  from Chromium's `9223–9500` CDP range and supports concurrent sessions.
+- Each handoff gets its own Tailscale route at `/handoff/<handoff_port>` and
+  its own SSH local/remote port pair. Never reuse a port or route owned by an
+  active task.
 
 ## One-time Hoster Prerequisites
 
@@ -61,36 +64,45 @@ assume an ACL change is authorized.
    ```bash
    curl --fail --silent http://127.0.0.1:<cdp_port>/json/list
    ```
-2. Start the loopback-only handoff server through its task-owned supervisor:
+2. Start the loopback-only handoff server through its task-owned supervisor with
+   `LISTEN_PORT=auto`. It atomically claims the first free port in `9501–9599`
+   and writes a `cdp_handoff_ready` JSON record containing the selected
+   `listen_port`; record that port in the task handoff metadata:
    ```bash
    CDP_URL=http://127.0.0.1:<cdp_port> \
    LISTEN_HOST=127.0.0.1 \
-   LISTEN_PORT=9231 \
+   LISTEN_PORT=auto \
    node "$HARNESS_ROOT/skills/chromium-handoff/scripts/cdp_handoff_server.js"
    ```
-   Verify the local UI before publishing it:
+   For a task whose readiness record reports `<handoff_port>`, verify the local
+   UI before publishing it:
    ```bash
-   curl --fail --silent http://127.0.0.1:9231/ >/dev/null
+   curl --fail --silent http://127.0.0.1:<handoff_port>/ >/dev/null
    ```
-3. Prefer Tailscale Serve. From Hoster, use the bounded helper:
+3. Prefer Tailscale Serve. Create the task-specific route and give Ryushe the
+   HTTPS URL for `/handoff/<handoff_port>`:
    ```bash
-   "$HARNESS_ROOT/skills/chromium-handoff/scripts/handoff_transport.sh" start
-   "$HARNESS_ROOT/skills/chromium-handoff/scripts/handoff_transport.sh" status
+   HANDOFF_PORT=<handoff_port> \
+     "$HARNESS_ROOT/skills/chromium-handoff/scripts/handoff_transport.sh" start
+   HANDOFF_PORT=<handoff_port> \
+     "$HARNESS_ROOT/skills/chromium-handoff/scripts/handoff_transport.sh" status
    ```
-   Give Ryushe the HTTPS URL shown by `tailscale serve status`.
-4. Always give the SSH fallback. Run these **on Ryushe's workstation**, not
-   Hoster:
+4. Always give the SSH fallback for that same handoff port. Run these **on
+   Ryushe's workstation**, not Hoster:
    ```bash
-   ssh -i ~/.ssh/hoster -fN -L 9997:127.0.0.1:9231 ryushe@hoster
-   xdg-open http://127.0.0.1:9997/
+   ssh -i ~/.ssh/hoster -fN \
+     -L <handoff_port>:127.0.0.1:<handoff_port> ryushe@hoster
+   xdg-open http://127.0.0.1:<handoff_port>/
    ```
-   On macOS use `open` rather than `xdg-open`.
+   Use a different free local port only when `<handoff_port>` is already used on
+   Ryushe's workstation. On macOS use `open` rather than `xdg-open`.
 5. Pause automation until Ryushe says to continue.
-6. On resume/end, first withdraw the Tailscale route, then stop the handoff
-   service and task browser through their recorded owner. Verify the local CDP
-   endpoint is closed before removing the matching disposable profile:
+6. On resume/end, first withdraw this task's Tailscale route, then stop the
+   handoff service and task browser through their recorded owner. Verify the
+   local CDP endpoint is closed before removing the matching disposable profile:
    ```bash
-   "$HARNESS_ROOT/skills/chromium-handoff/scripts/handoff_transport.sh" stop
+   HANDOFF_PORT=<handoff_port> \
+     "$HARNESS_ROOT/skills/chromium-handoff/scripts/handoff_transport.sh" stop
    ```
 
 ## Failure and Fallback
@@ -104,7 +116,8 @@ assume an ACL change is authorized.
 
 ## What The Handoff Page Does
 
-- Serves a small page from `127.0.0.1:9231`.
+- Serves a task-owned page from `127.0.0.1:<handoff_port>`, allocated in
+  `9501–9599`.
 - Streams screenshots from the selected CDP page.
 - Forwards Ryushe's clicks and typed text to the browser through Playwright/CDP.
 - Keeps the browser's authenticated profile and proxy routing on Hoster.

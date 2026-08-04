@@ -4,7 +4,9 @@ const { URL } = require('url');
 
 const CDP_URL = process.env.CDP_URL || 'http://127.0.0.1:9224';
 const LISTEN_HOST = process.env.LISTEN_HOST || '127.0.0.1';
-const LISTEN_PORT = Number(process.env.LISTEN_PORT || '9230');
+const LISTEN_PORT = process.env.LISTEN_PORT || 'auto';
+const HANDOFF_PORT_MIN = Number(process.env.HANDOFF_PORT_MIN || '9501');
+const HANDOFF_PORT_MAX = Number(process.env.HANDOFF_PORT_MAX || '9599');
 const PLAYWRIGHT_MODULE = process.env.PLAYWRIGHT_MODULE || 'playwright';
 
 let chromium;
@@ -148,6 +150,59 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(LISTEN_PORT, LISTEN_HOST, () => {
-  console.log(`CDP handoff listening on http://${LISTEN_HOST}:${LISTEN_PORT} for ${CDP_URL}`);
+function listen(port) {
+  return new Promise((resolve, reject) => {
+    const onError = (error) => {
+      server.off('listening', onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off('error', onError);
+      resolve();
+    };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(port, LISTEN_HOST);
+  });
+}
+
+async function startServer() {
+  if (LISTEN_PORT === 'auto') {
+    if (!Number.isInteger(HANDOFF_PORT_MIN) || !Number.isInteger(HANDOFF_PORT_MAX) ||
+        HANDOFF_PORT_MIN < 1024 || HANDOFF_PORT_MAX > 65535 || HANDOFF_PORT_MIN > HANDOFF_PORT_MAX) {
+      throw new Error(`invalid handoff port range: ${HANDOFF_PORT_MIN}-${HANDOFF_PORT_MAX}`);
+    }
+    let lastError;
+    for (let port = HANDOFF_PORT_MIN; port <= HANDOFF_PORT_MAX; port += 1) {
+      try {
+        await listen(port);
+        break;
+      } catch (error) {
+        if (error && error.code !== 'EADDRINUSE') throw error;
+        lastError = error;
+      }
+    }
+    if (!server.listening) {
+      throw lastError || new Error('no free handoff port');
+    }
+  } else {
+    const port = Number(LISTEN_PORT);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      throw new Error(`invalid LISTEN_PORT: ${LISTEN_PORT}`);
+    }
+    await listen(port);
+  }
+
+  const address = server.address();
+  console.log(JSON.stringify({
+    event: 'cdp_handoff_ready',
+    listen_host: LISTEN_HOST,
+    listen_port: address.port,
+    cdp_url: CDP_URL,
+  }));
+}
+
+startServer().catch((error) => {
+  console.error(error && error.stack || String(error));
+  process.exitCode = 1;
 });

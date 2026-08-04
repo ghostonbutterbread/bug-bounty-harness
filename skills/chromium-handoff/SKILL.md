@@ -34,9 +34,12 @@ this handoff server to the existing CDP endpoint.
   existing proxy/effective egress IP.
 - Handoff UI ports are allocated atomically from `9501–9599`; this is separate
   from Chromium's `9223–9500` CDP range and supports concurrent sessions.
-- Each handoff gets its own Tailscale route at `/handoff/<handoff_port>` and
-  its own SSH local/remote port pair. Never reuse a port or route owned by an
-  active task.
+- Screenshot handoffs use the shared HTTPS listener and a unique path such as
+  `/handoff/<handoff_port>`.
+- **KasmVNC graphical handoffs use a dedicated tailnet HTTPS port** (for
+  example `https://hoster.tailnet.ts.net:9502/`) mapped to a unique loopback
+  KasmVNC port. Do not mount KasmVNC below a path: its root-relative assets and
+  WebSocket connection otherwise fail after the initial page load.
 
 ## One-time Hoster Prerequisites
 
@@ -79,8 +82,21 @@ assume an ACL change is authorized.
    ```bash
    curl --fail --silent http://127.0.0.1:<handoff_port>/ >/dev/null
    ```
-3. Prefer Tailscale Serve. Create the task-specific route and give Ryushe the
-   HTTPS URL for `/handoff/<handoff_port>`:
+3. For a KasmVNC Chromium run from `chromium-test --display-backend kasmvnc`,
+   publish its recorded `kasmvnc.web_port` as a dedicated tailnet HTTPS port.
+   Allocate this external port from `9501–9599`, but do **not** reuse a port
+   already owned by an active screenshot route:
+   ```bash
+   HANDOFF_PORT=<kasmvnc_web_port> \
+   HANDOFF_PORT_MIN=8463 HANDOFF_PORT_MAX=8499 \
+   HANDOFF_HTTPS_PORT=<unique_tailnet_https_port> \
+     "$HARNESS_ROOT/skills/chromium-handoff/scripts/handoff_transport.sh" start
+   ```
+   Give Ryushe `https://<hoster-tailnet-dns>:<unique_tailnet_https_port>/`.
+   KasmVNC authenticates the browser itself; never print its password. Use SSH
+   fallback only against the loopback KasmVNC web port.
+4. For a screenshot handoff, prefer Tailscale Serve. Create the task-specific
+   path route and give Ryushe the HTTPS URL for `/handoff/<handoff_port>`:
    ```bash
    HANDOFF_PORT=<handoff_port> \
      "$HARNESS_ROOT/skills/chromium-handoff/scripts/handoff_transport.sh" start

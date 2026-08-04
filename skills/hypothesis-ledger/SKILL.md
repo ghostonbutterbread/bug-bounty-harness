@@ -7,7 +7,17 @@ description: "Capture agent-generated hypotheses privately, preserve their branc
 
 Use during a hunt whenever an agent identifies a plausible, evidence-grounded
 idea that it will not immediately test. This is BBH's private-first continuation
-ledger; it is not MapStore and it is not a findings ledger.
+ledger; it is not MapStore and it is not a findings ledger. MapStore keeps
+observed facts; Bounty Notes keeps human decisions and handoffs; raw attempts
+stay in their scoped attempts artifact.
+
+## Capture discipline
+
+Before deepening one lead, preserve every distinct plausible angle as a private
+candidate. Each record should name the observed basis (via non-secret evidence
+pointer), proposed chain, surface/normalized URL when known, tags, next
+safe discriminator or concrete blocker, and wake condition. Do not discard an
+idea merely because it is not the current highest-information test.
 
 ## Core behavior
 
@@ -51,6 +61,21 @@ python3 agents/hypothesis_ledger.py delegate <program> H-... --agent-id <parent>
 python3 agents/hypothesis_ledger.py reclaim <program> H-... --agent-id <new-agent> --run-id <new-run>
 python3 agents/hypothesis_ledger.py complete <program> H-... --agent-id <agent> --run-id <run> --status completed
 ```
+
+## Tabletop and automation preflight
+
+First inspect `python3 agents/hypothesis_ledger.py --help`; do not invent a
+command surface. Offline exercises must use the real CLI and a task-scoped
+`--root` placed **before** the command, for example:
+
+```bash
+python3 agents/hypothesis_ledger.py --root /tmp/hypothesis-tabletop create <program> ...
+```
+
+Retain the temporary-root path plus sanitized command/result summaries. Never
+write ledger records directly to SQLite or emulate a missing CLI. To choose an
+active branch after preserving alternatives, run `transition ... --status active`
+and verify it remains private to the current owner.
 
 ## Storage
 

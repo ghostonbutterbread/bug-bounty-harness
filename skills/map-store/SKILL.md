@@ -44,9 +44,13 @@ domain, app surface, role, or defense, write it to MapStore.
    duplicate avoidance, reusable app facts, coverage, or gadget context.
    Every live query should have an explicit intent.
 4. Treat `app-facts`, `dedupe`, and `coverage` as the default allowed intents
-   during normal find-vulnerability goals. `gadget` requires an active candidate
-   vulnerability. `old-leads` is disabled unless the user asked for retest,
-   repass, cleanup, duplicate triage, or old-lead review.
+   during normal find-vulnerability goals. `gadget` reads are allowed with an
+   active candidate vulnerability, and at a composition checkpoint
+   (`impact-fit-policy`): a new residual joining a trust plane that already has
+   one, a lens rotation after a prerequisite blocker, or session end if
+   residuals changed. `gadget` writes are always allowed. `old-leads` is
+   disabled unless the user asked for retest, repass, cleanup, duplicate triage,
+   or old-lead review.
 5. Treat MapStore results as constraints and prior observations, not as the
    hypothesis generator. If prior notes are narrow, pivot to adjacent untested
    classes instead of inheriting their tunnel vision.
@@ -106,10 +110,13 @@ to artifacts or attempts folders, then link them from the waiver.
 See `references/map-store-reference.md` and `references/routing-examples.md`
 for impact-waiver examples.
 
-Do not tag these as `gadget` unless the primitive is confirmed and chainable.
-If intended feature behavior may become useful later, record it as
-`intended-behavior` plus `hold_for_chain` or `impact-waiver`, not as a
-vulnerability.
+An impact waiver records that a surface is not worth pursuing for its own
+impact. It does not mean the surface disclosed nothing: when a defended or
+low-impact surface leaves a material residual, also write a `gadget,residual`
+entry per `## Gadget Entries`, so the waiver steers agents away from the rabbit
+hole without discarding the chain material. If intended feature behavior may
+become useful later, record it as `intended-behavior` plus `hold_for_chain` or
+`impact-waiver`, not as a vulnerability.
 
 ## Query Intent Modes
 
@@ -176,8 +183,18 @@ Lifecycle statuses:
 
 - `active`: default; still useful as a current observation or gadget.
 - `candidate`: observed or promising, but not proven reusable yet.
-- `failed`: tried in the current context and did not work; include what was
-  tried and why it failed.
+- `defended`: the exercised control correctly enforced its boundary. This is a
+  durable fact about the application, not a failure of the attempt. Record which
+  component enforced it, what was tried, and any material residual the surface
+  disclosed (`impact-fit-policy` -> Residual Extraction). Use this instead of
+  `failed` whenever the target behaved correctly. A conclusion resting on a
+  self-sourced load-bearing assumption is not `defended`; use `needs_recheck`
+  and name the assumption (`general-security-testing-policy` -> Conclusion
+  provenance).
+- `failed`: the attempt did not work for reasons about the attempt — wrong
+  technique, bad fixture, stale session, unmet precondition. Include what was
+  tried and why it failed. Do not use for a correctly enforced control; use
+  `defended`.
 - `needs_recheck`: useful enough to revisit, but current evidence is
   incomplete, ambiguous, or environment-dependent.
 - `stale`: app behavior appears to have changed since the note was written.
@@ -195,10 +212,27 @@ generic reasons such as "old" or "did not work".
 
 ## Gadget Entries
 
-Add the `gadget` tag only when an observation is a confirmed, exploitable
-primitive that could participate in a stronger cross-class chain. Do not tag
-hypotheses, generic leads, unconfirmed sink shape, or negative findings as
-`gadget`.
+`gadget` entries come in two tiers. Both use the capability block below.
+
+**Confirmed gadget** — a reproducible, exploitable primitive that could
+participate in a stronger cross-class chain. Tag `gadget`. Use `chain_status:
+ready` or `deferred`.
+
+**Residual** — a material fact a surface disclosed while correctly rejecting the
+request: reachability, format/identifier, enforcement point, trust anchor,
+oracle, or capability (`impact-fit-policy` -> Residual Extraction). Tag
+`gadget,residual` and use `chain_status: watch`. A residual does not require a
+confirmed exploit, an active candidate vulnerability, or a known chain. Chain
+material is normally observed before the candidate it eventually serves, so a
+store that only accepts primitives with a candidate already attached cannot
+accumulate cross-class chains at all.
+
+A residual must be an **observed application behavior**, not a theory, and must
+be material — worth another agent's attention on its own. Do not tag as
+`gadget`: hypotheses, untested guesses, generic leads, unconfirmed sink shape,
+or a negative with no extracted residual. The bar is "the application
+demonstrably did this," not "this might be exploitable." A residual is chain
+material, not a finding and not a reportable claim by itself.
 
 Every `gadget` body must include this capability block:
 
@@ -211,6 +245,20 @@ Capability:
 - chain_status: ready|deferred|watch
 - chain_watch: <what future primitive or condition should wake this gadget>
 ```
+
+A `residual` entry adds:
+
+```text
+- residual_class: reachability|format|enforcement-point|trust-anchor|oracle|capability
+- disclosed_by: <the defended control that revealed it, and what it enforced>
+- composes_with: <named residual/gadget it might combine with, or "none known">
+```
+
+`composes_with: none known` is a normal value. Record it rather than omitting
+the field — it marks the residual as reviewed against the set known at write
+time, which is what the composition checkpoint in `impact-fit-policy` reads. A
+residual that cannot name the control that disclosed it is a theory; do not
+write it.
 
 Use stable `crosses` labels where possible, for example
 `attacker-content->victim-browser`, `client->server`,

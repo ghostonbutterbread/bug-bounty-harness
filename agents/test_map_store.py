@@ -19,6 +19,8 @@ from agents.map_store import (
     iso_now,
     normalize_url,
     ARCHIVED_STATUS,
+    DEFENDED_STATUS,
+    normalize_status,
     observation_slug,
     parse_time_filter,
     slugify,
@@ -302,6 +304,27 @@ class TestMapStore:
         assert entries[0]["status"] == "candidate"
         assert "Status: candidate" in path.read_text(encoding="utf-8")
 
+    def test_defended_status_is_visible_and_distinct_from_failed(self, store: MapStore):
+        store.init()
+        path = store.write(
+            url="https://app.com/wallet/link",
+            surface="idor",
+            body="A second owned account is rejected by the ownership check.\n",
+            tags=["idor", "ownership-enforced"],
+            status=DEFENDED_STATUS,
+            title="wallet-link ownership defense",
+        )
+
+        entries = store.query(statuses=[DEFENDED_STATUS])
+        assert len(entries) == 1
+        assert entries[0]["status"] == DEFENDED_STATUS
+        assert store.query(tags=["ownership-enforced"])[0]["status"] == DEFENDED_STATUS
+        assert "Status: defended" in path.read_text(encoding="utf-8")
+
+    @pytest.mark.parametrize("alias", ["defend", "defense-confirmed", "enforced"])
+    def test_defended_status_aliases_normalize(self, alias: str):
+        assert normalize_status(alias) == DEFENDED_STATUS
+
     def test_update_status_archives_with_reason_and_hides_by_default(self, store: MapStore):
         store.init()
         path = store.write(
@@ -395,7 +418,7 @@ class TestMapStore:
         assert "current report behavior" in content
         assert "old import gadget" not in content
 
-    def test_cli_update_status_archives_observation(self, store: MapStore):
+    def test_cli_update_status_accepts_defended_alias(self, store: MapStore):
         store.init()
         repo_root = Path(__file__).resolve().parents[1]
         path = store.write(
@@ -418,17 +441,17 @@ class TestMapStore:
             "--path",
             rel_path,
             "--status",
-            "failed",
+            "defense-confirmed",
             "--reason",
-            "Current preview sanitizes titles in the tested account.",
+            "Current preview enforces the tested ownership boundary.",
             "--agent",
             "xss-worker",
         ], cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
-        results = store.query(statuses=["failed"])
+        results = store.query(statuses=[DEFENDED_STATUS])
         assert len(results) == 1
-        assert results[0]["status_reason"] == "Current preview sanitizes titles in the tested account."
+        assert results[0]["status_reason"] == "Current preview enforces the tested ownership boundary."
 
     def test_query_by_url_and_surface(self, store: MapStore):
         store.init()

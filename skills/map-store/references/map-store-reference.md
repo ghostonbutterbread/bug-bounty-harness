@@ -18,10 +18,11 @@
 - Descriptive: `csrf`, `no-csp`, `sourcemap`, `rate-limit`, `jwt`
 - Vuln-class: `xss-reflected`, `xss-stored`, `ssrf-webhook`, `idor-user-id`
 - Cross-surface: `xss-relevant`, `ssrf-relevant`
-- Status: `investigated`, `low-impact`, `confirmed`, `false-positive`
+- Status: `investigated`, `low-impact`, `confirmed`, `false-positive`,
+  `ownership-enforced`
 - Impact waivers: `impact-waiver`, `dead-end`, `no-bounty-impact`,
   `intended-behavior`, `sandboxed`
-- Chain synthesis: `gadget`
+- Chain synthesis: `gadget`, `residual`
 
 Use lowercase hyphenated tags. Tags beginning with `{surface}-` are visible to
 that surface's agent.
@@ -36,7 +37,10 @@ Statuses:
 
 - `active`: default current observation.
 - `candidate`: promising but not proven reusable.
-- `failed`: tested in a current context and did not work.
+- `defended`: a control was exercised and correctly enforced; record the
+  enforcing component, tested context, and any observed residual.
+- `failed`: the attempt did not work for an attempt-specific reason, not because
+  a target control correctly enforced its boundary.
 - `needs_recheck`: ambiguous or environment-dependent; revisit when useful.
 - `stale`: app behavior likely changed.
 - `archived`: keep searchable, but hide from default query results.
@@ -64,10 +68,11 @@ python3 agents/map_store.py update-status \
 
 ### Gadget Capability Convention
 
-Use the `gadget` tag only for genuinely confirmed, exploitable primitives that
-could participate in an attack chain. Do not use it for hypotheses,
-interesting behavior, negative results, generic leads, or unconfirmed sink
-shape.
+Use `gadget` for either a genuinely confirmed, exploitable primitive or an
+observed residual that can be considered in future chain synthesis. Tag the
+second class as `gadget,residual`. Do not use either tag for hypotheses,
+untested guesses, generic leads, unconfirmed sink shape, or a plain negative
+with no material observation.
 
 When writing a `gadget` entry, include a compact capability block near the top
 of the body:
@@ -98,6 +103,19 @@ Fields:
   This is not a permanent exhausted/retired flag.
 - `chain_watch`: the future primitive, app condition, or capability crossing
   that should make agents reconsider this gadget.
+
+For a residual, add:
+
+```text
+- residual_class: reachability|format|enforcement-point|trust-anchor|oracle|capability
+- disclosed_by: <defended control and what it enforced>
+- composes_with: <known residual/gadget, or "none known">
+```
+
+Residuals are material observed facts surfaced by a rejection, not findings.
+They must name the control that disclosed them. Keep their status `defended`
+when the associated control behaved correctly; they remain visible to normal
+queries and composition checkpoints.
 
 The short `crosses` value should be stable enough for cheap filtering. Put
 messy target-specific details in `crosses_detail` instead of inventing many

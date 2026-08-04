@@ -100,6 +100,7 @@ URL_SCOPE = "url"
 VALID_SCOPES = {APP_SCOPE, SURFACE_SCOPE, URL_SCOPE}
 ACTIVE_STATUS = "active"
 CANDIDATE_STATUS = "candidate"
+DEFENDED_STATUS = "defended"
 FAILED_STATUS = "failed"
 NEEDS_RECHECK_STATUS = "needs_recheck"
 STALE_STATUS = "stale"
@@ -107,6 +108,7 @@ ARCHIVED_STATUS = "archived"
 VALID_STATUSES = {
     ACTIVE_STATUS,
     CANDIDATE_STATUS,
+    DEFENDED_STATUS,
     FAILED_STATUS,
     NEEDS_RECHECK_STATUS,
     STALE_STATUS,
@@ -240,6 +242,9 @@ def normalize_status(value: str | None, *, default: str = ACTIVE_STATUS) -> str:
         "recheck": NEEDS_RECHECK_STATUS,
         "needs-recheck": NEEDS_RECHECK_STATUS,
         "archive": ARCHIVED_STATUS,
+        "defend": DEFENDED_STATUS,
+        "defense_confirmed": DEFENDED_STATUS,
+        "enforced": DEFENDED_STATUS,
     }
     status = aliases.get(status, status)
     if status not in VALID_STATUSES:

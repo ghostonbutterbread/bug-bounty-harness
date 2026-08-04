@@ -176,6 +176,24 @@ is not reconnaissance quality.
    results to `/map-store`, linked to sanitized artifact paths. Record class
    priors only after initial evidenced mapping via `/class-derivation-policy`.
 
+## Deep Recon Campaigns
+
+When the normal full pass leaves material mapping questions open, use a bounded
+**deep recon campaign** rather than asking one agent to try every provider and
+technique. The parent owns scope, overlap, rate budget, synthesis, and
+promotion; children each own one independent evidence lens. Start no more than
+three children concurrently and use the default initial portfolio: current/local
+mapper, archive-difference analyst, and public discovery analyst.
+
+Read `references/deep-recon-campaign.md` before spawning. It defines the run
+capsule, source portfolio, child packet/return schema, synthesis gate, and
+source-specific rules for Wayback, proxy, public docs/code/search, passive
+infrastructure providers, and program documentation.
+
+Important: a user-agent change is for ordinary client compatibility diagnosis,
+not evasion. Use a stable, truthful, logged user agent; do not rotate/spoof it
+to bypass blocks, CAPTCHAs, rate limits, access control, or provider terms.
+
 ## Required Deliverable: Recon Brief
 
 A full or delta pass ends with one compact, evidence-backed brief containing:

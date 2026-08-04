@@ -92,6 +92,19 @@ req/s in `TOOLS.md`) and back off on provider errors.
    `/live-map`, or another named next owner.
 6. Write durable surface facts and meaningful current negatives to `/map-store`.
 
+## 6. Deep Recon Campaign (When Mapping Questions Remain)
+
+Do not broaden into every provider/tool by default. Create a bounded parent-led
+campaign when a material mapping question remains after the standard pass. The
+parent retains scope, rate, promotion, and synthesis authority; start at most
+three independent child lenses: current/local map and coverage, archive
+comparison, and public discovery/docs/code. Children return source-attributed
+candidate records only; the parent validates scope, dedupes, and promotes.
+
+Read `skills/recon/references/deep-recon-campaign.md` for the required packet,
+return, source, and synthesis contracts. Use stable truthful user agents only
+for compatibility; never rotate/spoof them to evade provider or target controls.
+
 ## Recon Brief Template
 
 ```markdown

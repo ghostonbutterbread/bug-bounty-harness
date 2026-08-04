@@ -13,9 +13,11 @@ ledger; it is not MapStore and it is not a findings ledger.
 
 - Capture each distinct idea immediately as a private `candidate` owned by the
   current `agent_id` + `run_id`.
-- Run a native heartbeat for a live owner. The default private TTL is two hours.
-  Time passing does **not** release an active agent's backlog; only a missing
-  owner heartbeat makes unresolved work reclaimable.
+- Renew the owner lease through the Hypothesis Store lifecycle hook. It uses
+  Bounty Core's namespaced heartbeat primitive, so future modules can adopt the
+  same atomic liveness semantics without depending on BaseTeam. The default
+  private TTL is two hours. Time passing does **not** release an active agent's
+  backlog; only a missing owner heartbeat makes unresolved work reclaimable.
 - Do not query another agent's unexpired hypotheses. A caller sees its own
   private candidates plus stale, reclaimable hypotheses matching its explicit
   URL/surface/tag query.

@@ -101,6 +101,13 @@ def test_color_selector_leases_one_persistent_program_account_profile(monkeypatc
     assert result["launch"]["account"] == "green-owner"
 
 
+def test_shared_base_defaults_to_canonical_web_bounty(monkeypatch):
+    module = load_module()
+    monkeypatch.delenv("HARNESS_SHARED_BASE", raising=False)
+
+    assert module.shared_base() == Path.home() / "Shared" / "web_bounty"
+
+
 def test_locked_profile_returns_explicit_safe_alternatives_without_switching(monkeypatch, tmp_path):
     module = load_module()
     shared = tmp_path / "shared"

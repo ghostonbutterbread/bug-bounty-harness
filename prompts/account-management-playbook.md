@@ -15,7 +15,7 @@ $HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json
 Default base:
 
 ```text
-/home/ryushe/Shared/bounty_recon/{program}/credentials/account_inventory.json
+/home/ryushe/Shared/web_bounty/{program}/credentials/account_inventory.json
 ```
 
 The registry is non-secret. Store Bitwarden item names or approved credential

@@ -63,6 +63,13 @@ def test_route_openclaw_uses_hoster_ssh(tmp_path, monkeypatch, capsys):
     assert result["can_query_ryushe_proxy"] is True
 
 
+def test_shared_base_defaults_to_canonical_web_bounty(monkeypatch):
+    module = load_resolver_module()
+    monkeypatch.delenv("HARNESS_SHARED_BASE", raising=False)
+
+    assert module.shared_base() == Path.home() / "Shared" / "web_bounty"
+
+
 def test_route_hoster_uses_direct_ryushe_proxy(tmp_path, monkeypatch, capsys):
     module = load_resolver_module()
     route_table = tmp_path / "proxy_routes.json"

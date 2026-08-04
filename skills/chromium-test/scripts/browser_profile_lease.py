@@ -32,7 +32,7 @@ def now() -> float:
 
 
 def shared_base() -> Path:
-    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/bounty_web")).expanduser()
+    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
 
 
 def artifact_base() -> Path:

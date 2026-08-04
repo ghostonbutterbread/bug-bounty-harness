@@ -61,7 +61,7 @@ load_config() {
     # This ensures scripts work no matter where user clones the repo
     HARNESS_ROOT="$SCRIPT_DIR"
     
-    : "${HARNESS_SHARED_BASE:=${HOME}/Shared/bounty_recon}"
+    : "${HARNESS_SHARED_BASE:=${HOME}/Shared/web_bounty}"
     : "${HARNESS_WORDLISTS:=${HOME}/wordlists}"
     : "${CLAUDE_SKILLS_DIR:=${HOME}/.claude/skills}"
     : "${CODEX_SKILLS_DIR:=${HOME}/.agents/skills}"

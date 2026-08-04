@@ -15,7 +15,7 @@ Skills use paths from `config.env` or environment variables.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `HARNESS_ROOT` | Bug bounty harness repo root | `~/projects/bug_bounty_harness` |
-| `HARNESS_SHARED_BASE` | Base for bounty recon data | `~/Shared/bounty_recon` |
+| `HARNESS_SHARED_BASE` | Base for bounty recon data | `~/Shared/web_bounty` |
 | `HARNESS_WORDLISTS` | Wordlists directory | `~/wordlists` |
 | `CLAUDE_SKILLS_DIR` | Claude Code skills directory | `~/.claude/skills` |
 | `CODEX_SKILLS_DIR` | Codex skills directory | `~/.agents/skills` |
@@ -31,7 +31,7 @@ First time setup:
 
 Edit `config.env` in the repo root:
 ```bash
-HARNESS_SHARED_BASE="${HOME}/Shared/bounty_recon"
+HARNESS_SHARED_BASE="${HOME}/Shared/web_bounty"
 HARNESS_ROOT="${HOME}/projects/bug_bounty_harness"
 CLAUDE_SKILLS_DIR="${HOME}/.claude/skills"
 CODEX_SKILLS_DIR="${HOME}/.agents/skills"

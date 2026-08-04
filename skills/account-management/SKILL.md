@@ -16,7 +16,7 @@ secret material.
 ## Load Order
 
 1. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
-2. Resolve `$HARNESS_SHARED_BASE`; default is `/home/ryushe/Shared/bounty_web`. Retired registry tombstones must be treated as errors, not empty inventories.
+2. Resolve `$HARNESS_SHARED_BASE`; default is `/home/ryushe/Shared/web_bounty`. Retired registry tombstones must be treated as errors, not empty inventories.
 3. Open the registry:
    - `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json`
 4. If the file is missing, initialize it before testing:

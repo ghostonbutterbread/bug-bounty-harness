@@ -48,7 +48,7 @@ def shared_base() -> Path:
     Browser profiles and auth seeds remain local/owner-restricted; only inventory
     metadata is shared here.  Callers may override this in disposable tests.
     """
-    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/bounty_web")).expanduser()
+    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
 
 
 def inventory_path(program: str) -> Path:

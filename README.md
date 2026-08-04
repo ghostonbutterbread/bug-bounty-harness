@@ -87,7 +87,7 @@ Paths are configured via `config.env` or environment variables.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `HARNESS_ROOT` | Bug bounty harness repo | `~/projects/bug_bounty_harness` |
-| `HARNESS_SHARED_BASE` | Bounty recon data | `~/Shared/bounty_recon` |
+| `HARNESS_SHARED_BASE` | Canonical shared account-inventory data | `~/Shared/web_bounty` |
 | `HARNESS_WORDLISTS` | Wordlists | `~/wordlists` |
 | `CLAUDE_SKILLS_DIR` | Claude Code skills | `~/.claude/skills` |
 | `CODEX_SKILLS_DIR` | Codex skills | `~/.agents/skills` |

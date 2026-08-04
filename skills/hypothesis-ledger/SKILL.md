@@ -45,6 +45,7 @@ python3 agents/hypothesis_ledger.py create <program> \
 
 python3 agents/hypothesis_ledger.py heartbeat <program> --agent-id <agent> --run-id <run>
 python3 agents/hypothesis_ledger.py continuation <program> --agent-id <agent> --run-id <run> --surface export
+python3 agents/hypothesis_ledger.py transition <program> H-... --agent-id <agent> --run-id <run> --status active
 python3 agents/hypothesis_ledger.py list <program> --agent-id <agent> --run-id <run> --url "https://app.example/export" --tag worker
 python3 agents/hypothesis_ledger.py delegate <program> H-... --agent-id <parent> --run-id <parent-run> --child-agent-id <child> --child-run-id <child-run>
 python3 agents/hypothesis_ledger.py reclaim <program> H-... --agent-id <new-agent> --run-id <new-run>

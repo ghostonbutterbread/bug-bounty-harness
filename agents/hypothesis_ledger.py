@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
 from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 
 ensure_bounty_core_importable("bounty_core.hypothesis_ledger")
-from bounty_core.hypothesis_ledger import DEFAULT_TTL_SECONDS, HypothesisLedger  # noqa: E402
+from bounty_core.hypothesis_ledger import DEFAULT_TTL_SECONDS, UNRESOLVED_STATUSES, HypothesisLedger  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,6 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     continuation = program_command("continuation")
     continuation.add_argument("--surface")
+
+    transition = program_command("transition")
+    transition.add_argument("hypothesis_id")
+    transition.add_argument("--status", required=True, choices=sorted(UNRESOLVED_STATUSES))
 
     reclaim = program_command("reclaim")
     reclaim.add_argument("hypothesis_id")
@@ -96,6 +100,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         )}
     if args.command == "continuation":
         return ledger.continuation_state(agent_id=args.agent_id, run_id=args.run_id, surface=args.surface)
+    if args.command == "transition":
+        return ledger.transition(args.hypothesis_id, agent_id=args.agent_id, run_id=args.run_id, status=args.status)
     if args.command == "reclaim":
         return ledger.reclaim(args.hypothesis_id, agent_id=args.agent_id, run_id=args.run_id)
     if args.command == "delegate":

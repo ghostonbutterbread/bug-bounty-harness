@@ -39,3 +39,18 @@ def test_cli_captures_private_hypothesis_and_exposes_only_owner_view(tmp_path):
     assert owner_view["hypotheses"][0]["id"] == created["id"]
     assert other_view == {"hypotheses": []}
     assert checkpoint == {"private_unresolved_count": 1, "active_count": 0, "surface": "export"}
+
+
+def test_cli_can_transition_an_owned_hypothesis_to_active(tmp_path):
+    created = run_cli(
+        tmp_path, "create", "demo", "--agent-id", "agent-a", "--run-id", "run-a",
+        "--title", "Signed URL export worker", "--surface", "export",
+    )
+
+    active = run_cli(
+        tmp_path, "transition", "demo", created["id"], "--agent-id", "agent-a", "--run-id", "run-a", "--status", "active",
+    )
+    checkpoint = run_cli(tmp_path, "continuation", "demo", "--agent-id", "agent-a", "--run-id", "run-a", "--surface", "export")
+
+    assert active["status"] == "active"
+    assert checkpoint == {"private_unresolved_count": 1, "active_count": 1, "surface": "export"}

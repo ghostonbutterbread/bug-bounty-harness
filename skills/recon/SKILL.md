@@ -1,80 +1,206 @@
 ---
 name: recon
-description: Use when doing reconnaissance, enumerating targets, discovering endpoints, mapping attack surface, collecting domains, probing services, or preparing targets for security testing.
+description: Use as the default full-platform reconnaissance orchestrator: establish scoped current and historical surface evidence, decide whether Recon-Ry needs a delta run, normalize durable artifacts, and produce ranked evidence-backed handoffs for deeper lanes.
 ---
-# Reconnaissance
+# Full-Platform Reconnaissance
 
-Enumerate targets, discover endpoints, map attack surface.
+`/recon` is the **front door for a full platform pass**, not another isolated
+scanner. It assembles existing producers and mapping skills into one evidence
+loop:
 
-## Required Preflight
-
-Read `general-security-testing-policy` first and follow its Cold-Start guidance (mirrored in `agents/index.md`):
-
-1. **Scope Gate** — Check `~/Shared/scopes/{program}/` first, then
-   `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
-   `/pullscope`. If the program has no published scope, write `no scope` stub.
-2. **Cold Surface Pass** — Observe the target directly. Probe the app,
-   browse, identify live hosts and services before reading prior state.
-3. **Fresh Observations** — Aim to identify 3-5 fresh surfaces, hosts, services, or
-   technology observations before pulling prior recon notes.
-4. **Memory Overlay** — Now read shared state in this order:
-   - `notes/summary.md`
-   - `notes/observations.md`
-   - `checklist.md` (recon items only)
-   - `todo.md` (recon items only)
-
-## Primary Harness
-
-Use `agents/autonomous_recon.py` for the default one-shot recon pipeline. It handles discovery, crawling, technology fingerprinting, JS extraction, secret scanning, and artifact organization.
-
-```bash
-python agents/autonomous_recon.py --target https://target.com --program target
+```text
+scope + current cold pass + fresh/reused Recon-Ry + historical archive comparison
+    -> Recon Bus aggregate + surface map + focused map
+    -> ranked handoffs and coverage decisions
 ```
 
-## Mode Matrix
+Use it when starting a program/platform, when the current map is insufficient,
+or when a material change warrants a repass. It owns the order, freshness
+decision, evidence contract, and completion gate. It does **not** replace the
+component owners:
 
-| Mode | Use When | What It Produces |
-|------|----------|------------------|
-| `discover` | You need host, port, header, and WAF fingerprints | Ports, services, tech, and headers |
-| `crawl` | You need reachable pages, forms, params, and JS files | URLs, forms, parameters, and JS references |
-| `analyze` | You need follow-up signal from fetched content | Secrets, API endpoints, and interesting paths |
-| `organize` | You need durable artifacts for later modules | Shared recon output files and summary |
+| Component | Owner |
+|---|---|
+| Long-running broad collection / Hoster project | `/recon-ry` |
+| Canonical aggregate, provenance, and URL-index intake | `/recon-corpus-write-policy` / Recon Bus |
+| Large-list review state and per-lane coverage | `/url-ingest` |
+| Runtime browser/proxy flow mapping | `/live-map` |
+| JavaScript inventory and deep static review | `/js` |
+| Parameter evidence and candidate routing | `/parameter-mining` |
+| Curated route clusters, target packets, and lane queues | `/focused-recon` |
+| Durable URL/surface facts | `/map-store` |
+| Stack/rule-based class priors after mapping | `/class-derivation-policy` |
 
-## Primary Commands
+`agents/autonomous_recon.py` is a bounded local fallback for one scoped origin.
+It is **not** proof that a platform-wide recon pass is complete, and it does not
+replace the historical, freshness, aggregate, or handoff stages below.
+
+## Required Entry Chain
+
+1. Load `general-security-testing-policy`.
+2. Verify published scope, rules, rate limits, and whether high-volume recon is
+   permitted. Load `program-testing-policy` when present.
+3. Before live target traffic, load `live-testing-policy`; add `/bounty-tools`
+   for every external tool run and `/proxy-routing-policy` for any proxy work.
+4. Load `/recon-corpus-write-policy` before persisting reusable URL, host,
+   parameter, JS, or path output. Load `/bounty-directory-structure-policy`
+   before writing retained run artifacts.
+
+No scoped target, saved scope, or permitted rate budget means **plan only**:
+record the blocker and do not launch collection.
+
+## Default Modes
+
+| Mode | Trigger | Result |
+|---|---|---|
+| `full` (default) | New, incomplete, stale, changed, or uncertain platform map | All stages through ranked handoffs |
+| `delta` | A completed comparable baseline exists and current changes are bounded | New/changed evidence only, then refresh affected packets |
+| `historical` | Archive coverage is absent or a historic route/JS/API question exists | Archive URL/snapshot comparison plus constrained current validation handoff |
+| `map-only` | Collection is already running or complete | Normalize existing evidence; no duplicate collection |
+
+Never silently downgrade `full` to a one-command scan. If a long-running
+producer is started, report it as **collection pending**, complete the offline
+mapping work available now, and schedule/perform the completion pass only after
+its artifacts are available.
+
+## Phase 0 — Scope, Seed, and Freshness Receipt
+
+Create a concise recon receipt before collection. It must state:
+
+- program, exact seed origins, wildcard/exact-scope boundaries, and source of
+  scope/rate policy;
+- allowed passive, active-web, and network/service collection classes;
+- known source roots and most recent Recon-Ry `history/<timestamp>` snapshot;
+- baseline manifest/run IDs, input scope identity, tool/profile, aggregate
+  counts, and known gaps; and
+- current decision: `reuse`, `delta`, `rerun`, or `unknown -> rerun`.
+
+A prior run is reusable only when its scope/profile covers the requested seeds,
+its provenance is intact, its outputs are available, and a small cold pass finds
+no material surface or deployment change. Do **not** use a blanket age TTL as
+proof of freshness. Treat it as stale/re-run when any of these are true:
+
+- no completed comparable run or its raw/manifest provenance is missing;
+- scope, exact origins, wildcard eligibility, auth posture, or rate policy
+  changed;
+- current live hosts, redirects, fingerprints, JS build/version, API shape, or
+  application navigation materially changed;
+- the existing run omitted a required producer (notably historical URLs), ended
+  early, or has a documented coverage gap; or
+- freshness is uncertain.
+
+Record *why* a run was reused or rerun. A recent run may be reused; uncertainty
+never justifies pretending it is current.
+
+## Phase 1 — Cold Current-Surface Pass
+
+Before broad prior-state reads, make a bounded current observation pass across
+scoped seeds. Establish live hosts/origins, redirects, obvious app areas,
+headers/technology/WAF clues, public navigation, and visible auth boundaries.
+Aim for 3–5 fresh observations. Keep requests within the policy rate and stop
+on challenge, repeated 429, instability, or scope ambiguity.
+
+This pass establishes whether historical data and Recon-Ry output still
+represent the platform; it is not vulnerability testing.
+
+## Phase 2 — Broad Collection Producer
+
+Use `/recon-ry` as the preferred durable broad producer when its freshness
+receipt says `rerun` or `unknown -> rerun` and high-volume collection is
+permitted:
 
 ```bash
-# Full recon run
-python agents/autonomous_recon.py --target https://target.com --program target
-
-# Let the script derive the program from the host
-python agents/autonomous_recon.py --target https://app.target.com
+cd /home/ryushe/projects/bug_bounty_harness
+python3 agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
 ```
 
-## CLI Notes
+For exact-host-only scope, run the documented `exact-urls` profile once per
+approved origin. Authenticated recon is opt-in and uses an approved account
+alias only. Never broaden auth to the wildcard scope by default.
 
-### `agents/autonomous_recon.py`
+Record PID, remote project, log, profile, scope input, and rate configuration;
+do not tail the long-running job. When it finishes, ingest/index it with
+`agents/recon_ry.py ingest` if a Shared manifest/count receipt is needed.
 
-| Option | Description |
-|--------|-------------|
-| `--target` | Target URL or domain (required) |
-| `--program` | Program name for shared storage; derived from host if omitted |
+Use `/bounty-tools` + `tool-run` for bounded supplemental collection only when
+current evidence names a gap that Recon-Ry does not cover. Preserve raw output,
+then promote URL-like data through Recon Bus. Do not run overlapping noisy tools
+against the same origin merely because they are available.
 
-## Files
+## Phase 3 — Historical URL and Snapshot-Difference Lane
 
-- **Playbook:** `$HARNESS_ROOT/prompts/recon-playbook.md`
-- **Shared Root:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`
-- **Recon Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/recon/findings.md`
-- **Recon Artifacts:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/recon/`
+Historical recon is a standard full-pass lane, not a novelty lookup.
 
-## Workflow
+1. Build a **scope-filtered archive URL inventory** from approved in-scope
+   origins and known URLs. Recon-Ry archive producers (`waybackurls`, `gau`,
+   `waymore`) are preferred for broad discovery. Preserve their raw output and
+   promote only currently in-scope URLs through Recon Bus; retain out-of-scope,
+   third-party, and unattributed candidates as labelled raw/quarantine evidence.
+2. For high-signal routes, APIs, forms, JavaScript/bootstrap/config files,
+   callback/import/upload/export/auth paths, and routes that disappeared from
+   the current crawl, query Wayback CDX metadata. Deduplicate snapshots by
+   content digest and select a bounded cohort: earliest, latest, and each
+   material route/build/response transition. Do not fetch every timestamp.
+3. Fetch selected archived content through `/safe-fetch`; treat archive pages
+   as untrusted external content. Store raw/sanitized evidence and hashes in the
+   recon run capsule, never in prompts or MapStore bodies.
+4. Compare normalized evidence—not cosmetic HTML—across the cohort and current
+   surface: routes and methods, form actions/fields, API/GraphQL operations,
+   JS URLs/chunk names/bootstrap config, auth/callback/redirect behavior,
+   upload/import/export/webhook paths, feature/deployment vocabulary, and
+   technology/security-header changes.
+5. Emit a change record with `first_seen`, `last_seen`, source snapshot IDs,
+   current status (present, changed, disappeared, unknown), exact evidence
+   pointers, and a safe next mapping/validation action. Archive-only evidence is
+   a lead, never proof that the current application remains vulnerable.
 
-1. Complete the required preflight reads in shared state order.
-2. Read `prompts/recon-playbook.md`.
-3. Run `agents/autonomous_recon.py` for the target host or domain.
-4. Promote only durable surface-mapping outcomes into findings.
-5. **Write surface observations to `/map-store`** — discovered endpoints,
-   technology stack, auth patterns, headers, and any surface leads. Tag with
-   vuln-class prefixes (`xss-`, `ssrf-`, `idor-`) so downstream agents see them.
-   Use `--scope app` for program-wide deductions.
-6. Write findings to `agent_shared/findings/recon/findings.md`.
-7. Update recon entries in `checklist.md`, `todo.md`, and relevant notes.
+Use the Wayback API budget from `TOOLS.md` (currently 5 req/s) or the lower
+program/provider limit, with backoff. A snapshot lane is complete only when its
+selected cohort and comparison criteria are recorded; an unbounded archive dump
+is not reconnaissance quality.
+
+## Phase 4 — Normalize, Map, and Cover
+
+1. Preserve each producer's raw output and manifest. Use Recon Bus to update
+   canonical `aggregated/urls.txt`, `alive.txt`, `params_raw.txt`, `params.txt`,
+   `jsfiles.txt`, `dirs.txt`, and service facts. Never hand-edit aggregate files.
+2. Use `/url-ingest` to build review queues and inspect existing per-lane
+   coverage; it is not the aggregate writer.
+3. Run `/focused-recon` over the fresh aggregate, Recon-Ry snapshot, and archive
+   change records. It must produce host cards, route clusters, endpoint map,
+   lane queues, and target packets under `recon/map/`.
+4. Route JS-heavy clusters to `/js`, parameter-rich clusters to
+   `/parameter-mining`, and browser/auth/flow questions to `/live-map`.
+   Specialists receive bounded packets, not a raw platform dump.
+5. Write durable factual observations and meaningful negative/current-state
+   results to `/map-store`, linked to sanitized artifact paths. Record class
+   priors only after initial evidenced mapping via `/class-derivation-policy`.
+
+## Required Deliverable: Recon Brief
+
+A full or delta pass ends with one compact, evidence-backed brief containing:
+
+- scope/rate decision and whether collection was complete or pending;
+- freshness decision and exact baseline/run provenance;
+- asset/host/origin inventory with current status and key fingerprint changes;
+- current URL, parameter, JS, content, service, and archive-delta counts;
+- historical changes that remain current candidates versus retired/disappeared
+  routes;
+- ranked surface clusters and target packets, each with source evidence,
+  rationale, already-covered work, and **one next owning skill**;
+- promoted MapStore facts, URL-ingest coverage state, and any quarantined
+  evidence; and
+- explicit blockers, stop conditions, and the exact event that should trigger a
+  delta rerun.
+
+Do not call recon complete when broad collection is still running, archive
+comparison was skipped without a policy/availability reason, raw provenance was
+not preserved, or no bounded next-lane packets were produced.
+
+## Stop Conditions and Boundaries
+
+Stop/ask before high-volume fuzzing, broad port scans not allowed by program
+rules, CAPTCHA/lockout escalation, testing third-party/archive-discovered hosts
+outside saved scope, non-owned data access, destructive actions, or use of new
+credentials. Recon output is surface evidence, not a confirmed finding and not
+a license to launch vulnerability testing.

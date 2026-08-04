@@ -635,10 +635,12 @@ python3 agents/bounty_notes.py note canva \
   --body-file /tmp/js-handoff.md
 ```
 
-Use `notes/hypotheses/` for individual testable leads, such as app-install
-authorization, URL import server fetch, content-share IDOR, or folder lookup
-access-control. Link back to packet paths with `--refs`; do not duplicate whole
-packets into notes.
+Create private candidates for individual testable JS leads in `/hypothesis-ledger`,
+such as app-install authorization, URL import server fetch, content-share IDOR,
+or folder lookup access-control. Use `notes/hypotheses/` only when deliberately
+publishing a human coordination decision; link the ledger ID and packet paths
+with `--refs`, but do not duplicate whole packets or private candidate bodies
+into Notes.
 
 ## Pairing With Other Skills
 

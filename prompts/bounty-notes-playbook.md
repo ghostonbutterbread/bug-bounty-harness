@@ -13,7 +13,8 @@ Classify the material before writing:
 
 - Raw or generated artifact: keep it in `working/scratch/<run-id>/`.
 - Reusable target knowledge: write a small note under `notes/`.
-- Testable idea: write or update `notes/hypotheses/<slug>.md`.
+- Private live-agent testable idea: create a candidate in `/hypothesis-ledger`; do not mirror it into `notes/hypotheses/`.
+- Deliberately published, human-relevant hypothesis or coordination decision: write `notes/hypotheses/<slug>.md` and link the ledger ID.
 - Already-tested state: update coverage, URL review state, or hunter-memory.
 - Reportable vulnerability: import through the finding/report pipeline.
 - Next-agent context: write `notes/handoffs/<run-id>.md`.
@@ -195,10 +196,8 @@ Use these rules before opening random notes:
 - Finding/report mentioned: search by `--report`.
 - Vulnerability class or area mentioned: search by `--tag`, then inspect matching
   hypotheses and handoffs.
-- Hypothesis mentioned: open the hypothesis note, then follow its Obsidian links
-  to timeline, artifacts, handoffs, and reports.
-- If no match exists, create a new note with URL/tag/report metadata so the next
-  agent does not hit the same ambiguity.
+- Hypothesis mentioned: query `/hypothesis-ledger` if it is the caller's branch or an intentional stale-work recovery; open a published hypothesis note only when one is named or linked.
+- If no match exists, create a new note with URL/tag/report metadata only for a human coordination need; otherwise use the owning structured store.
 
 ## Agent Exit Pattern
 
@@ -207,8 +206,8 @@ Before returning:
 1. Write scratch artifacts into `working/scratch/<run-id>/`.
 2. Promote only useful learning into `notes/` and include `--url`, `--tag`,
    `--report`, `--hypothesis`, or `--link` metadata where known.
-3. Update or create hypotheses for promising ideas.
-4. Add one handoff note.
-5. Link any report/FID back to the hypothesis or investigation note.
+3. Create private promising candidates in `/hypothesis-ledger`; publish a Notes hypothesis only for an intentional human handoff/decision.
+4. Add one handoff note only when another human/agent needs coordination context.
+5. Link any report/FID back to the relevant ledger ID or published investigation note.
 6. Update ledgers for findings, coverage, or URL review as appropriate.
-7. Mention the exact note paths in the final handoff.
+7. Mention exact durable pointers in the final handoff.

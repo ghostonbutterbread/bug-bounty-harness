@@ -1,7 +1,9 @@
 # Hunter Memory Playbook
 
 Hunter Memory turns mapping and hunting into an observe-learn-adapt loop. It is
-for experiments, constraints, boundaries, next actions, and reusable claims.
+for experiments, constraints, boundaries, next actions, and run-local claims.
+MapStore remains the only shared app-memory layer: promote a compact fact there
+when a claim is stable enough to guide another specialist.
 
 ## When To Use
 
@@ -49,7 +51,7 @@ mobile/API render paths.
    - interpretation
    - learning
    - next action
-6. Add a claim only when the learning is reusable by future agents.
+6. Add a run-local claim only when the learning is reusable in this continuation; if it becomes a stable app fact, promote one concise MapStore entry and link it.
 7. Continue or hand off with the memory path.
 
 ## Evidence Tiers

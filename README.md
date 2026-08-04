@@ -141,8 +141,9 @@ bug_bounty_harness/
 
 ### Bootstrap Any Agent
 
-Copy `INSTRUCTIONS.md` content when spawning an agent, or reference the skill paths.
-
+Start with `agents/index.md`, then load the shared policy chain and the one BBH
+skill selected by the immediate task. `INSTRUCTIONS.md` is a compatibility
+pointer, not a p...[truncated]
 ### Skill Index
 
 See `SKILL_REGISTRY.md` for:
@@ -154,13 +155,9 @@ See `SKILL_REGISTRY.md` for:
 
 ### Agent Workflow
 
-1. Read `{$HARNESS_SHARED_BASE}/{program}/ghost/knowledge.md`
-2. Pick a task from "What's Next"
-3. Read relevant playbook from `prompts/`
-4. Execute tests
-5. Update findings in `skills/{skill}/findings.md`
-6. Update `knowledge.md` with progress
-
+1. Load the policy chain and inspect scope/account context.
+2. Make fresh observations on one bounded surface.
+3. Query MapStore only with a concrete dedupe, fact, coverage, or gadget questi...[truncated]
 ---
 
 ## Syncing Skills

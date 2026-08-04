@@ -32,7 +32,10 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    - raw or normalized recon artifacts for additional services, routes,
      parameters, features, roles, and technologies
 5. Choose one URL, one section, or one tight route cluster.
-6. Create a hypothesis board for that URL/section.
+6. Create a section-local routing board for that URL/section. It is not the
+   owner ledger: each live agent's selected candidate belongs in
+   `/hypothesis-ledger`, and the board carries only its ID plus concise routing
+   metadata.
 7. Spawn or brief focused child lanes only after each packet has a clear
    boundary, safety rule, and stop condition.
 
@@ -134,7 +137,8 @@ $HARNESS_SHARED_BASE/{program}/agent_shared/deep-hunt/<section>/<run_id>/
 Recommended files:
 
 - `SECTION.md` — section map and scope/account notes
-- `hypotheses.jsonl` — one hypothesis per line
+- `hypotheses.jsonl` — parent routing rows (ledger ID, selected child packet,
+  status summary); never a mirror of live private hypothesis bodies
 - `handoffs/*.json` — child-agent packets
 - `attempts.jsonl` — parent-level attempt and routing log
 - `summary.md` — completed work, boundaries, findings, next deep section

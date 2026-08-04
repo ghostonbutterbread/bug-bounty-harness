@@ -27,8 +27,8 @@ artifact.
 ## Fast Routing
 
 - URL/app/surface behavior -> `/map-store`.
-- Timeline, decisions, hypotheses, handoffs, blockers, next-agent guidance,
-  report-polish notes -> `/bounty-notes`.
+- Private live-agent candidate, branch, reclaimable follow-up, or continuation checkpoint -> `/hypothesis-ledger`.
+- Deliberately published human hypothesis/decision record, timeline, handoff, or blocker -> `/bounty-notes`.
 - Bulk URL queue/review state -> `/url-ingest`.
 - Already-tested coverage -> `me_ledger.py` / coverage ledgers.
 - Exact payload/probe attempts -> `agent_shared/attempts/<vuln-class>/<surface>/<run-id>/`
@@ -53,12 +53,20 @@ export until an account with create_video is available"; MapStore should say the
 specific endpoint returned `ACL_PERMISSION_DENIED`, which variants were tested,
 and what evidence file contains the proof.
 
+## Live Hypothesis Boundary
+
+A newly generated agent hypothesis belongs in `/hypothesis-ledger`, not
+`notes/hypotheses/`. Keep the ledger creator-private while its owner is live.
+Use a Bounty Notes hypothesis only when an agent or Ryushe deliberately
+publishes a human coordination decision/handoff that links back to the ledger
+ID and non-secret evidence pointers; never mirror a private queue into Notes.
+
 ## Canonical Buckets
 
 Default lane root: `~/Shared/{family}/{program}/{lane}/`
 
 - `notes/timeline/YYYY-MM-DD.md` - chronology and decisions
-- `notes/hypotheses/<slug>.md` - testable ideas or assumption chains
+- `notes/hypotheses/<slug>.md` - deliberately published human hypothesis or coordination decisions, linked to ledger IDs
 - `notes/handoffs/<run-id>.md` - takeover-ready summaries
 - `notes/faq/<slug>.md` - stable solved target facts
 - `notes/_index/` and `notes/index.md` - generated lookup/pointers

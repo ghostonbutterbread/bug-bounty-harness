@@ -7,7 +7,10 @@ description: "Use when agents need an observe-learn-adapt memory loop during map
 
 Use this after `/live-map`, `/me`, `/brainstorm`, manual hunting, or any skill
 handoff where the agent should remember experiments, failed attempts, learned
-boundaries, next mutations, and reusable claims.
+boundaries, next mutations, and run-local claims. A Hunter Memory claim is not
+shared app memory: when it becomes stable enough to guide a future specialist,
+promote one concise fact to `/map-store` and retain only the run learning plus
+that pointer here.
 
 This skill is not only for BaseTeam. BaseTeam can enable it with
 `--hunter-memory`, but standalone agents can use `agents/hunter_memory_tool.py`

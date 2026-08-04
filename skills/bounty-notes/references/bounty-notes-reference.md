@@ -50,7 +50,9 @@ Before finishing:
    artifact and script pointers when useful.
 5. Promote narrative learning into `notes/` with URL, tags, report/hypothesis,
    and links where possible.
-6. Add or update promising hypotheses.
+6. Create private promising candidates in `/hypothesis-ledger`; write a
+   `notes/hypotheses/` record only for an intentional human coordination decision
+   linked to that ledger ID.
 7. Add a handoff.
 8. Import findings through the finding pipeline.
 9. Link reports/findings back to hypotheses or notes.

@@ -105,6 +105,14 @@ A redirect may reach a blocked destination.
     assert "Test direction" in briefing
 
 
+def test_empty_briefing_describes_corpus_coverage_not_target_safety() -> None:
+    briefing = research_map.render_briefing([])
+
+    assert "no matching cards" in briefing
+    assert "does not establish target safety" in briefing
+    assert "does not establish that a technique is absent" in briefing
+
+
 def test_validate_reports_missing_required_metadata(tmp_path: Path) -> None:
     root = tmp_path / "research"
     research_map.initialize_corpus(root)

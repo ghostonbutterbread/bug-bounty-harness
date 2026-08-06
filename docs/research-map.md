@@ -84,6 +84,14 @@ Supported statuses:
 require at least one citation in `sources`. A card is a portable hypothesis aid,
 not proof that a current target is affected.
 
+## Research Absence
+
+An empty ResearchMap query means only that no matching card was found in the
+searched corpus under the supplied terms and filters. It does **not** prove a
+target is safe, that a technique is absent, or that a current lead is exhausted.
+Record the query scope and return to the target's observed behavior; only a
+context-specific target test can establish a defended or inert boundary.
+
 ## Agent use
 
 Start from target-specific reasoning and current observations. Query MapStore for

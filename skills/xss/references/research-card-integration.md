@@ -49,6 +49,20 @@ Build the query from observed technology plus observed renderer, source, sink,
 or parser boundary. A bounded briefing is sufficient; do not inject a large
 corpus into a worker prompt.
 
+## Absence Is Not A Negative Finding
+
+A missing local card, an empty external search, or a source that does not discuss
+the observed behavior describes only the coverage and limits of that research
+attempt. It does **not** establish target safety, prove that no XSS mechanism
+exists, or justify closing a source-to-sink lead.
+
+Record the narrow result honestly: sources consulted, query terms, filters,
+retrieval limits, and the still-unknown space. Return to observed target behavior
+and choose the next source/sink, transform, consumer, or browser discriminator.
+Only positive target evidence can establish that a tested boundary is inert or
+correctly defended; report that exact tested boundary rather than generalizing
+from a research miss.
+
 ## Local-Thin And External Research
 
 If the local corpus has no matching card or does not supply a discriminating

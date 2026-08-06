@@ -98,8 +98,16 @@ Auth material handling contract:
 - Secret values are in-memory operational material, not evidence. Never copy them into logs, screenshots, reports, prompts, chat, or notes.
 - If no approved auth seed is available and a login is required, use the
   account record's approved refresh policy if one exists. If no refresh policy
-  exists, pause and ask Ryushe rather than guessing, scraping credentials from
-  local files, or treating traffic history as a password source.
+  yields a usable session, **run the manual-login handoff rather than merely
+  asking Ryushe to supply credentials**: verify the exact account's profile
+  lease, launch/reuse its isolated Hoster browser, and use `/chromium-handoff`
+  to publish only the loopback handoff UI through task-scoped Tailscale Serve.
+  Give Ryushe the tailnet HTTPS URL and scoped SSH-loopback fallback, mark the
+  exact lease `awaiting-input`, and pause automation. Never silently switch to
+  another account/color, expose CDP, use Funnel, scrape credentials from local
+  files, or treat proxy history as a password source. After Ryushe logs in,
+  resume the same browser session and re-run the safe auth check; write reusable
+  session material only through the approved locked-down auth-seed/session bridge.
 
 ### Named-account refresh fallback
 

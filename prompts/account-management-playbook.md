@@ -85,11 +85,19 @@ spellings unless live traffic proves a second header exists.
    happens through the agent MITM lane.
 6. If Ryushe's proxy is unreachable or has no matching usable evidence, load
    `/bitwarden` and use the recorded Bitwarden reference as fallback.
-7. If an account exists but lacks a user ID or PwnFox color, record the missing field once observed.
-8. When creating a document/design/upload/order/workspace, immediately add a resource record.
-9. For cross-account tests, compare only records with clear ownership and destructible status.
-10. If a child agent creates or observes a new ID, it must return a registry update command or JSON patch in its handoff.
-11. After cleanup, update the resource with `cleanup_needed no` and a note.
+7. If the selected owned account still has no usable session, do not change
+   identity or return only a generic blocker. Verify the exact browser-profile
+   lease, launch/reuse a task-owned isolated Hoster browser, and route Ryushe to
+   its loopback-only manual handoff through `/chromium-handoff` + Tailscale
+   Serve. Give the tailnet URL plus the scoped SSH-loopback fallback, retain the
+   lease as `awaiting-input`, pause automation, then re-run the safe auth check
+   after login. Do not expose CDP, use Funnel, or copy credentials into a child
+   prompt.
+8. If an account exists but lacks a user ID or PwnFox color, record the missing field once observed.
+9. When creating a document/design/upload/order/workspace, immediately add a resource record.
+10. For cross-account tests, compare only records with clear ownership and destructible status.
+11. If a child agent creates or observes a new ID, it must return a registry update command or JSON patch in its handoff.
+12. After cleanup, update the resource with `cleanup_needed no` and a note.
 
 ## Agent Handoff Packet
 

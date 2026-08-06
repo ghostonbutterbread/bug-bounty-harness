@@ -92,3 +92,10 @@ discriminating hypothesis, query ResearchMap. If local cards remain thin, query
 the external Preview source for source-backed idea generation. Record target
 facts back to MapStore; add reusable ResearchMap material only with a status and
 citation.
+
+For XSS, the active `/xss` and `/dom-xss` skills apply this at a specific
+boundary: first map a concrete framework/renderer/source/sink/sanitizer clue;
+then query matching cards only when that evidence does not yield a next
+context-matched check. The XSS integration policy is
+`skills/xss/references/research-card-integration.md`. ResearchMap results remain
+bounded hypothesis input and never replace source-to-sink or browser proof.

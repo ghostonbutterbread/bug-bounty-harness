@@ -15,6 +15,9 @@ requires browser-side source-to-sink reasoning and execution proof.
 - `waf-live-policy` for browser/raw-client, sanitizer, and parser differences
 - `chromium-test` when local browser verification is possible
 - `skills/xss/references/payload-selection.md`
+- `skills/xss/references/research-card-integration.md` when a framework,
+  renderer, sanitizer, source, or sink fingerprint needs a next discriminating
+  check
 
 ## Source Map
 
@@ -52,6 +55,23 @@ Framework-specific review:
   HTML
 - Angular: `[innerHTML]`, `bypassSecurityTrustHtml`,
   `bypassSecurityTrustUrl`, `bypassSecurityTrustScript`
+- jQuery: HTML-producing APIs such as `.html()`, `.append()`, `.after()`,
+  `.before()`, `.replaceWith()`, `.wrap*()`, and `parseHTML()`
+
+## Technology-Guided Research
+
+After the source/sink map identifies a concrete technology or trust boundary,
+write that observed target fact to MapStore. If it does not already yield a next
+discriminating check, query ResearchMap using the framework plus the observed
+renderer, source, sink, sanitizer, or parser clue. For example, a React
+markdown renderer with a raw-HTML helper is a valid narrow query; "React XSS"
+is not.
+
+Use at most a compact, cited briefing in a worker packet. Research cards can
+suggest a recognition question and a safe next check, but never prove the target
+is vulnerable or replace browser source-to-sink verification. Keep any newly
+noticed but untested path in the Hypothesis Ledger; promote reusable external
+knowledge only through reviewed ResearchMap-card promotion.
 
 ## Testing Loop
 

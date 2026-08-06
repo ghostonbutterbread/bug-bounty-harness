@@ -72,6 +72,20 @@ payload-selection reference:
 
 - `skills/xss/references/payload-selection.md`
 
+## Research-Card Retrieval
+
+Use the technology-guided research workflow only after current target mapping
+shows a concrete framework, renderer, source, sink, sanitizer, parser, or
+consumer boundary and the agent lacks a next discriminating check:
+
+- `skills/xss/references/research-card-integration.md`
+
+Keep the root XSS skills procedural and stable. Retrieve compact, matching
+ResearchMap cards as hypothesis aids; keep target facts in MapStore, private
+current-run ideas in the Hypothesis Ledger, and raw payload evidence in attempts
+artifacts. Do not turn external search results into durable agent guidance
+without reviewed, cited card promotion.
+
 Useful local sources:
 
 - `/home/ryushe/projects/bug_bounty_harness/prompts/xss-playbook.md`
@@ -162,12 +176,17 @@ python /home/ryushe/projects/bug_bounty_harness/agents/xss_hunter.py \
    stored object field, router state, storage, or message.
 2. Send an inert marker and record where it lands.
 3. Classify the render context before choosing payloads.
-4. Query MapStore and prior attempts for this URL, surface, parameter, and
-   render context.
-5. Load `reflected-xss`, `stored-xss`, or `dom-xss`.
-6. Use the lane skill to pick payload families, browser proof, cleanup, and
+4. Record observed framework/library, renderer/consumer, source, sink/trust
+   boundary, and transform/defense clues; query MapStore and prior attempts for
+   this concrete URL, surface, parameter, and render context.
+5. If that concrete evidence leaves no next discriminating check, query
+   ResearchMap with the observed technology plus renderer/source/sink clues.
+   Treat results as bounded hypothesis input, not target proof.
+6. Load `reflected-xss`, `stored-xss`, or `dom-xss`; split lane workers only
+   when mapping provides each one a distinct evidence packet.
+7. Use the lane skill to pick payload families, browser proof, cleanup, and
    report shape.
-7. Escalate to `waf-live-policy` and bypass/mutation work when filtering or
+8. Escalate to `waf-live-policy` and bypass/mutation work when filtering or
    parsing behavior becomes the interesting surface.
 
 ## Pressure Mode

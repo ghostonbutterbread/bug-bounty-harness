@@ -341,7 +341,7 @@ def render_briefing(matches: list[QueryMatch]) -> str:
         return (
             "ResearchMap: no matching cards. This describes only the searched corpus and "
             "does not establish target safety and does not establish that a technique is absent. "
-            "remove a filter, or query the external Preview source."
+            "Broaden terms, remove a filter, or query the external Preview source."
         )
     lines = [f"ResearchMap: {len(matches)} matching card(s)"]
     for number, match in enumerate(matches, 1):

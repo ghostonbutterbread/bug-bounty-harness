@@ -111,6 +111,7 @@ def test_empty_briefing_describes_corpus_coverage_not_target_safety() -> None:
     assert "no matching cards" in briefing
     assert "does not establish target safety" in briefing
     assert "does not establish that a technique is absent" in briefing
+    assert "Broaden terms" in briefing
 
 
 def test_validate_reports_missing_required_metadata(tmp_path: Path) -> None:

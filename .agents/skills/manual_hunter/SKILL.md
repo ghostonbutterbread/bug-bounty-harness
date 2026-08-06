@@ -6,14 +6,18 @@ description: Add your own manual security findings to the Ghost pipeline. Use /m
 
 Add your own manual security findings to the Ghost pipeline.
 
-## Commands
+## Required destination lane
+
+Every invocation must declare the **canonical destination lane**. The tool will refuse to write without `--lane`; it never derives a lane from note contents or the report path.
 
 ```bash
-/manual_hunter <program> --interactive
-/manual_hunter <program> --add "finding text..."
-/manual_hunter <program> --from-file path.md
-/manual_hunter <program> --watch
+/manual_hunter <program> --lane web --interactive
+/manual_hunter <program> --lane web --add "finding text..."
+/manual_hunter <program> --lane web --from-file path.md
+/manual_hunter <program> --lane web --watch
 ```
+
+Use `--lane api` for an API surface, or `--lane apk|exe|mac` for binary work. `--family` is optional when the lane implies it; `--hunt-type` is legacy metadata only and cannot override `--lane`.
 
 ## Input drop folder
 

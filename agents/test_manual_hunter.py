@@ -89,7 +89,7 @@ class ManualHunterTests(unittest.TestCase):
 
         first_stdout = io.StringIO()
         with redirect_stdout(first_stdout):
-            rc = main([self.program, "--from-file", str(note_path)])
+            rc = main([self.program, "--lane", "apk", "--from-file", str(note_path)])
         self.assertEqual(rc, 0, first_stdout.getvalue())
         self.assertIn("Added finding D01", first_stdout.getvalue())
 
@@ -124,7 +124,7 @@ class ManualHunterTests(unittest.TestCase):
 
         second_stdout = io.StringIO()
         with redirect_stdout(second_stdout):
-            rc = main([self.program, "--from-file", str(note_path)])
+            rc = main([self.program, "--lane", "apk", "--from-file", str(note_path)])
         self.assertEqual(rc, 1, second_stdout.getvalue())
         self.assertIn("Duplicate: D01 overlaps with SQLite injection via exposed IPC port", second_stdout.getvalue())
 
@@ -203,7 +203,7 @@ class ManualHunterTests(unittest.TestCase):
         fallback_root = self.home / "source" / self.program
         fallback_root.mkdir(parents=True, exist_ok=True)
 
-        context = _build_hunt_context(self.program)
+        context = _build_hunt_context(self.program, lane="apk")
 
         self.assertIn(f"Target: {self.target_root}", context)
         self.assertNotIn(f"Target: {fallback_root}", context)
@@ -213,7 +213,7 @@ class ManualHunterTests(unittest.TestCase):
         fallback_root = self.home / "source" / program
         fallback_root.mkdir(parents=True, exist_ok=True)
 
-        context = _build_hunt_context(program, storage_root=self.tmp / "fallback-storage")
+        context = _build_hunt_context(program, lane="apk", storage_root=self.tmp / "fallback-storage")
 
         self.assertIn(f"Target: ~/source/{program}", context)
 
@@ -247,7 +247,7 @@ class ManualHunterTests(unittest.TestCase):
             rc = hunter.ingest(parsed)
         self.assertEqual(rc, 0)
 
-        context = _build_hunt_context(self.program, source_root=self.target_root)
+        context = _build_hunt_context(self.program, source_root=self.target_root, lane="apk")
         self.assertIn(f"Program: {self.program}", context)
         self.assertIn(f"Target: {self.target_root}", context)
         self.assertIn("Output: ~/Shared/binaries/notion/apk/reports/raw", context)
@@ -260,11 +260,23 @@ class ManualHunterTests(unittest.TestCase):
         self.assertIn("updater.ts (exec-sink-reachability)", context)
 
     def test_build_hunt_context_fresh_mode_rejects_historical_findings_as_success(self) -> None:
-        context = _build_hunt_context(self.program, source_root=self.target_root, fresh=True)
+        context = _build_hunt_context(self.program, source_root=self.target_root, lane="apk", fresh=True)
 
         self.assertIn("Fresh context", context)
         self.assertIn("Historical findings are never a success condition", context)
         self.assertNotIn("## Current findings (from ledger):", context)
+
+    def test_build_hunt_context_honors_web_lane(self) -> None:
+        context = _build_hunt_context(
+            self.program,
+            source_root=self.target_root,
+            family="web_bounty",
+            lane="web",
+            hunt_type="web",
+        )
+
+        self.assertIn("Output: ~/Shared/web_bounty/notion/web/reports/raw", context)
+        self.assertIn("Hunt for vulnerabilities in this web application.", context)
 
     def test_build_subagent_handoff_bundle_includes_context_files(self) -> None:
         hunter = ManualHunter(self.program, source_root=self.target_root)
@@ -303,7 +315,7 @@ class ManualHunterTests(unittest.TestCase):
 
         stdout = io.StringIO()
         with redirect_stdout(stdout):
-            rc = main([self.program])
+            rc = main([self.program, "--lane", "apk"])
 
         self.assertEqual(rc, 0, stdout.getvalue())
         mock_run_codex_hunt.assert_called_once()
@@ -316,6 +328,10 @@ class ManualHunterTests(unittest.TestCase):
         mock_sync_reports_main.assert_called_once_with(
             self.program,
             source_dir=str(reports_dir),
+            source_root=str(self.target_root),
+            family="binaries",
+            lane="apk",
+            hunt_type="apk",
             verbose=True,
         )
         self.assertTrue(reports_dir.is_dir())

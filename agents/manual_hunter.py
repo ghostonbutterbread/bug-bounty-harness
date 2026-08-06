@@ -203,29 +203,39 @@ def _build_hunt_context(
     program: str,
     source_root: str | Path | None = None,
     *,
+    family: str | None = None,
+    lane: str | None = None,
+    hunt_type: str | None = None,
     fresh: bool = False,
     version_label: str | None = None,
     reports_dir: str | Path | None = None,
     storage_root: str | Path | None = None,
 ) -> str:
-    """Build the context prompt for Codex hunting."""
+    """Build a hunt context using the caller's resolved storage identity."""
     program_slug = _sanitize_program_name(program)
+    if not lane:
+        raise ValueError("lane is required to build a hunt context")
+    resolved_family, resolved_lane = resolve_family_lane(
+        family=family,
+        lane=lane,
+        hunt_type=hunt_type,
+    )
     resolved_storage_root = (
         Path(storage_root).expanduser().resolve(strict=False) if storage_root else None
     )
     target_root = resolve_source_root(
         program_slug,
         explicit=source_root,
-        hunt_type="source",
-        family="binaries",
-        lane="apk",
+        hunt_type=hunt_type or resolved_lane,
+        family=resolved_family,
+        lane=resolved_lane,
         root_override=resolved_storage_root,
         fallback=lambda: _default_source_root(program_slug),
     ) or _default_source_root(program_slug)
     storage = resolve_storage(
         program_slug,
-        family="binaries",
-        lane="apk",
+        family=resolved_family,
+        lane=resolved_lane,
         root_override=resolved_storage_root,
         create=True,
     )
@@ -234,6 +244,13 @@ def _build_hunt_context(
         if reports_dir is not None
         else (storage.reports_root / "raw").resolve(strict=False)
     )
+    hunt_subject = {
+        "web": "web application",
+        "api": "API surface",
+        "apk": "Android application",
+        "exe": "desktop application",
+        "mac": "macOS application",
+    }.get(resolved_lane, "target")
     snapshot_identity = get_snapshot_identity(target_root, version_label=version_label)
     examined_rows: list[dict[str, Any]] = []
     unexplored_rows: list[dict[str, Any]] = []
@@ -315,7 +332,7 @@ def _build_hunt_context(
     context_parts.extend(
         [
             "## Task:",
-            "Hunt for vulnerabilities in this Electron desktop application.",
+            f"Hunt for vulnerabilities in this {hunt_subject}.",
             "Focus on the unexplored surfaces above.",
             "Do NOT re-hunt surfaces already examined.",
             f"When you find a vulnerability, write a markdown report to {_display_path(resolved_reports_dir)}.",
@@ -669,6 +686,7 @@ class ManualHunter:
         program: str,
         *,
         hunt_type: str = "source",
+        family: str | None = None,
         source_root: str | Path | None = None,
         version_label: str | None = None,
         lane: str | None = None,
@@ -679,7 +697,11 @@ class ManualHunter:
         self.hunt_type = hunt_type
         self.version_label = _normalize_text(version_label)
         self.storage_root = Path(storage_root).expanduser().resolve(strict=False) if storage_root else None
-        resolved_family, resolved_lane = resolve_family_lane(lane=_normalize_text(lane) or None, hunt_type=self.hunt_type)
+        resolved_family, resolved_lane = resolve_family_lane(
+            family=_normalize_text(family) or None,
+            lane=_normalize_text(lane) or None,
+            hunt_type=self.hunt_type,
+        )
         self.lane = resolved_lane
         self.family = resolved_family
         self.shared_brain = load_index(
@@ -1106,6 +1128,9 @@ class ManualHunter:
         context = _build_hunt_context(
             self.program,
             source_root=target_root,
+            family=self.family,
+            lane=self.lane,
+            hunt_type=self.hunt_type,
             fresh=fresh,
             version_label=self.version_label or None,
             reports_dir=reports_dir,
@@ -1172,6 +1197,10 @@ class ManualHunter:
 
         sync_kwargs: dict[str, Any] = {
             "source_dir": str(reports_dir),
+            "source_root": str(target_root),
+            "family": self.family,
+            "lane": self.lane,
+            "hunt_type": self.hunt_type,
             "verbose": True,
         }
         if self.storage_root is not None:
@@ -1207,8 +1236,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="When hunting, skip loading ledger and coverage into the Codex prompt. Findings are still deduped "
         "and coverage is still coordinated through the shared ledger.",
     )
-    parser.add_argument("--hunt-type", choices=("source", "web"), default="source", help="Report bucket root to update.")
-    parser.add_argument("--lane", help="Canonical storage lane override (e.g. web, api, apk, exe, mac).")
+    parser.add_argument(
+        "--hunt-type",
+        choices=("source", "web", "api", "apk", "exe", "mac"),
+        help="Optional legacy routing label. --lane is authoritative for all writes.",
+    )
+    parser.add_argument("--family", help="Storage family override (web_bounty or binaries).")
+    parser.add_argument(
+        "--lane",
+        required=True,
+        help="Required canonical storage lane (web, api, apk, exe, or mac).",
+    )
     parser.add_argument("--root", dest="storage_root", help="Explicit local canonical root override. Defaults to Shared family roots.")
     parser.add_argument("--migrate", action="store_true", help="Explicitly trigger migration-aware mode for legacy layouts.")
     parser.add_argument("--source-root", help="Override the source root used for file resolution and coverage.")
@@ -1228,7 +1266,8 @@ def main(argv: list[str] | None = None) -> int:
     verbosity = clamp_verbosity(args.verbose)
     hunter = ManualHunter(
         args.program,
-        hunt_type=args.hunt_type,
+        hunt_type=args.hunt_type or args.lane,
+        family=args.family,
         source_root=args.source_root,
         version_label=args.version_label,
         lane=args.lane,

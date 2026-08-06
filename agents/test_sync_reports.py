@@ -86,7 +86,7 @@ class TestSyncReports(unittest.TestCase):
         mock_append.return_value = self.tmp / "canonical.md"
         mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
-        sync_reports_main("test_program", source_dir=self.source_dir.as_posix())
+        sync_reports_main("test_program", lane="apk", source_dir=self.source_dir.as_posix())
 
         self.assertEqual(hunter.ledger.check.call_count, 2)
         self.assertEqual(mock_update_team_finding.call_count, 2)
@@ -139,7 +139,7 @@ class TestSyncReports(unittest.TestCase):
         mock_append.return_value = self.tmp / "canonical.md"
         mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
-        sync_reports_main("test_program", source_dir=self.source_dir.as_posix())
+        sync_reports_main("test_program", lane="apk", source_dir=self.source_dir.as_posix())
 
         self.assertEqual(hunter.ledger.check.call_count, 2)
         mock_update_team_finding.assert_called_once()
@@ -171,7 +171,7 @@ class TestSyncReports(unittest.TestCase):
         mock_candidates.return_value = [finding]
         mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
-        sync_reports_main("test_program", source_dir=self.source_dir.as_posix())
+        sync_reports_main("test_program", lane="apk", source_dir=self.source_dir.as_posix())
 
         mock_update_team_finding.assert_called_once()
         self.assertEqual(mock_update_team_finding.call_args.args[:2], ("test_program", finding))
@@ -282,7 +282,7 @@ class TestSyncReports(unittest.TestCase):
         mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         with patch.dict(os.environ, {"HOME": str(home)}):
-            sync_reports_main("test_program")
+            sync_reports_main("test_program", lane="apk")
 
         self.assertEqual(mock_candidates.call_args.args[3], report_path)
         self.assertEqual(mock_update_team_finding.call_args.args[:2], ("test_program", {**finding, "fid": "D01"}))
@@ -320,7 +320,7 @@ class TestSyncReports(unittest.TestCase):
         mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         with patch.dict(os.environ, {"HOME": str(home)}):
-            sync_reports_main("test_program")
+            sync_reports_main("test_program", lane="apk")
 
         self.assertEqual(mock_candidates.call_args.args[3], report_path)
         self.assertEqual(mock_update_team_finding.call_args.args[:2], ("test_program", {**finding, "fid": "D01"}))
@@ -370,7 +370,7 @@ class TestSyncReports(unittest.TestCase):
         mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         with patch.dict(os.environ, {"HOME": str(home)}):
-            sync_reports_main("test_program")
+            sync_reports_main("test_program", lane="apk")
 
         self.assertEqual(mock_candidates.call_args.args[3], report_path)
         self.assertEqual(mock_update_team_finding.call_args.args[:2], ("test_program", {**finding, "fid": "D01"}))
@@ -440,7 +440,7 @@ class TestSyncReports(unittest.TestCase):
         mock_append.return_value = self.tmp / "canonical.md"
         mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
-        sync_reports_main("test_program", source_dir=reports_root.as_posix())
+        sync_reports_main("test_program", lane="apk", source_dir=reports_root.as_posix())
 
         mock_candidates.assert_called_once()
         self.assertEqual(mock_candidates.call_args.args[3], raw_body)
@@ -509,6 +509,7 @@ class TestSyncReports(unittest.TestCase):
 
         rc = sync_reports_main(
             program,
+            lane="apk",
             source_dir=reports_dir.as_posix(),
             storage_root=storage_root,
         )
@@ -563,7 +564,7 @@ class TestSyncReports(unittest.TestCase):
         mock_append.return_value = self.tmp / "canonical.md"
         mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
-        sync_reports_main("test_program", source_dir=self.source_dir.as_posix())
+        sync_reports_main("test_program", lane="apk", source_dir=self.source_dir.as_posix())
 
         mock_candidates.assert_called_once()
         self.assertEqual(mock_candidates.call_args.args[3], self.report_path)
@@ -621,7 +622,7 @@ class TestSyncReports(unittest.TestCase):
         )
 
         with patch.dict(os.environ, {"HOME": str(home)}):
-            rc = sync_reports_main(program, storage_root=explicit_root)
+            rc = sync_reports_main(program, lane="apk", storage_root=explicit_root)
 
         self.assertEqual(rc, 0)
         explicit_prefix = str(explicit_root.resolve(strict=False))

@@ -37,6 +37,7 @@ from agents.verbosity import clamp_verbosity
 ensure_bounty_core_importable()
 
 from bounty_core.reports import refresh_report_navigation_from_ledger, write_finding_report  # noqa: E402
+from bounty_core.storage import resolve_family_lane  # noqa: E402
 
 
 FILE_HINT_RE = (
@@ -49,14 +50,37 @@ def _find_reports_dir(
     program: str,
     override: str | None,
     *,
+    family: str | None,
+    lane: str,
+    hunt_type: str | None = None,
     root_override: str | Path | None = None,
 ) -> tuple[Path | None, str | None]:
-    source = select_report_source(program, hunt_type="source", source_dir=override, root_override=root_override)
+    source = select_report_source(
+        program,
+        hunt_type=hunt_type or lane,
+        source_dir=override,
+        family=family,
+        lane=lane,
+        root_override=root_override,
+    )
     return source.path, source.mode
 
 
-def _default_reports_dir(program: str, *, root_override: str | Path | None = None) -> Path:
-    return canonical_raw_reports_dir(program, "source", root_override=root_override).resolve(strict=False)
+def _default_reports_dir(
+    program: str,
+    *,
+    family: str | None,
+    lane: str,
+    hunt_type: str | None = None,
+    root_override: str | Path | None = None,
+) -> Path:
+    return canonical_raw_reports_dir(
+        program,
+        hunt_type or lane,
+        family=family,
+        lane=lane,
+        root_override=root_override,
+    ).resolve(strict=False)
 
 
 def _program_root(program: str, source_dir: Path | None) -> Path:
@@ -505,11 +529,18 @@ def sync_reports_main(
     *,
     source_dir: str | None = None,
     source_root: str | Path | None = None,
+    family: str | None = None,
+    lane: str,
+    hunt_type: str | None = None,
     storage_root: str | Path | None = None,
     write_reports_from_memory: bool = False,
     verbose: bool | int = False,
 ) -> int:
-    argv = [program]
+    argv = [program, "--lane", lane]
+    if family:
+        argv.extend(["--family", family])
+    if hunt_type:
+        argv.extend(["--hunt-type", hunt_type])
     if source_dir:
         argv.extend(["--source-dir", source_dir])
     if source_root:
@@ -531,6 +562,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("program", help="Bug bounty program slug.")
     parser.add_argument("--source-dir", help="Optional reports directory override.")
     parser.add_argument("--source-root", help="Optional source root override for coverage and snapshot identity.")
+    parser.add_argument("--family", help="Storage family override (web_bounty or binaries).")
+    parser.add_argument(
+        "--lane",
+        required=True,
+        help="Required canonical destination lane (web, api, apk, exe, or mac).",
+    )
+    parser.add_argument(
+        "--hunt-type",
+        choices=("source", "web", "api", "apk", "exe", "mac"),
+        help="Optional legacy routing label. --lane is authoritative for all writes.",
+    )
     parser.add_argument("--root", dest="storage_root", help="Explicit local canonical root override.")
     parser.add_argument(
         "--write-reports-from-memory",
@@ -542,8 +584,20 @@ def main(argv: list[str] | None = None) -> int:
 
     verbosity = clamp_verbosity(args.verbose)
     program = args.program
-    source_dir, source_mode = _find_reports_dir(program, args.source_dir, root_override=args.storage_root)
-    hunt_type = "web" if source_mode and "web" in source_mode else "source"
+    family, lane = resolve_family_lane(
+        family=args.family,
+        lane=args.lane,
+        hunt_type=args.hunt_type or args.lane,
+    )
+    hunt_type = args.hunt_type or lane
+    source_dir, source_mode = _find_reports_dir(
+        program,
+        args.source_dir,
+        family=family,
+        lane=lane,
+        hunt_type=hunt_type,
+        root_override=args.storage_root,
+    )
     source_root = _resolve_source_root(
         program,
         source_dir,
@@ -551,10 +605,23 @@ def main(argv: list[str] | None = None) -> int:
         root_override=args.storage_root,
         source_root_override=args.source_root,
     )
-    hunter = ManualHunter(program, hunt_type=hunt_type, source_root=source_root, storage_root=args.storage_root)
+    hunter = ManualHunter(
+        program,
+        hunt_type=hunt_type,
+        family=family,
+        lane=lane,
+        source_root=source_root,
+        storage_root=args.storage_root,
+    )
 
     if source_dir is None:
-        source_dir = _default_reports_dir(program, root_override=args.storage_root)
+        source_dir = _default_reports_dir(
+            program,
+            family=family,
+            lane=lane,
+            hunt_type=hunt_type,
+            root_override=args.storage_root,
+        )
     report_files = _discover_report_files(source_dir) if source_dir.is_dir() else []
 
     if verbosity.verbose:

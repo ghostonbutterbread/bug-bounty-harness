@@ -65,26 +65,25 @@ Do not treat these lanes as mutually exclusive. A stored value can become DOM
 XSS at render time; a reflected value can be inert in raw HTML but exploitable
 after client-side parsing; a DOM route can also call server APIs.
 
+## Incremental XSS Overlays
+
+Load only the overlay that answers the next concrete question:
+
+| Trigger | Load | Owns |
+| --- | --- | --- |
+| A controlled value persists, transforms, or may reach a later consumer | `xss-lifecycle` | Canary lineage, consumer expansion, and lane branching. |
+| A warm/hot lane needs tailored payload choice, mutation, reduction, or creative exploration | `xss-payload-engineering` | Capability profile and directed/exploratory candidate queues. |
+| Stack, renderer, sanitizer, parser, browser, or defense evidence could alter the next hypothesis | `xss-technology-research` | Bounded research packet and reusable-card promotion. |
+| Filtering, normalization, challenge, or edge/origin differential is the current question | `waf-live-policy` | Defense-boundary characterization. |
+
+The parent XSS agent owns synthesis, execution choices, and hypothesis closure.
+
 ## Shared Payload Sources
 
 Use context-specific payloads, not generic spraying. Start with the shared
 payload-selection reference:
 
 - `skills/xss/references/payload-selection.md`
-
-## Research-Card Retrieval
-
-Use the technology-guided research workflow only after current target mapping
-shows a concrete framework, renderer, source, sink, sanitizer, parser, or
-consumer boundary and the agent lacks a next discriminating check:
-
-- `skills/xss/references/research-card-integration.md`
-
-Keep the root XSS skills procedural and stable. Retrieve compact, matching
-ResearchMap cards as hypothesis aids; keep target facts in MapStore, private
-current-run ideas in the Hypothesis Ledger, and raw payload evidence in attempts
-artifacts. Do not turn external search results into durable agent guidance
-without reviewed, cited card promotion.
 
 Useful local sources:
 
@@ -176,18 +175,12 @@ python /home/ryushe/projects/bug_bounty_harness/agents/xss_hunter.py \
    stored object field, router state, storage, or message.
 2. Send an inert marker and record where it lands.
 3. Classify the render context before choosing payloads.
-4. Record observed framework/library, renderer/consumer, source, sink/trust
-   boundary, and transform/defense clues; query MapStore and prior attempts for
-   this concrete URL, surface, parameter, and render context.
-5. If that concrete evidence leaves no next discriminating check, query
-   ResearchMap with the observed technology plus renderer/source/sink clues.
-   Treat results as bounded hypothesis input, not target proof.
-6. Load `reflected-xss`, `stored-xss`, or `dom-xss`; split lane workers only
-   when mapping provides each one a distinct evidence packet.
-7. Use the lane skill to pick payload families, browser proof, cleanup, and
-   report shape.
-8. Escalate to `waf-live-policy` and bypass/mutation work when filtering or
-   parsing behavior becomes the interesting surface.
+4. Record framework/library, renderer/consumer, source, sink/trust boundary,
+   transform/defense clues, and raw/browser differences; query concrete prior
+   state without replacing current observation.
+5. Load the matching incremental overlay when its trigger appears, then return
+   its compact evidence packet to this lane.
+6. Use the lane skill for browser proof, cleanup, and report shape.
 
 ## Pressure Mode
 
@@ -226,7 +219,10 @@ Typical XSS pressure ladder:
 5. family queue: text breakout, attribute breakout, tag breakout, URL scheme,
    markdown, JSON/script string, DOM reparse, storage/postMessage, sanitizer
    bypass
-6. browser proof, residual next probe, or exact kill reason
+6. load `xss-payload-engineering` for tailored mutation, novelty candidates, or
+   signal reduction; load `xss-lifecycle` for later-consumer expansion
+7. browser proof, residual next probe, later-consumer branch, or exact kill
+   reason
 
 Do not summarize the lane as "blocked" without saying which families were
 tried, what blocked them, what evidence proves the block, and whether any

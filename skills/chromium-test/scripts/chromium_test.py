@@ -1019,6 +1019,29 @@ def main() -> int:
             if kasmvnc_session:
                 stop_kasmvnc_session(args.kasmvnc_display, kasmvnc_state_dir)
             raise
+        if kasmvnc_session and requested_display_backend == "auto" and not wait_for_cdp_page(port, timeout=4.0):
+            # A GUI listener alone is not a usable KasmVNC browser session. Tear
+            # down only this task's display, then retry the established Xvfb/
+            # screenshot lane inherited from the caller.
+            if proc.poll() is None:
+                proc.terminate()
+                proc.wait(timeout=5)
+            stop_kasmvnc_session(args.kasmvnc_display, kasmvnc_state_dir)
+            kasmvnc_session = None
+            result.pop("kasmvnc", None)
+            result["display_backend"] = "default"
+            result["display_fallback"] = {
+                "from": "kasmvnc",
+                "to": "default",
+                "reason": "Chromium CDP did not become ready on the KasmVNC display",
+            }
+            proc = subprocess.Popen(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env={**os.environ, **({"HOME": str(home_dir)} if home_dir else {})},
+                start_new_session=True,
+            )
         time.sleep(1)
         result["pid"] = proc.pid
         result["auth_application"] = apply_auth_seed_via_cdp(port, target_url, auth_seed_data)

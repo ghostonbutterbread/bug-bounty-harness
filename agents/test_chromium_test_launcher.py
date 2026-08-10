@@ -729,6 +729,7 @@ def test_default_backend_starts_kasmvnc_and_passes_display_to_chromium(monkeypat
         "web_url": "http://127.0.0.1:8463/",
     })
     monkeypatch.setattr(module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(module, "wait_for_cdp_page", lambda *args, **kwargs: {"type": "page"})
     monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
     monkeypatch.setattr(
         sys,

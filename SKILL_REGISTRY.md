@@ -96,7 +96,6 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **account-management** | `/account-management {program}` | `prompts/account-management-playbook.md` |
 | **create-account** | `/create-account {program}` | `skills/create-account/SKILL.md` |
 | **live-map** | `/live-map {program}` | `prompts/live-map-playbook.md` |
-| **deep-hunt** | `/deep-hunt {program} --section {section-or-route-cluster}` | `prompts/deep-hunt-playbook.md` |
 | **error-mapper** | `/error-mapper {program} --url {target_url}` | `prompts/error-mapper-playbook.md` |
 | **hybrid** | `/hybrid deep-dive {mode} {program} --input {urls-or-params-file}` | `prompts/hybrid-playbook.md` |
 | **url-ingest** | `/url-ingest {init|ingest|status|mark|search|stats} {program}` | `skills/url-ingest/SKILL.md` |
@@ -187,7 +186,6 @@ python3 agents/js_team.py run --js-run-root ~/Shared/web_bounty/canva/web/recon/
 /account-management canva
 /create-account canva signup-flow
 /live-map superdrug --source browser
-/deep-hunt canva --section sso-callbacks
 /error-mapper canva --url "https://www.canva.com/search?q=test"
 /hybrid deep-dive recon canva --input params.txt --planner-model gpt-5.5 --worker opencode --worker-model deepseek/deepseek-v4-pro --max-requests-per-worker 0
 /bounty-notes note canva --bucket hypotheses --title "Avatar metadata reaches admin review" --status untested

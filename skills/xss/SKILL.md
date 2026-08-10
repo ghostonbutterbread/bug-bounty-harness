@@ -227,9 +227,9 @@ Do not summarize the lane as "blocked" without saying which families were
 tried, what blocked them, what evidence proves the block, and whether any
 source/sink remains unexplored.
 
-## Deep Default For Hybrid And Deep-Hunt
+## Deep Default For Hybrid And Hunter Loop
 
-For `/hybrid`, `/deep-hunt`, URL-batch, or route-cluster runs, XSS workers must
+For `/hybrid`, `/hunter-loop`, URL-batch, or route-cluster runs, XSS workers must
 default to source-to-sink mapping before payload volume. The goal is to explain
 why a payload family matches the observed sink, not to spray generic payloads.
 

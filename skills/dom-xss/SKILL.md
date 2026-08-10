@@ -86,7 +86,7 @@ knowledge only through reviewed ResearchMap-card promotion.
 
 ## Deep-Run Requirements
 
-For `/hybrid`, `/deep-hunt`, URL-batch, or route-cluster handoffs, do not stop
+For `/hybrid`, `/hunter-loop`, URL-batch, or route-cluster handoffs, do not stop
 at "marker reflected" or "framework detected." Produce a compact source-to-sink
 map:
 

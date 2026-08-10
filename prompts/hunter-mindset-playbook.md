@@ -3,7 +3,7 @@
 ## Purpose
 
 This playbook teaches agents how to *think* like a bug hunter, not scan like a
-tool. It is injected into child-agent prompts during deep-hunt sessions. The
+tool. It is injected into child-agent prompts during scoped Hunter Loop sessions. The
 goal is depth and understanding, not coverage.
 
 A scanner asks: "Is this vulnerable to X?"

@@ -11,7 +11,7 @@ send focused specialists only when the app surface justifies it.
 
 Hunter Loop is the parent orchestration skill. It does not replace `/xss`,
 `/access-control`, `/idor`, `/jwt-auth`, `/ato`, `/payment-testing`,
-`/deep-hunt`, `/live-map`, or `/hunter-memory`; it decides when to invoke them
+`/live-map` or `/hunter-memory`; it decides when to invoke them
 and what scoped packet they should receive.
 
 For a long-running multi-agent hunt, Hunter Loop may use Hermes Kanban as the
@@ -36,6 +36,8 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
 3. **Fresh Observations** — Aim to identify 3-5 fresh surfaces, flows, parameters, roles,
    or assumptions from direct observation before following any existing leads.
 4. **Memory Overlay** — Now query prior state as needed:
+   - `/hypothesis-ledger` only for the coordinator's private candidate count or an
+     explicitly selected stale recovery; never preload another agent's live work.
    - `/hunter-memory` summaries for the program or surface
    - `/live-map` application-map summary and handoff packets
    - `/url-ingest` stats/history for route and parameter review depth

@@ -17,7 +17,7 @@ See `prompts/xss-payloads.md` for the payload catalog, WAF bypasses, and framewo
 
 ## Deep-Run Default
 
-For hybrid, deep-hunt, URL-list, and route-cluster work, the default is deeper
+For hybrid, Hunter Loop, URL-list, and route-cluster work, the default is deeper
 source-to-sink analysis, not broad payload spraying. A worker should be able to
 answer:
 

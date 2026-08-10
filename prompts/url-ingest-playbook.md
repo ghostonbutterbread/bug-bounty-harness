@@ -138,7 +138,7 @@ Examples of useful skill/test-family pairs:
 - `ssrf` / `url-fetcher-probe`
 - `access-control` / `object-ownership`
 
-Use `/deep-hunt` for one URL or one route cluster when the agent should inspect
+Use `/hunter-loop` for one URL or route cluster when the agent should inspect
 linked JavaScript, classify parameters, test a couple of careful variants, and
 leave high-quality notes. Use `/error-mapper` only as a tiny helper when the
 deep dive needs parser/error-character comparison.

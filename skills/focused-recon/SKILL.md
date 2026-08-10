@@ -10,7 +10,7 @@ history, or JavaScript inventory when the goal is to turn large URL lists into
 small, explainable target maps and next-lane packets.
 
 This skill does not replace `/recon-ry`, `/js`, `/parameter-mining`,
-`/live-map`, `/deep-hunt`, `/intelligent-fuzzing`, `/403`, or `/bypass`.
+`/live-map`, `/hunter-loop`, `/intelligent-fuzzing`, `/403`, or `/bypass`.
 It selects and organizes the next useful work.
 
 ## Load Order

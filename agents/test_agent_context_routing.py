@@ -27,10 +27,10 @@ def test_memory_layers_route_private_candidates_and_stable_facts_once():
     notes_skill = text("skills/bounty-notes/SKILL.md")
     notes_playbook = text("prompts/bounty-notes-playbook.md")
     hunter_skill = text("skills/hunter-memory/SKILL.md")
-    deep_hunt = text("skills/deep-hunt/SKILL.md")
+    hunter_loop = text("skills/hunter-loop/SKILL.md")
 
     assert "A newly generated agent hypothesis belongs in `/hypothesis-ledger`" in notes_skill
     assert "do not mirror it into `notes/hypotheses/`" in notes_playbook
     assert "/map-store" in hunter_skill and "stable enough" in hunter_skill
-    assert "not the\n   owner ledger" in deep_hunt
-    assert "never a mirror of live private hypothesis bodies" in deep_hunt
+    assert "/hypothesis-ledger" in hunter_loop
+    assert not (ROOT / "skills" / "deep-hunt").exists()

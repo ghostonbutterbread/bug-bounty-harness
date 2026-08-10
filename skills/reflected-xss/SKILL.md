@@ -60,7 +60,7 @@ Do not choose payloads before context classification.
 
 ## Deep-Run Requirements
 
-For `/hybrid`, `/deep-hunt`, URL-batch, or route-cluster handoffs, reflected XSS
+For `/hybrid`, `/hunter-loop`, URL-batch, or route-cluster handoffs, reflected XSS
 testing must include source/sink accounting, not just payload attempts.
 
 Required behavior:

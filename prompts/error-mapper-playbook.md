@@ -3,7 +3,7 @@
 ## Purpose
 
 Error Mapper helps a deep URL review learn how one URL handles unusual input
-without turning into broad fuzzing. It is designed to run beside `/deep-hunt`,
+without turning into broad fuzzing. It is designed to run beside `/hunter-loop`,
 `/recon_surface_map`, JavaScript review, and vulnerability-lane skills.
 
 The goal is not "find SQLi with one quote." The goal is to map parser and

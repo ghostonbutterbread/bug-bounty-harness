@@ -54,7 +54,7 @@ CLIs should actually be spawned.
    `~/Shared/web_bounty/<program>/web/recon/aggregated/`.
 2. Build a planner packet and focused worker packets.
 3. Route worker packets by lane and skill:
-   - XSS and frontend routes: `/deep-hunt`, `/dom-xss`, `/reflected-xss`,
+   - XSS and frontend routes: `/hunter-loop`, `/dom-xss`, `/reflected-xss`,
      `/error-mapper`
    - URL-fetch/API/embed: `/ssrf`, `/headers`, `/error-mapper`
    - auth/OAuth/session: `/access-control`, `/jwt-auth`, `/error-triage`

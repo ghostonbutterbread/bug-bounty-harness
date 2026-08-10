@@ -139,7 +139,7 @@ contains useful browser observations.
 Hybrid does not replace skills. It routes to them:
 
 - `/url-ingest` for input and review-state memory
-- `/deep-hunt` for slow URL/cluster depth
+- `/hunter-loop` for slow URL/cluster depth
 - `/error-mapper` for tiny parser/error probes
 - `/xss`, `/dom-xss`, `/reflected-xss`, `/stored-xss`
 - `/ssrf`

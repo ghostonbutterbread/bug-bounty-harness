@@ -400,15 +400,15 @@ def _lane_title(lane: str) -> str:
 
 def _lane_skills(lane: str) -> list[str]:
     return {
-        "xss": ["deep-hunt", "dom-xss", "reflected-xss", "error-mapper"],
-        "ssrf": ["deep-hunt", "ssrf", "error-mapper"],
-        "api": ["deep-hunt", "headers", "error-mapper"],
-        "auth": ["deep-hunt", "access-control", "jwt-auth", "error-triage"],
-        "object": ["deep-hunt", "access-control", "idor"],
-        "lfi": ["deep-hunt", "lfi", "error-mapper"],
-        "sqli": ["deep-hunt", "sqli", "error-mapper"],
-        "recon": ["deep-hunt", "url-ingest", "live-map"],
-    }.get(lane, ["deep-hunt"])
+        "xss": ["hunter-loop", "dom-xss", "reflected-xss", "error-mapper"],
+        "ssrf": ["hunter-loop", "ssrf", "error-mapper"],
+        "api": ["hunter-loop", "headers", "error-mapper"],
+        "auth": ["hunter-loop", "access-control", "jwt-auth", "error-triage"],
+        "object": ["hunter-loop", "access-control", "idor"],
+        "lfi": ["hunter-loop", "lfi", "error-mapper"],
+        "sqli": ["hunter-loop", "sqli", "error-mapper"],
+        "recon": ["hunter-loop", "url-ingest", "live-map"],
+    }.get(lane, ["hunter-loop"])
 
 
 def _lane_specific_guidance(packet: WorkerPacket) -> str:

@@ -80,7 +80,7 @@ map/
 │   ├── auth.md
 │   ├── fuzz.md
 │   ├── 403.md
-│   └── deep-hunt.md
+│   └── hunter-loop.md
 ├── gf/
 │   ├── pattern-sources.md
 │   └── candidate-promotions.md
@@ -232,7 +232,7 @@ Useful dispatches:
 - `/403`, `/headers`, `/bypass`, `/error-triage` for 401/403/405 boundaries
 - `/auth`, `/ato`, `/jwt-auth`, `/access-control`, `/idor` for auth or object
   boundary leads
-- `/deep-hunt` for one host or route cluster needing slow mapping
+- `/hunter-loop` for one host or route cluster needing slow mapping
 - `/live-map` when browser/proxy exploration is needed
 
 Do not ask one child to test every vulnerability class. Give one host, one
@@ -285,7 +285,7 @@ For Canva-like recon data:
    - API/auth hosts such as `api`, `www/_ajax`, Okta callback routes
    - separate Shopify/payment hosts into payment/business-logic lanes
 4. Create target packets for the top 5-10 hosts.
-5. Build handoffs for `/js`, `/403`, `/api`, `/auth`, `/fuzz`, and `/deep-hunt`.
+5. Build handoffs for `/js`, `/403`, `/api`, `/auth`, `/fuzz`, and `/hunter-loop`.
 
 ## Safety
 

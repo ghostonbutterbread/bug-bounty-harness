@@ -124,6 +124,8 @@ def test_auto_cert_mode_falls_back_to_explicit_ignore_when_import_unavailable(
             "http://127.0.0.1:8081",
             "--proxy-cert-mode",
             "auto",
+            "--display-backend",
+            "default",
             "--json",
         ],
     )
@@ -704,7 +706,7 @@ def test_kasmvnc_start_reports_a_clean_error_when_vncserver_is_not_installed(mon
         raise AssertionError("Expected a clean KasmVNC startup error")
 
 
-def test_explicit_kasmvnc_backend_starts_session_and_passes_display_to_chromium(monkeypatch, tmp_path, capsys):
+def test_default_backend_starts_kasmvnc_and_passes_display_to_chromium(monkeypatch, tmp_path, capsys):
     module = load_launcher_module()
     launched = {}
 
@@ -733,7 +735,7 @@ def test_explicit_kasmvnc_backend_starts_session_and_passes_display_to_chromium(
         "argv",
         [
             "chromium_test.py", "demo", "manual", "--profile-dir", str(tmp_path / "profile"),
-            "--display-backend", "kasmvnc", "--kasmvnc-display", "20", "--kasmvnc-web-port", "8463", "--json",
+            "--kasmvnc-display", "20", "--kasmvnc-web-port", "8463", "--json",
         ],
     )
 
@@ -744,6 +746,40 @@ def test_explicit_kasmvnc_backend_starts_session_and_passes_display_to_chromium(
     assert result["display_backend"] == "kasmvnc"
     assert result["kasmvnc"]["web_url"] == "http://127.0.0.1:8463/"
     assert result["cdp_url"] == "http://127.0.0.1:9444"
+
+
+def test_auto_backend_falls_back_to_legacy_display_when_kasmvnc_is_unavailable(monkeypatch, tmp_path, capsys):
+    module = load_launcher_module()
+
+    class FakeProcess:
+        pid = 12345
+
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/usr/bin/chromium")
+    monkeypatch.setattr(module, "pick_port", lambda requested=None: 9444)
+    monkeypatch.setattr(module, "prepare_profile_ca", lambda *args, **kwargs: {"status": "trusted"})
+    monkeypatch.setattr(
+        module,
+        "start_kasmvnc_session",
+        lambda **kwargs: (_ for _ in ()).throw(module.KasmVNCSessionError("vncserver executable was not found")),
+    )
+    monkeypatch.setattr(module.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["chromium_test.py", "demo", "manual", "--profile-dir", str(tmp_path / "profile"), "--json"],
+    )
+
+    assert module.main() == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["display_backend"] == "default"
+    assert result["display_fallback"] == {
+        "from": "kasmvnc",
+        "to": "default",
+        "reason": "vncserver executable was not found",
+    }
+    assert "kasmvnc" not in result
 
 
 def test_kasmvnc_is_not_started_when_auth_validation_blocks_browser_launch(monkeypatch, tmp_path, capsys):

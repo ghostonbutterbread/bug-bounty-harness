@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from kasmvnc_session import KasmVNCSessionError
 from kasmvnc_session import LISTENER_HOST as KASMVNC_LISTENER_HOST
 from kasmvnc_session import start_session as start_kasmvnc_session
 from kasmvnc_session import stop_session as stop_kasmvnc_session
@@ -748,9 +749,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chrome-binary", help="Override Chromium/Chrome executable.")
     parser.add_argument(
         "--display-backend",
-        choices=("default", "kasmvnc"),
-        default="default",
-        help="Display backend. The default preserves the existing launcher behavior; kasmvnc starts a task-owned loopback-only display.",
+        choices=("auto", "default", "kasmvnc"),
+        default="auto",
+        help=(
+            "Display backend. auto (the default) starts a task-owned loopback-only KasmVNC display and "
+            "falls back to the caller-provided legacy display if KasmVNC is unavailable; kasmvnc requires it; "
+            "default preserves the legacy display."
+        ),
     )
     parser.add_argument(
         "--kasmvnc-display",
@@ -936,7 +941,9 @@ def main() -> int:
 
     kasmvnc_session: dict[str, Any] | None = None
     kasmvnc_state_dir = profile_dir / "kasmvnc"
-    if args.display_backend == "kasmvnc" and args.dry_run:
+    requested_display_backend = args.display_backend
+    use_kasmvnc = requested_display_backend in {"auto", "kasmvnc"} and not args.headless
+    if use_kasmvnc and args.dry_run:
         kasmvnc_session = {
             "display": f":{args.kasmvnc_display}",
             "listener_host": KASMVNC_LISTENER_HOST,
@@ -960,23 +967,36 @@ def main() -> int:
                 print("Next: " + "; ".join(auth_next_step.get("steps", [])), file=sys.stderr)
             return 2
         assert_hoster_workload_isolated(runtime)
-        if args.display_backend == "kasmvnc":
-            kasmvnc_session = start_kasmvnc_session(
-                display=args.kasmvnc_display,
-                web_port=args.kasmvnc_web_port,
-                state_dir=kasmvnc_state_dir,
-            )
-            kasmvnc_session["state_dir"] = str(kasmvnc_state_dir)
-            kasmvnc_session["stop_command"] = [
-                str(Path(__file__).with_name("kasmvnc_session.py")),
-                "stop",
-                "--display",
-                str(args.kasmvnc_display),
-                "--state-dir",
-                str(kasmvnc_state_dir),
-                "--json",
-            ]
-            result["kasmvnc"] = kasmvnc_session
+        if use_kasmvnc:
+            try:
+                kasmvnc_session = start_kasmvnc_session(
+                    display=args.kasmvnc_display,
+                    web_port=args.kasmvnc_web_port,
+                    state_dir=kasmvnc_state_dir,
+                )
+            except KasmVNCSessionError as exc:
+                if requested_display_backend != "auto":
+                    raise
+                use_kasmvnc = False
+                result["display_backend"] = "default"
+                result["display_fallback"] = {
+                    "from": "kasmvnc",
+                    "to": "default",
+                    "reason": str(exc),
+                }
+            else:
+                result["display_backend"] = "kasmvnc"
+                kasmvnc_session["state_dir"] = str(kasmvnc_state_dir)
+                kasmvnc_session["stop_command"] = [
+                    str(Path(__file__).with_name("kasmvnc_session.py")),
+                    "stop",
+                    "--display",
+                    str(args.kasmvnc_display),
+                    "--state-dir",
+                    str(kasmvnc_state_dir),
+                    "--json",
+                ]
+                result["kasmvnc"] = kasmvnc_session
         try:
             proc = subprocess.Popen(
                 command,

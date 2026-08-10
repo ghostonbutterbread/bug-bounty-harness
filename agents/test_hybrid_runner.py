@@ -54,6 +54,9 @@ def test_plan_classifies_urls_and_writes_worker_packets(tmp_path: Path) -> None:
 
     lanes = {packet["lane"] for packet in plan["worker_packets"]}
     assert {"xss", "ssrf", "api", "auth", "object"} <= lanes
+    for packet in plan["worker_packets"]:
+        expected = Path.home() / "Shared" / "web_bounty" / "canva" / packet["lane"] / "attempts" / "_runs"
+        assert Path(packet["attempts_path"]).is_relative_to(expected)
     assert plan["records"] == 4
     assert plan["clusters"] == 4
     assert Path(plan["planner_packet"]).exists()
@@ -69,8 +72,12 @@ def test_plan_classifies_urls_and_writes_worker_packets(tmp_path: Path) -> None:
     assert "cookie/header names and counts" in packet_prompt
     assert "framework/JS/API clues" in packet_prompt
     assert "XSS deep default" in packet_prompt
-    assert "source-to-sink mapping before payload volume" in packet_prompt
+    assert "source-to-sink mapping before indiscriminate payload volume" in packet_prompt
+    assert "no arbitrary initial-request cap applies" in packet_prompt
     assert "payload family, source, sink/context" in packet_prompt
+    assert "Attempt Recording Contract" in packet_prompt
+    assert "Attempts are **not** a general live-observation log" in packet_prompt
+    assert "agents.attempts.append_attempt" in packet_prompt
     assert "packet-owned scratch directory" in packet_prompt
     assert "Do not write scratch files under `/tmp`" in packet_prompt
 
@@ -153,7 +160,7 @@ def test_execute_plan_updates_monitor_state_and_runs_planner_after_workers(tmp_p
             command_template=(
                 "python3 -c \"from pathlib import Path; "
                 "Path('summary.md').write_text('ok'); "
-                "Path('attempts.jsonl').write_text('{{}}\\n')\""
+                "(Path(__import__('os').environ['BBH_ATTEMPTS_PATH']).parent.mkdir(parents=True, exist_ok=True) or Path(__import__('os').environ['BBH_ATTEMPTS_PATH'])).write_text(__import__('json').dumps(dict(timestamp='2026-08-06T00:00:00Z', tool='worker-test', target='https://example.test', outcome='cold', stop_reason='complete')) + '\\n')\""
             ),
         ),
         worker_limit=1,
@@ -174,9 +181,31 @@ def test_execute_plan_updates_monitor_state_and_runs_planner_after_workers(tmp_p
     assert monitor["worker_status"]["W001-xss"] == "completed"
     assert monitor["worker_status"]["planner"] == "completed"
     assert (output / "workers" / "W001-xss" / "summary.md").exists()
-    assert (output / "workers" / "W001-xss" / "attempts.jsonl").exists()
+    assert Path(str(plan["worker_packets"][0]["attempts_path"])).exists()
     assert (output / "workers" / "W001-xss" / "scratch").is_dir()
     assert (output / "planner-ran").exists()
+
+
+def test_missing_required_worker_artifacts_rejects_malformed_attempts_jsonl(tmp_path: Path) -> None:
+    packet_dir = tmp_path / "worker"
+    packet_dir.mkdir()
+    (packet_dir / "summary.md").write_text("ok", encoding="utf-8")
+    (packet_dir / "attempts.jsonl").write_text("not json\n", encoding="utf-8")
+
+    assert hybrid.missing_required_worker_artifacts(packet_dir) == ["canonical-attempts:invalid-jsonl"]
+
+
+def test_missing_required_worker_artifacts_rejects_empty_or_incomplete_attempt_rows(tmp_path: Path) -> None:
+    packet_dir = tmp_path / "worker"
+    packet_dir.mkdir()
+    (packet_dir / "summary.md").write_text("ok", encoding="utf-8")
+
+    (packet_dir / "attempts.jsonl").write_text("\n", encoding="utf-8")
+    assert hybrid.missing_required_worker_artifacts(packet_dir) == ["canonical-attempts:invalid-jsonl"]
+
+    for invalid_row in ("{}\n", "[]\n", '{"timestamp":"2026-08-06T00:00:00Z"}\n'):
+        (packet_dir / "attempts.jsonl").write_text(invalid_row, encoding="utf-8")
+        assert hybrid.missing_required_worker_artifacts(packet_dir) == ["canonical-attempts:invalid-jsonl"]
 
 
 def test_execute_plan_marks_worker_incomplete_when_required_artifacts_missing(tmp_path: Path) -> None:
@@ -202,7 +231,7 @@ def test_execute_plan_marks_worker_incomplete_when_required_artifacts_missing(tm
     statuses = hybrid.execute_plan(plan)
     monitor = json.loads((output / "monitor_state.json").read_text(encoding="utf-8"))
 
-    assert statuses["W001-xss"] == "incomplete:missing-artifacts:attempts.jsonl,summary.md"
+    assert statuses["W001-xss"] == "incomplete:missing-artifacts:summary.md,canonical-attempts:missing"
     assert monitor["worker_status"]["W001-xss"] == statuses["W001-xss"]
     assert (output / "workers" / "W001-xss" / "scratch").is_dir()
 
@@ -222,7 +251,7 @@ def test_execute_plan_redacts_sensitive_worker_log_output(tmp_path: Path) -> Non
                 "print('Authorization: Bearer secret-token-value'); "
                 "from pathlib import Path; "
                 "Path('summary.md').write_text('ok'); "
-                "Path('attempts.jsonl').write_text('{{}}\\n')\""
+                "(Path(__import__('os').environ['BBH_ATTEMPTS_PATH']).parent.mkdir(parents=True, exist_ok=True) or Path(__import__('os').environ['BBH_ATTEMPTS_PATH'])).write_text(__import__('json').dumps(dict(timestamp='2026-08-06T00:00:00Z', tool='worker-test', target='https://example.test', outcome='cold', stop_reason='complete')) + '\\n')\""
             ),
         ),
         worker_limit=1,
@@ -254,7 +283,9 @@ def test_execute_plan_redacts_sensitive_worker_artifacts(tmp_path: Path) -> None
     source.write_text("https://docs.canva.tech/auth?next=/api\n", encoding="utf-8")
     output = tmp_path / "run"
     artifact_payload = (
-        '{"req_headers":{"Cookie":"TOKEN=testvalue123"},'
+        '{"timestamp":"2026-08-06T00:00:00Z","tool":"worker-test",'
+        '"target":"https://docs.canva.tech/auth","outcome":"cold","stop_reason":"complete",'
+        '"req_headers":{"Cookie":"TOKEN=testvalue123"},'
         '"resp_headers_of_interest":["set-cookie: TOKEN=(clear)",'
         '"set-cookie: NONCE=abcdef1234567890; HttpOnly"],'
         '"url":"https://docs.canva.tech/auth?next=/api&nonce=abcdef1234567890",'
@@ -271,7 +302,7 @@ def test_execute_plan_redacts_sensitive_worker_artifacts(tmp_path: Path) -> None
                 + repr(
                     "import base64; "
                     "from pathlib import Path; "
-                    f"Path('attempts.jsonl').write_bytes(base64.b64decode('{artifact_b64}')); "
+                    f"(Path(__import__('os').environ['BBH_ATTEMPTS_PATH']).parent.mkdir(parents=True, exist_ok=True) or Path(__import__('os').environ['BBH_ATTEMPTS_PATH'])).write_bytes(base64.b64decode('{artifact_b64}')); "
                     "Path('summary.md').write_text('ok')"
                 )
             ),
@@ -287,7 +318,7 @@ def test_execute_plan_redacts_sensitive_worker_artifacts(tmp_path: Path) -> None
     )
 
     statuses = hybrid.execute_plan(plan)
-    artifact_path = next((output / "workers").rglob("attempts.jsonl"))
+    artifact_path = Path(str(plan["worker_packets"][0]["attempts_path"]))
     artifact_text = artifact_path.read_text(encoding="utf-8")
 
     assert set(statuses.values()) == {"completed"}

@@ -214,4 +214,5 @@ Good packet shape:
 - Preserve auth-state separation: anonymous, owned user A, owned user B, admin,
   or unknown.
 - Record install/version, command/config, output file, rate/depth/concurrency,
-  and stop reason in `attempts.jsonl` or `summary.md`.
+  and stop reason in the resolved canonical Attempts stream
+  (`<lane>/attempts/_runs/<run-id>/attempts.jsonl`) or `summary.md`.

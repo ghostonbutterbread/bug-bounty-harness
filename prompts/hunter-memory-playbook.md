@@ -66,18 +66,15 @@ Use these meanings in attempts and claims:
 - `confirmed`: normal proof standard met.
 - `needs_followup`: useful learning but alternate context remains.
 
-## Fenced Harvest Blocks
+## Canonical Evidence Boundary
 
-When an agent cannot write files directly, it can place JSONL in its final log.
-The parent can harvest it later with `agents/hunter_memory_tool.py harvest`.
+Hunter Memory does not record raw target-directed probes. The selected testing
+skill writes those to the canonical Attempts stream and returns an `attempt_id`
+or sanitized stream reference. Hunter Memory records only the distilled learning
+that follows from that evidence.
 
-```hunter-memory-attempts
-{"goal":"learn avatar upload render behavior","action":"uploaded benign png baseline","result":"inconclusive","observation":"upload accepted and profile showed image","interpretation":"profile image path exists","learning":"baseline works; filename context still untested","next_action":"test filename reflection and admin render","evidence_refs":[]}
-```
-
-```hunter-memory-claims
-{"claim":"Profile render HTML-escapes avatar filename, but admin/email/export contexts are untested","status":"needs_followup","confidence":"medium"}
-```
+The legacy `hunter-memory-attempts` harvest block is retired for new work. Do
+not emit it for live target tests; use the canonical Attempt writer instead.
 
 ## Safety
 

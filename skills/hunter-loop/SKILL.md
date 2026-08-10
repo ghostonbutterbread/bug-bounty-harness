@@ -217,10 +217,10 @@ mainly from old state, or roughly 30-45 minutes pass without a fresh
 observation, pause historical retrieval and require three fresh observations
 before another old-lead pivot.
 
-Workers write exact probe history in their attempts directory and may propose
-MapStore entries in their result. The coordinator or designated memory promoter
-dedupes and writes shared durable conclusions. Do not bulk-write speculative,
-duplicated, or raw run state into MapStore.
+Workers write exact probe history in their resolved canonical Attempts stream
+and may propose MapStore entries in their result. The coordinator or designated
+memory promoter dedupes and writes shared durable conclusions. Do not bulk-write
+speculative, duplicated, or raw run state into MapStore.
 
 ### Task Lifecycle
 
@@ -319,12 +319,18 @@ gate.
 
 ## Attempts And Pressure State
 
-Each specialist packet should name an attempts directory under the program
-lane, for example:
+Each specialist packet should name the canonical Attempts stream under the
+resolved program lane:
 
 ```text
-agent_shared/attempts/<vuln-class>/<surface>/<run-id>/
+<lane>/attempts/_runs/<run-id>/attempts.jsonl
 ```
+
+Use `resolve_attempts_path(...)` and `append_attempt(...)`; do not encode
+vulnerability class, payload family, target, parameter, or input location in
+the path. They are redacted event metadata. Use
+`read_attempt_bucket(program, where=..., limit=...)` for bounded cross-run
+discovery, then `read_attempts(exact_path, ...)` for exact-run forensic review.
 
 Use this pressure-state vocabulary when merging specialist results:
 
@@ -364,7 +370,7 @@ Each specialist receives only:
 - account/resource boundary and cleanup/destructible status
 - selected skill and required policy skills
 - relevant Hunter Memory attempts, constraints, and claims
-- attempts directory and required pressure-state fields
+- canonical Attempts path and required pressure-state fields
 - evidence standard for success
 - card/run ID, lease owner, and a statement of what this worker must not test
 

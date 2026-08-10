@@ -71,9 +71,14 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
 
 ## Pressure Mode
 
-Write every deliberate SSRF probe to the run's attempts directory. Record the
-exact URL payload, payload family, placement, expected fetch behavior, callback
-or response evidence, observed filter, block reason, and next mutation.
+Resolve the canonical lane stream with `resolve_attempts_path(...)` and write
+every deliberate SSRF probe through `append_attempt(...)` to
+`<lane>/attempts/_runs/<run-id>/attempts.jsonl`. Record the exact URL payload,
+payload family, placement, expected fetch behavior, callback or response
+evidence, observed filter, block reason, and next mutation. Class, payload
+family, target, parameter, and input location are redacted event metadata. Use
+`read_attempt_bucket(program, where=..., limit=...)` for bounded cross-run
+discovery and `read_attempts(exact_path, ...)` for exact-run forensic review.
 
 Use this state model:
 

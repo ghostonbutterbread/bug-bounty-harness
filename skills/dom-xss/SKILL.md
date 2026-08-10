@@ -97,8 +97,14 @@ map:
   boundaries
 - framework evidence: React/Vue/Angular/router/state-library clues, bundle
   names, CSP, and browser-vs-raw response differences
-- payload accounting: one `attempts.jsonl` row per deliberate source/sink probe
-  with payload family, transformation result, browser result, and stop reason
+- payload accounting: one row per deliberate source/sink probe in the resolved
+  canonical Attempts stream, `<lane>/attempts/_runs/<run-id>/attempts.jsonl`,
+  written with `append_attempt(...)`; payload family, transformation result,
+  browser result, and stop reason remain redacted event metadata
+
+Resolve the stream with `resolve_attempts_path(...)`. For bounded discovery
+across runs use `read_attempt_bucket(program, where=..., limit=...)`; use
+`read_attempts(exact_path, ...)` only for forensic review of a known run.
 
 If the route is browser-only due to challenge or client rendering, raw HTTP is
 not sufficient evidence to close the DOM lane.

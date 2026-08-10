@@ -28,6 +28,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from agents.attempts import new_attempt_run_id, resolve_attempts_path
+
 
 DEFAULT_PLANNER_ENGINE = "codex"
 DEFAULT_PLANNER_MODEL = "gpt-5.5"
@@ -39,6 +41,7 @@ DEFAULT_WORKER_LIMIT = 8
 DEFAULT_LINE_LIMIT = 5000
 RUNS_DIRNAME = "hybrid-runs"
 SANITIZED_ARTIFACT_SUFFIXES = {".json", ".jsonl", ".log", ".md", ".txt"}
+REQUIRED_ATTEMPT_FIELDS = ("timestamp", "tool", "target", "outcome", "stop_reason")
 
 ROLE_PARAM_HINTS: dict[str, set[str]] = {
     "xss": {"q", "query", "search", "keyword", "term", "title", "text", "name", "message", "content"},
@@ -103,6 +106,8 @@ class WorkerPacket:
     skills: tuple[str, ...]
     output_dir: str
     scratch_dir: str
+    attempt_run_id: str
+    attempts_path: str
     prompt_path: str
     metadata_path: str
 
@@ -354,6 +359,8 @@ def build_worker_packets(
         packet_id = f"W{index:03d}-{slug(lane)}"
         prompt_path = packets_dir / f"{packet_id}.md"
         metadata_path = packets_dir / f"{packet_id}.json"
+        attempt_run_id = new_attempt_run_id()
+        attempts_path = resolve_attempts_path(program, lane=lane, run_id=attempt_run_id)
         packet = WorkerPacket(
             packet_id=packet_id,
             lane=lane,
@@ -367,6 +374,8 @@ def build_worker_packets(
             skills=tuple(_lane_skills(lane)),
             output_dir=str(output_root / "workers" / packet_id),
             scratch_dir=str(output_root / "workers" / packet_id / "scratch"),
+            attempt_run_id=attempt_run_id,
+            attempts_path=str(attempts_path),
             prompt_path=str(prompt_path),
             metadata_path=str(metadata_path),
         )
@@ -415,7 +424,10 @@ def _lane_specific_guidance(packet: WorkerPacket) -> str:
     if packet.lane != "xss":
         return "No extra lane-specific instructions."
     return """XSS deep default:
-- Do source-to-sink mapping before payload volume. Inventory query/hash/path/router/storage/postMessage/API/bootstrap sources and reflected DOM, input value, attribute, script/data-island, JSON/XML/iframe, raw-HTML helper, sanitizer, and framework-render sinks.
+- Do source-to-sink mapping before indiscriminate payload volume. For every selected
+  plausible input, run and record an adaptive, context-appropriate live discovery
+  sequence; no arbitrary initial-request cap applies. Signal controls escalation
+  severity, not permission to begin testing.
 - Record framework and edge clues before payload choice: React/Vue/Angular/router/state libraries, bundle names, CSP, WAF/challenge signal, and raw HTTP vs browser-rendered differences.
 - Choose payload families from the observed context: marker/baseline, attribute breakout, tag breakout, event-handler, URL-scheme/navigation, template-literal/expression, JSON/XML/iframe attribute, hash/router source, storage/message source, or WAF/parser mutation.
 - For every deliberate probe, write one attempts.jsonl row with payload family, source, sink/context, encoding or normalization result, browser result, and stop reason.
@@ -476,18 +488,41 @@ Use this packet-owned scratch directory for temporary files:
 `{packet.scratch_dir}`
 
 Do not write scratch files under `/tmp`, `/var/tmp`, the project repo, the user
-home directory, or any path outside the packet output directory. The worker is
-launched with file access scoped to the packet output directory; scratch files
-outside that tree may be unreadable to the agent and will not be collected.
+home directory, or any path outside the packet output directory. This scratch
+restriction does not apply to the harness-provided canonical Attempts stream
+below.
 
 Required files:
-- `attempts.jsonl` with one JSON object per deliberate observation.
 - `summary.md` with exact boundaries, useful leads, and no inflated claims.
 - `handoff.json` if this lane discovers follow-up work for another skill/model.
 
-These artifacts are mandatory. If you stop early because of policy, auth,
-challenge, rate limit, or target-stress boundaries, still write `attempts.jsonl`
-and `summary.md` explaining the boundary.
+Canonical Attempts context (injected by the harness):
+- Run ID: `{packet.attempt_run_id}`
+- Stream: `{packet.attempts_path}`
+- Writer: `agents.attempts.append_attempt`
+
+For every deliberate target-directed test, write the canonical stream—not a
+packet-local `attempts.jsonl` substitute. These artifacts are mandatory: if you
+stop early because of policy, auth, challenge, rate limit, or target-stress
+boundaries, write the canonical Attempt boundary record and `summary.md`.
+
+## Attempt Recording Contract
+
+Attempts are **not** a general live-observation log. They record each deliberate
+application-directed test: payload, canary, representation, method/field/header,
+role/object, timing, browser-action, or other meaningful request variation.
+For every such test, write one `attempts.jsonl` record with what was sent,
+payload family/technique, input location, changed dimension or comparison,
+outcome, and stop/pivot reason. Include blocked, request-error, and inert results
+when they arise from an attempt. Do not record passive reconnaissance or
+untested ideas here.
+
+When BBH is importable, use `agents.attempts.append_attempt`; it validates the
+stable fields (`timestamp`, `tool`, `target`, `outcome`, `stop_reason`), creates
+a redacted canonical Core row, and returns its `attempt_id`. Use that ID or the
+sanitized Attempts path when promoting a fact to MapStore or preserving a future
+branch in the Hypothesis Ledger. Read `docs/attempt-recording-contract.md` for
+the full routing boundary. Do not put secrets into Attempts.
 
 Stay focused on this lane. If a different lane becomes clearly relevant, create a handoff packet instead of absorbing all work into this worker.
 """
@@ -644,6 +679,10 @@ def execute_plan(plan: Mapping[str, Any], *, include_planner: bool = False) -> d
             log_path=log_path,
             workdir=output_dir,
             title=f"Hybrid worker {packet_id}",
+            extra_env={
+                "BBH_ATTEMPT_RUN_ID": str(packet_payload["attempt_run_id"]),
+                "BBH_ATTEMPTS_PATH": str(packet_payload["attempts_path"]),
+            },
         )
         statuses[packet_id] = "running"
         write_monitor_state(output_root, plan, worker_status=statuses)
@@ -651,8 +690,14 @@ def execute_plan(plan: Mapping[str, Any], *, include_planner: bool = False) -> d
     for key, process in processes.items():
         returncode = process.wait()
         packet_dir = Path(str(_packet_output_dir(plan, key)))
+        packet_payload = _packet_payload(plan, key)
+        canonical_attempts_path = Path(str(packet_payload["attempts_path"]))
         sanitize_artifacts(packet_dir)
-        missing_artifacts = missing_required_worker_artifacts(packet_dir)
+        sanitize_artifacts(canonical_attempts_path)
+        missing_artifacts = missing_required_worker_artifacts(
+            packet_dir,
+            attempts_path=canonical_attempts_path,
+        )
         if returncode != 0:
             statuses[key] = f"failed:{returncode}"
         elif missing_artifacts:
@@ -680,16 +725,51 @@ def execute_plan(plan: Mapping[str, Any], *, include_planner: bool = False) -> d
     return statuses
 
 
-def _packet_output_dir(plan: Mapping[str, Any], packet_id: str) -> str:
+def _packet_payload(plan: Mapping[str, Any], packet_id: str) -> Mapping[str, Any]:
     for packet_payload in plan.get("worker_packets", []):
         if str(packet_payload.get("packet_id")) == packet_id:
-            return str(packet_payload.get("output_dir"))
-    return str(Path(str(plan["output_root"])) / "workers" / slug(packet_id))
+            return packet_payload
+    raise KeyError(f"worker packet not found: {packet_id}")
 
 
-def missing_required_worker_artifacts(packet_dir: Path) -> list[str]:
-    required = ["attempts.jsonl", "summary.md"]
-    return [name for name in required if not (packet_dir / name).is_file()]
+def _packet_output_dir(plan: Mapping[str, Any], packet_id: str) -> str:
+    try:
+        return str(_packet_payload(plan, packet_id)["output_dir"])
+    except KeyError:
+        return str(Path(str(plan["output_root"])) / "workers" / slug(packet_id))
+
+
+def missing_required_worker_artifacts(packet_dir: Path, *, attempts_path: Path | None = None) -> list[str]:
+    required = ["summary.md"]
+    missing = [name for name in required if not (packet_dir / name).is_file()]
+    if attempts_path is None:
+        attempts_path = packet_dir / "attempts.jsonl"
+    if not attempts_path.is_file():
+        missing.append("canonical-attempts:missing")
+    elif not _is_valid_jsonl(attempts_path):
+        missing.append("canonical-attempts:invalid-jsonl")
+    return missing
+
+
+def _is_valid_jsonl(path: Path) -> bool:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not lines:
+        return False
+    for line in lines:
+        if not line.strip():
+            return False
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(row, dict):
+            return False
+        if any(not isinstance(row.get(field), str) or not row[field].strip() for field in REQUIRED_ATTEMPT_FIELDS):
+            return False
+    return True
 
 
 def sanitize_artifacts(root: Path) -> None:
@@ -764,6 +844,7 @@ def spawn_cli_engine(
     log_path: Path,
     workdir: Path,
     title: str,
+    extra_env: Mapping[str, str] | None = None,
 ) -> subprocess.Popen[Any]:
     if engine.transport != "cli":
         raise NotImplementedError(f"hybrid runner currently executes CLI engines only, got transport={engine.transport}")
@@ -775,6 +856,8 @@ def spawn_cli_engine(
     log_handle = log_path.open("ab")
     env = os.environ.copy()
     env.update(engine.env)
+    if extra_env:
+        env.update(extra_env)
     env.pop("CODEX_HOME", None)
     env.setdefault("TMPDIR", str(scratch_dir))
     env.setdefault("TMP", str(scratch_dir))

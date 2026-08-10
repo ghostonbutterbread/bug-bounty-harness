@@ -19,10 +19,10 @@ was killed, or which condition gates further testing, promote the factual part
 to `/map-store` and use Bounty Notes only for the hunt narrative, handoff, or
 next-step decision.
 
-Exact payload and probe history belongs in attempts folders, not directly in
-Bounty Notes. Use Bounty Notes to explain why the agent kept pressure, pivoted,
-paused, or killed a hypothesis, then link the MapStore entry and attempts
-artifact.
+Exact payload and probe history belongs in the canonical Attempts stream, not
+directly in Bounty Notes. Use Bounty Notes to explain why the agent kept
+pressure, pivoted, paused, or killed a hypothesis, then link the MapStore entry
+and Attempts artifact.
 
 ## Fast Routing
 
@@ -31,8 +31,10 @@ artifact.
 - Deliberately published human hypothesis/decision record, timeline, handoff, or blocker -> `/bounty-notes`.
 - Bulk URL queue/review state -> `/url-ingest`.
 - Already-tested coverage -> `me_ledger.py` / coverage ledgers.
-- Exact payload/probe attempts -> `agent_shared/attempts/<vuln-class>/<surface>/<run-id>/`
-  with MapStore pointers.
+- Exact payload/probe attempts -> the resolved lane's
+  `<lane>/attempts/_runs/<run-id>/attempts.jsonl`, created through
+  `resolve_attempts_path(...)` and written through `append_attempt(...)`, with
+  MapStore pointers. Vulnerability class and surface stay redacted event metadata.
 - Concrete findings and proof packets -> `manual_hunter.py` / `/findings`.
 
 If both are true, split it: factual behavior in `/map-store`, hypothesis or
@@ -70,8 +72,10 @@ Default lane root: `~/Shared/{family}/{program}/{lane}/`
 - `notes/handoffs/<run-id>.md` - takeover-ready summaries
 - `notes/faq/<slug>.md` - stable solved target facts
 - `notes/_index/` and `notes/index.md` - generated lookup/pointers
-- `agent_shared/attempts/<vuln-class>/<surface>/<run-id>/` - exact payload/probe
-  attempts, transformations, evidence, block reasons, and next mutations
+- `<lane>/attempts/_runs/<run-id>/attempts.jsonl` - exact payload/probe attempts,
+  transformations, evidence, block reasons, and next mutations; use
+  `read_attempt_bucket(...)` to discover bounded cross-run history and
+  `read_attempts(exact_path, ...)` only for a known run's forensic record
 - `working/scratch/<run-id>/` - durable-but-unpublished quick notes and
   sanitized artifacts promoted from `~/workdir/`
 - `scripts/` - reusable program-specific helper scripts, PoCs, repro tools, or

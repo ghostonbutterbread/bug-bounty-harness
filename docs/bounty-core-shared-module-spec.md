@@ -6,6 +6,12 @@ Draft: 2026-04-28
 
 Updated: 2026-04-28 after initial `bounty-core` extraction and `bounty-tools` cleanup.
 
+Current shared-evidence and deferred secret-resolution direction:
+[`bounty-core-evidence-and-secrets-workstream.md`](bounty-core-evidence-and-secrets-workstream.md).
+That workstream extends this extraction with generic evidence primitives and
+regenerated projections; it does not replace this spec's storage, finding, or
+ledger ownership boundaries.
+
 Current state:
 
 - `~/projects/bounty-core` exists with initial storage, finding normalization, ledger append/update, report writing, and index helpers.

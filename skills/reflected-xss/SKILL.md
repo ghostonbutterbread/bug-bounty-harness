@@ -73,10 +73,17 @@ Required behavior:
 - note framework and defense clues before choosing payloads: React/Vue/Angular,
   router/state hints, CSP, sanitizer behavior, WAF/challenge, and raw HTTP vs
   browser-rendered differences
-- choose a representative context-matched payload family and record the family
-  in `attempts.jsonl`
+- choose a representative context-matched payload family and record it through
+  `append_attempt(...)` in the resolved canonical stream:
+  `<lane>/attempts/_runs/<run-id>/attempts.jsonl`
 - stop or hand off when the context is proven inert; do not inflate coverage
   with unrelated polyglots
+
+Use `resolve_attempts_path(...)` rather than deriving folders from class,
+payload family, target, parameter, or input location; those are redacted event
+metadata. Use `read_attempt_bucket(program, where=..., limit=...)` for bounded
+cross-run discovery, then `read_attempts(exact_path, ...)` for exact-run
+forensic review.
 
 ## Good Payload Thinking
 

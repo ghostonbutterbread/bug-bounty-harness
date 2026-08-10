@@ -109,9 +109,17 @@ Each worker packet must include:
 
 Workers must write at least:
 
-- `attempts.jsonl`
+- the resolved canonical Attempts stream,
+  `<lane>/attempts/_runs/<run-id>/attempts.jsonl`, through
+  `resolve_attempts_path(...)` and `append_attempt(...)`
 - `summary.md`
 - optional `handoff.json`
+
+Vulnerability class, payload family, target, parameter, and input location are
+redacted event metadata, not path taxonomy. Use
+`read_attempt_bucket(program, where=..., limit=...)` for bounded cross-run
+discovery; use `read_attempts(exact_path, ...)` only for exact-run forensic
+review.
 
 ### XSS Worker Standard
 
@@ -127,12 +135,12 @@ mapping before payload volume. The worker should:
    React/Vue/Angular/router/state hints, bundle names, CSP, WAF/challenge
    signal, and raw HTTP vs browser-rendered differences
 4. choose payload families from the observed context, not from a generic list
-5. write `attempts.jsonl` rows with payload family, source, sink/context,
+5. write canonical Attempts rows with payload family, source, sink/context,
    transformation, browser result, and stop reason
 
-If the XSS worker cannot produce `attempts.jsonl`, `summary.md`, and a handoff
-when needed, the planner should treat that lane as incomplete even if the log
-contains useful browser observations.
+If the XSS worker cannot produce the canonical Attempts stream, `summary.md`,
+and a handoff when needed, the planner should treat that lane as incomplete even
+if the log contains useful browser observations.
 
 ## Skill Augmentation
 

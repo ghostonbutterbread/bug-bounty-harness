@@ -31,7 +31,10 @@ answer:
 
 Minimum artifact expectation for these runs:
 
-- `attempts.jsonl`: one record per deliberate observation or payload probe.
+- `<lane>/attempts/_runs/<run-id>/attempts.jsonl`: one record per deliberate
+  observation or payload probe, resolved through `resolve_attempts_path(...)`
+  and written with `append_attempt(...)`. Class, payload family, target,
+  parameter, and input location are redacted event metadata, not folders.
 - `summary.md`: route family, source map, sink map, framework clues, payload
   family results, confirmed/potential/false-positive decision, and next handoff.
 - `handoff.json`: required when the next step belongs to another lane, browser
@@ -39,6 +42,10 @@ Minimum artifact expectation for these runs:
 
 If a worker cannot write these artifacts, the XSS lane is incomplete even when
 the raw log contains useful observations.
+
+Use `read_attempt_bucket(program, where=..., limit=...)` for bounded cross-run
+discovery. Once a run is known, use `read_attempts(exact_path, ...)` for its
+forensic record.
 
 ## Pressure Mode
 

@@ -60,8 +60,14 @@ When a signal appears, keep pressure on that boundary until it is understood:
 - output sink renders attacker-controlled HTML, Markdown, JSON, URL, or args
 - backend/tool/lab evidence conflicts with model text
 
-Write exact attempts to the run's attempts folder. Durable notes get stable
-facts and pointers; Bounty Notes gets the narrative and handoff.
+Resolve the run's canonical Attempts stream with `resolve_attempts_path(...)`
+and write exact probes through `append_attempt(...)` to
+`<lane>/attempts/_runs/<run-id>/attempts.jsonl`. Class, payload family, target,
+parameter, and input location are redacted event metadata. Use
+`read_attempt_bucket(program, where=..., limit=...)` for bounded cross-run
+discovery and `read_attempts(exact_path, ...)` for one known run's forensic
+record. Durable notes get stable facts and pointers; Bounty Notes gets the
+narrative and handoff.
 
 ## Workflow
 

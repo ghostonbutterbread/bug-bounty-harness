@@ -67,23 +67,29 @@ MapStore when it is useful for retesting.
 
 ## Attempts-backed Split
 
-When a specialist is actively testing a vulnerability class, keep exact
-payloads and response details in an attempts folder:
+When a specialist is actively testing, keep exact payloads and response details
+in the resolved lane's canonical Attempts stream:
 
-- `agent_shared/attempts/xss/search/2026-07-08T150000Z/attempts.jsonl`
-- `agent_shared/attempts/ssrf/import-url/2026-07-08T153000Z/attempts.jsonl`
+`<lane>/attempts/_runs/<run-id>/attempts.jsonl`
+
+Create or locate that path through `resolve_attempts_path(...)` and write via
+`append_attempt(...)`. Keep vulnerability class, payload family, target,
+parameter, and input location as redacted event metadata—not path taxonomy.
+For bounded discovery across runs, use `read_attempt_bucket(program,
+where=..., limit=...)`; once a run is identified, use
+`read_attempts(exact_path, ...)` for its forensic record.
 
 Then write the durable conclusion to MapStore:
 
 - "Search param `q` reflects into a quoted attribute. Double quotes and angle
   brackets are encoded, spaces and single quotes survive, and client-side
   reparse still strips event handlers. Pressure state: warm. Attempts:
-  `agent_shared/attempts/xss/search/2026-07-08T150000Z/attempts.jsonl`. Next probe:
+  `<lane>/attempts/_runs/<run-id>/attempts.jsonl`. Next probe:
   markdown/link URL sink from the same value."
 - "Image import `url` triggers a backend fetch to public callbacks. Direct
   RFC1918 targets are blocked before fetch; redirect handling remains unknown.
   Pressure state: hot. Attempts:
-  `agent_shared/attempts/ssrf/import-url/2026-07-08T153000Z/attempts.jsonl`. Next
+  `<lane>/attempts/_runs/<run-id>/attempts.jsonl`. Next
   probe: compare public redirect vs private redirect."
 
 Bounty Notes should explain why the agent kept pressure, paused, pivoted, or

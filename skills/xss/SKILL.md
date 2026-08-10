@@ -191,10 +191,15 @@ python /home/ryushe/projects/bug_bounty_harness/agents/xss_hunter.py \
 
 ## Pressure Mode
 
-Every deliberate probe should write an attempts row in the run's attempts
-directory. Record the exact payload, payload family, encoding, why that payload
-matched the context, observed transform, browser result, block reason, and next
-mutation.
+Every deliberate probe should resolve the canonical lane stream with
+`resolve_attempts_path(...)` and append through `append_attempt(...)` to
+`<lane>/attempts/_runs/<run-id>/attempts.jsonl`. Record the exact payload,
+payload family, encoding, why that payload matched the context, observed
+transform, browser result, block reason, and next mutation. Vulnerability class,
+payload family, target, parameter, and input location are redacted event
+metadata—not path taxonomy. Use `read_attempt_bucket(program, where=...,
+limit=...)` for bounded cross-run discovery; use `read_attempts(exact_path, ...)`
+only for exact-run forensic review.
 
 Use this state model:
 
@@ -248,9 +253,9 @@ Required sequence:
 4. Choose payload families from the context: attribute breakout, tag breakout,
    URL-scheme, template-literal, JSON/XML/iframe-attribute, DOM-source, hash,
    storage, or `postMessage`.
-5. Track every deliberate probe in `attempts.jsonl` with payload family,
-   source, sink/context, encoding/normalization result, browser result, and
-   stop reason. If no execution occurs, record the exact boundary.
+5. Track every deliberate probe in the resolved canonical Attempts stream with
+   payload family, source, sink/context, encoding/normalization result, browser
+   result, and stop reason. If no execution occurs, record the exact boundary.
 
 Do not mark an XSS lane complete from raw HTTP alone when browser-only routing,
 Cloudflare/challenge behavior, or framework rendering is material to the route.

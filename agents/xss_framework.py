@@ -30,18 +30,34 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional
 from urllib.parse import (
     parse_qs, urlencode, urljoin, urlparse, urlsplit, urlunsplit,
 )
 from uuid import uuid4
 
 import httpx
-from scope_validator import ScopeValidator
 try:
-    from rate_limiter import RateLimiter
+    from .scope_validator import ScopeValidator
+    from .rate_limiter import RateLimiter
+    from .attempts import (
+        append_attempt,
+        new_attempt_run_id,
+        resolve_attempts_path,
+        utc_timestamp,
+    )
 except ImportError:
-    RateLimiter = None
+    from scope_validator import ScopeValidator
+    try:
+        from rate_limiter import RateLimiter
+    except ImportError:
+        RateLimiter = None
+    from attempts import (
+        append_attempt,
+        new_attempt_run_id,
+        resolve_attempts_path,
+        utc_timestamp,
+    )
 
 try:
     from bs4 import BeautifulSoup
@@ -416,7 +432,15 @@ class XSSScreener:
 
         body = resp.text
         if marker not in body and html.unescape(body).find(marker) == -1:
-            return None
+            return ScreenResult(
+                param=param,
+                url=url,
+                reflected=False,
+                context="none",
+                location="",
+                near_sink=False,
+                priority="LOW",
+            )
 
         context = self._detect_context(body, marker)
         near = self._near_sink(body)
@@ -546,9 +570,15 @@ class ReflectedTester:
     TIERS = ["standard", "encoding", "alternative_tags", "attribute_break",
              "js_break", "hpp", "mutation", "no_parens", "template_literal", "csp_bypass"]
 
-    def __init__(self, session: httpx.Client, rate_limit: float = 1.0):
+    def __init__(
+        self,
+        session: httpx.Client,
+        rate_limit: float = 1.0,
+        attempt_recorder: Callable[[dict[str, Any]], None] | None = None,
+    ):
         self.session = session
         self._delay = 1.0 / max(rate_limit, 0.1)
+        self._attempt_recorder = attempt_recorder
 
     def test(self, target: str, screen_result: ScreenResult) -> list[XSSFinding]:
         findings: list[XSSFinding] = []
@@ -560,6 +590,7 @@ class ReflectedTester:
 
             for payload in REFLECTED_PAYLOADS.get(tier, []):
                 result = self._send(target, screen_result.param, payload)
+                self._record_probe(tier, payload, screen_result, result)
                 time.sleep(self._delay)
 
                 if result["executed"] or result["reflected_intact"]:
@@ -584,6 +615,38 @@ class ReflectedTester:
                     consecutive_blocks = 0
 
         return findings
+
+    def _record_probe(
+        self,
+        tier: str,
+        payload: str,
+        screen_result: ScreenResult,
+        result: dict[str, Any],
+    ) -> None:
+        if self._attempt_recorder is None:
+            return
+        if result["executed"]:
+            outcome, stop_reason = "executed", "execution_signal_observed"
+        elif result["reflected_intact"]:
+            outcome, stop_reason = "reflected_intact", "payload_reflected_intact"
+        elif result["blocked"]:
+            outcome, stop_reason = "blocked", "response_blocked"
+        else:
+            outcome, stop_reason = "not_reflected", "payload_did_not_reflect_intact"
+        self._attempt_recorder(
+            {
+                "event_type": "probe",
+                "vuln_class": "xss",
+                "target": result["url"],
+                "outcome": outcome,
+                "stop_reason": stop_reason,
+                "payload": payload,
+                "payload_family": tier,
+                "param": screen_result.param,
+                "context": screen_result.context,
+                "http_status": result.get("status"),
+            }
+        )
 
     def _send(self, target: str, param: str, payload: str) -> dict:
         url = _inject_param(target, param, payload)
@@ -1053,6 +1116,8 @@ class XSSFramework:
         verbose: bool = False,
         skip_scope: bool = False,
         use_browser_bypass: bool = False,  # auto-bypass WAF via BrowserBlockFix
+        attempts_path: str | Path | None = None,
+        attempt_run_id: str | None = None,
     ):
         self.target = target if target.startswith(("http://", "https://")) else f"https://{target}"
         self.program = program
@@ -1063,6 +1128,8 @@ class XSSFramework:
         self.verbose = verbose
         self.skip_scope = skip_scope
         self.use_browser_bypass = use_browser_bypass
+        self.attempt_run_id = attempt_run_id or new_attempt_run_id()
+        self.attempts_path = Path(attempts_path) if attempts_path else self._default_attempts_path()
 
         if use_browser_bypass and _HAS_BROWSER_BYPASS:
             self._bbf = BrowserBlockFix(self.target, program)
@@ -1086,7 +1153,11 @@ class XSSFramework:
 
         self.discovery = ParameterDiscovery(self.session, verbose)
         self.screener = XSSScreener(self.session, rate_limit)
-        self.reflected_tester = ReflectedTester(self.session, rate_limit)
+        self.reflected_tester = ReflectedTester(
+            self.session,
+            rate_limit,
+            attempt_recorder=self._record_reflected_attempt,
+        )
         self.stored_tester = StoredTester(self.session, rate_limit)
         self.dom_tester = DOMTester(self.session)
         self.bypass_engine = BypassEngine()
@@ -1145,6 +1216,9 @@ class XSSFramework:
         if self.mode in ("full", "reflected"):
             print("\n[Phase 3A] Testing Reflected XSS...")
             for candidate in candidates:
+                if not candidate.reflected:
+                    self._record_cold_attempt(candidate)
+                    continue
                 self._log(f"  Testing param: {candidate.param} (ctx={candidate.context})")
                 new_findings = self.reflected_tester.test(self.target, candidate)
 
@@ -1193,6 +1267,43 @@ class XSSFramework:
 
         return self.findings
 
+    def _default_attempts_path(self) -> Path:
+        """Use XSS's lane-owned generic run stream; test details stay in metadata."""
+        return resolve_attempts_path(
+            self.program,
+            lane="xss",
+            run_id=self.attempt_run_id,
+        )
+
+    def _record_reflected_attempt(self, probe: dict[str, Any]) -> None:
+        """Persist one payload comparison while preserving the Core envelope."""
+        append_attempt(
+            self.attempts_path,
+            {
+                "timestamp": utc_timestamp(),
+                "tool": "xss_framework",
+                "run_id": self.attempt_run_id,
+                **probe,
+            },
+        )
+
+    def _record_cold_attempt(self, candidate: ScreenResult) -> None:
+        append_attempt(
+            self.attempts_path,
+            {
+                "timestamp": utc_timestamp(),
+                "tool": "xss_framework",
+                "run_id": self.attempt_run_id,
+                "target": candidate.url,
+                "outcome": "cold",
+                "stop_reason": "raw_response_only_inconclusive",
+                "param": candidate.param,
+                "context": candidate.context,
+                "raw_response_evidence": "marker_absent",
+                "recommended_follow_up": "browser_rendered_reflection_or_stored_xss",
+            },
+        )
+
     def _adaptive_bypass(self, candidate: ScreenResult) -> list[XSSFinding]:
         """Try adaptive bypass for high-priority candidates."""
         findings: list[XSSFinding] = []
@@ -1201,9 +1312,11 @@ class XSSFramework:
             url = _inject_param(self.target, candidate.param, base_payload)
             try:
                 resp = self.session.get(url, timeout=12)
-            except Exception:
+            except Exception as exc:
+                self._record_bypass_probe(candidate, base_payload, url, "adaptive_baseline", error=str(exc))
                 continue
 
+            self._record_bypass_probe(candidate, base_payload, url, "adaptive_baseline", response=resp)
             block_type = self.bypass_engine.detect_block_type(resp.text, resp.status_code)
             if block_type == "NO_BLOCK":
                 continue
@@ -1216,9 +1329,11 @@ class XSSFramework:
                 try:
                     resp = self.session.get(url, timeout=12)
                     time.sleep(1.0 / max(self.rate_limit, 0.1))
-                except Exception:
+                except Exception as exc:
+                    self._record_bypass_probe(candidate, variant, url, f"bypass:{block_type}", error=str(exc))
                     continue
 
+                self._record_bypass_probe(candidate, variant, url, f"bypass:{block_type}", response=resp)
                 body = resp.text
                 if variant in body and _looks_executable(variant, body) and not _is_blocked(resp.status_code, body):
                     findings.append(XSSFinding(
@@ -1236,6 +1351,46 @@ class XSSFramework:
                     return findings
 
         return findings
+
+    def _record_bypass_probe(
+        self,
+        candidate: ScreenResult,
+        payload: str,
+        url: str,
+        payload_family: str,
+        *,
+        response: Any | None = None,
+        error: str | None = None,
+    ) -> None:
+        if error is not None:
+            outcome, stop_reason, status = "request_error", "request_failed", None
+        else:
+            assert response is not None
+            body = response.text
+            status = response.status_code
+            if payload in body and _looks_executable(payload, body) and not _is_blocked(status, body):
+                outcome, stop_reason = "executed", "execution_signal_observed"
+            elif _is_blocked(status, body):
+                outcome, stop_reason = "blocked", "response_blocked"
+            elif payload in body:
+                outcome, stop_reason = "reflected_intact", "payload_reflected_intact"
+            else:
+                outcome, stop_reason = "not_reflected", "payload_did_not_reflect_intact"
+        self._record_reflected_attempt(
+            {
+                "event_type": "probe",
+                "vuln_class": "xss",
+                "target": url,
+                "outcome": outcome,
+                "stop_reason": stop_reason,
+                "payload": payload,
+                "payload_family": payload_family,
+                "param": candidate.param,
+                "context": candidate.context,
+                "http_status": status,
+                "error": error,
+            }
+        )
 
     def _dedupe(self, findings: list[XSSFinding]) -> list[XSSFinding]:
         seen: set[str] = set()

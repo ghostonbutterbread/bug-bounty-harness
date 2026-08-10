@@ -156,15 +156,13 @@ def _ensure_core_importable() -> None:
 def _render_prompt(base_prompt: str, agent_path: Path) -> str:
     return f"""{base_prompt.rstrip()}
 
-Because this BBH child agent may run in a read-only subprocess, also emit a
-structured harvest block in your final log output. The parent orchestrator will
-append these rows to:
-{agent_path}
+Because this BBH child agent may run in a read-only subprocess, emit only a
+concise reusable claim in your final log when needed. Raw target-directed probes
+belong in the canonical Attempts stream owned by the selected testing skill;
+link its `attempt_id` or sanitized stream path in the claim text when relevant.
 
-Use this exact fenced JSONL block for meaningful attempts:
-```hunter-memory-attempts
-{{"goal":"what you were trying to learn","action":"what you tried","result":"success|failed|blocked|inconclusive","observation":"what happened","interpretation":"what it probably means","learning":"constraint or behavior learned","next_action":"what should change next","evidence_refs":[]}}
-```
+The legacy `hunter-memory-attempts` harvest block is retired for new work. Do
+not emit it.
 
 Optional claim block when you learned a reusable conclusion:
 ```hunter-memory-claims

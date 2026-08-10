@@ -88,7 +88,9 @@ def test_hunter_memory_tool_start_attempt_claim_and_harvest(tmp_path: Path) -> N
     payload = json.loads(output.getvalue())
     assert Path(payload["run_path"]).exists()
     assert Path(payload["agent_path"]).exists()
-    assert "hunter-memory-attempts" in prompt_path.read_text(encoding="utf-8")
+    prompt_text = prompt_path.read_text(encoding="utf-8")
+    assert "```hunter-memory-attempts" not in prompt_text
+    assert "canonical Attempts stream" in prompt_text
 
     exit_code = hunter_memory_tool_main(
         [

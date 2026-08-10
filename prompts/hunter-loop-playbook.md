@@ -122,11 +122,14 @@ Each packet should be small and complete:
 Include full URLs. Include only the relevant app slice. Exclude broad proxy
 dumps, raw secrets, unrelated history, and unsanitized personal data.
 
-Every specialist packet should include an attempts directory, for example
-`agent_shared/attempts/xss/search/2026-07-08T150000Z/`. The specialist writes exact
-payloads, why they were chosen, transformations, evidence, block reasons, and
-next mutations there. MapStore receives the durable conclusion and a pointer to
-the attempts artifact.
+Every specialist packet should include the resolved canonical Attempts stream:
+`<lane>/attempts/_runs/<run-id>/attempts.jsonl`. Resolve it with
+`resolve_attempts_path(...)` and append through `append_attempt(...)`; class,
+payload family, target, parameter, and input location are redacted event
+metadata, not folders. Use `read_attempt_bucket(program, where=..., limit=...)`
+for bounded cross-run discovery, then `read_attempts(exact_path, ...)` for one
+known run. MapStore receives the durable conclusion and a pointer to the
+Attempts artifact.
 
 ## Specialist Result Contract
 

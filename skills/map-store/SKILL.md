@@ -26,8 +26,12 @@ tested state, or vulnerability lead.
   explanation -> `/docs` plus a concise MapStore pointer.
 - Replay-grade request templates, permission gates, and retest matrices ->
   `docs/mapstore-request-contracts.md` plus a MapStore pointer.
-- Exact payload/probe history -> lane attempts folders, with MapStore storing
-  the stable conclusion and sanitized artifact pointer.
+- Exact payload/probe history -> the resolved lane's canonical Attempts stream:
+  `<lane>/attempts/_runs/<run-id>/attempts.jsonl`. Use
+  `resolve_attempts_path(...)` and `append_attempt(...)`; vulnerability class,
+  payload family, target, parameter, and input location are redacted event
+  metadata, never path components. MapStore stores the stable conclusion and a
+  sanitized artifact pointer.
 
 If a discovery is both fact and next-step idea, split it: factual behavior here,
 private hypothesis in `/hypothesis-ledger`, linked by the same full URL, tags,
@@ -66,8 +70,10 @@ domain, app surface, role, or defense, write it to MapStore.
    stack-grounded pre-probe class decision, add `class-derivation` and, only for
    a defensible low/not-applicable conclusion, `declined` plus the relevant
    class/stack tags.
-10. Link relevant attempts artifacts when the observation came from a deliberate
-    probe or mutation family.
+10. Link relevant Attempts artifacts when the observation came from a deliberate
+    probe or mutation family. For broad, bounded discovery use
+    `read_attempt_bucket(program, where=..., limit=...)`; for forensic review
+    of one known run, resolve its path and use `read_attempts(exact_path, ...)`.
 11. If the observation changes hunt direction, add the narrative/handoff to
     `/bounty-notes` too.
 
@@ -192,7 +198,7 @@ Impact Waiver:
 ```
 
 Keep the block concise. Move detailed attempts, screenshots, and raw responses
-to artifacts or attempts folders, then link them from the waiver.
+to artifacts or the canonical Attempts stream, then link them from the waiver.
 
 See `references/map-store-reference.md` and `references/routing-examples.md`
 for impact-waiver examples.
@@ -413,8 +419,8 @@ Example body:
 Search param `q` reflects into an HTML attribute in the React preview. Double
 quotes are entity-encoded, single quotes and spaces survive, angle brackets are
 encoded, and DOMPurify strips event handlers after client reparse. Pressure
-state: warm. Attempts:
-agent_shared/attempts/xss/search/2026-07-08T150000Z/attempts.jsonl. Next probe:
+state: warm. Attempts: `<lane>/attempts/_runs/<run-id>/attempts.jsonl`.
+Next probe:
 check markdown/link URL sink from the same value before more attribute payloads.
 ```
 

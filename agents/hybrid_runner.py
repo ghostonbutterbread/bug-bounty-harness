@@ -28,7 +28,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from agents.attempts import new_attempt_run_id, resolve_attempts_path
+from agents.attempts import append_attempt, new_attempt_run_id, resolve_attempts_path
 
 
 DEFAULT_PLANNER_ENGINE = "codex"
@@ -681,7 +681,7 @@ def execute_plan(plan: Mapping[str, Any], *, include_planner: bool = False) -> d
             title=f"Hybrid worker {packet_id}",
             extra_env={
                 "BBH_ATTEMPT_RUN_ID": str(packet_payload["attempt_run_id"]),
-                "BBH_ATTEMPTS_PATH": str(packet_payload["attempts_path"]),
+                "BBH_ATTEMPTS_PATH": str(output_dir / "attempts.staged.jsonl"),
             },
         )
         statuses[packet_id] = "running"
@@ -692,8 +692,14 @@ def execute_plan(plan: Mapping[str, Any], *, include_planner: bool = False) -> d
         packet_dir = Path(str(_packet_output_dir(plan, key)))
         packet_payload = _packet_payload(plan, key)
         canonical_attempts_path = Path(str(packet_payload["attempts_path"]))
+        staged_attempts_path = packet_dir / "attempts.staged.jsonl"
         sanitize_artifacts(packet_dir)
-        sanitize_artifacts(canonical_attempts_path)
+        try:
+            ingest_staged_attempts(staged_attempts_path, canonical_attempts_path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            statuses[key] = f"incomplete:canonical-attempts:{exc}"
+            write_monitor_state(output_root, plan, worker_status=statuses)
+            continue
         missing_artifacts = missing_required_worker_artifacts(
             packet_dir,
             attempts_path=canonical_attempts_path,
@@ -737,6 +743,18 @@ def _packet_output_dir(plan: Mapping[str, Any], packet_id: str) -> str:
         return str(_packet_payload(plan, packet_id)["output_dir"])
     except KeyError:
         return str(Path(str(plan["output_root"])) / "workers" / slug(packet_id))
+
+
+def ingest_staged_attempts(staged_path: Path, canonical_path: Path) -> None:
+    """Validate worker staging then append it once through the canonical writer.
+
+    Workers never receive a writable canonical evidence path; their staging file
+    may be redacted or discarded without mutating historical evidence.
+    """
+    if not staged_path.is_file() or not _is_valid_jsonl(staged_path):
+        raise ValueError("invalid-staged-attempts")
+    for line in staged_path.read_text(encoding="utf-8").splitlines():
+        append_attempt(canonical_path, json.loads(line))
 
 
 def missing_required_worker_artifacts(packet_dir: Path, *, attempts_path: Path | None = None) -> list[str]:

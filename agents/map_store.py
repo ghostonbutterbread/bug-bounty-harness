@@ -1379,10 +1379,15 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
     if args.until:
         until = parse_time_filter(args.until)
 
+    intent = normalize_query_intent(args.intent)
+    # Dedupe answers are an exact tested-state check for the requested URL.
+    # Broad app/surface observations belong to app-facts or coverage queries;
+    # including them here makes unrelated coverage look URL-specific.
+    effective_scope = URL_SCOPE if intent == DEDUPE_INTENT and args.url else args.scope
     results = store.query(
         url=args.url,
         surface=args.surface,
-        scope=args.scope,
+        scope=effective_scope,
         tags=[t.strip() for t in args.tags.split(",") if t.strip()],
         statuses=[s.strip() for s in args.status.split(",") if s.strip()],
         include_archived=args.include_archived,
@@ -1393,7 +1398,6 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
         cross_family_entries=cross_entries,
     )
 
-    intent = normalize_query_intent(args.intent)
     if args.json:
         payload: Any = results
         if intent != DEFAULT_QUERY_INTENT:

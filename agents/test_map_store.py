@@ -542,6 +542,63 @@ class TestMapStore:
         assert payload["tested"] == "partial"
         assert "xss" in payload["tested_for"]
 
+    def test_cli_dedupe_url_excludes_app_and_surface_scoped_observations(self, store: MapStore):
+        """A URL dedupe answer must not inflate coverage with broad observations."""
+        store.init()
+        repo_root = Path(__file__).resolve().parents[1]
+        target_url = "https://app.com/projects/alpha"
+        store.write(
+            url=target_url,
+            surface="xss",
+            body="Target route was tested for reflected XSS.\n",
+            tags=["xss-reflected", "negative"],
+            title="target reflected xss negative",
+            status="failed",
+        )
+        store.write(
+            url="https://app.com/projects/bravo",
+            surface="xss",
+            body="Unrelated route was tested for stored XSS.\n",
+            tags=["xss-stored", "negative"],
+            title="unrelated stored xss negative",
+            status="failed",
+        )
+        store.write(
+            surface="xss",
+            scope=SURFACE_SCOPE,
+            body="Surface-wide XSS guidance.\n",
+            tags=["xss"],
+            title="surface-wide xss guidance",
+        )
+        store.write(
+            surface="auth",
+            scope=APP_SCOPE,
+            body="Application-wide authentication guidance.\n",
+            tags=["auth"],
+            title="app-wide auth guidance",
+        )
+
+        proc = subprocess.run([
+            sys.executable,
+            "agents/map_store.py",
+            "query",
+            "--program",
+            "testprog",
+            "--root",
+            str(store._layout.base_root),
+            "--url",
+            target_url,
+            "--intent",
+            "dedupe",
+            "--json",
+        ], cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
+        payload = json.loads(proc.stdout)
+        assert payload["observation_count"] == 1
+        assert [obs["url"] for obs in payload["observations"]] == [target_url]
+        assert {obs["scope"] for obs in payload["observations"]} == {URL_SCOPE}
+
     def test_goal_tunnel_guard_triggers_on_consecutive_old_leads(self):
         decision = evaluate_tunnel_vision_guard(
             [

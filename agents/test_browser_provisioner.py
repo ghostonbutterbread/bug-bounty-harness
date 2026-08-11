@@ -46,8 +46,20 @@ def test_sweep_refuses_path_outside_managed_root(monkeypatch, tmp_path):
     add(m, tmp_path / "artifacts", "two", outside)
     monkeypatch.setattr(m, "unit_active", lambda _: False)
     removed, skipped = m.sweep_rows(m.db(), 14, True)
-    assert not removed and skipped[0]["reason"] == "outside-managed-root"
+    assert not removed and skipped[0]["reason"] == "not-managed-profile"
     assert outside.exists()
+
+
+def test_sweep_refuses_managed_root_and_profile_parents(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    root = tmp_path / "artifacts"
+    for lease_id, path in (("root", root), ("program", root / "demo"), ("parent", root / "demo/web/browser-profiles")):
+        add(m, root, lease_id, path)
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    removed, skipped = m.sweep_rows(m.db(), 14, True)
+    assert not removed
+    assert {row["browser_id"] for row in skipped} == {"root-browser", "program-browser", "parent-browser"}
+    assert all(row["reason"] == "not-managed-profile" for row in skipped)
 
 
 def test_sweep_refuses_active_recorded_unit(monkeypatch, tmp_path):

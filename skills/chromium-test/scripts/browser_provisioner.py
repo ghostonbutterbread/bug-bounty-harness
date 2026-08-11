@@ -96,15 +96,18 @@ def release(args):
  if q.get('status')!='released': emit(q,2)
  c.execute("update browsers set state='stopped',updated=? where lease_id=?",(now(),args.lease_id)); c.commit(); emit({'status':'released',**safe(c.execute('select * from browsers where lease_id=?',(args.lease_id,)).fetchone())})
 def managed_root(): return Path(os.environ.get('HARNESS_BOUNTY_ARTIFACT_ROOT','/mnt/bounty')).resolve()
-def contained(path):
- try: Path(path).resolve().relative_to(managed_root()); return True
+def managed_profile(path):
+ try:
+  relative=Path(path).resolve().relative_to(managed_root())
  except ValueError: return False
+ # Only manager-shaped <program>/web/browser-profiles/<account> directories qualify.
+ return len(relative.parts)==4 and relative.parts[1:3]==('web','browser-profiles') and all(part not in ('','.','..') for part in relative.parts)
 def sweep_rows(c, older_than_days, confirm):
  cutoff=now()-older_than_days*86400; removed=[]; skipped=[]
  # The table is the explicit manager-created profile manifest: never discover arbitrary paths.
  for r in c.execute("select * from browsers where state='stopped' and updated<?",(cutoff,)).fetchall():
   p=Path(r['profile_dir'])
-  if not contained(p): skipped.append({'browser_id':r['browser_id'],'reason':'outside-managed-root'}); continue
+  if not managed_profile(p): skipped.append({'browser_id':r['browser_id'],'reason':'not-managed-profile'}); continue
   if unit_active(r['unit']): skipped.append({'browser_id':r['browser_id'],'reason':'unit-active'}); continue
   if not p.exists(): skipped.append({'browser_id':r['browser_id'],'reason':'already-absent'}); continue
   if not confirm: removed.append({'browser_id':r['browser_id'],'profile_dir':str(p),'dry_run':True}); continue

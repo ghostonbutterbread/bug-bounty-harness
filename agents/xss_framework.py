@@ -36,11 +36,16 @@ from urllib.parse import (
 )
 from uuid import uuid4
 
+# Support both `python -m agents.xss_framework` and the documented direct script
+# invocation without falling back to top-level imports that break Attempts.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import httpx
 try:
-    from .scope_validator import ScopeValidator
-    from .rate_limiter import RateLimiter
-    from .attempts import (
+    from agents.scope_validator import ScopeValidator
+    from agents.rate_limiter import RateLimiter
+    from agents.attempts import (
         append_attempt,
         new_attempt_run_id,
         resolve_attempts_path,

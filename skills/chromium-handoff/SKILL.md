@@ -12,6 +12,22 @@ manually.
 This skill does not launch the browser. Use `chromium-test` first, then attach
 this handoff server to the existing CDP endpoint.
 
+## Handoff Selection Rule
+
+For login, password entry, MFA, OAuth popups, wallet approval, CAPTCHA, or any
+other interactive authentication/UI task, the browser must be launched with
+`chromium-test --display-backend kasmvnc` before handoff. Publish the dedicated
+KasmVNC graphical endpoint; do **not** substitute this screenshot/CDP handoff
+because an Xvfb or headless browser already exists. If such a browser was
+launched incorrectly, stop its recorded task owner and relaunch a fresh isolated
+KasmVNC run before requesting operator input.
+
+The screenshot/CDP handoff is for non-login visual inspection and narrow
+non-graphical recovery only. It may be used for an interactive authentication
+flow solely when relaunch would lose indispensable run-scoped state and Ryushe
+has explicitly approved that exception. Record that constraint and approval;
+never infer approval from convenience or a stale handoff route.
+
 ## Required Pairings
 
 1. Load `proxy-routing-policy` first when proxy lane selection matters.

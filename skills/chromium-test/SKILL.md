@@ -130,9 +130,21 @@ browser merely because a prior task's process is old.
 
 ### KasmVNC manual-display handoff
 
-For a user-approved headed handoff, opt in explicitly; the default display
-behavior remains unchanged. This creates a dedicated KasmVNC display and a
-loopback-only HTTP viewer while CDP remains on `127.0.0.1`:
+**Manual-authentication selection rule:** for a user-operated login, password
+entry, MFA, OAuth popup, wallet connection, CAPTCHA, or other interactive
+browser flow, launch or reuse an isolated browser with `--display-backend
+kasmvnc` **before** creating any handoff. KasmVNC is the required graphical
+handoff for these flows; a screenshot/CDP handoff is not an acceptable default
+because it is materially worse for focus, popups, password managers, and other
+interactive UI. Do not first launch Xvfb/headless and then retrofit a screenshot
+handoff just because the browser is already running.
+
+A screenshot/CDP handoff remains limited to a non-login visual inspection or an
+already-running non-graphical browser only when relaunch would lose indispensable
+run-scoped state and Ryushe explicitly approves that exception. Record the
+constraint and approval; otherwise stop the old run cleanly and relaunch with
+KasmVNC. This creates a dedicated KasmVNC display and a loopback-only HTTP
+viewer while CDP remains on `127.0.0.1`:
 
 ```bash
 python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" \

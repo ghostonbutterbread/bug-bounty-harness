@@ -96,16 +96,15 @@ Auth material handling contract:
 - Apply auth material only from an approved auth seed or explicit task context.
 - Apply the auth material directly to the browser session update mechanism without echoing the values.
 - Secret values are in-memory operational material, not evidence. Never copy them into logs, screenshots, reports, prompts, chat, or notes.
-- When an account needs authentication, first lease/provision that exact
-  account's browser profile and try its existing session or browser-native
-  recorded login. Do not silently pull an account session from Ryushe's proxy.
-- If that exact login cannot establish a session, use the account record's
-  explicitly approved refresh policy. For `ryushe-proxy`, query only the
-  selected account and only after the browser-native attempt. If the proxy is
-  unavailable or has no matching usable evidence, **run the KasmVNC
-  manual-login handoff rather than merely asking Ryushe to supply
-  credentials**: verify the exact account's profile lease, then launch/reuse
-  its isolated Hoster browser with
+- When an account needs authentication and has no usable auth seed, the launcher
+  automatically follows the selected account's approved refresh policy. For
+  `ryushe-proxy`, query only that selected account. Do not reset or replace an
+  existing seed merely because the browser launches.
+- If the proxy is unavailable or has no matching usable evidence, try the exact
+  account browser profile's existing session or browser-native recorded login.
+  If that cannot establish a session, **run the KasmVNC manual-login handoff
+  rather than merely asking Ryushe to supply credentials**: verify the exact
+  account's profile lease, then launch/reuse its isolated Hoster browser with
   `--display-backend auto`, which tries KasmVNC first before publishing the
   graphical KasmVNC endpoint through task-scoped Tailscale Serve. If KasmVNC is
   unavailable or its CDP

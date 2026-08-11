@@ -418,10 +418,7 @@ def auth_fallback_plan(
 
     steps: list[str] = []
     if refresh_source == "ryushe-proxy":
-        steps.append(
-            "lease and provision the exact account browser profile; try its existing session and browser-native recorded login first"
-        )
-        detail = "only if that exact browser login cannot establish a session, try ryushe-proxy as source lookup/auth refresh for this selected account"
+        detail = "try ryushe-proxy as source lookup/auth refresh for this selected account when the program record permits it"
         if refresh_hint:
             detail += f" using hint {refresh_hint}"
         steps.append(detail)
@@ -756,10 +753,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--auth-auto-refresh",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help=(
-            "Explicitly refresh a permitted missing auth seed through auth_resolver.py before launch. "
-            "The default is off so the exact browser profile gets its native login attempt first."
+            "Refresh a permitted missing auth seed through auth_resolver.py before launch (default). "
+            "Existing auth seeds are retained rather than reset; use --no-auth-auto-refresh to opt out."
         ),
     )
     parser.add_argument(

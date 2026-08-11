@@ -508,8 +508,7 @@ def test_missing_account_auth_seed_returns_fallback_plan(monkeypatch, tmp_path, 
     assert result["auth_seed"]["status"] == "unusable"
     assert result["auth_next_step"]["status"] == "needs-auth"
     assert result["auth_next_step"]["auth_refresh_source"] == "ryushe-proxy"
-    assert "browser-native recorded login first" in result["auth_next_step"]["steps"][0]
-    assert "try ryushe-proxy" in result["auth_next_step"]["steps"][1]
+    assert "try ryushe-proxy" in result["auth_next_step"]["steps"][0]
     assert any("Tailscale Serve" in step for step in result["auth_next_step"]["steps"])
     assert any("agent MITM lane" in step for step in result["auth_next_step"]["steps"])
 
@@ -623,7 +622,6 @@ def test_missing_account_auth_seed_auto_refreshes_with_resolver(monkeypatch, tmp
             "blue",
             "--url",
             "https://app.example.test/account",
-            "--auth-auto-refresh",
             "--dry-run",
             "--json",
         ],

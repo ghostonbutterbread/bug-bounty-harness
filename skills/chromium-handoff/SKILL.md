@@ -16,17 +16,20 @@ this handoff server to the existing CDP endpoint.
 
 For login, password entry, MFA, OAuth popups, wallet approval, CAPTCHA, or any
 other interactive authentication/UI task, the browser must be launched with
-`chromium-test --display-backend kasmvnc` before handoff. Publish the dedicated
-KasmVNC graphical endpoint; do **not** substitute this screenshot/CDP handoff
-because an Xvfb or headless browser already exists. If such a browser was
-launched incorrectly, stop its recorded task owner and relaunch a fresh isolated
-KasmVNC run before requesting operator input.
+`chromium-test --display-backend auto` before handoff. This tries the dedicated
+KasmVNC graphical endpoint first while preserving a receipt when KasmVNC cannot
+be used; do **not** substitute this screenshot/CDP handoff
+because an Xvfb or headless browser already exists. If KasmVNC is unavailable or
+its required CDP readiness check fails, a screenshot/CDP handoff is permitted as
+the operational fallback. The launch receipt must record `display_fallback` with
+the failure reason, and the browser must still use the task MITM listener with
+`proxy_cert_mode: import` and `proxy_cert_status.status: trusted` before any
+operator handoff.
 
-The screenshot/CDP handoff is for non-login visual inspection and narrow
-non-graphical recovery only. It may be used for an interactive authentication
-flow solely when relaunch would lose indispensable run-scoped state and Ryushe
-has explicitly approved that exception. Record that constraint and approval;
-never infer approval from convenience or a stale handoff route.
+The screenshot/CDP handoff is otherwise for non-login visual inspection and
+narrow non-graphical recovery only. Never infer a KasmVNC fallback from
+convenience or a stale handoff route; record the availability failure and retain
+the same certificate gate.
 
 ## Required Pairings
 
@@ -83,11 +86,13 @@ assume an ACL change is authorized.
    ```bash
    curl --fail --silent http://127.0.0.1:<cdp_port>/json/list
    ```
-2. Start the loopback-only handoff server through its task-owned supervisor with
-   `LISTEN_PORT=auto`. It atomically claims the first free port in `9501–9599`
-   and writes a `cdp_handoff_ready` JSON record containing the selected
-   `listen_port`; record that port in the task handoff metadata:
+2. For a screenshot/CDP handoff, first validate the launch receipt: it must
+   record a KasmVNC `display_fallback`, `proxy_cert_mode: import`, and
+   `proxy_cert_status.status: trusted`, and the live Chromium PID/profile/CDP
+   identity. Pass that receipt to the server; it refuses to listen when any gate
+   is absent, stale, or mismatched to `CDP_URL`:
    ```bash
+   BROWSER_LAUNCH_RECEIPT=<launch-receipt.json> \
    CDP_URL=http://127.0.0.1:<cdp_port> \
    LISTEN_HOST=127.0.0.1 \
    LISTEN_PORT=auto \

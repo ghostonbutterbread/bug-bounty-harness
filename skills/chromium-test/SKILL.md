@@ -132,19 +132,23 @@ browser merely because a prior task's process is old.
 
 **Manual-authentication selection rule:** for a user-operated login, password
 entry, MFA, OAuth popup, wallet connection, CAPTCHA, or other interactive
-browser flow, launch or reuse an isolated browser with `--display-backend
-kasmvnc` **before** creating any handoff. KasmVNC is the required graphical
-handoff for these flows; a screenshot/CDP handoff is not an acceptable default
+browser flow, launch or reuse an isolated browser with `--display-backend auto`
+**before** creating any handoff. `auto` attempts the required KasmVNC graphical
+handoff first and produces a receipt if it must fall back; use strict
+`--display-backend kasmvnc` only when a KasmVNC-only failure is intended. A
+screenshot/CDP handoff is not an acceptable default
 because it is materially worse for focus, popups, password managers, and other
 interactive UI. Do not first launch Xvfb/headless and then retrofit a screenshot
 handoff just because the browser is already running.
 
-A screenshot/CDP handoff remains limited to a non-login visual inspection or an
-already-running non-graphical browser only when relaunch would lose indispensable
-run-scoped state and Ryushe explicitly approves that exception. Record the
-constraint and approval; otherwise stop the old run cleanly and relaunch with
-KasmVNC. This creates a dedicated KasmVNC display and a loopback-only HTTP
-viewer while CDP remains on `127.0.0.1`:
+A screenshot/CDP handoff is otherwise limited to a non-login visual inspection.
+For an interactive authentication flow, it is allowed only when **KasmVNC is
+unavailable or its required CDP readiness check fails**. Retain the launch
+receipt's `display_fallback` failure reason and verify the same task MITM gate:
+`proxy_cert_mode: import` and `proxy_cert_status.status: trusted`. Do not use a
+stale non-graphical browser, a convenience preference, or prior approval as a
+substitute for that recorded KasmVNC failure. This creates a dedicated KasmVNC
+display and a loopback-only HTTP viewer while CDP remains on `127.0.0.1`:
 
 ```bash
 python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" \
@@ -165,8 +169,8 @@ Do not use blanket certificate-ignore mode as the normal path.
 
 Default behavior:
 
-- `--proxy-cert-mode auto`: import the mitmproxy CA into the profile when possible; fall back to `--ignore-certificate-errors` only when `certutil` or the CA file is missing.
-- `--proxy-cert-mode import`: require CA import and fail if it cannot be prepared.
+- `--proxy-cert-mode import` is the default: require the mitmproxy CA import and fail before launch if it cannot be prepared.
+- `--proxy-cert-mode auto`: explicit disposable debugging mode only; it may fall back to `--ignore-certificate-errors` when `certutil` or the CA file is missing.
 - `--proxy-cert-mode ignore`: explicit disposable debugging mode.
 - `--proxy-cert-mode none`: attach the proxy without CA setup or ignore flags.
 

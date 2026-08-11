@@ -766,7 +766,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--proxy-cert-mode",
         choices=("auto", "import", "ignore", "none"),
-        default=os.environ.get("CHROMIUM_TEST_PROXY_CERT_MODE", "auto"),
+        default=os.environ.get("CHROMIUM_TEST_PROXY_CERT_MODE", "import"),
         help=(
             "How to handle proxy TLS interception. auto/import trust a CA in the profile; "
             "ignore adds --ignore-certificate-errors; none does neither."
@@ -882,6 +882,8 @@ def main() -> int:
             os.environ.get("CHROMIUM_TEST_PROXY_SERVER")
             or runtime_route.get("browser_proxy")
         )
+    if args.proxy_cert_mode == "import" and not args.proxy_server:
+        raise SystemExit("--proxy-cert-mode import requires a task MITM proxy listener")
     mitm_ca_cert = resolve_mitm_ca_cert(args.mitm_ca_cert, args.proxy_server)
     if not args.dry_run:
         profile_dir.mkdir(parents=True, exist_ok=True)

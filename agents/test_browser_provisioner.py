@@ -2,6 +2,7 @@ import argparse
 import importlib.util
 import os
 import sqlite3
+import sys
 import time
 from pathlib import Path
 
@@ -74,6 +75,58 @@ def test_sweep_refuses_active_recorded_unit(monkeypatch, tmp_path):
 
 def start_args():
     return argparse.Namespace(program="demo", account="fixture", agent_id="agent", run_id="run", purpose="test", ttl_seconds=60, idle_seconds=60, min_ram_available_mib=1, min_swap_free_mib=0, memory_high="256M", memory_max="512M", proxy_cert_mode="none", url=None)
+
+
+def test_provisioner_start_defaults_to_required_proxy_ca_import(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    captured = {}
+    monkeypatch.setattr(m, "start", lambda args: captured.setdefault("proxy_cert_mode", args.proxy_cert_mode))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "browser_provisioner.py",
+            "start",
+            "demo",
+            "fixture",
+            "--agent-id",
+            "agent",
+            "--run-id",
+            "run",
+            "--purpose",
+            "test",
+        ],
+    )
+
+    m.main()
+
+    assert captured["proxy_cert_mode"] == "import"
+
+
+def test_provisioner_request_defaults_to_required_proxy_ca_import(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    captured = {}
+    monkeypatch.setattr(m, "request", lambda args: captured.setdefault("proxy_cert_mode", args.proxy_cert_mode))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "browser_provisioner.py",
+            "request",
+            "demo",
+            "fixture",
+            "--agent-id",
+            "agent",
+            "--run-id",
+            "run",
+            "--purpose",
+            "test",
+        ],
+    )
+
+    m.main()
+
+    assert captured["proxy_cert_mode"] == "import"
 
 
 def test_same_owner_running_browser_is_reused(monkeypatch, tmp_path):

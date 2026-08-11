@@ -101,14 +101,16 @@ Auth material handling contract:
   yields a usable session, **run the KasmVNC manual-login handoff rather than
   merely asking Ryushe to supply credentials**: verify the exact account's
   profile lease, then launch/reuse its isolated Hoster browser with
-  `--display-backend kasmvnc` before publishing the graphical KasmVNC endpoint
-  through task-scoped Tailscale Serve. Do not use the screenshot/CDP handoff for
-  login, MFA, OAuth, wallet, CAPTCHA, or other interactive authentication UI.
-  The only exception is an already-running non-graphical browser whose
-  indispensable state cannot safely be relaunched, and only after Ryushe
-  explicitly approves that exception. Give Ryushe the tailnet HTTPS URL and
-  scoped SSH-loopback fallback, mark the exact lease `awaiting-input`, and pause
-  automation. Never silently switch to another account/color, expose CDP, use
+  `--display-backend auto`, which tries KasmVNC first before publishing the
+  graphical KasmVNC endpoint through task-scoped Tailscale Serve. If KasmVNC is
+  unavailable or its CDP
+  readiness check fails, use the screenshot/CDP handoff only as the recorded
+  operational fallback: retain the launch receipt's `display_fallback` reason
+  and require `proxy_cert_mode: import` plus `proxy_cert_status.status: trusted`.
+  Do not use a screenshot/CDP handoff for login, MFA, OAuth, wallet, CAPTCHA, or
+  other interactive authentication UI merely for convenience. Give Ryushe the
+  tailnet HTTPS URL and scoped SSH-loopback fallback, mark the exact lease
+  `awaiting-input`, and pause automation. Never silently switch to another account/color, expose CDP, use
   Funnel, scrape credentials from local files, or treat proxy history as a
   password source. After Ryushe logs in, resume the same browser session and
   re-run the safe auth check; write reusable session material only through the

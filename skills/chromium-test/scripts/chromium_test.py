@@ -418,12 +418,17 @@ def auth_fallback_plan(
 
     steps: list[str] = []
     if refresh_source == "ryushe-proxy":
-        detail = "try ryushe-proxy only as source lookup/auth refresh for this selected account"
+        steps.append(
+            "lease and provision the exact account browser profile; try its existing session and browser-native recorded login first"
+        )
+        detail = "only if that exact browser login cannot establish a session, try ryushe-proxy as source lookup/auth refresh for this selected account"
         if refresh_hint:
             detail += f" using hint {refresh_hint}"
         steps.append(detail)
-        steps.append("if ryushe-proxy is unreachable or has no matching evidence, use bitwarden fallback")
-        steps.append("after refresh, retry active testing through the agent MITM lane")
+        steps.append(
+            "if ryushe-proxy is unreachable or has no matching usable evidence, publish the exact browser's loopback handoff through Tailscale Serve with the SSH-loopback fallback, mark awaiting-input, and pause"
+        )
+        steps.append("after a usable session is established, retry active testing through the agent MITM lane")
     elif refresh_source == "secret-store":
         steps.append("try the approved secret-store reference for this selected account")
         steps.append("if secret-store auth fails or is unavailable, use bitwarden fallback")
@@ -751,8 +756,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--auth-auto-refresh",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="When --account resolves a permitted missing auth seed, refresh it through auth_resolver.py before launch.",
+        default=False,
+        help=(
+            "Explicitly refresh a permitted missing auth seed through auth_resolver.py before launch. "
+            "The default is off so the exact browser profile gets its native login attempt first."
+        ),
     )
     parser.add_argument(
         "--ephemeral-profile",

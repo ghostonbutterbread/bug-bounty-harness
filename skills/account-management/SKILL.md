@@ -44,9 +44,11 @@ For named accounts or colors, resolve auth in this order:
    Tailscale/SSH manual-login handoff. `unknown` also fails closed into that
    handoff; only `proxy-replayable` permits the explicitly recorded approved
    refresh source, while `hybrid` retains the existing safe fallback.
-3. Try the current stored auth seed/session or secret-store reference in the
-   agent lane.
-4. Use the resolver script instead of hand-rolling host/proxy decisions:
+3. Try the exact account browser profile's existing session or browser-native
+   recorded login first. Do not silently copy a session from Ryushe's proxy.
+4. Try the current stored auth seed/session or secret-store reference in the
+   agent lane when the recorded session mode permits it.
+5. Use the resolver script instead of hand-rolling host/proxy decisions:
    ```bash
    python3 $HARNESS_ROOT/skills/account-management/scripts/auth_resolver.py resolve \
      --program {program} \
@@ -56,11 +58,14 @@ For named accounts or colors, resolve auth in this order:
    The resolver reads the proxy route table to decide whether this runtime can
    query Ryushe's proxy directly, must use one-shot Hoster SSH, or must fail
    closed.
-5. If stored auth fails and the account record explicitly allows it, use
-   Ryushe's proxy only as a source lookup or named-account auth-refresh source.
-6. If Ryushe's proxy cannot be reached, has no matching account evidence, or
-   cannot refresh the selected account, load `/bitwarden` and use the recorded
-   Bitwarden credential reference as fallback.
+6. If the exact browser login and permitted stored auth both fail, and the
+   account record explicitly allows it, use Ryushe's proxy only as a source
+   lookup or named-account auth-refresh source.
+7. If Ryushe's proxy cannot be reached, has no matching account evidence, or
+   cannot refresh the selected account, retain its exact browser lease as
+   `awaiting-input`, give Ryushe the private Tailscale Serve handoff plus its
+   SSH-loopback fallback, and pause automation. Do not substitute another
+   account.
 
 After a proxy-derived refresh, active testing must use the agent MITM lane unless the agent is executing locally on Abommie. Do not test through Ryushe's proxy just because the account evidence came from there.
 

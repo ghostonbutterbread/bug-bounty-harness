@@ -241,12 +241,18 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
      `credential_ref` or `auth_seed_ref` values such as
      `auth-seed:/absolute/path/to/seed.json`, but never cookie/token/header
      values.
-   - If Ryushe explicitly requested that account/color and the auth seed is
-     missing, stale, or fails, follow the account record's
-     `auth_refresh_source` and `auth_refresh_hint`. For
-     `auth_refresh_source=ryushe-proxy`, load `/ryushe-proxy`, refresh only
-     that selected account's seed, and never print or persist the raw values
-     anywhere except the locked-down seed file.
+   - When a selected account needs authentication, first lease/provision that
+     exact account's browser profile and try its existing session or
+     browser-native recorded login. Do not silently fetch a session from
+     Ryushe's proxy during launch.
+   - If that exact browser login cannot establish a usable session and the
+     account record permits `auth_refresh_source=ryushe-proxy`, an agent may
+     explicitly load `/ryushe-proxy` and refresh only that selected account's
+     seed. If the proxy is unavailable or has no matching usable evidence,
+     retain the exact lease as `awaiting-input`, publish only its loopback UI
+     through task-scoped Tailscale Serve with the SSH-loopback fallback, and
+     pause for Ryushe. Never print or persist raw values outside the locked-down
+     seed file.
 5. If Ryushe names an account/profile, for example "use blue to go look at X", use that scoped account context. If the needed account/profile is unclear, ask before borrowing or creating auth state.
 6. If the task needs live intercept/modify/forward behavior, read `intercepted-proxy` before launching the browser.
 7. Confirm the MITM proxy setup:
@@ -347,10 +353,13 @@ than reporting a false clean state.
   exist, but must never print cookie, bearer, CSRF, or token values.
 - Verify the launcher output or the local Chromium root-process command includes `--proxy-server=<browser-proxy>` and that `proxy_cert_status` is `trusted` when proxy TLS interception is expected. Do **not** infer a missing proxy from CDP `Browser.getBrowserCommandLine`: Chrome returns that command only when started with `--enable-automation`. If the launcher falls back to `--ignore-certificate-errors`, record that as debug/fallback behavior.
 - Live browser traffic should be observed from this browser's MITM proxy lane. Do not pull live browser requests from Ryushe's proxy unless Ryushe specifically asks for Ryushe-lane comparison or request lookup.
-- Named-account auth fallback is allowed when Ryushe asked for that account,
-  for example "blue credentials", and the account inventory explicitly permits
-  `auth_refresh_source=ryushe-proxy`. Use Ryushe's proxy only to refresh the
-  seed for that account, then test through the agent MITM lane.
+- Named-account auth fallback is allowed only after the exact browser profile's
+  existing session or browser-native login has failed, Ryushe asked for that
+  account (for example "blue credentials"), and the account inventory permits
+  `auth_refresh_source=ryushe-proxy`. Use Ryushe's proxy only to refresh that
+  account's seed. If no usable evidence can be pulled, hand Ryushe the private
+  Tailscale Serve login handoff plus SSH fallback; then test through the agent
+  MITM lane after authentication succeeds.
 - Direct HTTP replay is preferred after a live request is captured and should use `curl -x <mitm-proxy>` when request logging is desired.
 - For intercepted proxy testing, do not launch the browser until the resolved `--proxy-server=<browser-proxy>` value is known. Route to `intercepted-proxy` for the intercept on/off and temporary Tamper rule lifecycle.
 - Stay inside the program scope, account authorization, and rate limits.

@@ -488,23 +488,21 @@ Use this packet-owned scratch directory for temporary files:
 `{packet.scratch_dir}`
 
 Do not write scratch files under `/tmp`, `/var/tmp`, the project repo, the user
-home directory, or any path outside the packet output directory. This scratch
-restriction does not apply to the harness-provided canonical Attempts stream
-below.
+home directory, or any path outside the packet output directory.
 
 Required files:
 - `summary.md` with exact boundaries, useful leads, and no inflated claims.
 - `handoff.json` if this lane discovers follow-up work for another skill/model.
 
-Canonical Attempts context (injected by the harness):
+Attempt staging context (injected by the harness):
 - Run ID: `{packet.attempt_run_id}`
-- Stream: `{packet.attempts_path}`
-- Writer: `agents.attempts.append_attempt`
+- Write a JSONL staging file at `$BBH_ATTEMPTS_PATH` inside this packet directory.
+- The harness validates, redacts, and appends accepted rows through
+  `agents.attempts.append_attempt`; workers must never write a canonical stream.
 
-For every deliberate target-directed test, write the canonical stream—not a
-packet-local `attempts.jsonl` substitute. These artifacts are mandatory: if you
-stop early because of policy, auth, challenge, rate limit, or target-stress
-boundaries, write the canonical Attempt boundary record and `summary.md`.
+For every deliberate target-directed test, write a staging record and `summary.md`.
+If you stop early because of policy, auth, challenge, rate limit, or target-stress
+boundaries, write the corresponding Attempt boundary record.
 
 ## Attempt Recording Contract
 

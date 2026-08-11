@@ -67,7 +67,9 @@ def test_plan_classifies_urls_and_writes_worker_packets(tmp_path: Path) -> None:
     packet_prompt = (output / "worker_packets" / "W001-xss.md").read_text(encoding="utf-8")
     assert "0 means no arbitrary hard cap" in packet_prompt
     assert "challenge/fingerprint/browser-only cases only" in packet_prompt
-    assert "These artifacts are mandatory" in packet_prompt
+    assert "Attempt staging context" in packet_prompt
+    assert "$BBH_ATTEMPTS_PATH" in packet_prompt
+    assert "workers must never write a canonical stream" in packet_prompt
     assert "Auth/session logging rule" in packet_prompt
     assert "cookie/header names and counts" in packet_prompt
     assert "framework/JS/API clues" in packet_prompt
@@ -77,7 +79,6 @@ def test_plan_classifies_urls_and_writes_worker_packets(tmp_path: Path) -> None:
     assert "payload family, source, sink/context" in packet_prompt
     assert "Attempt Recording Contract" in packet_prompt
     assert "Attempts are **not** a general live-observation log" in packet_prompt
-    assert "agents.attempts.append_attempt" in packet_prompt
     assert "packet-owned scratch directory" in packet_prompt
     assert "Do not write scratch files under `/tmp`" in packet_prompt
 

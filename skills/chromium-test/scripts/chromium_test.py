@@ -34,6 +34,7 @@ DEFAULT_HOSTER_CA_CERT = Path(
     "~/.local/state/ghost/mitm-lanes/hoster-default-8080/mitmproxy/mitmproxy-ca-cert.pem"
 ).expanduser()
 AUTH_SEED_REF_PREFIXES = ("auth-seed:", "auth_seed:", "file:")
+AUTH_SESSION_MODES = ("browser-bound", "proxy-replayable", "hybrid", "unknown")
 AUTH_RESOLVER = Path(__file__).resolve().parents[2] / "account-management" / "scripts" / "auth_resolver.py"
 CHROME_BINARIES = (
     "chromium",
@@ -46,6 +47,11 @@ CHROME_BINARIES = (
 def sanitize_slug(value: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip()).strip(".-")
     return slug or "default"
+
+
+def requires_browser_handoff(session_mode: str) -> bool:
+    """Fail closed when a record has not classified session portability."""
+    return session_mode in {"browser-bound", "unknown"}
 
 
 def listening_ports() -> set[int]:
@@ -350,6 +356,7 @@ def safe_account_resolution(resolution: dict[str, Any], auth_seed_file: Path | N
         "role": account.get("role"),
         "auth_refresh_source": account.get("auth_refresh_source"),
         "auth_refresh_hint": account.get("auth_refresh_hint"),
+        "auth_session_mode": resolution.get("auth_session_mode", "hybrid"),
         "credential_ref_type": ref_type,
         "auth_seed_file": str(auth_seed_file) if auth_seed_file else None,
     }
@@ -364,6 +371,7 @@ def auth_fallback_plan(
     ref_type = account_resolution.get("credential_ref_type")
     refresh_source = account_resolution.get("auth_refresh_source")
     refresh_hint = account_resolution.get("auth_refresh_hint")
+    session_mode = account_resolution.get("auth_session_mode", "hybrid")
 
     if status == "explicit":
         if auth_seed_error:
@@ -379,6 +387,19 @@ def auth_fallback_plan(
             "status": "unresolved-account",
             "reason": status or "no-account-selector",
             "next": "load account-management and register or select an owned account alias/color",
+        }
+
+    if requires_browser_handoff(session_mode):
+        return {
+            "status": "needs-browser-handoff",
+            "account_alias": account_resolution.get("account_alias"),
+            "auth_session_mode": session_mode,
+            "reason": "this account session must remain in its owning browser",
+            "steps": [
+                "lease and provision the exact persistent browser profile",
+                "publish only its loopback handoff UI through Tailscale Serve and provide the SSH-loopback fallback",
+                "mark the lease awaiting-input, pause automation, then re-run the safe browser auth check after login",
+            ],
         }
 
     if auth_seed_file and not auth_seed_error:
@@ -478,10 +499,18 @@ def host_filter_from_url(url: str | None) -> str | None:
     return parsed.hostname
 
 
-def maybe_refresh_auth_seed(args: argparse.Namespace, account: dict[str, Any] | None, seed_path: Path | None) -> tuple[Path | None, dict[str, Any] | None]:
+def maybe_refresh_auth_seed(
+    args: argparse.Namespace, account: dict[str, Any] | None, seed_path: Path | None, session_mode: str
+) -> tuple[Path | None, dict[str, Any] | None]:
     if not getattr(args, "auth_auto_refresh", True):
         return seed_path, None
     selector = args.account or args.account_label
+    if requires_browser_handoff(session_mode):
+        return seed_path, {
+            "status": "not-permitted",
+            "reason": "browser-bound-session-must-not-be-copied-from-ryushe-proxy",
+            "auth_session_mode": session_mode,
+        }
     if not selector or not account or account.get("auth_refresh_source") != "ryushe-proxy":
         return seed_path, None
     if seed_path and seed_path.exists():
@@ -528,17 +557,31 @@ def maybe_refresh_auth_seed(args: argparse.Namespace, account: dict[str, Any] | 
 
 
 def resolve_auth_seed_file(args: argparse.Namespace) -> tuple[str | None, dict[str, Any]]:
+    selector = args.account or args.account_label
+    resolution = resolve_account_record(args.program, selector)
+    account = resolution.get("account") if resolution.get("status") == "resolved" else None
+    inventory = load_account_inventory(args.program)
+    session_mode = (account or {}).get("auth_session_mode", inventory.get("auth_session_mode", "hybrid"))
+    if session_mode not in AUTH_SESSION_MODES:
+        raise SystemExit(f"invalid auth_session_mode {session_mode!r}")
+    resolution["auth_session_mode"] = session_mode
+    if requires_browser_handoff(session_mode):
+        safe = safe_account_resolution(resolution, None)
+        safe["auth_auto_refresh"] = {
+            "status": "not-permitted",
+            "reason": "browser-bound-session-must-not-be-copied-from-ryushe-proxy",
+            "auth_session_mode": session_mode,
+        }
+        return None, safe
     if args.auth_seed_file:
         return args.auth_seed_file, {
             "status": "explicit",
             "auth_seed_file": str(Path(args.auth_seed_file).expanduser()),
+            "auth_session_mode": session_mode,
         }
-    selector = args.account or args.account_label
-    resolution = resolve_account_record(args.program, selector)
-    account = resolution.get("account") if resolution.get("status") == "resolved" else None
     seed_path = auth_seed_path_from_account(account)
     refresh_result = None
-    seed_path, refresh_result = maybe_refresh_auth_seed(args, account, seed_path)
+    seed_path, refresh_result = maybe_refresh_auth_seed(args, account, seed_path, session_mode)
     safe = safe_account_resolution(resolution, seed_path)
     if refresh_result:
         safe["auth_auto_refresh"] = refresh_result

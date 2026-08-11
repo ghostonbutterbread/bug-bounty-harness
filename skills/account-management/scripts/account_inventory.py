@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
+AUTH_SESSION_MODES = ("browser-bound", "proxy-replayable", "hybrid", "unknown")
 FORBIDDEN_HINTS = (
     "password",
     "passwd",
@@ -60,6 +61,7 @@ def blank_inventory(program: str) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
         "program": program,
+        "auth_session_mode": "hybrid",
         "created_at": now,
         "updated_at": now,
         "accounts": [],
@@ -86,9 +88,9 @@ def load_inventory(program: str) -> dict[str, Any]:
         replacement = data.get("replaced_by", "the current canonical registry")
         raise SystemExit(f"account inventory is retired: {path}; use {replacement}")
     version = data.get("schema_version", 1)
-    if version == 1:
-        # v1 lacked explicit lifecycle/lease fields. Preserve the records while
-        # making the v2 fail-closed defaults visible on the next save.
+    if version in (1, 2, 3):
+        # Older schemas lacked lifecycle/lease/session-transport policy fields.
+        # Preserve records while making safe defaults visible on the next save.
         for account in data.get("accounts", []):
             if not isinstance(account, dict):
                 continue
@@ -97,10 +99,14 @@ def load_inventory(program: str) -> dict[str, Any]:
             account.setdefault("lifecycle", "unknown")
             account.setdefault("browser_lease_enabled", False)
             account.setdefault("organization_access", [])
+        data.setdefault("auth_session_mode", "hybrid")
         data["schema_version"] = SCHEMA_VERSION
     elif version != SCHEMA_VERSION:
         raise SystemExit(f"unsupported account inventory schema version {version}: {path}")
     data.setdefault("program", program)
+    data.setdefault("auth_session_mode", "hybrid")
+    if data["auth_session_mode"] not in AUTH_SESSION_MODES:
+        raise SystemExit(f"invalid auth_session_mode {data['auth_session_mode']!r}")
     data.setdefault("accounts", [])
     data.setdefault("resources", [])
     data.setdefault("pwnfox_lanes", [])
@@ -238,6 +244,7 @@ def cmd_add_account(args: argparse.Namespace) -> int:
             "auth_seed_ref": args.auth_seed_ref,
             "auth_refresh_source": args.auth_refresh_source,
             "auth_refresh_hint": args.auth_refresh_hint,
+            "auth_session_mode": args.auth_session_mode,
             "auth_check_url": args.auth_check_url,
             "auth_host_filter": args.auth_host_filter,
             "pwnfox_color": args.pwnfox_color,
@@ -257,6 +264,14 @@ def cmd_add_account(args: argparse.Namespace) -> int:
         )
     path = save_inventory(args.program, data)
     print(f"{action} account {args.alias} in {path}")
+    return 0
+
+
+def cmd_set_auth_session_mode(args: argparse.Namespace) -> int:
+    data = load_inventory(args.program)
+    data["auth_session_mode"] = args.auth_session_mode
+    path = save_inventory(args.program, data)
+    print(f"set auth_session_mode={args.auth_session_mode} in {path}")
     return 0
 
 
@@ -347,6 +362,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Non-secret hint for locating the account in the approved refresh source, such as pwnfox:blue.",
     )
     account.add_argument(
+        "--auth-session-mode",
+        choices=AUTH_SESSION_MODES,
+        help="Account override for whether session material may leave its owning browser.",
+    )
+    account.add_argument(
         "--auth-check-url",
         help="Safe read-only URL used by auth_resolver.py to check whether this account is logged in.",
     )
@@ -359,6 +379,11 @@ def build_parser() -> argparse.ArgumentParser:
     account.add_argument("--source", default="manual")
     account.add_argument("--notes")
     account.set_defaults(func=cmd_add_account)
+
+    session_mode = sub.add_parser("set-auth-session-mode", help="Set the program default session transport policy.")
+    session_mode.add_argument("program")
+    session_mode.add_argument("auth_session_mode", choices=AUTH_SESSION_MODES)
+    session_mode.set_defaults(func=cmd_set_auth_session_mode)
 
     resource = sub.add_parser("add-resource", help="Add or update an owned resource/object record.")
     resource.add_argument("program")

@@ -121,10 +121,18 @@ Allowed record fields:
 
 - `auth_seed_ref`: non-secret pointer to the locked-down auth seed file.
 - `auth_refresh_source`: `ryushe-proxy`, `manual`, `secret-store`, or `none`.
+- `auth_session_mode`: `browser-bound`, `proxy-replayable`, `hybrid`, or `unknown`.
 - `auth_refresh_hint`: non-secret lookup hint such as `pwnfox:blue` or
   `account:blue-primary`.
 
-For `auth_refresh_source=ryushe-proxy`, load `/ryushe-proxy` and use Ryushe's
+For `auth_session_mode=browser-bound` or `unknown`, the session belongs only to the exact
+persistent browser profile. Do not inject an auth seed, inspect proxy traffic,
+or copy cookie/token material. Provision that profile, publish the loopback-only
+manual-login handoff through Tailscale Serve with SSH fallback, retain the lease
+as `awaiting-input`, and pause.
+
+For `auth_session_mode=proxy-replayable` or `hybrid` with
+`auth_refresh_source=ryushe-proxy`, load `/ryushe-proxy` and use Ryushe's
 proxy only as a credential refresh source for the already-selected account. The
 agent may extract the current cookies/headers needed for that account and write
 them into the locked-down auth seed file, but must not print, summarize, or

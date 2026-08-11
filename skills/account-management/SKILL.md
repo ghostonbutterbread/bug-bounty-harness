@@ -36,11 +36,17 @@ For named accounts or colors, resolve auth in this order:
 
 1. Read the account inventory for the selected alias/color and use the current
    non-secret references: `auth_seed_ref`, `credential_ref`,
-   `auth_refresh_source`, `auth_refresh_hint`, `auth_check_url`, and
-   `auth_host_filter`.
-2. Try the current stored auth seed/session or secret-store reference in the
+   `auth_refresh_source`, `auth_refresh_hint`, `auth_session_mode`,
+   `auth_check_url`, and `auth_host_filter`.
+2. Honor `auth_session_mode` before inspecting or refreshing session material:
+   `browser-bound` means do not copy a seed, cookie, bearer, or proxy-derived
+   session. Lease the exact persistent browser profile and start the private
+   Tailscale/SSH manual-login handoff. `unknown` also fails closed into that
+   handoff; only `proxy-replayable` permits the explicitly recorded approved
+   refresh source, while `hybrid` retains the existing safe fallback.
+3. Try the current stored auth seed/session or secret-store reference in the
    agent lane.
-3. Use the resolver script instead of hand-rolling host/proxy decisions:
+4. Use the resolver script instead of hand-rolling host/proxy decisions:
    ```bash
    python3 $HARNESS_ROOT/skills/account-management/scripts/auth_resolver.py resolve \
      --program {program} \
@@ -50,9 +56,9 @@ For named accounts or colors, resolve auth in this order:
    The resolver reads the proxy route table to decide whether this runtime can
    query Ryushe's proxy directly, must use one-shot Hoster SSH, or must fail
    closed.
-4. If stored auth fails and the account record explicitly allows it, use
+5. If stored auth fails and the account record explicitly allows it, use
    Ryushe's proxy only as a source lookup or named-account auth-refresh source.
-5. If Ryushe's proxy cannot be reached, has no matching account evidence, or
+6. If Ryushe's proxy cannot be reached, has no matching account evidence, or
    cannot refresh the selected account, load `/bitwarden` and use the recorded
    Bitwarden credential reference as fallback.
 

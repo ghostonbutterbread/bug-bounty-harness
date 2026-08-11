@@ -148,6 +148,66 @@ def test_resolve_blue_missing_seed_returns_proxy_refresh_plan(tmp_path, monkeypa
     assert "secret" not in json.dumps(result).lower()
 
 
+def test_browser_bound_program_never_queries_ryushe_proxy(tmp_path, monkeypatch, capsys):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    route_table = tmp_path / "proxy_routes.json"
+    write_route_table(route_table)
+    write_inventory(
+        shared,
+        "demo",
+        {
+            "auth_session_mode": "browser-bound",
+            "accounts": [
+                {
+                    "alias": "blue-primary",
+                    "pwnfox_color": "blue",
+                    "auth_refresh_source": "ryushe-proxy",
+                }
+            ],
+        },
+    )
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    def must_not_query(*_args, **_kwargs):
+        raise AssertionError("browser-bound session attempted Ryushe-proxy lookup")
+
+    monkeypatch.setattr(module, "query_proxy_seed", must_not_query)
+    assert module.main(
+        ["resolve", "--program", "demo", "--account", "blue", "--refresh", "--route-table", str(route_table)]
+    ) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "needs-browser-handoff"
+    assert result["auth_session_mode"] == "browser-bound"
+    assert result["proxy_refresh"]["status"] == "not-permitted"
+    assert result["auth_check"]["status"] == "not-run"
+
+
+def test_unknown_session_mode_fails_closed_to_browser_handoff(tmp_path, monkeypatch, capsys):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    route_table = tmp_path / "proxy_routes.json"
+    write_route_table(route_table)
+    write_inventory(
+        shared,
+        "demo",
+        {
+            "auth_session_mode": "unknown",
+            "accounts": [{"alias": "blue-primary", "pwnfox_color": "blue", "auth_refresh_source": "ryushe-proxy"}],
+        },
+    )
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    assert module.main(
+        ["resolve", "--program", "demo", "--account", "blue", "--refresh", "--route-table", str(route_table)]
+    ) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "needs-browser-handoff"
+    assert result["auth_session_mode"] == "unknown"
+    assert result["proxy_refresh"]["status"] == "not-permitted"
+
+
 def test_resolve_bitwarden_ref_returns_bitwarden_plan(tmp_path, monkeypatch, capsys):
     module = load_resolver_module()
     shared = tmp_path / "shared"

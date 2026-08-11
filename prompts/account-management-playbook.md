@@ -44,6 +44,7 @@ spellings unless live traffic proves a second header exists.
 - `auth_seed_ref`: locked-down local auth seed pointer such as `auth-seed:/path/to/account.json`
 - `auth_refresh_source`: approved fallback source such as `ryushe-proxy`, `manual`, or `secret-store`
 - `auth_refresh_hint`: non-secret lookup hint such as `pwnfox:blue`
+- `auth_session_mode`: program default or account override: `browser-bound`, `proxy-replayable`, `hybrid`, or `unknown`
 - `auth_check_url`: safe read-only account URL for auth validation, such as an account/profile page
 - `auth_host_filter`: non-secret host substring to keep Ryushe-proxy lookup scoped, such as `canva.com`
 - `pwnfox_color`: observed lane if mapped
@@ -79,13 +80,16 @@ spellings unless live traffic proves a second header exists.
    same-host localhost on Ryushe PC, or blocked.
 4. For named account auth, the resolver tries the current stored
    `auth_seed_ref`, `credential_ref`, or approved secret-store reference first.
-5. If stored auth fails and the account record allows `auth_refresh_source`,
+5. Read `auth_session_mode` before using any stored seed or proxy refresh. For
+   `browser-bound` or `unknown`, do not copy session material or query Ryushe's
+   proxy; start the exact-profile private browser handoff immediately.
+6. If stored auth fails and the account record allows `auth_refresh_source`,
    use that source only for the selected account. For `ryushe-proxy`, pull
    request shape or refresh the selected auth seed only; active testing still
    happens through the agent MITM lane.
-6. If Ryushe's proxy is unreachable or has no matching usable evidence, load
+7. If Ryushe's proxy is unreachable or has no matching usable evidence, load
    `/bitwarden` and use the recorded Bitwarden reference as fallback.
-7. If the selected owned account still has no usable session, do not change
+8. If the selected owned account still has no usable session, do not change
    identity or return only a generic blocker. Verify the exact browser-profile
    lease, launch/reuse a task-owned isolated Hoster browser, and route Ryushe to
    its loopback-only manual handoff through `/chromium-handoff` + Tailscale
@@ -93,11 +97,11 @@ spellings unless live traffic proves a second header exists.
    lease as `awaiting-input`, pause automation, then re-run the safe auth check
    after login. Do not expose CDP, use Funnel, or copy credentials into a child
    prompt.
-8. If an account exists but lacks a user ID or PwnFox color, record the missing field once observed.
-9. When creating a document/design/upload/order/workspace, immediately add a resource record.
-10. For cross-account tests, compare only records with clear ownership and destructible status.
-11. If a child agent creates or observes a new ID, it must return a registry update command or JSON patch in its handoff.
-12. After cleanup, update the resource with `cleanup_needed no` and a note.
+9. If an account exists but lacks a user ID or PwnFox color, record the missing field once observed.
+10. When creating a document/design/upload/order/workspace, immediately add a resource record.
+11. For cross-account tests, compare only records with clear ownership and destructible status.
+12. If a child agent creates or observes a new ID, it must return a registry update command or JSON patch in its handoff.
+13. After cleanup, update the resource with `cleanup_needed no` and a note.
 
 ## Agent Handoff Packet
 

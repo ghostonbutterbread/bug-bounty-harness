@@ -460,6 +460,60 @@ def test_missing_account_auth_seed_returns_fallback_plan(monkeypatch, tmp_path, 
     assert any("agent MITM lane" in step for step in result["auth_next_step"]["steps"])
 
 
+def test_browser_bound_program_skips_seed_injection_and_requests_handoff(monkeypatch, tmp_path, capsys):
+    module = load_launcher_module()
+    shared = tmp_path / "shared"
+    seed = tmp_path / "secure-auth" / "blue.json"
+    seed.parent.mkdir()
+    seed.write_text(json.dumps({"account_label": "blue-primary", "cookies": [{"name": "sid", "value": "secret"}]}))
+    os.chmod(seed, 0o600)
+    inventory = shared / "demo" / "credentials" / "account_inventory.json"
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text(
+        json.dumps(
+            {
+                "auth_session_mode": "browser-bound",
+                "accounts": [
+                    {
+                        "alias": "blue-primary",
+                        "pwnfox_color": "blue",
+                        "auth_seed_ref": f"auth-seed:{seed}",
+                        "auth_refresh_source": "ryushe-proxy",
+                    }
+                ],
+            }
+        )
+    )
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    monkeypatch.setattr(module, "pick_port", lambda requested=None: 9444)
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/usr/bin/chromium")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "chromium_test.py",
+            "demo",
+            "manual login",
+            "--account",
+            "blue",
+            "--auth-seed-file",
+            str(seed),
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert module.main() == 0
+
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    assert result["account_resolution"]["auth_session_mode"] == "browser-bound"
+    assert result["auth_seed"]["status"] == "none"
+    assert result["auth_next_step"]["status"] == "needs-browser-handoff"
+    assert result["auth_application"]["status"] == "none"
+    assert "secret" not in output
+
+
 def test_missing_account_auth_seed_auto_refreshes_with_resolver(monkeypatch, tmp_path, capsys):
     module = load_launcher_module()
     shared = tmp_path / "shared"

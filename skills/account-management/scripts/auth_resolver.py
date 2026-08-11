@@ -26,6 +26,7 @@ DEFAULT_ROUTE_TABLE = Path(
 )
 DEFAULT_HOSTER_SSH_KEY = Path("/home/ryushe/.ssh/hoster")
 AUTH_SEED_REF_PREFIXES = ("auth-seed:", "auth_seed:", "file:")
+AUTH_SESSION_MODES = ("browser-bound", "proxy-replayable", "hybrid", "unknown")
 COOKIE_SPLIT_RE = re.compile(r";\s*")
 AUTH_HEADER_ALLOWLIST = {
     "authorization",
@@ -66,6 +67,7 @@ SAFE_ACCOUNT_FIELDS = (
     "auth_seed_ref",
     "auth_refresh_source",
     "auth_refresh_hint",
+    "auth_session_mode",
     "auth_check_url",
     "auth_host_filter",
 )
@@ -98,6 +100,23 @@ def load_inventory(program: str) -> dict[str, Any]:
         replacement = inventory.get("replaced_by", "the current canonical registry")
         raise SystemExit(f"account inventory is retired: {path}; use {replacement}")
     return inventory
+
+
+def auth_session_mode(inventory: dict[str, Any], account: dict[str, Any] | None) -> str:
+    """Return the account override or program default without guessing transport.
+
+    ``auth_refresh_source`` says where auth evidence can be found. This separate
+    policy says whether that material may leave its owning browser.
+    """
+    mode = (account or {}).get("auth_session_mode", inventory.get("auth_session_mode", "hybrid"))
+    if mode not in AUTH_SESSION_MODES:
+        raise SystemExit(f"invalid auth_session_mode {mode!r}; expected one of {', '.join(AUTH_SESSION_MODES)}")
+    return mode
+
+
+def requires_browser_handoff(session_mode: str) -> bool:
+    """Fail closed when session portability is unclassified."""
+    return session_mode in {"browser-bound", "unknown"}
 
 
 def current_runtime(explicit: str | None = None) -> str:
@@ -746,6 +765,16 @@ def refresh_from_ryushe_proxy(args: argparse.Namespace) -> dict[str, Any]:
             },
             "runtime_route": route,
         }
+    session_mode = auth_session_mode(inventory, account)
+    if requires_browser_handoff(session_mode):
+        return {
+            "status": "not-permitted",
+            "reason": "browser-bound-session-must-not-be-copied-from-ryushe-proxy",
+            "auth_session_mode": session_mode,
+            "account": safe_account_record(account),
+            "runtime_route": route,
+            "safe_next": "provision the exact owned browser profile and use the private manual-login handoff",
+        }
     if account.get("auth_refresh_source") != "ryushe-proxy":
         return {
             "status": "not-permitted",
@@ -784,11 +813,19 @@ def refresh_from_ryushe_proxy(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def proxy_refresh_plan(account: dict[str, Any] | None, route: dict[str, Any], auth_check: dict[str, Any]) -> dict[str, Any]:
+def proxy_refresh_plan(
+    account: dict[str, Any] | None, route: dict[str, Any], auth_check: dict[str, Any], session_mode: str
+) -> dict[str, Any]:
     if not account:
         return {"status": "not-applicable", "reason": "no-resolved-account"}
     if auth_check.get("status") == "passed":
         return {"status": "not-needed", "reason": "auth-check-passed"}
+    if requires_browser_handoff(session_mode):
+        return {
+            "status": "not-permitted",
+            "reason": "browser-bound-session-must-not-be-copied-from-ryushe-proxy",
+            "auth_session_mode": session_mode,
+        }
     if account.get("auth_refresh_source") != "ryushe-proxy":
         return {
             "status": "not-permitted",
@@ -849,11 +886,36 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
     resolution = resolve_account(inventory, args.account, args.program)
     account = resolution.get("account") if resolution.get("status") == "resolved" else None
     route = resolve_runtime_route(args)
+    session_mode = auth_session_mode(inventory, account)
+    if account and requires_browser_handoff(session_mode):
+        return {
+            "status": "needs-browser-handoff",
+            "program": args.program,
+            "account_selector": args.account,
+            "account_resolution": {
+                key: resolution.get(key)
+                for key in ("status", "selector", "matched_by", "inventory_path")
+                if resolution.get(key) is not None
+            },
+            "account": safe_account_record(account),
+            "auth_session_mode": session_mode,
+            "auth_source": "browser-owned-profile",
+            "auth_seed": {"status": "not-inspected", "reason": "browser-bound-session"},
+            "auth_check": {"status": "not-run", "reason": "browser-bound-session"},
+            "runtime_route": route,
+            "proxy_refresh": {
+                "status": "not-permitted",
+                "reason": "browser-bound-session-must-not-be-copied-from-ryushe-proxy",
+                "auth_session_mode": session_mode,
+            },
+            "bitwarden": {"status": "not-applicable", "reason": "browser-bound-session"},
+            "safe_next": safe_next("needs-browser-handoff"),
+        }
     seed_path = auth_seed_path(account)
     seed = inspect_auth_seed(seed_path)
     target_url = args.target_url or (account or {}).get("auth_check_url")
     auth_check = run_auth_check(target_url, args.method, args.timeout, seed_path)
-    proxy_plan = proxy_refresh_plan(account, route, auth_check)
+    proxy_plan = proxy_refresh_plan(account, route, auth_check, session_mode)
     if seed.get("status") == "available" and auth_check.get("reason") == "no-target-url":
         proxy_plan = {"status": "not-needed", "reason": "stored-auth-seed-available"}
     refreshed = False
@@ -906,6 +968,7 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
             if resolution.get(key) is not None
         },
         "account": safe_account_record(account or {}),
+        "auth_session_mode": session_mode,
         "auth_source": auth_source,
         "auth_seed": seed,
         "auth_check": auth_check,
@@ -926,6 +989,8 @@ def safe_next(status: str) -> str:
         return "load Bitwarden in resolver context and create or refresh a locked-down auth seed; do not pass plaintext credentials to agents"
     if status == "unresolved-account":
         return "load account-management and register or select an owned account alias/color"
+    if status == "needs-browser-handoff":
+        return "lease and provision the exact owned Chromium profile, publish only its loopback handoff UI with Tailscale Serve plus SSH fallback, mark awaiting-input, and pause"
     return "ask Ryushe for manual auth refresh or a safe auth-check URL"
 
 

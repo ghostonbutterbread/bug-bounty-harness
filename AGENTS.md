@@ -42,10 +42,14 @@ boundary, not optional documentation.
 
 Use `main` as the reviewed stable lane, `beta` as the sole integration/testing
 lane, and a dedicated local worktree plus named `feat/`, `fix/`, or `docs/`
-branch for every coherent change. A task agent owns its assigned feature branch
-only; it must not fold unrelated work or another project into that branch.
+branch for every coherent change. Every coding handoff must state the task,
+worktree path, feature-branch name, base beta commit, and intended merge target.
+Agents implement in their dedicated feature worktree—not directl...[truncated]
 
-Before branching or merging, fetch `origin/beta`. Merge a reviewed feature into
+Before branching or merging, fetch `origin/beta`. If beta does not yet exist,
+create it once from the reviewed stable branch and publish it as the shared
+integration lane; do not create unrelated agent-specific integration branches.
+Every feature worktree begins from the current beta tip. Merge a reviewed feature into
 a clean, current local beta worktree; run its checks; then push beta only from
 that beta integration worktree with `git push origin beta`. Feature branches may
 push only their own ref for backup/review. Never push `HEAD:beta`, force-push

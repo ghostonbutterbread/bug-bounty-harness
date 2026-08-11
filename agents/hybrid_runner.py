@@ -751,6 +751,8 @@ def ingest_staged_attempts(staged_path: Path, canonical_path: Path) -> None:
     Workers never receive a writable canonical evidence path; their staging file
     may be redacted or discarded without mutating historical evidence.
     """
+    if not staged_path.exists():
+        return
     if not staged_path.is_file() or not _is_valid_jsonl(staged_path):
         raise ValueError("invalid-staged-attempts")
     for line in staged_path.read_text(encoding="utf-8").splitlines():

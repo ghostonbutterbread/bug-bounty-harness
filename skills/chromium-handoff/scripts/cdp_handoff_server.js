@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 const http = require('http');
+const fs = require('fs');
 const { URL } = require('url');
 
 const CDP_URL = process.env.CDP_URL || 'http://127.0.0.1:9224';
@@ -8,6 +9,67 @@ const LISTEN_PORT = process.env.LISTEN_PORT || 'auto';
 const HANDOFF_PORT_MIN = Number(process.env.HANDOFF_PORT_MIN || '9501');
 const HANDOFF_PORT_MAX = Number(process.env.HANDOFF_PORT_MAX || '9599');
 const PLAYWRIGHT_MODULE = process.env.PLAYWRIGHT_MODULE || 'playwright';
+const BROWSER_LAUNCH_RECEIPT = process.env.BROWSER_LAUNCH_RECEIPT;
+
+function validateLiveBrowser(receipt) {
+  if (!Number.isInteger(receipt.pid) || receipt.pid <= 1) {
+    throw new Error('BROWSER_LAUNCH_RECEIPT must record a live browser pid');
+  }
+  if (typeof receipt.profile_dir !== 'string' || !receipt.profile_dir.startsWith('/')) {
+    throw new Error('BROWSER_LAUNCH_RECEIPT must record an absolute profile_dir');
+  }
+
+  const cdp = new URL(CDP_URL);
+  if (cdp.protocol !== 'http:' || cdp.hostname !== '127.0.0.1' || !/^\d+$/.test(cdp.port)) {
+    throw new Error('CDP_URL must be a loopback HTTP endpoint with an explicit port');
+  }
+
+  let proc;
+  try {
+    const procStat = fs.statSync(`/proc/${receipt.pid}`);
+    if (procStat.uid !== process.getuid()) {
+      throw new Error('browser pid is not owned by the handoff user');
+    }
+    proc = fs.readFileSync(`/proc/${receipt.pid}/cmdline`, 'utf8').split('\0');
+  } catch (error) {
+    throw new Error(`could not verify live browser pid: ${error.message}`);
+  }
+
+  if (!proc.includes(`--remote-debugging-port=${cdp.port}`) ||
+      !proc.includes('--remote-debugging-address=127.0.0.1') ||
+      !proc.includes(`--user-data-dir=${receipt.profile_dir}`)) {
+    throw new Error('live browser pid does not match the receipt CDP endpoint and profile');
+  }
+}
+
+function validateLaunchReceipt() {
+  if (!BROWSER_LAUNCH_RECEIPT) {
+    throw new Error('BROWSER_LAUNCH_RECEIPT is required for a CDP screenshot handoff');
+  }
+
+  let receipt;
+  try {
+    receipt = JSON.parse(fs.readFileSync(BROWSER_LAUNCH_RECEIPT, 'utf8'));
+  } catch (error) {
+    throw new Error(`could not read BROWSER_LAUNCH_RECEIPT: ${error.message}`);
+  }
+
+  const fallback = receipt.display_fallback;
+  if (!fallback || fallback.from !== 'kasmvnc' || typeof fallback.reason !== 'string' || !fallback.reason.trim()) {
+    throw new Error('BROWSER_LAUNCH_RECEIPT must record a KasmVNC display_fallback reason');
+  }
+  if (receipt.proxy_cert_mode !== 'import') {
+    throw new Error('BROWSER_LAUNCH_RECEIPT must record proxy_cert_mode: import');
+  }
+  if (!receipt.proxy_cert_status || receipt.proxy_cert_status.status !== 'trusted') {
+    throw new Error('BROWSER_LAUNCH_RECEIPT must record proxy_cert_status.status: trusted');
+  }
+  if (receipt.cdp_url !== CDP_URL) {
+    throw new Error('BROWSER_LAUNCH_RECEIPT cdp_url does not match CDP_URL');
+  }
+  validateLiveBrowser(receipt);
+  return receipt;
+}
 
 let chromium;
 try {
@@ -167,6 +229,7 @@ function listen(port) {
 }
 
 async function startServer() {
+  validateLaunchReceipt();
   if (LISTEN_PORT === 'auto') {
     if (!Number.isInteger(HANDOFF_PORT_MIN) || !Number.isInteger(HANDOFF_PORT_MAX) ||
         HANDOFF_PORT_MIN < 1024 || HANDOFF_PORT_MAX > 65535 || HANDOFF_PORT_MIN > HANDOFF_PORT_MAX) {

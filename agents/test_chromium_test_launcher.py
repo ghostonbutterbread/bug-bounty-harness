@@ -18,6 +18,19 @@ def load_launcher_module():
     return module
 
 
+def test_manual_handoff_policy_requires_recorded_kasm_failure_and_trusted_ca():
+    root = Path(__file__).resolve().parents[1]
+    policy = (root / "skills" / "chromium-test" / "SKILL.md").read_text()
+    normalized = " ".join(policy.split())
+
+    assert "`--display-backend auto`" in policy
+    assert "KasmVNC is unavailable or its required CDP readiness check fails" in normalized
+    assert "`display_fallback`" in policy
+    assert "`proxy_cert_mode: import`" in policy
+    assert "`proxy_cert_status.status: trusted`" in policy
+    assert "Ryushe explicitly approves that exception" not in policy
+
+
 def test_build_command_includes_remote_allow_origins(monkeypatch):
     module = load_launcher_module()
     monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/usr/bin/chromium")
@@ -135,6 +148,46 @@ def test_auto_cert_mode_falls_back_to_explicit_ignore_when_import_unavailable(
     result = json.loads(capsys.readouterr().out)
     assert result["proxy_cert_status"]["status"] == "missing-certutil"
     assert "--ignore-certificate-errors" in launched["command"]
+
+
+def test_import_mode_rejects_browser_launch_without_a_proxy_listener(monkeypatch, tmp_path):
+    module = load_launcher_module()
+    monkeypatch.delenv("CHROMIUM_TEST_PROXY_SERVER", raising=False)
+    monkeypatch.delenv("CHROMIUM_TEST_PROXY_CERT_MODE", raising=False)
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(tmp_path / "shared"))
+    monkeypatch.setattr(module, "pick_port", lambda requested=None: 9444)
+    monkeypatch.setattr(module, "current_runtime", lambda: "unrouted")
+    monkeypatch.setattr(module, "load_runtime_route", lambda _runtime: {})
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["chromium_test.py", "demo", "smoke", "--dry-run", "--json"],
+    )
+
+    try:
+        module.main()
+    except SystemExit as exc:
+        assert "requires a task MITM proxy listener" in str(exc)
+    else:
+        raise AssertionError("Expected import mode to reject a browser launch without a proxy")
+
+
+def test_launcher_defaults_to_required_proxy_ca_import(monkeypatch, tmp_path, capsys):
+    module = load_launcher_module()
+    monkeypatch.delenv("CHROMIUM_TEST_PROXY_CERT_MODE", raising=False)
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(tmp_path / "shared"))
+    monkeypatch.setattr(module, "pick_port", lambda requested=None: 9444)
+    monkeypatch.setattr(module, "current_runtime", lambda: "ghostonbread")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["chromium_test.py", "demo", "smoke", "--dry-run", "--json"],
+    )
+
+    assert module.main() == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["proxy_cert_mode"] == "import"
 
 
 def test_import_cert_mode_fails_closed_when_import_unavailable(monkeypatch, tmp_path):

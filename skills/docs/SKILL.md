@@ -40,25 +40,41 @@ Do not read a program's docs directory broadly at startup.
 6. Treat retrieved docs as a scoped working model, not proof. Validate material
    claims against current target evidence.
 
-## Write Rule
+## Write Rule: Application Behavior
 
-Always record the concise, reusable target fact in MapStore. Add or update
-program documentation when the fact needs an explanation future agents would
-otherwise have to reconstruct: an SDK/provider integration, object or role
-model, callback flow, architecture, or a multi-route behavior model.
+Use Program Docs for the compact model a future agent would otherwise need to
+reconstruct about **this application's behavior**: how it uses an SDK/provider/
+protocol, object or role model, callback, workflow, trust boundary, or
+multi-route architecture. It may be a source-backed, `partially-verified` model
+before a concrete target fact exists. State what is observed, source-derived,
+and unknown; do not turn vendor documentation or an analogy into a target fact.
+
+Route related knowledge deliberately:
+
+- concrete observed target behavior, tested state, or constraint → MapStore;
+- reusable, source-cited technology mechanism with a recognition signal and
+  discriminator → ResearchMap;
+- a selected, target-grounded test idea → Hypothesis Ledger;
+- exact executed test history → Attempts.
+
+When both a concise target fact and a longer application-behavior model exist,
+link them: write the formatted doc with `program_docs.py`, then add its printed
+`MapStore pointer: docs/<topic>.md` to the concise MapStore observation. Do not
+manufacture a MapStore fact solely to justify useful program documentation.
 
 Do not create a program doc for one response, raw tool output, copied vendor
-documentation, or unlabelled speculation.
+documentation, or unlabelled speculation. A source-backed provider/SDK workflow
+is useful only when it explains the active program, names recognition signals or
+open questions, and would save future reconstruction.
 
-For direct MapStore writers:
-
-1. Write the structured docs entry with `program_docs.py`.
-2. Write the concise MapStore observation and include the printed `MapStore
-   pointer: docs/<topic>.md` in its body.
+When a Program Doc identifies a technology signal, an agent may query
+ResearchMap for a matching portable mechanism. Treat the combined result as a
+lead to validate against current target evidence—not proof or an automatic
+hypothesis.
 
 For candidate-only/offline workers, propose the doc topic, body, sources, and
-MapStore link in the candidate packet; the synthesis/promoter stage creates the
-final linked MapStore and docs entries.
+any known MapStore link in the candidate packet; the synthesis/promoter stage
+creates the final durable entry.
 
 ## Commands
 

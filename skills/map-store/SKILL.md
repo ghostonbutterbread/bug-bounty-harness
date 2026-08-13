@@ -22,8 +22,10 @@ tested state, or vulnerability lead.
   status -> `/url-ingest`.
 - Concrete findings, reports, proof packets -> `manual_hunter.py` / `/findings`.
 - Storage destination for artifacts -> `/bounty-storage`.
-- Program-specific SDK, provider, object-model, callback-flow, or architecture
-  explanation -> `/docs` plus a concise MapStore pointer.
+- Program-specific application-behavior model—how this app uses an SDK,
+  provider, protocol, object/role model, callback, workflow, or architecture
+  -> `/docs`. Link a concise MapStore pointer when a concrete target fact exists;
+  do not manufacture one solely to save source-backed program research.
 - Replay-grade request templates, permission gates, and retest matrices ->
   `docs/mapstore-request-contracts.md` plus a MapStore pointer.
 - Exact payload/probe history -> the resolved lane's canonical Attempts stream:

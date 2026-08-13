@@ -54,33 +54,33 @@ Check that the browser proxy listener is reachable from the runtime:
 curl -sS --max-time 5 -x "$BROWSER_PROXY" https://example.com/ >/tmp/proxy-check.html
 ```
 
-If proxy TLS interception is expected, browser launches must include:
-
-```text
---proxy-server=$BROWSER_PROXY
---ignore-certificate-errors
-```
+If proxy TLS interception is expected, supply the task proxy and its CA to the
+browser provisioner. `--proxy-cert-mode import` is the normal path; certificate
+ignore is an explicit disposable debugging fallback only.
 
 ## Browser Launch
 
-Preferred harness launcher:
+Request the browser through the required harness provisioner. It preserves
+profile ownership and queues rather than bypassing node resource admission:
 
 ```bash
 cd "$HARNESS_ROOT"
-python3 skills/chromium-test/scripts/chromium_test.py <program> "<task>" \
-  --url "<target-url>" \
-  --json
+python3 skills/chromium-test/scripts/browser_provisioner.py request \
+  <program> <account> --agent-id "$AGENT_ID" --run-id "$RUN_ID" \
+  --purpose "<task>" --url "<target-url>" \
+  --proxy-server "$BROWSER_PROXY" --proxy-cert-mode import \
+  --mitm-ca-cert "<task-mitm-ca-cert>"
 ```
 
-The launcher prefers Playwright's bundled Chromium when available and falls back to system Chromium/Chrome. It resolves the runtime browser proxy by default. Verify the returned JSON includes the expected proxy listener. If using Playwright directly, pass the equivalent proxy option and keep the same certificate-error handling:
-
-```python
-browser = chromium.launch(
-    headless=False,
-    proxy={"server": browser_proxy},
-    args=["--ignore-certificate-errors"],
-)
-```
+On `queued` or `queued-timeout`, preserve the exact account/task, perform only
+non-browser preparation, and retry with bounded backoff. Never call
+`chromium_test.py` directly to bypass this admission step. The underlying
+launcher prefers Playwright's bundled Chromium when available and otherwise
+falls back to system Chromium/Chrome. Verify the provisioned browser's
+owner-recorded route uses the expected listener. If using Playwright directly
+for an explicitly approved implementation/recovery path, pass the equivalent
+proxy and trusted CA configuration; do not treat `--ignore-certificate-errors`
+as ordinary interception setup.
 
 ## Intercept Modes
 

@@ -74,7 +74,31 @@ def test_sweep_refuses_active_recorded_unit(monkeypatch, tmp_path):
 
 
 def start_args():
-    return argparse.Namespace(program="demo", account="fixture", agent_id="agent", run_id="run", purpose="test", ttl_seconds=60, idle_seconds=60, min_ram_available_mib=1, min_swap_free_mib=0, memory_high="256M", memory_max="512M", proxy_cert_mode="none", url=None)
+    return argparse.Namespace(program="demo", account="fixture", agent_id="agent", run_id="run", purpose="test", ttl_seconds=60, idle_seconds=60, min_ram_available_mib=1, min_swap_free_mib=0, memory_high="256M", memory_max="512M", proxy_cert_mode="none", proxy_server=None, mitm_ca_cert=None, url=None)
+
+
+def test_request_forwards_task_proxy_settings_to_start(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    captured = {}
+    def fake_run(command, **_):
+        captured["command"] = command
+        return argparse.Namespace(stdout='{"status":"started"}', returncode=0)
+    monkeypatch.setattr(m.subprocess, "run", fake_run)
+    monkeypatch.setattr(m, "now", lambda: 0)
+    args = argparse.Namespace(
+        program="demo", account="fixture", agent_id="agent", run_id="run", purpose="intercept",
+        ttl_seconds=60, idle_seconds=60, wait_seconds=0, min_ram_available_mib=1,
+        min_swap_free_mib=0, memory_high="256M", memory_max="512M", proxy_cert_mode="import",
+        proxy_server="http://127.0.0.1:8081", mitm_ca_cert="/tmp/mitm-ca.pem", url="https://example.test/",
+    )
+    try:
+        m.request(args)
+    except SystemExit as e:
+        assert e.code == 0
+    assert captured["command"][-6:] == [
+        "--proxy-server", "http://127.0.0.1:8081", "--mitm-ca-cert", "/tmp/mitm-ca.pem",
+        "--url", "https://example.test/",
+    ]
 
 
 def test_provisioner_start_defaults_to_required_proxy_ca_import(monkeypatch, tmp_path):

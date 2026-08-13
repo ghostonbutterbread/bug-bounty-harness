@@ -20,13 +20,20 @@
   python3 "$KASM" stop --display 20 --json
   ```
 
-  The Chromium launcher owns the normal start path:
+  The browser provisioner owns the normal agent start path. It performs
+  node-local admission and exact-profile leasing before it invokes the Chromium
+  launcher:
 
   ```bash
-  python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" \
-    <program> "manual handoff" --display-backend kasmvnc \
-    --kasmvnc-display 20 --kasmvnc-web-port 8463 --json
+  python3 "$HARNESS_ROOT/skills/chromium-test/scripts/browser_provisioner.py" request \
+    <program> <account> --agent-id <agent-id> --run-id <run-id> \
+    --purpose "manual handoff" --url https://target.example/
   ```
+
+  `chromium_test.py` is an implementation launcher. Do not use it directly to
+  bypass a `queued` provisioner result. KasmVNC/display-specific direct launch
+  is an explicit recovery exception only when the provisioner cannot express
+  the necessary handoff settings; record that exception with the task receipt.
 
   Its JSON result includes the loopback `kasmvnc.web_url` and an exact scoped
   `kasmvnc.stop_command`. The default display backend is unchanged; KasmVNC is
@@ -62,15 +69,11 @@
   # access, capabilities, lock state, and probes a registered local CDP endpoint.
   python3 "$LEASE" status <program> --account green
 
-  # Acquire exactly the requested account; it never falls back to another color.
-  python3 "$LEASE" acquire <program> green \
-    --agent-id <agent-id> --run-id <run-id> --purpose "owned IDOR comparison"
-
-  # Start or reuse Chromium through chromium_test.py with the resolved alias from
-  # acquire output (`launch.account`), not necessarily the requested color.
-  # Use the persistent default profile; do not pass --ephemeral-profile.
-  python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" \
-    <program> "owned IDOR comparison" --account <launch.account> --run-id <run-id> --json
+  # Request exactly the selected account; the provisioner leases it and never
+  # falls back to another color. It starts/reuses only the matching owned run.
+  python3 "$HARNESS_ROOT/skills/chromium-test/scripts/browser_provisioner.py" request \
+    <program> green --agent-id <agent-id> --run-id <run-id> \
+    --purpose "owned IDOR comparison"
 
   # Once the recorded browser is ready on the profile host, bind its loopback CDP.
   python3 "$LEASE" register-browser \

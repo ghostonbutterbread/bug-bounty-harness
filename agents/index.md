@@ -18,9 +18,12 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    adaptive, class-appropriate live discovery sequence to establish or reject
    it; signal controls escalation severity, not permission to test.
 5. Use `$HARNESS_SHARED_BASE` and the canonical storage tools: `/map-store` for
-   durable target facts, `/hypothesis-ledger` for private candidate branches,
-   `/bounty-notes` for human coordination, and Attempts for exact
-   target-directed payload/probe history. Read
+   durable target facts, `/docs` for compact program-specific application-behavior
+   models, `/hypothesis-ledger` for private candidate branches, `/bounty-notes`
+   for human coordination, and Attempts for exact target-directed payload/probe
+   history. Program docs explain how this application uses a technology or flow;
+   ResearchMap supplies portable mechanisms only when their recognition signals
+   match that model or a current observation. Read
    `docs/attempt-recording-contract.md` before writing Attempts: they are not a
    general live-observation log.
 6. For shared evidence, storage, projections, or secret-reference work, read

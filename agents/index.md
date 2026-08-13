@@ -3,7 +3,10 @@
 Use this as the compact runtime entry point for a Bug Bounty Harness agent.
 
 1. Before any live action, load `general-security-testing-policy`, then
-   `live-testing-policy`; load only the minimum ordered overlay(s) required for
+   `live-testing-policy`. Also load `resource-safety-policy` for every agent
+   task: it governs local artifact search and processing, including when a
+   broad corpus is legitimate but must be scanned with bounded, streaming
+   methods. Load only the minimum ordered live-testing overlay(s) required for
    the next decision.
 2. Authority order is published program rules and scope → AI Policies → BBH
    runtime mechanics. BBH does not override scope, account, rate, or impact

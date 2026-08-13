@@ -19,6 +19,25 @@ browser context instead of treating raw HTTP as app-layer coverage.
 
 The launcher prefers Playwright's bundled Chromium when Playwright is installed, then falls back to system Chromium/Chrome.
 
+## Required Browser Admission
+
+For ordinary agent browser work, request the browser through
+`browser_provisioner.py`; do not invoke `chromium_test.py` directly. The
+provisioner is the node-local admission and ownership boundary: it leases the
+exact account/profile, checks available RAM and swap, queues rather than starts
+a browser when the node lacks headroom, records the browser owner, and enforces
+the five-active-tab policy. It is deliberately an admission check rather than
+a fixed RAM allocation for every agent.
+
+`chromium_test.py` remains the provisioner's implementation launcher and may be
+used directly only by the provisioner itself, focused launcher tests, or an
+explicitly approved recovery procedure. The few direct commands below are
+implementation-level handoff, MITM smoke, and cleanup examples; they must not
+be copied into an ordinary agent task packet. For an interactive KasmVNC flow,
+first request the browser through the provisioner; use a direct display launch
+only when that request path cannot express the required handoff and record the
+reason in the task receipt.
+
 ## Hoster GPU-Backed Headed Escalation
 
 When a genuine bot challenge or browser-fingerprint block prevents normal scoped
@@ -37,11 +56,11 @@ controls.
    interactive SSH shell. Completion: the launcher reports `runtime: hoster`,
    a Hoster-local profile/CDP endpoint, and a ControlGroup outside
    `ssh.service`.
-3. Launch via the canonical launcher *on Hoster*, with a unique run ID,
+3. Request via the canonical provisioner *on Hoster*, with a unique run ID,
    ephemeral profile, and Hoster-local proxy (`http://localhost:<leased-port>`).
    Do not launch raw Chrome, reuse an existing Chrome process/profile, or invoke
-   `chromium_test.py` directly from an SSH cgroup: the launcher rejects that
-   unsafe ownership path.
+   `chromium_test.py` directly from an SSH cgroup: bypassing admission and
+   ownership is unsafe.
 4. Before treating the run as GPU-backed, verify its recorded browser PID owns
    `/dev/dri/renderD128` and that `eglinfo -B` reports `NV134`, rather than
    `llvmpipe`. `nvidia-smi` is not the verification path here: this host uses
@@ -95,20 +114,22 @@ ssh -i /home/ryushe/.ssh/hoster -o BatchMode=yes -o ConnectTimeout=10 \
 
 ### From Ghost or another machine
 
-Use `hoster-ssh` to place the whole launcher in a named Hoster user-systemd
-service. Pass `--supervise` so the launcher remains the service's foreground
-owner for Chromium's full lifetime; Chromium therefore remains owned by that
-service rather than `ssh.service`.
+Use `hoster-ssh` to place the provisioner request in a named Hoster
+user-systemd service. The provisioner starts the browser under its own recorded
+user-systemd unit; a `queued` result is normal admission control, not a reason
+to bypass it with a direct launcher invocation.
 
 ```bash
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
-unit="hoster-chromium-$run_id"
+unit="hoster-browser-request-$run_id"
 HELPER=/home/ryushe/.openclaw/workspace/skills/hoster-ssh/scripts/hoster_user_unit.py
-python3 "$HELPER" --unit="$unit" --memory-high=2G --memory-max=3G -- \
-  /bin/bash -lc "cd /home/ryushe/projects/bug_bounty_harness-stable && exec python3 skills/chromium-test/scripts/chromium_test.py <program> <task> --run-id '$run_id' --ephemeral-profile --supervise --json"
+python3 "$HELPER" --unit="$unit" -- \
+  /bin/bash -lc "cd /home/ryushe/projects/bug_bounty_harness-stable && exec python3 skills/chromium-test/scripts/browser_provisioner.py request <program> <account> --agent-id <agent-id> --run-id '$run_id' --purpose '<task>' --url '<url>'"
 ```
 
-Read the launcher JSON (browser PID and CDP endpoint) from the recorded unit:
+Read the provisioner result from the recorded request unit. It returns safe
+lease/browser metadata only; use the owner-recorded local control path rather
+than printing or sharing CDP endpoints:
 
 ```bash
 ssh -i /home/ryushe/.ssh/hoster -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=no -T \
@@ -123,9 +144,9 @@ browser merely because a prior task's process is old.
 ### Local Hoster invocation
 
 ```text
-/chromium-test <program> <task> [--url <url>] [--port <port>] [--remote-allow-origins <value>]
-/chromium-test superdrug pfp
-/chromium-test canva upload-flow --account-label qa-primary --url https://www.canva.com/
+python3 "$HARNESS_ROOT/skills/chromium-test/scripts/browser_provisioner.py" request \
+  <program> <account> --agent-id <agent-id> --run-id <run-id> \
+  --purpose "<task>" --url <url>
 ```
 
 ### KasmVNC manual-display handoff
@@ -289,12 +310,20 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
    while work awaits input: renew it with `--work-state awaiting-input`; only a
    terminal completion, handoff, or cancellation may call `release`, which must
    declare a non-secret `--profile-health` for the next agent.
-1. Start an isolated browser with the launcher:
+1. Request an isolated browser through the provisioner:
    ```bash
-   python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" <program> "<task>"
+   python3 "$HARNESS_ROOT/skills/chromium-test/scripts/browser_provisioner.py" request \
+     <program> <account> --agent-id <agent-id> --run-id <run-id> \
+     --purpose "<task>" --url <url>
    ```
-   The launcher resolves the runtime route and adds `--proxy-server=<mitm-proxy>` by default.
-2. Use the returned CDP URL to connect browser automation or manual debugging.
+   On `queued`/`queued-timeout`, preserve the exact task and account, perform
+   only non-browser preparation, and retry with bounded backoff. Never launch
+   `chromium_test.py` directly to evade admission. On `started` or
+   `already-running`, use the browser's owner-recorded control path. The
+   underlying launcher resolves the runtime route and adds
+   `--proxy-server=<mitm-proxy>` by default.
+2. Use the owner-recorded browser control path to connect browser automation or
+   manual debugging; do not disclose or borrow another agent's CDP endpoint.
 3. For challenge/fingerprint/browser-only escalation, revisit the blocked URL in
    this browser profile before running more probes. Confirm whether the app
    layer, JS, route params, and proxy-observed requests are now visible.

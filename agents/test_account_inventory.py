@@ -57,3 +57,28 @@ def test_v4_inventory_migrates_with_empty_link_and_integration_lists(tmp_path, m
     assert inventory["schema_version"] == 5
     assert inventory["accounts"][0]["linked_logins"] == []
     assert inventory["accounts"][0]["integrations"] == []
+
+
+def test_account_and_ledger_upserts_preserve_existing_linked_records(tmp_path, monkeypatch):
+    module = load_inventory_module()
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(tmp_path / "shared"))
+
+    assert module.main(["add-account", "demo", "--alias", "primary", "--role", "member"]) == 0
+    assert module.main(
+        ["link-login", "demo", "--account", "primary", "--provider", "google", "--identity", "owned@example.test"]
+    ) == 0
+    assert module.main(
+        ["add-integration", "demo", "--account", "primary", "--provider", "github", "--integration-id", "install-7", "--capability", "repo:read"]
+    ) == 0
+
+    assert module.main(["add-account", "demo", "--alias", "primary", "--role", "owner"]) == 0
+    assert module.main(
+        ["add-integration", "demo", "--account", "primary", "--provider", "github", "--integration-id", "install-7", "--status", "disconnected"]
+    ) == 0
+
+    inventory = module.load_inventory("demo")
+    account = inventory["accounts"][0]
+    assert account["role"] == "owner"
+    assert account["linked_logins"][0]["identity"] == "owned@example.test"
+    assert account["integrations"][0]["status"] == "disconnected"
+    assert account["integrations"][0]["capabilities"] == ["repo:read"]

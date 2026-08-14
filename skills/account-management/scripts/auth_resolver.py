@@ -234,6 +234,13 @@ def resolve_account(inventory: dict[str, Any], selector: str | None, program: st
         if isinstance(account, dict) and account.get("alias")
     }
     if normalized in {"integration-profile", "integration_profile"}:
+        reserved_aliases = {"integration-profile", "integration_profile"}
+        if any(str(account.get("alias", "")).lower() in reserved_aliases for account in accounts if isinstance(account, dict)):
+            return {
+                "status": "integration-profile-unavailable",
+                "selector": selector,
+                "inventory_path": str(inventory_path(program)),
+            }
         profile = inventory.get("integration_profile")
         if not isinstance(profile, dict) or profile.get("status") != "active":
             return {
@@ -241,9 +248,14 @@ def resolve_account(inventory: dict[str, Any], selector: str | None, program: st
                 "selector": selector,
                 "inventory_path": str(inventory_path(program)),
             }
-        alias = str(profile.get("account", "")).lower()
-        if alias in by_alias and by_alias[alias].get("lifecycle") == "active":
-            return resolved_account(selector, "integration_profile", by_alias[alias], program)
+        designated_alias = str(profile.get("account", ""))
+        matching_accounts = [
+            account
+            for account in accounts
+            if isinstance(account, dict) and str(account.get("alias", "")).lower() == designated_alias.lower()
+        ]
+        if len(matching_accounts) == 1 and matching_accounts[0].get("alias") == designated_alias and matching_accounts[0].get("lifecycle") == "active":
+            return resolved_account(selector, "integration_profile", matching_accounts[0], program)
         return {
             "status": "integration-profile-unavailable",
             "selector": selector,

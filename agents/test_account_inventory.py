@@ -123,3 +123,11 @@ def test_integration_profile_requires_an_active_non_reserved_owned_account(tmp_p
         assert "reserved" in str(exc)
     else:
         raise AssertionError("reserved integration-profile alias was accepted")
+
+    assert module.main(["add-account", "demo", "--alias", "social-hub", "--lifecycle", "active"]) == 0
+    try:
+        module.main(["add-account", "demo", "--alias", "SOCIAL-HUB", "--lifecycle", "active"])
+    except SystemExit as exc:
+        assert "unique without regard to case" in str(exc)
+    else:
+        raise AssertionError("case-insensitive duplicate alias was accepted")

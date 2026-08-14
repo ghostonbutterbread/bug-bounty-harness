@@ -122,11 +122,16 @@ def load_inventory(program: str) -> dict[str, Any]:
     for key, value in PWNFOX_CONFIG.items():
         data["proxy_identity"]["pwnfox"].setdefault(key, value)
     data.setdefault("notes", [])
+    normalized_aliases: set[str] = set()
     for account in data["accounts"]:
         if not isinstance(account, dict):
             raise SystemExit("account inventory accounts must contain JSON objects")
-        if str(account.get("alias", "")).lower() in {"integration-profile", "integration_profile"}:
+        normalized_alias = str(account.get("alias", "")).lower()
+        if normalized_alias in {"integration-profile", "integration_profile"}:
             raise SystemExit("account alias integration-profile is reserved for the designated integration profile")
+        if normalized_alias in normalized_aliases:
+            raise SystemExit("account aliases must be unique without regard to case")
+        normalized_aliases.add(normalized_alias)
         account.setdefault("linked_logins", [])
         account.setdefault("integrations", [])
     profile = data["integration_profile"]
@@ -281,6 +286,12 @@ def cmd_add_account(args: argparse.Namespace) -> int:
     )
     reject_secretish(values)
     data = load_inventory(args.program)
+    normalized_alias = args.alias.lower()
+    if any(
+        str(account.get("alias", "")).lower() == normalized_alias and account.get("alias") != args.alias
+        for account in data["accounts"]
+    ):
+        raise SystemExit("account aliases must be unique without regard to case")
     action = upsert(data["accounts"], values, ("alias",))
     account_by_alias(data, args.alias).setdefault("linked_logins", [])
     account_by_alias(data, args.alias).setdefault("integrations", [])

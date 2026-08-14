@@ -182,11 +182,39 @@ def test_integration_profile_selector_fails_closed_for_alias_collision_or_inacti
         "demo",
         {
             "integration_profile": {"account": "social-hub", "status": "active"},
+            "accounts": [
+                {"alias": "social-hub", "lifecycle": "active"},
+                {"alias": "integration-profile", "lifecycle": "active"},
+            ],
+        },
+    )
+    configured_collision = module.resolve_account(module.load_inventory("demo"), "integration-profile", "demo")
+    assert configured_collision["status"] == "integration-profile-unavailable"
+
+    write_inventory(
+        shared,
+        "demo",
+        {
+            "integration_profile": {"account": "social-hub", "status": "active"},
             "accounts": [{"alias": "social-hub", "lifecycle": "inactive"}],
         },
     )
     inactive = module.resolve_account(module.load_inventory("demo"), "integration-profile", "demo")
     assert inactive["status"] == "integration-profile-unavailable"
+
+    write_inventory(
+        shared,
+        "demo",
+        {
+            "integration_profile": {"account": "social-hub", "status": "active"},
+            "accounts": [
+                {"alias": "social-hub", "lifecycle": "active"},
+                {"alias": "SOCIAL-HUB", "lifecycle": "active"},
+            ],
+        },
+    )
+    ambiguous = module.resolve_account(module.load_inventory("demo"), "integration-profile", "demo")
+    assert ambiguous["status"] == "integration-profile-unavailable"
 
 
 def test_browser_bound_program_never_queries_ryushe_proxy(tmp_path, monkeypatch, capsys):

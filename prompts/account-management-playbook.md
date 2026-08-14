@@ -48,6 +48,15 @@ spellings unless live traffic proves a second header exists.
 - `auth_check_url`: safe read-only account URL for auth validation, such as an account/profile page
 - `auth_host_filter`: non-secret host substring to keep Ryushe-proxy lookup scoped, such as `canva.com`
 - `pwnfox_color`: observed lane if mapped
+- `linked_logins`: linked non-secret sign-in identities. Each record has provider,
+  approved provider identity/handle, link status, and evidence source. Record
+  Google SSO and linked social identities here; never store OAuth authorization
+  codes, access/refresh tokens, cookies, or provider credentials.
+- `integrations`: connected non-secret integration records. Each record has
+  provider, installation/workspace/connection identifier, approved external
+  account handle or ID when known, connection status, non-secret capability
+  labels, and evidence source. This is the ledger for which owned account has
+  which connected services.
 - `destructible`: `yes`, `no`, or `unknown`
 - `source`: where the value came from
 
@@ -98,10 +107,32 @@ spellings unless live traffic proves a second header exists.
    after login. Do not expose CDP, use Funnel, or copy credentials into a child
    prompt.
 9. If an account exists but lacks a user ID or PwnFox color, record the missing field once observed.
-10. When creating a document/design/upload/order/workspace, immediately add a resource record.
-11. For cross-account tests, compare only records with clear ownership and destructible status.
-12. If a child agent creates or observes a new ID, it must return a registry update command or JSON patch in its handoff.
-13. After cleanup, update the resource with `cleanup_needed no` and a note.
+10. When an owned account links, unlinks, or changes a login method (Google SSO,
+    social login, etc.), immediately run `link-login` so the account ledger
+    stays current.
+11. When an integration is connected, disconnected, reauthorized, or its
+    visible capability changes, immediately run `add-integration` with the
+    observed non-secret status/capability data.
+12. When creating a document/design/upload/order/workspace, immediately add a resource record.
+13. For cross-account tests, compare only records with clear ownership and destructible status.
+14. If a child agent creates or observes a new ID, login link, or integration,
+    it must return the corresponding registry update command or JSON patch in
+    its handoff.
+15. After cleanup, update the resource with `cleanup_needed no` and a note.
+
+## Linked Login and Integration Commands
+
+```bash
+python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py link-login <program> \
+  --account primary --provider google --identity ryushe+primary@example.com --source browser
+
+python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-integration <program> \
+  --account primary --provider github --integration-id installation-123 \
+  --external-account ghost-test-org --capability repo:read --source browser
+```
+
+These commands are upserts. Use `--status unlinked` or `--status disconnected`
+to retain a useful non-secret history record when a relationship is removed.
 
 ## Agent Handoff Packet
 

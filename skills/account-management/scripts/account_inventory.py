@@ -13,8 +13,10 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 AUTH_SESSION_MODES = ("browser-bound", "proxy-replayable", "hybrid", "unknown")
+LINK_STATUSES = ("linked", "unlinked", "unknown")
+INTEGRATION_STATUSES = ("connected", "disconnected", "unknown")
 FORBIDDEN_HINTS = (
     "password",
     "passwd",
@@ -88,7 +90,7 @@ def load_inventory(program: str) -> dict[str, Any]:
         replacement = data.get("replaced_by", "the current canonical registry")
         raise SystemExit(f"account inventory is retired: {path}; use {replacement}")
     version = data.get("schema_version", 1)
-    if version in (1, 2, 3):
+    if version in (1, 2, 3, 4):
         # Older schemas lacked lifecycle/lease/session-transport policy fields.
         # Preserve records while making safe defaults visible on the next save.
         for account in data.get("accounts", []):
@@ -99,6 +101,8 @@ def load_inventory(program: str) -> dict[str, Any]:
             account.setdefault("lifecycle", "unknown")
             account.setdefault("browser_lease_enabled", False)
             account.setdefault("organization_access", [])
+            account.setdefault("linked_logins", [])
+            account.setdefault("integrations", [])
         data.setdefault("auth_session_mode", "hybrid")
         data["schema_version"] = SCHEMA_VERSION
     elif version != SCHEMA_VERSION:
@@ -115,6 +119,11 @@ def load_inventory(program: str) -> dict[str, Any]:
     for key, value in PWNFOX_CONFIG.items():
         data["proxy_identity"]["pwnfox"].setdefault(key, value)
     data.setdefault("notes", [])
+    for account in data["accounts"]:
+        if not isinstance(account, dict):
+            raise SystemExit("account inventory accounts must contain JSON objects")
+        account.setdefault("linked_logins", [])
+        account.setdefault("integrations", [])
     return data
 
 
@@ -256,6 +265,8 @@ def cmd_add_account(args: argparse.Namespace) -> int:
     reject_secretish(values)
     data = load_inventory(args.program)
     action = upsert(data["accounts"], values, ("alias",))
+    account_by_alias(data, args.alias).setdefault("linked_logins", [])
+    account_by_alias(data, args.alias).setdefault("integrations", [])
     if args.pwnfox_color:
         upsert(
             data["pwnfox_lanes"],
@@ -272,6 +283,55 @@ def cmd_set_auth_session_mode(args: argparse.Namespace) -> int:
     data["auth_session_mode"] = args.auth_session_mode
     path = save_inventory(args.program, data)
     print(f"set auth_session_mode={args.auth_session_mode} in {path}")
+    return 0
+
+
+def account_by_alias(data: dict[str, Any], alias: str) -> dict[str, Any]:
+    for account in data["accounts"]:
+        if account.get("alias") == alias:
+            return account
+    raise SystemExit(f"unknown account alias {alias!r}; add the owned account first")
+
+
+def cmd_link_login(args: argparse.Namespace) -> int:
+    """Record one non-secret sign-in identity linked to an owned account."""
+    values = compact_record(
+        {
+            "provider": args.provider,
+            "identity": args.identity,
+            "status": args.status,
+            "source": args.source,
+            "notes": args.notes,
+        }
+    )
+    reject_secretish(values)
+    data = load_inventory(args.program)
+    account = account_by_alias(data, args.account)
+    action = upsert(account["linked_logins"], values, ("provider", "identity"))
+    save_inventory(args.program, data)
+    print(f"{action} linked login {args.provider}:{args.identity} for account {args.account}")
+    return 0
+
+
+def cmd_add_integration(args: argparse.Namespace) -> int:
+    """Record one non-secret connected integration for an owned account."""
+    values = compact_record(
+        {
+            "provider": args.provider,
+            "integration_id": args.integration_id,
+            "external_account": args.external_account,
+            "status": args.status,
+            "capabilities": args.capability or None,
+            "source": args.source,
+            "notes": args.notes,
+        }
+    )
+    reject_secretish(values)
+    data = load_inventory(args.program)
+    account = account_by_alias(data, args.account)
+    action = upsert(account["integrations"], values, ("provider", "integration_id"))
+    save_inventory(args.program, data)
+    print(f"{action} integration {args.provider}:{args.integration_id} for account {args.account}")
     return 0
 
 
@@ -384,6 +444,28 @@ def build_parser() -> argparse.ArgumentParser:
     session_mode.add_argument("program")
     session_mode.add_argument("auth_session_mode", choices=AUTH_SESSION_MODES)
     session_mode.set_defaults(func=cmd_set_auth_session_mode)
+
+    linked_login = sub.add_parser("link-login", help="Add or update a non-secret login identity linked to an owned account.")
+    linked_login.add_argument("program")
+    linked_login.add_argument("--account", required=True, help="Owned account alias in this inventory.")
+    linked_login.add_argument("--provider", required=True, help="Login provider, e.g. google, github, or discord.")
+    linked_login.add_argument("--identity", required=True, help="Non-secret provider handle, email, or opaque identifier approved for handoff.")
+    linked_login.add_argument("--status", choices=LINK_STATUSES, default="linked")
+    linked_login.add_argument("--source", default="manual")
+    linked_login.add_argument("--notes")
+    linked_login.set_defaults(func=cmd_link_login)
+
+    integration = sub.add_parser("add-integration", help="Add or update a non-secret integration connected to an owned account.")
+    integration.add_argument("program")
+    integration.add_argument("--account", required=True, help="Owned account alias in this inventory.")
+    integration.add_argument("--provider", required=True, help="Integration provider, e.g. github, slack, or discord.")
+    integration.add_argument("--integration-id", required=True, help="Non-secret integration, installation, workspace, or connection identifier.")
+    integration.add_argument("--external-account", help="Linked social/account handle or opaque ID, when approved for handoff.")
+    integration.add_argument("--status", choices=INTEGRATION_STATUSES, default="connected")
+    integration.add_argument("--capability", action="append", help="Repeatable non-secret granted capability label, e.g. repo:read.")
+    integration.add_argument("--source", default="manual")
+    integration.add_argument("--notes")
+    integration.set_defaults(func=cmd_add_integration)
 
     resource = sub.add_parser("add-resource", help="Add or update an owned resource/object record.")
     resource.add_argument("program")

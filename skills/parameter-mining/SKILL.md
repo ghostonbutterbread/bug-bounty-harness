@@ -19,8 +19,10 @@ This skill is a router and evidence combiner. It does not replace `/js`,
 2. Load `/bounty-storage` and resolve the active Bounty Core family/lane before
    writing. Do not hard-code legacy `bounty_recon` roots when a
    `context/target_profile.json` or resolver output exists.
-3. Read current aggregate state from the resolved web lane, commonly:
-   `~/Shared/web_bounty/<program>/web/recon/aggregated/`.
+3. Read current aggregate state through Recon Bus, for example:
+   `python3 "$HARNESS_ROOT/scripts/recon_bus.py" query <program> --artifact params --format path`.
+   The query resolves `$HARNESS_SHARED_BASE`; do not construct or search for an
+   aggregate path from cwd.
 4. Check `/url-ingest brief <program>` and existing lane coverage before
    assigning agents or fuzzing.
 5. Load `/js` for JavaScript-derived parameters.
@@ -124,9 +126,10 @@ the lane result with the same parameter key so future agents do not repeat that
 parameter campaign:
 
 ```bash
-cat ~/Shared/web_bounty/<program>/web/recon/aggregated/params.txt | gf xss
+params_path="$(python3 "$HARNESS_ROOT/scripts/recon_bus.py" query <program> --artifact params --format path)"
+gf xss < "$params_path"
 
-python3 /home/ryushe/projects/bug_bounty_harness/agents/url_ingest.py next <program> \
+python3 "$HARNESS_ROOT/agents/url_ingest.py" next <program> \
   --lane xss --skill gf --test-family dynamic-filter --param q
 
 python3 /home/ryushe/projects/bug_bounty_harness/agents/url_ingest.py mark <program> \

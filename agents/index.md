@@ -30,10 +30,15 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    `docs/bounty-core-evidence-and-secrets-workstream.md`: Bounty Core owns
    generic primitives; BBH modules own their domain semantics; raw evidence has
    one canonical source and projections are regenerated.
-7. Query durable memory only with a concrete URL, surface, role, parameter, or
+7. Recon artifacts are owned by Recon Bus. CWD is never a corpus lookup root.
+   Resolve a named corpus with
+   `python3 "$HARNESS_ROOT/scripts/recon_bus.py" query <program> --artifact <name> --format path`.
+   Use Recon Bus `append` or `promote-run` for writes; do not create, edit, or
+   recursively search for competing corpus files.
+8. Query durable memory only with a concrete URL, surface, role, parameter, or
    handoff question. Pass a child only its selected packet, not the parent
    backlog.
-8. Include the selected policy chain, one BBH lane, evidence pointers, exact
+9. Include the selected policy chain, one BBH lane, evidence pointers, exact
    stop condition, and account/browser lane only when required in every child
    packet.
 

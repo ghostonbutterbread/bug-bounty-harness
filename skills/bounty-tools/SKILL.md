@@ -55,10 +55,11 @@ Cross-tool service inventory:
 ~/Shared/web_bounty/<program>/web/recon/services/
 ```
 
-Cross-tool aggregate front door:
+Cross-tool aggregate front door: query it through Recon Bus, which resolves
+`$HARNESS_SHARED_BASE`:
 
-```text
-~/Shared/web_bounty/<program>/web/recon/aggregated/
+```bash
+python3 "$HARNESS_ROOT/scripts/recon_bus.py" query <program> --artifact <urls|alive|params|params_raw|jsfiles|dirs|hosts|wild> --format path
 ```
 
 Use the same pattern for other families/lanes:

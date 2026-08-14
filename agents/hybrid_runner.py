@@ -123,7 +123,8 @@ def slug(value: str) -> str:
 
 
 def shared_web_recon_root(program: str) -> Path:
-    return Path.home() / "Shared" / "web_bounty" / program / "web" / "recon"
+    shared_base = Path(os.getenv("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
+    return shared_base / program / "web" / "recon"
 
 
 def default_output_root(program: str, run_id: str) -> Path:

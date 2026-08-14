@@ -88,7 +88,7 @@ def test_integration_profile_resolves_to_its_designated_owned_account(tmp_path, 
     module = load_inventory_module()
     monkeypatch.setenv("HARNESS_SHARED_BASE", str(tmp_path / "shared"))
 
-    assert module.main(["add-account", "demo", "--alias", "social-hub"]) == 0
+    assert module.main(["add-account", "demo", "--alias", "social-hub", "--lifecycle", "active"]) == 0
     assert module.main(
         ["set-integration-profile", "demo", "--account", "social-hub", "--source", "browser"]
     ) == 0
@@ -103,3 +103,23 @@ def test_integration_profile_resolves_to_its_designated_owned_account(tmp_path, 
     assert inventory["schema_version"] == 6
     assert inventory["integration_profile"]["account"] == "social-hub"
     assert inventory["accounts"][0]["integrations"][0]["provider"] == "discord"
+
+
+def test_integration_profile_requires_an_active_non_reserved_owned_account(tmp_path, monkeypatch):
+    module = load_inventory_module()
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(tmp_path / "shared"))
+
+    assert module.main(["add-account", "demo", "--alias", "inactive", "--lifecycle", "inactive"]) == 0
+    try:
+        module.main(["set-integration-profile", "demo", "--account", "inactive"])
+    except SystemExit as exc:
+        assert "lifecycle active" in str(exc)
+    else:
+        raise AssertionError("inactive account was accepted as integration profile")
+
+    try:
+        module.main(["add-account", "demo", "--alias", "integration-profile"])
+    except SystemExit as exc:
+        assert "reserved" in str(exc)
+    else:
+        raise AssertionError("reserved integration-profile alias was accepted")

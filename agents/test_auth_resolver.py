@@ -18,7 +18,7 @@ def load_resolver_module():
 
 def write_inventory(shared: Path, program: str, inventory: dict) -> Path:
     path = shared / program / "credentials" / "account_inventory.json"
-    path.parent.mkdir(parents=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(inventory))
     return path
 
@@ -156,7 +156,7 @@ def test_resolve_integration_profile_returns_designated_owned_account(tmp_path, 
         "demo",
         {
             "integration_profile": {"account": "social-hub", "status": "active"},
-            "accounts": [{"alias": "social-hub", "credential_ref": "bitwarden:owned-social-hub"}],
+            "accounts": [{"alias": "social-hub", "lifecycle": "active", "credential_ref": "bitwarden:owned-social-hub"}],
         },
     )
     monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
@@ -166,6 +166,27 @@ def test_resolve_integration_profile_returns_designated_owned_account(tmp_path, 
     assert result["status"] == "resolved"
     assert result["matched_by"] == "integration_profile"
     assert result["account"]["alias"] == "social-hub"
+
+
+def test_integration_profile_selector_fails_closed_for_alias_collision_or_inactive_account(tmp_path, monkeypatch):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    write_inventory(shared, "demo", {"accounts": [{"alias": "integration-profile", "lifecycle": "active"}]})
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    collision = module.resolve_account(module.load_inventory("demo"), "integration-profile", "demo")
+    assert collision["status"] == "integration-profile-unavailable"
+
+    write_inventory(
+        shared,
+        "demo",
+        {
+            "integration_profile": {"account": "social-hub", "status": "active"},
+            "accounts": [{"alias": "social-hub", "lifecycle": "inactive"}],
+        },
+    )
+    inactive = module.resolve_account(module.load_inventory("demo"), "integration-profile", "demo")
+    assert inactive["status"] == "integration-profile-unavailable"
 
 
 def test_browser_bound_program_never_queries_ryushe_proxy(tmp_path, monkeypatch, capsys):

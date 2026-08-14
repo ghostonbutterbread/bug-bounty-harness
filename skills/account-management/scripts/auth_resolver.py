@@ -233,9 +233,6 @@ def resolve_account(inventory: dict[str, Any], selector: str | None, program: st
         for account in accounts
         if isinstance(account, dict) and account.get("alias")
     }
-    if normalized in by_alias:
-        return resolved_account(selector, "alias", by_alias[normalized], program)
-
     if normalized in {"integration-profile", "integration_profile"}:
         profile = inventory.get("integration_profile")
         if not isinstance(profile, dict) or profile.get("status") != "active":
@@ -245,13 +242,16 @@ def resolve_account(inventory: dict[str, Any], selector: str | None, program: st
                 "inventory_path": str(inventory_path(program)),
             }
         alias = str(profile.get("account", "")).lower()
-        if alias in by_alias:
+        if alias in by_alias and by_alias[alias].get("lifecycle") == "active":
             return resolved_account(selector, "integration_profile", by_alias[alias], program)
         return {
             "status": "integration-profile-unavailable",
             "selector": selector,
             "inventory_path": str(inventory_path(program)),
         }
+
+    if normalized in by_alias:
+        return resolved_account(selector, "alias", by_alias[normalized], program)
 
     for account in accounts:
         if isinstance(account, dict) and str(account.get("pwnfox_color", "")).lower() == normalized:

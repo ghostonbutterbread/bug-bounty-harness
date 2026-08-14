@@ -125,6 +125,8 @@ def load_inventory(program: str) -> dict[str, Any]:
     for account in data["accounts"]:
         if not isinstance(account, dict):
             raise SystemExit("account inventory accounts must contain JSON objects")
+        if str(account.get("alias", "")).lower() in {"integration-profile", "integration_profile"}:
+            raise SystemExit("account alias integration-profile is reserved for the designated integration profile")
         account.setdefault("linked_logins", [])
         account.setdefault("integrations", [])
     profile = data["integration_profile"]
@@ -249,6 +251,8 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 
 def cmd_add_account(args: argparse.Namespace) -> int:
+    if args.alias.lower() in {"integration-profile", "integration_profile"}:
+        raise SystemExit("account alias integration-profile is reserved for the designated integration profile")
     values = compact_record(
         {
             "alias": args.alias,
@@ -305,8 +309,12 @@ def account_by_alias(data: dict[str, Any], alias: str) -> dict[str, Any]:
         if not isinstance(profile, dict) or profile.get("status") != "active":
             raise SystemExit("integration profile is not configured and active for this program")
         alias = str(profile["account"])
+    profile = data.get("integration_profile")
+    profile_alias = str(profile.get("account", "")) if isinstance(profile, dict) else ""
     for account in data["accounts"]:
         if account.get("alias") == alias:
+            if alias == profile_alias and account.get("lifecycle") != "active":
+                raise SystemExit("integration profile account must have lifecycle active")
             return account
     raise SystemExit(f"unknown account alias {alias!r}; add the owned account first")
 
@@ -358,7 +366,9 @@ def cmd_set_integration_profile(args: argparse.Namespace) -> int:
     if args.account.lower() in {"integration-profile", "integration_profile"}:
         raise SystemExit("set-integration-profile requires an existing concrete account alias")
     data = load_inventory(args.program)
-    account_by_alias(data, args.account)
+    account = account_by_alias(data, args.account)
+    if account.get("lifecycle") != "active":
+        raise SystemExit("integration profile account must have lifecycle active")
     values = compact_record(
         {
             "account": args.account,

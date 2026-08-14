@@ -34,12 +34,14 @@ Before connecting an integration, set it from an existing owned account:
 
 ```bash
 python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py \
-  set-integration-profile <program> --account <owned-alias> --source browser
+  set-integration-profile <program> --account <owned-active-alias> --source browser
 ```
 
 Then use `--account integration-profile` with `link-login`, `add-integration`,
-or the auth resolver. The designation must be `active`; otherwise agents fail
-closed rather than selecting a different account. Record its linked identities,
+or the auth resolver. Both the designation and its designated account lifecycle
+must be `active`; otherwise agents fail closed rather than selecting a different
+account. `integration-profile` is reserved and cannot be an ordinary account
+alias. Record its linked identities,
 integration connection status, and visible non-secret capabilities immediately.
 Never put its password, OAuth authorization code, token, cookie, or other
 credential material in the ledger.

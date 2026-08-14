@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import io
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -69,6 +71,45 @@ class ReconBusTests(unittest.TestCase):
 
     def recon(self, *parts: str) -> Path:
         return M.SHARED_BASE / "demo" / "web" / "recon" / Path(*parts)
+
+    def test_query_normalizes_alias_and_returns_aggregate_metadata(self):
+        path = self.aggregate("params.txt")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("https://example.com/search?q=1\n", encoding="utf-8")
+
+        result = M.query(argparse.Namespace(program="demo", artifact="params.txt", shared_base=None))
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["artifact"], "params")
+        self.assertEqual(result["path"], str(path))
+        self.assertEqual(result["line_count"], 1)
+        self.assertEqual(result["bytes"], path.stat().st_size)
+
+    def test_query_missing_artifact_is_explicit(self):
+        result = M.query(argparse.Namespace(program="demo", artifact="urls", shared_base=None))
+
+        self.assertEqual(result["status"], "missing")
+        self.assertEqual(result["exit_code"], 1)
+        self.assertEqual(result["path"], str(self.aggregate("urls.txt")))
+
+    def test_cli_query_uses_harness_shared_base_and_prints_path_only(self):
+        shared_base = Path(self.tmp.name) / "mounted-shared"
+        path = shared_base / "demo" / "web" / "recon" / "aggregated" / "params.txt"
+        path.parent.mkdir(parents=True)
+        path.write_text("https://example.com/search?q=1\n", encoding="utf-8")
+        env = {**os.environ, "HARNESS_SHARED_BASE": str(shared_base)}
+
+        completed = subprocess.run(
+            [sys.executable, "scripts/recon_bus.py", "query", "demo", "--artifact", "param", "--format", "path"],
+            cwd=PROJECT_ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), str(path))
 
     def test_append_url_records_only_urls_by_default(self):
         result = M.append(

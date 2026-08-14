@@ -22,12 +22,14 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
    `/pullscope`. If the program has no published scope, write `no scope` stub.
 2. **Cold Surface Pass** — Read
-   `/home/ryushe/projects/bug_bounty_harness/prompts/focused-recon-playbook.md`.
-   Load raw source artifacts from the program lane, usually
-   `~/Shared/web_bounty/<program>/web/recon/aggregated/` and latest
-   `recon-ry/*/runs/*/*/` outputs. Treat raw recon data as evidence from the
-   current surface, not prior analysis. Avoid broad MapStore or prior curated
-   map reads until the agent has current observations.
+   `$HARNESS_ROOT/prompts/focused-recon-playbook.md`. Resolve raw source
+   artifacts through Recon Bus, for example
+   `python3 "$HARNESS_ROOT/scripts/recon_bus.py" query <program> --artifact urls --format path`.
+   The command uses `$HARNESS_SHARED_BASE`; do not search cwd or construct an
+   aggregate path. Then read the relevant latest `recon-ry/*/runs/*/*/` output.
+   Treat raw recon data as evidence from the current surface, not prior analysis.
+   Avoid broad MapStore or prior curated map reads until the agent has current
+   observations.
 3. **Fresh Observations** — Aim to identify 3-5 fresh hosts, route clusters, endpoints, or
    surface patterns from the raw data before following existing leads.
 4. **Memory Overlay** — Now query MapStore, prior focused maps, and previous

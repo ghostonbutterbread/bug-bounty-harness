@@ -28,6 +28,18 @@ def test_environment_overrides_default_models(monkeypatch) -> None:
     assert config.worker.model == "deepseek/deepseek-v4-pro"
 
 
+def test_harness_shared_base_routes_relative_hybrid_input(monkeypatch, tmp_path: Path) -> None:
+    shared_base = tmp_path / "mounted-shared"
+    aggregate = shared_base / "demo" / "web" / "recon" / "aggregated"
+    aggregate.mkdir(parents=True)
+    params = aggregate / "params.txt"
+    params.write_text("https://example.com/search?q=1\n", encoding="utf-8")
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared_base))
+
+    assert hybrid.shared_web_recon_root("demo") == shared_base / "demo" / "web" / "recon"
+    assert hybrid.resolve_input_path("demo", "params.txt") == params
+
+
 def test_plan_classifies_urls_and_writes_worker_packets(tmp_path: Path) -> None:
     source = tmp_path / "params.txt"
     source.write_text(

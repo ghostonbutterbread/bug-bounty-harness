@@ -32,7 +32,9 @@ import url_ingest
 from scope_validator import ScopeValidator
 
 
-SHARED_BASE = Path.home() / "Shared" / "web_bounty"
+# The portable shared-root contract for Recon Bus reads and writes. A caller can
+# override it per command with --shared-base for controlled imports and tests.
+SHARED_BASE = Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
 
 AGGREGATE_FILES = {
     "url": "urls.txt",
@@ -41,6 +43,45 @@ AGGREGATE_FILES = {
     "js": "jsfiles.txt",
     "dir": "dirs.txt",
     "host": "hosts.txt",
+    "wild": "wild.txt",
+}
+
+# Query vocabulary is intentionally logical rather than path-shaped. Aliases are
+# an input convenience only; every result returns the canonical artifact name.
+ARTIFACT_ALIASES = {
+    "url": "urls",
+    "urls": "urls",
+    "urls.txt": "urls",
+    "alive": "alive",
+    "alive.txt": "alive",
+    "param": "params",
+    "params": "params",
+    "params.txt": "params",
+    "param_raw": "params_raw",
+    "params_raw": "params_raw",
+    "params-raw": "params_raw",
+    "params_raw.txt": "params_raw",
+    "js": "jsfiles",
+    "jsfiles": "jsfiles",
+    "jsfiles.txt": "jsfiles",
+    "dir": "dirs",
+    "dirs": "dirs",
+    "dirs.txt": "dirs",
+    "host": "hosts",
+    "hosts": "hosts",
+    "hosts.txt": "hosts",
+    "wild": "wild",
+    "wild.txt": "wild",
+}
+
+QUERY_ARTIFACT_FILES = {
+    "urls": "urls.txt",
+    "alive": "alive.txt",
+    "params": "params.txt",
+    "params_raw": "params_raw.txt",
+    "jsfiles": "jsfiles.txt",
+    "dirs": "dirs.txt",
+    "hosts": "hosts.txt",
     "wild": "wild.txt",
 }
 
@@ -66,6 +107,42 @@ def aggregate_root(program: str) -> Path:
 
 def recon_root(program: str) -> Path:
     return SHARED_BASE / program / "web" / "recon"
+
+
+def normalize_artifact(value: str) -> str:
+    """Normalize a human artifact name to Recon Bus's canonical vocabulary."""
+    normalized = str(value or "").strip().lower()
+    artifact = ARTIFACT_ALIASES.get(normalized)
+    if artifact is None:
+        accepted = ", ".join(sorted(QUERY_ARTIFACT_FILES))
+        raise ValueError(f"unsupported artifact {value!r}; use one of: {accepted}")
+    return artifact
+
+
+def query(args: argparse.Namespace) -> dict[str, object]:
+    """Return one aggregate artifact's canonical location and compact metadata."""
+    global SHARED_BASE
+    original_shared_base = SHARED_BASE
+    if args.shared_base:
+        SHARED_BASE = Path(args.shared_base).expanduser()
+    try:
+        artifact = normalize_artifact(args.artifact)
+        path = aggregate_root(args.program) / QUERY_ARTIFACT_FILES[artifact]
+        result: dict[str, object] = {
+            "program": args.program,
+            "artifact": artifact,
+            "path": str(path),
+        }
+        if not path.is_file():
+            result.update({"status": "missing", "exit_code": 1})
+            return result
+        result.update({"status": "ok", "bytes": path.stat().st_size})
+        if getattr(args, "format", "json") == "json":
+            with path.open("r", encoding="utf-8", errors="ignore") as handle:
+                result["line_count"] = sum(1 for _ in handle)
+        return result
+    finally:
+        SHARED_BASE = original_shared_base
 
 
 def safe_slug(value: str, *, default: str = "run") -> str:
@@ -435,6 +512,21 @@ def build_parser() -> argparse.ArgumentParser:
     append_parser.add_argument("--no-index", action="store_true", help="Skip url_index SQLite ingest.")
     append_parser.set_defaults(func=append)
 
+    query_parser = subparsers.add_parser(
+        "query",
+        help="Resolve an aggregate artifact without searching cwd or compatibility mirrors.",
+    )
+    query_parser.add_argument("program")
+    query_parser.add_argument("--artifact", required=True, help="Artifact such as params, urls, jsfiles, or hosts.")
+    query_parser.add_argument(
+        "--format",
+        choices=("json", "path", "lines"),
+        default="json",
+        help="Return metadata (default), only the canonical path, or artifact lines.",
+    )
+    query_parser.add_argument("--shared-base", help="Override $HARNESS_SHARED_BASE for this query.")
+    query_parser.set_defaults(func=query)
+
     promote_parser = subparsers.add_parser(
         "promote-run",
         help="Promote URL-like artifacts from a completed recon tool run.",
@@ -472,8 +564,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Iterable[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    result = args.func(args)
-    print(json.dumps(result, indent=2, sort_keys=True))
+    try:
+        result = args.func(args)
+    except ValueError as exc:
+        parser.error(str(exc))
+    if args.command == "query" and result.get("status") == "ok" and args.format == "path":
+        print(result["path"])
+    elif args.command == "query" and result.get("status") == "ok" and args.format == "lines":
+        sys.stdout.write(Path(str(result["path"])).read_text(encoding="utf-8", errors="ignore"))
+    else:
+        print(json.dumps(result, indent=2, sort_keys=True))
     return int(result.get("exit_code", 0)) if isinstance(result, dict) else 0
 
 

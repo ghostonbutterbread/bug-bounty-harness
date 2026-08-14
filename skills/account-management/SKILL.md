@@ -117,6 +117,16 @@ python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py set
   If none is active, first designate an existing owned account with
   `set-integration-profile`; never create, rename, or substitute a real email
   account without an explicit approved account record.
+- Before any integration connect/create/reconnect/reauthorization, first read
+  the inventory's existing provider records, then load `/bitwarden` and verify
+  the selected account has an approved ready `bitwarden:<item>` reference.
+  Existing active owned provider-available accounts are preferred; the provider
+  pool is limited to valid owned Bitwarden entries. An unknown or connected
+  provider record is occupied, not silently reusable. If availability is not
+  clear, stop before signup/connection creation, follow account-creation policy,
+  and ask Ryushe for a new non-disposable email or credential decision. After a
+  successful connection, immediately run `add-integration` for the exact account
+  used; child handoffs must include that update command or patch.
 
 ## Stop Conditions
 

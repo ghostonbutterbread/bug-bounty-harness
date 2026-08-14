@@ -46,6 +46,39 @@ integration connection status, and visible non-secret capabilities immediately.
 Never put its password, OAuth authorization code, token, cookie, or other
 credential material in the ledger.
 
+### Mandatory integration-account selection gate
+
+Before an agent starts, creates, reconnects, or reauthorizes an integration for
+service `<provider>`, it must complete this sequence:
+
+1. Read the program's account inventory and identify the active
+   `integration-profile` plus every account whose non-secret `integrations`
+   records name `<provider>`. Treat an account as occupied for that provider
+   when its record is `connected` or its status is unknown; do not guess that a
+   missing record is free.
+2. Load `/bitwarden`, run its required version/status preflight, and check the
+   approved Bitwarden metadata for the selected owned account(s). Count only
+   active owned accounts with an approved `bitwarden:<item>` reference; never
+   print or copy passwords, tokens, private notes, or full item contents.
+3. Prefer an existing active, Bitwarden-ready, provider-available integration
+   account. The number of accounts usable for a provider is bounded by those
+   valid owned Bitwarden entries—not by an agent's assumption that it can make
+   another account.
+4. If no candidate is clearly available, stop before signup or connection
+   creation. Do not create another integration account merely because the
+   ledger is incomplete. First record the specific missing availability evidence
+   and follow the account-creation/ownership policy; ask Ryushe when creation
+   would burn a non-disposable account or needs a new email/credential.
+5. Immediately after a successful connection, write an `add-integration`
+   record for the exact owned account used, including provider, non-secret
+   installation/workspace/connection ID or approved external handle, status,
+   visible capability labels, and evidence source. A child handoff is incomplete
+   until it includes that exact command or JSON patch.
+
+This check is required even when the agent was asked to “integrate onto this
+profile.” The phrase selects the profile; it does not skip availability or
+Bitwarden readiness checks.
+
 ## Proxy Identity Config
 
 Each registry carries this non-secret PwnFox lookup contract:
@@ -135,9 +168,10 @@ spellings unless live traffic proves a second header exists.
 10. When an owned account links, unlinks, or changes a login method (Google SSO,
     social login, etc.), immediately run `link-login` so the account ledger
     stays current.
-11. When an integration is connected, disconnected, reauthorized, or its
-    visible capability changes, immediately run `add-integration` with the
-    observed non-secret status/capability data.
+11. Before an integration is connected, disconnected, reauthorized, or its
+    visible capability changes, complete the mandatory integration-account
+    selection gate above. Immediately afterward, run `add-integration` with
+    the observed non-secret status/capability data.
 12. When creating a document/design/upload/order/workspace, immediately add a resource record.
 13. For cross-account tests, compare only records with clear ownership and destructible status.
 14. If a child agent creates or observes a new ID, login link, or integration,

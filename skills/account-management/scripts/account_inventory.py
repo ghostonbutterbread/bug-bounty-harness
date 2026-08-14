@@ -13,10 +13,11 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 AUTH_SESSION_MODES = ("browser-bound", "proxy-replayable", "hybrid", "unknown")
 LINK_STATUSES = ("linked", "unlinked", "unknown")
 INTEGRATION_STATUSES = ("connected", "disconnected", "unknown")
+INTEGRATION_PROFILE_STATUSES = ("active", "inactive", "unknown")
 FORBIDDEN_HINTS = (
     "password",
     "passwd",
@@ -67,6 +68,7 @@ def blank_inventory(program: str) -> dict[str, Any]:
         "created_at": now,
         "updated_at": now,
         "accounts": [],
+        "integration_profile": None,
         "resources": [],
         "pwnfox_lanes": [],
         "proxy_identity": {
@@ -90,7 +92,7 @@ def load_inventory(program: str) -> dict[str, Any]:
         replacement = data.get("replaced_by", "the current canonical registry")
         raise SystemExit(f"account inventory is retired: {path}; use {replacement}")
     version = data.get("schema_version", 1)
-    if version in (1, 2, 3, 4):
+    if version in (1, 2, 3, 4, 5):
         # Older schemas lacked lifecycle/lease/session-transport policy fields.
         # Preserve records while making safe defaults visible on the next save.
         for account in data.get("accounts", []):
@@ -112,6 +114,7 @@ def load_inventory(program: str) -> dict[str, Any]:
     if data["auth_session_mode"] not in AUTH_SESSION_MODES:
         raise SystemExit(f"invalid auth_session_mode {data['auth_session_mode']!r}")
     data.setdefault("accounts", [])
+    data.setdefault("integration_profile", None)
     data.setdefault("resources", [])
     data.setdefault("pwnfox_lanes", [])
     data.setdefault("proxy_identity", {})
@@ -124,6 +127,13 @@ def load_inventory(program: str) -> dict[str, Any]:
             raise SystemExit("account inventory accounts must contain JSON objects")
         account.setdefault("linked_logins", [])
         account.setdefault("integrations", [])
+    profile = data["integration_profile"]
+    if profile is not None:
+        if not isinstance(profile, dict) or not profile.get("account"):
+            raise SystemExit("integration_profile must be null or an object with an account alias")
+        if profile.get("status", "active") not in INTEGRATION_PROFILE_STATUSES:
+            raise SystemExit(f"invalid integration_profile status {profile.get('status')!r}")
+        profile.setdefault("status", "active")
     return data
 
 
@@ -205,6 +215,9 @@ def cmd_show(args: argparse.Namespace) -> int:
     path = inventory_path(args.program)
     print(f"Path: {path}")
     print(f"Accounts: {len(data.get('accounts', []))}")
+    profile = data.get("integration_profile")
+    if profile:
+        print(f"Integration profile: {profile.get('account')} ({profile.get('status')})")
     for account in data.get("accounts", []):
         parts = [
             account.get("alias", ""),
@@ -287,6 +300,11 @@ def cmd_set_auth_session_mode(args: argparse.Namespace) -> int:
 
 
 def account_by_alias(data: dict[str, Any], alias: str) -> dict[str, Any]:
+    if alias.lower() in {"integration-profile", "integration_profile"}:
+        profile = data.get("integration_profile")
+        if not isinstance(profile, dict) or profile.get("status") != "active":
+            raise SystemExit("integration profile is not configured and active for this program")
+        alias = str(profile["account"])
     for account in data["accounts"]:
         if account.get("alias") == alias:
             return account
@@ -332,6 +350,27 @@ def cmd_add_integration(args: argparse.Namespace) -> int:
     action = upsert(account["integrations"], values, ("provider", "integration_id"))
     save_inventory(args.program, data)
     print(f"{action} integration {args.provider}:{args.integration_id} for account {args.account}")
+    return 0
+
+
+def cmd_set_integration_profile(args: argparse.Namespace) -> int:
+    """Designate an existing owned account as this program's central integration profile."""
+    if args.account.lower() in {"integration-profile", "integration_profile"}:
+        raise SystemExit("set-integration-profile requires an existing concrete account alias")
+    data = load_inventory(args.program)
+    account_by_alias(data, args.account)
+    values = compact_record(
+        {
+            "account": args.account,
+            "status": args.status,
+            "source": args.source,
+            "notes": args.notes,
+        }
+    )
+    reject_secretish(values)
+    data["integration_profile"] = values
+    path = save_inventory(args.program, data)
+    print(f"set integration profile to account {args.account} ({args.status}) in {path}")
     return 0
 
 
@@ -466,6 +505,14 @@ def build_parser() -> argparse.ArgumentParser:
     integration.add_argument("--source", default="manual")
     integration.add_argument("--notes")
     integration.set_defaults(func=cmd_add_integration)
+
+    integration_profile = sub.add_parser("set-integration-profile", help="Designate an existing owned account as this program's integration profile.")
+    integration_profile.add_argument("program")
+    integration_profile.add_argument("--account", required=True, help="Existing owned account alias; this account's email/identities remain unchanged.")
+    integration_profile.add_argument("--status", choices=INTEGRATION_PROFILE_STATUSES, default="active")
+    integration_profile.add_argument("--source", default="manual")
+    integration_profile.add_argument("--notes")
+    integration_profile.set_defaults(func=cmd_set_integration_profile)
 
     resource = sub.add_parser("add-resource", help="Add or update an owned resource/object record.")
     resource.add_argument("program")

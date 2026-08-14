@@ -236,6 +236,23 @@ def resolve_account(inventory: dict[str, Any], selector: str | None, program: st
     if normalized in by_alias:
         return resolved_account(selector, "alias", by_alias[normalized], program)
 
+    if normalized in {"integration-profile", "integration_profile"}:
+        profile = inventory.get("integration_profile")
+        if not isinstance(profile, dict) or profile.get("status") != "active":
+            return {
+                "status": "integration-profile-unavailable",
+                "selector": selector,
+                "inventory_path": str(inventory_path(program)),
+            }
+        alias = str(profile.get("account", "")).lower()
+        if alias in by_alias:
+            return resolved_account(selector, "integration_profile", by_alias[alias], program)
+        return {
+            "status": "integration-profile-unavailable",
+            "selector": selector,
+            "inventory_path": str(inventory_path(program)),
+        }
+
     for account in accounts:
         if isinstance(account, dict) and str(account.get("pwnfox_color", "")).lower() == normalized:
             return resolved_account(selector, "pwnfox_color", account, program)
@@ -1005,7 +1022,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     res = sub.add_parser("resolve", help="Resolve safe account auth handoff metadata.")
     res.add_argument("--program", required=True)
-    res.add_argument("--account", required=True, help="Account alias or PwnFox color, such as blue.")
+    res.add_argument("--account", required=True, help="Account alias, PwnFox color, or active integration-profile.")
     res.add_argument("--target-url", help="Safe read-only URL for auth validation.")
     res.add_argument("--host-filter", help="Restrict Ryushe-proxy lookup to a host substring, such as canva.com.")
     res.add_argument("--method", default="GET", choices=("GET", "HEAD"))
@@ -1018,7 +1035,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     refresh = sub.add_parser("refresh-from-ryushe-proxy", help="Refresh one account/color auth seed from approved Ryushe-proxy traffic.")
     refresh.add_argument("--program", required=True)
-    refresh.add_argument("--account", required=True, help="Account alias or PwnFox color, such as blue.")
+    refresh.add_argument("--account", required=True, help="Account alias, PwnFox color, or active integration-profile.")
     refresh.add_argument("--target-url", help="Safe URL used only to derive a host filter when --host-filter is omitted.")
     refresh.add_argument("--host-filter", help="Restrict Ryushe-proxy lookup to a host substring, such as canva.com.")
     refresh.add_argument("--limit", type=int, default=80, help="Maximum proxy requests to inspect.")

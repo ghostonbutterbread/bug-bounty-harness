@@ -36,7 +36,7 @@ def test_linked_login_and_integration_are_non_secret_account_ledger_records(tmp_
 
     inventory = json.loads((tmp_path / "shared" / "demo" / "credentials" / "account_inventory.json").read_text())
     account = inventory["accounts"][0]
-    assert inventory["schema_version"] == 5
+    assert inventory["schema_version"] == 6
     assert account["linked_logins"][0]["provider"] == "google"
     assert account["linked_logins"][0]["status"] == "linked"
     assert account["integrations"][0]["external_account"] == "owned-test-org"
@@ -54,7 +54,7 @@ def test_v4_inventory_migrates_with_empty_link_and_integration_lists(tmp_path, m
 
     inventory = module.load_inventory("demo")
 
-    assert inventory["schema_version"] == 5
+    assert inventory["schema_version"] == 6
     assert inventory["accounts"][0]["linked_logins"] == []
     assert inventory["accounts"][0]["integrations"] == []
 
@@ -82,3 +82,24 @@ def test_account_and_ledger_upserts_preserve_existing_linked_records(tmp_path, m
     assert account["linked_logins"][0]["identity"] == "owned@example.test"
     assert account["integrations"][0]["status"] == "disconnected"
     assert account["integrations"][0]["capabilities"] == ["repo:read"]
+
+
+def test_integration_profile_resolves_to_its_designated_owned_account(tmp_path, monkeypatch):
+    module = load_inventory_module()
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(tmp_path / "shared"))
+
+    assert module.main(["add-account", "demo", "--alias", "social-hub"]) == 0
+    assert module.main(
+        ["set-integration-profile", "demo", "--account", "social-hub", "--source", "browser"]
+    ) == 0
+    assert module.main(
+        [
+            "add-integration", "demo", "--account", "integration-profile", "--provider", "discord",
+            "--integration-id", "guild-owned-test", "--external-account", "owned-discord-profile",
+        ]
+    ) == 0
+
+    inventory = module.load_inventory("demo")
+    assert inventory["schema_version"] == 6
+    assert inventory["integration_profile"]["account"] == "social-hub"
+    assert inventory["accounts"][0]["integrations"][0]["provider"] == "discord"

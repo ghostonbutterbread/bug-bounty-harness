@@ -148,6 +148,26 @@ def test_resolve_blue_missing_seed_returns_proxy_refresh_plan(tmp_path, monkeypa
     assert "secret" not in json.dumps(result).lower()
 
 
+def test_resolve_integration_profile_returns_designated_owned_account(tmp_path, monkeypatch):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    write_inventory(
+        shared,
+        "demo",
+        {
+            "integration_profile": {"account": "social-hub", "status": "active"},
+            "accounts": [{"alias": "social-hub", "credential_ref": "bitwarden:owned-social-hub"}],
+        },
+    )
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    result = module.resolve_account(module.load_inventory("demo"), "integration-profile", "demo")
+
+    assert result["status"] == "resolved"
+    assert result["matched_by"] == "integration_profile"
+    assert result["account"]["alias"] == "social-hub"
+
+
 def test_browser_bound_program_never_queries_ryushe_proxy(tmp_path, monkeypatch, capsys):
     module = load_resolver_module()
     shared = tmp_path / "shared"

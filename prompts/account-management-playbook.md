@@ -57,27 +57,38 @@ service `<provider>`, it must complete this sequence:
    when its record is `connected` or its status is unknown; do not guess that a
    missing record is free.
 2. Load `/bitwarden`, run its required version/status preflight, and check the
-   approved Bitwarden metadata for the selected owned account(s). Count only
-   active owned accounts with an approved `bitwarden:<item>` reference; never
-   print or copy passwords, tokens, private notes, or full item contents.
+   approved Bitwarden metadata for **that provider type** (for example, Reddit
+   items before a Reddit integration). Count only active owned accounts with a
+   valid provider-specific `bitwarden:<item>` reference; never print or copy
+   passwords, tokens, private notes, or full item contents.
 3. Prefer an existing active, Bitwarden-ready, provider-available integration
-   account. The number of accounts usable for a provider is bounded by those
-   valid owned Bitwarden entries—not by an agent's assumption that it can make
-   another account.
+   account. The number of accounts usable for a provider is bounded by valid
+   owned Bitwarden entries for that provider type—not by an agent's assumption
+   that it can make another account.
 4. If no candidate is clearly available, stop before signup or connection
    creation. Do not create another integration account merely because the
    ledger is incomplete. First record the specific missing availability evidence
    and follow the account-creation/ownership policy; ask Ryushe when creation
    would burn a non-disposable account or needs a new email/credential.
 5. Immediately after a successful connection, write an `add-integration`
-   record for the exact owned account used, including provider, non-secret
-   installation/workspace/connection ID or approved external handle, status,
-   visible capability labels, and evidence source. A child handoff is incomplete
-   until it includes that exact command or JSON patch.
+   record for the exact owned account used. Set `external_account` to the
+   Bitwarden login identity for the provider: use the stored email address when
+   the Bitwarden username is an email, otherwise use that stored username. This
+   makes the ledger match the provider credential and shows exactly which Reddit,
+   Discord, or other integration account is occupied. Also record provider,
+   non-secret installation/workspace/connection ID, status, visible capability
+   labels, and evidence source. A child handoff is incomplete until it includes
+   that exact command or JSON patch.
 
 This check is required even when the agent was asked to “integrate onto this
 profile.” The phrase selects the profile; it does not skip availability or
 Bitwarden readiness checks.
+
+For example, if the provider is Reddit and Bitwarden has several valid owned
+Reddit entries, that is the maximum candidate pool. Once an agent uses one, it
+records the precise Bitwarden username/email in `external_account`, so later
+agents can see which Reddit identity is already integrated with which owned
+account.
 
 ## Proxy Identity Config
 

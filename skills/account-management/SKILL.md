@@ -119,14 +119,17 @@ python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py set
   account without an explicit approved account record.
 - Before any integration connect/create/reconnect/reauthorization, first read
   the inventory's existing provider records, then load `/bitwarden` and verify
-  the selected account has an approved ready `bitwarden:<item>` reference.
-  Existing active owned provider-available accounts are preferred; the provider
-  pool is limited to valid owned Bitwarden entries. An unknown or connected
-  provider record is occupied, not silently reusable. If availability is not
-  clear, stop before signup/connection creation, follow account-creation policy,
-  and ask Ryushe for a new non-disposable email or credential decision. After a
-  successful connection, immediately run `add-integration` for the exact account
-  used; child handoffs must include that update command or patch.
+  the selected account has an approved ready provider-specific `bitwarden:<item>`
+  reference. Existing active owned provider-available accounts are preferred;
+  the pool is limited to valid owned Bitwarden entries for that service type.
+  An unknown or connected provider record is occupied, not silently reusable.
+  If availability is not clear, stop before signup/connection creation, follow
+  account-creation policy, and ask Ryushe for a new non-disposable email or
+  credential decision. After a successful connection, immediately run
+  `add-integration` for the exact account used. Its `external_account` must
+  match the Bitwarden login identity—email when that login uses an email,
+  otherwise its username—so the ledger identifies the exact provider account.
+  Child handoffs must include that update command or patch.
 
 ## Stop Conditions
 

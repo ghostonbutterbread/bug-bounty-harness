@@ -28,6 +28,10 @@ secret material.
 - account alias, global principal tier (`admin` = owner-equivalent, `user`; anonymous has no account record), email/username if approved to store, user ID, role, tenant/workspace, lifecycle, non-secret program-specific capability/resource labels and organization tier/plan access, browser-lease eligibility, credential reference, auth seed reference, destructible status
 - linked login identities (Google SSO, social login, etc.): provider, approved non-secret handle/ID, link status, and evidence source; never OAuth codes/tokens, cookies, or provider credentials
 - connected integrations: provider, non-secret installation/workspace/connection ID, approved linked social/account handle or ID, connection status, visible non-secret capability labels, and evidence source
+- one optional per-program `integration-profile`: an existing owned account
+  designated as the central account for explicitly requested integrations. It
+  is a non-secret alias/status/source record, not a new email, credential, or
+  permission to select a different account silently.
 - PwnFox color to account alias mapping
 - owned resource type, resource ID, display name, owner account, full source URL, run/session ID, cleanup/destructible status
 - evidence source: browser, Caido, manual note, API response, signup flow, or child-agent output
@@ -94,6 +98,7 @@ python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add
 python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py link-pwnfox {program} --color blue --account primary
 python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py link-login {program} --account primary --provider google --identity owned@example.com --source browser
 python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-integration {program} --account primary --provider github --integration-id installation-123 --external-account owned-test-org --capability repo:read --source browser
+python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py set-integration-profile {program} --account primary --source browser
 ```
 
 ## Routing
@@ -107,6 +112,11 @@ python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add
   or workspace creation, update the registry before handing work to child
   agents. A child that observes one of these changes must return the exact
   non-secret registry command or JSON patch in its handoff.
+- When Ryushe says “integration profile” or asks to integrate onto a profile,
+  use the active designated `integration-profile` account for that program.
+  If none is active, first designate an existing owned account with
+  `set-integration-profile`; never create, rename, or substitute a real email
+  account without an explicit approved account record.
 
 ## Stop Conditions
 

@@ -21,6 +21,31 @@ Default base:
 The registry is non-secret. Store Bitwarden item names or approved credential
 references instead of credential values.
 
+## Integration Profile
+
+Each program may designate one existing owned account as its central
+`integration-profile`. It is an account-manager label, not a new email address,
+and it does not rename or change the designated account's credentials. Use it
+for owned social/service connections (for example Reddit, Discord, or GitHub)
+when an agent is explicitly asked to integrate something. The profile stays
+per-program so its integrations and access remain auditable and balanced.
+
+Before connecting an integration, set it from an existing owned account:
+
+```bash
+python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py \
+  set-integration-profile <program> --account <owned-active-alias> --source browser
+```
+
+Then use `--account integration-profile` with `link-login`, `add-integration`,
+or the auth resolver. Both the designation and its designated account lifecycle
+must be `active`; otherwise agents fail closed rather than selecting a different
+account. `integration-profile` is reserved and cannot be an ordinary account
+alias. Record its linked identities,
+integration connection status, and visible non-secret capabilities immediately.
+Never put its password, OAuth authorization code, token, cookie, or other
+credential material in the ledger.
+
 ## Proxy Identity Config
 
 Each registry carries this non-secret PwnFox lookup contract:

@@ -323,6 +323,51 @@ class TestIngestRoundtrip(unittest.TestCase):
             os.unlink(tf_path)
 
 
+class TestLegacySchemaMigration(unittest.TestCase):
+    def test_init_repairs_legacy_indexes_before_mapstore_sync(self):
+        program = "legacy-mapstore"
+        M.SHARED_BASE = TEMP_SHARED
+        db_path = M.get_db_path(program)
+        with sqlite3.connect(db_path) as conn:
+            conn.executescript(
+                """
+                CREATE TABLE urls (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, canonical_url TEXT NOT NULL,
+                    url_hash TEXT NOT NULL UNIQUE, route_hash TEXT NOT NULL,
+                    param_hash TEXT NOT NULL, host TEXT, path TEXT, param_keys TEXT,
+                    source TEXT, first_seen TIMESTAMP NOT NULL, last_seen TIMESTAMP NOT NULL
+                );
+                CREATE TABLE observations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, url_id INTEGER NOT NULL,
+                    lane TEXT NOT NULL, status TEXT NOT NULL, agent_id TEXT, run_id TEXT,
+                    evidence_path TEXT, notes TEXT, created_at TIMESTAMP NOT NULL
+                );
+                CREATE TABLE test_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, url_id INTEGER NOT NULL,
+                    lane TEXT NOT NULL, skill TEXT NOT NULL, test_family TEXT NOT NULL,
+                    technique TEXT, status TEXT NOT NULL, depth TEXT, agent_id TEXT,
+                    run_id TEXT, evidence_path TEXT, request_variant TEXT,
+                    response_summary TEXT, notes TEXT, started_at TIMESTAMP NOT NULL,
+                    completed_at TIMESTAMP NOT NULL
+                );
+                CREATE TABLE imports (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, source_file TEXT NOT NULL,
+                    program TEXT, run_id TEXT, urls_imported INTEGER, imported_at TIMESTAMP NOT NULL
+                );
+                """
+            )
+        M.init_db(program)
+        with sqlite3.connect(db_path) as conn:
+            test_columns = {row[1] for row in conn.execute("PRAGMA table_info(test_runs)")}
+            observation_columns = {row[1] for row in conn.execute("PRAGMA table_info(observations)")}
+            parameter_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='parameter_observations'"
+            ).fetchone()
+        self.assertIn("param_key", test_columns)
+        self.assertIn("param_key", observation_columns)
+        self.assertIsNotNone(parameter_table)
+
+
 class TestMark(unittest.TestCase):
     def setUp(self):
         self.program = "testprog2"

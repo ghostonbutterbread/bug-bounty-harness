@@ -14,6 +14,7 @@ import pytest
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from agents import url_ingest
 from agents.map_store import (
     MapStore,
     iso_now,
@@ -205,6 +206,53 @@ class TestMapStore:
         assert "Surface: xss" in content
         assert "URL: https://app.com/login" in content
         assert "#csrf" in content
+
+    def test_write_url_scope_projects_a_receipt_to_url_ingest(self, store: MapStore):
+        store.init()
+        path = store.write(
+            url="https://app.com/search?q=one",
+            surface="xss",
+            body="Inert marker reflects in a quoted HTML attribute.\n",
+            agent="xss-worker",
+            run_id="map-run",
+            title="quoted attribute reflection",
+        )
+
+        with url_ingest.get_conn(store.program, shared_base=store._layout.family_root) as conn:
+            row = conn.execute(
+                "SELECT lane, skill, test_family, status, evidence_path, run_id "
+                "FROM test_runs"
+            ).fetchone()
+        assert dict(row) == {
+            "lane": "xss",
+            "skill": "map-store",
+            "test_family": "observation-sync",
+            "status": "surface_reviewed",
+            "evidence_path": str(path),
+            "run_id": "map-run",
+        }
+
+    def test_mapstore_url_projection_is_idempotent(self, store: MapStore):
+        shared_base = store._layout.family_root
+        assert url_ingest.sync_mapstore_observation(
+            store.program,
+            url="https://app.com/search?q=one",
+            surface="unknown-surface",
+            map_path="maps/recon/app.com_s_search/example/index.md",
+            shared_base=shared_base,
+        )
+        assert not url_ingest.sync_mapstore_observation(
+            store.program,
+            url="https://app.com/search?q=one",
+            surface="unknown-surface",
+            map_path="maps/recon/app.com_s_search/example/index.md",
+            shared_base=shared_base,
+        )
+        with url_ingest.get_conn(store.program, shared_base=shared_base) as conn:
+            rows = conn.execute(
+                "SELECT lane, skill, test_family FROM test_runs ORDER BY id"
+            ).fetchall()
+        assert [tuple(row) for row in rows] == [("recon", "map-store", "observation-sync")]
 
     def test_write_app_scope(self, store: MapStore):
         store.init()

@@ -274,9 +274,10 @@ def infer_lane_hints(param_key: str, value_shape: str | None = None) -> list[str
 # Database helpers
 # ---------------------------------------------------------------------------
 
-def get_db_path(program: str) -> Path:
+def get_db_path(program: str, *, shared_base: str | Path | None = None) -> Path:
     """Return the path to the SQLite DB for a given program."""
-    db_dir = SHARED_BASE / program / "web" / "recon" / "url_index"
+    base = Path(shared_base).expanduser() if shared_base else SHARED_BASE
+    db_dir = base / program / "web" / "recon" / "url_index"
     db_dir.mkdir(parents=True, exist_ok=True)
     return db_dir / "url_index.sqlite"
 
@@ -390,9 +391,9 @@ def schema() -> str:
 
 
 @contextmanager
-def get_conn(program: str):
+def get_conn(program: str, *, shared_base: str | Path | None = None):
     """Context manager for a DB connection."""
-    db_path = get_db_path(program)
+    db_path = get_db_path(program, shared_base=shared_base)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -403,15 +404,26 @@ def get_conn(program: str):
         conn.close()
 
 
-def init_db(program: str):
+def init_db(program: str, *, shared_base: str | Path | None = None, quiet: bool = False):
     """Create schema for a program if it doesn't exist."""
-    db_path = get_db_path(program)
+    db_path = get_db_path(program, shared_base=shared_base)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
-    conn.executescript(schema())
+    try:
+        conn.executescript(schema())
+    except sqlite3.OperationalError as exc:
+        # Existing indexes are created by ``schema()`` too. On a legacy DB an
+        # index that references a newer column fails before the migration gets a
+        # chance to add that column. Migrate first, then replay the idempotent
+        # schema so this caller can repair and use old trackers in one command.
+        if "no such column" not in str(exc).lower():
+            raise
+        _migrate_schema(conn)
+        conn.executescript(schema())
     _migrate_schema(conn)
     conn.close()
-    print(f"✓ Initialized DB at {db_path}")
+    if not quiet:
+        print(f"✓ Initialized DB at {db_path}")
 
 
 def _table_columns(conn, table: str) -> set[str]:
@@ -1390,7 +1402,8 @@ def mark(program: str, url: str, lane: str, status: str,
          run_id: str = None, skill: str = None, test_family: str = None,
          technique: str = None, request_variant: str = None,
          response_summary: str = None, depth: str = None,
-         param_key: str = None, param_location: str = None):
+         param_key: str = None, param_location: str = None,
+         shared_base: str | Path | None = None, quiet: bool = False):
     """Record an append-only test run and update the latest per-lane URL summary."""
     if status not in VALID_STATUSES:
         print(f"ERROR: invalid status '{status}'. Valid: {VALID_STATUSES}", file=sys.stderr)
@@ -1398,7 +1411,7 @@ def mark(program: str, url: str, lane: str, status: str,
     if lane not in VALID_LANES:
         print(f"NOTE: lane '{lane}' not in standard set {VALID_LANES}", file=sys.stderr)
 
-    init_db(program)
+    init_db(program, shared_base=shared_base, quiet=quiet)
     now = datetime.now(timezone.utc).isoformat()
     normalized_skill = str(skill or DEFAULT_TEST_SKILL).strip() or DEFAULT_TEST_SKILL
     normalized_family = str(test_family or DEFAULT_TEST_FAMILY).strip() or DEFAULT_TEST_FAMILY
@@ -1406,11 +1419,11 @@ def mark(program: str, url: str, lane: str, status: str,
     normalized_param = normalize_param_key(param_key)
     normalized_param_location = (param_location or "query" if normalized_param else None)
 
-    with get_conn(program) as conn:
+    with get_conn(program, shared_base=shared_base) as conn:
         before = conn.execute(
             "SELECT id FROM urls WHERE url_hash = ?", (url_hashes(url)[0],)
         ).fetchone()
-        if not before:
+        if not before and not quiet:
             print(f"WARNING: URL not found in DB — ingested as new", file=sys.stderr)
         url_id = _ensure_url(conn, url, "mark-unknown", now)
 
@@ -1451,7 +1464,8 @@ def mark(program: str, url: str, lane: str, status: str,
                 (status, normalized_param_location, notes, evidence_path, agent_id, run_id, now, existing["id"])
             )
             param_label = f" param={normalized_param}" if normalized_param else ""
-            print(f"✓ Updated observation: {url} [{lane}]{param_label} = {status}")
+            if not quiet:
+                print(f"✓ Updated observation: {url} [{lane}]{param_label} = {status}")
         else:
             conn.execute(
                 "INSERT INTO observations (url_id, lane, param_key, param_location, status, notes, evidence_path, "
@@ -1459,7 +1473,8 @@ def mark(program: str, url: str, lane: str, status: str,
                 (url_id, lane, normalized_param, normalized_param_location, status, notes, evidence_path, agent_id, run_id, now)
             )
             param_label = f" param={normalized_param}" if normalized_param else ""
-            print(f"✓ Recorded observation: {url} [{lane}]{param_label} = {status}")
+            if not quiet:
+                print(f"✓ Recorded observation: {url} [{lane}]{param_label} = {status}")
 
         if normalized_param:
             value_shape = infer_value_shape(normalized_param)
@@ -1476,6 +1491,65 @@ def mark(program: str, url: str, lane: str, status: str,
                 now=now,
             )
         conn.commit()
+
+
+def slugify_lane(surface: str) -> str:
+    """Map a MapStore surface onto a URL Ingest lane without inventing lanes."""
+    candidate = re.sub(r"[^a-z0-9-]+", "-", str(surface or "").lower()).strip("-")
+    return candidate if candidate in VALID_LANES else "recon"
+
+
+def sync_mapstore_observation(
+    program: str,
+    *,
+    url: str,
+    surface: str,
+    map_path: str,
+    agent_id: str = "map-store",
+    run_id: str | None = None,
+    title: str = "",
+    shared_base: str | Path | None = None,
+) -> bool:
+    """Project one URL-scoped MapStore fact into URL Ingest exactly once.
+
+    MapStore remains the detailed fact store; this writes the compact, explicit
+    ``map-store:observation-sync`` review receipt used by URL queues. The map
+    observation path is the idempotency key, so reconciling old MapStore data
+    cannot inflate append-only test history.
+    """
+    if not str(url or "").strip():
+        return False
+    lane = slugify_lane(surface)
+    evidence_path = str(map_path)
+    init_db(program, shared_base=shared_base, quiet=True)
+    with get_conn(program, shared_base=shared_base) as conn:
+        url_id = _ensure_url(conn, url, "map-store", datetime.now(timezone.utc).isoformat())
+        existing = conn.execute(
+            "SELECT 1 FROM test_runs WHERE url_id = ? AND lane = ? AND skill = ? "
+            "AND test_family = ? AND evidence_path = ? LIMIT 1",
+            (url_id, lane, "map-store", "observation-sync", evidence_path),
+        ).fetchone()
+    if existing:
+        return False
+    note = f"MapStore URL fact: {title}" if title else "MapStore URL fact recorded."
+    mark(
+        program,
+        url=url,
+        lane=lane,
+        status="surface_reviewed",
+        notes=note,
+        evidence_path=evidence_path,
+        agent_id=agent_id,
+        run_id=run_id,
+        skill="map-store",
+        test_family="observation-sync",
+        technique=f"mapstore-{lane}",
+        request_variant="MapStore URL-scoped observation",
+        response_summary="Fact recorded; see MapStore evidence.",
+        shared_base=shared_base,
+        quiet=True,
+    )
+    return True
 
 
 # ---------------------------------------------------------------------------

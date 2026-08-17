@@ -760,7 +760,7 @@ class MapStore:
         status = normalize_status(status)
 
         with self._locked():
-            return self._write_observation_unlocked(
+            obs_path = self._write_observation_unlocked(
                 url=url,
                 surface=surface,
                 body=body,
@@ -772,6 +772,85 @@ class MapStore:
                 title=title,
                 status=status,
             )
+        self._sync_url_coverage(
+            url=url,
+            surface=surface,
+            scope=scope,
+            obs_path=obs_path,
+            agent=agent,
+            run_id=run_id,
+            title=title,
+        )
+        return obs_path
+
+    def _sync_url_coverage(
+        self,
+        *,
+        url: str,
+        surface: str,
+        scope: str,
+        obs_path: Path,
+        agent: str,
+        run_id: str | None,
+        title: str,
+    ) -> None:
+        """Mirror URL-scoped web facts into the URL review tracker.
+
+        This is deliberately a projection, not a replacement for the detailed
+        MapStore record. Non-web lanes keep their existing storage semantics.
+        A later reconciliation can safely retry a failed projection because the
+        observation path is the URL Ingest idempotency key.
+        """
+        if scope != URL_SCOPE or not url or self._family != "web_bounty" or self._lane != "web":
+            return
+        try:
+            from agents.url_ingest import sync_mapstore_observation
+
+            sync_mapstore_observation(
+                self._program,
+                url=url,
+                surface=surface,
+                map_path=str(obs_path),
+                agent_id=agent,
+                run_id=run_id,
+                title=title,
+                shared_base=self._layout.family_root,
+            )
+        except Exception as exc:
+            print(
+                f"WARNING: MapStore wrote {obs_path}, but URL Ingest projection failed: {exc}",
+                file=sys.stderr,
+            )
+
+    def reconcile_url_coverage(self) -> dict[str, int]:
+        """Backfill missing URL Ingest receipts from existing web MapStore facts."""
+        result = {"eligible": 0, "created": 0, "already_present": 0, "failed": 0}
+        if self._family != "web_bounty" or self._lane != "web":
+            return result
+        from agents.url_ingest import sync_mapstore_observation
+
+        for entry in self._read_index():
+            if entry.get("scope") != URL_SCOPE or not entry.get("url"):
+                continue
+            result["eligible"] += 1
+            relative_path = str(entry.get("path") or "")
+            try:
+                created = sync_mapstore_observation(
+                    self._program,
+                    url=str(entry["url"]),
+                    surface=str(entry.get("surface") or "recon"),
+                    map_path=str(self._maps_root / relative_path),
+                    agent_id=str(entry.get("agent") or "map-store"),
+                    run_id=str(entry.get("run_id") or "") or None,
+                    title=str(entry.get("title") or ""),
+                    shared_base=self._layout.family_root,
+                )
+            except Exception as exc:
+                result["failed"] += 1
+                print(f"WARNING: URL Ingest projection failed for {relative_path}: {exc}", file=sys.stderr)
+            else:
+                result["created" if created else "already_present"] += 1
+        return result
 
     def _write_observation_unlocked(
         self,
@@ -1314,6 +1393,10 @@ def _build_parser() -> argparse.ArgumentParser:
     xref_p = sub.add_parser("rebuild-crossref", help="Regenerate _crossref/ views")
     _add_common(xref_p)
 
+    # sync-url-ingest
+    sync_p = sub.add_parser("sync-url-ingest", help="Backfill URL review receipts from MapStore URL facts")
+    _add_common(sync_p)
+
     # migrate-workspace
     mig_p = sub.add_parser("migrate-workspace", help="Scan workdir for agent notes and migrate to map store")
     mig_p.add_argument("--source-dir", default="~/workdir/working", help="Source directory to scan (default: ~/workdir/working)")
@@ -1471,6 +1554,12 @@ def _run_rebuild_crossref(store: MapStore, args: argparse.Namespace) -> int:
     count = store.rebuild_crossref(cross_family_entries=cross_entries)
     print(f"Regenerated {count} crossref views")
     return 0
+
+
+def _run_sync_url_ingest(store: MapStore, args: argparse.Namespace) -> int:
+    result = store.reconcile_url_coverage()
+    print("URL Ingest sync: " + " ".join(f"{key}={value}" for key, value in result.items()))
+    return 1 if result["failed"] else 0
 
 
 # ---------------------------------------------------------------------------
@@ -1687,6 +1776,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_update_status(store, args)
     elif args.command == "rebuild-crossref":
         return _run_rebuild_crossref(store, args)
+    elif args.command == "sync-url-ingest":
+        return _run_sync_url_ingest(store, args)
     else:
         parser.print_help()
         return 1

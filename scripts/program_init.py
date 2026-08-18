@@ -22,7 +22,7 @@ if str(HARNESS_ROOT) not in sys.path:
     sys.path.insert(0, str(HARNESS_ROOT))
 
 from agents.scope_puller import canonical_program_slug, pull_scope
-from agents.scope_seed_files import write_recon_seed_files
+from agents.scope_seed_files import recon_seed_lines
 from agents.scope_manager import ScopeManager
 from agents.storage_resolver import (
     BINARIES_FAMILY,
@@ -30,7 +30,6 @@ from agents.storage_resolver import (
     ensure_layout,
     normalize_program,
     resolve_storage,
-    write_context_files,
 )
 
 DEFAULT_ARTIFACT_ROOT = Path(os.environ.get("BOUNTY_ARTIFACT_ROOT", "/mnt/bounty"))
@@ -123,6 +122,28 @@ def _read_scope(program: str) -> tuple[set[str], set[str]]:
     return scope.domains, scope.urls
 
 
+def _preserve_existing(paths: Iterable[Path]) -> dict[Path, bytes]:
+    """Keep Bounty Core's create-only setup from replacing curated files."""
+    return {path: path.read_bytes() for path in paths if path.exists()}
+
+
+def _restore_existing(saved: dict[Path, bytes]) -> None:
+    for path, content in saved.items():
+        path.write_bytes(content)
+
+
+def _seed_recon_files(recon_root: Path, domains: set[str], urls: set[str], *, dry_run: bool) -> dict[str, int]:
+    url_lines, wild_lines = recon_seed_lines(domains, urls)
+    seeds = {
+        "urls": len(url_lines),
+        "wildcards": len(wild_lines),
+    }
+    for name, lines in (("urls.txt", url_lines), ("wild.txt", wild_lines)):
+        body = "\n".join(lines) + ("\n" if lines else "")
+        _write_once(recon_root / name, body, dry_run=dry_run)
+    return seeds
+
+
 def initialize_program(
     program: str,
     *,
@@ -140,7 +161,9 @@ def initialize_program(
         raise ValueError("scope is required: provide --platform or explicitly use --skip-scope")
 
     if platform and not dry_run:
-        pull_scope(program, platform)
+        pulled_scope = pull_scope(program, platform)
+        if pulled_scope is None:
+            raise RuntimeError("scope pull failed; no program layout was created")
 
     scope_state = "skipped" if skip_scope else ("pulled" if platform else "unknown")
     domains, urls = _read_scope(slug) if not dry_run else (set(), set())
@@ -155,14 +178,21 @@ def initialize_program(
             root_override=shared_root,
             create=False,
         )
+        protected_paths = [
+            layout.context_root / "target_profile.json",
+            layout.context_root / "me_context.md",
+            layout.recon_root / "urls.txt",
+            layout.recon_root / "wild.txt",
+        ]
         if not dry_run:
+            preserved = _preserve_existing(protected_paths)
             ensure_layout(layout)
-            write_context_files(layout)
+            _restore_existing(preserved)
         created.extend(_mkdirs(_shared_lane_paths(layout), dry_run=dry_run))
         shared_lanes[lane] = str(layout.lane_root)
 
-        if lane in {"web", "api"} and not dry_run:
-            seeds = write_recon_seed_files(layout.recon_root, domains, urls)
+        if lane in {"web", "api"}:
+            seeds = _seed_recon_files(layout.recon_root, domains, urls, dry_run=dry_run)
         else:
             seeds = {"urls": 0, "wildcards": 0}
         created.extend(_mkdirs(_artifact_paths(slug, lane, artifact_root), dry_run=dry_run))

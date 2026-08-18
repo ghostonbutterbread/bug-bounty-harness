@@ -104,8 +104,8 @@ Typical SSRF pressure ladder:
 5. family queue: redirects, DNS tricks, parser confusion, userinfo, IPv6,
    octal/decimal, suffix/prefix allowlist, protocol smuggling, Host/header
    trust
-6. internal-surface discovery when reached: low-rate IP/root checks, service
-   identity/protocol/banner/status classification, and candidate dangerous
+6. internal-surface discovery when reached with a low rate limit: IP/root
+   checks, service identity/protocol/banner/status classification, and candidate
    surface mapping from non-sensitive evidence
 7. impact proof, residual next probe, or exact kill reason
 
@@ -128,9 +128,9 @@ Do not promote client-side-only navigation, generic fetch errors, public URL fet
 
 Stop before harvesting secrets, credential/token use, sensitive internal data
 reads, state-changing or destructive internal requests, DNS rebinding without
-explicit approval, or broad/high-volume scans. Bounded low-rate internal service
-discovery and non-sensitive surface classification remain allowed when program
-rules permit.
+explicit approval, or broad/high-volume scans. Bounded internal service
+discovery with a low rate limit and non-sensitive surface classification remain
+allowed when program rules permit.
 
 ## Evidence
 

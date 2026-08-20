@@ -26,6 +26,7 @@ secret material.
 ## What To Record
 
 - account alias, global principal tier (`admin` = owner-equivalent, `user`; anonymous has no account record), email/username if approved to store, user ID, role, tenant/workspace, lifecycle, non-secret program-specific capability/resource labels and organization tier/plan access, browser-lease eligibility, credential reference, auth seed reference, destructible status
+- `testing_role: idawr` for a reusable owned second-account pool used in IDOR/BOLA comparisons. Use stable aliases such as `idawr-<color>` for approved `ryushe+ai*` identities; the alias is a registry label, not an email rename.
 - linked login identities (Google SSO, social login, etc.): provider, approved non-secret handle/ID, link status, and evidence source; never OAuth codes/tokens, cookies, or provider credentials
 - connected integrations: provider, non-secret installation/workspace/connection ID, approved linked social/account handle or ID, connection status, visible non-secret capability labels, and evidence source
 - one optional per-program `integration-profile`: an existing owned account
@@ -75,6 +76,27 @@ For named accounts or colors, resolve auth in this order:
 
 After a proxy-derived refresh, active testing must use the agent MITM lane unless the agent is executing locally on Abommie. Do not test through Ryushe's proxy just because the account evidence came from there.
 
+## IDAWR second-account and lease handoff
+
+For any cross-account test, first list the current non-secret color/lease state;
+do not assume a remembered lane is still free:
+
+```bash
+python3 $HARNESS_ROOT/skills/chromium-test/scripts/browser_profile_lease.py \
+  status {program} --testing-role idawr
+```
+
+The structured result includes every mapped `color_availability` row (`available`,
+`locked`, or `unavailable`) and the current IDAWR pool. Select one explicit
+available `idawr-*` alias/color, then acquire its profile; the helper never
+auto-switches accounts. When login needs Ryushe, retain the lease as
+`awaiting-input`, start the exact profile's private `chromium-handoff`, and give
+Ryushe its Tailnet/Tailscale Serve URL plus scoped SSH-loopback fallback. Never
+expose CDP or publish a public route. On terminal completion, release the same
+lease with an honest profile-health disposition so the IDAWR account is unlocked
+for other agents; a lockout/step-up requires `needs-refresh` rather than calling
+the account available.
+
 ## PwnFox Proxy Config
 
 Use the registry's `proxy_identity.pwnfox` block instead of guessing header names.
@@ -92,6 +114,7 @@ Caido color filter template: req.raw.cont:"X-PwnFox-Color" AND req.raw.cont:"{co
 ```bash
 python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py show {program}
 python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-account {program} --alias primary --email ryushe+ai@example.com --user-id USER_ID --tier admin --credential-ref "bitwarden:item-name" --auth-seed-ref "auth-seed:/secure/path/primary.json" --auth-check-url "https://target.example/account" --auth-host-filter "target.example" --pwnfox-color blue --lifecycle active --browser-lease-enabled yes --organization-access owned-team:admin:enterprise --capability billing:invoices --capability shared-org:owned-team --destructible no
+python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-account {program} --alias idawr-pink --email ryushe+ai+pink@example.com --tier user --testing-role idawr --pwnfox-color pink --lifecycle active --browser-lease-enabled yes --destructible yes
 python3 $HARNESS_ROOT/skills/account-management/scripts/auth_resolver.py resolve --program {program} --account blue
 python3 $HARNESS_ROOT/skills/account-management/scripts/auth_resolver.py refresh-from-ryushe-proxy --program {program} --account blue --host-filter target.example
 python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-resource {program} --type design --id DESIGN_ID --name "profile test design" --owner primary --url https://target.example/design/DESIGN_ID --cleanup-needed yes

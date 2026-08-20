@@ -162,6 +162,7 @@ def account_summary(account: dict[str, Any], inventory: dict[str, Any]) -> dict[
         "color": account.get("pwnfox_color"),
         "tier": principal_tier(account),
         "role": account.get("role"),
+        "testing_role": account.get("testing_role"),
         "tenant_id": account.get("tenant_id"),
         "organization_access": account.get("organization_access", []),
         "destructible": account.get("destructible", "unknown"),
@@ -232,15 +233,73 @@ def account_lease_eligible(account: dict[str, Any]) -> bool:
     return account.get("browser_lease_enabled") is True and lifecycle == "active"
 
 
+def last_release(conn: sqlite3.Connection, program: str, alias: str) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT * FROM browser_profile_leases
+        WHERE program=? AND account_alias=? AND status='released'
+        ORDER BY released_at DESC LIMIT 1
+        """,
+        (slug(program), slug(alias)),
+    ).fetchone()
+
+
+def profile_available(account: dict[str, Any], release: sqlite3.Row | None) -> bool:
+    """A released profile needs an explicit healthy disposition before reuse."""
+    return account_lease_eligible(account) and (release is None or release["profile_health"] == "healthy")
+
+
+def lease_availability(conn: sqlite3.Connection, program: str, account: dict[str, Any], timestamp: float) -> tuple[str, sqlite3.Row | None, sqlite3.Row | None]:
+    alias = str(account["alias"])
+    lease = active_lease(conn, program, alias, timestamp)
+    release = None if lease else last_release(conn, program, alias)
+    status = "unavailable" if not account_lease_eligible(account) else "locked" if lease else "available" if profile_available(account, release) else "unavailable"
+    return status, lease, release
+
+
 def alternatives(conn: sqlite3.Connection, program: str, inventory: dict[str, Any], timestamp: float) -> list[dict[str, Any]]:
     available: list[dict[str, Any]] = []
     for account in inventory.get("accounts", []):
-        if not isinstance(account, dict) or not account.get("alias") or not account_lease_eligible(account):
+        if not isinstance(account, dict) or not account.get("alias"):
             continue
-        lease = active_lease(conn, program, str(account["alias"]), timestamp)
-        if lease is None:
+        status, _, _ = lease_availability(conn, program, account, timestamp)
+        if status == "available":
             available.append(account_summary(account, inventory))
     return sorted(available, key=lambda row: (str(row.get("color") or ""), row["alias"]))
+
+
+def color_availability(conn: sqlite3.Connection, program: str, inventory: dict[str, Any], timestamp: float) -> list[dict[str, Any]]:
+    """Return non-secret PwnFox lane availability without selecting a substitute."""
+    accounts = {
+        str(account.get("alias", "")).lower(): account
+        for account in inventory.get("accounts", [])
+        if isinstance(account, dict) and account.get("alias")
+    }
+    colors: dict[str, dict[str, Any]] = {}
+    for account in accounts.values():
+        color = str(account.get("pwnfox_color") or "").lower()
+        if color:
+            colors[color] = account
+    for lane in inventory.get("pwnfox_lanes", []):
+        if not isinstance(lane, dict):
+            continue
+        color = str(lane.get("color") or "").lower()
+        account = accounts.get(str(lane.get("account") or "").lower())
+        if color and account:
+            colors.setdefault(color, account)
+    rows: list[dict[str, Any]] = []
+    for color, account in colors.items():
+        status, lease, _ = lease_availability(conn, program, account, timestamp)
+        rows.append(
+            {
+                "color": color,
+                "status": status,
+                "alias": account.get("alias"),
+                "testing_role": account.get("testing_role"),
+                "lease": safe_lease(lease),
+            }
+        )
+    return sorted(rows, key=lambda row: (row["color"], str(row["alias"])))
 
 
 def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
@@ -264,13 +323,37 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
             for candidate in inventory.get("accounts", []):
                 if not isinstance(candidate, dict) or principal_tier(candidate) != args.tier:
                     continue
-                lease = active_lease(conn, args.program, str(candidate.get("alias", "")), timestamp)
+                candidate_status, lease, _ = lease_availability(conn, args.program, candidate, timestamp)
                 tier_accounts.append({
-                    "status": "locked" if lease else "available",
+                    "status": candidate_status,
                     "account": account_summary(candidate, inventory),
                     "lease": safe_lease(lease),
                 })
-            return {"status": "ok", "program": slug(args.program), "tier": args.tier, "accounts": tier_accounts}
+            return {
+                "status": "ok",
+                "program": slug(args.program),
+                "tier": args.tier,
+                "accounts": tier_accounts,
+                "color_availability": color_availability(conn, args.program, inventory, timestamp),
+            }
+        if args.testing_role:
+            role_accounts = []
+            for candidate in inventory.get("accounts", []):
+                if not isinstance(candidate, dict) or str(candidate.get("testing_role", "")).lower() != args.testing_role:
+                    continue
+                candidate_status, lease, _ = lease_availability(conn, args.program, candidate, timestamp)
+                role_accounts.append({
+                    "status": candidate_status,
+                    "account": account_summary(candidate, inventory),
+                    "lease": safe_lease(lease),
+                })
+            return {
+                "status": "ok",
+                "program": slug(args.program),
+                "testing_role": args.testing_role,
+                "accounts": role_accounts,
+                "color_availability": color_availability(conn, args.program, inventory, timestamp),
+            }
         if selector and account is None:
             return {
                 "status": "account-not-found",
@@ -280,14 +363,14 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
                 "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
             }
         if account is not None:
-            lease = active_lease(conn, args.program, str(account["alias"]), timestamp)
-            if not account_lease_eligible(account):
+            account_status, lease, last_release = lease_availability(conn, args.program, account, timestamp)
+            if account_status == "unavailable":
                 return {
                     "status": "account-unavailable",
                     "program": slug(args.program),
                     "account": account_summary(account, inventory),
                     "lease": safe_lease(lease),
-                    "last_release": None,
+                    "last_release": safe_lease(last_release),
                     "browser_probe": None,
                     "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
                     "next": "a current explicit health clearance is required before this profile may be leased",
@@ -296,18 +379,8 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
             if lease is not None:
                 lease, browser_probe = probe_lease_browser(conn, lease)
                 conn.commit()
-            last_release = None
-            if lease is None:
-                last_release = conn.execute(
-                    """
-                    SELECT * FROM browser_profile_leases
-                    WHERE program=? AND account_alias=? AND status='released'
-                    ORDER BY released_at DESC LIMIT 1
-                    """,
-                    (slug(args.program), slug(str(account["alias"]))),
-                ).fetchone()
             return {
-                "status": "locked" if lease else "available",
+                "status": account_status,
                 "program": slug(args.program),
                 "account": account_summary(account, inventory),
                 "lease": safe_lease(lease),
@@ -328,6 +401,7 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
             "program": slug(args.program),
             "active_leases": [safe_lease(row) for row in rows],
             "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
+            "color_availability": color_availability(conn, args.program, inventory, timestamp),
         }
 
 
@@ -356,6 +430,17 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
         init_db(conn)
         conn.execute("BEGIN IMMEDIATE")
         expire_leases(conn, timestamp)
+        release = last_release(conn, args.program, str(account["alias"]))
+        if not profile_available(account, release):
+            conn.commit()
+            return {
+                "status": "account-unavailable",
+                "program": slug(args.program),
+                "account": account_summary(account, inventory),
+                "last_release": safe_lease(release),
+                "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
+                "next": "refresh or clean the exact profile, then record a healthy release before leasing it again",
+            }
         existing = active_lease(conn, args.program, alias, timestamp)
         if existing:
             same_owner = existing["owner_agent_id"] == args.agent_id and existing["owner_run_id"] == args.run_id
@@ -380,6 +465,7 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
                 "account": account_summary(account, inventory),
                 "lease": safe_lease(existing),
                 "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
+                "color_availability": color_availability(conn, args.program, inventory, timestamp),
                 "next": "do not attach to or replace this browser; choose an explicitly approved alternative account or wait",
             }
         lease_id = str(uuid.uuid4())
@@ -536,7 +622,9 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="Show whether a program/account browser profile is available or locked.")
     status.add_argument("program")
     status.add_argument("--account", help="Owned account alias or color. Omit for a program overview.")
-    status.add_argument("--tier", choices=("admin", "user", "anonymous"), help="List accounts in a global principal tier; anonymous has no account lease.")
+    status_filter = status.add_mutually_exclusive_group()
+    status_filter.add_argument("--tier", choices=("admin", "user", "anonymous"), help="List accounts in a global principal tier; anonymous has no account lease.")
+    status_filter.add_argument("--testing-role", choices=("idawr",), help="List accounts reserved for this owned testing role; selection remains explicit.")
     status.set_defaults(func=cmd_status)
 
     acquire = sub.add_parser("acquire", help="Exclusively lease one persistent program/account browser profile.")

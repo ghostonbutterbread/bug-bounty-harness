@@ -200,6 +200,10 @@ spellings unless live traffic proves a second header exists.
     it must return the corresponding registry update command or JSON patch in
     its handoff.
 15. After cleanup, update the resource with `cleanup_needed no` and a note. Release the exact browser-profile lease with `completed`/`cancelled` and its honest profile health so the IDAWR account is unlocked for another agent; preserve `needs-refresh` after a lockout or auth step-up.
+    A `needs-refresh`/`needs-cleanup` profile stays unavailable for ordinary test
+    work. Use an explicit `acquire ... --recover-profile` lease only to repair
+    and revalidate that exact profile, then release it as `healthy` before it
+    returns to the pool.
 
 ## Linked Login and Integration Commands
 

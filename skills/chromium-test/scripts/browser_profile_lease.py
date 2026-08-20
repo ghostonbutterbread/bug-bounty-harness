@@ -431,7 +431,7 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
         conn.execute("BEGIN IMMEDIATE")
         expire_leases(conn, timestamp)
         release = last_release(conn, args.program, str(account["alias"]))
-        if not profile_available(account, release):
+        if not profile_available(account, release) and not (args.recover_profile and account_lease_eligible(account)):
             conn.commit()
             return {
                 "status": "account-unavailable",
@@ -439,7 +439,7 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
                 "account": account_summary(account, inventory),
                 "last_release": safe_lease(release),
                 "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
-                "next": "refresh or clean the exact profile, then record a healthy release before leasing it again",
+                "next": "acquire with --recover-profile only for profile repair, then record a healthy release before leasing it again",
             }
         existing = active_lease(conn, args.program, alias, timestamp)
         if existing:
@@ -633,6 +633,7 @@ def build_parser() -> argparse.ArgumentParser:
     acquire.add_argument("--agent-id", required=True)
     acquire.add_argument("--run-id", required=True)
     acquire.add_argument("--purpose", required=True)
+    acquire.add_argument("--recover-profile", action="store_true", help="Lease an unavailable but eligible profile only to repair/re-authenticate it; release healthy before ordinary reuse.")
     acquire.add_argument("--ttl-seconds", type=int, default=DEFAULT_TTL_SECONDS)
     acquire.set_defaults(func=cmd_acquire)
 

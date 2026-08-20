@@ -84,6 +84,17 @@ def test_account_and_ledger_upserts_preserve_existing_linked_records(tmp_path, m
     assert account["integrations"][0]["capabilities"] == ["repo:read"]
 
 
+def test_idawr_role_is_stored_and_visible_in_human_inventory_show(tmp_path, monkeypatch, capsys):
+    module = load_inventory_module()
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(tmp_path / "shared"))
+
+    assert module.main(["add-account", "demo", "--alias", "idawr-pink", "--testing-role", "idawr"]) == 0
+    assert module.main(["show", "demo"]) == 0
+
+    output = capsys.readouterr().out
+    assert "testing_role=idawr" in output
+
+
 def test_integration_profile_resolves_to_its_designated_owned_account(tmp_path, monkeypatch):
     module = load_inventory_module()
     monkeypatch.setenv("HARNESS_SHARED_BASE", str(tmp_path / "shared"))

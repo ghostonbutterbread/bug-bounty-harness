@@ -231,6 +231,7 @@ def cmd_show(args: argparse.Namespace) -> int:
             account.get("email") or account.get("username") or "",
             f"user_id={account.get('user_id')}" if account.get("user_id") else "",
             f"role={account.get('role')}" if account.get("role") else "",
+            f"testing_role={account.get('testing_role')}" if account.get("testing_role") else "",
             f"pwnfox={account.get('pwnfox_color')}" if account.get("pwnfox_color") else "",
             f"destructible={account.get('destructible')}" if account.get("destructible") else "",
         ]
@@ -265,6 +266,7 @@ def cmd_add_account(args: argparse.Namespace) -> int:
             "username": args.username,
             "user_id": args.user_id,
             "role": args.role,
+            "testing_role": args.testing_role,
             "tier": args.tier,
             "tenant_id": args.tenant_id,
             "organization_access": parse_organization_access(args.organization_access),
@@ -461,6 +463,7 @@ def build_parser() -> argparse.ArgumentParser:
     account.add_argument("--username")
     account.add_argument("--user-id")
     account.add_argument("--role")
+    account.add_argument("--testing-role", choices=("idawr",), help="Owned testing-pool role. Use idawr for the reusable second-account IDOR/BOLA pool.")
     account.add_argument("--tier", choices=("admin", "user", "unknown"), help="Global principal tier; admin is the canonical owner-equivalent tier.")
     account.add_argument("--tenant-id")
     account.add_argument("--organization-access", action="append", help="Repeatable non-secret ORG[:TIER[:PLAN]] access record for this program.")

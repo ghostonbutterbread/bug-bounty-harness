@@ -108,6 +108,10 @@ spellings unless live traffic proves a second header exists.
 - `email` or `username`: only if approved and useful for agent handoff
 - `user_id`: app-visible ID, UUID, GraphQL global ID, account ID, member ID, or profile ID
 - `role`: user/admin/member/owner/free/paid/etc. when known
+- `testing_role`: use `idawr` only for an approved reusable owned second-account
+  pool used for IDOR/BOLA comparisons. Name its registry aliases `idawr-<color>`
+  for the approved `ryushe+ai*` identities; this is a label, not a rename of the
+  email account.
 - `tenant_id` or workspace/team/org ID when relevant
 - `credential_ref`: Bitwarden item name or approved pointer, never the secret
 - `auth_seed_ref`: locked-down local auth seed pointer such as `auth-seed:/path/to/account.json`
@@ -145,6 +149,12 @@ spellings unless live traffic proves a second header exists.
 ## Workflow
 
 1. Before testing, run `show` and identify the owned accounts/resources for the lane.
+   For a cross-account test, also run the profile-host lease status command and
+   include its current `color_availability` rows in the child handoff:
+   ```bash
+   python3 $HARNESS_ROOT/skills/chromium-test/scripts/browser_profile_lease.py \
+     status <program> --testing-role idawr
+   ```
 2. For named account auth, call the resolver instead of reimplementing host,
    proxy, and fallback logic:
    ```bash
@@ -174,7 +184,8 @@ spellings unless live traffic proves a second header exists.
    Serve. Give the tailnet URL plus the scoped SSH-loopback fallback, retain the
    lease as `awaiting-input`, pause automation, then re-run the safe auth check
    after login. Do not expose CDP, use Funnel, or copy credentials into a child
-   prompt.
+   prompt. This Tailnet/Tailscale Serve URL and the scoped SSH-loopback fallback
+   are mandatory in every `awaiting-input` login handoff.
 9. If an account exists but lacks a user ID or PwnFox color, record the missing field once observed.
 10. When an owned account links, unlinks, or changes a login method (Google SSO,
     social login, etc.), immediately run `link-login` so the account ledger
@@ -184,11 +195,11 @@ spellings unless live traffic proves a second header exists.
     selection gate above. Immediately afterward, run `add-integration` with
     the observed non-secret status/capability data.
 12. When creating a document/design/upload/order/workspace, immediately add a resource record.
-13. For cross-account tests, compare only records with clear ownership and destructible status.
+13. For cross-account tests, compare only records with clear ownership and destructible status. Select a named, currently `available` IDAWR account explicitly; never borrow a locked color or auto-substitute a different identity.
 14. If a child agent creates or observes a new ID, login link, or integration,
     it must return the corresponding registry update command or JSON patch in
     its handoff.
-15. After cleanup, update the resource with `cleanup_needed no` and a note.
+15. After cleanup, update the resource with `cleanup_needed no` and a note. Release the exact browser-profile lease with `completed`/`cancelled` and its honest profile health so the IDAWR account is unlocked for another agent; preserve `needs-refresh` after a lockout or auth step-up.
 
 ## Linked Login and Integration Commands
 

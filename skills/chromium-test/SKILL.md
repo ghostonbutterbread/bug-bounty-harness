@@ -274,8 +274,11 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
      browser-native login. If that cannot establish a usable session, retain the
      exact lease as `awaiting-input`, publish only its loopback UI through
      task-scoped Tailscale Serve with the SSH-loopback fallback, and pause for
-     Ryushe. Never print or persist raw values outside the locked-down seed
-     file.
+     Ryushe. The handoff message must identify the resolved session account,
+     state the attempted safe login/auth-check failure, include the actual
+     Tailnet URL and scoped SSH fallback, and list freshly queried safe account
+     availability (use `status {program} --idor` for IDOR/BOLA). Never print or
+     persist raw values outside the locked-down seed file.
 5. If Ryushe names an account/profile, for example "use blue to go look at X", use that scoped account context. If the needed account/profile is unclear, ask before borrowing or creating auth state.
 6. If the task needs live intercept/modify/forward behavior, read `intercepted-proxy` before launching the browser.
 7. Confirm the MITM proxy setup:

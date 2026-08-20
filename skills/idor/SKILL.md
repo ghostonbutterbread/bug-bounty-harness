@@ -33,7 +33,10 @@ Use the registry to identify owned account aliases, user IDs, PwnFox colors,
 resource IDs, owner relationships, and destructible/cleanup status before
 swapping any object identifier.
 
-For a second identity, query the program's primary IDOR accounts first on the
+For replay-first IDOR work, use the selected owned account's approved direct
+session/replay path; do not create a browser profile merely to send a replay.
+Escalate to a browser only when the flow is browser-bound. For a second identity,
+query the program's primary IDOR accounts first on the
 profile host: `browser_profile_lease.py status {program} --idor`. It reports
 their current locked/unlocked state and color availability, followed by eligible
 ordinary-account fallbacks if the primary accounts are busy. Choose and lease an

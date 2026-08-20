@@ -142,6 +142,29 @@ Auth material handling contract:
   re-run the safe auth check; write reusable session material only through the
   approved locked-down auth-seed/session bridge.
 
+### Failed-login handoff message
+
+Only after a permitted login/auth-check attempt actually fails, send Ryushe a
+single non-secret handoff receipt before pausing:
+
+```text
+Login needs input
+- program / engagement: <program> / <purpose>
+- session account used: <resolved inventory alias> (<mapped color>)
+- attempted: <safe auth check or browser-native login step>; result: failed
+- Tailscale Serve URL: <actual task-specific tailnet HTTPS URL>
+- SSH loopback fallback: <actual scoped fallback>
+- current lease: awaiting-input
+- available accounts for lease: <fresh aliases/colors/statuses>
+```
+
+For IDOR/BOLA, generate the availability line immediately from
+`browser_profile_lease.py status <program> --idor`; it must show primary IDOR
+accounts before eligible fallbacks. For other work, query the relevant program
+status immediately before the message. Do not fabricate a URL, report a login
+attempt that did not occur, expose CDP/secrets/session material, or switch to an
+available account without explicit selection.
+
 ### Named-account refresh fallback
 
 If Ryushe explicitly says to use a named account or color, for example

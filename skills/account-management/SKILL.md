@@ -74,6 +74,32 @@ For named accounts or colors, resolve auth in this order:
    SSH-loopback fallback, and pause automation. Do not substitute another
    account.
 
+### Required failed-login handoff receipt
+
+After an agent has actually attempted the selected account's permitted login or
+safe auth check and it still fails, it must not send a vague login blocker. Keep
+the exact lease as `awaiting-input`, create the private handoff, query fresh
+non-secret availability, then give Ryushe one compact receipt containing:
+
+```text
+Login needs input
+- program / engagement: <program> / <run-purpose>
+- session account used: <resolved inventory alias> (<color, if mapped>)
+- attempted: <safe auth check or browser-native login step>; result: failed
+- Tailscale Serve URL: <actual task-specific tailnet HTTPS URL>
+- SSH loopback fallback: <actual scoped command or route>
+- current lease: awaiting-input (<lease id/expiry if available>)
+- available accounts for lease: <fresh aliases/colors/statuses>
+```
+
+For an IDOR/BOLA comparison, obtain the final line from
+`browser_profile_lease.py status {program} --idor` so primary IDOR accounts and
+eligible fallbacks are visible. For another engagement, query the relevant
+program/account status and list only the fresh safe alternatives returned by the
+lease helper. Never invent a Tailnet URL, claim a login was attempted when it
+was not, expose credentials/CDP/session data, or substitute an available account
+without Ryushe selecting it.
+
 After a proxy-derived refresh, active testing must use the agent MITM lane unless the agent is executing locally on Abommie. Do not test through Ryushe's proxy just because the account evidence came from there.
 
 ## IDOR second-account and lease handoff

@@ -21,18 +21,24 @@ The launcher prefers Playwright's bundled Chromium when Playwright is installed,
 
 ## Browser versus engagement-profile admission
 
-`chromium_test.py` is a general isolated-browser launcher. Agents may invoke it
-directly with `--ephemeral-profile` for research, web lookup, bot-protection or
-browser-fingerprint escalation, and other non-engagement work. These disposable
-browser runs do not need an account-profile lease.
+For normal, non-engagement web work—search, research, or a generic web lookup—
+agents may invoke `chromium_test.py` directly with `--ephemeral-profile`. Those
+disposable browser runs do not need an account-profile lease.
 
-Use `browser_provisioner.py` only for an **engagement** that needs a persistent,
-named owned-account profile: authenticated testing, cross-account IDOR/BOLA,
-manual-login continuity, or a profile that another run must not concurrently
-control. The provisioner leases the exact account/profile, checks capacity,
-records ownership, and supplies a terminal release lifecycle. A named account
-must resolve exactly from the program inventory—never derive aliases by adding
-a color suffix such as `green2`.
+For **bug-bounty engagement browser work**, use `browser_provisioner.py`, even
+when the immediate reason is bot protection, browser fingerprinting, UI/JS
+exploration, or capture of a request for later replay. The provisioner gives the
+engagement an isolated profile, capacity admission, a recorded owner, and a
+terminal lifecycle. When the engagement uses a named color/account profile, it
+also leases that exact profile so another agent cannot control it concurrently.
+The alias must resolve exactly from the program inventory—never derive an alias
+by adding a suffix such as `green2`.
+
+IDOR is replay-first after a browser-derived session/request has been captured:
+stop and release the browser/profile at that point unless further browser work
+is necessary, then build and run bounded direct replays through the task MITM
+lane. A stored session supports replay; it is not a reason to leave a browser
+or its profile lease running.
 
 ## Hoster GPU-Backed Headed Escalation
 
@@ -52,11 +58,12 @@ controls.
    interactive SSH shell. Completion: the launcher reports `runtime: hoster`,
    a Hoster-local profile/CDP endpoint, and a ControlGroup outside
    `ssh.service`.
-3. Request via the canonical provisioner *on Hoster*, with a unique run ID,
-   ephemeral profile, and Hoster-local proxy (`http://localhost:<leased-port>`).
-   Do not launch raw Chrome, reuse an existing Chrome process/profile, or invoke
-   `chromium_test.py` directly from an SSH cgroup: bypassing admission and
-   ownership is unsafe.
+3. Request via the canonical provisioner *on Hoster*, with a unique run ID and
+   Hoster-local proxy (`http://localhost:<leased-port>`). Use an ephemeral
+   profile only where the engagement does not need a named account profile. Do
+   not launch raw Chrome, reuse an existing Chrome process/profile, or invoke
+   `chromium_test.py` directly from an SSH cgroup: bypassing engagement
+   admission and ownership is unsafe.
 4. Before treating the run as GPU-backed, verify its recorded browser PID owns
    `/dev/dri/renderD128` and that `eglinfo -B` reports `NV134`, rather than
    `llvmpipe`. `nvidia-smi` is not the verification path here: this host uses
@@ -296,9 +303,11 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
 
 ## Workflow
 
-0. For an engagement requiring a durable named account profile (for example a color used across a
-   multi-agent owned-account test), first run `browser_profile_lease.py status
-   <program> --account <color>`, then acquire that **exact** account if available.
+0. For every bug-bounty browser engagement, request the browser through the
+   provisioner. If it requires a durable named account profile (for example a
+   color used across a multi-agent owned-account test), first run
+   `browser_profile_lease.py status <program> --account <color>`, then acquire
+   that **exact** account if available.
    A locked response may show safe, explicitly available alternatives but never
    authorizes automatic account substitution. Run the helper on the browser
    profile host. Use the persistent account profile after acquisition; retain
@@ -306,7 +315,7 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
    while work awaits input: renew it with `--work-state awaiting-input`; only a
    terminal completion, handoff, or cancellation may call `release`, which must
    declare a non-secret `--profile-health` for the next agent.
-1. For that engagement, request the browser through the provisioner:
+1. Request the engagement browser through the provisioner:
    ```bash
    python3 "$HARNESS_ROOT/skills/chromium-test/scripts/browser_provisioner.py" request \
      <program> <account> --agent-id <agent-id> --run-id <run-id> \

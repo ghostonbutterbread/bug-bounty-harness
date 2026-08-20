@@ -20,9 +20,9 @@
   python3 "$KASM" stop --display 20 --json
   ```
 
-  The browser provisioner owns the normal agent start path. It performs
-  node-local admission and exact-profile leasing before it invokes the Chromium
-  launcher:
+  The browser provisioner owns the bug-bounty engagement browser start path. It
+  performs node-local admission and, for named color/account profiles, exact
+  profile leasing before it invokes the Chromium launcher:
 
   ```bash
   python3 "$HARNESS_ROOT/skills/chromium-test/scripts/browser_provisioner.py" request \
@@ -30,10 +30,10 @@
     --purpose "manual handoff" --url https://target.example/
   ```
 
-  `chromium_test.py` is an implementation launcher. Do not use it directly to
-  bypass a `queued` provisioner result. KasmVNC/display-specific direct launch
-  is an explicit recovery exception only when the provisioner cannot express
-  the necessary handoff settings; record that exception with the task receipt.
+  Do not use `chromium_test.py` directly to bypass a `queued` provisioner result
+  for an engagement. It remains available with `--ephemeral-profile` for normal
+  non-engagement browsing. Engagement handoff settings belong in the
+  provisioner rather than creating a second direct-launch path.
 
   Its JSON result includes the loopback `kasmvnc.web_url` and an exact scoped
   `kasmvnc.stop_command`. The default display backend is unchanged; KasmVNC is

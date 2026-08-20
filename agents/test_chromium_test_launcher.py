@@ -773,6 +773,14 @@ def test_kasmvnc_start_uses_dedicated_display_loopback_and_requested_web_port(mo
         "127.0.0.1",
         "-websocketPort",
         "8463",
+        "-AcceptCutText",
+        "1",
+        "-SendCutText",
+        "1",
+        "-DLP_ClipAcceptMax",
+        "1048576",
+        "-DLP_ClipSendMax",
+        "1048576",
     ]
     assert result["display"] == ":20"
     assert result["web_url"] == "http://127.0.0.1:8463/"

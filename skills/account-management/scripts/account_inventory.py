@@ -68,6 +68,7 @@ def blank_inventory(program: str) -> dict[str, Any]:
         "created_at": now,
         "updated_at": now,
         "accounts": [],
+        "primary_idor_accounts": [],
         "integration_profile": None,
         "resources": [],
         "pwnfox_lanes": [],
@@ -114,6 +115,7 @@ def load_inventory(program: str) -> dict[str, Any]:
     if data["auth_session_mode"] not in AUTH_SESSION_MODES:
         raise SystemExit(f"invalid auth_session_mode {data['auth_session_mode']!r}")
     data.setdefault("accounts", [])
+    data.setdefault("primary_idor_accounts", [])
     data.setdefault("integration_profile", None)
     data.setdefault("resources", [])
     data.setdefault("pwnfox_lanes", [])
@@ -134,6 +136,13 @@ def load_inventory(program: str) -> dict[str, Any]:
         normalized_aliases.add(normalized_alias)
         account.setdefault("linked_logins", [])
         account.setdefault("integrations", [])
+    if not isinstance(data["primary_idor_accounts"], list) or not all(isinstance(alias, str) for alias in data["primary_idor_accounts"]):
+        raise SystemExit("primary_idor_accounts must be a list of account aliases")
+    known_aliases = {str(account.get("alias", "")).lower() for account in data["accounts"]}
+    if len({alias.lower() for alias in data["primary_idor_accounts"]}) != len(data["primary_idor_accounts"]):
+        raise SystemExit("primary_idor_accounts must not repeat an account alias")
+    if any(alias.lower() not in known_aliases for alias in data["primary_idor_accounts"]):
+        raise SystemExit("primary_idor_accounts must reference existing owned account aliases")
     profile = data["integration_profile"]
     if profile is not None:
         if not isinstance(profile, dict) or not profile.get("account"):
@@ -225,13 +234,15 @@ def cmd_show(args: argparse.Namespace) -> int:
     profile = data.get("integration_profile")
     if profile:
         print(f"Integration profile: {profile.get('account')} ({profile.get('status')})")
+    if data["primary_idor_accounts"]:
+        print("Primary IDOR accounts: " + ", ".join(data["primary_idor_accounts"]))
     for account in data.get("accounts", []):
         parts = [
             account.get("alias", ""),
             account.get("email") or account.get("username") or "",
             f"user_id={account.get('user_id')}" if account.get("user_id") else "",
             f"role={account.get('role')}" if account.get("role") else "",
-            f"testing_role={account.get('testing_role')}" if account.get("testing_role") else "",
+
             f"pwnfox={account.get('pwnfox_color')}" if account.get("pwnfox_color") else "",
             f"destructible={account.get('destructible')}" if account.get("destructible") else "",
         ]
@@ -266,7 +277,7 @@ def cmd_add_account(args: argparse.Namespace) -> int:
             "username": args.username,
             "user_id": args.user_id,
             "role": args.role,
-            "testing_role": args.testing_role,
+
             "tier": args.tier,
             "tenant_id": args.tenant_id,
             "organization_access": parse_organization_access(args.organization_access),
@@ -313,6 +324,17 @@ def cmd_set_auth_session_mode(args: argparse.Namespace) -> int:
     data["auth_session_mode"] = args.auth_session_mode
     path = save_inventory(args.program, data)
     print(f"set auth_session_mode={args.auth_session_mode} in {path}")
+    return 0
+
+
+def cmd_set_primary_idor_accounts(args: argparse.Namespace) -> int:
+    data = load_inventory(args.program)
+    aliases = [account_by_alias(data, alias)["alias"] for alias in args.account]
+    if len({alias.lower() for alias in aliases}) != len(aliases):
+        raise SystemExit("primary IDOR accounts must not repeat an alias")
+    data["primary_idor_accounts"] = aliases
+    path = save_inventory(args.program, data)
+    print(f"set primary IDOR accounts in {path}: {', '.join(aliases)}")
     return 0
 
 
@@ -463,7 +485,7 @@ def build_parser() -> argparse.ArgumentParser:
     account.add_argument("--username")
     account.add_argument("--user-id")
     account.add_argument("--role")
-    account.add_argument("--testing-role", choices=("idawr",), help="Owned testing-pool role. Use idawr for the reusable second-account IDOR/BOLA pool.")
+
     account.add_argument("--tier", choices=("admin", "user", "unknown"), help="Global principal tier; admin is the canonical owner-equivalent tier.")
     account.add_argument("--tenant-id")
     account.add_argument("--organization-access", action="append", help="Repeatable non-secret ORG[:TIER[:PLAN]] access record for this program.")
@@ -507,6 +529,11 @@ def build_parser() -> argparse.ArgumentParser:
     session_mode.add_argument("program")
     session_mode.add_argument("auth_session_mode", choices=AUTH_SESSION_MODES)
     session_mode.set_defaults(func=cmd_set_auth_session_mode)
+
+    idor_accounts = sub.add_parser("set-primary-idor-accounts", help="Set the ordered normal accounts agents should check first for IDOR/BOLA work.")
+    idor_accounts.add_argument("program")
+    idor_accounts.add_argument("--account", action="append", required=True, help="Existing owned account alias; repeat in preferred order.")
+    idor_accounts.set_defaults(func=cmd_set_primary_idor_accounts)
 
     linked_login = sub.add_parser("link-login", help="Add or update a non-secret login identity linked to an owned account.")
     linked_login.add_argument("program")

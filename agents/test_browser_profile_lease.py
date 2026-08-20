@@ -41,7 +41,6 @@ def write_inventory(shared: Path) -> None:
                     {
                         "alias": "pink-member",
                         "pwnfox_color": "pink",
-                        "testing_role": "idawr",
                         "role": "member",
                         "capabilities": ["org-member", "shared-org:demo-team"],
                         "lifecycle": "active",
@@ -58,6 +57,7 @@ def write_inventory(shared: Path) -> None:
                     {"type": "organization", "id": "demo-team", "owner": "green-owner"},
                     {"type": "project", "id": "p1", "owner": "green-owner"},
                 ],
+                "primary_idor_accounts": ["pink-member"],
             }
         )
     )
@@ -138,7 +138,7 @@ def test_locked_profile_returns_explicit_safe_alternatives_without_switching(mon
     ]
 
 
-def test_idawr_status_reports_pool_and_all_current_pwnfox_colors(monkeypatch, tmp_path):
+def test_idor_status_prioritizes_primary_accounts_and_reports_all_current_pwnfox_colors(monkeypatch, tmp_path):
     module = load_module()
     shared = tmp_path / "shared"
     state = tmp_path / "state"
@@ -146,11 +146,10 @@ def test_idawr_status_reports_pool_and_all_current_pwnfox_colors(monkeypatch, tm
     monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
     module.cmd_acquire(args(module, state, "acquire", account="green", agent_id="agent-a", run_id="run-a", purpose="owner-flow"))
 
-    result = module.cmd_status(args(module, state, "status", testing_role="idawr"))
+    result = module.cmd_status(args(module, state, "status", idor=True))
 
     assert result["status"] == "ok"
-    assert result["testing_role"] == "idawr"
-    assert [(row["account"]["alias"], row["status"]) for row in result["accounts"]] == [("pink-member", "available")]
+    assert [(row["account"]["alias"], row["status"]) for row in result["primary_idor_accounts"]] == [("pink-member", "available")]
     assert [(row["color"], row["status"]) for row in result["color_availability"]] == [
         ("gray", "unavailable"),
         ("green", "locked"),
@@ -217,7 +216,7 @@ def test_same_owner_renews_and_release_makes_profile_available(monkeypatch, tmp_
     assert status["last_release"]["profile_health"] == "healthy"
 
 
-def test_nonhealthy_release_keeps_idawr_profile_and_color_unavailable(monkeypatch, tmp_path):
+def test_nonhealthy_release_keeps_primary_idor_profile_and_color_unavailable(monkeypatch, tmp_path):
     module = load_module()
     shared = tmp_path / "shared"
     state = tmp_path / "state"
@@ -230,7 +229,7 @@ def test_nonhealthy_release_keeps_idawr_profile_and_color_unavailable(monkeypatc
         args(module, state, "release", lease_id=lease["lease"]["lease_id"], agent_id="agent-a", disposition="completed", profile_health="needs-refresh")
     )
 
-    role_status = module.cmd_status(args(module, state, "status", testing_role="idawr"))
+    role_status = module.cmd_status(args(module, state, "status", idor=True))
     account_status = module.cmd_status(args(module, state, "status", account="pink"))
     reacquire = module.cmd_acquire(
         args(module, state, "acquire", account="pink", agent_id="agent-b", run_id="run-b", purpose="idor")
@@ -239,7 +238,7 @@ def test_nonhealthy_release_keeps_idawr_profile_and_color_unavailable(monkeypatc
         args(module, state, "acquire", account="pink", agent_id="agent-b", run_id="refresh-b", purpose="profile-refresh", recover_profile=True)
     )
 
-    assert role_status["accounts"][0]["status"] == "unavailable"
+    assert role_status["primary_idor_accounts"][0]["status"] == "unavailable"
     assert [row for row in role_status["color_availability"] if row["color"] == "pink"][0]["status"] == "unavailable"
     assert account_status["status"] == "account-unavailable"
     assert account_status["last_release"]["profile_health"] == "needs-refresh"
@@ -259,7 +258,7 @@ def test_color_availability_includes_lane_only_mapping(monkeypatch, tmp_path):
     inventory_path.write_text(json.dumps(inventory))
     monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
 
-    result = module.cmd_status(args(module, state, "status", testing_role="idawr"))
+    result = module.cmd_status(args(module, state, "status", idor=True))
 
     assert [(row["color"], row["alias"], row["status"]) for row in result["color_availability"]] == [
         ("gray", "gray-disabled", "unavailable"),

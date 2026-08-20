@@ -23,6 +23,7 @@ DEFAULT_WEB_PORT_MIN = 8463
 DEFAULT_WEB_PORT_MAX = 8499
 DEFAULT_GEOMETRY = "1400x900"
 DEFAULT_DEPTH = 24
+CLIPBOARD_MAX_BYTES = 1_048_576
 DEFAULT_STATE_DIR = Path("~/.local/state/ghost/kasmvnc-sessions").expanduser()
 
 
@@ -112,6 +113,17 @@ def build_start_command(display: int, web_port: int) -> list[str]:
         LISTENER_HOST,
         "-websocketPort",
         str(validate_web_port(web_port)),
+        # KasmVNC's clipboard panel is the reliable text-box fallback when a
+        # browser intercepts Ctrl/Cmd+V.  Keep both directions explicit and
+        # bounded so task handoffs do not inherit an ambient server policy.
+        "-AcceptCutText",
+        "1",
+        "-SendCutText",
+        "1",
+        "-DLP_ClipAcceptMax",
+        str(CLIPBOARD_MAX_BYTES),
+        "-DLP_ClipSendMax",
+        str(CLIPBOARD_MAX_BYTES),
     ]
 
 

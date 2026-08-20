@@ -19,24 +19,20 @@ browser context instead of treating raw HTTP as app-layer coverage.
 
 The launcher prefers Playwright's bundled Chromium when Playwright is installed, then falls back to system Chromium/Chrome.
 
-## Required Browser Admission
+## Browser versus engagement-profile admission
 
-For ordinary agent browser work, request the browser through
-`browser_provisioner.py`; do not invoke `chromium_test.py` directly. The
-provisioner is the node-local admission and ownership boundary: it leases the
-exact account/profile, checks available RAM and swap, queues rather than starts
-a browser when the node lacks headroom, records the browser owner, and enforces
-the five-active-tab policy. It is deliberately an admission check rather than
-a fixed RAM allocation for every agent.
+`chromium_test.py` is a general isolated-browser launcher. Agents may invoke it
+directly with `--ephemeral-profile` for research, web lookup, bot-protection or
+browser-fingerprint escalation, and other non-engagement work. These disposable
+browser runs do not need an account-profile lease.
 
-`chromium_test.py` remains the provisioner's implementation launcher and may be
-used directly only by the provisioner itself, focused launcher tests, or an
-explicitly approved recovery procedure. The few direct commands below are
-implementation-level handoff, MITM smoke, and cleanup examples; they must not
-be copied into an ordinary agent task packet. For an interactive KasmVNC flow,
-first request the browser through the provisioner; use a direct display launch
-only when that request path cannot express the required handoff and record the
-reason in the task receipt.
+Use `browser_provisioner.py` only for an **engagement** that needs a persistent,
+named owned-account profile: authenticated testing, cross-account IDOR/BOLA,
+manual-login continuity, or a profile that another run must not concurrently
+control. The provisioner leases the exact account/profile, checks capacity,
+records ownership, and supplies a terminal release lifecycle. A named account
+must resolve exactly from the program inventory—never derive aliases by adding
+a color suffix such as `green2`.
 
 ## Hoster GPU-Backed Headed Escalation
 
@@ -300,7 +296,7 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
 
 ## Workflow
 
-0. For a durable named account profile (for example a color used across a
+0. For an engagement requiring a durable named account profile (for example a color used across a
    multi-agent owned-account test), first run `browser_profile_lease.py status
    <program> --account <color>`, then acquire that **exact** account if available.
    A locked response may show safe, explicitly available alternatives but never
@@ -310,7 +306,7 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
    while work awaits input: renew it with `--work-state awaiting-input`; only a
    terminal completion, handoff, or cancellation may call `release`, which must
    declare a non-secret `--profile-health` for the next agent.
-1. Request an isolated browser through the provisioner:
+1. For that engagement, request the browser through the provisioner:
    ```bash
    python3 "$HARNESS_ROOT/skills/chromium-test/scripts/browser_provisioner.py" request \
      <program> <account> --agent-id <agent-id> --run-id <run-id> \
@@ -318,7 +314,7 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
    ```
    On `queued`/`queued-timeout`, preserve the exact task and account, perform
    only non-browser preparation, and retry with bounded backoff. Never launch
-   `chromium_test.py` directly to evade admission. On `started` or
+   `chromium_test.py` directly to evade engagement admission. On `started` or
    `already-running`, use the browser's owner-recorded control path. The
    underlying launcher resolves the runtime route and adds
    `--proxy-server=<mitm-proxy>` by default.

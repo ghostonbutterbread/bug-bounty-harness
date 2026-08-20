@@ -162,7 +162,6 @@ def account_summary(account: dict[str, Any], inventory: dict[str, Any]) -> dict[
         "color": account.get("pwnfox_color"),
         "tier": principal_tier(account),
         "role": account.get("role"),
-        "testing_role": account.get("testing_role"),
         "tenant_id": account.get("tenant_id"),
         "organization_access": account.get("organization_access", []),
         "destructible": account.get("destructible", "unknown"),
@@ -295,7 +294,6 @@ def color_availability(conn: sqlite3.Connection, program: str, inventory: dict[s
                 "color": color,
                 "status": status,
                 "alias": account.get("alias"),
-                "testing_role": account.get("testing_role"),
                 "lease": safe_lease(lease),
             }
         )
@@ -336,22 +334,37 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
                 "accounts": tier_accounts,
                 "color_availability": color_availability(conn, args.program, inventory, timestamp),
             }
-        if args.testing_role:
-            role_accounts = []
-            for candidate in inventory.get("accounts", []):
-                if not isinstance(candidate, dict) or str(candidate.get("testing_role", "")).lower() != args.testing_role:
+        if args.idor:
+            by_alias = {
+                str(candidate.get("alias", "")).lower(): candidate
+                for candidate in inventory.get("accounts", [])
+                if isinstance(candidate, dict)
+            }
+            primary_aliases = [str(alias).lower() for alias in inventory.get("primary_idor_accounts", []) if isinstance(alias, str)]
+            primary_accounts = []
+            for alias in primary_aliases:
+                candidate = by_alias.get(alias)
+                if candidate is None:
                     continue
                 candidate_status, lease, _ = lease_availability(conn, args.program, candidate, timestamp)
-                role_accounts.append({
+                primary_accounts.append({
                     "status": candidate_status,
                     "account": account_summary(candidate, inventory),
                     "lease": safe_lease(lease),
                 })
+            primary_set = set(primary_aliases)
+            fallback_accounts = [
+                account_summary(candidate, inventory)
+                for candidate in inventory.get("accounts", [])
+                if isinstance(candidate, dict)
+                and str(candidate.get("alias", "")).lower() not in primary_set
+                and lease_availability(conn, args.program, candidate, timestamp)[0] == "available"
+            ]
             return {
                 "status": "ok",
                 "program": slug(args.program),
-                "testing_role": args.testing_role,
-                "accounts": role_accounts,
+                "primary_idor_accounts": primary_accounts,
+                "fallback_accounts": sorted(fallback_accounts, key=lambda row: (str(row.get("color") or ""), row["alias"])),
                 "color_availability": color_availability(conn, args.program, inventory, timestamp),
             }
         if selector and account is None:
@@ -624,7 +637,7 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--account", help="Owned account alias or color. Omit for a program overview.")
     status_filter = status.add_mutually_exclusive_group()
     status_filter.add_argument("--tier", choices=("admin", "user", "anonymous"), help="List accounts in a global principal tier; anonymous has no account lease.")
-    status_filter.add_argument("--testing-role", choices=("idawr",), help="List accounts reserved for this owned testing role; selection remains explicit.")
+    status_filter.add_argument("--idor", action="store_true", help="List primary IDOR accounts first, their live lease state, then eligible fallback accounts.")
     status.set_defaults(func=cmd_status)
 
     acquire = sub.add_parser("acquire", help="Exclusively lease one persistent program/account browser profile.")

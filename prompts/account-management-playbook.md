@@ -108,10 +108,9 @@ spellings unless live traffic proves a second header exists.
 - `email` or `username`: only if approved and useful for agent handoff
 - `user_id`: app-visible ID, UUID, GraphQL global ID, account ID, member ID, or profile ID
 - `role`: user/admin/member/owner/free/paid/etc. when known
-- `testing_role`: use `idawr` only for an approved reusable owned second-account
-  pool used for IDOR/BOLA comparisons. Name its registry aliases `idawr-<color>`
-  for the approved `ryushe+ai*` identities; this is a label, not a rename of the
-  email account.
+- `primary_idor_accounts`: program-level ordered aliases for ordinary owned
+  accounts agents should check first when they need a second identity for
+  IDOR/BOLA. This does not change an account's role or email.
 - `tenant_id` or workspace/team/org ID when relevant
 - `credential_ref`: Bitwarden item name or approved pointer, never the secret
 - `auth_seed_ref`: locked-down local auth seed pointer such as `auth-seed:/path/to/account.json`
@@ -153,7 +152,7 @@ spellings unless live traffic proves a second header exists.
    include its current `color_availability` rows in the child handoff:
    ```bash
    python3 $HARNESS_ROOT/skills/chromium-test/scripts/browser_profile_lease.py \
-     status <program> --testing-role idawr
+     status <program> --idor
    ```
 2. For named account auth, call the resolver instead of reimplementing host,
    proxy, and fallback logic:
@@ -195,11 +194,11 @@ spellings unless live traffic proves a second header exists.
     selection gate above. Immediately afterward, run `add-integration` with
     the observed non-secret status/capability data.
 12. When creating a document/design/upload/order/workspace, immediately add a resource record.
-13. For cross-account tests, compare only records with clear ownership and destructible status. Select a named, currently `available` IDAWR account explicitly; never borrow a locked color or auto-substitute a different identity.
+13. For cross-account tests, compare only records with clear ownership and destructible status. Query `status <program> --idor` immediately before leasing: choose an available primary IDOR account first, or an explicit listed fallback if they are busy. Never borrow a locked color.
 14. If a child agent creates or observes a new ID, login link, or integration,
     it must return the corresponding registry update command or JSON patch in
     its handoff.
-15. After cleanup, update the resource with `cleanup_needed no` and a note. Release the exact browser-profile lease with `completed`/`cancelled` and its honest profile health so the IDAWR account is unlocked for another agent; preserve `needs-refresh` after a lockout or auth step-up.
+15. After cleanup, update the resource with `cleanup_needed no` and a note. Release the exact browser-profile lease immediately with `completed`/`cancelled` and its honest profile health so the account is unlocked for another IDOR agent; preserve `needs-refresh` after a lockout or auth step-up.
     A `needs-refresh`/`needs-cleanup` profile stays unavailable for ordinary test
     work. Use an explicit `acquire ... --recover-profile` lease only to repair
     and revalidate that exact profile, then release it as `healthy` before it

@@ -33,15 +33,14 @@ Use the registry to identify owned account aliases, user IDs, PwnFox colors,
 resource IDs, owner relationships, and destructible/cleanup status before
 swapping any object identifier.
 
-For a second identity, use the explicitly registered `testing_role: idawr`
-pool (normally aliases `idawr-<color>` for approved `ryushe+ai*` accounts). On
-the profile host, run `browser_profile_lease.py status {program}
---testing-role idawr` first and give the current `color_availability` rows to
-the testing handoff. Choose one named available color—never auto-substitute an
-account. If login requires human input, preserve that exact lease as
+For a second identity, query the program's primary IDOR accounts first on the
+profile host: `browser_profile_lease.py status {program} --idor`. It reports
+their current locked/unlocked state and color availability, followed by eligible
+ordinary-account fallbacks if the primary accounts are busy. Choose and lease an
+explicit account; never assume availability or auto-substitute. If login requires human input, preserve that exact lease as
 `awaiting-input` and provide Ryushe the private Tailnet/Tailscale Serve route
 and scoped SSH-loopback fallback; release the same lease when done so its color
-is unlocked for the next agent.
+is unlocked immediately for the next IDOR agent.
 
 ## Primary Harness
 

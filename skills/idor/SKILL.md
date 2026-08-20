@@ -33,17 +33,23 @@ Use the registry to identify owned account aliases, user IDs, PwnFox colors,
 resource IDs, owner relationships, and destructible/cleanup status before
 swapping any object identifier.
 
-For replay-first IDOR work, use the selected owned account's approved direct
-session/replay path; do not create a browser profile merely to send a replay.
-Escalate to a browser only when the flow is browser-bound. For a second identity,
-query the program's primary IDOR accounts first on the
-profile host: `browser_profile_lease.py status {program} --idor`. It reports
-their current locked/unlocked state and color availability, followed by eligible
-ordinary-account fallbacks if the primary accounts are busy. Choose and lease an
-explicit account; never assume availability or auto-substitute. If login requires human input, preserve that exact lease as
+For replay-first IDOR work, establish or refresh the selected owned account's
+live session through the engagement browser path when necessary: query the
+program's primary IDOR accounts first on the profile host with
+`browser_profile_lease.py status {program} --idor`, select an explicitly
+available alias, and request that named profile through the provisioner. It
+reports their current locked/unlocked state and color availability, followed by
+eligible ordinary-account fallbacks if the primary accounts are busy; never
+assume availability, auto-substitute, or synthesize an alias such as `green2`.
+
+After the browser has captured a usable live session/request, stop and release
+that exact browser/profile lease promptly, then build bounded direct replays
+through the task MITM lane. Do not keep a browser running solely for replay.
+Escalate back to the provisioned named browser only when the flow is genuinely
+browser-bound. If login requires human input, retain that exact browser lease as
 `awaiting-input` and provide Ryushe the private Tailnet/Tailscale Serve route
-and scoped SSH-loopback fallback; release the same lease when done so its color
-is unlocked immediately for the next IDOR agent.
+and scoped SSH-loopback fallback; release it immediately after the session is
+established or the work becomes terminal.
 
 ## Primary Harness
 

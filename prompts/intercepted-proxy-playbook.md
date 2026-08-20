@@ -60,8 +60,9 @@ ignore is an explicit disposable debugging fallback only.
 
 ## Browser Launch
 
-Request the browser through the required harness provisioner. It preserves
-profile ownership and queues rather than bypassing node resource admission:
+For this bug-bounty engagement, request the browser through the required
+harness provisioner. It preserves profile ownership and queues rather than
+bypassing node resource admission:
 
 ```bash
 cd "$HARNESS_ROOT"

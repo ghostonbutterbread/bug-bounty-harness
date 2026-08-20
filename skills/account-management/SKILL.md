@@ -97,6 +97,12 @@ lease with an honest profile-health disposition so the IDAWR account is unlocked
 for other agents; a lockout/step-up requires `needs-refresh` rather than calling
 the account available.
 
+An account released as `needs-refresh`/`needs-cleanup` is intentionally not
+available to ordinary test work. To repair its exact owned profile, an agent may
+make an explicit profile-host lease with `--recover-profile`, complete only the
+repair/login verification, then release it as `healthy`. That recovery lease is
+not permission to substitute the account or continue the original test.
+
 ## PwnFox Proxy Config
 
 Use the registry's `proxy_identity.pwnfox` block instead of guessing header names.

@@ -76,7 +76,10 @@ def args(module, state: Path, command: str, **values):
             argv.extend(["--tier", tier])
     for key, value in values.items():
         flag = "--" + key.replace("_", "-")
-        argv.extend([flag, str(value)])
+        if value is True:
+            argv.append(flag)
+        elif value is not False and value is not None:
+            argv.extend([flag, str(value)])
     return parser.parse_args(argv)
 
 
@@ -232,12 +235,16 @@ def test_nonhealthy_release_keeps_idawr_profile_and_color_unavailable(monkeypatc
     reacquire = module.cmd_acquire(
         args(module, state, "acquire", account="pink", agent_id="agent-b", run_id="run-b", purpose="idor")
     )
+    recovery = module.cmd_acquire(
+        args(module, state, "acquire", account="pink", agent_id="agent-b", run_id="refresh-b", purpose="profile-refresh", recover_profile=True)
+    )
 
     assert role_status["accounts"][0]["status"] == "unavailable"
     assert [row for row in role_status["color_availability"] if row["color"] == "pink"][0]["status"] == "unavailable"
     assert account_status["status"] == "account-unavailable"
     assert account_status["last_release"]["profile_health"] == "needs-refresh"
     assert reacquire["status"] == "account-unavailable"
+    assert recovery["status"] == "leased"
 
 
 def test_color_availability_includes_lane_only_mapping(monkeypatch, tmp_path):

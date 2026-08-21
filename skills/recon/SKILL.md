@@ -26,6 +26,7 @@ component owners:
 | Large-list review state and per-lane coverage | `/url-ingest` |
 | Runtime browser/proxy flow mapping | `/live-map` |
 | JavaScript inventory and deep static review | `/js` |
+| Product/developer/API documentation collection | `/recon-docs` → `/docs` |
 | Parameter evidence and candidate routing | `/parameter-mining` |
 | Curated route clusters, target packets, and lane queues | `/focused-recon` |
 | Durable URL/surface facts | `/map-store` |
@@ -53,7 +54,8 @@ record the blocker and do not launch collection.
 
 | Mode | Trigger | Result |
 |---|---|---|
-| `full` (default) | New, incomplete, stale, changed, or uncertain platform map | All stages through ranked handoffs |
+| `baseline-full` (automatic) | No comparable completed baseline | Every eligible first-pass collection lane plus a bounded synthesis receipt |
+| `full` | Explicit “full recon” / “all recon” request | Force every eligible first-pass collection lane even when a baseline exists |
 | `delta` | A completed comparable baseline exists and current changes are bounded | New/changed evidence only, then refresh affected packets |
 | `historical` | Archive coverage is absent or a historic route/JS/API question exists | Archive URL/snapshot comparison plus constrained current validation handoff |
 | `map-only` | Collection is already running or complete | Normalize existing evidence; no duplicate collection |
@@ -62,6 +64,42 @@ Never silently downgrade `full` to a one-command scan. If a long-running
 producer is started, report it as **collection pending**, complete the offline
 mapping work available now, and schedule/perform the completion pass only after
 its artifacts are available.
+
+## Full-recon lane plan
+
+`agents/recon_full.py` is a **plan-only** coordinator receipt. It records the
+applicable lanes and their ownership; it never bypasses a child skill's scope,
+authentication, rate, browser, or live-action gate.
+
+```bash
+python3 agents/recon_full.py <program> --target <scoped-origin> --mode full \
+  --auth <approved-account-alias> --include-proxy-history
+```
+
+A baseline/full plan contains these focused lanes:
+
+1. `/recon-ry` — durable broad collection. Its existing completion handler owns
+   promotion of Recon-Ry outputs into the canonical aggregate; do not duplicate
+   that promotion from `/recon`.
+2. `/live-map` — an approved browser/proxy collector records normal navigation,
+   routes, loaded JS chunks, and observed API/GraphQL shapes. It maps before
+   direct replay and does not blindly invoke state-changing operations.
+3. `/js` — inventory broadly available JS from aggregate and runtime provenance;
+   prioritize coverage and provenance before deep static review.
+4. `/recon-docs` — collect product/developer/API/SDK/integration documentation
+   signals. Promote a compact application model only through `/docs` when
+   warranted.
+5. Optional bounded proxy-history intake via `/caido` or `/pwnfox` and
+   `/live-map`; source history remains evidence, not a raw context dump.
+6. `/focused-recon` — synthesize canonical aggregate evidence into target
+   packets and coverage state after source receipts are available.
+
+During collection, preserve concrete observed facts in MapStore and retain
+plausible questions in the Hypothesis Ledger with `recon` plus a specific
+surface tag and source/run evidence pointer. Neither is a finding and neither
+starts automatic testing. Scheduled fuzzing, parameter mining, and permitted
+service discovery remain a separate maintenance lane; full browser/docs
+collection is user-invoked.
 
 ## Phase 0 — Scope, Seed, and Freshness Receipt
 

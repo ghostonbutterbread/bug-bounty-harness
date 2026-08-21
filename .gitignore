@@ -1,3 +1,5 @@
+# Local agent worktrees
+.worktrees/
 
 # Python
 __pycache__/

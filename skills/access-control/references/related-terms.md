@@ -96,5 +96,7 @@ role, permission, is_admin, admin, owner, editor, viewer, support,
 invite_id, export_id, file_id, document_id, folder_id, asset_id,
 order_id, invoice_id, payment_id, subscription_id, plan_id,
 webhook_id, integration_id, token, key, session, node_id, cursor,
-uuid, guid, gid, slug, handle
+uuid, guid, gid, slug, handle, accountId, userId, on_behalf_of, act_as,
+impersonate, assignee, reported_id, embed, expand, fields, client_id,
+callback_url, second-order, actor, cache, vary
 ```

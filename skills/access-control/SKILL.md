@@ -45,6 +45,7 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    - anonymous, logged-out, expired, or stale session -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/auth-state.md`
    - GraphQL arguments or global IDs -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/graphql-bola.md`
    - signed URLs, CDN objects, exports, attachments, media -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/storage-links.md`
+   - blocked/inconclusive direct swap; observed actor hint; deferred consumer; indirect object field; or sibling representation -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/desync-secondorder-surface.md`
    - JWT/Bearer/cookie claims influence role, tenant, object, issuer, audience, or token lifecycle -> load `/jwt-auth`
    - method/header/path/parser discrepancy -> load `/headers` for header mechanisms or `/bypass` with type `403`/`idor`
    - one live browser/proxy request must be captured and safely modified -> `/single-request-grabber`

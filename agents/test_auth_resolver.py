@@ -77,6 +77,10 @@ def test_program_auth_check_contract_selects_saved_endpoint_and_method(monkeypat
 
     assert target == {"url": "https://api.example.test/session", "method": "POST"}
     assert module.host_filter_from_auth_target(target) == "api.example.test"
+    assert module.build_pwnfox_httpql("blue", "api.example.test", request_path="/session") == (
+        'req.raw.cont:"X-PwnFox-Color" AND req.raw.cont:"blue" AND '
+        'req.host.cont:"api.example.test" AND req.path.cont:"/session"'
+    )
 
 
 def test_resolve_uses_program_auth_check_contract(tmp_path, monkeypatch, capsys):
@@ -474,7 +478,8 @@ def test_refresh_from_ryushe_proxy_writes_locked_seed_and_updates_inventory(tmp_
     monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
     monkeypatch.setenv("GHOST_AGENT_RUNTIME", "openclaw")
 
-    def fake_query_proxy_seed(route, account, color, program, host_filter, limit):
+    def fake_query_proxy_seed(route, account, color, program, host_filter, request_path, limit):
+        assert request_path is None
         return {
             "status": "found",
             "seed": {

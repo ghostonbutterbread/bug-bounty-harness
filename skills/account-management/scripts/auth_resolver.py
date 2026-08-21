@@ -475,13 +475,26 @@ def host_filter_from_args(args: argparse.Namespace, account: dict[str, Any] | No
     return None
 
 
-def build_pwnfox_httpql(color: str, host_filter: str | None = None, require_cookie: bool = False) -> str:
+def auth_check_capture_path(account: dict[str, Any] | None, args: argparse.Namespace) -> str | None:
+    if getattr(args, "host_filter", None):
+        return None
+    url = auth_check_target(
+        account, target_url=getattr(args, "target_url", None), method_override=getattr(args, "method", None)
+    ).get("url")
+    return urllib.parse.urlsplit(url).path if url else None
+
+
+def build_pwnfox_httpql(
+    color: str, host_filter: str | None = None, request_path: str | None = None, require_cookie: bool = False
+) -> str:
     clauses = [
         'req.raw.cont:"X-PwnFox-Color"',
         f'req.raw.cont:"{color}"',
     ]
     if host_filter:
         clauses.append(f'req.host.cont:"{host_filter}"')
+    if request_path:
+        clauses.append(f'req.path.cont:"{request_path}"')
     if require_cookie:
         clauses.append('req.raw.cont:"Cookie:"')
     return " AND ".join(clauses)
@@ -524,14 +537,16 @@ def mcp_text_json(data: dict[str, Any]) -> dict[str, Any]:
     return parsed
 
 
-def list_proxy_requests(endpoint: str, color: str, host_filter: str | None, limit: int) -> list[dict[str, Any]]:
+def list_proxy_requests(
+    endpoint: str, color: str, host_filter: str | None, request_path: str | None, limit: int
+) -> list[dict[str, Any]]:
     order = {"target": "req", "field": "created_at", "direction": "desc"}
     for require_cookie in (True, False):
         data = mcp_call(
             endpoint,
             "list_requests",
             {
-                "filter": build_pwnfox_httpql(color, host_filter, require_cookie=require_cookie),
+                "filter": build_pwnfox_httpql(color, host_filter, request_path, require_cookie=require_cookie),
                 "limit": limit,
                 "order": order,
                 "serialization": {"include_body": False, "max_text_body_chars": 0},
@@ -656,10 +671,12 @@ def text_json(data):
     content = data.get("result", {}).get("content")
     text = content[0].get("text") if isinstance(content, list) and content and isinstance(content[0], dict) else None
     return json.loads(text or "{}")
-def filt(color, host_filter, require_cookie):
+def filt(color, host_filter, request_path, require_cookie):
     clauses = ['req.raw.cont:"X-PwnFox-Color"', f'req.raw.cont:"{color}"']
     if host_filter:
         clauses.append(f'req.host.cont:"{host_filter}"')
+    if request_path:
+        clauses.append(f'req.path.cont:"{request_path}"')
     if require_cookie:
         clauses.append('req.raw.cont:"Cookie:"')
     return " AND ".join(clauses)
@@ -709,7 +726,7 @@ args = json.loads(base64.b64decode(sys.argv[1]).decode())
 order = {"target":"req","field":"created_at","direction":"desc"}
 items = []
 for require_cookie in (True, False):
-    data = mcp_call(args["endpoint"], "list_requests", {"filter":filt(args["color"], args.get("host_filter"), require_cookie), "limit":args.get("limit", 50), "order":order, "serialization":{"include_body":False,"max_text_body_chars":0}})
+    data = mcp_call(args["endpoint"], "list_requests", {"filter":filt(args["color"], args.get("host_filter"), args.get("request_path"), require_cookie), "limit":args.get("limit", 50), "order":order, "serialization":{"include_body":False,"max_text_body_chars":0}})
     parsed = text_json(data)
     items = [item for item in parsed.get("items", []) if isinstance(item, dict)]
     if items:
@@ -718,7 +735,10 @@ print(json.dumps(seed_from_items(items, args["account"], args["color"], args["pr
 '''
 
 
-def query_proxy_seed(route: dict[str, Any], account: dict[str, Any], color: str, program: str, host_filter: str | None, limit: int) -> dict[str, Any]:
+def query_proxy_seed(
+    route: dict[str, Any], account: dict[str, Any], color: str, program: str,
+    host_filter: str | None, request_path: str | None, limit: int,
+) -> dict[str, Any]:
     mode = route.get("ryushe_proxy_mode")
     endpoint = route.get("ryushe_proxy_endpoint")
     payload = {
@@ -727,12 +747,13 @@ def query_proxy_seed(route: dict[str, Any], account: dict[str, Any], color: str,
         "color": color,
         "program": program,
         "host_filter": host_filter,
+        "request_path": request_path,
         "limit": limit,
     }
     if mode in {"direct", "same-host-localhost"}:
         if not endpoint:
             return {"status": "blocked", "reason": "missing-ryushe-proxy-endpoint"}
-        items = list_proxy_requests(str(endpoint), color, host_filter, limit)
+        items = list_proxy_requests(str(endpoint), color, host_filter, request_path, limit)
         return seed_from_proxy_items(items, account, color, program)
     if mode == "hoster-ssh":
         if not endpoint:
@@ -828,7 +849,8 @@ def refresh_from_ryushe_proxy(args: argparse.Namespace) -> dict[str, Any]:
     seed_path = auth_seed_path(account) or default_auth_seed_path(args.program, account, args.account)
     color = auth_color(account, args.account)
     host_filter = host_filter_from_args(args, account)
-    query_result = query_proxy_seed(route, account, color, args.program, host_filter, args.limit)
+    request_path = auth_check_capture_path(account, args)
+    query_result = query_proxy_seed(route, account, color, args.program, host_filter, request_path, args.limit)
     if query_result.get("status") != "found":
         return {
             "status": "no-matching-proxy-auth",

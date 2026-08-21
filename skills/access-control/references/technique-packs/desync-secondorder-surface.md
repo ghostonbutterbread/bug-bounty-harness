@@ -47,4 +47,4 @@ status.
 A result must show unauthorized read, list, export, write, delete, transition,
 or cross-tenant/cross-principal behavior. Do not promote response-size changes
 or status-only deltas. Stop on non-owned private data. For state-changing owned
-requests, load `references/idor-postconditions.md`.
+requests, load `../idor-postconditions.md`.

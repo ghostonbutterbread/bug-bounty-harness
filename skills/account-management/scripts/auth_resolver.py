@@ -28,27 +28,23 @@ DEFAULT_HOSTER_SSH_KEY = Path("/home/ryushe/.ssh/hoster")
 AUTH_SEED_REF_PREFIXES = ("auth-seed:", "auth_seed:", "file:")
 AUTH_SESSION_MODES = ("browser-bound", "proxy-replayable", "hybrid", "unknown")
 COOKIE_SPLIT_RE = re.compile(r";\s*")
-AUTH_HEADER_ALLOWLIST = {
-    "authorization",
-    "x-csrf-token",
-    "x-xsrf-token",
-    "x-requested-with",
-    "x-bugcrowd-username",
-}
-HEADER_PREFIX_ALLOWLIST = ("x-canva-",)
-HEADER_DENYLIST = {
+# Replay the application's request shape rather than guessing which headers
+# carry auth.  Cookies are stored separately so the replay client can attach
+# them correctly; these hop-by-hop/routing headers must be regenerated locally.
+REPLAY_HEADER_DENYLIST = {
     "cookie",
     "host",
     "content-length",
-    "x-pwnfox-color",
-    "user-agent",
-    "accept",
-    "accept-encoding",
-    "accept-language",
     "connection",
-    "origin",
-    "referer",
-    "priority",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "proxy-connection",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "x-pwnfox-color",
 }
 SAFE_ACCOUNT_FIELDS = (
     "alias",
@@ -538,9 +534,7 @@ def selected_headers(headers: dict[str, Any]) -> dict[str, str]:
     selected: dict[str, str] = {}
     for key, value in headers.items():
         lower = str(key).lower()
-        if lower in HEADER_DENYLIST or lower.startswith("sec-"):
-            continue
-        if lower not in AUTH_HEADER_ALLOWLIST and not lower.startswith(HEADER_PREFIX_ALLOWLIST):
+        if lower in REPLAY_HEADER_DENYLIST:
             continue
         if isinstance(value, list):
             text = ", ".join(str(part) for part in value if part is not None)
@@ -622,9 +616,7 @@ def seed_from_proxy_items(
 REMOTE_PROXY_QUERY_SCRIPT = r'''
 import base64, json, re, sys, urllib.request
 COOKIE_SPLIT_RE = re.compile(r";\s*")
-AUTH_HEADER_ALLOWLIST = {"authorization", "x-csrf-token", "x-xsrf-token", "x-requested-with", "x-bugcrowd-username"}
-HEADER_PREFIX_ALLOWLIST = ("x-canva-",)
-HEADER_DENYLIST = {"cookie", "host", "content-length", "x-pwnfox-color", "user-agent", "accept", "accept-encoding", "accept-language", "connection", "origin", "referer", "priority"}
+REPLAY_HEADER_DENYLIST = {"cookie", "host", "content-length", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade", "x-pwnfox-color"}
 def mcp_call(endpoint, tool_name, arguments):
     payload = {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":tool_name,"arguments":arguments}}
     req = urllib.request.Request(endpoint, data=json.dumps(payload).encode(), headers={"Content-Type":"application/json","Accept":"application/json, text/event-stream"})
@@ -658,9 +650,7 @@ def selected_headers(headers):
     selected = {}
     for key, value in headers.items():
         lower = str(key).lower()
-        if lower in HEADER_DENYLIST or lower.startswith("sec-"):
-            continue
-        if lower not in AUTH_HEADER_ALLOWLIST and not lower.startswith(HEADER_PREFIX_ALLOWLIST):
+        if lower in REPLAY_HEADER_DENYLIST:
             continue
         text = ", ".join(str(part) for part in value if part is not None) if isinstance(value, list) else str(value)
         if text:

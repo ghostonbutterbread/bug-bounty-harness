@@ -334,6 +334,16 @@ def start_remote(args: argparse.Namespace) -> None:
             f"{body}"
             f"{marker}\n"
         )
+    recon_command = (
+        f"\"$HOME/bin/recon-ry\" recon {profile_flag} --project {shell_quote(project_dir)}"
+        f"{url_part}{auth_arg}{verbose}"
+    )
+    recon_and_promote = (
+        recon_command
+        + " && echo '[*] recon complete; aggregating run into Recon Bus'"
+        + f" && python3 {shell_quote('/home/ryushe/projects/bug_bounty_harness/scripts/recon_bus.py')}"
+        + f" promote-run {shell_quote(args.program)} --run-root {shell_quote(project_dir)} --no-probe"
+    )
     remote_cmd = (
         "set -eu; "
         f"export PATH={shell_quote(REMOTE_RECON_PATH)}:\"$PATH\"; "
@@ -345,8 +355,7 @@ def start_remote(args: argparse.Namespace) -> None:
         f"{rate_conf}"
         "RECONRY_RATE_LIMIT\n"
         f"log=\"$HOME/recon-ry-logs/{safe_slug(args.program)}-$(date -u +%Y%m%dT%H%M%SZ).log\"; "
-        f"nohup {auth_env}\"$HOME/bin/recon-ry\" recon {profile_flag} --project {shell_quote(project_dir)}{url_part}{auth_arg}{verbose} "
-        "> \"$log\" 2>&1 & "
+        f"nohup {auth_env}bash -c {shell_quote(recon_and_promote)} > \"$log\" 2>&1 & "
         "printf 'pid=%s\\nlog=%s\\nproject=%s\\nauth=%s\\n' \"$!\" \"$log\" "
         f"{shell_quote(project_dir)} {shell_quote(str(auth_summary.get('status', 'disabled')))}"
     )
@@ -600,7 +609,7 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--remote", default=DEFAULT_REMOTE)
     start_parser.add_argument("--ssh-key", default=str(DEFAULT_SSH_KEY))
     start_parser.add_argument("--rate-limit-rps", type=float, default=2.0, help="Project-local recon-ry rate limit written before start.")
-    start_parser.add_argument("--timeout", type=int, default=300, help="Per-tool timeout written to rate_limit.conf.")
+    start_parser.add_argument("--timeout", type=int, default=0, help="Per-tool timeout written to rate_limit.conf (0 disables the timeout).")
     start_parser.add_argument("--allow-unscoped", action="store_true", help="Bypass saved-scope fail-closed check after explicit approval.")
     start_parser.add_argument("--auth", help="Resolve an owned account alias or PwnFox color through account-management, such as blue.")
     start_parser.add_argument("--auth-seed-file", help="Use an explicit locked-down auth seed JSON file.")
@@ -618,7 +627,7 @@ def build_parser() -> argparse.ArgumentParser:
     queue_parser.add_argument("--remote", default=DEFAULT_REMOTE)
     queue_parser.add_argument("--ssh-key", default=str(DEFAULT_SSH_KEY))
     queue_parser.add_argument("--rate-limit-rps", type=float, default=2.0, help="Aggregate sequential queue rate limit in requests per second.")
-    queue_parser.add_argument("--timeout", type=int, default=300, help="Per-tool timeout written to each queued project.")
+    queue_parser.add_argument("--timeout", type=int, default=0, help="Per-tool timeout written to each queued project (0 disables the timeout).")
     queue_parser.add_argument("--allow-unscoped", action="store_true")
     queue_parser.add_argument("--auth", help="Resolve an owned account alias or PwnFox color through account-management.")
     queue_parser.add_argument("--auth-seed-file", help="Use an explicit locked-down auth seed JSON file.")

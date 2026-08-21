@@ -145,9 +145,15 @@ def test_start_dry_run_uses_hoster_wrapper(capsys) -> None:
     output = capsys.readouterr().out
     assert "$HOME/bin/recon-ry" in output
     assert "--subs" in output
-    assert "--url 'example.com'" in output
+    assert "--url" in output
+    assert "example.com" in output
     assert "rate_limit.conf" in output
+    assert "timeout=0" in output
     assert "default=2" in output
+    assert "aggregating run into Recon Bus" in output
+    assert "scripts/recon_bus.py" in output
+    assert "promote-run" in output
+    assert "--no-probe" in output
     assert "urls.txt" in output
     assert "wild.txt" in output
     assert "export PATH='$HOME/go/bin:$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/bin:/bin':\"$PATH\"" in output
@@ -215,10 +221,21 @@ def test_queue_dry_run_uses_one_exact_url_at_a_time(tmp_path: Path, capsys) -> N
 
     output = capsys.readouterr().out
     assert "queue_urls.txt" in output
+    assert "timeout=0" in output
     assert "--exact-urls" in output
+    assert "promote-run" not in output
     assert "one.example.com" in output
     assert "two.example.com" in output
     assert "while IFS= read -r target_url" in output
+
+
+def test_start_and_queue_timeout_default_to_unlimited() -> None:
+    parser = recon_ry.build_parser()
+    start = parser.parse_args(["start", "demo", "--url", "https://example.com"])
+    queue = parser.parse_args(["queue", "demo", "--url-file", "/tmp/targets.txt"])
+
+    assert start.timeout == 0
+    assert queue.timeout == 0
 
 
 def test_start_full_fails_closed_when_scope_has_no_wildcards(monkeypatch) -> None:
@@ -267,8 +284,11 @@ def test_start_dry_run_stages_manual_auth_without_leaking_values(capsys) -> None
     recon_ry.start_remote(args)
 
     output = capsys.readouterr().out
-    assert "--auth-seed '/home/ryushe/bounties/demo/.auth/recon-ry-auth.json'" in output
-    assert "nohup env RECON_RY_AUTH_SEED='/home/ryushe/bounties/demo/.auth/recon-ry-auth.json' RECON_RY_AUTH_HOST='example.com' \"$HOME/bin/recon-ry\"" in output
+    assert "--auth-seed" in output
+    assert "/home/ryushe/bounties/demo/.auth/recon-ry-auth.json" in output
+    assert "nohup env RECON_RY_AUTH_SEED" in output
+    assert "RECON_RY_AUTH_HOST" in output
+    assert "bash -c" in output
     assert '"redacted": true' in output
     assert "SECRET_TOKEN" not in output
     assert "SECRET_COOKIE" not in output

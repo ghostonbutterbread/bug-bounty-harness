@@ -63,6 +63,49 @@ def test_route_openclaw_uses_hoster_ssh(tmp_path, monkeypatch, capsys):
     assert result["can_query_ryushe_proxy"] is True
 
 
+def test_program_auth_check_contract_selects_saved_endpoint_and_method(monkeypatch):
+    module = load_resolver_module()
+    account = {
+        "auth_check": {
+            "url": "https://api.example.test/session",
+            "method": "POST",
+        },
+        "auth_check_url": "https://legacy.example.test/me",
+    }
+
+    target = module.auth_check_target(account, target_url=None, method_override=None)
+
+    assert target == {"url": "https://api.example.test/session", "method": "POST"}
+    assert module.host_filter_from_auth_target(target) == "api.example.test"
+
+
+def test_resolve_uses_program_auth_check_contract(tmp_path, monkeypatch, capsys):
+    module = load_resolver_module()
+    shared = tmp_path / "shared"
+    route_table = tmp_path / "proxy_routes.json"
+    seed = tmp_path / "seeds" / "blue.json"
+    seed.parent.mkdir()
+    seed.write_text(json.dumps({"headers": {"X-App-Session": "[test]"}}))
+    os.chmod(seed, 0o600)
+    write_route_table(route_table)
+    write_inventory(shared, "demo", {"accounts": [{
+        "alias": "blue", "pwnfox_color": "blue", "auth_seed_ref": f"auth-seed:{seed}",
+        "auth_check": {"url": "https://api.example.test/session", "method": "POST"},
+    }]})
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    observed = {}
+    def fake_check(url, method, timeout, seed_path):
+        observed.update(url=url, method=method, seed_path=seed_path)
+        return {"status": "passed", "url": url, "method": method, "status_code": 200}
+    monkeypatch.setattr(module, "run_auth_check", fake_check)
+
+    assert module.main(["resolve", "--program", "demo", "--account", "blue", "--route-table", str(route_table)]) == 0
+
+    assert observed["url"] == "https://api.example.test/session"
+    assert observed["method"] == "POST"
+    assert json.loads(capsys.readouterr().out)["status"] == "ready"
+
+
 def test_shared_base_defaults_to_canonical_web_bounty(monkeypatch):
     module = load_resolver_module()
     monkeypatch.delenv("HARNESS_SHARED_BASE", raising=False)
@@ -403,9 +446,10 @@ def test_seed_from_proxy_items_extracts_cookie_and_auth_headers():
     assert result["seed"]["headers"] == {
         "Authorization": "Bearer secret-token",
         "X-Bugcrowd-Username": "researcher@example.test",
+        "User-Agent": "browser",
     }
     assert result["provenance"]["cookie_count"] == 2
-    assert result["provenance"]["header_names"] == ["Authorization", "X-Bugcrowd-Username"]
+    assert result["provenance"]["header_names"] == ["Authorization", "User-Agent", "X-Bugcrowd-Username"]
 
 
 def test_refresh_from_ryushe_proxy_writes_locked_seed_and_updates_inventory(tmp_path, monkeypatch, capsys):

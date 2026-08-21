@@ -64,6 +64,7 @@ SAFE_ACCOUNT_FIELDS = (
     "auth_refresh_source",
     "auth_refresh_hint",
     "auth_session_mode",
+    "auth_check",
     "auth_check_url",
     "auth_host_filter",
 )
@@ -387,6 +388,29 @@ def cookie_header(seed: dict[str, Any]) -> str | None:
     return "; ".join(pairs) if pairs else None
 
 
+AUTH_CHECK_METHODS = ("GET", "HEAD", "POST")
+
+
+def auth_check_target(
+    account: dict[str, Any] | None, *, target_url: str | None, method_override: str | None
+) -> dict[str, str | None]:
+    """Resolve a program-declared safe auth endpoint without app-specific code."""
+    configured = (account or {}).get("auth_check")
+    config = configured if isinstance(configured, dict) else {}
+    url = target_url or config.get("url") or (account or {}).get("auth_check_url")
+    method = str(method_override or config.get("method") or "GET").upper()
+    if method not in AUTH_CHECK_METHODS:
+        raise ValueError(f"unsupported auth check method: {method}")
+    return {"url": str(url) if url else None, "method": method}
+
+
+def host_filter_from_auth_target(target: dict[str, str | None]) -> str | None:
+    url = target.get("url")
+    if not url:
+        return None
+    return urllib.parse.urlsplit(url).hostname
+
+
 def run_auth_check(url: str | None, method: str, timeout: float, seed_path: Path | None) -> dict[str, Any]:
     if not url:
         return {"status": "skipped", "reason": "no-target-url"}
@@ -441,13 +465,13 @@ def host_filter_from_args(args: argparse.Namespace, account: dict[str, Any] | No
     explicit = getattr(args, "host_filter", None)
     if explicit:
         return explicit
+    endpoint_host = host_filter_from_auth_target(
+        auth_check_target(account, target_url=getattr(args, "target_url", None), method_override=getattr(args, "method", None))
+    )
+    if endpoint_host:
+        return endpoint_host
     if account and account.get("auth_host_filter"):
         return str(account["auth_host_filter"])
-    url = getattr(args, "target_url", None) or (account or {}).get("auth_check_url")
-    if url:
-        parsed = urllib.parse.urlsplit(str(url))
-        if parsed.hostname:
-            return parsed.hostname
     return None
 
 
@@ -932,8 +956,8 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
         }
     seed_path = auth_seed_path(account)
     seed = inspect_auth_seed(seed_path)
-    target_url = args.target_url or (account or {}).get("auth_check_url")
-    auth_check = run_auth_check(target_url, args.method, args.timeout, seed_path)
+    target = auth_check_target(account, target_url=args.target_url, method_override=args.method)
+    auth_check = run_auth_check(target["url"], str(target["method"]), args.timeout, seed_path)
     proxy_plan = proxy_refresh_plan(account, route, auth_check, session_mode)
     if seed.get("status") == "available" and auth_check.get("reason") == "no-target-url":
         proxy_plan = {"status": "not-needed", "reason": "stored-auth-seed-available"}
@@ -948,7 +972,7 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
         if refresh_result.get("status") == "refreshed":
             seed_path = auth_seed_path({**account, "auth_seed_ref": refresh_result["account"].get("auth_seed_ref")})
             seed = inspect_auth_seed(seed_path)
-            auth_check = run_auth_check(target_url, args.method, args.timeout, seed_path)
+            auth_check = run_auth_check(target["url"], str(target["method"]), args.timeout, seed_path)
             proxy_plan = {"status": "completed", "provenance": refresh_result.get("proxy_provenance", {})}
             refreshed = True
         else:
@@ -1027,7 +1051,7 @@ def build_parser() -> argparse.ArgumentParser:
     res.add_argument("--account", required=True, help="Account alias, PwnFox color, or active integration-profile.")
     res.add_argument("--target-url", help="Safe read-only URL for auth validation.")
     res.add_argument("--host-filter", help="Restrict Ryushe-proxy lookup to a host substring, such as canva.com.")
-    res.add_argument("--method", default="GET", choices=("GET", "HEAD"))
+    res.add_argument("--method", choices=AUTH_CHECK_METHODS, help="Override the program-declared auth-check method.")
     res.add_argument("--timeout", type=float, default=8.0)
     res.add_argument("--limit", type=int, default=80, help="Maximum proxy requests to inspect during refresh.")
     res.add_argument("--refresh", action="store_true", help="If stored auth is not ready, refresh from approved Ryushe-proxy source.")

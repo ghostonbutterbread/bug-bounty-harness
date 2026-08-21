@@ -289,6 +289,7 @@ def cmd_add_account(args: argparse.Namespace) -> int:
             "auth_refresh_source": args.auth_refresh_source,
             "auth_refresh_hint": args.auth_refresh_hint,
             "auth_session_mode": args.auth_session_mode,
+            "auth_check": compact_record({"url": args.auth_check_url, "method": args.auth_check_method}),
             "auth_check_url": args.auth_check_url,
             "auth_host_filter": args.auth_host_filter,
             "pwnfox_color": args.pwnfox_color,
@@ -514,6 +515,12 @@ def build_parser() -> argparse.ArgumentParser:
     account.add_argument(
         "--auth-check-url",
         help="Safe read-only URL used by auth_resolver.py to check whether this account is logged in.",
+    )
+    account.add_argument(
+        "--auth-check-method",
+        choices=("GET", "HEAD", "POST"),
+        default="GET",
+        help="Method the application's safe auth endpoint actually uses; stored as a reusable program auth-check contract.",
     )
     account.add_argument(
         "--auth-host-filter",

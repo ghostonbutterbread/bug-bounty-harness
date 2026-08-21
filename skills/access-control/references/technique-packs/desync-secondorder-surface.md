@@ -2,7 +2,7 @@
 
 Use after a normal owned-account object comparison is blocked or inconclusive,
 or when the observed request has more than one plausible authority input. This
-is a **candidate generator**; load `mutations/idor.md` for the concrete object
+is a **candidate generator**; load `../mutations/idor.md` for the concrete object
 mutation list.
 
 ## Core Question

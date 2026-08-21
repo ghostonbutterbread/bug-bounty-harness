@@ -53,7 +53,7 @@ established or the work becomes terminal.
 
 ## Primary Harness
 
-Use `agents/bypass_harness.py` in `--type idor` mode for first-pass ID swapping and header-trick coverage. Expand manually for multi-step workflows, write actions, and role-bound objects once you identify a promising reference.
+Use `agents/bypass_harness.py` in `--type idor` mode for first-pass ID swapping and header-trick coverage. For blocked/inconclusive swaps, observed actor hints, deferred consumers, indirect object fields, or sibling representations, load `$HARNESS_ROOT/skills/access-control/references/technique-packs/desync-secondorder-surface.md`. Expand manually for multi-step workflows, write actions, and role-bound objects once you identify a promising reference.
 
 ```bash
 python agents/bypass_harness.py --target https://target.com/api/v1/orders/123 \
@@ -110,7 +110,7 @@ python agents/bypass_harness.py --target https://target.com/api/v1/order?id=123 
 2. Read `prompts/access-control-context-pack.md` if the request is broader than direct object references.
 3. Read `prompts/idor-playbook.md`.
 4. Run `agents/bypass_harness.py` in `--type idor` mode for first-pass coverage.
-5. Confirm promising cases manually with baseline captures and multi-account comparison from `/account-management` owned records.
+5. Confirm promising cases manually with baseline captures and multi-account comparison from `/account-management` owned records. For any state-changing owned request, load `$HARNESS_ROOT/skills/access-control/references/idor-postconditions.md` and verify the resulting state; a response code alone is inconclusive.
 6. Write findings to `agent_shared/findings/idor/findings.md`.
 7. Record newly observed owned IDs/resources in `/account-management`.
 8. Update IDOR entries in `checklist.md`, `todo.md`, and relevant notes.

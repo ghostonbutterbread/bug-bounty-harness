@@ -404,6 +404,12 @@ def auth_check_target(
     return {"url": str(url) if url else None, "method": method}
 
 
+def auth_check_required_headers(account: dict[str, Any] | None) -> list[str]:
+    config = (account or {}).get("auth_check")
+    names = config.get("required_header_names") if isinstance(config, dict) else []
+    return [str(name).lower() for name in names] if isinstance(names, list) else []
+
+
 def host_filter_from_auth_target(target: dict[str, str | None]) -> str | None:
     url = target.get("url")
     if not url:
@@ -614,6 +620,7 @@ def seed_from_proxy_items(
     account: dict[str, Any],
     color: str,
     program: str,
+    required_headers: list[str] | None = None,
 ) -> dict[str, Any]:
     for item in items:
         request = item.get("request")
@@ -624,6 +631,9 @@ def seed_from_proxy_items(
             continue
         cookies = parse_cookie_header(first_header(headers, "Cookie"), request.get("url"), request.get("host"))
         selected = selected_headers(headers)
+        names = {str(key).lower() for key in headers}
+        if any(name.lower() not in names for name in (required_headers or [])):
+            continue
         if not cookies and not selected:
             continue
         return {
@@ -711,7 +721,7 @@ def parse_cookie_header(header, request_url, host):
             cookie["url"] = request_url or (f"https://{host}/" if host else None)
             cookies.append({k:v for k,v in cookie.items() if v is not None})
     return cookies
-def seed_from_items(items, account, color, program):
+def seed_from_items(items, account, color, program, required_headers):
     for item in items:
         request = item.get("request") if isinstance(item, dict) else None
         headers = request.get("headers") if isinstance(request, dict) else None
@@ -719,6 +729,9 @@ def seed_from_items(items, account, color, program):
             continue
         cookies = parse_cookie_header(first_header(headers, "Cookie"), request.get("url"), request.get("host"))
         selected = selected_headers(headers)
+        names = {str(key).lower() for key in headers}
+        if any(str(name).lower() not in names for name in required_headers):
+            continue
         if cookies or selected:
             return {"status":"found","seed":{"account_label":account.get("alias"),"pwnfox_color":color,"program":program,"session_source":"ryushe-proxy","source_request_id":request.get("id") or item.get("id"),"source_host":request.get("host"),"source_path":request.get("path"),"source_time":request.get("created_at") or item.get("time"),"cookies":cookies,"headers":selected},"provenance":{"request_id":request.get("id") or item.get("id"),"host":request.get("host"),"path":request.get("path"),"time":request.get("created_at") or item.get("time"),"cookie_count":len(cookies),"header_names":sorted(selected.keys())}}
     return {"status":"no-usable-auth-material","items_seen":len(items)}
@@ -731,13 +744,13 @@ for require_cookie in (True, False):
     items = [item for item in parsed.get("items", []) if isinstance(item, dict)]
     if items:
         break
-print(json.dumps(seed_from_items(items, args["account"], args["color"], args["program"])))
+print(json.dumps(seed_from_items(items, args["account"], args["color"], args["program"], args.get("required_headers", []))))
 '''
 
 
 def query_proxy_seed(
     route: dict[str, Any], account: dict[str, Any], color: str, program: str,
-    host_filter: str | None, request_path: str | None, limit: int,
+    host_filter: str | None, request_path: str | None, required_headers: list[str], limit: int,
 ) -> dict[str, Any]:
     mode = route.get("ryushe_proxy_mode")
     endpoint = route.get("ryushe_proxy_endpoint")
@@ -748,13 +761,14 @@ def query_proxy_seed(
         "program": program,
         "host_filter": host_filter,
         "request_path": request_path,
+        "required_headers": required_headers,
         "limit": limit,
     }
     if mode in {"direct", "same-host-localhost"}:
         if not endpoint:
             return {"status": "blocked", "reason": "missing-ryushe-proxy-endpoint"}
         items = list_proxy_requests(str(endpoint), color, host_filter, request_path, limit)
-        return seed_from_proxy_items(items, account, color, program)
+        return seed_from_proxy_items(items, account, color, program, required_headers)
     if mode == "hoster-ssh":
         if not endpoint:
             endpoint = "http://ryushespc:3333/mcp"
@@ -850,7 +864,8 @@ def refresh_from_ryushe_proxy(args: argparse.Namespace) -> dict[str, Any]:
     color = auth_color(account, args.account)
     host_filter = host_filter_from_args(args, account)
     request_path = auth_check_capture_path(account, args)
-    query_result = query_proxy_seed(route, account, color, args.program, host_filter, request_path, args.limit)
+    required_headers = auth_check_required_headers(account)
+    query_result = query_proxy_seed(route, account, color, args.program, host_filter, request_path, required_headers, args.limit)
     if query_result.get("status") != "found":
         return {
             "status": "no-matching-proxy-auth",

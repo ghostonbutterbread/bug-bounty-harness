@@ -478,7 +478,8 @@ def test_refresh_from_ryushe_proxy_writes_locked_seed_and_updates_inventory(tmp_
     monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
     monkeypatch.setenv("GHOST_AGENT_RUNTIME", "openclaw")
 
-    def fake_query_proxy_seed(route, account, color, program, host_filter, request_path, limit):
+    def fake_query_proxy_seed(route, account, color, program, host_filter, request_path, required_headers, limit):
+        assert required_headers == []
         assert request_path is None
         return {
             "status": "found",

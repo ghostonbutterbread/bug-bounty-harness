@@ -118,6 +118,8 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **ssrf** | `/ssrf {program}` | Server-Side Request Forgery |
 | **fuzz** | `/fuzz {program}` | Web fuzzing / directory enumeration |
 | **recon** | `/recon {program}` | Reconnaissance / endpoint discovery |
+| **bounty-storage** | `/bounty-storage` | Route Shared, mounted artifacts, and scratch safely |
+| **huge-ingest** | `/huge-ingest {program} {input-or-run-id}` | Manifest and packetize large artifact datasets |
 
 ---
 

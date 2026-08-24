@@ -30,10 +30,38 @@ Capture:
 - Context: workflow step, object lifecycle state, ownership, membership, plan tier, geographic/location flag, feature flag, payment state, pending invitation.
 - Enforcement point: route, controller, API gateway, frontend, backend service, storage/CDN, worker, GraphQL resolver, websocket/RPC handler.
 
+### Cross-account control harness
+
+Before every two-identity comparison, verify both selected owned authenticated
+identities against their own known-good endpoint. Record sanitized aliases,
+liveness outcomes, and a short time window. On an unexpected denial/error,
+recheck the caller immediately: a failed recheck invalidates the comparison as
+an auth/session problem; a passing recheck preserves it for authorization
+comparison. Recover only that selected account—another account is a new lane.
+
+Learn request shape while normal owned-browser navigation and agent task-MITM
+traffic naturally produce it. Ryushe Caido/proxy history is read-only source
+material for a shape lead, never evidence of current authorization. Once valid,
+freeze the shape and vary only actor or owned-object boundary.
+
 Good access-control tests compare three responses:
-- legitimate baseline: allowed subject accessing owned/allowed resource
-- denied baseline: wrong subject or wrong role expected to fail
-- candidate: minimal mutation from legitimate request to unauthorized target
+- positive control (legitimate baseline): allowed subject accessing owned/allowed resource
+- nonexistent-object control: well-formed request for a deliberately absent ID
+- candidate: minimal mutation from legitimate request to a real, owner-proven
+  unauthorized target
+
+For API, GraphQL, batch, or direct-replay work, repair an evidently incomplete
+request only from bounded validation feedback (for example, a required argument,
+type, selection, or body field). Then freeze the accepted request shape. A real
+foreign object matching the nonexistent-object response is `protective
+non-disclosure / inconclusive enforcement`, not proof that authorization is
+enforced. Resolve a real scalar or owned postcondition; `__typename` and
+caller-scoped metadata do not prove cross-account access.
+
+Classify request cardinality before replay. For single-use, signed, nonce-bound,
+or stateful actions, intercept one fresh owned live request through
+`/single-request-grabber` and make the bounded mutation; do not consume a
+separate owner-side replay as a control.
 
 ## 2. Lane Router
 

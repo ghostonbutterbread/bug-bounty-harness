@@ -35,14 +35,22 @@ or otherwise unidentified device.
 
 ## Required Preflight
 
-1. Read the applicable program's scope, authorization, and rate rules before
+1. Before any live target action, load `general-security-testing-policy`, then
+   `live-testing-policy`. Those policies retain ownership of scope, account,
+   rate, side-effect, backoff, attempt-recording, and stop decisions; this skill
+   only supplies the local device transport. Load `resource-safety-policy`
+   before APK, app-data, logcat, or other local artifact processing.
+2. Read the applicable program's scope, authorization, and rate rules before
    interacting with a target app or backend.
-2. Confirm the required host: use Abommie when the agent can work locally; use
+3. Confirm the required host: use Abommie when the agent can work locally; use
    Hoster only when its reverse tunnel is healthy.
-3. Run `adb devices` and identify the transport. Completion: exactly one known
-   emulator is selected, even when it appears through two transports.
-4. If the output names a physical or unknown device, stop and ask Ryushe before
-   installing, rooting, clearing, extracting data, or otherwise mutating it.
+4. Run `adb devices` and verify the expected owned-emulator mapping **before
+   any serial-targeted command**: Abommie must show `emulator-5554`; Hoster must
+   show `127.0.0.1:5555`. These are two transports to the same emulator when
+   both are visible locally. An extra, unmatched, physical, or unknown transport
+   is a stop-and-ask condition, not a serial-selection exercise.
+5. If the known transport is absent, restore only the documented Hoster tunnel
+   or ask Ryushe; do not substitute another device or a public/Tailnet exposure.
 
 ## Abommie / WSL
 
@@ -78,6 +86,7 @@ Run the installed helper on Abommie:
 ```bash
 emu-adb-tailscale --tunnel
 emu-adb-tailscale --tunnel --status
+# Only for a tunnel owned by this task, or on explicit Ryushe instruction:
 emu-adb-tailscale --tunnel --off
 ```
 

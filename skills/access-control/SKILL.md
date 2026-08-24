@@ -55,33 +55,11 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
 
 ## Cross-account control harness
 
-For every cross-account comparison, verify both selected owned authenticated
-identities against their own known-good endpoint immediately before the test.
-Record the account aliases, sanitized liveness outcomes, and a short time
-window. When an unexpected deny/error occurs, immediately recheck the caller:
-
-- failed liveness means `invalid: auth/session`, not an authorization denial;
-- passing liveness preserves the authorization comparison;
-- recover only the exact selected account through its approved auth path. A
-  different account is a new recorded lane, never an implicit substitute.
-
-Learn the true request shape while normal owned-browser navigation and agent
-MITM traffic naturally produce it. Ryushe Caido/proxy history is read-only
-source evidence for a shape lead, never current auth or authorization proof.
-Once valid, freeze the request and vary only the actor or owned-object boundary.
-
-For API mining, GraphQL, batch REST, or direct replay, add a caller-owned
-positive control and a well-formed nonexistent-object control. Bounded server
-validation feedback may repair a missing argument/type/selection/body field;
-this is request-shape repair, not open-ended fuzzing. A known real foreign
-object that matches the missing-object response is `protective non-disclosure /
-inconclusive enforcement`, not `enforced`. Resolve a real scalar or verify an
-owned postcondition; `__typename` and caller-scoped metadata are insufficient.
-
-Classify request cardinality before replay. For a one-shot, signed, nonce-bound,
-or stateful action, use `/single-request-grabber` to intercept one fresh owned
-live request and make the bounded approved mutation. Do not consume a separate
-owner-side replay as a control.
+For two-identity authorization comparisons, load and follow `idor-live-policy`.
+For API mining, GraphQL, batch REST, or direct replay, load the control-harness
+section of `$HARNESS_ROOT/prompts/access-control-playbook.md`. For a one-shot,
+signed, nonce-bound, or stateful action, use `/single-request-grabber` to
+capture and mutate one fresh owned live request.
 
 ## Sub-Agent Rule
 

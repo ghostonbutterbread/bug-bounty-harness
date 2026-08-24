@@ -34,6 +34,7 @@ finding store or starting live testing.
   (4 tests).
 - `./sync_skills.sh --dry-run --all` completed and included
   `skills/manual-surface-review` for the Claude, Codex, and Ghost destinations.
+- Independent branch review found no findings.
 
 ## Activation boundary
 

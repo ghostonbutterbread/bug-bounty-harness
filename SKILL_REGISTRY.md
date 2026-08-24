@@ -106,6 +106,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **hunter-loop** | `/hunter-loop {program} --goal {objective}` | `prompts/hunter-loop-playbook.md` |
 | **brainstorm-spec** | `/brainstorm-spec {program}` | `prompts/brainstorm-spec-playbook.md` |
 | **appmap** | `/appmap {program} {target_path}` | `prompts/appmap-playbook.md` |
+| **android-adb** | `/android-adb {host-or-mobile-task}` | `skills/android-adb/SKILL.md` |
 | **appmap-research-librarian** | `/appmap-research-librarian init {program}` | `prompts/appmap-research-librarian-playbook.md` |
 | **electron** | `/electron {program} {target_path}` | `prompts/electron-playbook.md` |
 | **prompt-injection** | `/prompt-injection {program} {target_url}` | `prompts/prompt-injection-playbook.md` |

@@ -131,7 +131,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **chromium-handoff** | `/chromium-handoff {cdp_port}` | `skills/chromium-handoff/SKILL.md` |
 | **pfp** | `/pfp {program} {goal}` | `prompts/pfp-playbook.md` |
 | **bountylens** | `/bountylens {sessions|findings|leads|reports}` | `skills/bountylens/SKILL.md` |
-| **manual-surface-review** | `/manual {program} [--run <run-id>] [--historical]` | `skills/manual-surface-review/SKILL.md` |
+| **manual-places-to-hunt** | `/manual {program} [--run <run-id>] [--historical]` | `skills/manual-places-to-hunt/SKILL.md` |
 | **me** | `/me {program}` | `skills/me/SKILL.md` |
 
 ---

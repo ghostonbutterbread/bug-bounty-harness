@@ -1,5 +1,5 @@
 ---
-name: manual-surface-review
+name: manual-places-to-hunt
 description: Use after a meaningful hunt segment or handoff to rank current-run evidence into a compact, read-only manual inspection queue.
 ---
 

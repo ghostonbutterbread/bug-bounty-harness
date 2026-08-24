@@ -1,21 +1,21 @@
-# Manual Surface Review Integration Dossier
+# Manual Places to Hunt Integration Dossier
 
 ## Intent
 
-Adopt the reviewed `manual-surface-review` seed as a BBH read-only synthesis
+Adopt the reviewed `manual-places-to-hunt` skill as a BBH read-only synthesis
 skill. It ranks current-run evidence for a human without adding a new canonical
 finding store or starting live testing.
 
 ## Branch and target
 
-- Feature branch: `docs/manual-surface-review`
+- Feature branch: `docs/manual-places-to-hunt`
 - Worktree: `/home/ryushe/projects/bug_bounty_harness-manual-surface-review`
 - Base: `6709a1de2c9fc39c3f52fba47ebf6e6a507bb826` (`beta`)
 - Intended target: `beta`
 
 ## Implemented contract
 
-- Adds `skills/manual-surface-review/SKILL.md` with `/manual` as the suggested
+- Adds `skills/manual-places-to-hunt/SKILL.md` with `/manual` as the suggested
   user-facing alias.
 - Uses current-run Attempts, reports, handoffs, sidecars, and scoped MapStore
   lookups as the default evidence boundary.
@@ -30,10 +30,10 @@ finding store or starting live testing.
 - Repository instructions, existing skill shape, skill registry, and setup
   synchronization behavior inspected before implementation.
 - Focused regression suite passed:
-  `python3 -m unittest agents.test_manual_surface_review_skill agents.test_shared_skill_adoption`
+  `python3 -m unittest agents.test_manual_places_to_hunt_skill agents.test_shared_skill_adoption`
   (4 tests).
 - `./sync_skills.sh --dry-run --all` completed and included
-  `skills/manual-surface-review` for the Claude, Codex, and Ghost destinations.
+  `skills/manual-places-to-hunt` for the Claude, Codex, and Ghost destinations.
 - Independent branch review found no findings.
 
 ## Activation boundary

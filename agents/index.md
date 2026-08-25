@@ -20,7 +20,8 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
 5. Use `$HARNESS_SHARED_BASE` and the canonical storage tools: `/bounty-storage`
    for Shared vs mounted-artifact vs scratch routing, `/map-store` for durable
    target facts, `/docs` for compact program-specific application-behavior models,
-   `/hypothesis-ledger` for private candidate branches, `/bounty-notes` for human
+   `/hypothesis-ledger` for private candidate branches, `/leads` for cross-run
+   evidence-backed lead synthesis and lifecycle reconciliation, `/bounty-notes` for human
    coordination, and Attempts for exact target-directed payload/probe history.
    For a corpus too large to inspect directly, load `/huge-ingest` before deep
    reading. Program docs explain how this application uses a technology or flow;

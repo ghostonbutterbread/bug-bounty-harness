@@ -132,6 +132,7 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 | **pfp** | `/pfp {program} {goal}` | `prompts/pfp-playbook.md` |
 | **bountylens** | `/bountylens {sessions|findings|leads|reports}` | `skills/bountylens/SKILL.md` |
 | **manual-places-to-hunt** | `/manual {program} [--run <run-id>] [--historical]` | `skills/manual-places-to-hunt/SKILL.md` |
+| **leads** | `/leads <program> [--class <vuln-class>]`; `agents/leads.py {create|search|update-status}` | `skills/leads/SKILL.md` |
 | **me** | `/me {program}` | `skills/me/SKILL.md` |
 
 ---

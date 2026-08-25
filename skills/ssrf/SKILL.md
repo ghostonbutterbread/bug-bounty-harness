@@ -73,8 +73,9 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    permitted rate; expand a family when a variant behaves differently, and stop
    repeating variants that normalize or behave identically.
 7. Prefer status, banner, callback, or low-risk root proof over secret retrieval.
-8. Stop after proving the boundary reached or after representative mutation
-   families show the filter boundary is understood.
+8. Stop after the impact boundary is proved or, when impact proof is not yet
+   available, after representative mutation families show the filter boundary is
+   understood.
 
 ## Pressure Mode
 

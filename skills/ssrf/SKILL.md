@@ -124,13 +124,18 @@ Promote only when evidence shows the server, not the client, reached a controlle
 
 Do not promote client-side-only navigation, generic fetch errors, public URL fetches without impact, or unsupported timing speculation.
 
-## Stop Conditions
+## Escalation And Stop Conditions
 
-Stop before harvesting secrets, credential/token use, sensitive internal data
-reads, state-changing or destructive internal requests, DNS rebinding without
-explicit approval, or broad/high-volume scans. Bounded internal service
-discovery with a low rate limit and non-sensitive surface classification remain
-allowed when program rules permit.
+After proving a server-side fetch boundary, continue with a bounded,
+rate-limited, read-only internal proof ladder when program rules permit. Internal
+reads may establish impact, including the minimum sensitive response needed to
+show the reachable boundary; preserve only the smallest necessary proof and
+never disclose raw secrets or third-party data. Stop after the impact boundary
+is proved, on instability, or when a next request may change state, authenticate
+with retrieved credentials/tokens, persist data, cause destructive behavior, or
+broaden into an uncontrolled scan. DNS rebinding still requires explicit
+approval. Use the observed fetcher's service cost and program rules—not an
+arbitrary payload-count cap—to set rate, concurrency, and backoff.
 
 ## Evidence
 

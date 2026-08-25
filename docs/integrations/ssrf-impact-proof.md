@@ -1,0 +1,10 @@
+# SSRF impact-proof policy
+
+- **Task:** Align SSRF escalation guidance with bounded, rate-limited internal read proof.
+- **Branch / worktree:** `docs/ssrf-impact-proof` at `/home/ryushe/worktrees/bbh-ssrf-impact-proof`.
+- **Base / target:** `492493a1eec36c727372e8d98532e121e15bb93f` (`beta`) → `beta`.
+- **Intent:** A confirmed SSRF may be escalated through minimal read-only internal requests to establish impact; payload volume is governed by scope, observed service cost, rate, and backoff rather than a fixed count.
+- **Implemented contract:** `skills/ssrf/SKILL.md` permits the smallest necessary sensitive response as proof, while prohibiting persistence, state-changing behavior, use of retrieved credentials/tokens, destructive requests, uncontrolled scans, and unapproved DNS rebinding.
+- **Evidence:** `git diff --check` passed; focused review confirmed the policy only changes SSRF escalation/stop wording.
+- **Activation boundary:** Canonical skill remains unchanged until this feature branch is reviewed, merged into `beta`, and the external skill projection is synced.
+- **Deferred verification:** Fresh Hermes `skill_view('ssrf')` after merge and focused sync; no live SSRF testing is part of this documentation change.

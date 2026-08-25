@@ -551,6 +551,9 @@ def mcp_text_json(data: dict[str, Any]) -> dict[str, Any]:
     return parsed
 
 
+PROXY_DISCOVERY_FIELDS = ["id", "request.host", "request.path", "request.method", "request.created_at"]
+
+
 def request_id_from_proxy_item(item: dict[str, Any]) -> str | None:
     request = item.get("request")
     candidates = [item.get("id"), request.get("id") if isinstance(request, dict) else None]
@@ -573,10 +576,15 @@ def full_proxy_request_by_id(endpoint: str, request_id: str) -> dict[str, Any] |
         )
     )
     results = parsed.get("results")
-    if not isinstance(results, list) or not results or not isinstance(results[0], dict):
+    if not isinstance(results, list):
         return None
-    item = results[0].get("item")
-    return item if isinstance(item, dict) else None
+    for result in results:
+        if not isinstance(result, dict) or str(result.get("id")) != request_id:
+            continue
+        item = result.get("item")
+        if isinstance(item, dict) and str(item.get("id")) == request_id:
+            return item
+    return None
 
 
 def list_proxy_requests(
@@ -594,6 +602,7 @@ def list_proxy_requests(
                 ),
                 "limit": limit,
                 "order": order,
+                "fields": PROXY_DISCOVERY_FIELDS,
                 "serialization": {"include_body": False, "max_text_body_chars": 0},
             },
         )
@@ -794,7 +803,7 @@ args = json.loads(base64.b64decode(sys.argv[1]).decode())
 order = {"target":"req","field":"created_at","direction":"desc"}
 items = []
 for require_cookie in (True, False):
-    data = mcp_call(args["endpoint"], "list_requests", {"filter":filt(args["color"], args.get("host_filter"), args.get("request_path"), args.get("required_headers", []), require_cookie), "limit":args.get("limit", 50), "order":order, "serialization":{"include_body":False,"max_text_body_chars":0}})
+    data = mcp_call(args["endpoint"], "list_requests", {"filter":filt(args["color"], args.get("host_filter"), args.get("request_path"), args.get("required_headers", []), require_cookie), "limit":args.get("limit", 50), "order":order, "fields":["id", "request.host", "request.path", "request.method", "request.created_at"], "serialization":{"include_body":False,"max_text_body_chars":0}})
     listed = [item for item in text_json(data).get("items", []) if isinstance(item, dict)]
     for listed_item in listed:
         request_id = listed_item.get("id") or (listed_item.get("request") or {}).get("id")
@@ -802,8 +811,15 @@ for require_cookie in (True, False):
             continue
         detail = text_json(mcp_call(args["endpoint"], "get_requests_by_ids", {"ids":[str(request_id)], "fields":["id", "request"], "serialization":{"include_body":False,"max_text_body_chars":0}}))
         results = detail.get("results")
-        if isinstance(results, list) and results and isinstance(results[0], dict) and isinstance(results[0].get("item"), dict):
-            items.append(results[0]["item"])
+        if not isinstance(results, list):
+            continue
+        for result in results:
+            if not isinstance(result, dict) or str(result.get("id")) != str(request_id):
+                continue
+            item = result.get("item")
+            if isinstance(item, dict) and str(item.get("id")) == str(request_id):
+                items.append(item)
+                break
     if items:
         break
 print(json.dumps(seed_from_items(items, args["account"], args["color"], args["program"], args.get("required_headers", []))))

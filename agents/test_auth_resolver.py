@@ -443,7 +443,25 @@ def test_proxy_refresh_fetches_full_request_by_id_after_sanitized_discovery(monk
 
     assert items[0]["request"]["headers"]["Authorization"] == "Bearer test-only"
     assert [call[0] for call in calls] == ["list_requests", "get_requests_by_ids"]
+    assert calls[0][1]["fields"] == ["id", "request.host", "request.path", "request.method", "request.created_at"]
     assert 'req.raw.cont:"Authorization:"' in calls[0][1]["filter"]
+
+
+def test_proxy_refresh_rejects_detail_with_mismatched_request_id(monkeypatch):
+    module = load_resolver_module()
+
+    def response(payload):
+        return {"result": {"content": [{"text": json.dumps(payload)}]}}
+
+    def fake_mcp(_endpoint, tool_name, _arguments, timeout=12.0):
+        if tool_name == "list_requests":
+            return response({"items": [{"id": "42", "request": {"host": "api.example.test"}}]})
+        return response({"results": [{"id": "other", "item": {"id": "other", "request": {
+            "headers": {"Authorization": "Bearer wrong-request"},
+        }}}]})
+
+    monkeypatch.setattr(module, "mcp_call", fake_mcp)
+    assert module.list_proxy_requests("http://proxy.invalid/mcp", "blue", "api.example.test", "/me", 1) == []
 
 
 def test_seed_from_proxy_items_extracts_cookie_and_auth_headers():

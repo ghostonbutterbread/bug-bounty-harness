@@ -232,6 +232,30 @@ class ReconBusTests(unittest.TestCase):
             ["https://example.com/fresh?x=1"],
         )
 
+    def test_param_append_rejects_bare_parameter_names(self):
+        with self.assertRaisesRegex(ValueError, "full HTTP\\(S\\) URLs"):
+            M.append(args(kind="param", value=["access_token", "https://example.com/search?q=1"]))
+
+        self.assertFalse(self.aggregate("params_raw.txt").exists())
+        self.assertFalse(self.aggregate("params.txt").exists())
+
+    def test_repair_params_keeps_urls_and_quarantines_bare_names(self):
+        raw = self.aggregate("params_raw.txt")
+        raw.parent.mkdir(parents=True, exist_ok=True)
+        raw.write_text(
+            "access_token\nhttps://example.com/search?q=1\nclient_id\n",
+            encoding="utf-8",
+        )
+
+        result = M.repair_params(argparse.Namespace(program="demo", shared_base=None, uro_bin=str(self.make_fake_uro_appender())))
+
+        self.assertEqual(result["kept_urls"], 1)
+        self.assertEqual(result["quarantined_non_urls"], 2)
+        self.assertEqual(raw.read_text(encoding="utf-8").splitlines(), ["https://example.com/search?q=1"])
+        self.assertEqual(self.aggregate("params.txt").read_text(encoding="utf-8").splitlines(), ["https://example.com/search?q=1"])
+        quarantine = M.recon_root("demo") / "quarantine" / "non_url_param_candidates.txt"
+        self.assertEqual(quarantine.read_text(encoding="utf-8").splitlines(), ["access_token", "client_id"])
+
     def test_host_writes_hosts_store(self):
         result = M.append(args(kind="host", value=["app.example.com"]))
 

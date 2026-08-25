@@ -20,6 +20,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import urlparse
 
 _RECON_DIR = Path(__file__).resolve().parent
 _AGENT_DIR = _RECON_DIR.parent
@@ -204,6 +205,12 @@ def read_file_lines(path: Path) -> list[str]:
     ]
 
 
+def is_parameter_url(value: str) -> bool:
+    """Return whether a value is a full HTTP(S) URL with a query string."""
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc and parsed.query)
+
+
 @contextlib.contextmanager
 def program_lock(root: Path):
     """Serialize aggregate writes for one program."""
@@ -268,12 +275,14 @@ def merge_with_anew(source_path: Path, target_path: Path, delta_path: Path) -> d
 
 def run_uro(input_path: Path, output_path: Path, *, uro_bin: str | None = None) -> str:
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Defense in depth: params.txt is a URL queue, never a parameter-name pack.
+    input_lines = [line for line in read_file_lines(input_path) if is_parameter_url(line)]
     resolved = find_tool("uro", uro_bin)
     if resolved:
         tmp_output = output_path.with_name(f".{output_path.name}.{utc_stamp()}.tmp")
         result = subprocess.run(
             [resolved, "-o", str(tmp_output)],
-            input=input_path.read_text(encoding="utf-8", errors="ignore"),
+            input="".join(f"{line}\n" for line in input_lines),
             text=True,
             capture_output=True,
             check=False,
@@ -283,7 +292,7 @@ def run_uro(input_path: Path, output_path: Path, *, uro_bin: str | None = None) 
             return "uro"
         if tmp_output.exists():
             tmp_output.unlink()
-    write_lines(output_path, sorted(set(read_file_lines(input_path))))
+    write_lines(output_path, sorted(set(input_lines)))
     return "sort-unique"
 
 
@@ -417,6 +426,13 @@ def _append(args: argparse.Namespace) -> dict[str, object]:
         delta_dir = run_dir / "delta"
 
         lines = read_lines(args.input or [], args.value or [], read_stdin=args.stdin)
+        if args.kind == "param":
+            invalid = [line for line in lines if not is_parameter_url(line)]
+            if invalid:
+                raise ValueError(
+                    "param inputs must be full HTTP(S) URLs with a query string; "
+                    "store parameter-name observations in parameter_mining artifacts instead"
+                )
         invalid = scope_violations(args.program, args.kind, lines)
         if invalid:
             quarantine = quarantine_scope_violations(args.program, args.kind, invalid)
@@ -484,6 +500,42 @@ def _append(args: argparse.Namespace) -> dict[str, object]:
         return stats
 
 
+def repair_params(args: argparse.Namespace) -> dict[str, object]:
+    """Remove non-URL parameter observations from a legacy aggregate safely."""
+    global SHARED_BASE
+    original_shared_base = SHARED_BASE
+    if args.shared_base:
+        SHARED_BASE = Path(args.shared_base).expanduser()
+    try:
+        root = aggregate_root(args.program)
+        raw_path = root / "params_raw.txt"
+        params_path = root / "params.txt"
+        with program_lock(root):
+            raw_lines = read_file_lines(raw_path)
+            url_lines = [line for line in raw_lines if is_parameter_url(line)]
+            rejected = [line for line in raw_lines if not is_parameter_url(line)]
+            rejected_path = recon_root(args.program) / "quarantine" / "non_url_param_candidates.txt"
+            if rejected:
+                existing = read_file_lines(rejected_path)
+                write_lines(rejected_path, dedupe_preserve_order([*existing, *rejected]))
+            write_lines(raw_path, url_lines)
+            mode = run_uro(raw_path, params_path, uro_bin=args.uro_bin)
+            mirrors = mirror_aggregates(args.program)
+        return {
+            "program": args.program,
+            "params_raw": str(raw_path),
+            "params": str(params_path),
+            "kept_urls": len(url_lines),
+            "quarantined_non_urls": len(rejected),
+            "quarantine": str(rejected_path) if rejected else None,
+            "params_normalization": mode,
+            "mirrors": mirrors,
+            "status": "ok",
+        }
+    finally:
+        SHARED_BASE = original_shared_base
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Append recon discoveries into canonical aggregate stores.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -542,6 +594,15 @@ def build_parser() -> argparse.ArgumentParser:
     from agents.recon.promote_run import promote_run
 
     promote_parser.set_defaults(func=promote_run)
+
+    repair_parser = subparsers.add_parser(
+        "repair-params",
+        help="Repair a legacy params aggregate by retaining only full parameterized URLs.",
+    )
+    repair_parser.add_argument("program")
+    repair_parser.add_argument("--uro-bin", help="Override uro binary path.")
+    repair_parser.add_argument("--shared-base", help="Override Shared web_bounty root for tests or controlled repairs.")
+    repair_parser.set_defaults(func=repair_params)
 
     from agents.recon.mirror import mirror, verify
 

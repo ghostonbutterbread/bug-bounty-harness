@@ -108,13 +108,13 @@ A lead is a current projection, not a write-only note. Update the same public
 lead when material evidence changes; retain attempts and prior evidence pointers
 rather than overwriting history. Every lead touched during a run receives a disposition:
 
-- **strengthened** — new observed basis or narrower discriminator;
+- **strengthened** — record new evidence and retain `active` or `candidate` as the MapStore lifecycle status;
 - **active/candidate** — still has a safe next action;
 - **needs_recheck** — an explicit account, role, fixture, browser, artifact, or
   environment prerequisite remains;
-- **control recorded** — a demonstrated control's enforcement is established for the relevant path;
+- **control-specific enforcement established** — record the demonstrated control in the fact body; do not apply a blanket lifecycle state to adjacent paths;
 - **stale** — the app, route, account state, or consumer changed;
-- **promoted** — proof became a linked finding;
+- **finding linked** — proof became a linked finding; retain the appropriate lifecycle status and evidence pointer;
 - **archived** — meaningful reachable variants are covered, with a concrete
   evidence-backed reason and wake condition.
 

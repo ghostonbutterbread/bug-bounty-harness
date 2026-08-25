@@ -12,6 +12,8 @@ if str(ROOT) not in sys.path:
 
 from agents.map_store import MapStore
 
+VALID_LEAD_STATUSES = {"active", "candidate", "needs_recheck", "stale", "archived", "failed"}
+
 
 def build_lead_body(*, observed_basis: str, candidate_chain: str, exact_unknown: str,
                     next_discriminator: str, blocker: str, wake_condition: str,
@@ -40,7 +42,7 @@ def parser() -> argparse.ArgumentParser:
     create.add_argument("--observed-basis", required=True); create.add_argument("--candidate-chain", required=True)
     create.add_argument("--exact-unknown", required=True); create.add_argument("--next-discriminator", required=True)
     create.add_argument("--blocker", default=""); create.add_argument("--wake-condition", default="")
-    create.add_argument("--evidence-ref", action="append", default=[]); create.add_argument("--tag", action="append", default=[])
+    create.add_argument("--evidence-ref", action="append", required=True); create.add_argument("--tag", action="append", default=[])
     create.add_argument("--agent", default="ghost"); create.add_argument("--run-id", default=None); create.add_argument("--status", default="candidate")
     search = subs.add_parser("search", help="Search public leads")
     common(search); search.add_argument("--class", dest="vuln_class", default=""); search.add_argument("--status", default="active,candidate,needs_recheck")
@@ -66,6 +68,11 @@ def main(argv: list[str] | None = None) -> int:
         for lead in store.query(tags=tags, statuses=args.status.split(",")):
             print(f"{lead['status']}\t{lead.get('surface','')}\t{lead.get('title','')}\t{lead['path']}")
         return 0
+    if args.status not in VALID_LEAD_STATUSES:
+        raise ValueError(f"invalid lead status: {args.status}; use one of {sorted(VALID_LEAD_STATUSES)}")
+    entry = next((item for item in store.query(include_archived=True) if item.get("path") == args.path), None)
+    if entry is None or "lead" not in entry.get("tags", []):
+        raise ValueError("update-status requires a MapStore lead path")
     updated = store.update_status(path=args.path, status=args.status, reason=args.reason, agent=args.agent)
     print(updated["path"]); return 0
 

@@ -24,9 +24,12 @@ not in either queue.
 ## Evidence
 
 - `uv run --python 3.11 pytest -q tests/test_recon_bus.py tests/test_recon_promote_run.py tests/test_recon_mirror.py` — 34 passed.
-- `python3 scripts/recon_bus.py repair-params soundcloud` retained 73,567
-  parameterized URLs and regenerated `aggregated/params.txt` with URO. The
-  current repair found no remaining non-URL rows to quarantine.
+- Initial repair: `python3 scripts/recon_bus.py repair-params soundcloud`
+  retained 73,567 parameterized URLs, quarantined 2,645 bare values, and
+  regenerated `aggregated/params.txt` with URO (3,092 valid URLs).
+- Later idempotent verification: re-running `repair-params soundcloud` found
+  zero remaining non-URL rows to quarantine; the repaired aggregate remained
+  at 73,567 valid parameterized URLs.
 - `python3 scripts/recon_bus.py verify soundcloud` — no mirror drift.
 
 ## Activation boundary

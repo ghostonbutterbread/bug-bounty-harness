@@ -200,6 +200,31 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             },
         )
 
+    @patch("agents.me_ledger.ledger_path", return_value=Path("/tmp/test-ledger.json"))
+    @patch("agents.me_ledger.ledger_list")
+    def test_cmd_list_hides_closed_findings_unless_requested(self, mock_list, _mock_path) -> None:
+        findings = [
+            {"fid": "D01", "status": "active"},
+            {"fid": "D02", "status": "confirmed"},
+            {"fid": "D03", "submission": {"state": "submitted"}},
+            {"fid": "D04", "submission": {"state": "dropped", "result": "duplicate"}},
+        ]
+        mock_list.return_value = findings
+        args = argparse.Namespace(
+            program="demo", snapshot=None, version_label=None, lane="web", family="web_bounty", root_override="/tmp/me-root"
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            self.assertEqual(me_ledger.cmd_list(args), 0)
+        self.assertEqual([item["fid"] for item in json.loads(stdout.getvalue())["findings"]], ["D01"])
+
+        args.include_closed = True
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            self.assertEqual(me_ledger.cmd_list(args), 0)
+        self.assertEqual([item["fid"] for item in json.loads(stdout.getvalue())["findings"]], ["D01", "D02", "D03", "D04"])
+
     @patch("agents.me_ledger._default_run_id", return_value="run-1")
     @patch(
         "agents.me_ledger._resolve_snapshot",

@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agents.coverage_store import CoverageStore
+from agents.finding_visibility import visible_for_default_work
 from agents.ledger import ledger_add, ledger_check, ledger_get, ledger_list, ledger_path
 from agents.snapshot_identity import get_snapshot_identity
 from agents.storage_resolver import resolve_storage
@@ -447,13 +448,16 @@ def cmd_cover(args: argparse.Namespace) -> int:
 
 def cmd_list(args: argparse.Namespace) -> int:
     root_override = _root_override(args)
-    findings = ledger_list(
-        args.program,
-        snapshot_id=args.snapshot,
-        version_label=args.version_label,
-        lane=args.lane,
-        family=args.family,
-        root_override=root_override,
+    findings = visible_for_default_work(
+        ledger_list(
+            args.program,
+            snapshot_id=args.snapshot,
+            version_label=args.version_label,
+            lane=args.lane,
+            family=args.family,
+            root_override=root_override,
+        ),
+        include_closed=bool(getattr(args, "include_closed", False)),
     )
 
     print(
@@ -578,6 +582,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_arguments(list_parser, include_file=False, include_class=False)
     list_parser.add_argument("--snapshot")
     list_parser.add_argument("--version", dest="version_label")
+    list_parser.add_argument("--include-closed", action="store_true", help="Include confirmed, submitted, and dropped findings.")
     list_parser.set_defaults(func=cmd_list)
 
     unexplored_parser = subparsers.add_parser("unexplored", help="List unexplored surfaces by class")

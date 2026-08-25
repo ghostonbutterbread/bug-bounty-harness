@@ -216,7 +216,7 @@ class SingleAgentTeam(BaseTeam):
         context_block = _format_literal(self._context_block())
         hypothesis_block = _format_literal(self._hypothesis_block())
         goal = _format_literal(self.goal)
-        fresh_line = "- Treat prior coverage as advisory only; start from the supplied goal and current target state." if self.fresh else "- Use prior ledger and coverage only as targeted coordination inputs after selecting the live surface or before adding findings; never treat historical confirmed findings as satisfying this run's goal."
+        fresh_line = "- Treat prior coverage as advisory only; start from the supplied goal and current target state." if self.fresh else "- Use prior ledger and coverage only as targeted coordination inputs after selecting the live surface or before adding findings; confirmed, submitted, and dropped findings are closed to default work selection unless the user explicitly asks to retest, report on, or use them as inspiration."
         return f"""You are the only active Bug Bounty Harness agent for this run.
 
 Program: {{program}}

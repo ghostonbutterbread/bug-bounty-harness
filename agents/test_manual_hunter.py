@@ -131,6 +131,54 @@ class ManualHunterTests(unittest.TestCase):
         ledger_payload = json.loads(self._ledger_path().read_text(encoding="utf-8"))
         self.assertEqual(len(ledger_payload["findings"]), 1)
 
+    def test_set_submission_updates_existing_finding(self) -> None:
+        note_path = self.tmp / "finding.md"
+        note_path.write_text(
+            "Title: SQLite injection via exposed IPC port\n"
+            "Class: native-module-abuse\n"
+            "File: .webpack/renderer/preload.js:4\n"
+            "Description: Renderer-controlled input reaches SQLite execution.\n",
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note_path)]), 0)
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            rc = main(
+                [
+                    self.program,
+                    "--lane",
+                    "apk",
+                    "--set-submission",
+                    "D01",
+                    "--submission-state",
+                    "submitted",
+                    "--submission-report",
+                    "H1-123",
+                    "--submission-result",
+                    "duplicate",
+                ]
+            )
+
+        self.assertEqual(rc, 0, stdout.getvalue())
+        self.assertIn("Submission updated: D01 -> submitted", stdout.getvalue())
+        finding = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        self.assertEqual(
+            finding["submission"],
+            {"state": "submitted", "report": "H1-123", "result": "duplicate"},
+        )
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                main([self.program, "--lane", "apk", "--set-submission", "D01", "--submission-state", "dropped"]),
+                0,
+            )
+        finding = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        self.assertEqual(
+            finding["submission"],
+            {"state": "dropped", "report": "H1-123", "result": "duplicate"},
+        )
+
     def test_minimal_note_is_parsed_tolerantly(self) -> None:
         hunter = ManualHunter(self.program)
         parsed = hunter.parse_text(
@@ -254,7 +302,7 @@ class ManualHunterTests(unittest.TestCase):
         self.assertNotIn("D01: SQLite injection via exposed IPC port", context)
         self.assertIn("## Prior findings lookup:", context)
         self.assertIn("Do not read or summarize the full findings ledger as the opening move.", context)
-        self.assertIn("Do not treat a historical confirmed finding as satisfying this hunt", context)
+        self.assertIn("Confirmed, submitted, and dropped findings are closed to default work selection", context)
         self.assertIn(".webpack/renderer/preload.js (native-module-abuse) ✅", context)
         self.assertIn("renderer/view.js (dom-xss)", context)
         self.assertIn("updater.ts (exec-sink-reachability)", context)

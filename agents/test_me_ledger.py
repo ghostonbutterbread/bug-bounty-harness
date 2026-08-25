@@ -207,7 +207,7 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             {"fid": "D01", "status": "active"},
             {"fid": "D02", "status": "confirmed"},
             {"fid": "D03", "submission": {"state": "submitted"}},
-            {"fid": "D04", "submission": {"state": "duplicate"}},
+            {"fid": "D04", "submission": {"state": "dropped", "result": "duplicate"}},
         ]
         mock_list.return_value = findings
         args = argparse.Namespace(

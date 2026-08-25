@@ -224,7 +224,7 @@ During testing:
 
 Prior-finding boundary:
 
-- Confirmed, submitted, and duplicate findings are closed to default work selection: retain them for exact dedupe/FID lookup, explicit `--include-closed` status views, deliberate retest queues, or an explicit request to use prior reports as inspiration.
+- Confirmed, submitted, and dropped findings are closed to default work selection: retain them for exact dedupe/FID lookup, explicit `--include-closed` status views, deliberate retest queues, or an explicit request to use prior reports as inspiration.
 
 - Historical confirmed findings, reports, and MapStore `#do-not-retest` notes are coordination inputs only.
 - They can justify skipping an exact duplicate PoC, selecting adjacent untested work, or extending an existing FID with fresh evidence.
@@ -328,7 +328,7 @@ Use CDP only for observation, navigation, screenshots, and source-backed validat
 
 ## Context modes
 
-Default `/me`: load resolved target root, coverage/shared_brain coordination, and unexplored surfaces. Do not inject prior confirmed, submitted, or duplicate findings into the opening hunt prompt unless the task explicitly asks for status, duplicate triage, report cleanup, revalidation, extending a known FID, or using past reports to find similar vulnerabilities. Treat prior findings as advisory coordination only; prefer unexplored areas and avoid duplicating known findings.
+Default `/me`: load resolved target root, coverage/shared_brain coordination, and unexplored surfaces. Do not inject prior confirmed, submitted, or dropped findings into the opening hunt prompt unless the task explicitly asks for status, duplicate triage, report cleanup, revalidation, extending a known FID, or using past reports to find similar vulnerabilities. Treat prior findings as advisory coordination only; prefer unexplored areas and avoid duplicating known findings.
 
 `/me --fresh`: skip prior findings/coverage in the prompt. Hunt freely, but still use the ledger before writing; duplicates are expected to be caught by the pipeline.
 

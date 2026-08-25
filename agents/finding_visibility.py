@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-SUBMISSION_STATES = frozenset({"not_submitted", "submitted", "duplicate"})
+SUBMISSION_STATES = frozenset({"not_submitted", "submitted", "dropped"})
+SUBMISSION_RESULTS = frozenset({"valid", "duplicate"})
 
 
 def normalize_submission(
     value: Any,
     *,
     report: str | None = None,
-    duplicate_of: str | None = None,
+    result: str | None = None,
 ) -> dict[str, str]:
     """Return the small, operator-owned submission record for one finding."""
     incoming = value if isinstance(value, dict) else {}
@@ -22,10 +23,11 @@ def normalize_submission(
     report_value = str((incoming.get("report") if report is None else report) or "").strip()
     if report_value:
         normalized["report"] = report_value
-    if state == "duplicate":
-        duplicate_value = str((incoming.get("duplicate_of") if duplicate_of is None else duplicate_of) or "").strip()
-        if duplicate_value:
-            normalized["duplicate_of"] = duplicate_value
+    result_value = str((incoming.get("result") if result is None else result) or "").strip().lower()
+    if result_value:
+        if result_value not in SUBMISSION_RESULTS:
+            raise ValueError(f"invalid submission result: {result_value}; use one of {sorted(SUBMISSION_RESULTS)}")
+        normalized["result"] = result_value
     return normalized
 
 

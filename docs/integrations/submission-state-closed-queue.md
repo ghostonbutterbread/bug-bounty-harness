@@ -10,9 +10,9 @@ and duplicate findings from becoming default next-work material.
 
 ## Implemented contract
 
-- Each manual finding carries only `submission.state`, `submission.report`, and
-  optional `submission.duplicate_of`; states are `not_submitted`, `submitted`,
-  or `duplicate`.
+- Each manual finding carries only `submission.state` (`not_submitted`,
+  `submitted`, or `dropped`), optional `submission.report`, and optional
+  `submission.result` (`valid` or `duplicate`).
 - `manual_hunter.py --set-submission FID` patches the canonical finding and
   refreshes its report navigation.
 - `me_ledger.py list` hides closed findings by default; `--include-closed`

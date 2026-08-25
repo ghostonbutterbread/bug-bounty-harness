@@ -26,13 +26,18 @@ When an operator says a finding was submitted or marked duplicate, update it imm
 ```bash
 python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py <program> --lane <lane> \\
   --set-submission D02 --submission-state submitted --submission-report "HackerOne #123"
-# or
+# later, if the platform decides it is a valid report or duplicate:
 python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py <program> --lane <lane> \\
-  --set-submission D02 --submission-state duplicate --duplicate-of "HackerOne #99"
+  --set-submission D02 --submission-result valid
+# or: --submission-result duplicate
+# if the report was abandoned instead:
+python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py <program> --lane <lane> \\
+  --set-submission D02 --submission-state dropped
 ```
 
-The compact `submission` record is only `state`, `report`, and optional
-`duplicate_of`. A confirmed, submitted, or duplicate finding is closed to the
+The compact `submission` record is only `state` (`submitted` or `dropped`),
+optional `report`, and optional `result` (`valid` or `duplicate`). A confirmed,
+submitted, or dropped finding is closed to the
 default next-work queue; it remains available for dedupe, exact-FID lookup, an
 explicit `--include-closed`/retest request, or an explicit request to use past
 reports as inspiration.

@@ -303,7 +303,7 @@ def _build_hunt_context(
         [
             "Do not read or summarize the full findings ledger as the opening move.",
             "- Use prior findings only for targeted duplicate checks, status/report tasks, revalidation, or extending an existing FID with fresh evidence.",
-            "- Confirmed, submitted, and duplicate findings are closed to default work selection. Use them only for targeted dedupe or exact FID lookup unless the task explicitly asks for status, duplicate triage, report cleanup, revalidation, or a similar-vulnerability review.",
+            "- Confirmed, submitted, and dropped findings are closed to default work selection. Use them only for targeted dedupe or exact FID lookup unless the task explicitly asks for status, duplicate triage, report cleanup, revalidation, or a similar-vulnerability review.",
             "- If you need prior context, query the exact file, URL, surface, class, or FID after you have selected the live surface.",
             "- A current hunt is complete only after new evidence is produced, the requested lanes are exhausted or blocked, or a current-run finding is ready for report import.",
             "",
@@ -951,7 +951,7 @@ class ManualHunter:
         *,
         state: str,
         report: str | None = None,
-        duplicate_of: str | None = None,
+        result: str | None = None,
     ) -> int:
         """Record one operator-reported submission outcome without a new workflow."""
         target_fid = _normalize_text(fid)
@@ -966,7 +966,7 @@ class ManualHunter:
         submission = normalize_submission(
             {**normalize_submission(current.get("submission")), "state": state},
             report=report,
-            duplicate_of=duplicate_of,
+            result=result,
         )
         updated = update_team_finding(
             self.program,
@@ -1261,7 +1261,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--add", help="Paste a finding note directly.")
     mode.add_argument("--from-file", dest="from_file", help="Read a finding note from a markdown/text file.")
     mode.add_argument("--interactive", action="store_true", help="Prompt for finding fields interactively.")
-    mode.add_argument("--set-submission", metavar="FID", help="Record one finding's submitted or duplicate state by FID.")
+    mode.add_argument("--set-submission", metavar="FID", help="Record whether one finding was submitted or dropped by FID.")
     mode.add_argument(
         "--hunt",
         action="store_true",
@@ -1295,9 +1295,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="When a duplicate is found, attach the raw note to the existing finding comment ledger.",
     )
-    parser.add_argument("--submission-state", choices=("not_submitted", "submitted", "duplicate"), default="submitted")
+    parser.add_argument("--submission-state", choices=("not_submitted", "submitted", "dropped"), default="submitted")
     parser.add_argument("--submission-report", help="Short report reference or URL, when submitted.")
-    parser.add_argument("--duplicate-of", help="Optional report/FID the platform marked as the duplicate target.")
+    parser.add_argument("--submission-result", choices=("valid", "duplicate"), help="Platform outcome, when known.")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     return parser
 
@@ -1333,7 +1333,7 @@ def main(argv: list[str] | None = None) -> int:
             args.set_submission,
             state=args.submission_state,
             report=args.submission_report,
-            duplicate_of=args.duplicate_of,
+            result=args.submission_result,
         )
     if args.hunt or not any((args.watch, args.add is not None, args.from_file, args.interactive, args.set_submission)):
         if verbosity.verbose:

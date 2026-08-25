@@ -582,7 +582,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_arguments(list_parser, include_file=False, include_class=False)
     list_parser.add_argument("--snapshot")
     list_parser.add_argument("--version", dest="version_label")
-    list_parser.add_argument("--include-closed", action="store_true", help="Include confirmed, submitted, and duplicate findings.")
+    list_parser.add_argument("--include-closed", action="store_true", help="Include confirmed, submitted, and dropped findings.")
     list_parser.set_defaults(func=cmd_list)
 
     unexplored_parser = subparsers.add_parser("unexplored", help="List unexplored surfaces by class")

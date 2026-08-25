@@ -153,30 +153,30 @@ class ManualHunterTests(unittest.TestCase):
                     "--set-submission",
                     "D01",
                     "--submission-state",
-                    "duplicate",
+                    "submitted",
                     "--submission-report",
                     "H1-123",
-                    "--duplicate-of",
-                    "H1-99",
+                    "--submission-result",
+                    "duplicate",
                 ]
             )
 
         self.assertEqual(rc, 0, stdout.getvalue())
-        self.assertIn("Submission updated: D01 -> duplicate", stdout.getvalue())
+        self.assertIn("Submission updated: D01 -> submitted", stdout.getvalue())
         finding = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
         self.assertEqual(
             finding["submission"],
-            {"state": "duplicate", "report": "H1-123", "duplicate_of": "H1-99"},
+            {"state": "submitted", "report": "H1-123", "result": "duplicate"},
         )
         with redirect_stdout(io.StringIO()):
             self.assertEqual(
-                main([self.program, "--lane", "apk", "--set-submission", "D01", "--submission-state", "submitted"]),
+                main([self.program, "--lane", "apk", "--set-submission", "D01", "--submission-state", "dropped"]),
                 0,
             )
         finding = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
         self.assertEqual(
             finding["submission"],
-            {"state": "submitted", "report": "H1-123"},
+            {"state": "dropped", "report": "H1-123", "result": "duplicate"},
         )
 
     def test_minimal_note_is_parsed_tolerantly(self) -> None:
@@ -302,7 +302,7 @@ class ManualHunterTests(unittest.TestCase):
         self.assertNotIn("D01: SQLite injection via exposed IPC port", context)
         self.assertIn("## Prior findings lookup:", context)
         self.assertIn("Do not read or summarize the full findings ledger as the opening move.", context)
-        self.assertIn("Confirmed, submitted, and duplicate findings are closed to default work selection", context)
+        self.assertIn("Confirmed, submitted, and dropped findings are closed to default work selection", context)
         self.assertIn(".webpack/renderer/preload.js (native-module-abuse) ✅", context)
         self.assertIn("renderer/view.js (dom-xss)", context)
         self.assertIn("updater.ts (exec-sink-reachability)", context)

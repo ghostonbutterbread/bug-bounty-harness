@@ -54,20 +54,28 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
 
 ## Workflow
 
-1. Identify the server-side fetch sink and parameter.
+1. Mine the current application map, UI/API flows, and JavaScript for URL-handling
+   candidates, then identify the server-side fetch sink and parameter.
 2. Form a first-pass hypothesis about how the app handles that URL/fetch
    surface from direct behavior.
 3. Query MapStore and prior attempts for this URL/fetch surface to avoid
    duplicate work and reuse known parser/filter boundaries.
-4. Confirm a benign controlled outbound fetch when possible.
+4. Confirm server-side fetch when possible with an owned controlled callback. If
+   outbound callbacks are unavailable, use the smallest safe internal URL proof
+   available—response/status delta, timing, job state, or other direct server
+   behavior—and record that the evidence is indirect or bounded by the surface.
 5. If no callback, reflection, status change, or visible delta appears, classify
    likely controls anyway: allowlist, private-IP block, redirect handling, DNS
    timing, scheme block, URL parser split, sanitizer, WAF, or async fetch.
 6. Use the idea seeds that match the observed or plausible filtering/routing
-   behavior, then run a bounded mutation ladder.
+   behavior, then run a bounded mutation ladder. Once a backend fetch boundary
+   is confirmed, cover as many distinct representation variants as useful at the
+   permitted rate; expand a family when a variant behaves differently, and stop
+   repeating variants that normalize or behave identically.
 7. Prefer status, banner, callback, or low-risk root proof over secret retrieval.
-8. Stop after proving the boundary reached or after representative mutation
-   families show the filter boundary is understood.
+8. Stop after the impact boundary is proved or, when impact proof is not yet
+   available, after representative mutation families show the filter boundary is
+   understood.
 
 ## Pressure Mode
 
@@ -124,13 +132,18 @@ Promote only when evidence shows the server, not the client, reached a controlle
 
 Do not promote client-side-only navigation, generic fetch errors, public URL fetches without impact, or unsupported timing speculation.
 
-## Stop Conditions
+## Escalation And Stop Conditions
 
-Stop before harvesting secrets, credential/token use, sensitive internal data
-reads, state-changing or destructive internal requests, DNS rebinding without
-explicit approval, or broad/high-volume scans. Bounded internal service
-discovery with a low rate limit and non-sensitive surface classification remain
-allowed when program rules permit.
+After proving a server-side fetch boundary, continue with a bounded,
+rate-limited, read-only internal proof ladder when program rules permit. Internal
+reads may establish impact, including the minimum sensitive response needed to
+show the reachable boundary; preserve only the smallest necessary proof and
+never disclose raw secrets or third-party data. Stop after the impact boundary
+is proved, on instability, or when a next request may change state, authenticate
+with retrieved credentials/tokens, persist data, cause destructive behavior, or
+broaden into an uncontrolled scan. DNS rebinding still requires explicit
+approval. Use the observed fetcher's service cost and program rules—not an
+arbitrary payload-count cap—to set rate, concurrency, and backoff.
 
 ## Evidence
 

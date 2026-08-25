@@ -78,7 +78,7 @@ Observed basis: <demonstrated reusable behavior>
 Candidate chain: <control/condition -> trust boundary -> consequence>
 Exact unknown: <one question preventing proof>
 Blocker: <none | account | role | fixture | browser | artifact | challenge | scope | rate>
-Next discriminator: <smallest permitted action>
+Next discriminator: <next permitted discriminator>
 Wake condition: <specific event or resource that reopens work>
 Evidence: <MapStore, Attempts, report, and permitted hypothesis pointers>
 Why ranked: <information gain and impact distance>
@@ -93,8 +93,8 @@ consumer failed.
 `--push` prioritizes proven control, proximity to a meaningful trust boundary,
 a known transform/consumer, one bounded unknown, and a permitted next action.
 `--blocked` shows lead cards with an explicit blocker. `--needs-you` shows only
-blockers requiring an operator action or decision, ordered by the smallest
-unblock: account/role, owned fixture, normal browser recovery, missing artifact,
+blockers requiring an operator action or decision, ordered by the appropriate
+operator unblock: account/role, owned fixture, normal browser recovery, missing artifact,
 specific scope decision, or cooldown. Do not list agent-resolvable work there.
 
 `--weaknesses` groups observed lead cards by recurring trust-boundary pattern
@@ -112,7 +112,7 @@ rather than overwriting history. Every lead touched during a run receives a disp
 - **active/candidate** — still has a safe next action;
 - **needs_recheck** — an explicit account, role, fixture, browser, artifact, or
   environment prerequisite remains;
-- **defended** — a demonstrated control correctly enforces the relevant path;
+- **control recorded** — a demonstrated control's enforcement is established for the relevant path;
 - **stale** — the app, route, account state, or consumer changed;
 - **promoted** — proof became a linked finding;
 - **archived** — meaningful reachable variants are covered, with a concrete
@@ -121,7 +121,7 @@ rather than overwriting history. Every lead touched during a run receives a disp
 A rate limit pauses only its affected lead until the recorded cooldown/stability
 wake condition. A persistent CAPTCHA or bot challenge may be classified with a
 normal owned-browser baseline, but is not permission for an evasion campaign;
-record the smallest legitimate operator handoff if it remains blocking. Continue
+record the appropriate operator handoff if it remains blocking. Continue
 independent leads while blocked cards wait.
 
 ## Completion check

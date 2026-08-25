@@ -19,6 +19,17 @@ Every invocation must declare the **canonical destination lane**. The tool will 
 
 Use `--lane api` for an API surface, or `--lane apk|exe|mac` for binary work. `--family` is optional when the lane implies it; `--hunt-type` is legacy metadata only and cannot override `--lane`.
 
+## Report handoff meaning
+
+When Ryushe says a finding is **confirmed**, it means the evidence has met the
+report threshold: write or finalize the canonical report for that FID. It does
+**not** mean the report was sent.
+
+Only record `submission.state=submitted` after Ryushe explicitly says it was
+submitted. Record `submission.result=valid|duplicate` only after Ryushe relays
+the platform outcome. Agents must not infer either from a confirmed finding or
+from a report draft.
+
 ## Submission updates (one sentence)
 
 When an operator says a finding was submitted or marked duplicate, update it immediately instead of opening a separate workflow:

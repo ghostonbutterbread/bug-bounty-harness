@@ -24,6 +24,8 @@ an evasion campaign.
 - RED: `uv run --with pytest python -m pytest agents/test_leads_skill.py -q` —
   failed because `skills/leads/SKILL.md` did not exist.
 - GREEN: `uv run --with pytest python -m pytest agents/test_leads_skill.py agents/test_manual_places_to_hunt_skill.py -q` — 4 passed.
+- CLI: a temporary MapStore fixture was created and queried through
+  `python3 agents/leads.py create ...` then `search ...` successfully.
 
 ## Activation
 
@@ -33,6 +35,7 @@ publishes it after review/integration.
 
 ## Deferred
 
-A dedicated formatter/CLI for `/leads` is intentionally deferred. Current
-MapStore already supports `old-leads` plus class/tag/status filtering; this skill
-sets the contract before adding a separate renderer or store.
+A dedicated ranking/renderer for the conversational `/leads --push`, `--blocked`,
+and `--needs-you` views is intentionally deferred. The CLI provides canonical
+creation, search, and lifecycle status updates; the skill defines synthesis until
+a renderer is justified.

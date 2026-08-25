@@ -32,6 +32,25 @@ only its own private hypotheses plus explicit delegated or reclaimable branches.
 A lead card may link a hypothesis ID without copying private rationale into the
 public projection.
 
+## Lead CLI
+
+Use the BBH wrapper rather than hand-writing MapStore bodies:
+
+```bash
+python3 agents/leads.py create --program <program> --class <vuln-class> --surface <surface> \\
+  --title "<concise lead>" --observed-basis "<fact>" --candidate-chain "<chain>" \\
+  --exact-unknown "<one question>" --next-discriminator "<safe check>" \\
+  --evidence-ref "<sanitized pointer>"
+python3 agents/leads.py search --program <program> --class <vuln-class>
+python3 agents/leads.py update-status --program <program> --path <MapStore-relative-path> \\
+  --status needs_recheck --reason "<evidence-backed blocker>"
+```
+
+`create` adds the public `lead` and class tags, `search` reads only public
+lead projections, and `update-status` appends a lifecycle annotation without
+deleting evidence. Do not use this CLI to copy another live agent's private
+hypotheses into MapStore.
+
 ## Retrieval
 
 Use MapStore's existing lead intent and tag/status filters. For example:

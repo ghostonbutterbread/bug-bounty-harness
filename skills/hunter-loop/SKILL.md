@@ -38,6 +38,9 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
 4. **Memory Overlay** — Now query prior state as needed:
    - `/hypothesis-ledger` only for the coordinator's private candidate count or an
      explicitly selected stale recovery; never preload another agent's live work.
+   - `/leads` for a bounded URL, surface, or tag query of shared,
+     evidence-backed lead projections; it is not a replacement for current
+     observations or another worker's private hypotheses.
    - `/hunter-memory` summaries for the program or surface
    - `/live-map` application-map summary and handoff packets
    - `/url-ingest` stats/history for route and parameter review depth
@@ -226,9 +229,12 @@ speculative, duplicated, or raw run state into MapStore.
 
 1. Scope/account gate -> cold-surface mapping -> structurally plausible or
    evidence-backed specialist cards.
-2. Each specialist returns a structured result plus a prioritized, non-capped
-   hypothesis ledger. It may request the best bounded follow-up card, but it
-   does not silently broaden its live mission or discard viable deferred angles.
+2. Each specialist preserves every distinct untested viable angle immediately in
+   `/hypothesis-ledger` as a private candidate owned by its agent/run. When a
+   candidate has a durable observed fact and one bounded unresolved security
+   question, create or update its sanitized shared `/leads` projection; it may
+   request the best bounded follow-up card, but it does not silently broaden its
+   live mission or discard viable deferred angles.
 3. A verifier card is required before candidate promotion. For stochastic AI
    behavior, the verifier must preserve the candidate's semantic trigger and
    acceptance predicate (for example, indirect content -> model retrieval ->
@@ -300,9 +306,12 @@ signal-generation card.
 ## Hypothesis Breadth And Novel Lanes
 
 Hunter Loop does not cap the number of evidence-grounded hypotheses a steward
-or parent may retain. Preserve distinct viable angles in Hunter Memory or the
-task artifact as `candidate`, `active`, `deferred`, `combined`, `disproved`, or
-`blocked`; do not lose an angle simply because it is not the next live test.
+or parent may retain. Before deepening one lead, preserve each distinct untested
+viable angle in the private `/hypothesis-ledger` as `candidate`; use its
+`active`, `deferred`, `combined`, `disproved`, or `blocked` lifecycle states as
+the chain changes. When the candidate has the observed-fact-plus-unresolved-
+question threshold, update the sanitized `/leads` projection. Hunter Memory and
+task artifacts may link those records, but are not substitutes for either store.
 
 Live action remains bounded by scope, ownership, rate, safety, and the owned
 card objective. Choose the next experiment for information gain and impact fit,
@@ -319,8 +328,10 @@ gate.
 
 ## Attempts And Pressure State
 
-Each specialist packet should name the canonical Attempts stream under the
-resolved program lane:
+Before a deliberate target-directed probe, load `/attempt-recording-policy` and
+record its baseline, each meaningful mutation, and its result through the
+canonical Attempts writer. Each specialist packet should name the canonical
+Attempts stream under the resolved program lane:
 
 ```text
 <lane>/attempts/_runs/<run-id>/attempts.jsonl

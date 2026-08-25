@@ -23,6 +23,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.coverage_store import CoverageStore
+from agents.finding_visibility import normalize_submission
 from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.ledger import (
     create_team_ledger_from_storage,
@@ -302,7 +303,7 @@ def _build_hunt_context(
         [
             "Do not read or summarize the full findings ledger as the opening move.",
             "- Use prior findings only for targeted duplicate checks, status/report tasks, revalidation, or extending an existing FID with fresh evidence.",
-            "- Do not treat a historical confirmed finding as satisfying this hunt unless the task explicitly asks for status, duplicate triage, report cleanup, or revalidation.",
+            "- Confirmed, submitted, and duplicate findings are closed to default work selection. Use them only for targeted dedupe or exact FID lookup unless the task explicitly asks for status, duplicate triage, report cleanup, revalidation, or a similar-vulnerability review.",
             "- If you need prior context, query the exact file, URL, surface, class, or FID after you have selected the live surface.",
             "- A current hunt is complete only after new evidence is produced, the requested lanes are exhausted or blocked, or a current-run finding is ready for report import.",
             "",
@@ -895,6 +896,7 @@ class ManualHunter:
             "cvss_score": "",
             "run_id": _default_run_id(),
             "manual_source_label": source_label,
+            "submission": normalize_submission(None),
         }
         return ParsedFinding(finding=finding, raw_text=text, source_label=source_label, source_path=source_path)
 
@@ -941,6 +943,41 @@ class ManualHunter:
         self._mark_coverage(finding, parsed)
         self._print_chain_suggestions(finding)
         print(f"Added finding {finding['fid']}")
+        return 0
+
+    def set_submission(
+        self,
+        fid: str,
+        *,
+        state: str,
+        report: str | None = None,
+        duplicate_of: str | None = None,
+    ) -> int:
+        """Record one operator-reported submission outcome without a new workflow."""
+        target_fid = _normalize_text(fid)
+        if not target_fid:
+            raise ValueError("finding fid is required")
+        current = next(
+            (item for item in self.ledger.list_all() if _normalize_text(item.get("fid")).upper() == target_fid.upper()),
+            None,
+        )
+        if current is None:
+            raise ValueError(f"no finding found for fid {target_fid}")
+        submission = normalize_submission(
+            {**normalize_submission(current.get("submission")), "state": state},
+            report=report,
+            duplicate_of=duplicate_of,
+        )
+        updated = update_team_finding(
+            self.program,
+            {"fid": current["fid"], "submission": submission},
+            family=self.family,
+            lane=self.lane,
+            root_override=self.storage_root,
+            write_report=True,
+            refresh=True,
+        )
+        print(f"Submission updated: {updated['fid']} -> {submission['state']}")
         return 0
 
     def _append_report(self, finding: dict[str, Any]) -> None:
@@ -1224,6 +1261,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--add", help="Paste a finding note directly.")
     mode.add_argument("--from-file", dest="from_file", help="Read a finding note from a markdown/text file.")
     mode.add_argument("--interactive", action="store_true", help="Prompt for finding fields interactively.")
+    mode.add_argument("--set-submission", metavar="FID", help="Record one finding's submitted or duplicate state by FID.")
     mode.add_argument(
         "--hunt",
         action="store_true",
@@ -1257,6 +1295,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="When a duplicate is found, attach the raw note to the existing finding comment ledger.",
     )
+    parser.add_argument("--submission-state", choices=("not_submitted", "submitted", "duplicate"), default="submitted")
+    parser.add_argument("--submission-report", help="Short report reference or URL, when submitted.")
+    parser.add_argument("--duplicate-of", help="Optional report/FID the platform marked as the duplicate target.")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v or -vv).")
     return parser
 
@@ -1287,7 +1328,14 @@ def main(argv: list[str] | None = None) -> int:
         return hunter.ingest_file(Path(args.from_file).expanduser(), link_duplicate_comment=args.link_duplicate_comment)
     if args.interactive:
         return hunter.interactive(link_duplicate_comment=args.link_duplicate_comment)
-    if args.hunt or not any((args.watch, args.add is not None, args.from_file, args.interactive)):
+    if args.set_submission:
+        return hunter.set_submission(
+            args.set_submission,
+            state=args.submission_state,
+            report=args.submission_report,
+            duplicate_of=args.duplicate_of,
+        )
+    if args.hunt or not any((args.watch, args.add is not None, args.from_file, args.interactive, args.set_submission)):
         if verbosity.verbose:
             print(f"[/me] verbosity={verbosity.level}")
             print(f"[/me] storage_root={hunter.storage.lane_root}")

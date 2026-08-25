@@ -224,6 +224,8 @@ During testing:
 
 Prior-finding boundary:
 
+- Confirmed, submitted, and duplicate findings are closed to default work selection: retain them for exact dedupe/FID lookup, explicit `--include-closed` status views, deliberate retest queues, or an explicit request to use prior reports as inspiration.
+
 - Historical confirmed findings, reports, and MapStore `#do-not-retest` notes are coordination inputs only.
 - They can justify skipping an exact duplicate PoC, selecting adjacent untested work, or extending an existing FID with fresh evidence.
 - They must not satisfy a new hunt/testing goal by themselves unless Ryushe explicitly asked for status, portfolio review, report cleanup, duplicate triage, or revalidation of an existing finding.
@@ -326,7 +328,7 @@ Use CDP only for observation, navigation, screenshots, and source-backed validat
 
 ## Context modes
 
-Default `/me`: load resolved target root, coverage/shared_brain coordination, and unexplored surfaces. Do not inject prior confirmed findings into the opening hunt prompt unless the task asks for status, duplicate triage, report cleanup, revalidation, or extending a known FID. Treat prior findings as advisory coordination only; prefer unexplored areas and avoid duplicating known findings.
+Default `/me`: load resolved target root, coverage/shared_brain coordination, and unexplored surfaces. Do not inject prior confirmed, submitted, or duplicate findings into the opening hunt prompt unless the task explicitly asks for status, duplicate triage, report cleanup, revalidation, extending a known FID, or using past reports to find similar vulnerabilities. Treat prior findings as advisory coordination only; prefer unexplored areas and avoid duplicating known findings.
 
 `/me --fresh`: skip prior findings/coverage in the prompt. Hunt freely, but still use the ledger before writing; duplicates are expected to be caught by the pipeline.
 

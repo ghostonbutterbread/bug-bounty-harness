@@ -491,7 +491,11 @@ def auth_check_capture_path(account: dict[str, Any] | None, args: argparse.Names
 
 
 def build_pwnfox_httpql(
-    color: str, host_filter: str | None = None, request_path: str | None = None, require_cookie: bool = False
+    color: str,
+    host_filter: str | None = None,
+    request_path: str | None = None,
+    required_headers: list[str] | None = None,
+    require_cookie: bool = False,
 ) -> str:
     clauses = [
         'req.raw.cont:"X-PwnFox-Color"',
@@ -501,6 +505,10 @@ def build_pwnfox_httpql(
         clauses.append(f'req.host.cont:"{host_filter}"')
     if request_path:
         clauses.append(f'req.path.cont:"{request_path}"')
+    for header_name in required_headers or []:
+        normalized = str(header_name).strip()
+        if normalized and re.fullmatch(r"[A-Za-z0-9-]+", normalized):
+            clauses.append(f'req.raw.cont:"{normalized.title()}:"')
     if require_cookie:
         clauses.append('req.raw.cont:"Cookie:"')
     return " AND ".join(clauses)
@@ -543,8 +551,37 @@ def mcp_text_json(data: dict[str, Any]) -> dict[str, Any]:
     return parsed
 
 
+def request_id_from_proxy_item(item: dict[str, Any]) -> str | None:
+    request = item.get("request")
+    candidates = [item.get("id"), request.get("id") if isinstance(request, dict) else None]
+    for candidate in candidates:
+        if candidate is not None and str(candidate):
+            return str(candidate)
+    return None
+
+
+def full_proxy_request_by_id(endpoint: str, request_id: str) -> dict[str, Any] | None:
+    parsed = mcp_text_json(
+        mcp_call(
+            endpoint,
+            "get_requests_by_ids",
+            {
+                "ids": [request_id],
+                "fields": ["id", "request"],
+                "serialization": {"include_body": False, "max_text_body_chars": 0},
+            },
+        )
+    )
+    results = parsed.get("results")
+    if not isinstance(results, list) or not results or not isinstance(results[0], dict):
+        return None
+    item = results[0].get("item")
+    return item if isinstance(item, dict) else None
+
+
 def list_proxy_requests(
-    endpoint: str, color: str, host_filter: str | None, request_path: str | None, limit: int
+    endpoint: str, color: str, host_filter: str | None, request_path: str | None, limit: int,
+    required_headers: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     order = {"target": "req", "field": "created_at", "direction": "desc"}
     for require_cookie in (True, False):
@@ -552,16 +589,30 @@ def list_proxy_requests(
             endpoint,
             "list_requests",
             {
-                "filter": build_pwnfox_httpql(color, host_filter, request_path, require_cookie=require_cookie),
+                "filter": build_pwnfox_httpql(
+                    color, host_filter, request_path, required_headers=required_headers, require_cookie=require_cookie
+                ),
                 "limit": limit,
                 "order": order,
                 "serialization": {"include_body": False, "max_text_body_chars": 0},
             },
         )
         parsed = mcp_text_json(data)
-        items = parsed.get("items")
-        if isinstance(items, list) and items:
-            return [item for item in items if isinstance(item, dict)]
+        listed = parsed.get("items")
+        if not isinstance(listed, list):
+            continue
+        full_items = []
+        for listed_item in listed:
+            if not isinstance(listed_item, dict):
+                continue
+            request_id = request_id_from_proxy_item(listed_item)
+            if not request_id:
+                continue
+            full_item = full_proxy_request_by_id(endpoint, request_id)
+            if full_item:
+                full_items.append(full_item)
+        if full_items:
+            return full_items
     return []
 
 
@@ -681,12 +732,16 @@ def text_json(data):
     content = data.get("result", {}).get("content")
     text = content[0].get("text") if isinstance(content, list) and content and isinstance(content[0], dict) else None
     return json.loads(text or "{}")
-def filt(color, host_filter, request_path, require_cookie):
+def filt(color, host_filter, request_path, required_headers, require_cookie):
     clauses = ['req.raw.cont:"X-PwnFox-Color"', f'req.raw.cont:"{color}"']
     if host_filter:
         clauses.append(f'req.host.cont:"{host_filter}"')
     if request_path:
         clauses.append(f'req.path.cont:"{request_path}"')
+    for header_name in required_headers:
+        normalized = str(header_name).strip()
+        if normalized and re.fullmatch(r"[A-Za-z0-9-]+", normalized):
+            clauses.append(f'req.raw.cont:"{normalized.title()}:"')
     if require_cookie:
         clauses.append('req.raw.cont:"Cookie:"')
     return " AND ".join(clauses)
@@ -739,9 +794,16 @@ args = json.loads(base64.b64decode(sys.argv[1]).decode())
 order = {"target":"req","field":"created_at","direction":"desc"}
 items = []
 for require_cookie in (True, False):
-    data = mcp_call(args["endpoint"], "list_requests", {"filter":filt(args["color"], args.get("host_filter"), args.get("request_path"), require_cookie), "limit":args.get("limit", 50), "order":order, "serialization":{"include_body":False,"max_text_body_chars":0}})
-    parsed = text_json(data)
-    items = [item for item in parsed.get("items", []) if isinstance(item, dict)]
+    data = mcp_call(args["endpoint"], "list_requests", {"filter":filt(args["color"], args.get("host_filter"), args.get("request_path"), args.get("required_headers", []), require_cookie), "limit":args.get("limit", 50), "order":order, "serialization":{"include_body":False,"max_text_body_chars":0}})
+    listed = [item for item in text_json(data).get("items", []) if isinstance(item, dict)]
+    for listed_item in listed:
+        request_id = listed_item.get("id") or (listed_item.get("request") or {}).get("id")
+        if request_id is None:
+            continue
+        detail = text_json(mcp_call(args["endpoint"], "get_requests_by_ids", {"ids":[str(request_id)], "fields":["id", "request"], "serialization":{"include_body":False,"max_text_body_chars":0}}))
+        results = detail.get("results")
+        if isinstance(results, list) and results and isinstance(results[0], dict) and isinstance(results[0].get("item"), dict):
+            items.append(results[0]["item"])
     if items:
         break
 print(json.dumps(seed_from_items(items, args["account"], args["color"], args["program"], args.get("required_headers", []))))
@@ -767,7 +829,7 @@ def query_proxy_seed(
     if mode in {"direct", "same-host-localhost"}:
         if not endpoint:
             return {"status": "blocked", "reason": "missing-ryushe-proxy-endpoint"}
-        items = list_proxy_requests(str(endpoint), color, host_filter, request_path, limit)
+        items = list_proxy_requests(str(endpoint), color, host_filter, request_path, limit, required_headers)
         return seed_from_proxy_items(items, account, color, program, required_headers)
     if mode == "hoster-ssh":
         if not endpoint:

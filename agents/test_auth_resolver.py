@@ -418,6 +418,34 @@ def test_resolve_available_seed_without_url_returns_safe_metadata(tmp_path, monk
     assert "should-not-print" not in output
 
 
+def test_proxy_refresh_fetches_full_request_by_id_after_sanitized_discovery(monkeypatch):
+    module = load_resolver_module()
+    calls = []
+
+    def response(payload):
+        return {"result": {"content": [{"text": json.dumps(payload)}]}}
+
+    def fake_mcp(_endpoint, tool_name, arguments, timeout=12.0):
+        calls.append((tool_name, arguments))
+        if tool_name == "list_requests":
+            return response({"items": [{"id": "42", "request": {"host": "api.example.test"}}]})
+        assert tool_name == "get_requests_by_ids"
+        assert arguments["ids"] == ["42"]
+        return response({"results": [{"id": "42", "item": {"id": "42", "request": {
+            "id": "42", "host": "api.example.test", "path": "/me",
+            "headers": {"Authorization": "Bearer test-only", "X-PwnFox-Color": "blue"},
+        }}}]})
+
+    monkeypatch.setattr(module, "mcp_call", fake_mcp)
+    items = module.list_proxy_requests(
+        "http://proxy.invalid/mcp", "blue", "api.example.test", "/me", 5, ["authorization"]
+    )
+
+    assert items[0]["request"]["headers"]["Authorization"] == "Bearer test-only"
+    assert [call[0] for call in calls] == ["list_requests", "get_requests_by_ids"]
+    assert 'req.raw.cont:"Authorization:"' in calls[0][1]["filter"]
+
+
 def test_seed_from_proxy_items_extracts_cookie_and_auth_headers():
     module = load_resolver_module()
     result = module.seed_from_proxy_items(

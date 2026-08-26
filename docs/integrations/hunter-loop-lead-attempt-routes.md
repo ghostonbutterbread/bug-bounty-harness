@@ -1,6 +1,6 @@
 # Hunter Loop lead and Attempts routing
 
-- **Status:** ready for review
+- **Status:** accepted for beta integration
 - **Base / target:** `beta` at `1373cb9fe7a9da94a443541c7b69c5d387b866bf` → `beta`
 - **Feature branch / worktree:** `fix/hunter-loop-lead-attempt-routes` / `/home/ryushe/worktrees/bbh-hunter-loop-routes`
 
@@ -29,6 +29,13 @@ exact-probe (`/attempt-recording-policy` + Attempts writer) paths.
   passed.
 - `pytest -q agents/test_attempts.py`: 7 passed.
 - `git diff --check`: passed.
+
+## Integration decision
+
+Accepted for `beta` after routing assertions, the canonical Attempts unit test,
+and diff checks passed. The change is policy/documentation only; it does not
+alter traffic, scope, or storage schema. The integration cleanup removes this
+dossier from `beta`; Git history retains the handoff record.
 
 ## Activation boundary
 

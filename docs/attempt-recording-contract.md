@@ -25,6 +25,7 @@ between variants, and what happened?
 | --- | --- | --- |
 | Deliberately sent payload, representation, parameter mutation, method/body/header variation, browser action, or controlled request comparison | **Attempts** | Exact attempt, target/input, payload family, meaningful changed dimension, response/outcome, and stop/pivot reason. |
 | Agent's plausible but untested branch, next discriminator, ownership/continuation state | **Hypothesis Ledger** | Private candidate reasoning, anticipated chain, future test, blocker, and attempt/artifact reference. |
+| Reusable observed fact plus one bounded unresolved security question | **Leads** | Sanitized public MapStore projection with lifecycle state, next discriminator or blocker, and pointers; do not copy private rationale. |
 | Durable target fact or reusable tested-state conclusion | **MapStore** | Concise observed behavior, defense/parser/auth boundary, representative families, pressure state, and Attempts pointer. |
 | Human-facing chronology, decision, handoff, or blocker | **Bounty Notes** | Why the hunt prioritized, pivoted, paused, or handed off work; link MapStore and Attempts. |
 | Evidence-backed reportable impact/proof | **Findings** | Report lifecycle, reproducible proof, impact, and links to the supporting Attempts/MapStore artifacts. |
@@ -141,6 +142,9 @@ At a natural test/pivot/completion checkpoint:
   Attempts path/ID and representative payload families;
 - preserve untested but plausible next branches in the private **Hypothesis
   Ledger**, with Attempt/MapStore references;
+- when a reusable observed fact leaves one bounded unresolved security question,
+  create or update its sanitized public **Leads** projection with its next
+  discriminator or blocker; do not copy private candidate rationale;
 - write **Bounty Notes** only when a human-facing decision or handoff is needed;
 - promote reportable proof through **Findings**.
 

@@ -28,6 +28,8 @@ and Attempts artifact.
 
 - URL/app/surface behavior -> `/map-store`.
 - Private live-agent candidate, branch, reclaimable follow-up, or continuation checkpoint -> `/hypothesis-ledger`.
+- A reusable observed fact with one bounded unresolved security question -> `/leads`;
+  keep private candidate rationale in `/hypothesis-ledger`.
 - Deliberately published human hypothesis/decision record, timeline, handoff, or blocker -> `/bounty-notes`.
 - Bulk URL queue/review state -> `/url-ingest`.
 - Already-tested coverage -> `me_ledger.py` / coverage ledgers.
@@ -37,8 +39,10 @@ and Attempts artifact.
   MapStore pointers. Vulnerability class and surface stay redacted event metadata.
 - Concrete findings and proof packets -> `manual_hunter.py` / `/findings`.
 
-If both are true, split it: factual behavior in `/map-store`, hypothesis or
-handoff here, linked by full URL and shared tags.
+If both are true, split it: factual behavior in `/map-store`; private reasoning in
+`/hypothesis-ledger`; and, when that fact leaves one bounded unresolved security
+question, its public lifecycle projection in `/leads`. Keep the human handoff
+here, linked by full URL and shared tags.
 
 ## MapStore vs Bounty Notes
 

@@ -37,7 +37,10 @@ idea merely because it is not the current highest-information test.
   returns counts only; do not inject candidate content unless the owner elects
   to review it.
 - MapStore records observed facts. Link evidence through `--evidence-ref`, but
-  do not write an untested hypothesis into MapStore as factual behavior.
+  do not write an untested hypothesis into MapStore as factual behavior. When a
+  private candidate has a durable observed fact plus one bounded unresolved
+  security question, create or update the sanitized `/leads` projection; it may
+  link this hypothesis ID but must not copy private rationale.
 
 ## Commands
 

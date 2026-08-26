@@ -12,13 +12,16 @@ exact-probe (`/attempt-recording-policy` + Attempts writer) paths.
 
 ## Implemented contract
 
-- Memory overlay distinguishes bounded shared lead reads from private ledger
-  ownership.
+- Hunter Loop and the canonical BBH storage routers distinguish bounded shared
+  lead reads from private ledger ownership.
 - Every viable untested angle is preserved in `/hypothesis-ledger`; an
   evidence-backed unresolved question is promoted or updated in `/leads`.
 - Deliberate target-directed testing loads `/attempt-recording-policy` and
   records baseline, meaningful mutations, and outcomes through the canonical
   Attempts stream/writer.
+- The matching shared AI-policy update is committed separately in the
+  `ai-policies` beta lane; it extends the same transition through the universal
+  entry, live-testing, hypothesis-expansion, and Attempts policies.
 
 ## Evidence
 

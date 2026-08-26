@@ -17,6 +17,8 @@ tested state, or vulnerability lead.
 
 - App/URL/surface fact future agents should query -> `/map-store`.
 - Private live-agent hypothesis, branch, reclaimable follow-up, or continuation checkpoint -> `/hypothesis-ledger`.
+- A reusable observed fact plus one bounded unresolved security question -> `/leads`;
+  retain the private branch in `/hypothesis-ledger` and do not publish its rationale.
 - Hunt chronology, decisions, handoffs, blockers -> `/bounty-notes`.
 - Bulk URL intake, parameter inventory, queue state, per-lane reviewed/tested
   status -> `/url-ingest`.

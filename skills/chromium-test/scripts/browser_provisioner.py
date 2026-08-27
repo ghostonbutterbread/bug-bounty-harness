@@ -59,7 +59,10 @@ def start(args):
  if args.proxy_server: cmd += ['--proxy-server',args.proxy_server]
  if args.mitm_ca_cert: cmd += ['--mitm-ca-cert',args.mitm_ca_cert]
  if args.url: cmd += ['--url',args.url]
- shell=f"umask 077; {' '.join(__import__('shlex').quote(x) for x in cmd)} > {__import__('shlex').quote(str(launch))}; rc=$?; test $rc -eq 0 || exit $rc; exec sleep infinity"
+ if args.display_backend: cmd += ['--display-backend',args.display_backend]
+ if args.kasmvnc_display is not None: cmd += ['--kasmvnc-display',str(args.kasmvnc_display)]
+ if args.kasmvnc_web_port is not None: cmd += ['--kasmvnc-web-port',str(args.kasmvnc_web_port)]
+ shell=f"umask 077; BROWSER_PROVISIONER_UNIT={unit}.service {' '.join(__import__('shlex').quote(x) for x in cmd)} > {__import__('shlex').quote(str(launch))}; rc=$?; test $rc -eq 0 || exit $rc; exec sleep infinity"
  run=['systemd-run','--user','--unit='+unit,'--property=MemoryHigh='+args.memory_high,'--property=MemoryMax='+args.memory_max,'--property=CPUWeight=100','--','/bin/bash','-lc',shell]
  p=subprocess.run(run,capture_output=True,text=True,env=sysenv())
  if p.returncode or not unit_active(unit): release_lease(lid,args.agent_id); emit({'status':'launch-failed','detail':(p.stderr or p.stdout).strip()},2)
@@ -125,6 +128,9 @@ def request(args):
   if args.proxy_server: cmd += ['--proxy-server',args.proxy_server]
   if args.mitm_ca_cert: cmd += ['--mitm-ca-cert',args.mitm_ca_cert]
   if args.url: cmd += ['--url',args.url]
+  if args.display_backend: cmd += ['--display-backend',args.display_backend]
+  if args.kasmvnc_display is not None: cmd += ['--kasmvnc-display',str(args.kasmvnc_display)]
+  if args.kasmvnc_web_port is not None: cmd += ['--kasmvnc-web-port',str(args.kasmvnc_web_port)]
   p=subprocess.run(cmd,capture_output=True,text=True)
   try: result=json.loads(p.stdout)
   except Exception: emit({'status':'launch-failed','detail':'provisioner returned invalid JSON'},2)
@@ -137,8 +143,8 @@ def request(args):
 def main():
  p=argparse.ArgumentParser(); sub=p.add_subparsers(dest='cmd',required=True)
  a=sub.add_parser('admission'); a.add_argument('--min-ram-available-mib',type=int,default=DEFAULT_RAM_MIB); a.add_argument('--min-swap-free-mib',type=int,default=DEFAULT_SWAP_MIB)
- s=sub.add_parser('start'); s.add_argument('program'); s.add_argument('account'); s.add_argument('--agent-id',required=True); s.add_argument('--run-id',required=True); s.add_argument('--purpose',required=True); s.add_argument('--url'); s.add_argument('--ttl-seconds',type=int,default=1800); s.add_argument('--idle-seconds',type=int,default=DEFAULT_IDLE); s.add_argument('--min-ram-available-mib',type=int,default=DEFAULT_RAM_MIB); s.add_argument('--min-swap-free-mib',type=int,default=DEFAULT_SWAP_MIB); s.add_argument('--memory-high',default='1G'); s.add_argument('--memory-max',default='2G'); s.add_argument('--proxy-cert-mode',choices=('auto','import','ignore','none'),default='import'); s.add_argument('--proxy-server'); s.add_argument('--mitm-ca-cert')
- r0=sub.add_parser('request'); r0.add_argument('program'); r0.add_argument('account'); r0.add_argument('--agent-id',required=True); r0.add_argument('--run-id',required=True); r0.add_argument('--purpose',required=True); r0.add_argument('--url'); r0.add_argument('--ttl-seconds',type=int,default=1800); r0.add_argument('--idle-seconds',type=int,default=DEFAULT_IDLE); r0.add_argument('--wait-seconds',type=int,default=120); r0.add_argument('--min-ram-available-mib',type=int,default=DEFAULT_RAM_MIB); r0.add_argument('--min-swap-free-mib',type=int,default=DEFAULT_SWAP_MIB); r0.add_argument('--memory-high',default='1G'); r0.add_argument('--memory-max',default='2G'); r0.add_argument('--proxy-cert-mode',choices=('auto','import','ignore','none'),default='import'); r0.add_argument('--proxy-server'); r0.add_argument('--mitm-ca-cert')
+ s=sub.add_parser('start'); s.add_argument('program'); s.add_argument('account'); s.add_argument('--agent-id',required=True); s.add_argument('--run-id',required=True); s.add_argument('--purpose',required=True); s.add_argument('--url'); s.add_argument('--ttl-seconds',type=int,default=1800); s.add_argument('--idle-seconds',type=int,default=DEFAULT_IDLE); s.add_argument('--min-ram-available-mib',type=int,default=DEFAULT_RAM_MIB); s.add_argument('--min-swap-free-mib',type=int,default=DEFAULT_SWAP_MIB); s.add_argument('--memory-high',default='1G'); s.add_argument('--memory-max',default='2G'); s.add_argument('--proxy-cert-mode',choices=('auto','import','ignore','none'),default='import'); s.add_argument('--proxy-server'); s.add_argument('--mitm-ca-cert'); s.add_argument('--display-backend',choices=('auto','default','kasmvnc')); s.add_argument('--kasmvnc-display',type=int); s.add_argument('--kasmvnc-web-port',type=int)
+ r0=sub.add_parser('request'); r0.add_argument('program'); r0.add_argument('account'); r0.add_argument('--agent-id',required=True); r0.add_argument('--run-id',required=True); r0.add_argument('--purpose',required=True); r0.add_argument('--url'); r0.add_argument('--ttl-seconds',type=int,default=1800); r0.add_argument('--idle-seconds',type=int,default=DEFAULT_IDLE); r0.add_argument('--wait-seconds',type=int,default=120); r0.add_argument('--min-ram-available-mib',type=int,default=DEFAULT_RAM_MIB); r0.add_argument('--min-swap-free-mib',type=int,default=DEFAULT_SWAP_MIB); r0.add_argument('--memory-high',default='1G'); r0.add_argument('--memory-max',default='2G'); r0.add_argument('--proxy-cert-mode',choices=('auto','import','ignore','none'),default='import'); r0.add_argument('--proxy-server'); r0.add_argument('--mitm-ca-cert'); r0.add_argument('--display-backend',choices=('auto','default','kasmvnc')); r0.add_argument('--kasmvnc-display',type=int); r0.add_argument('--kasmvnc-web-port',type=int)
  t=sub.add_parser('touch'); t.add_argument('--lease-id',required=True); t.add_argument('--agent-id',required=True); t.add_argument('--ttl-seconds',type=int,default=1800); t.add_argument('--work-state',choices=('active','awaiting-input'),default='active')
  q=sub.add_parser('status'); q.add_argument('--lease-id',required=True); q.add_argument('--agent-id',required=True)
  r=sub.add_parser('reap-idle'); r.add_argument('--idle-seconds',type=int,default=DEFAULT_IDLE)

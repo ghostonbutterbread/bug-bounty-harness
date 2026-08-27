@@ -19,20 +19,19 @@ browser context instead of treating raw HTTP as app-layer coverage.
 
 The launcher prefers Playwright's bundled Chromium when Playwright is installed, then falls back to system Chromium/Chrome.
 
-## Browser versus engagement-profile admission
+## Required browser admission
 
-For normal, non-engagement web work—search, research, or a generic web lookup—
-agents may invoke `chromium_test.py` directly with `--ephemeral-profile`. Those
-disposable browser runs do not need an account-profile lease.
+Codex, Claude, and other Ghost Home task agents must request every real browser
+through `browser_provisioner.py`. It gives each run capacity admission, a
+recorded owner, and a terminal lifecycle; named color/account profiles
+additionally receive their exact lease. The alias must resolve exactly from the
+program inventory—never derive an alias by adding a suffix such as `green2`.
 
-For **bug-bounty engagement browser work**, use `browser_provisioner.py`, even
-when the immediate reason is bot protection, browser fingerprinting, UI/JS
-exploration, or capture of a request for later replay. The provisioner gives the
-engagement an isolated profile, capacity admission, a recorded owner, and a
-terminal lifecycle. When the engagement uses a named color/account profile, it
-also leases that exact profile so another agent cannot control it concurrently.
-The alias must resolve exactly from the program inventory—never derive an alias
-by adding a suffix such as `green2`.
+`chromium_test.py` is exclusively the provisioner's implementation launcher.
+Every real direct invocation fails before allocating a port, profile, or
+Chromium process. `--dry-run` remains available for implementation planning and
+focused launcher tests. Hermes ordinary browsing uses its own managed browser
+provider rather than Chromium Test.
 
 IDOR is replay-first after a browser-derived session/request has been captured:
 stop and release the browser/profile at that point unless further browser work
@@ -175,9 +174,10 @@ substitute for that recorded KasmVNC failure. This creates a dedicated KasmVNC
 display and a loopback-only HTTP viewer while CDP remains on `127.0.0.1`:
 
 ```bash
-python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" \
-  <program> "manual handoff" --ephemeral-profile --run-id <run-id> \
-  --display-backend kasmvnc --kasmvnc-display 20 --kasmvnc-web-port 8463 --json
+python3 "$HARNESS_ROOT/skills/chromium-test/scripts/browser_provisioner.py" request \
+  <program> <account> --agent-id <agent-id> --run-id <run-id> \
+  --purpose "manual handoff" --url https://target.example/ \
+  --display-backend kasmvnc --kasmvnc-display 20 --kasmvnc-web-port 8463
 ```
 
 The JSON record includes `kasmvnc.web_url` (`http://127.0.0.1:<port>/`) and a
@@ -231,6 +231,7 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/hoster_mitm_lane.py" --json 
   --program <program> \
   --task "<task>" \
   --account-label <account-label>
+ # Provisioner implementation MITM smoke; agents use browser_provisioner.py.
 python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" <program> "<task>" \
   --proxy-server http://hoster:<leased-port> \
   --ephemeral-profile \

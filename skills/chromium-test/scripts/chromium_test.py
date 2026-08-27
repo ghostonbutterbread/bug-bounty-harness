@@ -133,6 +133,29 @@ def assert_hoster_workload_isolated(runtime: str) -> None:
         )
 
 
+PROVISIONER_SERVICE_ENV = "BROWSER_PROVISIONER_UNIT"
+
+
+def is_provisioner_service_child() -> bool:
+    """Accept only a launcher process running in its named browser service."""
+    unit = os.environ.get(PROVISIONER_SERVICE_ENV, "")
+    if not re.fullmatch(r"browser-[0-9a-f-]+\.service", unit):
+        return False
+    return unit in current_cgroup_text()
+
+
+def assert_browser_launch_authorization(args: argparse.Namespace) -> None:
+    """Require provisioner ownership for every real Chromium Test launch."""
+    if args.dry_run or is_provisioner_service_child():
+        return
+    raise SystemExit(
+        "Refusing direct Chromium Test launch: request the browser through "
+        "browser_provisioner.py so it receives capacity admission, ownership, "
+        "and terminal cleanup. Use Hermes's managed browser provider for "
+        "ordinary browsing."
+    )
+
+
 def wait_for_browser_if_requested(process: subprocess.Popen[Any], *, supervise: bool) -> int:
     """Keep a service-owned launcher alive until its Chromium child exits."""
     return process.wait() if supervise else 0
@@ -828,6 +851,7 @@ def parse_args() -> argparse.Namespace:
         help="Use a per-profile HOME so Chrome uses an isolated ~/.pki/nssdb trust store.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Print launch plan only.")
+
     parser.add_argument(
         "--supervise",
         action="store_true",
@@ -847,6 +871,7 @@ def main() -> int:
             print(f"{result['status']}: {result['profile_dir']}")
         return 0 if result["status"] in {"deleted", "not-found"} else 2
 
+    assert_browser_launch_authorization(args)
     runtime = current_runtime()
     runtime_route = load_runtime_route(runtime)
     port = pick_port(args.port)

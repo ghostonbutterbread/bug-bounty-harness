@@ -18,6 +18,10 @@ def load_launcher_module():
     return module
 
 
+def authorize_provisioner_child(monkeypatch, module) -> None:
+    monkeypatch.setattr(module, "is_provisioner_service_child", lambda: True)
+
+
 def test_manual_handoff_policy_requires_recorded_kasm_failure_and_trusted_ca():
     root = Path(__file__).resolve().parents[1]
     policy = (root / "skills" / "chromium-test" / "SKILL.md").read_text()
@@ -109,6 +113,7 @@ def test_auto_cert_mode_falls_back_to_explicit_ignore_when_import_unavailable(
     monkeypatch, tmp_path, capsys
 ):
     module = load_launcher_module()
+    authorize_provisioner_child(monkeypatch, module)
     launched = {}
 
     class FakeProcess:
@@ -172,6 +177,55 @@ def test_import_mode_rejects_browser_launch_without_a_proxy_listener(monkeypatch
         raise AssertionError("Expected import mode to reject a browser launch without a proxy")
 
 
+def test_real_launch_requires_provisioner_ownership(monkeypatch, capsys):
+    module = load_launcher_module()
+    popen_called = False
+    monkeypatch.delenv("BROWSER_PROVISIONER_LAUNCH", raising=False)
+
+    def fake_popen(*_args, **_kwargs):
+        nonlocal popen_called
+        popen_called = True
+        raise AssertionError("direct launch must fail before Chromium starts")
+
+    monkeypatch.setattr(module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(sys, "argv", ["chromium_test.py", "demo", "smoke", "--json"])
+
+    try:
+        module.main()
+    except SystemExit as exc:
+        assert "browser_provisioner.py" in str(exc)
+    else:
+        raise AssertionError("Expected direct browser launch to be rejected")
+    assert popen_called is False
+
+
+def test_unlisted_agent_cannot_forge_provisioner_service_environment(monkeypatch):
+    module = load_launcher_module()
+    monkeypatch.setenv("BROWSER_PROVISIONER_UNIT", "browser-11111111-1111-1111-1111-111111111111.service")
+    monkeypatch.setattr(module, "current_cgroup_text", lambda: "0::/user.slice/user-1000.slice/user@1000.service/app.slice/other.service\n")
+
+    try:
+        module.assert_browser_launch_authorization(argparse.Namespace(dry_run=False))
+    except SystemExit as exc:
+        assert "browser_provisioner.py" in str(exc)
+    else:
+        raise AssertionError("Expected forged provisioner service environment to be rejected")
+
+
+def test_dry_run_remains_available_without_a_provisioner(monkeypatch, tmp_path, capsys):
+    module = load_launcher_module()
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(tmp_path / "shared"))
+    monkeypatch.setattr(module, "pick_port", lambda requested=None: 9444)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["chromium_test.py", "demo", "smoke", "--dry-run", "--json"],
+    )
+
+    assert module.main() == 0
+    assert json.loads(capsys.readouterr().out)["dry_run"] is True
+
+
 def test_launcher_defaults_to_required_proxy_ca_import(monkeypatch, tmp_path, capsys):
     module = load_launcher_module()
     monkeypatch.delenv("CHROMIUM_TEST_PROXY_CERT_MODE", raising=False)
@@ -192,6 +246,7 @@ def test_launcher_defaults_to_required_proxy_ca_import(monkeypatch, tmp_path, ca
 
 def test_import_cert_mode_fails_closed_when_import_unavailable(monkeypatch, tmp_path):
     module = load_launcher_module()
+    authorize_provisioner_child(monkeypatch, module)
     popen_called = False
 
     def fake_popen(*_args, **_kwargs):
@@ -823,6 +878,7 @@ def test_kasmvnc_start_reports_a_clean_error_when_vncserver_is_not_installed(mon
 
 def test_default_backend_starts_kasmvnc_and_passes_display_to_chromium(monkeypatch, tmp_path, capsys):
     module = load_launcher_module()
+    authorize_provisioner_child(monkeypatch, module)
     launched = {}
 
     class FakeProcess:
@@ -866,6 +922,7 @@ def test_default_backend_starts_kasmvnc_and_passes_display_to_chromium(monkeypat
 
 def test_auto_backend_falls_back_to_legacy_display_when_kasmvnc_is_unavailable(monkeypatch, tmp_path, capsys):
     module = load_launcher_module()
+    authorize_provisioner_child(monkeypatch, module)
 
     class FakeProcess:
         pid = 12345
@@ -900,6 +957,7 @@ def test_auto_backend_falls_back_to_legacy_display_when_kasmvnc_is_unavailable(m
 
 def test_kasmvnc_is_not_started_when_auth_validation_blocks_browser_launch(monkeypatch, tmp_path, capsys):
     module = load_launcher_module()
+    authorize_provisioner_child(monkeypatch, module)
     kasmvnc_started = False
 
     def fake_start(**_kwargs):

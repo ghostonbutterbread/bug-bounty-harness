@@ -515,7 +515,7 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
             "required": True,
             "account": alias,
             "profile_mode": "persistent-account-profile",
-            "command_hint": "run chromium_test.py with --account set to this resolved account alias; do not pass --ephemeral-profile",
+            "command_hint": "request this resolved account through browser_provisioner.py; do not launch chromium_test.py directly",
         },
         "next": "register the browser with this lease after Chromium is ready; never substitute another account automatically",
     }

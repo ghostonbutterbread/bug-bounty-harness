@@ -74,7 +74,7 @@ def test_sweep_refuses_active_recorded_unit(monkeypatch, tmp_path):
 
 
 def start_args():
-    return argparse.Namespace(program="demo", account="fixture", agent_id="agent", run_id="run", purpose="test", ttl_seconds=60, idle_seconds=60, min_ram_available_mib=1, min_swap_free_mib=0, memory_high="256M", memory_max="512M", proxy_cert_mode="none", proxy_server=None, mitm_ca_cert=None, url=None)
+    return argparse.Namespace(program="demo", account="fixture", agent_id="agent", run_id="run", purpose="test", ttl_seconds=60, idle_seconds=60, min_ram_available_mib=1, min_swap_free_mib=0, memory_high="256M", memory_max="512M", proxy_cert_mode="none", proxy_server=None, mitm_ca_cert=None, url=None, display_backend=None, kasmvnc_display=None, kasmvnc_web_port=None)
 
 
 def test_request_forwards_task_proxy_settings_to_start(monkeypatch, tmp_path):
@@ -89,16 +89,54 @@ def test_request_forwards_task_proxy_settings_to_start(monkeypatch, tmp_path):
         program="demo", account="fixture", agent_id="agent", run_id="run", purpose="intercept",
         ttl_seconds=60, idle_seconds=60, wait_seconds=0, min_ram_available_mib=1,
         min_swap_free_mib=0, memory_high="256M", memory_max="512M", proxy_cert_mode="import",
-        proxy_server="http://127.0.0.1:8081", mitm_ca_cert="/tmp/mitm-ca.pem", url="https://example.test/",
+        proxy_server="http://127.0.0.1:8081", mitm_ca_cert="/tmp/mitm-ca.pem", url="https://example.test/", display_backend="kasmvnc", kasmvnc_display=20, kasmvnc_web_port=8463,
     )
     try:
         m.request(args)
     except SystemExit as e:
         assert e.code == 0
-    assert captured["command"][-6:] == [
+    assert captured["command"][-12:] == [
         "--proxy-server", "http://127.0.0.1:8081", "--mitm-ca-cert", "/tmp/mitm-ca.pem",
-        "--url", "https://example.test/",
+        "--url", "https://example.test/", "--display-backend", "kasmvnc",
+        "--kasmvnc-display", "20", "--kasmvnc-web-port", "8463",
     ]
+
+
+def test_provisioner_marks_its_launcher_invocation_as_internal(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    calls = []
+
+    monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], []))
+    monkeypatch.setattr(m, "admission", lambda *_: {"status": "admitted"})
+    monkeypatch.setattr(
+        m,
+        "lease",
+        lambda _args, action, *_rest: (
+            {"status": "leased", "lease": {"lease_id": "lease", "account_alias": "fixture"}}
+            if action == "acquire"
+            else {"status": "registered"}
+        ),
+    )
+    monkeypatch.setattr(m, "unit_active", lambda _unit: True)
+    monkeypatch.setattr(m.subprocess, "run", lambda command, **_kwargs: calls.append(command) or argparse.Namespace(returncode=0, stdout="", stderr=""))
+    launch = tmp_path / "state" / "lease-browser.launch.json"
+    monkeypatch.setattr(m.uuid, "uuid4", lambda: "lease-browser")
+    monkeypatch.setattr(m.time, "time", lambda: 0)
+    monkeypatch.setattr(m.time, "sleep", lambda _seconds: None)
+    launch.parent.mkdir(parents=True, exist_ok=True)
+    launch.write_text('{"cdp_url": "http://127.0.0.1:9223"}')
+    monkeypatch.setattr(m, "now", lambda: 0)
+
+    try:
+        m.start(args)
+    except SystemExit as exc:
+        assert exc.code == 0
+
+    shell = calls[0][-1]
+    assert "BROWSER_PROVISIONER_UNIT=browser-lease-browser.service" in shell
+    assert "BROWSER_PROVISIONER_LAUNCH" not in shell
+    assert "--provisioner-internal" not in shell
 
 
 def test_provisioner_start_defaults_to_required_proxy_ca_import(monkeypatch, tmp_path):

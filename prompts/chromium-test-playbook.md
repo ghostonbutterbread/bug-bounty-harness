@@ -25,16 +25,15 @@ lane and continue mapping there unless a real stop condition appears.
 
 ## Browser Admission Boundary
 
-For normal non-engagement browsing—search, research, and generic web lookup—an
-agent may directly use `chromium_test.py` with `--ephemeral-profile`; no account
-or profile lease is needed.
+Codex, Claude, and every other Ghost Home task agent must use the provisioner
+for every real browser run, including normal ephemeral research and generic web
+lookup. The provisioner supplies isolated lifecycle and ownership. A named
+color/account profile additionally needs the exact profile lease; aliases must
+resolve from inventory and must never be derived by suffixes such as `green2`.
 
-For every bug-bounty engagement browser run, including browser escalation for
-bot protection, UI/JS exploration, or obtaining a live account session for
-later IDOR replay, use the provisioner below. It supplies isolated lifecycle and
-ownership. A named color/account profile additionally needs the exact profile
-lease; aliases must resolve from inventory and must never be derived by suffixes
-such as `green2`.
+Chromium Test has no direct-launch allowlist. Hermes ordinary browsing uses its
+managed browser provider; all Chromium Test browser work must enter through the
+provisioner. This is not a CLI switch any agent may pass.
 
 ## Engagement Browser Admission Command Shape
 
@@ -254,9 +253,9 @@ python3 skills/chromium-test/scripts/hoster_mitm_lane.py --json acquire-start \
   --program <program> \
   --task "<task>" \
   --account-label <account-label>
-# Implementation-level proxy-lane smoke only. Bug-bounty engagement agents must
-# use the provisioner command above; do not use this direct launcher to bypass
-# queueing or profile ownership.
+# Provisioner implementation-level proxy-lane smoke. Agents must use the
+# provisioner command above; do not use this direct launcher to bypass queueing
+# or profile ownership.
 python3 skills/chromium-test/scripts/chromium_test.py <program> "<task>" \
   --proxy-server http://hoster:<leased-port> \
   --ephemeral-profile \

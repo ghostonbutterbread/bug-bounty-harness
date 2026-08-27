@@ -30,9 +30,10 @@
     --purpose "manual handoff" --url https://target.example/
   ```
 
-  Do not use `chromium_test.py` directly to bypass a `queued` provisioner result
-  for an engagement. It remains available with `--ephemeral-profile` for normal
-  non-engagement browsing. Engagement handoff settings belong in the
+  Every real Chromium Test browser run must use the provisioner. Hermes ordinary
+  browsing uses its managed browser provider rather than Chromium Test. Direct
+  calls reject before Chromium is created; `--dry-run` remains available for
+  planning and focused launcher tests. Engagement handoff settings belong in the
   provisioner rather than creating a second direct-launch path.
 
   Its JSON result includes the loopback `kasmvnc.web_url` and an exact scoped

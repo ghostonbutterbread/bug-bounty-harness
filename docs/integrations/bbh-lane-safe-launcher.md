@@ -32,8 +32,10 @@ runtime lane.
 ## Verification
 
 Run `python3 tests/test_bbh_launcher.py`, direct launcher smoke commands, and
-`bash -n setup.sh scripts/bbh`. Review the diff for residual hardcoded examples
-outside this bounded migration scope.
+`bash -n setup.sh`. The suite covers physical symlink resolution, foreign
+`HARNESS_ROOT` isolation, and installation of `bbh`, `tool-run`, and
+`recon-bus` into a temporary lane command path. Review the diff for residual
+hardcoded examples outside this bounded migration scope.
 
 ## Activation boundary
 

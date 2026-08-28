@@ -56,6 +56,50 @@ class BbhLauncherTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(Path(completed.stdout.strip()), ROOT / "agents" / "manual_hunter.py")
 
+    def test_foreign_harness_root_does_not_change_dispatcher_selection(self) -> None:
+        env = {**os.environ, "HARNESS_ROOT": "/definitely/not/the-selected-checkout"}
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT), "--print-command", "recon-bus"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(Path(completed.stdout.strip()), ROOT / "scripts" / "recon_bus.py")
+
+    def test_setup_installs_lane_safe_dispatchers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            env = {
+                **os.environ,
+                "LOCAL_BIN_DIR": str(bin_dir),
+                "HARNESS_ROOT": "/definitely/not/the-selected-checkout",
+            }
+            completed = subprocess.run(
+                ["bash", "-c", 'source "$1"; install_dispatchers', "--", str(ROOT / "setup.sh")],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue((bin_dir / "bbh").is_symlink())
+            self.assertEqual((bin_dir / "bbh").resolve(), ROOT / "scripts" / "bbh")
+            root = subprocess.run(
+                [str(bin_dir / "bbh"), "--root"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(root.returncode, 0, root.stderr)
+            self.assertEqual(Path(root.stdout.strip()), ROOT.resolve())
+            for name in ("tool-run", "recon-bus"):
+                content = (bin_dir / name).read_text(encoding="utf-8")
+                self.assertIn(str(ROOT / "scripts" / "bbh.py"), content)
+                self.assertNotIn("HARNESS_ROOT", content)
+
     def test_dispatch_replaces_process_with_the_registered_tool(self) -> None:
         with patch.object(M.os, "execvpe") as execute:
             with self.assertRaises(AssertionError):

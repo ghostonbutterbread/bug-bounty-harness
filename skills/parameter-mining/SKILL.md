@@ -20,7 +20,7 @@ This skill is a router and evidence combiner. It does not replace `/js`,
    writing. Do not hard-code legacy `bounty_recon` roots when a
    `context/target_profile.json` or resolver output exists.
 3. Read current aggregate state through Recon Bus, for example:
-   `python3 "$HARNESS_ROOT/scripts/recon_bus.py" query <program> --artifact params --format path`.
+   `bbh recon-bus query <program> --artifact params --format path`.
    The query resolves `$HARNESS_SHARED_BASE`; do not construct or search for an
    aggregate path from cwd.
 4. Check `/url-ingest brief <program>` and existing lane coverage before
@@ -126,7 +126,7 @@ the lane result with the same parameter key so future agents do not repeat that
 parameter campaign:
 
 ```bash
-params_path="$(python3 "$HARNESS_ROOT/scripts/recon_bus.py" query <program> --artifact params --format path)"
+params_path="$(bbh recon-bus query <program> --artifact params --format path)"
 gf xss < "$params_path"
 
 bbh url-ingest next <program> \

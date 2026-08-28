@@ -7,6 +7,7 @@
 # Options:
 #   --init          Initialize directories and sync skills
 #   --install-tools Install local helper commands and tool dependencies
+#   --install-dispatchers Install only lane-safe local command launchers
 #   --sync          Sync skills to Claude Code and Codex
 #   --prompt        Display agent prompt (use --prompt --program NAME for custom)
 #   --config        Show current config
@@ -226,10 +227,14 @@ install_python_venv_dependency() {
 }
 
 install_tools() {
+    install_dispatchers
+    install_eyewitness_incremental
+}
+
+install_dispatchers() {
     install_bbh
     install_tool_run
     install_recon_bus
-    install_eyewitness_incremental
 }
 
 install_bbh() {
@@ -382,6 +387,9 @@ main() {
         --install-tools|--tools)
             install_tools
             ;;
+        --install-dispatchers)
+            install_dispatchers
+            ;;
         --config|-c)
             show_config
             ;;
@@ -399,4 +407,6 @@ main() {
     esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

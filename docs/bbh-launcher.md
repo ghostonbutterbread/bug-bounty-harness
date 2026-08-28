@@ -32,8 +32,9 @@ Reference-only skills do not need an entry.
 ## Lane activation
 
 The launcher intentionally does not use `HARNESS_ROOT`. Install or symlink the
-`bbh` launcher from the selected lane's checkout into that lane's command path.
-A beta agent's `bbh` must resolve to the beta checkout; a stable agent's `bbh`
+`bbh` launcher from the selected lane's checkout into that lane's command path;
+use `./setup.sh --install-dispatchers` when that command path is selected. A
+beta agent's `bbh` must resolve to the beta checkout; a stable agent's `bbh`
 must resolve to the stable checkout. The command is then identical in both
 lanes.
 

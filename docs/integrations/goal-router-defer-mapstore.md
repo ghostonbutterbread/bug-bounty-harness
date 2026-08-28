@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-08-28
 - **Owning feature branch/ref:** `fix/goal-router-defer-mapstore`
-- **Latest immutable recovery checkpoint:** none yet — implementation and dossier pending first commit
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `72d673875a64ef5cd2627b7b73ae051b985e144a`
+- **Feature implementation commit(s):** `72d673875a64ef5cd2627b7b73ae051b985e144a`
 - **Inspiration / canonical references:** Discord thread 1542698142422536252; `skills/bug-goals/SKILL.md`
 
 ## Intent
@@ -37,10 +37,10 @@ Fresh broad, focused, and technology `/goal` routes must not preload historical 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/goal-router-defer-mapstore`
-- **Latest immutable recovery checkpoint:** none yet — commit next.
-- **Feature implementation commit(s):** none yet.
-- **Exact resume point:** review the working-tree diff, commit implementation, then update this dossier with the commit SHA.
-- **Working-tree state at handoff:** intentionally uncommitted — initial implementation awaiting review.
+- **Latest immutable recovery checkpoint:** `72d673875a64ef5cd2627b7b73ae051b985e144a`.
+- **Feature implementation commit(s):** `72d673875a64ef5cd2627b7b73ae051b985e144a`.
+- **Exact resume point:** commit this dossier-only recovery update, then merge the reviewed feature into current beta.
+- **Working-tree state at handoff:** intentionally uncommitted — dossier-only checkpoint update.
 
 ## Decision gates
 
@@ -50,4 +50,4 @@ Fresh broad, focused, and technology `/goal` routes must not preload historical 
 
 ## Decision record
 
-- 2026-08-28 — created and implemented deferred MapStore retrieval contract; local verification passed, pending review and first commit.
+- 2026-08-28 — created and implemented deferred MapStore retrieval contract; local verification passed, review finding resolved in `72d673875a64ef5cd2627b7b73ae051b985e144a`.

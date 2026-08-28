@@ -26,9 +26,7 @@ for _path in (_AGENT_DIR, _PROJECT_ROOT):
     if _path_str not in sys.path:
         sys.path.insert(0, _path_str)
 
-from bounty_core_bootstrap import ensure_bounty_core_importable
 
-ensure_bounty_core_importable("bounty_core.recon")
 
 from bounty_core.recon import start_run, write_manifest
 

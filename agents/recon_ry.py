@@ -19,9 +19,7 @@ _AGENT_DIR = Path(__file__).resolve().parent
 if str(_AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(_AGENT_DIR))
 
-from bounty_core_bootstrap import ensure_bounty_core_importable
 
-ensure_bounty_core_importable("bounty_core.recon")
 
 from bounty_core.recon import start_run, write_manifest
 

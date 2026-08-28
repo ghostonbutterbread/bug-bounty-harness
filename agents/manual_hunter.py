@@ -24,7 +24,6 @@ if str(REPO_ROOT) not in sys.path:
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.coverage_store import CoverageStore
 from agents.finding_visibility import normalize_submission
-from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.ledger import (
     create_team_ledger_from_storage,
     update_team_finding,
@@ -41,7 +40,6 @@ from agents.source_roots import resolve_source_root
 from agents.storage_resolver import StorageLayout, resolve_family_lane, resolve_storage, write_context_files
 from agents.verbosity import clamp_verbosity
 
-ensure_bounty_core_importable()
 
 from bounty_core.reports import refresh_report_navigation_from_ledger, write_finding_report  # noqa: E402
 

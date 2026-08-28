@@ -6,9 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 
-ensure_bounty_core_importable()
 
 from bounty_core.reports import (  # noqa: E402
     DAILY_REPORT_DATE_FORMAT,

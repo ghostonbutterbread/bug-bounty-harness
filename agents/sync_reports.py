@@ -16,7 +16,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.coverage_store import CoverageStore
 from agents.ledger import update_team_finding
@@ -34,7 +33,6 @@ from agents.report_checker import FindingRecord, _load_ledger_findings, _load_ma
 from agents.source_roots import resolve_source_root
 from agents.verbosity import clamp_verbosity
 
-ensure_bounty_core_importable()
 
 from bounty_core.reports import refresh_report_navigation_from_ledger, write_finding_report  # noqa: E402
 from bounty_core.storage import resolve_family_lane  # noqa: E402

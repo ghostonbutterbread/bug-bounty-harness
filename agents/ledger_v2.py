@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 
-ensure_bounty_core_importable()
 
 from bounty_core.ledger import (  # noqa: E402
     LEDGER_VERSION,

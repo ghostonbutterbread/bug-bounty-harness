@@ -8,11 +8,9 @@ import re
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.dynamic_agent_builder import AgentSpec
 from agents.hunting_policy import extract_policy_artifact_metadata
 
-ensure_bounty_core_importable("bounty_core.brainstorm_spec")
 
 from bounty_core.brainstorm_spec import BrainstormAgentIntent  # noqa: E402
 

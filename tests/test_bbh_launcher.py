@@ -82,6 +82,9 @@ class BbhLauncherTests(unittest.TestCase):
                 (checkout / "agents" / "lane_probe.py").write_text(
                     f"print({lane!r})\n", encoding="utf-8"
                 )
+                venv_python = checkout / ".venv" / "bin" / "python"
+                venv_python.parent.mkdir(parents=True)
+                venv_python.symlink_to(sys.executable)
                 link = temp / f"{lane}-bbh"
                 link.symlink_to(checkout / "scripts" / "bbh")
                 completed = subprocess.run(
@@ -123,7 +126,7 @@ class BbhLauncherTests(unittest.TestCase):
             self.assertEqual(Path(root.stdout.strip()), ROOT.resolve())
             for name, path in (("tool-run", "scripts/tool_run.py"), ("recon-bus", "scripts/recon_bus.py")):
                 content = (bin_dir / name).read_text(encoding="utf-8")
-                self.assertIn(str(ROOT / "scripts" / "bbh.py"), content)
+                self.assertIn(str(ROOT / "scripts" / "bbh"), content)
                 self.assertIn(path, content)
                 self.assertNotIn("HARNESS_ROOT", content)
 
@@ -136,14 +139,20 @@ class BbhLauncherTests(unittest.TestCase):
             self.assertIn("bbh:", stderr.getvalue())
 
     def test_dispatch_replaces_process_with_the_relative_tool(self) -> None:
-        with patch.object(M.os, "execvpe") as execute:
+        venv_python = ROOT / ".venv" / "bin" / "python"
+        with patch.object(M, "runtime_python", return_value=venv_python), patch.object(M.os, "execvpe") as execute:
             with self.assertRaises(AssertionError):
                 M.main(["agents/url_ingest.py", "next", "demo"])
         execute.assert_called_once_with(
-            sys.executable,
-            [sys.executable, str(ROOT / "agents" / "url_ingest.py"), "next", "demo"],
+            str(venv_python),
+            [str(venv_python), str(ROOT / "agents" / "url_ingest.py"), "next", "demo"],
             os.environ.copy(),
         )
+
+    def test_missing_checkout_venv_fails_closed(self) -> None:
+        with patch.object(M, "REPO_ROOT", Path(tempfile.mkdtemp())):
+            with self.assertRaisesRegex(RuntimeError, "--install-python-deps"):
+                M.command_for(Path("tool.py"), [])
 
 
 if __name__ == "__main__":

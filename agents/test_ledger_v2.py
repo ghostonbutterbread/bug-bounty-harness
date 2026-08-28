@@ -12,14 +12,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.ledger import update_team_finding
 from agents.ledger_v2 import VersionedFindingsLedger, ledger_add, ledger_get, ledger_list, ledger_path
 from agents.apk_prefingerprint import _select_apk_candidate
 from agents.snapshot_identity import get_snapshot_identity, get_snapshot_id, is_same_snapshot
 from agents.storage_resolver import infer_family_from_lane, resolve_storage
 
-ensure_bounty_core_importable()
 from bounty_core.ledger import ledger_add as core_ledger_add
 from bounty_core.ledger import ledger_list as core_ledger_list
 from bounty_core.ledger import list_findings as core_list_findings

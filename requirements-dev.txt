@@ -1,3 +1,6 @@
+# Runtime dependency for the checkout-local BBH virtual environment.
+-r requirements-bounty-core.txt
+
 # Test-only dependencies for the standalone harness.
 pytest>=9,<10
 httpx>=0.28,<1

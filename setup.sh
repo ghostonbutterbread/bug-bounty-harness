@@ -6,7 +6,8 @@
 #
 # Options:
 #   --init          Initialize directories and sync skills
-#   --install-tools Install local helper commands and tool dependencies
+#   --install-tools Install checkout-local Python dependencies and helper commands
+#   --install-python-deps Install Bounty Core into this checkout's .venv
 #   --install-dispatchers Install only lane-safe local command launchers
 #   --sync          Sync skills to Claude Code and Codex
 #   --prompt        Display agent prompt (use --prompt --program NAME for custom)
@@ -226,7 +227,29 @@ install_python_venv_dependency() {
     sudo apt-get install -y "python${py_version}-venv" || sudo apt-get install -y python3-venv
 }
 
+install_python_dependencies() {
+    local venv_python="$SCRIPT_DIR/.venv/bin/python"
+    local requirements="$SCRIPT_DIR/requirements-bounty-core.txt"
+
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "  Error: uv is required to install BBH Python dependencies"
+        echo "  Install uv, then rerun ./setup.sh --install-python-deps"
+        return 1
+    fi
+    if [ ! -f "$requirements" ]; then
+        echo "  Error: Bounty Core dependency manifest is missing: $requirements"
+        return 1
+    fi
+
+    echo "Installing checkout-local BBH Python dependencies..."
+    uv venv --python 3.11 "$SCRIPT_DIR/.venv"
+    uv pip install --python "$venv_python" --reinstall-package bounty-core -r "$requirements"
+    "$venv_python" -c 'import bounty_core; print("  ✓ bounty_core: " + bounty_core.__file__)'
+    echo ""
+}
+
 install_tools() {
+    install_python_dependencies
     install_dispatchers
     install_eyewitness_incremental
 }
@@ -257,7 +280,7 @@ install_tool_run() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-exec python3 "$SCRIPT_DIR/scripts/bbh.py" scripts/tool_run.py "\$@"
+exec "$SCRIPT_DIR/scripts/bbh" scripts/tool_run.py "\$@"
 EOF
     chmod +x "$launcher"
     echo "  ✓ $launcher"
@@ -274,7 +297,7 @@ install_recon_bus() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-exec python3 "$SCRIPT_DIR/scripts/bbh.py" scripts/recon_bus.py "\$@"
+exec "$SCRIPT_DIR/scripts/bbh" scripts/recon_bus.py "\$@"
 EOF
     chmod +x "$launcher"
     echo "  ✓ $launcher"
@@ -386,6 +409,9 @@ main() {
             ;;
         --install-tools|--tools)
             install_tools
+            ;;
+        --install-python-deps)
+            install_python_dependencies
             ;;
         --install-dispatchers)
             install_dispatchers

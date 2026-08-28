@@ -12,14 +12,15 @@ PRODUCTION_PYTHON = [
     if "test" not in path.name
 ]
 LEGACY_SOURCE_SELECTOR = re.compile(
-    r"/home/ryushe/(?:projects|workspace)/(?:bug_bounty_harness|bounty-tools)|"
-    r"Path\.home\(\) / \"projects\" / \"(?:bug_bounty_harness|bounty-tools)\"|"
-    r"(?:BOUNTY_CORE_ROOT|BOUNTY_TOOLS_PATH)"
+    r"/home/ryushe/(?:projects|workspace)/(?:bug_bounty_harness|bounty-tools|bounty-core)|"
+    r"Path\.home\(\) / \"projects\" / \"(?:bug_bounty_harness|bounty-tools|bounty-core)\"|"
+    r"(?:BOUNTY_CORE_ROOT|BOUNTY_TOOLS_PATH|active-stack\.json|dependencies\.json|"
+    r"ensure_bounty_core_importable|resolve_dependency_root)"
 )
 
 
 class ProductionPathSafetyTests(unittest.TestCase):
-    def test_production_python_has_no_conventional_bbh_or_bounty_tools_source_selector(self) -> None:
+    def test_production_python_has_no_legacy_source_selector_or_receipt_resolver(self) -> None:
         violations = [
             f"{path.relative_to(ROOT)}"
             for path in PRODUCTION_PYTHON
@@ -27,14 +28,9 @@ class ProductionPathSafetyTests(unittest.TestCase):
         ]
         self.assertEqual(violations, [], "\n".join(violations))
 
-    def test_only_bounty_core_is_a_required_lane_bound_dependency(self) -> None:
-        users = [
-            str(path.relative_to(ROOT))
-            for path in PRODUCTION_PYTHON
-            if path.name != "dependency_context.py"
-            and "ensure_bounty_tools_importable" in path.read_text(encoding="utf-8")
-        ]
-        self.assertEqual(users, [], "\n".join(users))
+    def test_receipt_based_bounty_core_resolvers_are_removed(self) -> None:
+        self.assertFalse((ROOT / "agents" / "dependency_context.py").exists())
+        self.assertFalse((ROOT / "agents" / "bounty_core_bootstrap.py").exists())
 
 
 if __name__ == "__main__":

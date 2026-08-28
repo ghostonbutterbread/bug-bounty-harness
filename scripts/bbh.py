@@ -28,9 +28,20 @@ def script_path(value: str) -> Path:
     return path
 
 
+def runtime_python() -> Path:
+    """Return this checkout's dependency interpreter or explain how to create it."""
+    interpreter = REPO_ROOT / ".venv" / "bin" / "python"
+    if not interpreter.is_file() or not os.access(interpreter, os.X_OK):
+        raise RuntimeError(
+            "BBH virtual environment is missing; run ./setup.sh --install-python-deps from this checkout"
+        )
+    return interpreter
+
+
 def command_for(path: Path, args: list[str]) -> list[str]:
     if path.suffix == ".py":
-        return [sys.executable, str(path), *args]
+        python = runtime_python()
+        return [str(python), str(path), *args]
     if os.access(path, os.X_OK):
         return [str(path), *args]
     raise ValueError("BBH target must be a Python file or an executable script")

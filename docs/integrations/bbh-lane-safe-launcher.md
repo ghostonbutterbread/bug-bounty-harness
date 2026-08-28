@@ -27,9 +27,11 @@ checkout's repository-owned tools.
 
 ## Scope
 
-This migration routes every runnable BBH command documented in `skills/**/SKILL.md`
-and `prompts/*.md` through `bbh <repository-relative-path>`. It self-anchors the
-remaining local BBH imports, replaces the fixed Hoster checkout commands with a
+This migration routes the audited runnable BBH commands in `skills/**/SKILL.md`
+and `prompts/*.md` through `bbh <repository-relative-path>`, while the adjacent
+`docs/bbh-launcher.md` inventories remaining legacy direct-relative or
+`HARNESS_ROOT` routes outside this bounded change. It self-anchors the migrated
+local BBH imports, replaces the fixed Hoster checkout commands with a
 lane-installed Hoster `bbh`, and removes conventional Bounty Core/Bounty Tools
 source fallbacks. Bounty Tools remains an optional standalone utility rather
 than a lane-bound BBH dependency.

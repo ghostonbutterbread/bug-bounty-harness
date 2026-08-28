@@ -42,15 +42,17 @@ Trigger: generic objectives such as “find a vulnerability.”
 Load Hunter Loop as the parent cadence. Begin with scope, cold recon/live map,
 fresh observations, and a chosen surface plus lens. Do not start from broad
 historical lead retrieval or assume a vulnerability class before current evidence
-justifies one.
+justifies one. MapStore is available for a later targeted overlay, but do not
+query it until a concrete current surface and decision question exist.
 
 ### Focused surface
 
 Trigger: a named URL, feature, workflow, or vulnerability class.
 
 Map the normal workflow and exact input → transformation → consumer path. Use
-targeted MapStore facts and a relevant specialist skill. Do not launch broad recon
-or a multi-surface campaign unless the evidence requires it.
+targeted MapStore facts only after a concrete current surface/question exists,
+then load a relevant specialist skill. Do not launch broad recon or a
+multi-surface campaign unless the evidence requires it.
 
 ### Technology review
 

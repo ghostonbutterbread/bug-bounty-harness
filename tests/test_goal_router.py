@@ -20,6 +20,9 @@ def test_generic_find_vulnerability_uses_broad_program_mode() -> None:
     assert plan["mode"] == "broad-program"
     assert "hunter-loop" in plan["skills"]
     assert "recon" in plan["skills"]
+    assert "map-store" not in plan["skills"]
+    assert "map-store-target-facts" in plan["capabilities"]
+    assert "MapStore is available but must not be queried until a concrete current surface and decision question exist." in plan["research_contract"]
     assert plan["run_artifact_kind"] == "hunter-loop"
 
 
@@ -34,7 +37,9 @@ def test_focused_xss_goal_stays_narrow() -> None:
     assert plan["mode"] == "focused-surface"
     assert "hunter-loop" not in plan["skills"]
     assert "recon" not in plan["skills"]
-    assert "map-store" in plan["skills"]
+    assert "map-store" not in plan["skills"]
+    assert "map-store-target-facts" in plan["capabilities"]
+    assert "MapStore is available but must not be queried until a concrete current surface and decision question exist." in plan["research_contract"]
     assert "xss" in plan["skills"]
     assert plan["run_artifact_kind"] == "attempts"
 
@@ -47,6 +52,9 @@ def test_technology_goal_selects_implementation_analysis() -> None:
 
     assert plan["mode"] == "technology-review"
     assert "js" in plan["skills"]
+    assert "map-store" not in plan["skills"]
+    assert "map-store-target-facts" in plan["capabilities"]
+    assert "MapStore is available but must not be queried until a concrete current surface and decision question exist." in plan["research_contract"]
     assert "research-map" in plan["capabilities"]
     assert "official-docs-and-source" in plan["capabilities"]
 
@@ -56,6 +64,7 @@ def test_continue_goal_preserves_hunter_memory() -> None:
 
     assert plan["mode"] == "continuation"
     assert "hunter-memory" in plan["skills"]
+    assert "map-store" in plan["skills"]
     assert "research-map" in plan["capabilities"]
 
 
@@ -63,6 +72,7 @@ def test_revalidation_goal_allows_historical_review() -> None:
     plan = goal.build_plan(program="example", objective="Retest the old account-linking issue")
 
     assert plan["mode"] == "revalidation"
+    assert "map-store" in plan["skills"]
     assert plan["historical_material"] == "primary"
 
 

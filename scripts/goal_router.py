@@ -100,11 +100,11 @@ def unique(values: list[str]) -> list[str]:
 
 def mode_skills(mode: str, vulnerability_class: str | None) -> list[str]:
     if mode == "broad-program":
-        skills = BASE_SKILLS + ["hunter-loop", "recon", "live-map", "map-store", "hunter-memory", "hypothesis-expansion-policy"]
+        skills = BASE_SKILLS + ["hunter-loop", "recon", "live-map", "hunter-memory", "hypothesis-expansion-policy"]
     elif mode == "focused-surface":
-        skills = BASE_SKILLS + ["live-map", "map-store", "hunter-memory", "hypothesis-expansion-policy"]
+        skills = BASE_SKILLS + ["live-map", "hunter-memory", "hypothesis-expansion-policy"]
     elif mode == "technology-review":
-        skills = BASE_SKILLS + ["js", "live-map", "map-store", "hypothesis-expansion-policy"]
+        skills = BASE_SKILLS + ["js", "live-map", "hypothesis-expansion-policy"]
     elif mode == "continuation":
         skills = BASE_SKILLS + ["hunter-memory", "map-store", "hypothesis-expansion-policy"]
     elif mode == "revalidation":
@@ -139,7 +139,8 @@ def build_plan(*, program: str, objective: str, url: str | None = None, vulnerab
         "opening_contract": opening_contract(mode),
         "research_contract": [
             "Use target observation and internal surface synthesis before broad retrieval when sufficient evidence exists.",
-            "MapStore answers target-specific facts, tested state, coverage, and durable constraints after a concrete surface exists.",
+            "MapStore is available but must not be queried until a concrete current surface and decision question exist.",
+            "MapStore then answers target-specific facts, tested state, coverage, and durable constraints for that question.",
             "ResearchMap, Preview MCP, official source material, and independent web research provide cited mechanisms or technology understanding, not target facts.",
             "Before closing a plausible line with no next discriminator, use the research escalation appropriate to the observed technology or mechanism.",
         ],

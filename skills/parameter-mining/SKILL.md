@@ -129,10 +129,10 @@ parameter campaign:
 params_path="$(python3 "$HARNESS_ROOT/scripts/recon_bus.py" query <program> --artifact params --format path)"
 gf xss < "$params_path"
 
-python3 "$HARNESS_ROOT/agents/url_ingest.py" next <program> \
+bbh url-ingest next <program> \
   --lane xss --skill gf --test-family dynamic-filter --param q
 
-python3 /home/ryushe/projects/bug_bounty_harness/agents/url_ingest.py mark <program> \
+bbh url-ingest mark <program> \
   --url "https://target.example/search?q=test" \
   --lane xss --status surface_reviewed \
   --skill gf --test-family dynamic-filter --param q \

@@ -35,7 +35,7 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    one canonical source and projections are regenerated.
 7. Recon artifacts are owned by Recon Bus. CWD is never a corpus lookup root.
    Resolve a named corpus with
-   `python3 "$HARNESS_ROOT/scripts/recon_bus.py" query <program> --artifact <name> --format path`.
+   `bbh recon-bus query <program> --artifact <name> --format path`.
    Use Recon Bus `append` or `promote-run` for writes; do not create, edit, or
    recursively search for competing corpus files.
 8. Query durable memory only with a concrete URL, surface, role, parameter, or

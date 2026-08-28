@@ -226,9 +226,20 @@ install_python_venv_dependency() {
 }
 
 install_tools() {
+    install_bbh
     install_tool_run
     install_recon_bus
     install_eyewitness_incremental
+}
+
+install_bbh() {
+    echo "Installing lane-safe bbh launcher..."
+
+    mkdir -p "$LOCAL_BIN_DIR"
+    local launcher="$LOCAL_BIN_DIR/bbh"
+    ln -sfn "$SCRIPT_DIR/scripts/bbh" "$launcher"
+    echo "  ✓ $launcher -> $SCRIPT_DIR/scripts/bbh"
+    echo ""
 }
 
 install_tool_run() {
@@ -241,9 +252,7 @@ install_tool_run() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-HARNESS_ROOT="\${HARNESS_ROOT:-$HARNESS_ROOT}"
-
-exec python3 "\$HARNESS_ROOT/scripts/tool_run.py" "\$@"
+exec python3 "$SCRIPT_DIR/scripts/bbh.py" tool-run "\$@"
 EOF
     chmod +x "$launcher"
     echo "  ✓ $launcher"
@@ -260,9 +269,7 @@ install_recon_bus() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-HARNESS_ROOT="\${HARNESS_ROOT:-$HARNESS_ROOT}"
-
-exec python3 "\$HARNESS_ROOT/scripts/recon_bus.py" "\$@"
+exec python3 "$SCRIPT_DIR/scripts/bbh.py" recon-bus "\$@"
 EOF
     chmod +x "$launcher"
     echo "  ✓ $launcher"

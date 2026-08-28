@@ -67,21 +67,21 @@ For `family=binaries`, `input/{original,extracted,metadata}` also exists.
 For a normal Ghost-aware hunt, run:
 
 ```bash
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --hunt --lane <web|api|apk|exe|mac>
+bbh manual-hunter {program} --hunt --lane <web|api|apk|exe|mac>
 ```
 
 Useful overrides:
 
 ```bash
 # Fresh hunt: omit prior ledger/coverage from prompt, but still dedupe writes later.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --hunt --fresh --lane <web|api|apk|exe|mac>
+bbh manual-hunter {program} --hunt --fresh --lane <web|api|apk|exe|mac>
 
 # Web/API lane examples.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --hunt --hunt-type web --lane web
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --hunt --hunt-type web --lane api
+bbh manual-hunter {program} --hunt --hunt-type web --lane web
+bbh manual-hunter {program} --hunt --hunt-type web --lane api
 
 # Explicit source or storage roots for local/test runs.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --hunt --lane <web|api|apk|exe|mac> --source-root /path/to/source --root /path/to/storage
+bbh manual-hunter {program} --hunt --lane <web|api|apk|exe|mac> --source-root /path/to/source --root /path/to/storage
 ```
 
 The hunt command writes context files under the resolved `context/` directory and prints a handoff bundle. If spawning a child agent, forward that bundle unchanged so children inherit the same family, lane, roots, and context files.
@@ -250,7 +250,7 @@ Preferred flow for a real finding:
 3. Import it with:
 
 ```bash
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --from-file /path/to/finding.md
+bbh manual-hunter {program} --lane <web|api|apk|exe|mac> --from-file /path/to/finding.md
 ```
 
 4. Let the pipeline update `ledgers/ledger.json`, generated finding pages, and navigation/indexes.
@@ -338,13 +338,13 @@ Prefer `manual_hunter.py` for complete findings because it parses, dedupes, upda
 
 ```bash
 # Paste one finding.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --add "Title: ...\nClass: ...\nSeverity: HIGH\nFile: path/to/file.js:123\nDescription: ..."
+bbh manual-hunter {program} --lane <web|api|apk|exe|mac> --add "Title: ...\nClass: ...\nSeverity: HIGH\nFile: path/to/file.js:123\nDescription: ..."
 
 # Import a markdown/text finding.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --from-file /path/to/finding.md
+bbh manual-hunter {program} --lane <web|api|apk|exe|mac> --from-file /path/to/finding.md
 
 # Interactive entry.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --interactive
+bbh manual-hunter {program} --lane <web|api|apk|exe|mac> --interactive
 ```
 
 Always supply `--lane`; use `--family` only to override the family implied by that lane. `--hunt-type` is optional legacy metadata.
@@ -355,7 +355,7 @@ Use `me_ledger.py` only when an agent needs to coordinate during active manual a
 
 ```bash
 # Check for duplicates first.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py check \
+bbh me-ledger check \
   --program {program} \
   --family binaries \
   --lane apk \
@@ -363,7 +363,7 @@ python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py check \
   --class-name <vuln-class>
 
 # Reserve/add a minimal finding if not duplicate.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py add \
+bbh me-ledger add \
   --program {program} \
   --family binaries \
   --lane apk \
@@ -374,7 +374,7 @@ python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py add \
   --agent codex
 
 # Mark reviewed coverage.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py cover \
+bbh me-ledger cover \
   --program {program} \
   --family binaries \
   --lane apk \
@@ -383,8 +383,8 @@ python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py cover \
   --agent codex
 
 # Inspect current state.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py list --program {program} --family binaries --lane apk
-python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py unexplored --program {program} --family binaries --lane apk --class-name <vuln-class>
+bbh me-ledger list --program {program} --family binaries --lane apk
+bbh me-ledger unexplored --program {program} --family binaries --lane apk --class-name <vuln-class>
 ```
 
 For web/API work, change `--family web_bounty --lane web` or `--family web_bounty --lane api`.

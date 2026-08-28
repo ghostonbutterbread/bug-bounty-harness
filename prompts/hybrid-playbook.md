@@ -61,7 +61,7 @@ program limits, and live-testing stop conditions.
 ## CLI Shape
 
 ```bash
-python3 agents/hybrid_runner.py deep-dive recon canva --input params.txt
+bbh agents/hybrid_runner.py deep-dive recon canva --input params.txt
 ```
 
 This creates a plan. Add `--execute` only when the configured CLIs should be
@@ -70,7 +70,7 @@ spawned.
 Override engines and models per run:
 
 ```bash
-python3 agents/hybrid_runner.py deep-dive recon canva \
+bbh agents/hybrid_runner.py deep-dive recon canva \
   --input params.txt \
   --planner codex \
   --planner-model gpt-5.5 \

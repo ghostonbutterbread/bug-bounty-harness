@@ -1,7 +1,9 @@
 import sys
+from pathlib import Path
 
-sys.path.insert(0, "/home/ryushe/workspace/bug_bounty_harness")
-sys.path.insert(0, "/home/ryushe/projects/bounty-tools")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 try:
     from scope_validator import ScopeValidator

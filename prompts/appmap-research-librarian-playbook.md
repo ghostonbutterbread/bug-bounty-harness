@@ -34,7 +34,7 @@ The librarian wrapper itself is offline: it creates campaign files, briefs a res
 Create a campaign:
 
 ```bash
-python3 agents/appmap_research_librarian.py init <program> \
+bbh agents/appmap_research_librarian.py init <program> \
   --category electron-ipc \
   --research-query electron rce \
   --target-kind electron-exe
@@ -43,13 +43,13 @@ python3 agents/appmap_research_librarian.py init <program> \
 Validate the validator-produced seed:
 
 ```bash
-python3 agents/appmap_research_librarian.py validate <campaign_dir>
+bbh agents/appmap_research_librarian.py validate <campaign_dir>
 ```
 
 Plan deterministic local AppMap ingest:
 
 ```bash
-python3 agents/appmap_research_librarian.py plan-appmap <campaign_dir> <target_path> \
+bbh agents/appmap_research_librarian.py plan-appmap <campaign_dir> <target_path> \
   --write-specs \
   --output-mode canonical \
   --family binaries \
@@ -59,7 +59,7 @@ python3 agents/appmap_research_librarian.py plan-appmap <campaign_dir> <target_p
 Plan explicit validated-source web ingest:
 
 ```bash
-python3 agents/appmap_research_librarian.py plan-appmap <campaign_dir> <target_path> \
+bbh agents/appmap_research_librarian.py plan-appmap <campaign_dir> <target_path> \
   --use-web-sources
 ```
 

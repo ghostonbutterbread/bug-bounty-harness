@@ -61,7 +61,7 @@ have classified the sink.
 Use the mutator only after you know which lane you are in.
 
 ```bash
-python agents/payload_mutator.py "' OR 1=1--" --type sqli --count 12
+bbh agents/payload_mutator.py "' OR 1=1--" --type sqli --count 12
 ```
 
 ## Mode Matrix

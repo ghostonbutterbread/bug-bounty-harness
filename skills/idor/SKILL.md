@@ -58,7 +58,7 @@ established or the work becomes terminal.
 Use `agents/bypass_harness.py` in `--type idor` mode for first-pass ID swapping and header-trick coverage. For blocked/inconclusive swaps, observed actor hints, deferred consumers, indirect object fields, or sibling representations, load `$HARNESS_ROOT/skills/access-control/references/technique-packs/desync-secondorder-surface.md`. Expand manually for multi-step workflows, write actions, and role-bound objects once you identify a promising reference.
 
 ```bash
-python agents/bypass_harness.py --target https://target.com/api/v1/orders/123 \
+bbh agents/bypass_harness.py --target https://target.com/api/v1/orders/123 \
   --type idor --program target --concurrency 5 --rps 2
 ```
 
@@ -75,11 +75,11 @@ python agents/bypass_harness.py --target https://target.com/api/v1/orders/123 \
 
 ```bash
 # Path-based ID swapping
-python agents/bypass_harness.py --target https://target.com/api/v1/orders/123 \
+bbh agents/bypass_harness.py --target https://target.com/api/v1/orders/123 \
   --type idor --program target --concurrency 5 --rps 2
 
 # Query-parameter ID swapping
-python agents/bypass_harness.py --target https://target.com/api/v1/order?id=123 \
+bbh agents/bypass_harness.py --target https://target.com/api/v1/order?id=123 \
   --type idor --program target --concurrency 5 --rps 2
 ```
 

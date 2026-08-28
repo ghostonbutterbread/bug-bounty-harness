@@ -27,11 +27,25 @@ checkout's repository-owned tools.
 
 ## Scope
 
-This foundation adds the dispatcher, installer hook, documentation, regression
-tests, and migration of the highest-risk demonstrated command examples:
-`manual-hunter`, `me-ledger`, `url-ingest`, and Recon Bus guidance. It does not
-mass-migrate every historical `$HARNESS_ROOT` reference or activate/repoint any
-runtime lane.
+This migration routes every runnable BBH command documented in `skills/**/SKILL.md`
+and `prompts/*.md` through `bbh <repository-relative-path>`. It self-anchors the
+remaining local BBH imports, replaces the fixed Hoster checkout commands with a
+lane-installed Hoster `bbh`, and removes conventional Bounty Core/Bounty Tools
+source fallbacks.
+
+External Python dependencies now require a local-only BBH dependency mapping at
+`~/.config/bug-bounty-harness/dependencies.json`, pointing logical
+`bounty_core` and `bounty_tools` names at projects in aiskillsync's generated
+`active-stack.json`. The resolver verifies the selected checkout revision before
+importing. It deliberately fails closed when a dependency is not selected; it
+never falls back to `$BOUNTY_CORE_ROOT`, `$BOUNTY_TOOLS_PATH`, sibling paths,
+`~/projects`, installed packages, or CWD.
+
+Current activation blocker: the existing local Bounty Core and Bounty Tools
+repositories expose only `master`, not beta lane checkouts. Do not activate this
+external-dependency contract for a beta BBH lane until aiskillsync manages
+matching beta checkouts for those projects and writes them into the active-stack
+receipt.
 
 ## Verification
 

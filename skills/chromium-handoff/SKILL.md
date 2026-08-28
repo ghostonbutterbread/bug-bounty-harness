@@ -96,7 +96,7 @@ assume an ACL change is authorized.
    CDP_URL=http://127.0.0.1:<cdp_port> \
    LISTEN_HOST=127.0.0.1 \
    LISTEN_PORT=auto \
-   node "$HARNESS_ROOT/skills/chromium-handoff/scripts/cdp_handoff_server.js"
+   bbh skills/chromium-handoff/scripts/cdp_handoff_server.js
    ```
    For a task whose readiness record reports `<handoff_port>`, verify the local
    UI before publishing it:

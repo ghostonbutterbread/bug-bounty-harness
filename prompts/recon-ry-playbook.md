@@ -26,7 +26,7 @@ If tool dependencies are missing, report them. Do not block ingestion of already
 Start via the local wrapper so Hoster owns the long-running process:
 
 ```bash
-python3 agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
+bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
 ```
 
 The wrapper enforces saved scope before starting:
@@ -40,7 +40,7 @@ The wrapper enforces saved scope before starting:
 For programs with only exact website/API URL targets and no wildcard scope, use:
 
 ```bash
-python3 agents/recon_ry.py start <program> \
+bbh agents/recon_ry.py start <program> \
   --url <one-scoped-origin> \
   --profile exact-urls
 ```
@@ -57,7 +57,7 @@ The wrapper writes `<remote-project>/rate_limit.conf` before launch. Default is 
 Authenticated recon is opt-in and should use the existing account resolver:
 
 ```bash
-python3 agents/recon_ry.py start <program> \
+bbh agents/recon_ry.py start <program> \
   --url <scoped-domain-or-url> \
   --profile urls \
   --auth blue
@@ -174,7 +174,7 @@ compatibility symlink.
 Use status for a short check only:
 
 ```bash
-python3 agents/recon_ry.py status
+bbh agents/recon_ry.py status
 ```
 
 If needed, inspect the last log lines manually on Hoster, but avoid turning this into a watcher.
@@ -199,7 +199,7 @@ When an agent needs recon data:
 After the run completes, ingest or index the project directory only when Ghost needs a Shared manifest/counts record:
 
 ```bash
-python3 agents/recon_ry.py ingest <program> \
+bbh agents/recon_ry.py ingest <program> \
   --source ryushe@hoster:/home/ryushe/bounties/<program> \
   --target <target-host>
 ```

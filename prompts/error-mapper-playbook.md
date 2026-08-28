@@ -26,7 +26,7 @@ Before probing:
 4. Read URL history:
 
 ```bash
-python3 agents/url_ingest.py history <program> --url "<full-url>"
+bbh agents/url_ingest.py history <program> --url "<full-url>"
 ```
 
 5. Choose at most a few parameters or path segments. Prefer fields with
@@ -194,7 +194,7 @@ Default maximum for one URL:
 Use `url_ingest.py mark` after the small probe set:
 
 ```bash
-python3 agents/url_ingest.py mark <program> \
+bbh agents/url_ingest.py mark <program> \
   --url "<full-url>" \
   --lane recon \
   --status surface_reviewed \
@@ -210,7 +210,7 @@ Use `validated_signal` only when the response delta is concrete enough to hand
 off:
 
 ```bash
-python3 agents/url_ingest.py mark <program> \
+bbh agents/url_ingest.py mark <program> \
   --url "<full-url>" \
   --lane sqli \
   --status validated_signal \

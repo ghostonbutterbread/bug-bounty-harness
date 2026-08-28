@@ -184,7 +184,7 @@ Example handoff:
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/zero_day_team.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
+  bbh agents/zero_day_team.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
   --brainstorm-spec /home/ryushe/Shared/binaries/canva/exe/brainstorm/spec.md
 ```
 
@@ -193,7 +193,7 @@ Focused run:
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/zero_day_team.py canva /path/to/target \
+  bbh agents/zero_day_team.py canva /path/to/target \
   --brainstorm-spec /path/to/brainstorm/spec.md \
   --brainstorm-only \
   --brainstorm-hypothesis H001

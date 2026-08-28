@@ -32,6 +32,12 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+try:
+    from agents.dependency_context import ensure_bounty_tools_importable
+except ModuleNotFoundError:  # direct script execution
+    from dependency_context import ensure_bounty_tools_importable
+ensure_bounty_tools_importable()
 from typing import Dict, List, Optional
 
 import requests
@@ -48,7 +54,6 @@ except ImportError:
     RateLimiter = None
 
 # ── SubagentLogger (optional) ─────────────────────────────────────────────────
-sys.path.insert(0, str(Path.home() / "projects/bounty-tools"))
 try:
     from subagent_logger import SubagentLogger  # type: ignore
     _HAS_LOGGER = True

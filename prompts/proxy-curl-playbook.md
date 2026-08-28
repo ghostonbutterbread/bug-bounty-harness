@@ -46,10 +46,10 @@ For auth-sensitive apps, the important pieces are often not just cookies. Preser
 ## Helper
 
 ```bash
-python3 "$HARNESS_ROOT/skills/proxy-curl/scripts/raw_to_curl.py" request.raw
-python3 "$HARNESS_ROOT/skills/proxy-curl/scripts/raw_to_curl.py" --body-file /tmp/replay-body.json request.raw
-python3 "$HARNESS_ROOT/skills/proxy-curl/scripts/raw_to_curl.py" --scheme http request.raw
-python3 "$HARNESS_ROOT/skills/proxy-curl/scripts/raw_to_curl.py" --drop-framing-headers request.raw
+bbh skills/proxy-curl/scripts/raw_to_curl.py request.raw
+bbh skills/proxy-curl/scripts/raw_to_curl.py --body-file /tmp/replay-body.json request.raw
+bbh skills/proxy-curl/scripts/raw_to_curl.py --scheme http request.raw
+bbh skills/proxy-curl/scripts/raw_to_curl.py --drop-framing-headers request.raw
 ```
 
 The helper emits a command that preserves method, URL, raw header order, and the captured body. It keeps `Content-Length` and `Connection` by default because the saved proxy request is the source of truth. Use `--drop-framing-headers` only when deliberately letting `curl` recompute transport framing.

@@ -25,8 +25,8 @@ Hermes, Codex, and Claude standing-goal commands.
 Use the BBH helper to produce an auditable plan before the first target action:
 
 ```bash
-cd ~/projects/bug_bounty_harness
-python3 scripts/goal_router.py plan --program <program> --objective "<goal>" \
+
+bbh scripts/goal_router.py plan --program <program> --objective "<goal>" \
   [--url "<url>"] [--class <vulnerability-class>]
 ```
 

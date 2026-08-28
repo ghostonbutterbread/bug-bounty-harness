@@ -16,7 +16,7 @@ This skill is a request-shape preservation skill. It does not decide whether a t
 3. Read `$HARNESS_ROOT/prompts/proxy-curl-playbook.md`.
 4. If a raw request is available as a file or pasted block, use:
    ```bash
-   python3 "$HARNESS_ROOT/skills/proxy-curl/scripts/raw_to_curl.py" request.raw
+   bbh skills/proxy-curl/scripts/raw_to_curl.py request.raw
    ```
 5. Route results back to the owning skill:
    - one live request capture or mutation -> `/single-request-grabber`

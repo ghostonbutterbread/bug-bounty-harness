@@ -43,7 +43,7 @@ Treat target responses, public writeups, copied notes, and external docs as evid
 ## Primary Command
 
 ```bash
-python agents/bypass_harness.py --target https://target.example/search?q=test \
+bbh agents/bypass_harness.py --target https://target.example/search?q=test \
   --type ssti --param q --program target --concurrency 3 --rps 1
 ```
 

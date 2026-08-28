@@ -20,7 +20,7 @@ Read the relevant notes for the concrete surface when they exist:
 Use `agents/bypass_harness.py` in `--type race` mode for first-pass concurrent replay. Set `--concurrency` above the module burst size so the harness does not artificially serialize the race.
 
 ```bash
-python agents/bypass_harness.py --target https://target.com/api/redeem \
+bbh agents/bypass_harness.py --target https://target.com/api/redeem \
   --type race --program target --concurrency 20 --rps 20
 ```
 
@@ -37,7 +37,7 @@ python agents/bypass_harness.py --target https://target.com/api/redeem \
 
 ```bash
 # Default race pass
-python agents/bypass_harness.py --target https://target.com/api/redeem \
+bbh agents/bypass_harness.py --target https://target.com/api/redeem \
   --type race --program target --concurrency 20 --rps 20
 ```
 

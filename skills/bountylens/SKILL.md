@@ -62,13 +62,13 @@ BOUNTYLENS_URL=https://bountylens.com
 
 1. Verify the helper can load configuration without exposing secrets:
    ```bash
-   python3 skills/bountylens/scripts/bountylens_api.py --check
+   bbh skills/bountylens/scripts/bountylens_api.py --check
    ```
 2. For allowed reads, use the direct helper:
    ```bash
-   python3 skills/bountylens/scripts/bountylens_api.py GET /programs --query q=shopify
-   python3 skills/bountylens/scripts/bountylens_api.py GET /watchlist
-   python3 skills/bountylens/scripts/bountylens_api.py GET /stats
+   bbh skills/bountylens/scripts/bountylens_api.py GET /programs --query q=shopify
+   bbh skills/bountylens/scripts/bountylens_api.py GET /watchlist
+   bbh skills/bountylens/scripts/bountylens_api.py GET /stats
    ```
 3. Before using BountyLens data in a hunt, resolve local context first through `/bounty-storage`, `/map-store`, and the relevant lane skill such as `/js` or `/mental-map`.
 4. Report back with local ledger/report/map paths first. If BountyLens supplied scope, discovery, or stat context, include only the relevant non-secret program/scope/stat details. Do not include the API token or raw auth headers.

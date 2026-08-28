@@ -23,13 +23,18 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    from agents.dependency_context import ensure_bounty_tools_importable
+except ModuleNotFoundError:  # direct script execution
+    from dependency_context import ensure_bounty_tools_importable
+ensure_bounty_tools_importable()
 from typing import Any, Optional
 
 # ── path bootstrap ──────────────────────────────────────────────────────────
 _AGENT_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _AGENT_DIR.parent
-for _p in (_PROJECT_ROOT, Path.home() / "projects" / "bounty-tools",
-           Path.home() / "projects" / "memory-graph-protocol"):
+for _p in (_PROJECT_ROOT, Path.home() / "projects" / "memory-graph-protocol"):
     if _p.as_posix() not in (x.as_posix() for x in map(Path, sys.path)):
         sys.path.insert(0, _p.as_posix())
 

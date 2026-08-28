@@ -10,6 +10,12 @@ import json
 import math
 import sys
 from pathlib import Path
+
+try:
+    from agents.dependency_context import ensure_bounty_tools_importable
+except ModuleNotFoundError:  # direct script execution
+    from dependency_context import ensure_bounty_tools_importable
+ensure_bounty_tools_importable()
 import re
 import time
 from typing import Iterable
@@ -17,8 +23,6 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
 from uuid import uuid4
 
 import httpx
-
-sys.path.insert(0, str(Path.home() / "projects" / "bounty-tools"))
 try:
     from subagent_logger import SubagentLogger, compute_pte_lite
 except ImportError:  # pragma: no cover

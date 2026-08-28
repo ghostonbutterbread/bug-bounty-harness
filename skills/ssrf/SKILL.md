@@ -120,7 +120,7 @@ Typical SSRF pressure ladder:
 ## Primary Harness
 
 ```bash
-python agents/bypass_harness.py --target https://target.example/fetch?url=x \
+bbh agents/bypass_harness.py --target https://target.example/fetch?url=x \
   --type ssrf --param url --program target --concurrency 5 --rps 2
 ```
 

@@ -21,7 +21,7 @@ Example:
 Harness CLI:
 
 ```bash
-python3 ~/projects/bug_bounty_harness/agents/sync_reports.py notion --verbose
+bbh agents/sync_reports.py notion --verbose
 ```
 
 ## What it does

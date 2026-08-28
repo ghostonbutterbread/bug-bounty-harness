@@ -40,14 +40,14 @@ Use `/map-store` for technical observations learned from a URL. Use
 ## Commands
 
 ```bash
-cd ~/projects/bug_bounty_harness
-python3 agents/url_ingest.py init <program>
-python3 agents/url_ingest.py ingest <program> --source urls.txt --run-id <run-id> --scope-filter auto
-python3 agents/url_ingest.py brief <program> --limit 20
-python3 agents/url_ingest.py next <program> --lane xss --skill xss --test-family reflected-probe --param-preset xss --limit 25
-python3 agents/url_ingest.py status <program> --lane xss --url "https://target.example/path?q=x"
-python3 agents/url_ingest.py params <program> --lane ssrf --untested --limit 25
-python3 agents/url_ingest.py mark <program> --url "https://target.example/path?q=x" --lane xss --status surface_reviewed --skill xss --test-family reflected-probe --param q --notes "No reflection observed."
+
+bbh agents/url_ingest.py init <program>
+bbh agents/url_ingest.py ingest <program> --source urls.txt --run-id <run-id> --scope-filter auto
+bbh agents/url_ingest.py brief <program> --limit 20
+bbh agents/url_ingest.py next <program> --lane xss --skill xss --test-family reflected-probe --param-preset xss --limit 25
+bbh agents/url_ingest.py status <program> --lane xss --url "https://target.example/path?q=x"
+bbh agents/url_ingest.py params <program> --lane ssrf --untested --limit 25
+bbh agents/url_ingest.py mark <program> --url "https://target.example/path?q=x" --lane xss --status surface_reviewed --skill xss --test-family reflected-probe --param q --notes "No reflection observed."
 ```
 
 Open `references/url-ingest-reference.md` for the review-index role, recon-bus

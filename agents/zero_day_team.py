@@ -18,9 +18,11 @@ _agent_dir = Path(__file__).resolve().parent
 _project_root = _agent_dir.parent
 if _project_root.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
     sys.path.insert(0, _project_root.as_posix())
-_bounty_tools_root = Path.home() / "projects" / "bounty-tools"
-if _bounty_tools_root.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
-    sys.path.insert(0, _bounty_tools_root.as_posix())
+try:
+    from agents.dependency_context import ensure_bounty_tools_importable
+except ModuleNotFoundError:  # direct script execution
+    from dependency_context import ensure_bounty_tools_importable
+ensure_bounty_tools_importable()
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field

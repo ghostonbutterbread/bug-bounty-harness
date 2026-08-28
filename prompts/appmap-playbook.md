@@ -49,7 +49,7 @@ Baseline posture command:
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/app_mapper.py <program> <target_path> \
+  bbh agents/app_mapper.py <program> <target_path> \
   --target-kind auto \
   --mode baseline
 ```
@@ -57,7 +57,7 @@ PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
 Electron baseline with controlled Electronegativity enrichment:
 
 ```bash
-python3 agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
+bbh agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
   --target-kind electron-exe \
   --mode baseline \
   --electronegativity-root /home/ryushe/Shared/binaries/canva/exe/electronegativity/<controlled-run>
@@ -68,7 +68,7 @@ Default focused RCE command:
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/app_mapper.py <program> <target_path> \
+  bbh agents/app_mapper.py <program> <target_path> \
   --target-kind auto \
   --focus rce \
   --write-specs
@@ -77,7 +77,7 @@ PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
 With an explicit target kind:
 
 ```bash
-python3 agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
+bbh agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
   --target-kind electron-exe \
   --focus rce \
   --write-specs
@@ -86,7 +86,7 @@ python3 agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/
 Canonical lane output:
 
 ```bash
-python3 agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
+bbh agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
   --target-kind electron-exe \
   --focus rce \
   --write-specs \
@@ -98,7 +98,7 @@ python3 agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/
 Focus overlay from an existing baseline:
 
 ```bash
-python3 agents/app_mapper.py canva \
+bbh agents/app_mapper.py canva \
   --from-baseline ~/Shared/binaries/canva/exe/appmap/<baseline-run> \
   --focus renderer-content-trust \
   --write-specs
@@ -199,7 +199,7 @@ Promotion is opt-in. It copies only generated specs and `agent_contexts/*.json` 
 Canonical promotion:
 
 ```bash
-python3 agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
+bbh agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
   --target-kind electron-exe \
   --focus rce \
   --write-specs \
@@ -228,7 +228,7 @@ Do not overwrite an existing hand-authored `brainstorm/spec.md`. To intentionall
 Standalone promotion requires an explicit brainstorm destination:
 
 ```bash
-python3 agents/app_mapper.py demo /path/to/source \
+bbh agents/app_mapper.py demo /path/to/source \
   --write-specs \
   --promote-to-brainstorm \
   --brainstorm-root /home/ryushe/Shared/<family>/<program>/<lane>/brainstorm
@@ -237,14 +237,14 @@ python3 agents/app_mapper.py demo /path/to/source \
 ## 5. Discover Promoted Handoffs
 
 ```bash
-python3 agents/app_mapper.py --list-handoffs \
+bbh agents/app_mapper.py --list-handoffs \
   --brainstorm-root ~/Shared/<family>/<program>/<lane>/brainstorm
 ```
 
 Canonical lane discovery can derive the brainstorm root:
 
 ```bash
-python3 agents/app_mapper.py <program> \
+bbh agents/app_mapper.py <program> \
   --output-mode canonical \
   --family <family> \
   --lane <lane> \
@@ -256,7 +256,7 @@ The command reads `appmap_promotions.jsonl` and scans both `brainstorm/appmap-<r
 Campaign status is also read-only and combines promoted handoff validation with `brainstorm/coverage.jsonl` counts:
 
 ```bash
-python3 agents/app_mapper.py --campaign-status \
+bbh agents/app_mapper.py --campaign-status \
   --brainstorm-root ~/Shared/<family>/<program>/<lane>/brainstorm
 ```
 
@@ -265,7 +265,7 @@ Use it after runtime handoffs to see which specs are `ready`, `running`, `review
 ## 6. Validate Handoffs
 
 ```bash
-python3 agents/app_mapper.py --validate-handoff \
+bbh agents/app_mapper.py --validate-handoff \
   ~/Shared/<family>/<program>/<lane>/brainstorm/appmap-<run_id>-<focus>/rce-spec.md
 ```
 
@@ -276,7 +276,7 @@ If validation fails, fix the generated spec or promoted handoff before handing i
 ## 7. Plan Runtime Handoff
 
 ```bash
-python3 agents/app_mapper.py --plan-handoff <promoted-spec> --brainstorm-hypothesis H001
+bbh agents/app_mapper.py --plan-handoff <promoted-spec> --brainstorm-hypothesis H001
 ```
 
 Unselected planning is allowed only when every active hypothesis in the promoted spec is AppMap-linked and has a valid sibling context packet. Prefer `--brainstorm-hypothesis` for first runtime execution so one AppMap candidate/agent lane is exercised deliberately.
@@ -286,13 +286,13 @@ Runtime adapters must preserve AppMap research packet metadata on findings and p
 The output must stay on the existing runtime path:
 
 ```bash
-python3 agents/zero_day_team.py <program> <target_path> --brainstorm-spec <promoted-spec> --brainstorm-only --brainstorm-hypothesis H001
+bbh agents/zero_day_team.py <program> <target_path> --brainstorm-spec <promoted-spec> --brainstorm-only --brainstorm-hypothesis H001
 ```
 
 Default runtime remains one agent per hypothesis. To reduce duplicate work only after reviewing the campaign, opt in to small AppMap clusters when assignments share the same focus files, source evidence, and sink evidence:
 
 ```bash
-python3 agents/zero_day_team.py <program> <target_path> \
+bbh agents/zero_day_team.py <program> <target_path> \
   --brainstorm-spec-dir ~/Shared/<family>/<program>/<lane>/brainstorm/appmap-<run_id> \
   --brainstorm-only \
   --brainstorm-cluster-size 2
@@ -323,7 +323,7 @@ Use a generated spec with existing team commands only when requested:
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/zero_day_team.py <program> <target_path> \
+  bbh agents/zero_day_team.py <program> <target_path> \
   --brainstorm-spec <appmap-output>/generated_specs/rce-spec.md \
   --brainstorm-only
 ```

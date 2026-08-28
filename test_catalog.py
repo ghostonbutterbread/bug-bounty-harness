@@ -9,8 +9,9 @@ Usage:
     catalog = build_test_catalog("https://api.target.com", discovered_endpoints)
 """
 
-import sys
-sys.path.insert(0, "/home/ryushe/projects/bounty-tools")
+from agents.dependency_context import ensure_bounty_tools_importable
+
+ensure_bounty_tools_importable("bac_checks")
 
 from bac_checks import P0_TESTS, P1_TESTS, P2_TESTS
 

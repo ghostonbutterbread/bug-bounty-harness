@@ -147,7 +147,7 @@ model, callback flow, architecture, or reconstructed program documentation—use
 `/docs`.
 
 1. Create or update the formatted `docs/<topic>.md` entry with
-   `python3 agents/program_docs.py write`.
+   `bbh agents/program_docs.py write`.
 2. Write the compact target fact to MapStore and include the script's printed
    `docs/<topic>.md` pointer in the MapStore body.
 3. Add the MapStore observation path to the documentation entry when known.
@@ -237,7 +237,7 @@ CLI example for the two common questions:
 
 ```bash
 PYTHONPATH=".:$HOME/projects/bounty-core" \
-python3 agents/map_store.py query --program <program> --family web_bounty --lane web \
+bbh agents/map_store.py query --program <program> --family web_bounty --lane web \
   --url "https://app.example/path" --surface xss --intent dedupe
 ```
 
@@ -381,7 +381,7 @@ Query the current gadget ledger with:
 
 ```bash
 PYTHONPATH=".:$HOME/projects/bounty-core" \
-python3 agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget
+bbh agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget
 ```
 
 ## Promotion Requirement
@@ -466,14 +466,14 @@ Run from `~/projects/bug_bounty_harness` with bounty-core on `PYTHONPATH`.
 
 ```bash
 PYTHONPATH=".:$HOME/projects/bounty-core"
-python3 agents/map_store.py init --program <program> --family web_bounty --lane web
-python3 agents/map_store.py query --program <program> --family web_bounty --lane web --url "https://app.example/path" --surface xss
-python3 agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget,confirmed
-python3 agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget --status active,candidate
-python3 agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget --include-archived
-python3 agents/map_store.py write --program <program> --family web_bounty --lane web --url "https://app.example/path" --surface xss --scope url --tags "xss-sandbox,investigated" --agent "<agent>" --body-file /tmp/mapstore-body.md
-python3 agents/map_store.py update-status --program <program> --family web_bounty --lane web --path "xss/app.example_s_path/example/index.md" --status archived --reason "Retested against current preview flow twice; title no longer reaches the victim preview context." --agent "<agent>"
-python3 agents/map_store.py rebuild-crossref --program <program> --family web_bounty --lane web
+bbh agents/map_store.py init --program <program> --family web_bounty --lane web
+bbh agents/map_store.py query --program <program> --family web_bounty --lane web --url "https://app.example/path" --surface xss
+bbh agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget,confirmed
+bbh agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget --status active,candidate
+bbh agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget --include-archived
+bbh agents/map_store.py write --program <program> --family web_bounty --lane web --url "https://app.example/path" --surface xss --scope url --tags "xss-sandbox,investigated" --agent "<agent>" --body-file /tmp/mapstore-body.md
+bbh agents/map_store.py update-status --program <program> --family web_bounty --lane web --path "xss/app.example_s_path/example/index.md" --status archived --reason "Retested against current preview flow twice; title no longer reaches the victim preview context." --agent "<agent>"
+bbh agents/map_store.py rebuild-crossref --program <program> --family web_bounty --lane web
 ```
 
 Prefer `--body-file` or `--body-stdin` for Markdown observations. Inline

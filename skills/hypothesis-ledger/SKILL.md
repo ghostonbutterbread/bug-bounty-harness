@@ -47,7 +47,7 @@ idea merely because it is not the current highest-information test.
 Run from `$HARNESS_ROOT`:
 
 ```bash
-python3 agents/hypothesis_ledger.py create <program> \
+bbh agents/hypothesis_ledger.py create <program> \
   --agent-id <agent> --run-id <run> \
   --title "Worker may fetch signed export URL under a different auth context" \
   --surface export --url "https://app.example/export" \
@@ -56,23 +56,23 @@ python3 agents/hypothesis_ledger.py create <program> \
   --next-discriminator "owned two-account export comparison" \
   --evidence-ref "mapstore:recon/maps/export/..."
 
-python3 agents/hypothesis_ledger.py heartbeat <program> --agent-id <agent> --run-id <run>
-python3 agents/hypothesis_ledger.py continuation <program> --agent-id <agent> --run-id <run> --surface export
-python3 agents/hypothesis_ledger.py transition <program> H-... --agent-id <agent> --run-id <run> --status active
-python3 agents/hypothesis_ledger.py list <program> --agent-id <agent> --run-id <run> --url "https://app.example/export" --tag worker
-python3 agents/hypothesis_ledger.py delegate <program> H-... --agent-id <parent> --run-id <parent-run> --child-agent-id <child> --child-run-id <child-run>
-python3 agents/hypothesis_ledger.py reclaim <program> H-... --agent-id <new-agent> --run-id <new-run>
-python3 agents/hypothesis_ledger.py complete <program> H-... --agent-id <agent> --run-id <run> --status completed
+bbh agents/hypothesis_ledger.py heartbeat <program> --agent-id <agent> --run-id <run>
+bbh agents/hypothesis_ledger.py continuation <program> --agent-id <agent> --run-id <run> --surface export
+bbh agents/hypothesis_ledger.py transition <program> H-... --agent-id <agent> --run-id <run> --status active
+bbh agents/hypothesis_ledger.py list <program> --agent-id <agent> --run-id <run> --url "https://app.example/export" --tag worker
+bbh agents/hypothesis_ledger.py delegate <program> H-... --agent-id <parent> --run-id <parent-run> --child-agent-id <child> --child-run-id <child-run>
+bbh agents/hypothesis_ledger.py reclaim <program> H-... --agent-id <new-agent> --run-id <new-run>
+bbh agents/hypothesis_ledger.py complete <program> H-... --agent-id <agent> --run-id <run> --status completed
 ```
 
 ## Tabletop and automation preflight
 
-First inspect `python3 agents/hypothesis_ledger.py --help`; do not invent a
+First inspect `bbh agents/hypothesis_ledger.py --help`; do not invent a
 command surface. Offline exercises must use the real CLI and a task-scoped
 `--root` placed **before** the command, for example:
 
 ```bash
-python3 agents/hypothesis_ledger.py --root /tmp/hypothesis-tabletop create <program> ...
+bbh agents/hypothesis_ledger.py --root /tmp/hypothesis-tabletop create <program> ...
 ```
 
 Retain the temporary-root path plus sanitized command/result summaries. Never

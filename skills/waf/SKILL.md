@@ -20,7 +20,7 @@ Read the relevant notes for the concrete surface when they exist:
 Use `agents/bypass_harness.py` when you need a CLI entrypoint and want `agents/waf_interceptor.py` engaged automatically. Use `agents/waf_interceptor.py` directly only when embedding the interceptor into a custom harness or a narrow manual repro.
 
 ```bash
-python agents/bypass_harness.py --target https://target.com/admin --type 403 \
+bbh agents/bypass_harness.py --target https://target.com/admin --type 403 \
   --program target --concurrency 5 --rps 1
 ```
 
@@ -41,11 +41,11 @@ python agents/bypass_harness.py --target https://target.com/admin --type 403 \
 
 ```bash
 # WAF-aware 403 probing
-python agents/bypass_harness.py --target https://target.com/admin --type 403 \
+bbh agents/bypass_harness.py --target https://target.com/admin --type 403 \
   --program target --concurrency 5 --rps 1
 
 # WAF-aware SSRF probing
-python agents/bypass_harness.py --target https://target.com/fetch?url=x --type ssrf \
+bbh agents/bypass_harness.py --target https://target.com/fetch?url=x --type ssrf \
   --param url --program target --concurrency 5 --rps 1
 ```
 

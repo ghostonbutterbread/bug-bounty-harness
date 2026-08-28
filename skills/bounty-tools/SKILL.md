@@ -59,7 +59,7 @@ Cross-tool aggregate front door: query it through Recon Bus, which resolves
 `$HARNESS_SHARED_BASE`:
 
 ```bash
-python3 "$HARNESS_ROOT/scripts/recon_bus.py" query <program> --artifact <urls|alive|params|params_raw|jsfiles|dirs|hosts|wild> --format path
+bbh scripts/recon_bus.py query <program> --artifact <urls|alive|params|params_raw|jsfiles|dirs|hosts|wild> --format path
 ```
 
 Use the same pattern for other families/lanes:

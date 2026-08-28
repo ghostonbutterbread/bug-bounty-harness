@@ -16,7 +16,7 @@ Use `/llmtest` only for the older payload harness:
 
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
-python3 agents/llm_harness.py <target_url> --program <program> --technique all --goal all --rate-limit 3
+bbh agents/llm_harness.py <target_url> --program <program> --technique all --goal all --rate-limit 3
 ```
 
 ## Required Preflight
@@ -125,7 +125,7 @@ Use the intentionally vulnerable local fixture to audit this skill before testin
 
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
-python3 agents/prompt_injection_lab.py --eval --json
+bbh agents/prompt_injection_lab.py --eval --json
 ```
 
 The eval starts a localhost-only fake AI app, exercises direct injection, indirect content, tool-boundary, persistence, and output-sink cases, then shuts the server down.

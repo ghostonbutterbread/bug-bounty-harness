@@ -85,7 +85,7 @@ Read the playbook before running the mapper:
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/app_mapper.py <program> <target_path> \
+  bbh agents/app_mapper.py <program> <target_path> \
   --target-kind auto \
   --mode baseline
 ```
@@ -93,7 +93,7 @@ PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
 With controlled Electronegativity enrichment:
 
 ```bash
-python3 agents/app_mapper.py <program> <target_path> \
+bbh agents/app_mapper.py <program> <target_path> \
   --target-kind electron-exe \
   --mode baseline \
   --electronegativity-root <controlled-electronegativity-run-dir>
@@ -104,7 +104,7 @@ python3 agents/app_mapper.py <program> <target_path> \
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/app_mapper.py <program> <target_path> \
+  bbh agents/app_mapper.py <program> <target_path> \
   --target-kind auto \
   --focus rce \
   --write-specs
@@ -113,7 +113,7 @@ PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
 For a focus overlay over an existing baseline:
 
 ```bash
-python3 agents/app_mapper.py <program> \
+bbh agents/app_mapper.py <program> \
   --from-baseline <appmap-baseline-run-root> \
   --focus renderer-content-trust \
   --write-specs
@@ -122,7 +122,7 @@ python3 agents/app_mapper.py <program> \
 For canonical lane storage:
 
 ```bash
-python3 agents/app_mapper.py <program> <target_path> \
+bbh agents/app_mapper.py <program> <target_path> \
   --target-kind auto \
   --focus rce \
   --write-specs \
@@ -168,7 +168,7 @@ AppMap stops after artifact and spec generation. If the user asks to run a gener
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/zero_day_team.py <program> <target_path> \
+  bbh agents/zero_day_team.py <program> <target_path> \
   --brainstorm-spec <appmap-output>/generated_specs/rce-spec.md \
   --brainstorm-only
 ```
@@ -183,29 +183,29 @@ Promoted handoff discovery:
 
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
-python3 agents/app_mapper.py --list-handoffs --brainstorm-root ~/Shared/<family>/<program>/<lane>/brainstorm
+bbh agents/app_mapper.py --list-handoffs --brainstorm-root ~/Shared/<family>/<program>/<lane>/brainstorm
 ```
 
 Campaign status / operator view:
 
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
-python3 agents/app_mapper.py --campaign-status --brainstorm-root ~/Shared/<family>/<program>/<lane>/brainstorm
+bbh agents/app_mapper.py --campaign-status --brainstorm-root ~/Shared/<family>/<program>/<lane>/brainstorm
 ```
 
 Promoted handoff validation:
 
 ```bash
-python3 agents/app_mapper.py --validate-handoff <promoted-spec>
+bbh agents/app_mapper.py --validate-handoff <promoted-spec>
 ```
 
 Planning prints the exact existing runtime command:
 
 ```bash
-python3 agents/app_mapper.py --plan-handoff <promoted-spec> --brainstorm-hypothesis H001
+bbh agents/app_mapper.py --plan-handoff <promoted-spec> --brainstorm-hypothesis H001
 ```
 
-The planned command must use `python3 agents/zero_day_team.py <program> <target_path> --brainstorm-spec <promoted-spec> --brainstorm-only` and must not include `--appmap`. Runtime defaults to one agent per hypothesis. If the user explicitly wants clustered execution for a reviewed AppMap campaign, pass `--brainstorm-cluster-size 2` (or another small value); clustering is only for assignments sharing the same focus files, source, and sink.
+The planned command must use `bbh agents/zero_day_team.py <program> <target_path> --brainstorm-spec <promoted-spec> --brainstorm-only` and must not include `--appmap`. Runtime defaults to one agent per hypothesis. If the user explicitly wants clustered execution for a reviewed AppMap campaign, pass `--brainstorm-cluster-size 2` (or another small value); clustering is only for assignments sharing the same focus files, source, and sink.
 
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"

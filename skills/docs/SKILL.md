@@ -81,16 +81,16 @@ creates the final durable entry.
 Run from the Bug Bounty Harness root:
 
 ```bash
-python3 agents/program_docs.py init --program <program> --family <family> --lane <lane>
+bbh agents/program_docs.py init --program <program> --family <family> --lane <lane>
 
-python3 agents/program_docs.py search --program <program> --family <family> --lane <lane> \
+bbh agents/program_docs.py search --program <program> --family <family> --lane <lane> \
   --query "poster sdk export"
 
 # Metadata-only discovery when an agent knows the surface or technology but not the topic.
-python3 agents/program_docs.py search --program <program> --family <family> --lane <lane> \
+bbh agents/program_docs.py search --program <program> --family <family> --lane <lane> \
   --tag sdk --surface auth --technology poster-sdk
 
-python3 agents/program_docs.py show --program <program> --family <family> --lane <lane> \
+bbh agents/program_docs.py show --program <program> --family <family> --lane <lane> \
   --topic integrations/poster-sdk-export-flow
 ```
 
@@ -100,7 +100,7 @@ use stable lowercase identifiers, while aliases capture expected alternate names
 the next agent may use:
 
 ```bash
-python3 agents/program_docs.py write --program <program> --family <family> --lane <lane> \
+bbh agents/program_docs.py write --program <program> --family <family> --lane <lane> \
   --topic integrations/poster-sdk-export-flow \
   --title "Poster SDK export integration" \
   --status partially-verified \

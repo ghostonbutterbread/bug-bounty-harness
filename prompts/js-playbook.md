@@ -111,7 +111,7 @@ Primary helper:
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 
-python3 agents/js_analyzer.py inventory canva \
+bbh agents/js_analyzer.py inventory canva \
   --input "$HOME/Shared/web_bounty/canva/web/recon/aggregated/jsfiles.txt" \
   --target-host canva.com \
   --run-id js-canva-$(date -u +%Y%m%dT%H%M%SZ) \
@@ -121,7 +121,7 @@ python3 agents/js_analyzer.py inventory canva \
 For a single page:
 
 ```bash
-python3 agents/js_analyzer.py inventory canva \
+bbh agents/js_analyzer.py inventory canva \
   --page "https://www.canva.com/login" \
   --page-context "login/auth flow" \
   --target-host "https://www.canva.com/login"
@@ -277,7 +277,7 @@ Use `--refresh` only when intentionally checking whether a URL's content has
 changed:
 
 ```bash
-python3 agents/js_analyzer.py inventory canva \
+bbh agents/js_analyzer.py inventory canva \
   --input "$HOME/Shared/web_bounty/canva/web/recon/aggregated/jsfiles.txt" \
   --target-host canva.com \
   --provenance-source recon-aggregate \
@@ -288,7 +288,7 @@ After a worker reviews packets, write its pre-finding conclusions as JSONL and
 index them:
 
 ```bash
-python3 agents/js_analyzer.py observe canva \
+bbh agents/js_analyzer.py observe canva \
   --input "$RUN_ROOT/worker-observations.jsonl"
 ```
 
@@ -303,7 +303,7 @@ and the inventory run has enough packets to justify multi-agent review.
 Preview the staged plan without starting agents or leaving a durable campaign:
 
 ```bash
-python3 agents/js_team.py dry-run \
+bbh agents/js_team.py dry-run \
   --js-run-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>" \
   --mode deep
 ```
@@ -311,7 +311,7 @@ python3 agents/js_team.py dry-run \
 Run only the mapper/anomaly first wave:
 
 ```bash
-python3 agents/js_team.py run \
+bbh agents/js_team.py run \
   --js-run-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>" \
   --mode deep \
   --stage planner \
@@ -321,7 +321,7 @@ python3 agents/js_team.py run \
 After reviewing mapper/anomaly output, select follow-up category lanes:
 
 ```bash
-python3 agents/js_team.py run \
+bbh agents/js_team.py run \
   --js-run-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>" \
   --follow-up-lane api-request-contracts \
   --follow-up-lane auth-account-tenant \
@@ -335,7 +335,7 @@ signals should select the follow-up wave before human review of mapper output.
 Lower-level adapter command for direct campaign inspection:
 
 ```bash
-python3 agents/js_offline_campaign.py prepare \
+bbh agents/js_offline_campaign.py prepare \
   --js-run-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>" \
   --mode deep
 ```
@@ -343,7 +343,7 @@ python3 agents/js_offline_campaign.py prepare \
 Inspect the generated one-shot `zero_day_team` command without starting agents:
 
 ```bash
-python3 agents/js_offline_campaign.py run \
+bbh agents/js_offline_campaign.py run \
   --campaign-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>/offline_campaign"
 ```
 
@@ -351,7 +351,7 @@ Start the lower-level one-shot offline fanout only when the task budget is
 intentionally meant to run the generated lane set at once:
 
 ```bash
-python3 agents/js_offline_campaign.py run \
+bbh agents/js_offline_campaign.py run \
   --campaign-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>/offline_campaign" \
   --execute
 ```
@@ -600,7 +600,7 @@ model and priority ranking.
 Use `/url-ingest` for URL/JS coverage state:
 
 ```bash
-python3 agents/url_ingest.py mark canva \
+bbh agents/url_ingest.py mark canva \
   --url "https://static.canva.com/app.js" \
   --lane recon \
   --status surface_reviewed \
@@ -620,7 +620,7 @@ For meaningful JS runs, keep the large artifacts under `web/recon/js/` and write
 small linked notes under `notes/`:
 
 ```bash
-python3 agents/bounty_notes.py note canva \
+bbh agents/bounty_notes.py note canva \
   --family web_bounty \
   --lane web \
   --bucket handoffs \

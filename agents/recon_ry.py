@@ -341,7 +341,7 @@ def start_remote(args: argparse.Namespace) -> None:
     recon_and_promote = (
         recon_command
         + " && echo '[*] recon complete; aggregating run into Recon Bus'"
-        + f" && python3 {shell_quote('/home/ryushe/projects/bug_bounty_harness/scripts/recon_bus.py')}"
+        + " && bbh scripts/recon_bus.py"
         + f" promote-run {shell_quote(args.program)} --run-root {shell_quote(project_dir)} --no-probe"
     )
     remote_cmd = (

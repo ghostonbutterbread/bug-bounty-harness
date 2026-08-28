@@ -23,7 +23,7 @@ secret material.
    - normalization lowercases the program label and turns separators into `-`;
      for example, `Acme Platform` becomes `acme-platform`.
 4. If the file is missing, initialize it before testing:
-   - `python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py init {program}`
+   - `bbh skills/account-management/scripts/account_inventory.py init {program}`
 5. Read `$HARNESS_ROOT/prompts/account-management-playbook.md` for required fields and handoff format.
 
 ## What To Record
@@ -61,7 +61,7 @@ For named accounts or colors, resolve auth in this order:
    existing seed simply because the resolver runs.
 5. Use the resolver script instead of hand-rolling host/proxy decisions:
    ```bash
-   python3 $HARNESS_ROOT/skills/account-management/scripts/auth_resolver.py resolve \
+   bbh skills/account-management/scripts/auth_resolver.py resolve \
      --program {program} \
      --account blue \
      --json
@@ -111,7 +111,7 @@ For any cross-account test, first list the current non-secret color/lease state;
 do not assume a remembered lane is still free:
 
 ```bash
-python3 $HARNESS_ROOT/skills/chromium-test/scripts/browser_profile_lease.py \
+bbh skills/chromium-test/scripts/browser_profile_lease.py \
   status {program} --idor
 ```
 
@@ -148,16 +148,16 @@ Caido color filter template: req.raw.cont:"X-PwnFox-Color" AND req.raw.cont:"{co
 ## CLI
 
 ```bash
-python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py show {program}
-python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-account {program} --alias primary --email ryushe+ai@example.com --user-id USER_ID --tier admin --credential-ref "bitwarden:item-name" --auth-seed-ref "auth-seed:/secure/path/primary.json" --auth-check-url "https://target.example/account" --auth-host-filter "target.example" --pwnfox-color blue --lifecycle active --browser-lease-enabled yes --organization-access owned-team:admin:enterprise --capability billing:invoices --capability shared-org:owned-team --destructible no
-python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py set-primary-idor-accounts {program} --account pink --account purple
-python3 $HARNESS_ROOT/skills/account-management/scripts/auth_resolver.py resolve --program {program} --account blue
-python3 $HARNESS_ROOT/skills/account-management/scripts/auth_resolver.py refresh-from-ryushe-proxy --program {program} --account blue --host-filter target.example
-python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-resource {program} --type design --id DESIGN_ID --name "profile test design" --owner primary --url https://target.example/design/DESIGN_ID --cleanup-needed yes
-python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py link-pwnfox {program} --color blue --account primary
-python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py link-login {program} --account primary --provider google --identity owned@example.com --source browser
-python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-integration {program} --account primary --provider github --integration-id installation-123 --external-account owned-test-org --capability repo:read --source browser
-python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py set-integration-profile {program} --account primary --source browser
+bbh skills/account-management/scripts/account_inventory.py show {program}
+bbh skills/account-management/scripts/account_inventory.py add-account {program} --alias primary --email ryushe+ai@example.com --user-id USER_ID --tier admin --credential-ref "bitwarden:item-name" --auth-seed-ref "auth-seed:/secure/path/primary.json" --auth-check-url "https://target.example/account" --auth-host-filter "target.example" --pwnfox-color blue --lifecycle active --browser-lease-enabled yes --organization-access owned-team:admin:enterprise --capability billing:invoices --capability shared-org:owned-team --destructible no
+bbh skills/account-management/scripts/account_inventory.py set-primary-idor-accounts {program} --account pink --account purple
+bbh skills/account-management/scripts/auth_resolver.py resolve --program {program} --account blue
+bbh skills/account-management/scripts/auth_resolver.py refresh-from-ryushe-proxy --program {program} --account blue --host-filter target.example
+bbh skills/account-management/scripts/account_inventory.py add-resource {program} --type design --id DESIGN_ID --name "profile test design" --owner primary --url https://target.example/design/DESIGN_ID --cleanup-needed yes
+bbh skills/account-management/scripts/account_inventory.py link-pwnfox {program} --color blue --account primary
+bbh skills/account-management/scripts/account_inventory.py link-login {program} --account primary --provider google --identity owned@example.com --source browser
+bbh skills/account-management/scripts/account_inventory.py add-integration {program} --account primary --provider github --integration-id installation-123 --external-account owned-test-org --capability repo:read --source browser
+bbh skills/account-management/scripts/account_inventory.py set-integration-profile {program} --account primary --source browser
 ```
 
 ## Routing

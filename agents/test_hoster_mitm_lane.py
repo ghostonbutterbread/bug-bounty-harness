@@ -20,7 +20,6 @@ def base_args(**overrides):
         "ssh_host": "hoster",
         "ssh_user": "ryushe",
         "ssh_key": "/home/ryushe/.ssh/hoster",
-        "remote_root": "/home/ryushe/projects/bug_bounty_harness",
         "local_lane_root": "/tmp/mitm-lanes",
         "connect_timeout": 10,
         "timeout": 30,

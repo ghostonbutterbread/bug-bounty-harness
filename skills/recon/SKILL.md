@@ -110,8 +110,8 @@ receipt says `rerun` or `unknown -> rerun` and high-volume collection is
 permitted:
 
 ```bash
-cd /home/ryushe/projects/bug_bounty_harness
-python3 agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
+
+bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
 ```
 
 For exact-host-only scope, run the documented `exact-urls` profile once per

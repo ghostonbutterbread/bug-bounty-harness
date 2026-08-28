@@ -43,13 +43,13 @@ Read the playbook before running or preparing prompts:
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/electron_team.py <program> <target_path> --dry-run-prompts
+  bbh agents/electron_team.py <program> <target_path> --dry-run-prompts
 ```
 
 4. Prepare reusable prompts when the operator wants artifacts without agent execution:
 
 ```bash
-python3 agents/electron_team.py <program> <target_path> \
+bbh agents/electron_team.py <program> <target_path> \
   --research-context <notes-or-research-path> \
   --prepare-prompts
 ```
@@ -57,7 +57,7 @@ python3 agents/electron_team.py <program> <target_path> \
 5. Run static beta profiles only when requested:
 
 ```bash
-python3 agents/electron_team.py <program> <target_path> --agents static
+bbh agents/electron_team.py <program> <target_path> --agents static
 ```
 
 ## Profiles
@@ -69,7 +69,7 @@ python3 agents/electron_team.py <program> <target_path> --agents static
 List profiles with:
 
 ```bash
-python3 agents/electron_team.py --list-profiles
+bbh agents/electron_team.py --list-profiles
 ```
 
 ## Guardrails

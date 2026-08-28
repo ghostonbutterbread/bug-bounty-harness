@@ -15,9 +15,13 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
 
-sys.path.insert(0, str(Path.home() / "projects" / "bounty-tools"))
+try:
+    from agents.dependency_context import ensure_bounty_tools_importable
+except ModuleNotFoundError:  # direct script execution
+    from dependency_context import ensure_bounty_tools_importable
+ensure_bounty_tools_importable()
+from typing import Iterable
 try:
     from subagent_logger import SubagentLogger, compute_pte_lite
 except ImportError:  # pragma: no cover

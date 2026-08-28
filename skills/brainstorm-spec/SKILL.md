@@ -73,11 +73,11 @@ When the user wants to run hypotheses, pass the spec to the team runtime instead
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/zero_day_team.py <program> <target> --brainstorm-spec <spec-path>
+  bbh agents/zero_day_team.py <program> <target> --brainstorm-spec <spec-path>
 
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/apk_team.py <program> <target> --brainstorm-spec <spec-path>
+  bbh agents/apk_team.py <program> <target> --brainstorm-spec <spec-path>
 ```
 
 Use focused runtime flags only when explicitly requested:

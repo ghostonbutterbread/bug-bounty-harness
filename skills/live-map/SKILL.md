@@ -24,14 +24,14 @@ Use this when an agent needs to explore a live app without being told the vulner
 
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
-python3 agents/live_map.py init <program>
-python3 agents/live_map.py add-route <program> --url https://target.example/my-account?id=123 --auth-state user-a --source browser
-python3 agents/live_map.py add-route <program> --url https://target.example/admin --source browser --blind-mode
-python3 agents/live_map.py ingest <program> --input observations.jsonl --source proxy
-python3 agents/live_map.py ingest <program> --input observations.jsonl --source browser --blind-mode
-python3 agents/live_map.py build-handoffs <program> --skill access-control
-python3 agents/live_map.py build-handoffs <program> --skill access-control --blind-mode
-python3 agents/live_map.py summary <program>
+bbh agents/live_map.py init <program>
+bbh agents/live_map.py add-route <program> --url https://target.example/my-account?id=123 --auth-state user-a --source browser
+bbh agents/live_map.py add-route <program> --url https://target.example/admin --source browser --blind-mode
+bbh agents/live_map.py ingest <program> --input observations.jsonl --source proxy
+bbh agents/live_map.py ingest <program> --input observations.jsonl --source browser --blind-mode
+bbh agents/live_map.py build-handoffs <program> --skill access-control
+bbh agents/live_map.py build-handoffs <program> --skill access-control --blind-mode
+bbh agents/live_map.py summary <program>
 ```
 
 ## Output

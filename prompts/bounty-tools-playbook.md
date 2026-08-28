@@ -261,11 +261,11 @@ recon bus instead of hand-editing aggregate files:
 
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
-python3 scripts/recon_bus.py append <program> --kind url --input new_urls.txt
-python3 scripts/recon_bus.py append <program> --kind url --input new_urls.txt --liveness probe
-python3 scripts/recon_bus.py append <program> --kind alive --input httpx_alive.txt
-python3 scripts/recon_bus.py append <program> --kind param --input params_raw.txt
-python3 scripts/recon_bus.py append <program> --kind js --input jsfiles.txt
+bbh scripts/recon_bus.py append <program> --kind url --input new_urls.txt
+bbh scripts/recon_bus.py append <program> --kind url --input new_urls.txt --liveness probe
+bbh scripts/recon_bus.py append <program> --kind alive --input httpx_alive.txt
+bbh scripts/recon_bus.py append <program> --kind param --input params_raw.txt
+bbh scripts/recon_bus.py append <program> --kind js --input jsfiles.txt
 ```
 
 Use `--liveness probe` only when live probing is approved for the target. It
@@ -276,7 +276,7 @@ For completed run directories that were not launched through `tool-run`, ingest:
 
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
-python3 scripts/recon_bus.py promote-run <program> --run-root "<run-root>"
+bbh scripts/recon_bus.py promote-run <program> --run-root "<run-root>"
 ```
 
 For long-running jobs or delayed workers, use the watcher as a one-shot cron or
@@ -284,7 +284,7 @@ heartbeat-safe pass:
 
 ```bash
 cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
-python3 scripts/recon_bus.py watch-runs <program> --root "$HOME/Shared/web_bounty/<program>/web/recon/tools"
+bbh scripts/recon_bus.py watch-runs <program> --root "$HOME/Shared/web_bounty/<program>/web/recon/tools"
 ```
 
 If output is not URL-like, keep it in `parsed/` and summarize the useful leads in

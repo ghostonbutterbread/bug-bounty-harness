@@ -32,10 +32,15 @@ import sys
 import time
 from datetime import date
 from pathlib import Path
+
+try:
+    from agents.dependency_context import ensure_bounty_tools_importable
+except ModuleNotFoundError:  # direct script execution
+    from dependency_context import ensure_bounty_tools_importable
+ensure_bounty_tools_importable()
 from typing import Optional
 
 # ── Logger ────────────────────────────────────────────────────────────────────
-sys.path.insert(0, str(Path.home() / "projects/bounty-tools"))
 try:
     from subagent_logger import SubagentLogger, compute_pte_lite
     _HAS_LOGGER = True

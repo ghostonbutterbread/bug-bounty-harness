@@ -21,7 +21,7 @@ Before any hunting agents run against a program:
 2. Copy or pipe those files into url-ingest. For queues that may feed live testing, scope-filter first:
    ```bash
    ssh hoster 'cat /home/ryushe/bounties/<program>/alive.txt' | \
-       python3 agents/url_ingest.py ingest <program> \
+       bbh agents/url_ingest.py ingest <program> \
          --run-id <run-id> \
          --scope-filter auto
    ```
@@ -30,7 +30,7 @@ Before any hunting agents run against a program:
 For an agent-safe overview before selecting work, use:
 
 ```bash
-python3 agents/url_ingest.py brief <program> --limit 20
+bbh agents/url_ingest.py brief <program> --limit 20
 ```
 
 This prints totals, top hosts, common parameter keys, and recent imports without dumping the full URL table.
@@ -38,7 +38,7 @@ This prints totals, top hosts, common parameter keys, and recent imports without
 For generic recon output files, use the shared recorder:
 
 ```bash
-python3 agents/recon_store.py <program> \
+bbh agents/recon_store.py <program> \
   --tool amass \
   --target example.com \
   --source /path/to/amass-subs.txt
@@ -59,14 +59,14 @@ Inspect import metadata through `stats`; it includes read, accepted, rejected, s
 ### Pre-test query
 Before an agent tests a URL in lane `X`, check if it's already been reviewed:
 ```bash
-python3 agents/url_ingest.py status <program> --lane xss --url "https://target.com/api/v2/users?id=1"
+bbh agents/url_ingest.py status <program> --lane xss --url "https://target.com/api/v2/users?id=1"
 ```
 If status is `deep_reviewed` or `dismissed` for that lane → skip or note.
 
 ### Post-test recording
 After testing, record what was done:
 ```bash
-python3 agents/url_ingest.py mark <program> \
+bbh agents/url_ingest.py mark <program> \
     --url "https://target.com/api/v2/users?id=1" \
     --lane idor \
     --status deep_reviewed \
@@ -89,7 +89,7 @@ For deep URL review, keep the limit small. A batch of 3 to 10 well-reviewed URLs
 is usually better than 100 shallow checks.
 
 ```bash
-python3 agents/url_ingest.py next <program> \
+bbh agents/url_ingest.py next <program> \
   --lane recon \
   --skill user-agent-fuzz \
   --test-family header-behavior \
@@ -99,21 +99,21 @@ python3 agents/url_ingest.py next <program> \
 For parameter-injection lanes, use parameter-aware presets so agents do not all receive the same generic first-seen queue:
 
 ```bash
-python3 agents/url_ingest.py next <program> \
+bbh agents/url_ingest.py next <program> \
   --lane xss \
   --skill xss \
   --test-family reflected-probe \
   --param-preset xss \
   --limit 25
 
-python3 agents/url_ingest.py next <program> \
+bbh agents/url_ingest.py next <program> \
   --lane ssrf \
   --skill ssrf \
   --test-family url-fetcher-probe \
   --param-preset ssrf \
   --limit 25
 
-python3 agents/url_ingest.py next <program> \
+bbh agents/url_ingest.py next <program> \
   --lane lfi \
   --skill lfi \
   --test-family path-traversal-probe \
@@ -146,7 +146,7 @@ deep dive needs parser/error-character comparison.
 After the technique runs, record the actual test:
 
 ```bash
-python3 agents/url_ingest.py mark <program> \
+bbh agents/url_ingest.py mark <program> \
   --url "https://target.example/search?q=test" \
   --lane recon \
   --status surface_reviewed \
@@ -161,7 +161,7 @@ python3 agents/url_ingest.py mark <program> \
 Use `history` to inspect all tests logged for one URL:
 
 ```bash
-python3 agents/url_ingest.py history <program> --url "https://target.example/search?q=test"
+bbh agents/url_ingest.py history <program> --url "https://target.example/search?q=test"
 ```
 
 ### Route-based dedup

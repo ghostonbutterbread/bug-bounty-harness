@@ -1,10 +1,14 @@
 # BBH command launcher
 
-`bbh` is the only command form for invoking a repository-owned BBH script from
-a skill. Give it the script's repository-relative path; it resolves the physical
-location of `scripts/bbh` and runs that path from the same checkout. A skill
-therefore cannot load from one checkout and run a tool from another through an
-absolute path or `HARNESS_ROOT` fallback.
+`bbh` is the lane-safe command form for **migrated** repository-owned BBH
+script invocations in a skill. Give it the script's repository-relative path;
+it resolves the physical location of `scripts/bbh` and runs that path from the
+same checkout. A migrated command therefore cannot load from one checkout and
+run a tool from another through an absolute path or `HARNESS_ROOT` fallback.
+
+Legacy skills still contain direct relative or `$HARNESS_ROOT` commands. They
+are not covered by this guarantee and must be migrated before being treated as
+lane-safe.
 
 ## Commands
 

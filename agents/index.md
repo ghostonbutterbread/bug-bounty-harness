@@ -1,10 +1,12 @@
 # BBH Agent Entry Card
 
-For a BBH skill that runs a repository-owned script, use
-`bbh <repository-relative-script-path> ...`—for example,
-`bbh agents/manual_hunter.py ...`. Do not put a checkout path or a
-`$HARNESS_ROOT` fallback in the skill. `bbh` resolves its own installed symlink,
-which makes the command run from the selected beta or stable checkout. See
+For a BBH skill being authored or migrated that runs a repository-owned script,
+use `bbh <repository-relative-script-path> ...`—for example,
+`bbh agents/manual_hunter.py ...`. Do not add a checkout path or a
+`$HARNESS_ROOT` fallback to a migrated command. `bbh` resolves its own installed
+symlink, which makes that command run from the selected beta or stable checkout.
+Existing direct relative or `$HARNESS_ROOT` commands remain legacy work and are
+not yet a repository-wide lane-safety guarantee. See
 [`docs/bbh-launcher.md`](../docs/bbh-launcher.md) when authoring or changing a
 runnable BBH skill command.
 

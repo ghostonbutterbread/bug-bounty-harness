@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from inventory_paths import inventory_path, program_key
 
 
 SCHEMA_VERSION = 6
@@ -46,20 +47,8 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def shared_base() -> Path:
-    """Return the sole shared, non-secret account-registry root.
-
-    Browser profiles and auth seeds remain local/owner-restricted; only inventory
-    metadata is shared here.  Callers may override this in disposable tests.
-    """
-    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
-
-
-def inventory_path(program: str) -> Path:
-    return shared_base().joinpath(program, "credentials", "account_inventory.json")
-
-
 def blank_inventory(program: str) -> dict[str, Any]:
+    program = program_key(program)
     now = utc_now()
     return {
         "schema_version": SCHEMA_VERSION,
@@ -82,6 +71,7 @@ def blank_inventory(program: str) -> dict[str, Any]:
 
 
 def load_inventory(program: str) -> dict[str, Any]:
+    program = program_key(program)
     path = inventory_path(program)
     if not path.exists():
         return blank_inventory(program)
@@ -154,6 +144,7 @@ def load_inventory(program: str) -> dict[str, Any]:
 
 
 def save_inventory(program: str, data: dict[str, Any]) -> Path:
+    program = program_key(program)
     path = inventory_path(program)
     path.parent.mkdir(parents=True, exist_ok=True)
     data["program"] = program

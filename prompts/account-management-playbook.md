@@ -9,17 +9,19 @@ cleanup.
 Canonical registry:
 
 ```text
-$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json
+$HARNESS_SHARED_BASE/{normalized-program}/credentials/account_inventory.json
 ```
 
 Default base:
 
 ```text
-/home/ryushe/Shared/web_bounty/{program}/credentials/account_inventory.json
+/home/ryushe/Shared/web_bounty/{normalized-program}/credentials/account_inventory.json
 ```
 
 The registry is non-secret. Store Bitwarden item names or approved credential
-references instead of credential values.
+references instead of credential values. `normalized-program` is the selected
+testing program lowercased with separators converted to `-`; it is never a
+generic account inventory or a browser-lane path.
 
 ## Integration Profile
 

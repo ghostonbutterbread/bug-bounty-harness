@@ -20,6 +20,8 @@ from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any
 
+from inventory_paths import inventory_path, shared_base
+
 
 DEFAULT_ROUTE_TABLE = Path(
     "/home/ryushe/projects/ai-policies/skills/proxy-routing-policy/data/proxy_routes.json"
@@ -68,14 +70,6 @@ SAFE_ACCOUNT_FIELDS = (
     "auth_check_url",
     "auth_host_filter",
 )
-
-
-def shared_base() -> Path:
-    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
-
-
-def inventory_path(program: str) -> Path:
-    return shared_base().joinpath(program, "credentials", "account_inventory.json")
 
 
 def load_json_file(path: Path) -> dict[str, Any]:

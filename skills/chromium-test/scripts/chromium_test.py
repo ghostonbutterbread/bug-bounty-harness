@@ -18,11 +18,16 @@ from pathlib import Path
 from typing import Any, Iterable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+ACCOUNT_MANAGEMENT_SCRIPTS = Path(__file__).resolve().parents[2] / "account-management" / "scripts"
+if str(ACCOUNT_MANAGEMENT_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(ACCOUNT_MANAGEMENT_SCRIPTS))
+
 from kasmvnc_session import KasmVNCSessionError
 from kasmvnc_session import LISTENER_HOST as KASMVNC_LISTENER_HOST
 from kasmvnc_session import start_session as start_kasmvnc_session
 from kasmvnc_session import stop_session as stop_kasmvnc_session
 from mitm_chromium_profile import DEFAULT_CA_CERT, DEFAULT_CERT_NAME, prepare_profile_ca
+from inventory_paths import inventory_path as canonical_inventory_path
 
 
 PORT_MIN = 9223
@@ -260,8 +265,7 @@ def artifact_base() -> Path:
 
 
 def account_inventory_path(program: str) -> Path:
-    lane = () if os.environ.get("HARNESS_SHARED_BASE") else ("web",)
-    return shared_base().joinpath(sanitize_slug(program), *lane, "credentials", "account_inventory.json")
+    return canonical_inventory_path(program)
 
 
 def load_account_inventory(program: str) -> dict[str, Any]:

@@ -2,17 +2,51 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 
 def load_inventory_module():
     root = Path(__file__).resolve().parents[1]
     script = root / "skills" / "account-management" / "scripts" / "account_inventory.py"
-    spec = importlib.util.spec_from_file_location("account_inventory", script)
+    return load_module("account_inventory", script)
+
+
+def load_module(name: str, script: Path):
+    if str(script.parent) not in sys.path:
+        sys.path.insert(0, str(script.parent))
+    spec = importlib.util.spec_from_file_location(name, script)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_all_account_consumers_use_one_normalized_program_inventory_path(tmp_path, monkeypatch):
+    root = Path(__file__).resolve().parents[1]
+    shared = tmp_path / "shared"
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    inventory = load_inventory_module()
+    resolver = load_module(
+        "auth_resolver_program_path",
+        root / "skills" / "account-management" / "scripts" / "auth_resolver.py",
+    )
+    chromium = load_module(
+        "chromium_program_path",
+        root / "skills" / "chromium-test" / "scripts" / "chromium_test.py",
+    )
+    lease = load_module(
+        "lease_program_path",
+        root / "skills" / "chromium-test" / "scripts" / "browser_profile_lease.py",
+    )
+
+    expected = shared / "acme-platform" / "credentials" / "account_inventory.json"
+    assert inventory.inventory_path("Acme Platform") == expected
+    assert resolver.inventory_path("Acme Platform") == expected
+    assert chromium.account_inventory_path("Acme Platform") == expected
+    assert lease.inventory_path("Acme Platform") == expected
+    assert "/web/credentials/" not in str(chromium.account_inventory_path("Acme Platform"))
 
 
 def test_linked_login_and_integration_are_non_secret_account_ledger_records(tmp_path, monkeypatch, capsys):

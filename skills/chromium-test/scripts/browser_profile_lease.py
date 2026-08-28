@@ -21,6 +21,12 @@ from typing import Any
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
+ACCOUNT_MANAGEMENT_SCRIPTS = Path(__file__).resolve().parents[2] / "account-management" / "scripts"
+if str(ACCOUNT_MANAGEMENT_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(ACCOUNT_MANAGEMENT_SCRIPTS))
+
+from inventory_paths import inventory_path, program_key, shared_base
+
 
 DEFAULT_STATE_DIR = Path("~/.local/state/ghost/browser-profile-leases").expanduser()
 DEFAULT_TTL_SECONDS = 30 * 60
@@ -29,10 +35,6 @@ LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 def now() -> float:
     return time.time()
-
-
-def shared_base() -> Path:
-    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
 
 
 def artifact_base() -> Path:
@@ -45,12 +47,8 @@ def slug(value: str) -> str:
     return safe or "unknown"
 
 
-def inventory_path(program: str) -> Path:
-    return shared_base().joinpath(slug(program), "credentials", "account_inventory.json")
-
-
 def profile_dir(program: str, account_alias: str) -> Path:
-    return artifact_base() / slug(program) / "web" / "browser-profiles" / slug(account_alias)
+    return artifact_base() / program_key(program) / "web" / "browser-profiles" / slug(account_alias)
 
 
 def state_db(args: argparse.Namespace) -> Path:

@@ -17,8 +17,11 @@ secret material.
 
 1. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
 2. Resolve `$HARNESS_SHARED_BASE`; default is `/home/ryushe/Shared/web_bounty`. Retired registry tombstones must be treated as errors, not empty inventories.
-3. Open the registry:
-   - `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json`
+3. Open the registry for the selected program (not a generic inventory or a
+   browser-lane subdirectory):
+   - `$HARNESS_SHARED_BASE/{normalized-program}/credentials/account_inventory.json`
+   - normalization lowercases the program label and turns separators into `-`;
+     for example, `Acme Platform` becomes `acme-platform`.
 4. If the file is missing, initialize it before testing:
    - `python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py init {program}`
 5. Read `$HARNESS_ROOT/prompts/account-management-playbook.md` for required fields and handoff format.

@@ -146,7 +146,10 @@ class BbhLauncherTests(unittest.TestCase):
         execute.assert_called_once_with(
             str(venv_python),
             [str(venv_python), str(ROOT / "agents" / "url_ingest.py"), "next", "demo"],
-            os.environ.copy(),
+            {
+                **os.environ,
+                "PYTHONPATH": str(ROOT),
+            },
         )
 
     def test_missing_checkout_venv_fails_closed(self) -> None:

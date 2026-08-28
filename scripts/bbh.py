@@ -80,7 +80,11 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, RuntimeError) as exc:
         print(f"bbh: {exc}", file=sys.stderr)
         return 2
-    os.execvpe(command[0], command, os.environ.copy())
+    environment = os.environ.copy()
+    # Package-style BBH imports must resolve from the same physical checkout as
+    # the selected launcher; inherited PYTHONPATH must not select another tree.
+    environment["PYTHONPATH"] = str(REPO_ROOT)
+    os.execvpe(command[0], command, environment)
     raise AssertionError("os.execvpe returned unexpectedly")
 
 

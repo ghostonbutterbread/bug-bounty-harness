@@ -118,15 +118,7 @@ create_directories() {
 # =============================================================================
 
 sync_skills() {
-    # Auto-pull latest changes from git
-    echo "Pulling latest changes from origin..."
-    if git pull --ff-only 2>/dev/null; then
-        echo "  ✓ Updated from origin/master"
-    else
-        echo "  - Up to date or local changes (git pull skipped)"
-    fi
-    echo ""
-    echo "Syncing skills..."
+    echo "Syncing skills from this checkout..."
     
     if [ -x "$SCRIPT_DIR/sync_skills.sh" ]; then
         "$SCRIPT_DIR/sync_skills.sh"
@@ -364,7 +356,19 @@ show_prompt() {
 # Initialize (create dirs + sync)
 # =============================================================================
 
+refresh_checkout() {
+    echo "Refreshing this checkout once before setup..."
+    if git -C "$SCRIPT_DIR" pull --ff-only; then
+        echo "  ✓ Checkout is current"
+    else
+        echo "  Error: could not fast-forward this checkout; resolve it before setup"
+        return 1
+    fi
+    echo ""
+}
+
 init() {
+    refresh_checkout
     create_directories
     install_tools
     sync_skills

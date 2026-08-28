@@ -206,17 +206,8 @@ main() {
     echo "OS detected: $OS"
     echo "HARNESS_ROOT: $HARNESS_ROOT"
     echo ""
-    # Auto-pull latest changes from git unless this is a dry run.
-    if [ "$DRY_RUN" = true ]; then
-        echo "Dry run: skipping git pull"
-    else
-        echo "Pulling latest changes from origin..."
-        if git pull --ff-only 2>/dev/null; then
-            echo "  ✓ Updated from origin/master"
-        else
-            echo "  - Up to date or local changes (git pull skipped)"
-        fi
-    fi
+    # The owning setup entry point refreshes this checkout before installing
+    # dependencies. Sync only projects the current physical checkout.
     echo ""
 
     # Skills source directory

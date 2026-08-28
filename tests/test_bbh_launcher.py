@@ -8,8 +8,9 @@ import io
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
 
@@ -29,6 +30,19 @@ class BbhLauncherTests(unittest.TestCase):
             capture_output=True,
             check=False,
         )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(Path(completed.stdout.strip()), ROOT.resolve())
+
+    def test_symlinked_shell_launcher_resolves_its_source_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            linked = Path(tmp) / "bbh"
+            linked.symlink_to(ROOT / "scripts" / "bbh")
+            completed = subprocess.run(
+                [str(linked), "--root"],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(Path(completed.stdout.strip()), ROOT.resolve())
 

@@ -26,4 +26,4 @@ Ensure every BBH account-management, auth-resolution, Chromium launcher, and bro
 Kanban task setup is unavailable in this execution context; recorded as shared papercut `PC-20260828-205304-46d41af5`. This does not block repository-local implementation.
 
 ## Next action
-Review the focused diff, commit the feature branch, and merge it into a clean current `beta` worktree.
+Implementation checkpoint: `d516cc0` (`fix(accounts): scope inventories to programs`). Review the focused diff, then merge this branch into a clean current `beta` worktree.

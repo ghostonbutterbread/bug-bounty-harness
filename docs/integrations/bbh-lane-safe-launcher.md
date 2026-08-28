@@ -2,9 +2,10 @@
 
 ## Intent
 
-Replace repository-path commands in BBH skills with `bbh <tool> ...`. The
-launcher resolves its own physical file location, so a symlink from a selected
-lane runs only that checkout's repository-owned tools.
+Replace repository-path commands in BBH skills with
+`bbh <repository-relative-script-path> ...`. The launcher resolves its own
+physical file location, so a symlink from a selected lane runs only that
+checkout's repository-owned tools.
 
 ## Base and target
 
@@ -14,11 +15,12 @@ lane runs only that checkout's repository-owned tools.
 
 ## Contract
 
-- `bbh` has an explicit registry of supported repository-owned tools.
+- `bbh` accepts any repository-relative Python or executable-script path; it has
+  no per-tool registry.
 - It does not read `HARNESS_ROOT`.
-- `bbh --root` and `bbh --print-command <tool>` expose the selected checkout
+- `bbh --root` and `bbh --print-command <path>` expose the selected checkout
   without running a tool.
-- Unknown tools fail closed.
+- Absolute paths and paths escaping the repository fail closed.
 - `HARNESS_SHARED_BASE` remains the external shared-data resolver.
 
 ## Scope

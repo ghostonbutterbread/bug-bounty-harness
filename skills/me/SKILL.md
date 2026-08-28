@@ -67,21 +67,21 @@ For `family=binaries`, `input/{original,extracted,metadata}` also exists.
 For a normal Ghost-aware hunt, run:
 
 ```bash
-bbh manual-hunter {program} --hunt --lane <web|api|apk|exe|mac>
+bbh agents/manual_hunter.py {program} --hunt --lane <web|api|apk|exe|mac>
 ```
 
 Useful overrides:
 
 ```bash
 # Fresh hunt: omit prior ledger/coverage from prompt, but still dedupe writes later.
-bbh manual-hunter {program} --hunt --fresh --lane <web|api|apk|exe|mac>
+bbh agents/manual_hunter.py {program} --hunt --fresh --lane <web|api|apk|exe|mac>
 
 # Web/API lane examples.
-bbh manual-hunter {program} --hunt --hunt-type web --lane web
-bbh manual-hunter {program} --hunt --hunt-type web --lane api
+bbh agents/manual_hunter.py {program} --hunt --hunt-type web --lane web
+bbh agents/manual_hunter.py {program} --hunt --hunt-type web --lane api
 
 # Explicit source or storage roots for local/test runs.
-bbh manual-hunter {program} --hunt --lane <web|api|apk|exe|mac> --source-root /path/to/source --root /path/to/storage
+bbh agents/manual_hunter.py {program} --hunt --lane <web|api|apk|exe|mac> --source-root /path/to/source --root /path/to/storage
 ```
 
 The hunt command writes context files under the resolved `context/` directory and prints a handoff bundle. If spawning a child agent, forward that bundle unchanged so children inherit the same family, lane, roots, and context files.
@@ -250,7 +250,7 @@ Preferred flow for a real finding:
 3. Import it with:
 
 ```bash
-bbh manual-hunter {program} --lane <web|api|apk|exe|mac> --from-file /path/to/finding.md
+bbh agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --from-file /path/to/finding.md
 ```
 
 4. Let the pipeline update `ledgers/ledger.json`, generated finding pages, and navigation/indexes.
@@ -338,13 +338,13 @@ Prefer `manual_hunter.py` for complete findings because it parses, dedupes, upda
 
 ```bash
 # Paste one finding.
-bbh manual-hunter {program} --lane <web|api|apk|exe|mac> --add "Title: ...\nClass: ...\nSeverity: HIGH\nFile: path/to/file.js:123\nDescription: ..."
+bbh agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --add "Title: ...\nClass: ...\nSeverity: HIGH\nFile: path/to/file.js:123\nDescription: ..."
 
 # Import a markdown/text finding.
-bbh manual-hunter {program} --lane <web|api|apk|exe|mac> --from-file /path/to/finding.md
+bbh agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --from-file /path/to/finding.md
 
 # Interactive entry.
-bbh manual-hunter {program} --lane <web|api|apk|exe|mac> --interactive
+bbh agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --interactive
 ```
 
 Always supply `--lane`; use `--family` only to override the family implied by that lane. `--hunt-type` is optional legacy metadata.
@@ -355,7 +355,7 @@ Use `me_ledger.py` only when an agent needs to coordinate during active manual a
 
 ```bash
 # Check for duplicates first.
-bbh me-ledger check \
+bbh agents/me_ledger.py check \
   --program {program} \
   --family binaries \
   --lane apk \
@@ -363,7 +363,7 @@ bbh me-ledger check \
   --class-name <vuln-class>
 
 # Reserve/add a minimal finding if not duplicate.
-bbh me-ledger add \
+bbh agents/me_ledger.py add \
   --program {program} \
   --family binaries \
   --lane apk \
@@ -374,7 +374,7 @@ bbh me-ledger add \
   --agent codex
 
 # Mark reviewed coverage.
-bbh me-ledger cover \
+bbh agents/me_ledger.py cover \
   --program {program} \
   --family binaries \
   --lane apk \
@@ -383,8 +383,8 @@ bbh me-ledger cover \
   --agent codex
 
 # Inspect current state.
-bbh me-ledger list --program {program} --family binaries --lane apk
-bbh me-ledger unexplored --program {program} --family binaries --lane apk --class-name <vuln-class>
+bbh agents/me_ledger.py list --program {program} --family binaries --lane apk
+bbh agents/me_ledger.py unexplored --program {program} --family binaries --lane apk --class-name <vuln-class>
 ```
 
 For web/API work, change `--family web_bounty --lane web` or `--family web_bounty --lane api`.

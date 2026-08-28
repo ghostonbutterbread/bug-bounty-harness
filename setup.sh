@@ -257,7 +257,7 @@ install_tool_run() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-exec python3 "$SCRIPT_DIR/scripts/bbh.py" tool-run "\$@"
+exec python3 "$SCRIPT_DIR/scripts/bbh.py" scripts/tool_run.py "\$@"
 EOF
     chmod +x "$launcher"
     echo "  ✓ $launcher"
@@ -274,7 +274,7 @@ install_recon_bus() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-exec python3 "$SCRIPT_DIR/scripts/bbh.py" recon-bus "\$@"
+exec python3 "$SCRIPT_DIR/scripts/bbh.py" scripts/recon_bus.py "\$@"
 EOF
     chmod +x "$launcher"
     echo "  ✓ $launcher"

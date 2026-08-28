@@ -1,33 +1,34 @@
 # BBH command launcher
 
-`bbh` is the only command form for invoking repository-owned BBH tools from a
-skill. It resolves the physical location of `scripts/bbh` and dispatches from
-that checkout. A skill therefore cannot load from one checkout and run a tool
-from another by falling back to an unqualified repository path.
+`bbh` is the only command form for invoking a repository-owned BBH script from
+a skill. Give it the script's repository-relative path; it resolves the physical
+location of `scripts/bbh` and runs that path from the same checkout. A skill
+therefore cannot load from one checkout and run a tool from another through an
+absolute path or `HARNESS_ROOT` fallback.
 
 ## Commands
 
 ```bash
-bbh manual-hunter <program> --lane <lane> ...
-bbh me-ledger <arguments>
-bbh url-ingest <arguments>
-bbh recon-bus <arguments>
-bbh tool-run <arguments>
+bbh agents/manual_hunter.py <program> --lane <lane> ...
+bbh agents/me_ledger.py <arguments>
+bbh agents/url_ingest.py <arguments>
+bbh scripts/recon_bus.py <arguments>
+bbh scripts/tool_run.py <arguments>
 ```
 
-`bbh --root` prints the selected checkout; `bbh --list` prints registered tool
-names; `bbh --print-command <tool>` prints the resolved executable without
-running it.
+`bbh --root` prints the selected checkout. `bbh --print-command <path>` prints
+the resolved executable without running it.
 
 ## Adding a runnable BBH skill
 
-1. Add its stable command name and repository-relative executable path to
-   `TOOLS` in `scripts/bbh.py`.
-2. Use `bbh <tool> ...` in the skill instead of a checkout path or
-   `$HARNESS_ROOT`.
-3. Add a focused launcher test if the dispatch contract is non-trivial.
+1. In the skill, reference the repository-owned script as
+   `bbh <repository-relative-script-path> ...`.
+2. Do not add a launcher registry entry, absolute checkout path, or
+   `$HARNESS_ROOT` fallback.
+3. Use normal relative links for skill-local reference files; `bbh` is only for
+   executable files owned by this repository.
 
-Reference-only skills do not need an entry.
+Reference-only skills need no command entry.
 
 ## Lane activation
 

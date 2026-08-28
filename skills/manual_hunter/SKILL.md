@@ -35,14 +35,14 @@ from a report draft.
 When an operator says a finding was submitted or marked duplicate, update it immediately instead of opening a separate workflow:
 
 ```bash
-bbh manual-hunter <program> --lane <lane> \\
+bbh agents/manual_hunter.py <program> --lane <lane> \\
   --set-submission D02 --submission-state submitted --submission-report "HackerOne #123"
 # later, if the platform decides it is a valid report or duplicate:
-bbh manual-hunter <program> --lane <lane> \\
+bbh agents/manual_hunter.py <program> --lane <lane> \\
   --set-submission D02 --submission-result valid
 # or: --submission-result duplicate
 # if the report was abandoned instead:
-bbh manual-hunter <program> --lane <lane> \\
+bbh agents/manual_hunter.py <program> --lane <lane> \\
   --set-submission D02 --submission-state dropped
 ```
 

@@ -14,29 +14,30 @@ from pathlib import Path
 from typing import Final
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[1]
-TOOLS: Final[dict[str, Path]] = {
-    "manual-hunter": Path("agents/manual_hunter.py"),
-    "me-ledger": Path("agents/me_ledger.py"),
-    "url-ingest": Path("agents/url_ingest.py"),
-    "recon-bus": Path("scripts/recon_bus.py"),
-    "tool-run": Path("scripts/tool_run.py"),
-}
 
 
-def tool_path(name: str) -> Path:
-    try:
-        relative = TOOLS[name]
-    except KeyError as exc:
-        available = ", ".join(sorted(TOOLS))
-        raise ValueError(f"unknown BBH tool {name!r}; available: {available}") from exc
-    path = REPO_ROOT / relative
+def script_path(value: str) -> Path:
+    candidate = Path(value)
+    if candidate.is_absolute():
+        raise ValueError("BBH script path must be relative to the repository root")
+    path = (REPO_ROOT / candidate).resolve()
+    if REPO_ROOT not in path.parents:
+        raise ValueError("BBH script path escapes the repository root")
     if not path.is_file():
-        raise RuntimeError(f"BBH tool {name!r} is missing from this checkout: {path}")
+        raise RuntimeError(f"BBH script is missing from this checkout: {value}")
     return path
 
 
+def command_for(path: Path, args: list[str]) -> list[str]:
+    if path.suffix == ".py":
+        return [sys.executable, str(path), *args]
+    if os.access(path, os.X_OK):
+        return [str(path), *args]
+    raise ValueError("BBH target must be a Python file or an executable script")
+
+
 def usage() -> str:
-    return "Usage: bbh [--root | --list | --print-command TOOL | TOOL [ARG ...]]"
+    return "Usage: bbh [--root | --print-command PATH | REPO_RELATIVE_SCRIPT [ARG ...]]"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -47,16 +48,12 @@ def main(argv: list[str] | None = None) -> int:
     if args == ["--root"]:
         print(REPO_ROOT)
         return 0
-    if args == ["--list"]:
-        for name in sorted(TOOLS):
-            print(name)
-        return 0
     if args[0] == "--print-command":
         if len(args) != 2:
-            print("--print-command requires exactly one tool name", file=sys.stderr)
+            print("--print-command requires exactly one repository-relative path", file=sys.stderr)
             return 2
         try:
-            print(tool_path(args[1]))
+            print(script_path(args[1]))
         except (ValueError, RuntimeError) as exc:
             print(f"bbh: {exc}", file=sys.stderr)
             return 2
@@ -67,11 +64,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        path = tool_path(args[0])
+        path = script_path(args[0])
+        command = command_for(path, args[1:])
     except (ValueError, RuntimeError) as exc:
         print(f"bbh: {exc}", file=sys.stderr)
         return 2
-    os.execvpe(sys.executable, [sys.executable, str(path), *args[1:]], os.environ.copy())
+    os.execvpe(command[0], command, os.environ.copy())
     raise AssertionError("os.execvpe returned unexpectedly")
 
 

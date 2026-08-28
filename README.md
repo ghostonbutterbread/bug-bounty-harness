@@ -15,7 +15,14 @@ Multi-agent bug bounty hunting framework. Supports XSS, IDOR, SQLi, SSRF, fuzzin
 
 # Show current config
 ./setup.sh --config
+
+# Install the lane-safe BBH command launcher
+./setup.sh --install-dispatchers
 ```
+
+Repository-owned tools invoked from skills use
+`bbh <repository-relative-script-path> ...`; see
+[docs/bbh-launcher.md](docs/bbh-launcher.md).
 
 ---
 

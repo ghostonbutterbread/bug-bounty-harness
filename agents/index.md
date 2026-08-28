@@ -1,5 +1,13 @@
 # BBH Agent Entry Card
 
+For a BBH skill that runs a repository-owned script, use
+`bbh <repository-relative-script-path> ...`—for example,
+`bbh agents/manual_hunter.py ...`. Do not put a checkout path or a
+`$HARNESS_ROOT` fallback in the skill. `bbh` resolves its own installed symlink,
+which makes the command run from the selected beta or stable checkout. See
+[`docs/bbh-launcher.md`](../docs/bbh-launcher.md) when authoring or changing a
+runnable BBH skill command.
+
 Use this as the compact runtime entry point for a Bug Bounty Harness agent.
 
 1. Before any live action, load `general-security-testing-policy`, then
@@ -35,7 +43,7 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    one canonical source and projections are regenerated.
 7. Recon artifacts are owned by Recon Bus. CWD is never a corpus lookup root.
    Resolve a named corpus with
-   `python3 "$HARNESS_ROOT/scripts/recon_bus.py" query <program> --artifact <name> --format path`.
+   `bbh scripts/recon_bus.py query <program> --artifact <name> --format path`.
    Use Recon Bus `append` or `promote-run` for writes; do not create, edit, or
    recursively search for competing corpus files.
 8. Query durable memory only with a concrete URL, surface, role, parameter, or

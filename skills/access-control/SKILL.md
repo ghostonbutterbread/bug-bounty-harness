@@ -25,9 +25,10 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    auth boundaries, or access patterns from direct observation.
 4. **Memory Overlay** — Now load prior state:
    - Load `/account-management` and check
-     `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json` for
+     `$HARNESS_SHARED_BASE/{normalized-program}/credentials/account_inventory.json` for
      owned accounts, user IDs, PwnFox lanes, object IDs, and any account-level
-     destructive restrictions.
+     destructive restrictions. `normalized-program` lowercases the selected
+     program and converts separators to `-`; it is never a generic inventory key.
    - Read `$HARNESS_ROOT/skills/access-control/references/account-setup.md`.
    - Confirm the needed owned accounts/resources exist. If not, ask for the
      account path, or use `/temporary-email` when a separate test account is

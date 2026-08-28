@@ -101,7 +101,9 @@ Default behavior is MITM-first and auth-seed explicit:
 - `--auth-seed-file <path>` may point to a local JSON auth seed with owner-only permissions such as `0600`.
 - If `--auth-seed-file` is omitted, `--account <alias-or-color>` or
   `--account-label <alias-or-color>` may resolve a non-secret account entry from
-  `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json`.
+  `$HARNESS_SHARED_BASE/{normalized-program}/credentials/account_inventory.json`.
+  `normalized-program` lowercases the selected program and converts separators
+  to `-`; it is not a browser-lane or general inventory path.
   The inventory may store `credential_ref` or `auth_seed_ref` as an
   `auth-seed:/absolute/path` or `file:/absolute/path` pointer to a locked-down
   seed, but it must not store the cookie, token, password, or header values.

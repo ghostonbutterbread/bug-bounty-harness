@@ -1,2 +1,2 @@
-# Runtime dependency for a BBH checkout. Keep this immutable and review changes.
-bounty-core @ git+https://github.com/ghostonbutterbread/bounty-core.git@dc31a6c4e8394dd7795056a545c8bb7b5417f4ab
+# Runtime dependency for a BBH checkout. Track Bounty Core's default branch.
+bounty-core @ git+https://github.com/ghostonbutterbread/bounty-core.git

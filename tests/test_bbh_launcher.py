@@ -97,7 +97,22 @@ class BbhLauncherTests(unittest.TestCase):
                 self.assertEqual(completed.returncode, 0, completed.stderr)
                 self.assertEqual(completed.stdout.strip(), lane)
 
-    def test_setup_installs_lane_safe_dispatchers(self) -> None:
+    def test_setup_defaults_to_full_initialization(self) -> None:
+        completed = subprocess.run(
+            [
+                "bash",
+                "-c",
+                'source "$1"; load_config(){ :; }; init(){ printf full-init; }; main',
+                "--",
+                str(ROOT / "setup.sh"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout, "full-init")
+
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = Path(tmp) / "bin"
             env = {

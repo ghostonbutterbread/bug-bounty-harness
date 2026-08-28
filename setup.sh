@@ -25,8 +25,9 @@
 #   RECON_RY_HOME          - recon-ry checkout used by EyeWitness wrapper
 #
 # Examples:
-#   ./setup.sh --init                    # Full setup
-#   ./setup.sh --install-tools          # Install helper commands/deps
+#   ./setup.sh                           # Full setup (default)
+#   ./setup.sh --init                    # Full setup (explicit)
+#   ./setup.sh --install-tools           # Install helper commands/deps
 #   ./setup.sh --sync                   # Just sync skills
 #   ./setup.sh --prompt --program xss-lab # Show agent prompt for program
 #   HARNESS_ROOT=/custom/path ./setup.sh --sync  # Override with env var
@@ -242,8 +243,8 @@ install_python_dependencies() {
     fi
 
     echo "Installing checkout-local BBH Python dependencies..."
-    uv venv --python 3.11 "$SCRIPT_DIR/.venv"
-    uv pip install --python "$venv_python" --reinstall-package bounty-core -r "$requirements"
+    uv venv --allow-existing --python 3.11 "$SCRIPT_DIR/.venv"
+    uv pip install --python "$venv_python" --upgrade-package bounty-core --refresh-package bounty-core -r "$requirements"
     "$venv_python" -c 'import bounty_core; print("  ✓ bounty_core: " + bounty_core.__file__)'
     echo ""
 }
@@ -423,7 +424,7 @@ main() {
             head -30 "${BASH_SOURCE[0]}" | grep "^#" | grep -v "^#!/bin/bash" | sed 's/^# //'
             ;;
         "")
-            head -30 "${BASH_SOURCE[0]}" | grep "^#" | grep -v "^#!/bin/bash" | sed 's/^# //'
+            init
             ;;
         *)
             echo "Unknown option: $1"

@@ -35,15 +35,15 @@ source fallbacks. Bounty Tools remains an optional standalone utility rather
 than a lane-bound BBH dependency.
 
 Bounty Core is an ordinary BBH Python dependency. Each BBH checkout installs
-the pinned Git revision in `requirements-bounty-core.txt` into its own `.venv`
+Bounty Core's default Git branch from `requirements-bounty-core.txt` into its own `.venv`
 through `./setup.sh --install-python-deps`; the lane dispatcher runs Python
 tools with that checkout-local interpreter. BBH never uses Aiskillsync state,
 `$BOUNTY_CORE_ROOT`, sibling paths, `~/projects`, installed packages, or CWD to
 select Bounty Core.
 
-Stable and beta BBH may share the same Bounty Core Git pin while retaining
-separate `.venv` directories. Update the pin only through a reviewed change to
-the dependency manifest, then reinstall it in each active BBH checkout.
+Stable and beta BBH may track the same Bounty Core default branch while retaining
+separate `.venv` directories. Re-run setup in each active BBH checkout to refresh
+Bounty Core after upstream changes.
 
 ## Verification
 

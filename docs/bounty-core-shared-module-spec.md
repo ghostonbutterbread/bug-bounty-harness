@@ -10,8 +10,8 @@ Current shared-evidence and deferred secret-resolution direction:
 [`bounty-core-evidence-and-secrets-workstream.md`](bounty-core-evidence-and-secrets-workstream.md).
 
 > **Runtime dependency decision (2026-08-28):** This historical extraction
-> document no longer defines BBH installation behavior. BBH installs the pinned
-> Bounty Core Git revision from `requirements-bounty-core.txt` into that BBH
+> document no longer defines BBH installation behavior. BBH installs the tracked
+> Bounty Core default branch from `requirements-bounty-core.txt` into that BBH
 > checkout's own `.venv` using `./setup.sh --install-python-deps`. A
 > `~/projects/bounty-core` clone remains useful for Bounty Core development, but
 > is never a BBH runtime selector and BBH does not use editable installs or clone

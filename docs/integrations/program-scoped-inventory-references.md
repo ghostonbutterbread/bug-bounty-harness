@@ -21,4 +21,4 @@ Updated every remaining direct BBH guidance reference to use `$HARNESS_SHARED_BA
 - `git diff --check` passed.
 
 ## Next action
-Commit this documentation-completeness audit and merge it into `beta`.
+Implementation checkpoint: `7831c75` (`docs(accounts): clarify program inventory paths`). Merge this documentation-completeness audit into a clean current `beta` worktree.

@@ -23,7 +23,9 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    prior state.
 4. **Memory Overlay** — Now read shared state in this order:
    - `/account-management` registry at
-     `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json`
+     `$HARNESS_SHARED_BASE/{normalized-program}/credentials/account_inventory.json`
+     where `normalized-program` lowercases the selected program and converts
+     separators to `-`; it is never a generic inventory key.
    - `notes/summary.md`
    - `notes/observations.md`
    - `checklist.md` (IDOR items only)

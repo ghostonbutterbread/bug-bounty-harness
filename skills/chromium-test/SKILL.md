@@ -257,11 +257,13 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
 
 1. Read program scope/rules and the interpreted rate limit before live interaction.
 2. Read `$HARNESS_ROOT/prompts/chromium-test-playbook.md`.
-3. Check existing program context under `$HARNESS_SHARED_BASE/{program}/`.
+3. Check existing program context under `$HARNESS_SHARED_BASE/{normalized-program}/`.
 4. Resolve browser/account state from explicit task context or a locked-down auth seed file. Do not query external profile services during browser launch.
    - If `--auth-seed-file` is not provided, `--account <alias-or-color>` or
      `--account-label <alias-or-color>` may resolve
-     `$HARNESS_SHARED_BASE/{program}/credentials/account_inventory.json`.
+     `$HARNESS_SHARED_BASE/{normalized-program}/credentials/account_inventory.json`.
+     `normalized-program` lowercases the selected program and converts
+     separators to `-`; it is not a browser-lane or general inventory path.
    - Account inventory entries are non-secret pointers only. They may include
      `credential_ref` or `auth_seed_ref` values such as
      `auth-seed:/absolute/path/to/seed.json`, but never cookie/token/header

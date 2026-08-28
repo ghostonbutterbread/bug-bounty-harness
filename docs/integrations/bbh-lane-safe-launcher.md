@@ -31,21 +31,20 @@ This migration routes every runnable BBH command documented in `skills/**/SKILL.
 and `prompts/*.md` through `bbh <repository-relative-path>`. It self-anchors the
 remaining local BBH imports, replaces the fixed Hoster checkout commands with a
 lane-installed Hoster `bbh`, and removes conventional Bounty Core/Bounty Tools
-source fallbacks.
+source fallbacks. Bounty Tools remains an optional standalone utility rather
+than a lane-bound BBH dependency.
 
-External Python dependencies now require a local-only BBH dependency mapping at
-`~/.config/bug-bounty-harness/dependencies.json`, pointing logical
-`bounty_core` and `bounty_tools` names at projects in aiskillsync's generated
+Bounty Core is the only required external Python dependency. It requires a
+local-only BBH dependency mapping at `~/.config/bug-bounty-harness/dependencies.json`,
+pointing logical `bounty_core` at a project in aiskillsync's generated
 `active-stack.json`. The resolver verifies the selected checkout revision before
-importing. It deliberately fails closed when a dependency is not selected; it
-never falls back to `$BOUNTY_CORE_ROOT`, `$BOUNTY_TOOLS_PATH`, sibling paths,
-`~/projects`, installed packages, or CWD.
+importing. It deliberately fails closed when Bounty Core is not selected; it
+never falls back to `$BOUNTY_CORE_ROOT`, sibling paths, `~/projects`, installed
+packages, or CWD.
 
-Current activation blocker: the existing local Bounty Core and Bounty Tools
-repositories expose only `master`, not beta lane checkouts. Do not activate this
-external-dependency contract for a beta BBH lane until aiskillsync manages
-matching beta checkouts for those projects and writes them into the active-stack
-receipt.
+Bounty Core may remain on a single pinned `master` checkout shared by BBH stable
+and beta. It does not need a beta branch unless we intentionally begin changing
+it alongside BBH.
 
 ## Verification
 

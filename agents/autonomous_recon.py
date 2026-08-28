@@ -40,11 +40,6 @@ for _path in (_AGENT_DIR, _PROJECT_ROOT):
     if _path_str not in sys.path:
         sys.path.insert(0, _path_str)
 
-try:
-    from agents.dependency_context import ensure_bounty_tools_importable
-except ModuleNotFoundError:  # direct script execution
-    from dependency_context import ensure_bounty_tools_importable
-ensure_bounty_tools_importable()
 
 try:
     from scope_validator import ScopeValidator

@@ -42,12 +42,12 @@ def test_recon_modules_use_receipt_selected_helper_root() -> None:
             sys.modules.pop(name, None)
 
 
-def test_code_review_uses_receipt_selected_helper_root() -> None:
+def test_code_review_tolerates_absent_optional_bounty_tools() -> None:
     original_path = list(sys.path)
     sys.modules.pop("subagent_logger", None)
     try:
         module = _load_module(PROJECT_ROOT / "agents" / "code_review.py", "code_review_portable_test")
-        assert module.SubagentLogger is not None
+        assert module.SubagentLogger is None
         assert callable(module.compute_pte_lite)
     finally:
         sys.path[:] = original_path

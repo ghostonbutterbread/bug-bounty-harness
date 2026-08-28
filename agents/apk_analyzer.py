@@ -12,11 +12,6 @@ import sys
 import time
 from pathlib import Path
 
-try:
-    from agents.dependency_context import ensure_bounty_tools_importable
-except ModuleNotFoundError:  # direct script execution
-    from dependency_context import ensure_bounty_tools_importable
-ensure_bounty_tools_importable()
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from typing import Optional

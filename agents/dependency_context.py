@@ -7,10 +7,8 @@ receipt or fail before a mixed-lane process can start.
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -71,22 +69,4 @@ def resolve_dependency_root(logical_name: str, package_path: str) -> Path:
     )
     if result.returncode or result.stdout.strip() != revision:
         raise DependencyResolutionError(f"Stale or invalid active-stack revision for '{logical_name}': {root}")
-    return root
-
-
-def ensure_bounty_tools_importable(required_module: str | None = None) -> Path:
-    root = resolve_dependency_root("bounty_tools", ".")
-    if required_module and importlib.util.find_spec(required_module) is None:
-        # The lookup above occurs before adding the selected root, so only use it
-        # to detect an already-loaded foreign module below.
-        pass
-    root_text = str(root)
-    if root_text in sys.path:
-        sys.path.remove(root_text)
-    sys.path.insert(0, root_text)
-    if required_module:
-        loaded = sys.modules.get(required_module)
-        origin = getattr(loaded, "__file__", None)
-        if origin and not Path(origin).resolve().is_relative_to(root):
-            raise DependencyResolutionError(f"Preloaded {required_module} is outside selected bounty_tools root")
     return root

@@ -24,11 +24,6 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-try:
-    from agents.dependency_context import ensure_bounty_tools_importable
-except ModuleNotFoundError:  # direct script execution
-    from dependency_context import ensure_bounty_tools_importable
-ensure_bounty_tools_importable()
 from typing import Any, Optional
 
 # ── path bootstrap ──────────────────────────────────────────────────────────

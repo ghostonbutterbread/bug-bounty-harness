@@ -169,7 +169,7 @@ class BaseTeamStorageIdentityTests(unittest.TestCase):
         rendered = team._render_prompt(spec)
 
         self.assertIn("Scope status: not loaded.", rendered)
-        self.assertIn("python3 agents/scope_puller.py demo --platform", rendered)
+        self.assertIn("bbh agents/scope_puller.py demo --platform", rendered)
         self.assertIn("Do not send live requests", rendered)
 
     def test_base_team_load_ledger_normalizes_coverage_total_findings(self) -> None:

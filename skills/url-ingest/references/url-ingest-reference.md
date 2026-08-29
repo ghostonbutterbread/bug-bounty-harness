@@ -54,7 +54,7 @@ Statuses are per vulnerability lane:
 Prefer scoped imports for URLs that may feed live testing:
 
 ```bash
-python3 agents/url_ingest.py ingest <program> --source urls.txt --run-id <run-id> --scope-filter auto
+bbh agents/url_ingest.py ingest <program> --source urls.txt --run-id <run-id> --scope-filter auto
 ```
 
 If saved scope exists, accepted/rejected temp files are written and only accepted
@@ -74,17 +74,17 @@ notes, evidence path, agent ID, and run ID.
 ## One-Off Recon Files
 
 ```bash
-python3 agents/recon_store.py <program> --tool <tool-name> --target <domain-or-url> --source <artifact-file>
+bbh agents/recon_store.py <program> --tool <tool-name> --target <domain-or-url> --source <artifact-file>
 ```
 
 ## Hoster Ingest
 
 ```bash
 scp hoster:/home/ryushe/bounties/<program>/alive.txt /tmp/alive_<program>.txt
-python3 agents/url_ingest.py ingest <program> --source /tmp/alive_<program>.txt --run-id <run-id>
+bbh agents/url_ingest.py ingest <program> --source /tmp/alive_<program>.txt --run-id <run-id>
 
 ssh hoster 'cat /home/ryushe/bounties/<program>/alive.txt' | \
-  python3 agents/url_ingest.py ingest <program>
+  bbh agents/url_ingest.py ingest <program>
 ```
 
 ## Supported Lanes

@@ -19,7 +19,7 @@ directly.
 ## Load Order
 
 1. Read scope, account context, and the active live-testing policy.
-2. Read `$HARNESS_ROOT/prompts/hunter-memory-playbook.md`.
+2. Read `prompts/hunter-memory-playbook.md`.
 3. If an application map exists, read the relevant packet or summary from
    `$HARNESS_SHARED_BASE/{program}/agent_shared/application-map/`.
 4. Start a memory run for the exact surface/idea being tested.
@@ -34,23 +34,22 @@ directly.
 ## Commands
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 
-python3 agents/hunter_memory_tool.py start <program> \
+bbh agents/hunter_memory_tool.py start <program> \
   --vulnerability xss \
   --surface avatar-upload \
   --goal "Learn whether avatar upload reaches a stored render context" \
   --agent-id scout \
   --prompt-out /tmp/hunter-memory-prompt.md
 
-python3 agents/hunter_memory_tool.py claim \
+bbh agents/hunter_memory_tool.py claim \
   --run-path <run-path> \
   --agent-id scout \
   --claim "Profile render HTML-escapes the avatar filename, but admin/email/export contexts are untested" \
   --status needs_followup \
   --confidence medium
 
-python3 agents/hunter_memory_tool.py harvest \
+bbh agents/hunter_memory_tool.py harvest \
   --run-path <run-path> \
   --agent-id scout \
   --log <agent-log-path>
@@ -59,9 +58,9 @@ python3 agents/hunter_memory_tool.py harvest \
 ## BaseTeam Mode
 
 ```bash
-python3 agents/zero_day_team.py <program> <target> --hunter-memory
-python3 agents/apk_team.py <program> <apk-or-extracted-root> --hunter-memory
-python3 agents/base_team_core.py --program <program> --target-path <target> --team-type 0day_team --hunter-memory
+bbh agents/zero_day_team.py <program> <target> --hunter-memory
+bbh agents/apk_team.py <program> <apk-or-extracted-root> --hunter-memory
+bbh agents/base_team_core.py --program <program> --target-path <target> --team-type 0day_team --hunter-memory
 ```
 
 ## Output

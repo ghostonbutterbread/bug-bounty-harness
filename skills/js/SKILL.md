@@ -22,7 +22,7 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
 ## Workflow
 
 1. Read the canonical playbook at
-   `/home/ryushe/projects/bug_bounty_harness/prompts/js-playbook.md`.
+   `prompts/js-playbook.md`.
 2. Resolve inputs from a page URL, `aggregated/jsfiles.txt`, proxy history,
    recon output, Wayback, or source maps. Use `--target-host` as the scope hint;
    it accepts a host, domain, or URL and stores non-matching extracted URLs as

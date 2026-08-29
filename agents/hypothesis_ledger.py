@@ -12,9 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 
-ensure_bounty_core_importable("bounty_core.hypothesis_ledger")
 from bounty_core.hypothesis_ledger import DEFAULT_TTL_SECONDS, UNRESOLVED_STATUSES, HypothesisLedger  # noqa: E402
 
 

@@ -17,8 +17,8 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    policy. Check `~/Shared/scopes/{program}/` first, then
    `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
    `/pullscope`. If the program has no published scope, write `no scope` stub.
-2. **Cold Surface Pass** — Resolve `$HARNESS_ROOT` first; default is
-   `/home/ryushe/projects/bug_bounty_harness`. Look at the target
+2. **Cold Surface Pass** — Resolve `the active BBH checkout` first; default is
+   `the selected BBH checkout`. Look at the target
    endpoint/object with fresh eyes. Observe auth boundaries and response
    patterns directly. Avoid broad prior-map or MapStore reads until the agent has current observations.
 3. **Fresh Observations** — Aim to identify 3-5 fresh object references, role differences,
@@ -29,36 +29,36 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
      owned accounts, user IDs, PwnFox lanes, object IDs, and any account-level
      destructive restrictions. `normalized-program` lowercases the selected
      program and converts separators to `-`; it is never a generic inventory key.
-   - Read `$HARNESS_ROOT/skills/access-control/references/account-setup.md`.
+   - Read `skills/access-control/references/account-setup.md`.
    - Confirm the needed owned accounts/resources exist. If not, ask for the
      account path, or use `/temporary-email` when a separate test account is
      needed for account-level destructive flows.
    - Check `$HARNESS_SHARED_BASE/{program}/agent_shared/application-map/` for
      existing `/live-map` routes, objects, hypotheses, and handoff packets.
      Use map entries as exploration leads, not proof.
-5. Read `$HARNESS_ROOT/skills/access-control/references/related-terms.md` for
+5. Read `skills/access-control/references/related-terms.md` for
    search vocabulary and route/parameter keywords.
 6. Classify the lane:
-   - peer object/resource access -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/horizontal.md`
-   - admin/support/owner/moderator/paid functionality -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/vertical.md`
-   - org/workspace/team/project/store isolation -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/tenant.md`
-   - wrong order, stale state, replay, skipped step -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/workflow.md`
-   - anonymous, logged-out, expired, or stale session -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/auth-state.md`
-   - GraphQL arguments or global IDs -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/graphql-bola.md`
-   - signed URLs, CDN objects, exports, attachments, media -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/storage-links.md`
-   - blocked/inconclusive direct swap; observed actor hint; deferred consumer; indirect object field; or sibling representation -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/desync-secondorder-surface.md`
+   - peer object/resource access -> `skills/access-control/references/technique-packs/horizontal.md`
+   - admin/support/owner/moderator/paid functionality -> `skills/access-control/references/technique-packs/vertical.md`
+   - org/workspace/team/project/store isolation -> `skills/access-control/references/technique-packs/tenant.md`
+   - wrong order, stale state, replay, skipped step -> `skills/access-control/references/technique-packs/workflow.md`
+   - anonymous, logged-out, expired, or stale session -> `skills/access-control/references/technique-packs/auth-state.md`
+   - GraphQL arguments or global IDs -> `skills/access-control/references/technique-packs/graphql-bola.md`
+   - signed URLs, CDN objects, exports, attachments, media -> `skills/access-control/references/technique-packs/storage-links.md`
+   - blocked/inconclusive direct swap; observed actor hint; deferred consumer; indirect object field; or sibling representation -> `skills/access-control/references/technique-packs/desync-secondorder-surface.md`
    - JWT/Bearer/cookie claims influence role, tenant, object, issuer, audience, or token lifecycle -> load `/jwt-auth`
    - method/header/path/parser discrepancy -> load `/headers` for header mechanisms or `/bypass` with type `403`/`idor`
    - one live browser/proxy request must be captured and safely modified -> `/single-request-grabber`
-9. For IDOR/BOLA object mutations, load `$HARNESS_ROOT/skills/access-control/references/mutations/idor.md`.
+9. For IDOR/BOLA object mutations, load `skills/access-control/references/mutations/idor.md`.
 10. For header mechanisms, load `/headers`; for encoding, parser, path, WAF, or filter mutations, load `/bypass` instead of duplicating bypass content here.
-11. Load `$HARNESS_ROOT/prompts/access-control-playbook.md` only for deep review, stuck analysis, or report writing.
+11. Load `prompts/access-control-playbook.md` only for deep review, stuck analysis, or report writing.
 
 ## Cross-account control harness
 
 For two-identity authorization comparisons, load and follow `idor-live-policy`.
 For API mining, GraphQL, batch REST, or direct replay, load the control-harness
-section of `$HARNESS_ROOT/prompts/access-control-playbook.md`. For a one-shot,
+section of `prompts/access-control-playbook.md`. For a one-shot,
 signed, nonce-bound, or stateful action, use `/single-request-grabber` to
 capture and mutate one fresh owned live request.
 

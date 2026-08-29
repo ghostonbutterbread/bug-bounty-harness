@@ -9,9 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 
-ensure_bounty_core_importable("bounty_core.brainstorm_spec")
 
 import bounty_core.brainstorm_spec as _core  # noqa: E402
 from bounty_core.brainstorm_spec import *  # noqa: F401,F403,E402

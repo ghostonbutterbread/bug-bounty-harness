@@ -12,15 +12,15 @@ This is a RAG-style child skill. Classify why the 403 exists, load one focused r
 ## Load Order
 
 1. Read program scope, owned-account context, active live-testing policy, and the current agent's assigned surface.
-2. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
+2. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
 3. Confirm the endpoint returned `403` in the current owned context and is agent-owned, assigned server/API surface, or tied to Ryushe's approved test account set.
-4. Read `$HARNESS_ROOT/prompts/403-context-pack.md`.
+4. Read `prompts/403-context-pack.md`.
 5. Classify the lane:
-   - path or route normalization -> `$HARNESS_ROOT/skills/403/references/technique-packs/path-normalization.md`
-   - trusted route/client headers -> `$HARNESS_ROOT/skills/403/references/technique-packs/trusted-headers.md`
-   - auth-state or owned-account comparison -> `$HARNESS_ROOT/skills/403/references/technique-packs/auth-state.md`
+   - path or route normalization -> `skills/403/references/technique-packs/path-normalization.md`
+   - trusted route/client headers -> `skills/403/references/technique-packs/trusted-headers.md`
+   - auth-state or owned-account comparison -> `skills/403/references/technique-packs/auth-state.md`
    - JWT/Bearer/cookie token controls authorization -> load `/jwt-auth`
-6. Read `$HARNESS_ROOT/prompts/403-playbook.md` for deep review, stuck analysis, or report writing.
+6. Read `prompts/403-playbook.md` for deep review, stuck analysis, or report writing.
 7. Route instead of duplicating:
    - JWT algorithm, signature, claim, key-source, or token format behavior -> `/jwt-auth`
    - broader header behavior -> `/headers`
@@ -34,7 +34,7 @@ This is a RAG-style child skill. Classify why the 403 exists, load one focused r
 2. Record why the endpoint/resource is safe to probe.
 3. Load one lane reference pack.
 4. Run the applicable rate-limited bypass families; breadth is bounded by program rules, service safety, and ownership—not an arbitrary request count.
-5. For verified owned normal application actions, state-changing methods are allowed when needed for proof; load `$HARNESS_ROOT/skills/access-control/references/idor-postconditions.md` before interpreting the response.
+5. For verified owned normal application actions, state-changing methods are allowed when needed for proof; load `skills/access-control/references/idor-postconditions.md` before interpreting the response.
 6. Record the result as a note unless there is a security-relevant delta.
 
 ## Proof Standard

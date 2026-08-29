@@ -13,10 +13,8 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
-from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.storage_resolver import WEB_FAMILY, resolve_storage
 
-ensure_bounty_core_importable()
 
 from bounty_core.evidence import (  # noqa: E402
     REQUIRED_EVENT_FIELDS,

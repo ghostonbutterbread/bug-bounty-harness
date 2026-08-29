@@ -90,12 +90,11 @@ Do not leave reusable hunt knowledge only in ad hoc scratch notes.
 ## Commands
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
-python3 agents/bounty_notes.py init <program> --family web_bounty --lane web
-python3 agents/bounty_notes.py note <program> --family web_bounty --lane web --bucket hypotheses --title "Title" --status untested --agent codex --run-id <run-id> --url "https://target.example/path" --tag xss --body "Hypothesis..."
-python3 agents/bounty_notes.py artifact <program> --family web_bounty --lane web --run-id <run-id> --agent codex --source /tmp/sanitized.json --note "Sanitized baseline"
-python3 agents/bounty_notes.py search <program> --family web_bounty --lane web --url "target.example/path"
-python3 agents/bounty_notes.py link <program> --family web_bounty --lane web --source hypotheses/example.md --target ../reports/findings/active/FID-123.md --relationship report
+bbh agents/bounty_notes.py init <program> --family web_bounty --lane web
+bbh agents/bounty_notes.py note <program> --family web_bounty --lane web --bucket hypotheses --title "Title" --status untested --agent codex --run-id <run-id> --url "https://target.example/path" --tag xss --body "Hypothesis..."
+bbh agents/bounty_notes.py artifact <program> --family web_bounty --lane web --run-id <run-id> --agent codex --source /tmp/sanitized.json --note "Sanitized baseline"
+bbh agents/bounty_notes.py search <program> --family web_bounty --lane web --url "target.example/path"
+bbh agents/bounty_notes.py link <program> --family web_bounty --lane web --source hypotheses/example.md --target ../reports/findings/active/FID-123.md --relationship report
 ```
 
 Open `references/bounty-notes-reference.md` for examples, load order, artifact

@@ -40,7 +40,7 @@ The scope profile has two parts:
 If the profile is missing, agents must pull it first or stay in static/offline analysis mode:
 
 ```bash
-python3 agents/scope_puller.py <program> --platform <hackerone|bugcrowd|intigriti>
+bbh agents/scope_puller.py <program> --platform <hackerone|bugcrowd|intigriti>
 ```
 
 Bugcrowd pulls default to public `/engagements/<program>` scraping. `--api` is reserved for intentionally configured API-backed pulls.

@@ -26,8 +26,8 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    live-testing policy. Check `~/Shared/scopes/{program}/` first, then
    `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
    `/pullscope`. If the program has no published scope, write `no scope` stub.
-2. **Cold Surface Pass** — Resolve `$HARNESS_ROOT`; default is
-   `/home/ryushe/projects/bug_bounty_harness`. Look at the target for
+2. **Cold Surface Pass** — Resolve `the active BBH checkout`; default is
+   `the selected BBH checkout`. Look at the target for
    fetch/URL-handling surfaces directly. Observe what the app does with URLs.
    Avoid broad prior-state reads until the agent has current observations.
 3. **Fresh Observations** — Aim to identify 3-5 fetch surfaces, URL parameters, webhook
@@ -44,7 +44,7 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    - direct outbound fetch -> `references/technique-packs/baseline-fetch.md`
    - allowlist, hostname, IP, redirect, or URL parser filtering -> `references/technique-packs/parser-redirect.md`
    - cloud metadata or internal protocol reachability -> `references/technique-packs/metadata-scheme.md`
-8. Read `$HARNESS_ROOT/prompts/ssrf-playbook.md` only for deep review, stuck
+8. Read `prompts/ssrf-playbook.md` only for deep review, stuck
    analysis, or report writing.
 9. Route instead of duplicating:
    - URL/parser/filter bypasses -> `/bypass`
@@ -120,7 +120,7 @@ Typical SSRF pressure ladder:
 ## Primary Harness
 
 ```bash
-python agents/bypass_harness.py --target https://target.example/fetch?url=x \
+bbh agents/bypass_harness.py --target https://target.example/fetch?url=x \
   --type ssrf --param url --program target --concurrency 5 --rps 2
 ```
 

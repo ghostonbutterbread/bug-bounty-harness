@@ -76,7 +76,7 @@ Minimum scout:
 - record whether response content, status, timing, or only outbound interaction is visible
 
 Queue child:
-- `$HARNESS_ROOT/prompts/ssrf-playbook.md`
+- `prompts/ssrf-playbook.md`
 
 ### Upload / LFI / File Parser
 
@@ -130,7 +130,7 @@ Minimum scout:
 - verify in browser only after context detection supports it
 
 Queue child:
-- `$HARNESS_ROOT/prompts/xss-playbook.md`
+- `prompts/xss-playbook.md`
 
 ### IDOR / Storage / CDN
 
@@ -155,7 +155,7 @@ Minimum scout:
 - stop before accessing non-owned data
 
 Queue child:
-- `$HARNESS_ROOT/prompts/idor-playbook.md`
+- `prompts/idor-playbook.md`
 
 ### WAF / Filter / Race
 
@@ -170,8 +170,8 @@ Minimum scout:
 - keep concurrency low and owned-resource only
 
 Queue child:
-- `$HARNESS_ROOT/prompts/waf-playbook.md`
-- `$HARNESS_ROOT/prompts/race-playbook.md`
+- `prompts/waf-playbook.md`
+- `prompts/race-playbook.md`
 
 ## Scheduler Discipline
 

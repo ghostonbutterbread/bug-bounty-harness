@@ -213,5 +213,5 @@ Update shared notes when the map creates a concrete next step for another skill,
 Also build bounded handoff packets when the follow-up should run in an isolated child:
 
 ```bash
-python3 agents/live_map.py build-handoffs <program> --skill access-control
+bbh agents/live_map.py build-handoffs <program> --skill access-control
 ```

@@ -12,7 +12,7 @@ Use this skill **only** when the user explicitly starts a bug-bounty goal with
 chat, ordinary security questions, one-off investigation, or background work.
 
 This is a Bug Bounty Harness skill. Keep its canonical source under
-`~/projects/bug_bounty_harness/skills/bug-goals/`; do not place goal-routing,
+`skills/bug-goals/`; do not place goal-routing,
 research-escalation, or hunt orchestration in the AI Policies repository. AI
 Policies may define safety boundaries and the meanings of knowledge sources, but
 must not own bug-bounty goal workflow.
@@ -25,8 +25,8 @@ Hermes, Codex, and Claude standing-goal commands.
 Use the BBH helper to produce an auditable plan before the first target action:
 
 ```bash
-cd ~/projects/bug_bounty_harness
-python3 scripts/goal_router.py plan --program <program> --objective "<goal>" \
+
+bbh scripts/goal_router.py plan --program <program> --objective "<goal>" \
   [--url "<url>"] [--class <vulnerability-class>]
 ```
 

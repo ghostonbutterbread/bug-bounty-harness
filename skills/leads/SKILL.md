@@ -37,12 +37,12 @@ public projection.
 Use the BBH wrapper rather than hand-writing MapStore bodies:
 
 ```bash
-python3 agents/leads.py create --program <program> --class <vuln-class> --surface <surface> \\
+bbh agents/leads.py create --program <program> --class <vuln-class> --surface <surface> \\
   --title "<concise lead>" --observed-basis "<fact>" --candidate-chain "<chain>" \\
   --exact-unknown "<one question>" --next-discriminator "<safe check>" \\
   --evidence-ref "<sanitized pointer>"
-python3 agents/leads.py search --program <program> --class <vuln-class>
-python3 agents/leads.py update-status --program <program> --path <MapStore-relative-path> \\
+bbh agents/leads.py search --program <program> --class <vuln-class>
+bbh agents/leads.py update-status --program <program> --path <MapStore-relative-path> \\
   --status needs_recheck --reason "<evidence-backed blocker>"
 ```
 
@@ -57,7 +57,7 @@ Use MapStore's existing lead intent and tag/status filters. For example:
 
 ```bash
 PYTHONPATH=".:$HOME/projects/bounty-core" \
-python3 agents/map_store.py query --program <program> --family web_bounty --lane web \
+bbh agents/map_store.py query --program <program> --family web_bounty --lane web \
   --surface <vuln-class> --intent old-leads --tags lead,<vuln-class> \
   --status active,candidate,needs_recheck
 ```

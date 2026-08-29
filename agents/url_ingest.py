@@ -3,23 +3,23 @@
 url_ingest.py — SQLite-backed URL ingestor and review tracker.
 
 Usage:
-    python3 agents/url_ingest.py ingest   <program> [--source <file>] [--run-id <id>]
+    bbh agents/url_ingest.py ingest   <program> [--source <file>] [--run-id <id>]
                                                  [--scope-filter auto] [--no-repull-scope]
-    python3 agents/url_ingest.py aggregate <program> [--input <dir>] [--run-id <id>]
+    bbh agents/url_ingest.py aggregate <program> [--input <dir>] [--run-id <id>]
                                                  [--scope-filter auto] [--no-ingest]
-    python3 agents/url_ingest.py status   <program> [--lane <lane>] [--url <url>]
-    python3 agents/url_ingest.py mark     <program> --url <url> --lane <lane> --status <status> \
+    bbh agents/url_ingest.py status   <program> [--lane <lane>] [--url <url>]
+    bbh agents/url_ingest.py mark     <program> --url <url> --lane <lane> --status <status> \
                                                  [--skill <skill>] [--test-family <family>] \
                                                  [--notes <notes>] [--evidence <path>]
-    python3 agents/url_ingest.py history  <program> --url <url>
-    python3 agents/url_ingest.py next     <program> --lane <lane> [--skill <skill>] \
+    bbh agents/url_ingest.py history  <program> --url <url>
+    bbh agents/url_ingest.py next     <program> --lane <lane> [--skill <skill>] \
                                                  [--test-family <family>] [--limit <n>]
-    python3 agents/url_ingest.py params   <program> [--lane <lane>] [--param <name>] [--host <host>]
-    python3 agents/url_ingest.py search   <program> [--route-hash <hash>] [--param-hash <hash>] \
+    bbh agents/url_ingest.py params   <program> [--lane <lane>] [--param <name>] [--host <host>]
+    bbh agents/url_ingest.py search   <program> [--route-hash <hash>] [--param-hash <hash>] \
                                                  [--host <host>] [--limit <n>]
-    python3 agents/url_ingest.py brief    <program> [--limit <n>]
-    python3 agents/url_ingest.py stats    <program>
-    python3 agents/url_ingest.py init     <program>
+    bbh agents/url_ingest.py brief    <program> [--limit <n>]
+    bbh agents/url_ingest.py stats    <program>
+    bbh agents/url_ingest.py init     <program>
 """
 
 import sqlite3

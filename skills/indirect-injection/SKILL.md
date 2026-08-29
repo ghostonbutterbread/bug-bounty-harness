@@ -14,8 +14,8 @@ Use when untrusted content may influence another user, role, workflow, AI summar
 
 ## Load Order
 
-1. `$HARNESS_ROOT/prompts/indirect-injection-playbook.md`
-2. `$HARNESS_ROOT/prompts/prompt-injection-playbook.md`
+1. `prompts/indirect-injection-playbook.md`
+2. `prompts/prompt-injection-playbook.md`
 3. `/ai-trust-map` output if available
 
 ## Rules

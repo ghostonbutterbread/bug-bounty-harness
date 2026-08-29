@@ -87,13 +87,13 @@ Or an auth boundary:
 1. Initialize the map:
 
 ```bash
-python3 agents/live_map.py init <program>
+bbh agents/live_map.py init <program>
 ```
 
 2. Add browser-discovered routes:
 
 ```bash
-python3 agents/live_map.py add-route <program> \
+bbh agents/live_map.py add-route <program> \
   --url "https://target.example/my-account?id=wiener" \
   --method GET \
   --auth-state user-a \
@@ -103,7 +103,7 @@ python3 agents/live_map.py add-route <program> \
 For blind training runs, do not store page titles or lab/challenge hints in the map:
 
 ```bash
-python3 agents/live_map.py add-route <program> \
+bbh agents/live_map.py add-route <program> \
   --url "https://target.example/admin" \
   --source browser \
   --blind-mode
@@ -112,25 +112,25 @@ python3 agents/live_map.py add-route <program> \
 3. Ingest normalized proxy/manual observations:
 
 ```bash
-python3 agents/live_map.py ingest <program> --input observations.jsonl --source proxy
+bbh agents/live_map.py ingest <program> --input observations.jsonl --source proxy
 ```
 
 Use blind ingestion for PortSwigger or other challenge platforms where raw browser/proxy observations may include lab titles, breadcrumbs, banners, or challenge descriptions:
 
 ```bash
-python3 agents/live_map.py ingest <program> --input observations.jsonl --source browser --blind-mode
+bbh agents/live_map.py ingest <program> --input observations.jsonl --source browser --blind-mode
 ```
 
 4. Build child-agent packets:
 
 ```bash
-python3 agents/live_map.py build-handoffs <program> --skill access-control
+bbh agents/live_map.py build-handoffs <program> --skill access-control
 ```
 
 For blind training runs, especially PortSwigger labs where the live page can expose the lab name in the top-left banner, build blind packets:
 
 ```bash
-python3 agents/live_map.py build-handoffs <program> --skill access-control --blind-mode
+bbh agents/live_map.py build-handoffs <program> --skill access-control --blind-mode
 ```
 
 5. Spawn child agents using only the packet and the relevant skill pack.

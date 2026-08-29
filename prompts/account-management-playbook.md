@@ -35,7 +35,7 @@ per-program so its integrations and access remain auditable and balanced.
 Before connecting an integration, set it from an existing owned account:
 
 ```bash
-python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py \
+bbh skills/account-management/scripts/account_inventory.py \
   set-integration-profile <program> --account <owned-active-alias> --source browser
 ```
 
@@ -153,13 +153,13 @@ spellings unless live traffic proves a second header exists.
    For a cross-account test, also run the profile-host lease status command and
    include its current `color_availability` rows in the child handoff:
    ```bash
-   python3 $HARNESS_ROOT/skills/chromium-test/scripts/browser_profile_lease.py \
+   bbh skills/chromium-test/scripts/browser_profile_lease.py \
      status <program> --idor
    ```
 2. For named account auth, call the resolver instead of reimplementing host,
    proxy, and fallback logic:
    ```bash
-   python3 $HARNESS_ROOT/skills/account-management/scripts/auth_resolver.py resolve \
+   bbh skills/account-management/scripts/auth_resolver.py resolve \
      --program <program> \
      --account <alias-or-pwnfox-color> \
      --host-filter <target-host-or-domain>
@@ -209,10 +209,10 @@ spellings unless live traffic proves a second header exists.
 ## Linked Login and Integration Commands
 
 ```bash
-python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py link-login <program> \
+bbh skills/account-management/scripts/account_inventory.py link-login <program> \
   --account primary --provider google --identity ryushe+primary@example.com --source browser
 
-python3 $HARNESS_ROOT/skills/account-management/scripts/account_inventory.py add-integration <program> \
+bbh skills/account-management/scripts/account_inventory.py add-integration <program> \
   --account primary --provider github --integration-id installation-123 \
   --external-account ghost-test-org --capability repo:read --source browser
 ```

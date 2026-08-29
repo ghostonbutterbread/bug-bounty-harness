@@ -7,8 +7,8 @@ shell-sourced. Results are emitted as JSON so callers can retain cited research
 without storing credentials in run artifacts.
 
 Examples:
-    python3 scripts/preview_mcp.py search --query "WAF bypass for reflected XSS"
-    PREVIEW_API_KEY=... python3 scripts/preview_mcp.py search --query "DOM clobbering"
+    bbh scripts/preview_mcp.py search --query "WAF bypass for reflected XSS"
+    PREVIEW_API_KEY=... bbh scripts/preview_mcp.py search --query "DOM clobbering"
 """
 
 from __future__ import annotations

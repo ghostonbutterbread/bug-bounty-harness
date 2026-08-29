@@ -19,9 +19,7 @@ _AGENT_DIR = Path(__file__).resolve().parent
 if str(_AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(_AGENT_DIR))
 
-from bounty_core_bootstrap import ensure_bounty_core_importable
 
-ensure_bounty_core_importable("bounty_core.recon")
 
 from bounty_core.recon import start_run, write_manifest
 
@@ -341,7 +339,7 @@ def start_remote(args: argparse.Namespace) -> None:
     recon_and_promote = (
         recon_command
         + " && echo '[*] recon complete; aggregating run into Recon Bus'"
-        + f" && python3 {shell_quote('/home/ryushe/projects/bug_bounty_harness/scripts/recon_bus.py')}"
+        + " && bbh scripts/recon_bus.py"
         + f" promote-run {shell_quote(args.program)} --run-root {shell_quote(project_dir)} --no-probe"
     )
     remote_cmd = (
@@ -354,6 +352,10 @@ def start_remote(args: argparse.Namespace) -> None:
         f"cat > {shell_quote(project_dir + '/rate_limit.conf')} <<'RECONRY_RATE_LIMIT'\n"
         f"{rate_conf}"
         "RECONRY_RATE_LIMIT\n"
+        # Resolve the selected remote lane before a background job inherits its
+        # PATH. Both checks fail closed if the expected dispatcher or promotion
+        # target is absent.
+        "bbh --root; bbh --print-command scripts/recon_bus.py; "
         f"log=\"$HOME/recon-ry-logs/{safe_slug(args.program)}-$(date -u +%Y%m%dT%H%M%SZ).log\"; "
         f"nohup {auth_env}bash -c {shell_quote(recon_and_promote)} > \"$log\" 2>&1 & "
         "printf 'pid=%s\\nlog=%s\\nproject=%s\\nauth=%s\\n' \"$!\" \"$log\" "

@@ -992,9 +992,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Develop exploit chains from dormant and novel zero-day findings.",
         epilog=textwrap.dedent("""\
             Examples:
-              python3 agents/chainer.py evernote --source ~/source/
-              python3 agents/chainer.py evernote --source ~/source/ --novel-only
-              python3 agents/chainer.py evernote --source ~/source/ --skip-codex
+              bbh agents/chainer.py evernote --source ~/source/
+              bbh agents/chainer.py evernote --source ~/source/ --novel-only
+              bbh agents/chainer.py evernote --source ~/source/ --skip-codex
         """),
     )
     parser.add_argument("program", help="Bug bounty program name")

@@ -13,18 +13,18 @@ testing directions that can generate hypotheses when an agent is blocked.
 Run from the BBH repository:
 
 ```bash
-python3 scripts/research_map.py init
-python3 scripts/research_map.py validate
-python3 scripts/research_map.py index
-python3 scripts/research_map.py query --terms "custom protocol parser" --class xss
-python3 scripts/research_map.py query --terms "sanitizer svg" --tag url-parsing --limit 5
+bbh scripts/research_map.py init
+bbh scripts/research_map.py validate
+bbh scripts/research_map.py index
+bbh scripts/research_map.py query --terms "custom protocol parser" --class xss
+bbh scripts/research_map.py query --terms "sanitizer svg" --tag url-parsing --limit 5
 ```
 
 Use `--root /path/to/research` **before** the command to work with another
 corpus—for example, an isolated test corpus:
 
 ```bash
-python3 scripts/research_map.py --root /tmp/research init
+bbh scripts/research_map.py --root /tmp/research init
 ```
 
 `query` automatically builds the index if it is missing. Run `index` after card

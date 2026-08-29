@@ -1758,7 +1758,7 @@ def test_appmap_plan_handoff_prints_existing_runtime_command_without_writes(tmp_
     command = plan_promoted_handoff_command(promotion.spec_paths[0], selected_hypothesis="H001")
 
     assert command == (
-        "python3 agents/zero_day_team.py one-candidate "
+        "bbh agents/zero_day_team.py one-candidate "
         f"{result.profile.target_path} --brainstorm-spec {promotion.spec_paths[0]} "
         "--brainstorm-only --brainstorm-hypothesis H001"
     )

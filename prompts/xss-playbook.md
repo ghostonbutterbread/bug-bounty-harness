@@ -88,8 +88,8 @@ Use tool output as an input map for the XSS lane, not as final proof.
 For install checks, command shapes, output paths, and hybrid handoff packet
 format, read:
 
-- `/home/ryushe/projects/bug_bounty_harness/skills/bounty-tools/SKILL.md`
-- `/home/ryushe/projects/bug_bounty_harness/skills/xss/references/tool-assisted-discovery.md`
+- `skills/bounty-tools/SKILL.md`
+- `skills/xss/references/tool-assisted-discovery.md`
 
 Dalfox is preferred for parameter mining and reflection triage across known URL
 sets. Use it to discover hidden parameters, identify reflected inputs, collect

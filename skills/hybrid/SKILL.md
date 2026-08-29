@@ -28,9 +28,9 @@ target stress, or safety policy.
 ## Commands
 
 ```bash
-python3 agents/hybrid_runner.py deep-dive recon canva --input params.txt
+bbh agents/hybrid_runner.py deep-dive recon canva --input params.txt
 
-python3 agents/hybrid_runner.py deep-dive recon canva \
+bbh agents/hybrid_runner.py deep-dive recon canva \
   --input params.txt \
   --planner codex \
   --planner-model gpt-5.5 \
@@ -38,8 +38,8 @@ python3 agents/hybrid_runner.py deep-dive recon canva \
   --worker-model deepseek/deepseek-v4-pro \
   --max-requests-per-worker 0
 
-python3 agents/hybrid_runner.py deep-dive xss canva \
-  --input "$(python3 "$HARNESS_ROOT/scripts/recon_bus.py" query canva --artifact params --format path)" \
+bbh agents/hybrid_runner.py deep-dive xss canva \
+  --input "$(bbh scripts/recon_bus.py query canva --artifact params --format path)" \
   --worker claude \
   --worker-model claude-sonnet-4-6
 ```
@@ -51,7 +51,7 @@ CLIs should actually be spawned.
 
 1. Resolve the input through Recon Bus. A relative artifact name such as
    `params.txt` is a Recon Bus query: run
-   `python3 "$HARNESS_ROOT/scripts/recon_bus.py" query <program> --artifact params --format path`.
+   `bbh scripts/recon_bus.py query <program> --artifact params --format path`.
    Both Recon Bus and the runner use `$HARNESS_SHARED_BASE`; never derive the
    aggregate path from cwd.
 2. Build a planner packet and focused worker packets.

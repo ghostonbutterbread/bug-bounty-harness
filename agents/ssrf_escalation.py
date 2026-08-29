@@ -11,13 +11,13 @@ Takes confirmed SSRF findings and attempts to escalate to privilege escalation p
   Vault       → secret read → cross-system access
 
 Usage:
-    python3 agents/ssrf_escalation.py --program acme --ssrf-url 'https://target.com/api/fetch?url='
+    bbh agents/ssrf_escalation.py --program acme --ssrf-url 'https://target.com/api/fetch?url='
 
     # With confirmed finding dict:
-    python3 agents/ssrf_escalation.py --program acme --finding-json '{"url": "...", "param": "url", "method": "GET"}'
+    bbh agents/ssrf_escalation.py --program acme --finding-json '{"url": "...", "param": "url", "method": "GET"}'
 
     # Dry run (detection only, no exploitation):
-    python3 agents/ssrf_escalation.py --program acme --ssrf-url '...' --dry-run
+    bbh agents/ssrf_escalation.py --program acme --ssrf-url '...' --dry-run
 
     # Import as module:
     from ssrf_escalation import run_escalation
@@ -34,12 +34,12 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, date
 from pathlib import Path
+
 from typing import Optional
 
 import httpx
 
 # ── Logger ────────────────────────────────────────────────────────────────────
-sys.path.insert(0, str(Path.home() / "projects" / "bounty-tools"))
 try:
     from subagent_logger import SubagentLogger
     _HAS_LOGGER = True

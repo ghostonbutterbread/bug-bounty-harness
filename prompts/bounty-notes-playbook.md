@@ -39,7 +39,7 @@ notes/_index/
 When Ryushe says "look at the notes for canva.com/endpoint", run:
 
 ```bash
-python3 agents/bounty_notes.py search canva \
+bbh agents/bounty_notes.py search canva \
   --family web_bounty \
   --lane web \
   --url "canva.com/endpoint"
@@ -50,7 +50,7 @@ When Ryushe says "what were we last working on", read `notes/_index/active.md`.
 When Ryushe gives a report/FID, run:
 
 ```bash
-python3 agents/bounty_notes.py search <program> --report FID-123
+bbh agents/bounty_notes.py search <program> --report FID-123
 ```
 
 ## Directory Routing
@@ -127,7 +127,7 @@ Related report: [[../reports/findings/active/FID-123]]
 The helper can add these links and refresh the machine index:
 
 ```bash
-python3 agents/bounty_notes.py link <program> \
+bbh agents/bounty_notes.py link <program> \
   --source hypotheses/avatar-metadata-reaches-admin-review.md \
   --target ../reports/findings/active/FID-123.md \
   --relationship report

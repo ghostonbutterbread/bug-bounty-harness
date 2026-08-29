@@ -65,8 +65,8 @@ harness provisioner. It preserves profile ownership and queues rather than
 bypassing node resource admission:
 
 ```bash
-cd "$HARNESS_ROOT"
-python3 skills/chromium-test/scripts/browser_provisioner.py request \
+
+bbh skills/chromium-test/scripts/browser_provisioner.py request \
   <program> <account> --agent-id "$AGENT_ID" --run-id "$RUN_ID" \
   --purpose "<task>" --url "<target-url>" \
   --proxy-server "$BROWSER_PROXY" --proxy-cert-mode import \

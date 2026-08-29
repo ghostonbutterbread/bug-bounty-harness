@@ -12,16 +12,16 @@ This is a RAG-style child skill. Classify the token behavior, load one focused r
 ## Load Order
 
 1. Read program scope, owned-account context, active live-testing policy, and the current `/403`, `/access-control`, `/idor`, or `/api` handoff.
-2. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
+2. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
 3. Capture and decode only header/payload metadata. Redact signatures, tokens, cookies, and secrets in chat or broad reports.
-4. Read `$HARNESS_ROOT/prompts/jwt-auth-context-pack.md`.
+4. Read `prompts/jwt-auth-context-pack.md`.
 5. Classify the lane:
-   - `alg:none`, missing signature, or signature not checked -> `$HARNESS_ROOT/skills/jwt-auth/references/technique-packs/algorithm-signature.md`
-   - `iss`, `aud`, `jti`, role, scope, tenant, or object claims drive access -> `$HARNESS_ROOT/skills/jwt-auth/references/technique-packs/claims.md`
-   - `kid`, `jku`, `x5u`, `x5c`, `x5t`, inline `jwk`, or JWKS lookup appears -> `$HARNESS_ROOT/skills/jwt-auth/references/technique-packs/key-source.md`
-   - RS256/HS256 switching, weak HMAC secret, or public key as secret -> `$HARNESS_ROOT/skills/jwt-auth/references/technique-packs/key-confusion-weak-secret.md`
-   - malformed JWT, duplicate claims, whitespace, nested token, JWE/JWS confusion -> `$HARNESS_ROOT/skills/jwt-auth/references/technique-packs/format-confusion.md`
-6. Read `$HARNESS_ROOT/prompts/jwt-auth-playbook.md` for deep review, stuck analysis, or report writing.
+   - `alg:none`, missing signature, or signature not checked -> `skills/jwt-auth/references/technique-packs/algorithm-signature.md`
+   - `iss`, `aud`, `jti`, role, scope, tenant, or object claims drive access -> `skills/jwt-auth/references/technique-packs/claims.md`
+   - `kid`, `jku`, `x5u`, `x5c`, `x5t`, inline `jwk`, or JWKS lookup appears -> `skills/jwt-auth/references/technique-packs/key-source.md`
+   - RS256/HS256 switching, weak HMAC secret, or public key as secret -> `skills/jwt-auth/references/technique-packs/key-confusion-weak-secret.md`
+   - malformed JWT, duplicate claims, whitespace, nested token, JWE/JWS confusion -> `skills/jwt-auth/references/technique-packs/format-confusion.md`
+6. Read `prompts/jwt-auth-playbook.md` for deep review, stuck analysis, or report writing.
 7. Route instead of duplicating:
    - path/header/method 403 bypass -> `/403`, `/headers`, or `/bypass`
    - direct object authorization -> `/access-control` or `/idor`

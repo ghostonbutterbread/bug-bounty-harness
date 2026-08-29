@@ -6,7 +6,9 @@
 #
 # Options:
 #   --init          Initialize directories and sync skills
-#   --install-tools Install local helper commands and tool dependencies
+#   --install-tools Install checkout-local Python dependencies and helper commands
+#   --install-python-deps Install Bounty Core into this checkout's .venv
+#   --install-dispatchers Install only lane-safe local command launchers
 #   --sync          Sync skills to Claude Code and Codex
 #   --prompt        Display agent prompt (use --prompt --program NAME for custom)
 #   --config        Show current config
@@ -23,8 +25,9 @@
 #   RECON_RY_HOME          - recon-ry checkout used by EyeWitness wrapper
 #
 # Examples:
-#   ./setup.sh --init                    # Full setup
-#   ./setup.sh --install-tools          # Install helper commands/deps
+#   ./setup.sh                           # Full setup (default)
+#   ./setup.sh --init                    # Full setup (explicit)
+#   ./setup.sh --install-tools           # Install helper commands/deps
 #   ./setup.sh --sync                   # Just sync skills
 #   ./setup.sh --prompt --program xss-lab # Show agent prompt for program
 #   HARNESS_ROOT=/custom/path ./setup.sh --sync  # Override with env var
@@ -115,15 +118,7 @@ create_directories() {
 # =============================================================================
 
 sync_skills() {
-    # Auto-pull latest changes from git
-    echo "Pulling latest changes from origin..."
-    if git pull --ff-only 2>/dev/null; then
-        echo "  ✓ Updated from origin/master"
-    else
-        echo "  - Up to date or local changes (git pull skipped)"
-    fi
-    echo ""
-    echo "Syncing skills..."
+    echo "Syncing skills from this checkout..."
     
     if [ -x "$SCRIPT_DIR/sync_skills.sh" ]; then
         "$SCRIPT_DIR/sync_skills.sh"
@@ -225,10 +220,65 @@ install_python_venv_dependency() {
     sudo apt-get install -y "python${py_version}-venv" || sudo apt-get install -y python3-venv
 }
 
+install_python_dependencies() {
+    local venv_python="$SCRIPT_DIR/.venv/bin/python"
+    local requirements="$SCRIPT_DIR/requirements-bounty-core.txt"
+
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "  Error: uv is required to install BBH Python dependencies"
+        echo "  Install uv, then rerun ./setup.sh --install-python-deps"
+        return 1
+    fi
+    if [ ! -f "$requirements" ]; then
+        echo "  Error: Bounty Core dependency manifest is missing: $requirements"
+        return 1
+    fi
+
+    echo "Installing checkout-local BBH Python dependencies..."
+    uv venv --allow-existing --python 3.11 "$SCRIPT_DIR/.venv"
+    uv pip install --python "$venv_python" --upgrade-package bounty-core --refresh-package bounty-core -r "$requirements"
+    "$venv_python" -c 'import bounty_core; print("  ✓ bounty_core: " + bounty_core.__file__)'
+    echo ""
+}
+
 install_tools() {
+    install_python_dependencies
+    install_dispatchers
+    install_eyewitness_incremental
+}
+
+install_dispatchers() {
+    install_bbh
     install_tool_run
     install_recon_bus
-    install_eyewitness_incremental
+}
+
+refuse_foreign_launcher() {
+    local launcher="$1"
+    local expected="$2"
+    if [ ! -e "$launcher" ] && [ ! -L "$launcher" ]; then
+        return 0
+    fi
+    if [ -L "$launcher" ] && [ "$(readlink -f "$launcher")" = "$(readlink -f "$expected")" ]; then
+        return 0
+    fi
+    if [ -f "$launcher" ] && grep -Fq "# BBH_CHECKOUT=$SCRIPT_DIR" "$launcher"; then
+        return 0
+    fi
+    echo "  Error: refusing to replace $launcher because it belongs to another checkout or tool" >&2
+    echo "  Choose a lane-specific LOCAL_BIN_DIR (for example ~/.local/bin/bbh-beta) instead." >&2
+    return 1
+}
+
+install_bbh() {
+    echo "Installing lane-safe bbh launcher..."
+
+    mkdir -p "$LOCAL_BIN_DIR"
+    local launcher="$LOCAL_BIN_DIR/bbh"
+    refuse_foreign_launcher "$launcher" "$SCRIPT_DIR/scripts/bbh"
+    ln -sfn "$SCRIPT_DIR/scripts/bbh" "$launcher"
+    echo "  ✓ $launcher -> $SCRIPT_DIR/scripts/bbh"
+    echo ""
 }
 
 install_tool_run() {
@@ -241,9 +291,7 @@ install_tool_run() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-HARNESS_ROOT="\${HARNESS_ROOT:-$HARNESS_ROOT}"
-
-exec python3 "\$HARNESS_ROOT/scripts/tool_run.py" "\$@"
+exec "$SCRIPT_DIR/scripts/bbh" scripts/tool_run.py "\$@"
 EOF
     chmod +x "$launcher"
     echo "  ✓ $launcher"
@@ -260,9 +308,7 @@ install_recon_bus() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-HARNESS_ROOT="\${HARNESS_ROOT:-$HARNESS_ROOT}"
-
-exec python3 "\$HARNESS_ROOT/scripts/recon_bus.py" "\$@"
+exec "$SCRIPT_DIR/scripts/bbh" scripts/recon_bus.py "\$@"
 EOF
     chmod +x "$launcher"
     echo "  ✓ $launcher"
@@ -328,7 +374,19 @@ show_prompt() {
 # Initialize (create dirs + sync)
 # =============================================================================
 
+refresh_checkout() {
+    echo "Refreshing this checkout once before setup..."
+    if git -C "$SCRIPT_DIR" pull --ff-only; then
+        echo "  ✓ Checkout is current"
+    else
+        echo "  Error: could not fast-forward this checkout; resolve it before setup"
+        return 1
+    fi
+    echo ""
+}
+
 init() {
+    refresh_checkout
     create_directories
     install_tools
     sync_skills
@@ -375,6 +433,12 @@ main() {
         --install-tools|--tools)
             install_tools
             ;;
+        --install-python-deps)
+            install_python_dependencies
+            ;;
+        --install-dispatchers)
+            install_dispatchers
+            ;;
         --config|-c)
             show_config
             ;;
@@ -382,7 +446,7 @@ main() {
             head -30 "${BASH_SOURCE[0]}" | grep "^#" | grep -v "^#!/bin/bash" | sed 's/^# //'
             ;;
         "")
-            head -30 "${BASH_SOURCE[0]}" | grep "^#" | grep -v "^#!/bin/bash" | sed 's/^# //'
+            init
             ;;
         *)
             echo "Unknown option: $1"
@@ -392,4 +456,6 @@ main() {
     esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

@@ -14,8 +14,8 @@ Use for model-behavior research on local open-weight models or explicitly approv
 
 ## Load Order
 
-1. `$HARNESS_ROOT/prompts/liberate-fren-playbook.md`
-2. `$HARNESS_ROOT/prompts/model-redteam-taxonomy-playbook.md`
+1. `prompts/liberate-fren-playbook.md`
+2. `prompts/model-redteam-taxonomy-playbook.md`
 3. Provider or lab rules, model terms, approval notes, and local safety constraints
 
 ## Boundaries

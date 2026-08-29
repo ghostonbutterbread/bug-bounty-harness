@@ -225,12 +225,12 @@ Then:
 Examples:
 
 ```bash
-python3 agents/url_ingest.py params <program> --lane ssrf --untested --limit 25
+bbh agents/url_ingest.py params <program> --lane ssrf --untested --limit 25
 
-python3 agents/url_ingest.py next <program> \
+bbh agents/url_ingest.py next <program> \
   --lane ssrf --skill gf --test-family dynamic-filter --param url --limit 25
 
-python3 agents/url_ingest.py mark <program> \
+bbh agents/url_ingest.py mark <program> \
   --url "https://target.example/import?url=https://example.com" \
   --lane ssrf --status surface_reviewed \
   --skill gf --test-family dynamic-filter --param url \

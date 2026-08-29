@@ -15,7 +15,14 @@ Multi-agent bug bounty hunting framework. Supports XSS, IDOR, SQLi, SSRF, fuzzin
 
 # Show current config
 ./setup.sh --config
+
+# Install the lane-safe BBH command launcher
+./setup.sh --install-dispatchers
 ```
+
+Repository-owned tools invoked from skills use
+`bbh <repository-relative-script-path> ...`; see
+[docs/bbh-launcher.md](docs/bbh-launcher.md).
 
 ---
 
@@ -27,10 +34,10 @@ retrieve cited mechanisms and code signals when a plausible surface needs fresh
 hypotheses.
 
 ```bash
-python3 scripts/research_map.py init
-python3 scripts/research_map.py validate
-python3 scripts/research_map.py index
-python3 scripts/research_map.py query --terms "sanitizer svg" --class xss
+bbh scripts/research_map.py init
+bbh scripts/research_map.py validate
+bbh scripts/research_map.py index
+bbh scripts/research_map.py query --terms "sanitizer svg" --class xss
 ```
 
 The default corpus is `~/notes/appsec/research/`; the SQLite index is generated
@@ -48,8 +55,8 @@ selects a broad-program, focused-surface, technology-review, continuation, or
 revalidation route without changing ordinary agent behavior.
 
 ```bash
-python3 scripts/goal_router.py plan --program example --objective "Find a new vulnerability"
-python3 scripts/goal_router.py init --program example --objective "Assess preview for XSS" \
+bbh scripts/goal_router.py plan --program example --objective "Find a new vulnerability"
+bbh scripts/goal_router.py init --program example --objective "Assess preview for XSS" \
   --class xss --run-dir /tmp/example-goal
 ```
 
@@ -86,7 +93,7 @@ Paths are configured via `config.env` or environment variables.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `HARNESS_ROOT` | Bug bounty harness repo | `~/projects/bug_bounty_harness` |
+| `HARNESS_ROOT` | Compatibility setting; setup always derives the BBH repository root from its own location | Auto-detected |
 | `HARNESS_SHARED_BASE` | Canonical shared bounty root, including Recon Bus aggregate reads and writes | `~/Shared/web_bounty` |
 | `HARNESS_WORDLISTS` | Wordlists | `~/wordlists` |
 | `CLAUDE_SKILLS_DIR` | Claude Code skills | `~/.claude/skills` |
@@ -131,9 +138,8 @@ bug_bounty_harness/
 ├── setup.sh               # Setup script
 ├── sync_skills.sh         # Sync skills to providers
 ├── prompts/               # Playbooks (shared source of truth)
-├── skills/                # Skill wrappers (source)
-├── .claude/skills/       # Claude Code (synced)
-└── shared/
+├── skills/                # Canonical skill source; sync externally with setup.sh --sync
+├── shared/
     └── knowledge-template.md
 ```
 

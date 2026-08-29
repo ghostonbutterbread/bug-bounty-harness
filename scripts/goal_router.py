@@ -6,8 +6,8 @@ classifies an explicitly requested goal and writes the small routing state that
 an orchestrator or agent can use to select existing BBH skills and artifacts.
 
 Examples:
-    python3 scripts/goal_router.py plan --program example --objective "Find a new vulnerability"
-    python3 scripts/goal_router.py init --program example --objective "Assess XSS in preview" \
+    bbh scripts/goal_router.py plan --program example --objective "Find a new vulnerability"
+    bbh scripts/goal_router.py init --program example --objective "Assess XSS in preview" \
         --class xss --url https://app.example/preview --run-dir /tmp/example-goal
 """
 

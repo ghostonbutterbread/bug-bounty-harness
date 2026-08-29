@@ -144,6 +144,6 @@ match the observed context, mutate freely, and follow signal.
 
 ## Useful Local Sources
 
-- `/home/ryushe/projects/bug_bounty_harness/prompts/xss-payloads.md`
+- `prompts/xss-payloads.md`
 - `/home/ryushe/Shared/word_lists/xss/payloads.txt`
 - `/home/ryushe/.axss/knowledge.db`

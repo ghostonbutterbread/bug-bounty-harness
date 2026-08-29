@@ -341,7 +341,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         epilog=dedent(
             """\
             Example:
-              python3 agents/xss_bypasses_advanced.py --category waf_specific --limit 5
+              bbh agents/xss_bypasses_advanced.py --category waf_specific --limit 5
 
             Output:
               Prints payloads to stdout only.

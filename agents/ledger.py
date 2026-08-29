@@ -10,10 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.storage_resolver import StorageLayout
 
-ensure_bounty_core_importable()
 
 from bounty_core.ledger import (  # noqa: E402
     VersionedFindingsLedger,

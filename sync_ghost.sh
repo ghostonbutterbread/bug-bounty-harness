@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_DIR="${HOME}/projects/bug_bounty_harness"
+REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 SOURCE_DIR="${REPO_DIR}/skills"
 DEST_DIR="${HOME}/.openclaw/workspace/skills"
 
 echo "[sync] repo: ${REPO_DIR}"
 cd "${REPO_DIR}"
-
-echo "[sync] pulling latest from origin/master"
-git pull --ff-only origin master
 
 echo "[sync] syncing skills from ${SOURCE_DIR} to ${DEST_DIR}"
 

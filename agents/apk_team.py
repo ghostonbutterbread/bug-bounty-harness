@@ -20,13 +20,10 @@ _AGENT_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _AGENT_DIR.parent
 if _PROJECT_ROOT.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
     sys.path.insert(0, _PROJECT_ROOT.as_posix())
-_BOUNTY_TOOLS_ROOT = Path.home() / "projects" / "bounty-tools"
-if _BOUNTY_TOOLS_ROOT.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
-    sys.path.insert(0, _BOUNTY_TOOLS_ROOT.as_posix())
 
-# MGP / BountyMemory (lazy, best-effort — never blocks the scan)
-_MGP_ROOT = Path.home() / "projects" / "memory-graph-protocol"
-if _MGP_ROOT.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
+# MGP / BountyMemory is optional and requires an explicit source root.
+_MGP_ROOT = Path(os.environ["MGP_ROOT"]).expanduser() if os.environ.get("MGP_ROOT") else None
+if _MGP_ROOT is not None and _MGP_ROOT.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
     sys.path.insert(0, _MGP_ROOT.as_posix())
 try:
     from mgp.bounty_integration import BountyMemory
@@ -40,7 +37,6 @@ from agents.apk_prefingerprint import build_surface_registry
 from agents.apk_profiles import ApkHuntProfile, BUILTIN_PROFILES, PROFILE_BY_KEY
 from agents.apk_surface_registry import ApkSurfaceRegistry
 from agents.brainstorm_adapters import brainstorm_intent_to_apk_profile
-from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.decompiler import decompile_smali_targets
 from agents.dynamic_agent_builder import DynamicAgentBuilder
@@ -55,8 +51,6 @@ from agents.base_team.storage import resolve_team_storage
 from agents.snapshot_identity import get_snapshot_identity
 from agents.verbosity import clamp_verbosity
 
-ensure_bounty_core_importable()
-ensure_bounty_core_importable("bounty_core.brainstorm_spec")
 
 from bounty_core.reports import DAILY_REPORT_DATE_FORMAT, daily_report_paths  # noqa: E402
 from bounty_core.brainstorm_spec import (  # noqa: E402

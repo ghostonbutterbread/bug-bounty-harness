@@ -87,8 +87,8 @@ payload-selection reference:
 
 Useful local sources:
 
-- `/home/ryushe/projects/bug_bounty_harness/prompts/xss-playbook.md`
-- `/home/ryushe/projects/bug_bounty_harness/prompts/xss-payloads.md`
+- `prompts/xss-playbook.md`
+- `prompts/xss-payloads.md`
 - `/home/ryushe/Shared/word_lists/xss/payloads.txt`
 - `/home/ryushe/.axss/knowledge.db` when curated rows exist
 
@@ -152,7 +152,7 @@ reflection screening, reflected/stored/DOM lanes, and optional browser
 verification.
 
 ```bash
-python /home/ryushe/projects/bug_bounty_harness/agents/xss_framework.py \
+bbh agents/xss_framework.py \
   --target https://target.example/search?q=test \
   --program target \
   --mode full \
@@ -162,7 +162,7 @@ python /home/ryushe/projects/bug_bounty_harness/agents/xss_framework.py \
 Use `agents/xss_hunter.py` for narrower parameter-focused passes.
 
 ```bash
-python /home/ryushe/projects/bug_bounty_harness/agents/xss_hunter.py \
+bbh agents/xss_hunter.py \
   --target https://target.example/search?q=test \
   --program target \
   --depth deep \

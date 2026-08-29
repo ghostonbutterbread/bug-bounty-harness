@@ -25,7 +25,9 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-sys.path.insert(0, "/home/ryushe/projects/bug_bounty_harness/agents")
+AGENTS_ROOT = Path(__file__).resolve().parent
+if str(AGENTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(AGENTS_ROOT))
 
 try:
     from browser_block_fix import BrowserBlockFix

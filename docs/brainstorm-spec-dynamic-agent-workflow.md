@@ -257,13 +257,11 @@ Coverage statuses:
 Minimum team flag:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/zero_day_team.py canva <target> --brainstorm-spec <path>
+  bbh agents/zero_day_team.py canva <target> --brainstorm-spec <path>
 
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/apk_team.py canva <target> --brainstorm-spec <path>
+  bbh agents/apk_team.py canva <target> --brainstorm-spec <path>
 ```
 
 Behavior:

@@ -44,7 +44,7 @@ Do not persist:
 5. Generate the first artifact folder:
 
    ```bash
-   python3 "$HARNESS_ROOT/skills/analyze-endpoint/scripts/analyze_endpoint.py" <program> request.raw \
+   bbh skills/analyze-endpoint/scripts/analyze_endpoint.py <program> request.raw \
      --proxy-lane <source-lane> \
      --pwnfox-color <color> \
      --account-alias <account-alias> \

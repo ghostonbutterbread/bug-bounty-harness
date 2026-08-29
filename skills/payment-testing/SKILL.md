@@ -20,14 +20,14 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    Read `/payment-testing-policy` before touching payment forms, payment
    methods, purchases, subscriptions, refunds, credits, gift cards, invoices,
    or entitlements.
-2. **Cold Surface Pass** — Resolve `$HARNESS_ROOT`; default is
-   `/home/ryushe/projects/bug_bounty_harness`. Look at the payment flow
+2. **Cold Surface Pass** — Resolve `the active BBH checkout`; default is
+   `the selected BBH checkout`. Look at the payment flow
    directly. Browse checkout, observe what the backend trusts. Avoid broad
    prior-state reads until the agent has current observations.
 3. **Fresh Observations** — Aim to identify 3-5 fresh price fields, coupon flows,
    entitlement boundaries, or processor behaviors from direct observation.
 4. **Memory Overlay** — Now read
-   `$HARNESS_ROOT/prompts/payment-testing-context-pack.md` and prior state.
+   `prompts/payment-testing-context-pack.md` and prior state.
 5. Read only the focused technique pack matching observed behavior:
    - cart total can reach `$0` -> `zero-dollar.md`
    - request has `paid`, `success`, `status`, `price`, `currency`, `amount`, `quantity`, `plan`, `seats`, or entitlement fields -> `client-trust.md`
@@ -36,7 +36,7 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    - card form, setup intent, payment intent, hosted checkout, webhook-like callback, or decline path -> `processor-boundary.md`
    - refund, cancellation, invoice, receipt, tax, shipping, or fulfillment state -> `refunds-invoices.md`
    - duplicate submit, concurrent redeem, finalize, or state transition -> `race-state.md`
-6. Load `$HARNESS_ROOT/prompts/payment-testing-playbook.md` for full workflow mapping, stuck analysis, or report writing.
+6. Load `prompts/payment-testing-playbook.md` for full workflow mapping, stuck analysis, or report writing.
 7. Route cross-skill work instead of duplicating it:
    - one live request capture or intercept -> `/single-request-grabber`
    - access control, customer/invoice/subscription object ownership -> `/access-control` or `/idor`

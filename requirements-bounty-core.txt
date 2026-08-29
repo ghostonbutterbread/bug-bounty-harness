@@ -1,0 +1,2 @@
+# Runtime dependency for a BBH checkout. Track Bounty Core's default branch.
+bounty-core @ git+https://github.com/ghostonbutterbread/bounty-core.git

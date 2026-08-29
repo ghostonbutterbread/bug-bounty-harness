@@ -18,7 +18,7 @@ workspaceId, projectId, organizationId, tenantId, fileId, documentId
 
 ## Try
 
-- Load `$HARNESS_ROOT/skills/access-control/references/mutations/idor.md` for GraphQL/global-ID object mutations.
+- Load `skills/access-control/references/mutations/idor.md` for GraphQL/global-ID object mutations.
 - Treat every query argument that selects an object as an authorization boundary.
 - Test mutations separately from queries.
 - Decode base64/global IDs only to identify object type and source ID.

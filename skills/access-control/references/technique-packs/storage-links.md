@@ -19,7 +19,7 @@ cdn, storage, bucket, key, url, signed, signature, expires, token, version
 
 ## Try
 
-- Load `$HARNESS_ROOT/skills/access-control/references/mutations/idor.md` for storage/media/export object mutations.
+- Load `skills/access-control/references/mutations/idor.md` for storage/media/export object mutations.
 - Fetch direct file/export/media URL from another owned account.
 - Replay signed URLs after logout, expiration, deletion, replacement, or membership removal.
 - Swap storage keys, media IDs, avatar IDs, crop IDs, and version IDs.

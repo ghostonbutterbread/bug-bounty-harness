@@ -1372,9 +1372,9 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         description="Validate bug bounty findings against source and expand nearby attack surface.",
         epilog=(
             "Examples:\n"
-            "  python3 agents/report_checker.py notion --finding D05 --source-root ~/source/Notion\n"
-            "  python3 agents/report_checker.py notion --class ipc-trust-boundary --all\n"
-            "  python3 agents/report_checker.py notion --all --run-chainer"
+            "  bbh agents/report_checker.py notion --finding D05 --source-root ~/source/Notion\n"
+            "  bbh agents/report_checker.py notion --class ipc-trust-boundary --all\n"
+            "  bbh agents/report_checker.py notion --all --run-chainer"
         ),
         formatter_class=argparse.RawTextHelpFormatter,
     )

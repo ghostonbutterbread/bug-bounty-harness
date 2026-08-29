@@ -17,15 +17,14 @@ The MVP profiles are:
 Prompt smoke:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/electron_team.py <program> <target_path> --dry-run-prompts
+  bbh agents/electron_team.py <program> <target_path> --dry-run-prompts
 ```
 
 Inject explicit notes or research packs:
 
 ```bash
-python3 agents/electron_team.py <program> <target_path> \
+bbh agents/electron_team.py <program> <target_path> \
   --research-context <file-or-directory> \
   --dry-run-prompts
 ```
@@ -33,7 +32,7 @@ python3 agents/electron_team.py <program> <target_path> \
 Prepare prompts under the target lane working directory:
 
 ```bash
-python3 agents/electron_team.py <program> <target_path> \
+bbh agents/electron_team.py <program> <target_path> \
   --profile electron-ipc-protocol-hunter \
   --research-context <file-or-directory> \
   --prepare-prompts
@@ -42,7 +41,7 @@ python3 agents/electron_team.py <program> <target_path> \
 Run beta static profiles:
 
 ```bash
-python3 agents/electron_team.py <program> <target_path> --agents static
+bbh agents/electron_team.py <program> <target_path> --agents static
 ```
 
 ## Research Context Rules

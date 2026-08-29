@@ -32,6 +32,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
 from typing import Dict, List, Optional
 
 import requests
@@ -48,7 +49,6 @@ except ImportError:
     RateLimiter = None
 
 # ── SubagentLogger (optional) ─────────────────────────────────────────────────
-sys.path.insert(0, str(Path.home() / "projects/bounty-tools"))
 try:
     from subagent_logger import SubagentLogger  # type: ignore
     _HAS_LOGGER = True

@@ -25,7 +25,7 @@ Examples:
 ```
 
 ## Harness Location
-`~/projects/bug_bounty_harness/agents/retard_collaboration.py`
+`agents/retard_collaboration.py`
 
 ## Workflow Position
 ```
@@ -81,19 +81,19 @@ chains.
 
 ```bash
 # 1. Run zero_day_team first
-python3 agents/zero_day_team.py evernote ~/source/
+bbh agents/zero_day_team.py evernote ~/source/
 
 # 2. Run retard_collaboration on the findings
-python3 agents/retard_collaboration.py evernote --source ~/Shared/bounty_recon/evernote/0day_team/
+bbh agents/retard_collaboration.py evernote --source ~/Shared/bounty_recon/evernote/0day_team/
 
 # 3. Run chainer on the collaborative output (optional)
-python3 agents/chainer.py evernote --source ~/Shared/bounty_recon/evernote/ghost/collaboration/
+bbh agents/chainer.py evernote --source ~/Shared/bounty_recon/evernote/ghost/collaboration/
 ```
 
 For interactive MapStore-routed hunts, query confirmed gadgets directly:
 
 ```bash
-python3 agents/retard_collaboration.py flourish \
+bbh agents/retard_collaboration.py flourish \
   --from-mapstore-gadgets \
   --family web_bounty \
   --lane web \

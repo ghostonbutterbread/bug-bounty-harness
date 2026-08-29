@@ -16,7 +16,7 @@ Use this as the compact branch map for `/ssrf`.
 Load when the feature clearly fetches attacker-controlled HTTP or HTTPS URLs.
 
 Reference:
-- `$HARNESS_ROOT/skills/ssrf/references/technique-packs/baseline-fetch.md`
+- `skills/ssrf/references/technique-packs/baseline-fetch.md`
 
 Look for:
 - external callback
@@ -29,7 +29,7 @@ Look for:
 Load when allowlists, host validation, redirect handling, or URL parser differences are present.
 
 Reference:
-- `$HARNESS_ROOT/skills/ssrf/references/technique-packs/parser-redirect.md`
+- `skills/ssrf/references/technique-packs/parser-redirect.md`
 
 Look for:
 - userinfo confusion
@@ -43,7 +43,7 @@ Look for:
 Load when cloud/container clues exist or the fetcher may support non-HTTP schemes.
 
 Reference:
-- `$HARNESS_ROOT/skills/ssrf/references/technique-packs/metadata-scheme.md`
+- `skills/ssrf/references/technique-packs/metadata-scheme.md`
 
 Look for:
 - AWS/GCP/Azure/ECS metadata indicators

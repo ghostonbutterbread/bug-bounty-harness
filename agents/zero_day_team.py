@@ -18,9 +18,6 @@ _agent_dir = Path(__file__).resolve().parent
 _project_root = _agent_dir.parent
 if _project_root.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
     sys.path.insert(0, _project_root.as_posix())
-_bounty_tools_root = Path.home() / "projects" / "bounty-tools"
-if _bounty_tools_root.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
-    sys.path.insert(0, _bounty_tools_root.as_posix())
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -56,7 +53,6 @@ from agents.brainstorm_adapters import (
     spec_uses_category_master_agents,
 )
 from agents.brainstorm_spec import parse_brainstorm_spec
-from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 from agents.hunting_policy import HuntingPolicy, coerce_hunting_policy, resolve_hunting_policy, resolve_policy_selection
 from agents.hunter_memory_adapter import (
     HunterMemoryRef,
@@ -67,11 +63,9 @@ from agents.base_team.scheduler import BaseTeamSchedulerOptions, schedule_profil
 from agents.snapshot_identity import get_snapshot_identity
 from agents.verbosity import clamp_verbosity
 
-ensure_bounty_core_importable()
 
 from bounty_core.reports import DAILY_REPORT_DATE_FORMAT, daily_report_paths  # noqa: E402
 
-ensure_bounty_core_importable("bounty_core.brainstorm_spec")
 
 from bounty_core.brainstorm_spec import (  # noqa: E402
     append_coverage,
@@ -4237,7 +4231,7 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
         "--chain",
         action="store_true",
         help="After review, run the chainer to develop exploit chains from findings. "
-             "Disabled by default. To use: python3 agents/zero_day_team.py <program> <target> --chain",
+             "Disabled by default. To use: bbh agents/zero_day_team.py <program> <target> --chain",
     )
     parser.add_argument(
         "--fresh",

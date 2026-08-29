@@ -39,7 +39,7 @@ subagents to consume staged local review packets; it never calls zero_day_team.
    this uses a temporary campaign and removes it after printing the plan:
 
    ```bash
-   python3 agents/js_team.py dry-run \
+   bbh agents/js_team.py dry-run \
      --js-run-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id> \
      --mode deep
    ```
@@ -49,7 +49,7 @@ subagents to consume staged local review packets; it never calls zero_day_team.
    returned plan:
 
    ```bash
-   python3 agents/js_team.py run \
+   bbh agents/js_team.py run \
      --js-run-root /mnt/bounty/<program>/web/recon/js/<run-id> \
      --mode deep \
      --stage planner
@@ -59,7 +59,7 @@ subagents to consume staged local review packets; it never calls zero_day_team.
    those task packets to native subagents:
 
    ```bash
-   python3 agents/js_team.py run \
+   bbh agents/js_team.py run \
      --js-run-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id> \
      --follow-up-lane api-request-contracts \
      --follow-up-lane auth-account-tenant \
@@ -74,7 +74,7 @@ subagents to consume staged local review packets; it never calls zero_day_team.
    inventory run:
 
    ```bash
-   python3 agents/js_offline_campaign.py prepare \
+   bbh agents/js_offline_campaign.py prepare \
      --js-run-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id> \
      --mode deep
    ```
@@ -85,7 +85,7 @@ subagents to consume staged local review packets; it never calls zero_day_team.
    campaign by default:
 
    ```bash
-   python3 agents/js_offline_campaign.py dry-run \
+   bbh agents/js_offline_campaign.py dry-run \
      --js-run-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id> \
      --mode deep
    ```
@@ -96,7 +96,7 @@ subagents to consume staged local review packets; it never calls zero_day_team.
 7. Inspect the generated command from a kept campaign without starting agents:
 
    ```bash
-   python3 agents/js_offline_campaign.py run \
+   bbh agents/js_offline_campaign.py run \
      --campaign-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id>/offline_campaign
    ```
 
@@ -104,7 +104,7 @@ subagents to consume staged local review packets; it never calls zero_day_team.
    all-lane execution is intentionally desired:
 
    ```bash
-   python3 agents/js_offline_campaign.py run \
+   bbh agents/js_offline_campaign.py run \
      --campaign-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id>/offline_campaign \
      --execute
    ```

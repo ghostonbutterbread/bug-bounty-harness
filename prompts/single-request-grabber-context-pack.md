@@ -35,25 +35,25 @@ Flow examples:
 - preserve a fresh CSRF or challenge token while changing one approved authorization field
 
 Reference:
-- `$HARNESS_ROOT/skills/single-request-grabber/references/technique-packs/csrf-token.md`
+- `skills/single-request-grabber/references/technique-packs/csrf-token.md`
 
 ### Access-Control Replay
 
 Use when the goal is to compare the same action across approved accounts, roles, tenants, workspaces, or owned resources.
 
 Reference:
-- `$HARNESS_ROOT/skills/single-request-grabber/references/technique-packs/access-control-replay.md`
+- `skills/single-request-grabber/references/technique-packs/access-control-replay.md`
 
 ### Request-Shape Repair
 
 Use when an error says the request is missing a field, has an unsupported media type, uses the wrong method, or needs a browser-generated header.
 
 Reference:
-- `$HARNESS_ROOT/skills/single-request-grabber/references/technique-packs/request-shape-repair.md`
+- `skills/single-request-grabber/references/technique-packs/request-shape-repair.md`
 
 ### CSRF Token
 
 Use when the main security question is whether the app's CSRF protection can be omitted, replayed, swapped, or bypassed after capturing the live request.
 
 Reference:
-- `$HARNESS_ROOT/skills/single-request-grabber/references/technique-packs/csrf-token.md`
+- `skills/single-request-grabber/references/technique-packs/csrf-token.md`

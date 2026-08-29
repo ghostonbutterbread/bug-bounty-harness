@@ -27,8 +27,7 @@ a key file readable by group or others.
 ## Search
 
 ```bash
-cd ~/projects/bug_bounty_harness
-python3 scripts/preview_mcp.py search \
+bbh scripts/preview_mcp.py search \
   --query "WAF bypass for reflected XSS behind Cloudflare" \
   --k 5 --min-score 0.1
 ```
@@ -49,5 +48,5 @@ reports, or chat.
 
 ```bash
 uv run --with pytest python -m pytest tests/test_preview_mcp.py -q
-python3 scripts/preview_mcp.py search --query "DOM clobbering" --k 1
+bbh scripts/preview_mcp.py search --query "DOM clobbering" --k 1
 ```

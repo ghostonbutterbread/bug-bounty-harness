@@ -8,9 +8,9 @@ Use this skill to brief an agent before manual bug bounty hunting. The goal is t
 
 ## Current harness roots
 
-- Harness repo: `/home/ryushe/projects/bug_bounty_harness`
-- Manual hunt CLI: `/home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py`
-- Ledger coordination CLI: `/home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py`
+- Harness repo: `the selected BBH checkout`
+- Manual hunt CLI: `agents/manual_hunter.py`
+- Ledger coordination CLI: `agents/me_ledger.py`
 - Shared storage resolver: `agents/storage_resolver.py` → `bounty_core.storage`
 - Bounty Core package: `/home/ryushe/projects/bounty-core`
 
@@ -67,21 +67,21 @@ For `family=binaries`, `input/{original,extracted,metadata}` also exists.
 For a normal Ghost-aware hunt, run:
 
 ```bash
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --hunt --lane <web|api|apk|exe|mac>
+bbh agents/manual_hunter.py {program} --hunt --lane <web|api|apk|exe|mac>
 ```
 
 Useful overrides:
 
 ```bash
 # Fresh hunt: omit prior ledger/coverage from prompt, but still dedupe writes later.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --hunt --fresh --lane <web|api|apk|exe|mac>
+bbh agents/manual_hunter.py {program} --hunt --fresh --lane <web|api|apk|exe|mac>
 
 # Web/API lane examples.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --hunt --hunt-type web --lane web
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --hunt --hunt-type web --lane api
+bbh agents/manual_hunter.py {program} --hunt --hunt-type web --lane web
+bbh agents/manual_hunter.py {program} --hunt --hunt-type web --lane api
 
 # Explicit source or storage roots for local/test runs.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --hunt --lane <web|api|apk|exe|mac> --source-root /path/to/source --root /path/to/storage
+bbh agents/manual_hunter.py {program} --hunt --lane <web|api|apk|exe|mac> --source-root /path/to/source --root /path/to/storage
 ```
 
 The hunt command writes context files under the resolved `context/` directory and prints a handoff bundle. If spawning a child agent, forward that bundle unchanged so children inherit the same family, lane, roots, and context files.
@@ -250,7 +250,7 @@ Preferred flow for a real finding:
 3. Import it with:
 
 ```bash
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --from-file /path/to/finding.md
+bbh agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --from-file /path/to/finding.md
 ```
 
 4. Let the pipeline update `ledgers/ledger.json`, generated finding pages, and navigation/indexes.
@@ -273,7 +273,7 @@ Before taking a profile, surface, or vuln class:
 Useful state summary command when a pipeline plan is known:
 
 ```bash
-PYTHONPATH=/home/ryushe/projects/bug_bounty_harness python3 - <<'PY'
+PYTHONPATH=the selected BBH checkout python3 - <<'PY'
 from agents.hunt_pipeline.run_state import summarize_run
 print(summarize_run('/path/to/pipeline_plan.json'))
 PY
@@ -338,13 +338,13 @@ Prefer `manual_hunter.py` for complete findings because it parses, dedupes, upda
 
 ```bash
 # Paste one finding.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --add "Title: ...\nClass: ...\nSeverity: HIGH\nFile: path/to/file.js:123\nDescription: ..."
+bbh agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --add "Title: ...\nClass: ...\nSeverity: HIGH\nFile: path/to/file.js:123\nDescription: ..."
 
 # Import a markdown/text finding.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --from-file /path/to/finding.md
+bbh agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --from-file /path/to/finding.md
 
 # Interactive entry.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --interactive
+bbh agents/manual_hunter.py {program} --lane <web|api|apk|exe|mac> --interactive
 ```
 
 Always supply `--lane`; use `--family` only to override the family implied by that lane. `--hunt-type` is optional legacy metadata.
@@ -355,7 +355,7 @@ Use `me_ledger.py` only when an agent needs to coordinate during active manual a
 
 ```bash
 # Check for duplicates first.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py check \
+bbh agents/me_ledger.py check \
   --program {program} \
   --family binaries \
   --lane apk \
@@ -363,7 +363,7 @@ python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py check \
   --class-name <vuln-class>
 
 # Reserve/add a minimal finding if not duplicate.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py add \
+bbh agents/me_ledger.py add \
   --program {program} \
   --family binaries \
   --lane apk \
@@ -374,7 +374,7 @@ python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py add \
   --agent codex
 
 # Mark reviewed coverage.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py cover \
+bbh agents/me_ledger.py cover \
   --program {program} \
   --family binaries \
   --lane apk \
@@ -383,8 +383,8 @@ python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py cover \
   --agent codex
 
 # Inspect current state.
-python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py list --program {program} --family binaries --lane apk
-python3 /home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py unexplored --program {program} --family binaries --lane apk --class-name <vuln-class>
+bbh agents/me_ledger.py list --program {program} --family binaries --lane apk
+bbh agents/me_ledger.py unexplored --program {program} --family binaries --lane apk --class-name <vuln-class>
 ```
 
 For web/API work, change `--family web_bounty --lane web` or `--family web_bounty --lane api`.

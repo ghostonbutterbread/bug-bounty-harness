@@ -126,7 +126,7 @@ run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 unit="hoster-browser-request-$run_id"
 HELPER=/home/ryushe/.openclaw/workspace/skills/hoster-ssh/scripts/hoster_user_unit.py
 python3 "$HELPER" --unit="$unit" -- \
-  /bin/bash -lc "cd /home/ryushe/projects/bug_bounty_harness-stable && exec python3 skills/chromium-test/scripts/browser_provisioner.py request <program> <account> --agent-id <agent-id> --run-id '$run_id' --purpose '<task>' --url '<url>'"
+  /bin/bash -lc "bbh skills/chromium-test/scripts/browser_provisioner.py request <program> <account> --agent-id <agent-id> --run-id '$run_id' --purpose '<task>' --url '<url>'"
 ```
 
 Read the provisioner result from the recorded request unit. It returns safe
@@ -146,7 +146,7 @@ browser merely because a prior task's process is old.
 ### Local Hoster invocation
 
 ```text
-python3 "$HARNESS_ROOT/skills/chromium-test/scripts/browser_provisioner.py" request \
+bbh skills/chromium-test/scripts/browser_provisioner.py request \
   <program> <account> --agent-id <agent-id> --run-id <run-id> \
   --purpose "<task>" --url <url>
 ```
@@ -174,7 +174,7 @@ substitute for that recorded KasmVNC failure. This creates a dedicated KasmVNC
 display and a loopback-only HTTP viewer while CDP remains on `127.0.0.1`:
 
 ```bash
-python3 "$HARNESS_ROOT/skills/chromium-test/scripts/browser_provisioner.py" request \
+bbh skills/chromium-test/scripts/browser_provisioner.py request \
   <program> <account> --agent-id <agent-id> --run-id <run-id> \
   --purpose "manual handoff" --url https://target.example/ \
   --display-backend kasmvnc --kasmvnc-display 20 --kasmvnc-web-port 8463
@@ -201,8 +201,8 @@ Default behavior:
 Standalone profile preparation:
 
 ```bash
-bash "$HARNESS_ROOT/skills/chromium-test/scripts/install.sh"
-python3 "$HARNESS_ROOT/skills/chromium-test/scripts/mitm_chromium_profile.py" \
+bbh skills/chromium-test/scripts/install.sh
+bbh skills/chromium-test/scripts/mitm_chromium_profile.py \
   --profile-dir "$HARNESS_SHARED_BASE/<program>/ghost/chromium-test/profiles/<account>" \
   --home-dir "$HARNESS_SHARED_BASE/<program>/ghost/chromium-test/profiles/<account>/home" \
   --ca-cert ~/.mitmproxy/mitmproxy-ca-cert.pem
@@ -214,7 +214,7 @@ Hoster/default proxy model:
   `curl`, `httpx`, and script traffic when no task-specific browser lane is
   needed. Ensure it is running with:
   ```bash
-  python3 "$HARNESS_ROOT/skills/chromium-test/scripts/hoster_mitm_lane.py" --json ensure-default
+  bbh skills/chromium-test/scripts/hoster_mitm_lane.py --json ensure-default
   ```
 - `http://hoster:8081` through `http://hoster:8090` are leased per-agent MITM
   lanes. Acquire a lease before starting a task-specific proxy and release it
@@ -225,14 +225,20 @@ Hoster/default proxy model:
 Lease-backed mitmproxy lane smoke:
 
 ```bash
-python3 "$HARNESS_ROOT/skills/chromium-test/scripts/hoster_mitm_lane.py" --json acquire-start \
+bbh skills/chromium-test/scripts/hoster_mitm_lane.py --json acquire-start \
   --agent-id <agent-id> \
   --run-id <run-id> \
   --program <program> \
   --task "<task>" \
   --account-label <account-label>
- # Provisioner implementation MITM smoke; agents use browser_provisioner.py.
-python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" <program> "<task>" \
+```
+
+> **Implementation-only smoke test — not an agent launch instruction.** This
+> directly invokes the provisioner's internal launcher only for provisioner
+> implementation tests. Task agents must use `browser_provisioner.py request`.
+>
+```bash
+bbh skills/chromium-test/scripts/chromium_test.py <program> "<task>" \
   --proxy-server http://hoster:<leased-port> \
   --ephemeral-profile \
   --run-id <run-id> \
@@ -240,7 +246,7 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" <program> 
   --account-label <account-label> \
   --proxy-cert-mode import \
   --mitm-ca-cert ~/.local/state/ghost/mitm-lanes/<lane>/mitmproxy/mitmproxy-ca-cert.pem
-python3 "$HARNESS_ROOT/skills/chromium-test/scripts/hoster_mitm_lane.py" --json index-stop-release \
+bbh skills/chromium-test/scripts/hoster_mitm_lane.py --json index-stop-release \
   --lane <lane> \
   --agent-id <agent-id> \
   --run-id <run-id> \
@@ -248,15 +254,15 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/hoster_mitm_lane.py" --json 
   --proxy-port <leased-port> \
   --transport browser
 ssh -i /home/ryushe/.ssh/hoster -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=no -T \
-  ryushe@hoster 'cd /home/ryushe/projects/bug_bounty_harness-stable && python3 skills/chromium-test/scripts/proxy_store.py query --program <program> --method POST'
-python3 "$HARNESS_ROOT/skills/chromium-test/scripts/proxy_store.py" export-request --id <request_id> --output /tmp/request-packet.json
-python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-profile --profile-dir <profile-dir> --json
+  ryushe@hoster 'bbh skills/chromium-test/scripts/proxy_store.py query --program <program> --method POST'
+bbh skills/chromium-test/scripts/proxy_store.py export-request --id <request_id> --output /tmp/request-packet.json
+bbh skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir <profile-dir> --json
 ```
 
 ## Required Preflight
 
 1. Read program scope/rules and the interpreted rate limit before live interaction.
-2. Read `$HARNESS_ROOT/prompts/chromium-test-playbook.md`.
+2. Read `prompts/chromium-test-playbook.md`.
 3. Check existing program context under `$HARNESS_SHARED_BASE/{normalized-program}/`.
 4. Resolve browser/account state from explicit task context or a locked-down auth seed file. Do not query external profile services during browser launch.
    - If `--auth-seed-file` is not provided, `--account <alias-or-color>` or
@@ -295,16 +301,16 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
 
 ## Canonical Files
 
-- Playbook: `$HARNESS_ROOT/prompts/chromium-test-playbook.md`
-- Launcher: `$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py`
-- Persistent profile lease/status: `$HARNESS_ROOT/skills/chromium-test/scripts/browser_profile_lease.py`
-- Script walkthrough: `$HARNESS_ROOT/skills/chromium-test/scripts/README.md`
+- Playbook: `prompts/chromium-test-playbook.md`
+- Launcher: `skills/chromium-test/scripts/chromium_test.py`
+- Persistent profile lease/status: `skills/chromium-test/scripts/browser_profile_lease.py`
+- Script walkthrough: `skills/chromium-test/scripts/README.md`
 - Profiles: `$HARNESS_SHARED_BASE/{program}/ghost/chromium-test/profiles/`
-- MITM profile helper: `$HARNESS_ROOT/skills/chromium-test/scripts/mitm_chromium_profile.py`
-- MITM lane helper: `$HARNESS_ROOT/skills/chromium-test/scripts/mitm_lane.py`
-- Hoster lane helper: `$HARNESS_ROOT/skills/chromium-test/scripts/hoster_mitm_lane.py`
-- Sanitized proxy store: `$HARNESS_ROOT/skills/chromium-test/scripts/proxy_store.py`
-- Dependency installer: `$HARNESS_ROOT/skills/chromium-test/scripts/install.sh`
+- MITM profile helper: `skills/chromium-test/scripts/mitm_chromium_profile.py`
+- MITM lane helper: `skills/chromium-test/scripts/mitm_lane.py`
+- Hoster lane helper: `skills/chromium-test/scripts/hoster_mitm_lane.py`
+- Sanitized proxy store: `skills/chromium-test/scripts/proxy_store.py`
+- Dependency installer: `skills/chromium-test/scripts/install.sh`
 - Notes/evidence: `$HARNESS_SHARED_BASE/{program}/ghost/chromium-test/`
 
 ## Workflow
@@ -323,7 +329,7 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
    declare a non-secret `--profile-health` for the next agent.
 1. Request the engagement browser through the provisioner:
    ```bash
-   python3 "$HARNESS_ROOT/skills/chromium-test/scripts/browser_provisioner.py" request \
+   bbh skills/chromium-test/scripts/browser_provisioner.py request \
      <program> <account> --agent-id <agent-id> --run-id <run-id> \
      --purpose "<task>" --url <url>
    ```
@@ -343,9 +349,9 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
    Index finished mitmproxy lanes into the proxy store with sanitized default
    query output and full local request-packet export for replay:
    ```bash
-   python3 "$HARNESS_ROOT/skills/chromium-test/scripts/mitm_lane.py" --lane <lane> index-store
-   python3 "$HARNESS_ROOT/skills/chromium-test/scripts/proxy_store.py" query --program <program> --method POST
-   python3 "$HARNESS_ROOT/skills/chromium-test/scripts/proxy_store.py" export-request --id <request_id> --output /tmp/request-packet.json
+   bbh skills/chromium-test/scripts/mitm_lane.py --lane <lane> index-store
+   bbh skills/chromium-test/scripts/proxy_store.py query --program <program> --method POST
+   bbh skills/chromium-test/scripts/proxy_store.py export-request --id <request_id> --output /tmp/request-packet.json
    ```
 6. If a replay is needed after capture, hand the sanitized request shape to direct HTTP replay through MITM first.
 7. Close and delete disposable browser profiles after the lane has been indexed

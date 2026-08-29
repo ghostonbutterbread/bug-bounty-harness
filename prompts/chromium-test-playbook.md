@@ -38,8 +38,8 @@ provisioner. This is not a CLI switch any agent may pass.
 ## Engagement Browser Admission Command Shape
 
 ```bash
-cd "$HARNESS_ROOT"
-python3 skills/chromium-test/scripts/browser_provisioner.py request \
+
+bbh skills/chromium-test/scripts/browser_provisioner.py request \
   <program> <account> --agent-id <agent-id> --run-id <run-id> \
   --purpose "pfp" --url https://target.example/
 ```
@@ -226,7 +226,7 @@ Hoster proxy model:
 - `hoster:8080` is the default capture proxy for generic direct HTTP traffic.
   Ensure it is running before default browser or curl replay work:
   ```bash
-  python3 skills/chromium-test/scripts/hoster_mitm_lane.py --json ensure-default
+  bbh skills/chromium-test/scripts/hoster_mitm_lane.py --json ensure-default
   ```
 - `hoster:8081-8090` are leased task-specific agent MITM lanes.
 - `proxy_leases` is active state only. Release the row after indexing/cleanup.
@@ -239,8 +239,8 @@ Hoster proxy model:
 Profile certificate bootstrap:
 
 ```bash
-bash skills/chromium-test/scripts/install.sh
-python3 skills/chromium-test/scripts/mitm_chromium_profile.py \
+bbh skills/chromium-test/scripts/install.sh
+bbh skills/chromium-test/scripts/mitm_chromium_profile.py \
   --profile-dir "$HARNESS_SHARED_BASE/<program>/ghost/chromium-test/profiles/<account>" \
   --home-dir "$HARNESS_SHARED_BASE/<program>/ghost/chromium-test/profiles/<account>/home" \
   --ca-cert ~/.mitmproxy/mitmproxy-ca-cert.pem
@@ -249,7 +249,7 @@ python3 skills/chromium-test/scripts/mitm_chromium_profile.py \
 For leased mitmproxy lane smoke tests, keep the proxy lifecycle script-owned:
 
 ```bash
-python3 skills/chromium-test/scripts/hoster_mitm_lane.py --json acquire-start \
+bbh skills/chromium-test/scripts/hoster_mitm_lane.py --json acquire-start \
   --agent-id "$AGENT_ID" \
   --run-id "$RUN_ID" \
   --program <program> \
@@ -258,7 +258,7 @@ python3 skills/chromium-test/scripts/hoster_mitm_lane.py --json acquire-start \
 # Provisioner implementation-level proxy-lane smoke. Agents must use the
 # provisioner command above; do not use this direct launcher to bypass queueing
 # or profile ownership.
-python3 skills/chromium-test/scripts/chromium_test.py <program> "<task>" \
+bbh skills/chromium-test/scripts/chromium_test.py <program> "<task>" \
   --proxy-server http://hoster:<leased-port> \
   --ephemeral-profile \
   --run-id "$RUN_ID" \
@@ -266,14 +266,14 @@ python3 skills/chromium-test/scripts/chromium_test.py <program> "<task>" \
   --account-label <account-label> \
   --proxy-cert-mode import \
   --mitm-ca-cert ~/.local/state/ghost/mitm-lanes/<lane>/mitmproxy/mitmproxy-ca-cert.pem
-python3 skills/chromium-test/scripts/hoster_mitm_lane.py --json index-stop-release \
+bbh skills/chromium-test/scripts/hoster_mitm_lane.py --json index-stop-release \
   --lane <lane> \
   --agent-id "$AGENT_ID" \
   --run-id "$RUN_ID" \
   --account-label <account-label> \
   --proxy-port <leased-port> \
   --transport browser
-python3 skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir <profile-dir> --json
+bbh skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir <profile-dir> --json
 ```
 
 The proxy store keeps two layers:

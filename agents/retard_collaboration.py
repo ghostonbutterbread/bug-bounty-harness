@@ -14,9 +14,9 @@ File-based comms via /tmp/collab_{program}_{date}/
 Output → ~/Shared/bounty_recon/{program}/ghost/collaboration/
 
 Usage:
-    python agents/retard_collaboration.py evernote --source ~/Shared/bounty_recon/evernote/0day_team/
-    python agents/retard_collaboration.py flourish --from-mapstore-gadgets --family web_bounty --lane web
-    python agents/retard_collaboration.py evernote --source ~/Shared/bounty_recon/evernote/0day_team/ --target ~/source/
+    bbh agents/retard_collaboration.py evernote --source ~/Shared/bounty_recon/evernote/0day_team/
+    bbh agents/retard_collaboration.py flourish --from-mapstore-gadgets --family web_bounty --lane web
+    bbh agents/retard_collaboration.py evernote --source ~/Shared/bounty_recon/evernote/0day_team/ --target ~/source/
 
 Workflow:
     zero_day_team/MapStore gadgets → retard_collaboration → chainer
@@ -32,10 +32,10 @@ import sys
 import time
 from datetime import date
 from pathlib import Path
+
 from typing import Optional
 
 # ── Logger ────────────────────────────────────────────────────────────────────
-sys.path.insert(0, str(Path.home() / "projects/bounty-tools"))
 try:
     from subagent_logger import SubagentLogger, compute_pte_lite
     _HAS_LOGGER = True
@@ -859,9 +859,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python agents/retard_collaboration.py evernote --source ~/Shared/bounty_recon/evernote/0day_team/
-  python agents/retard_collaboration.py flourish --from-mapstore-gadgets --family web_bounty --lane web
-  python agents/retard_collaboration.py evernote --source ~/Shared/bounty_recon/evernote/0day_team/ --target ~/source/
+  bbh agents/retard_collaboration.py evernote --source ~/Shared/bounty_recon/evernote/0day_team/
+  bbh agents/retard_collaboration.py flourish --from-mapstore-gadgets --family web_bounty --lane web
+  bbh agents/retard_collaboration.py evernote --source ~/Shared/bounty_recon/evernote/0day_team/ --target ~/source/
 
 Workflow: zero_day_team/MapStore gadgets -> retard_collaboration -> chainer
         """,
@@ -1135,7 +1135,7 @@ Workflow: zero_day_team/MapStore gadgets -> retard_collaboration -> chainer
         logger.result(f"Output: {output_path}")
         logger.finish(success=True, summary=f"Collaborative chains → {output_path}")
 
-    print(f"\n[*] Feed to chainer: python agents/chainer.py {program} --source {output_dir.parent}")
+    print(f"\n[*] Feed to chainer: bbh agents/chainer.py {program} --source {output_dir.parent}")
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ complete ceiling.
 ## Load Order
 
 1. Read scope, owned-account context, and active live-testing policy.
-2. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
+2. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
 3. After selecting a likely SQL-backed URL/parameter, read relevant shared
    state in this order when it helps understand the surface:
    - `notes/summary.md`
@@ -30,8 +30,8 @@ complete ceiling.
    - `injection-testing-policy`
 5. Read `references/common-locations.md` to decide where to hunt.
 6. After finding a likely SQL-backed surface, read `references/portswigger-lab-seeds.md` for PortSwigger Academy SQLi lane prompts and source links.
-7. Use `$HARNESS_ROOT/prompts/sqli-payloads.md` only after choosing a lane.
-8. Read `$HARNESS_ROOT/prompts/sqli-playbook.md` only for deep review, stuck
+7. Use `prompts/sqli-payloads.md` only after choosing a lane.
+8. Read `prompts/sqli-playbook.md` only for deep review, stuck
    analysis, or report writing.
 9. Route instead of duplicating:
    - encoding, parser, WAF, or filter mutations -> `/bypass` or `/waf`
@@ -61,7 +61,7 @@ have classified the sink.
 Use the mutator only after you know which lane you are in.
 
 ```bash
-python agents/payload_mutator.py "' OR 1=1--" --type sqli --count 12
+bbh agents/payload_mutator.py "' OR 1=1--" --type sqli --count 12
 ```
 
 ## Mode Matrix

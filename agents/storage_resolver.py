@@ -5,9 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agents.bounty_core_bootstrap import ensure_bounty_core_importable
 
-ensure_bounty_core_importable()
 
 from bounty_core.storage import (  # noqa: E402
     BINARIES_FAMILY,

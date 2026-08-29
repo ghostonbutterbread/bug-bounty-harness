@@ -13,7 +13,7 @@ Use this when testing avatar, profile-picture, profile-image, account-photo, ima
 
 ## Scheduler Method
 
-Before scout, load `$HARNESS_ROOT/prompts/pfp-context-pack.md`. It gives the branch map, local Obsidian note sources, and the rule for keeping PFP as a coordinator instead of a mega-agent.
+Before scout, load `prompts/pfp-context-pack.md`. It gives the branch map, local Obsidian note sources, and the rule for keeping PFP as a coordinator instead of a mega-agent.
 
 The full pipeline is:
 1. Preflight scope, owned-account policy, and ledger mode.
@@ -121,7 +121,7 @@ Start with owned callback/canary behavior. Mutation families:
 - header behavior
 - response reflection versus blind fetch
 
-Use `$HARNESS_ROOT/prompts/ssrf-playbook.md` and expand with `$HARNESS_ROOT/prompts/pfp-research-terms.md` only when the fetch path supports it.
+Use `prompts/ssrf-playbook.md` and expand with `prompts/pfp-research-terms.md` only when the fetch path supports it.
 
 ### XSS
 

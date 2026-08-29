@@ -14,10 +14,9 @@
 - **Walkthrough:**
 
   ```bash
-  KASM="$HARNESS_ROOT/skills/chromium-test/scripts/kasmvnc_session.py"
-  python3 "$KASM" start --display 20 --web-port 8463 --json
-  python3 "$KASM" status --display 20 --json
-  python3 "$KASM" stop --display 20 --json
+  bbh skills/chromium-test/scripts/kasmvnc_session.py start --display 20 --web-port 8463 --json
+  bbh skills/chromium-test/scripts/kasmvnc_session.py status --display 20 --json
+  bbh skills/chromium-test/scripts/kasmvnc_session.py stop --display 20 --json
   ```
 
   The browser provisioner owns the bug-bounty engagement browser start path. It
@@ -25,7 +24,7 @@
   profile leasing before it invokes the Chromium launcher:
 
   ```bash
-  python3 "$HARNESS_ROOT/skills/chromium-test/scripts/browser_provisioner.py" request \
+  bbh skills/chromium-test/scripts/browser_provisioner.py request \
     <program> <account> --agent-id <agent-id> --run-id <run-id> \
     --purpose "manual handoff" --url https://target.example/
   ```
@@ -59,35 +58,33 @@
 - **Walkthrough:**
 
   ```bash
-  LEASE="$HARNESS_ROOT/skills/chromium-test/scripts/browser_profile_lease.py"
-
   # Ask by global principal tier; owner roles map to admin. Anonymous has no
   # account or persistent browser profile and should use an ephemeral lane.
-  python3 "$LEASE" status <program> --tier admin
-  python3 "$LEASE" status <program> --tier anonymous
+  bbh skills/chromium-test/scripts/browser_profile_lease.py status <program> --tier admin
+  bbh skills/chromium-test/scripts/browser_profile_lease.py status <program> --tier anonymous
 
   # Ask first for a named profile. This reports role, program-specific org/plan
   # access, capabilities, lock state, and probes a registered local CDP endpoint.
-  python3 "$LEASE" status <program> --account green
+  bbh skills/chromium-test/scripts/browser_profile_lease.py status <program> --account green
 
   # Request exactly the selected account; the provisioner leases it and never
   # falls back to another color. It starts/reuses only the matching owned run.
-  python3 "$HARNESS_ROOT/skills/chromium-test/scripts/browser_provisioner.py" request \
+  bbh skills/chromium-test/scripts/browser_provisioner.py request \
     <program> green --agent-id <agent-id> --run-id <run-id> \
     --purpose "owned IDOR comparison"
 
   # Once the recorded browser is ready on the profile host, bind its loopback CDP.
-  python3 "$LEASE" register-browser \
+  bbh skills/chromium-test/scripts/browser_profile_lease.py register-browser \
     --lease-id <lease-id> --agent-id <agent-id> \
     --cdp-url http://127.0.0.1:<port> --service-unit <unit>
 
   # A question/blocker is not terminal: retain and renew the lease instead.
-  python3 "$LEASE" renew --lease-id <lease-id> --agent-id <agent-id> \
+  bbh skills/chromium-test/scripts/browser_profile_lease.py renew --lease-id <lease-id> --agent-id <agent-id> \
     --work-state awaiting-input
 
   # Release only after a terminal outcome, recording whether the next agent may
   # safely reuse the persistent profile.
-  python3 "$LEASE" release --lease-id <lease-id> --agent-id <agent-id> \
+  bbh skills/chromium-test/scripts/browser_profile_lease.py release --lease-id <lease-id> --agent-id <agent-id> \
     --disposition completed --profile-health healthy
   ```
 

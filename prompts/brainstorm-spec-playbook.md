@@ -128,7 +128,6 @@ When using `--summarize-gaps`, read both:
 Use the parser summary API so statuses and outcomes match team runtime semantics:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 SPEC_PATH="/home/ryushe/Shared/binaries/canva/exe/brainstorm/spec.md" \
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
 python3 - <<'PY'
@@ -161,7 +160,6 @@ JSONL coverage is authoritative for execution history. The markdown coverage tab
 Use the parser for lightweight validation when Python dependencies are available:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 SPEC_PATH="PATH_TO_BRAINSTORM_SPEC" \
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
 python3 - <<'PY'
@@ -182,18 +180,16 @@ Brainstorm-spec work stops at the durable artifact and gap summary. Team runtime
 Example handoff:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/zero_day_team.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
+  bbh agents/zero_day_team.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_asar \
   --brainstorm-spec /home/ryushe/Shared/binaries/canva/exe/brainstorm/spec.md
 ```
 
 Focused run:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 agents/zero_day_team.py canva /path/to/target \
+  bbh agents/zero_day_team.py canva /path/to/target \
   --brainstorm-spec /path/to/brainstorm/spec.md \
   --brainstorm-only \
   --brainstorm-hypothesis H001

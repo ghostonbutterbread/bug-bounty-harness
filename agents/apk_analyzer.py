@@ -11,6 +11,7 @@ import re
 import sys
 import time
 from pathlib import Path
+
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from typing import Optional
@@ -25,7 +26,6 @@ else:
     sys.path.insert(0, _PROJECT_ROOT.as_posix())
 
 try:
-    sys.path.insert(0, str(Path.home() / "projects" / "bounty-tools"))
     from subagent_logger import SubagentLogger, compute_pte_lite
 except ImportError:
     SubagentLogger = None

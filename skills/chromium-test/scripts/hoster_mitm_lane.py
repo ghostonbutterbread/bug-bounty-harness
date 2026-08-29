@@ -14,7 +14,6 @@ from typing import Any
 DEFAULT_HOST = "hoster"
 DEFAULT_USER = "ryushe"
 DEFAULT_KEY = Path("/home/ryushe/.ssh/hoster")
-DEFAULT_REMOTE_ROOT = Path("/home/ryushe/projects/bug_bounty_harness")
 DEFAULT_LOCAL_LANE_ROOT = Path("~/.local/state/ghost/mitm-lanes").expanduser()
 DEFAULT_PROXY_HOST = "hoster"
 DEFAULT_GENERAL_LANE = "hoster-default-8080"
@@ -40,8 +39,8 @@ def ssh_base(args: argparse.Namespace) -> list[str]:
 
 
 def remote_command(args: argparse.Namespace, argv: list[str]) -> str:
-    quoted = " ".join(shlex.quote(part) for part in argv)
-    return f"cd {shlex.quote(str(args.remote_root))} && {quoted}"
+    """Run the lane-installed dispatcher; remote source roots are never guessed."""
+    return " ".join(shlex.quote(part) for part in argv)
 
 
 def run_remote(args: argparse.Namespace, argv: list[str]) -> dict[str, Any]:
@@ -118,7 +117,7 @@ def acquire_start(args: argparse.Namespace) -> dict[str, Any]:
     lease = run_remote(
         args,
         [
-            "python3",
+            "bbh",
             "skills/chromium-test/scripts/proxy_store.py",
             "--json",
             "lease-acquire",
@@ -150,7 +149,7 @@ def acquire_start(args: argparse.Namespace) -> dict[str, Any]:
     start = run_remote(
         args,
         [
-            "python3",
+            "bbh",
             "skills/chromium-test/scripts/mitm_lane.py",
             "--json",
             "--lane",
@@ -179,7 +178,7 @@ def acquire_start(args: argparse.Namespace) -> dict[str, Any]:
         run_remote(
             args,
             [
-                "python3",
+                "bbh",
                 "skills/chromium-test/scripts/proxy_store.py",
                 "--json",
                 "lease-release",
@@ -202,7 +201,7 @@ def index_stop_release(args: argparse.Namespace) -> dict[str, Any]:
     stop = run_remote(
         args,
         [
-            "python3",
+            "bbh",
             "skills/chromium-test/scripts/mitm_lane.py",
             "--json",
             "--lane",
@@ -213,7 +212,7 @@ def index_stop_release(args: argparse.Namespace) -> dict[str, Any]:
     index = run_remote(
         args,
         [
-            "python3",
+            "bbh",
             "skills/chromium-test/scripts/mitm_lane.py",
             "--json",
             "--lane",
@@ -238,7 +237,7 @@ def index_stop_release(args: argparse.Namespace) -> dict[str, Any]:
     release = run_remote(
         args,
         [
-            "python3",
+            "bbh",
             "skills/chromium-test/scripts/proxy_store.py",
             "--json",
             "lease-release",
@@ -254,7 +253,7 @@ def ensure_default(args: argparse.Namespace) -> dict[str, Any]:
     status = run_remote(
         args,
         [
-            "python3",
+            "bbh",
             "skills/chromium-test/scripts/mitm_lane.py",
             "--json",
             "--lane",
@@ -277,7 +276,7 @@ def ensure_default(args: argparse.Namespace) -> dict[str, Any]:
     start = run_remote(
         args,
         [
-            "python3",
+            "bbh",
             "skills/chromium-test/scripts/mitm_lane.py",
             "--json",
             "--lane",
@@ -327,7 +326,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ssh-host", default=DEFAULT_HOST)
     parser.add_argument("--ssh-user", default=DEFAULT_USER)
     parser.add_argument("--ssh-key", default=str(DEFAULT_KEY))
-    parser.add_argument("--remote-root", default=str(DEFAULT_REMOTE_ROOT))
     parser.add_argument("--local-lane-root", default=str(DEFAULT_LOCAL_LANE_ROOT))
     parser.add_argument("--connect-timeout", type=int, default=10)
     parser.add_argument("--timeout", type=int, default=30)

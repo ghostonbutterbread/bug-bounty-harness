@@ -20,7 +20,7 @@ Core posture: answer the security question through the cheapest non-charging rou
 Load when the cart, invoice, trial, coupon, credit, or gift-card flow can legitimately reach total `$0`.
 
 Reference:
-- `$HARNESS_ROOT/skills/payment-testing/references/technique-packs/zero-dollar.md`
+- `skills/payment-testing/references/technique-packs/zero-dollar.md`
 
 Look for:
 - server recomputation of total
@@ -33,7 +33,7 @@ Look for:
 Load when request fields appear to carry payment or entitlement truth.
 
 Reference:
-- `$HARNESS_ROOT/skills/payment-testing/references/technique-packs/client-trust.md`
+- `skills/payment-testing/references/technique-packs/client-trust.md`
 
 Look for fields like:
 - `paid`, `success`, `status`, `paymentStatus`, `isPaid`
@@ -46,7 +46,7 @@ Look for fields like:
 Load when discounts, credits, balance, points, gift cards, store credit, wallet value, or promo codes affect checkout.
 
 Reference:
-- `$HARNESS_ROOT/skills/payment-testing/references/technique-packs/coupons-credits-gift-cards.md`
+- `skills/payment-testing/references/technique-packs/coupons-credits-gift-cards.md`
 
 Look for:
 - single-use redemption
@@ -60,7 +60,7 @@ Look for:
 Load when checkout changes access to plans, features, trials, workspaces, seats, renewals, or license state.
 
 Reference:
-- `$HARNESS_ROOT/skills/payment-testing/references/technique-packs/subscription-entitlements.md`
+- `skills/payment-testing/references/technique-packs/subscription-entitlements.md`
 
 Look for:
 - feature access before payment completion
@@ -73,7 +73,7 @@ Look for:
 Load when hosted checkout, card validation, setup intents, payment intents, return URLs, callbacks, or decline flows are visible.
 
 Reference:
-- `$HARNESS_ROOT/skills/payment-testing/references/technique-packs/processor-boundary.md`
+- `skills/payment-testing/references/technique-packs/processor-boundary.md`
 
 Look for:
 - app trusting return URL parameters
@@ -86,7 +86,7 @@ Look for:
 Load when refunds, cancellations, invoices, receipts, credits, taxes, shipping, fulfillment, downloads, or order state are visible.
 
 Reference:
-- `$HARNESS_ROOT/skills/payment-testing/references/technique-packs/refunds-invoices.md`
+- `skills/payment-testing/references/technique-packs/refunds-invoices.md`
 
 Look for:
 - refund without ownership or payment
@@ -99,7 +99,7 @@ Look for:
 Load when duplicate submit, concurrent redeem, finalize, cancellation, refund, or entitlement transition could change value.
 
 Reference:
-- `$HARNESS_ROOT/skills/payment-testing/references/technique-packs/race-state.md`
+- `skills/payment-testing/references/technique-packs/race-state.md`
 
 Look for:
 - coupon/gift-card double spend

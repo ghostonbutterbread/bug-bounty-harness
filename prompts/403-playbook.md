@@ -22,7 +22,7 @@ Use this after `/403` classifies the lane or when writing a report.
 ## Primary Harness
 
 ```bash
-python agents/bypass_harness.py --target https://target.example/admin \
+bbh agents/bypass_harness.py --target https://target.example/admin \
   --type 403 --program target --concurrency 5 --rps 1
 ```
 

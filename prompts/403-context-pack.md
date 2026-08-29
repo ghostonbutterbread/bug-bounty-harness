@@ -16,14 +16,14 @@ Use this as the compact branch map for `/403`.
 Load when the protected route may be inconsistently normalized by proxy, CDN, framework, or application router.
 
 Reference:
-- `$HARNESS_ROOT/skills/403/references/technique-packs/path-normalization.md`
+- `skills/403/references/technique-packs/path-normalization.md`
 
 ### Trusted Headers
 
 Load when reverse-proxy, route rewrite, method override, or client-IP headers may affect route authorization.
 
 Reference:
-- `$HARNESS_ROOT/skills/403/references/technique-packs/trusted-headers.md`
+- `skills/403/references/technique-packs/trusted-headers.md`
 
 Related skill:
 - `/headers`
@@ -33,7 +33,7 @@ Related skill:
 Load when the same endpoint behaves differently across unauthenticated, intended-role, and approved alternate test-account sessions.
 
 Reference:
-- `$HARNESS_ROOT/skills/403/references/technique-packs/auth-state.md`
+- `skills/403/references/technique-packs/auth-state.md`
 
 Related skills:
 - `/access-control`

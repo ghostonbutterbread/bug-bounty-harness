@@ -15,9 +15,6 @@ _AGENT_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _AGENT_DIR.parent
 if _PROJECT_ROOT.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
     sys.path.insert(0, _PROJECT_ROOT.as_posix())
-_BOUNTY_TOOLS_ROOT = Path.home() / "projects" / "bounty-tools"
-if _BOUNTY_TOOLS_ROOT.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
-    sys.path.insert(0, _BOUNTY_TOOLS_ROOT.as_posix())
 
 from agents.dynamic_agent_builder import AgentSpec
 from agents.shared_brain import RepoIndex, build_index

@@ -26,9 +26,9 @@ Last reviewed: 2026-06-17
 - Claimed by: Ghost / Codex
 - Claimed at: 2026-06-17
 - Files/areas expected to change:
-  - `/home/ryushe/projects/bug_bounty_harness/skills/xss/scripts/`
-  - `/home/ryushe/projects/bug_bounty_harness/skills/xss/SKILL.md`
-  - `/home/ryushe/projects/bug_bounty_harness/skills/xss/references/`
+  - `skills/xss/scripts/`
+  - `skills/xss/SKILL.md`
+  - `skills/xss/references/`
   - Bug Bounty Harness XSS/JS/proxy helpers if implementation needs shared code
 - Conflicts with:
   - none known

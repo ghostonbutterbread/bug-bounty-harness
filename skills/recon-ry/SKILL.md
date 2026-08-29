@@ -11,7 +11,7 @@ This skill is a long-running recon wrapper and directory map. Start scans and re
 
 ## Load Order
 
-1. Read `$HARNESS_ROOT/prompts/recon-ry-playbook.md`.
+1. Read `prompts/recon-ry-playbook.md`.
 2. Confirm target scope/rate policy from program notes or `/pullscope` artifacts.
 3. Use Hoster via `ryushe@hoster` and `/home/ryushe/.ssh/hoster`.
 4. Use `agents/recon_ry.py` for start/status/ingest actions.
@@ -22,7 +22,7 @@ This skill is a long-running recon wrapper and directory map. Start scans and re
 Start a remote run and return immediately:
 
 ```bash
-python3 agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
+bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
 ```
 
 The start command fails closed if saved scope is missing or the URL is out of scope. It also writes a project-local `rate_limit.conf` before launch. Use `--rate-limit-rps` only after checking the program policy; use `--allow-unscoped` only after explicit Ryushe approval.
@@ -30,7 +30,7 @@ The start command fails closed if saved scope is missing or the URL is out of sc
 Authenticated runs are opt-in:
 
 ```bash
-python3 agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile urls --auth blue
+bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile urls --auth blue
 ```
 
 `--auth <alias-or-color>` resolves through `/account-management` and PwnFox
@@ -50,13 +50,13 @@ receives wildcard base domains with `*.` removed.
 Check remote status/log names:
 
 ```bash
-python3 agents/recon_ry.py status
+bbh agents/recon_ry.py status
 ```
 
 Ingest a completed Hoster project:
 
 ```bash
-python3 agents/recon_ry.py ingest <program> \
+bbh agents/recon_ry.py ingest <program> \
   --source ryushe@hoster:/home/ryushe/bounties/<program> \
   --target <target-host>
 ```

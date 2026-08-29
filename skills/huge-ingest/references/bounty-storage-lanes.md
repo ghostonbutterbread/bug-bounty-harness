@@ -2,7 +2,7 @@
 
 Status: deprecated
 Owner: BBH
-Canonical path: `$HARNESS_ROOT/skills/huge-ingest/references/bounty-storage-lanes.md`
+Canonical path: `skills/huge-ingest/references/bounty-storage-lanes.md`
 Last reviewed: 2026-06-22
 
 > Deprecated: This file is retained only as a redirect stub.

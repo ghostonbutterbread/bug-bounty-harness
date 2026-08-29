@@ -121,6 +121,11 @@ sync_skill() {
                 echo "  - $skill (already linked)"
                 return 0
             fi
+            # This directory is BBH-managed because its name comes from the
+            # canonical source inventory. Replace only that entry so removed
+            # packaged files cannot linger, while unrelated provider skills stay
+            # untouched.
+            rm -rf "$dest_dir/$skill"
             mkdir -p "$dest_dir/$skill"
             cp -a "$src_dir/." "$dest_dir/$skill/"
             echo "  ✓ $skill"
@@ -206,17 +211,8 @@ main() {
     echo "OS detected: $OS"
     echo "HARNESS_ROOT: $HARNESS_ROOT"
     echo ""
-    # Auto-pull latest changes from git unless this is a dry run.
-    if [ "$DRY_RUN" = true ]; then
-        echo "Dry run: skipping git pull"
-    else
-        echo "Pulling latest changes from origin..."
-        if git pull --ff-only 2>/dev/null; then
-            echo "  ✓ Updated from origin/master"
-        else
-            echo "  - Up to date or local changes (git pull skipped)"
-        fi
-    fi
+    # The owning setup entry point refreshes this checkout before installing
+    # dependencies. Sync only projects the current physical checkout.
     echo ""
 
     # Skills source directory

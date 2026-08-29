@@ -97,9 +97,9 @@ Use for {surface names, feature names, and common synonyms}.
 ## Required Preflight
 
 1. Read program scope, owned-account context, and active live-testing policy.
-2. Read `$HARNESS_ROOT/prompts/{skill}-playbook.md`.
-3. Read `$HARNESS_ROOT/prompts/{skill}-context-pack.md` for branch routing.
-4. Use `$HARNESS_ROOT/prompts/{skill}-research-terms.md` only when a branch needs expansion.
+2. Read `prompts/{skill}-playbook.md`.
+3. Read `prompts/{skill}-context-pack.md` for branch routing.
+4. Use `prompts/{skill}-research-terms.md` only when a branch needs expansion.
 5. Decide ledger mode:
    - default: use harness ledger adapter for prior context, durable findings, and coverage
    - `--no-ledger`: do not read prior findings or write durable ledger/coverage state
@@ -180,7 +180,7 @@ Look at:
 - {classifier}
 
 Route to:
-- `$HARNESS_ROOT/prompts/{child}-playbook.md`
+- `prompts/{child}-playbook.md`
 
 ## Handoff Card
 
@@ -247,7 +247,7 @@ Minimum scout:
 - {safe classifier}
 
 Route to:
-- `$HARNESS_ROOT/prompts/{child}-playbook.md`
+- `prompts/{child}-playbook.md`
 
 ## Handoff Discipline
 

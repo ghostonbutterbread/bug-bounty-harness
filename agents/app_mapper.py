@@ -3184,7 +3184,7 @@ def plan_promoted_handoff_command(
                 target_path = str(manifest["target_path"])
 
     command = [
-        "python3",
+        "bbh",
         "agents/zero_day_team.py",
         program,
         target_path,
@@ -4560,7 +4560,7 @@ def _summary_handoff_command(
     policy_config: str | Path | None = None,
 ) -> str:
     command = [
-        "python3",
+        "bbh",
         "agents/zero_day_team.py",
         sanitize_key(result.profile.program),
         result.profile.target_path,

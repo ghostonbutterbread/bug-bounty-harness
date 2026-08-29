@@ -10,7 +10,7 @@ Actual decision logic in _normalize_claude_review (agents/zero_day_team.py ~L102
     else:
         tier = "DORMANT_HYPOTHETICAL"
 
-Run: python3 agents/test_dormant_split.py
+Run: bbh agents/test_dormant_split.py
 """
 
 from __future__ import annotations

@@ -682,7 +682,7 @@ target probing.
 5. Validate locally:
 
 ```bash
-python3 agents/appmap_research_librarian.py validate {shlex.quote(manifest["paths"]["root"])}
+bbh agents/appmap_research_librarian.py validate {shlex.quote(manifest["paths"]["root"])}
 ```
 
 ## JSONL Candidate Example
@@ -696,13 +696,13 @@ python3 agents/appmap_research_librarian.py validate {shlex.quote(manifest["path
 Default local seed mode:
 
 ```bash
-python3 agents/app_mapper.py {shlex.quote(manifest["program"])} <target_path> --target-kind {shlex.quote(manifest["target_kind"])} --focus {shlex.quote(manifest["focus"])} --research-mode local --research-seed {shlex.quote(seed_path)}
+bbh agents/app_mapper.py {shlex.quote(manifest["program"])} <target_path> --target-kind {shlex.quote(manifest["target_kind"])} --focus {shlex.quote(manifest["focus"])} --research-mode local --research-seed {shlex.quote(seed_path)}
 ```
 
 Explicit validated web-source mode:
 
 ```bash
-python3 agents/appmap_research_librarian.py plan-appmap {shlex.quote(manifest["paths"]["root"])} <target_path> --use-web-sources
+bbh agents/appmap_research_librarian.py plan-appmap {shlex.quote(manifest["paths"]["root"])} <target_path> --use-web-sources
 ```
 """
 

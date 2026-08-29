@@ -26,14 +26,14 @@ Examples:
 
 Read the playbook first:
 
-1. `$HARNESS_ROOT/prompts/appmap-research-librarian-playbook.md`
-2. `$HARNESS_ROOT/prompts/appmap-playbook.md` when planning AppMap ingest
+1. `prompts/appmap-research-librarian-playbook.md`
+2. `prompts/appmap-playbook.md` when planning AppMap ingest
 3. Existing target lane notes if a family/lane is obvious
 
 ## Canonical Files
 
-- **Wrapper:** `$HARNESS_ROOT/agents/appmap_research_librarian.py`
-- **Playbook:** `$HARNESS_ROOT/prompts/appmap-research-librarian-playbook.md`
+- **Wrapper:** `agents/appmap_research_librarian.py`
+- **Playbook:** `prompts/appmap-research-librarian-playbook.md`
 - **Default campaigns:** `~/Shared/appmap/{program}/research-librarian/{run_id}/`
 - **Scout brief:** `{campaign}/scout_brief.md`
 - **Validator brief:** `{campaign}/validator_brief.md`

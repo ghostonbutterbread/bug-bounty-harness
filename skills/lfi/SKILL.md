@@ -20,7 +20,7 @@ encoding, parser differences, and stack-specific proof ladders.
 ```
 
 ## Harness Location
-Uses `/bypass` harness: `~/projects/bug_bounty_harness/agents/bypass_harness.py`
+Uses `/bypass` harness: `agents/bypass_harness.py`
 
 ## Example
 ```

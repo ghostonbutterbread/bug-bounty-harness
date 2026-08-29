@@ -19,13 +19,10 @@ class PortableShellLauncherTests(unittest.TestCase):
         self.assertNotIn("~/projects/bug_bounty_harness", text)
         subprocess.run(["bash", "-n", str(path)], check=True)
 
-    def test_legacy_skill_sync_uses_its_own_checkout_without_pulling_stable(self) -> None:
-        path = ROOT / "sync_ghost.sh"
-        text = path.read_text(encoding="utf-8")
-        self.assertIn("BASH_SOURCE", text)
-        self.assertNotIn("${HOME}/projects/bug_bounty_harness", text)
-        self.assertNotIn("git pull --ff-only origin master", text)
-        subprocess.run(["bash", "-n", str(path)], check=True)
+    def test_legacy_provider_skill_copiers_are_removed(self) -> None:
+        self.assertFalse((ROOT / "sync_skills.sh").exists())
+        self.assertFalse((ROOT / "sync_ghost.sh").exists())
+        self.assertNotIn("--sync", (ROOT / "setup.sh").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

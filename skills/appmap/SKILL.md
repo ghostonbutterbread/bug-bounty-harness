@@ -201,5 +201,5 @@ The planned command must use `bbh agents/zero_day_team.py <program> <target_path
 
 ```bash
 python3 -m pytest agents/test_app_mapper.py -q
-bbh sync_skills.sh --dry-run
+aiskillsync sync --profile security --dry-run
 ```

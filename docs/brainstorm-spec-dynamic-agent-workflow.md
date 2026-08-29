@@ -417,7 +417,7 @@ prompts/brainstorm-spec-playbook.md
 ```
 
 - Update `SKILL_REGISTRY.md` so provider sync targets are explicit.
-- Let `./setup.sh --sync` or `./sync_skills.sh` publish from `skills/brainstorm-spec/` to Claude Code, Codex, and Ghost/OpenClaw provider directories.
+- Let Aiskillsync project `skills/brainstorm-spec/` to the selected provider profile; BBH does not copy provider skill trees.
 
 ### Phase 5 — migrate to `bounty_core`
 

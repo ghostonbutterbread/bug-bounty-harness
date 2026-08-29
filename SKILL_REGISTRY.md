@@ -17,9 +17,7 @@ Skills use paths from `config.env` or environment variables.
 | `HARNESS_ROOT` | Compatibility setting; setup always derives the BBH repository root from its own location | Auto-detected |
 | `HARNESS_SHARED_BASE` | Base for bounty recon data | `~/Shared/web_bounty` |
 | `HARNESS_WORDLISTS` | Wordlists directory | `~/wordlists` |
-| `CLAUDE_SKILLS_DIR` | Claude Code skills directory | `~/.claude/skills` |
-| `CODEX_SKILLS_DIR` | Codex skills directory | `~/.agents/skills` |
-| `GHOST_SKILLS_DIR` | Ghost/OpenClaw workspace skills directory | `~/.openclaw/workspace/skills` |
+
 | `KAIDO_MCP_PROXY_URL` | Caido MCP proxy URL for traffic capture and replay | `http://127.0.0.1:3333/mcp` |
 
 ### Config File
@@ -33,9 +31,7 @@ Edit `config.env` in the repo root:
 ```bash
 HARNESS_SHARED_BASE="${HOME}/Shared/web_bounty"
 HARNESS_ROOT="${HOME}/projects/bug_bounty_harness"
-CLAUDE_SKILLS_DIR="${HOME}/.claude/skills"
-CODEX_SKILLS_DIR="${HOME}/.agents/skills"
-GHOST_SKILLS_DIR="${HOME}/.openclaw/workspace/skills"
+
 KAIDO_MCP_PROXY_URL="http://127.0.0.1:3333/mcp"
 ```
 
@@ -45,14 +41,14 @@ KAIDO_MCP_PROXY_URL="http://127.0.0.1:3333/mcp"
 # First time setup
 ./setup.sh --init
 
-# Sync skills after updating
-./setup.sh --sync
+# Project skills through the configured profile
+aiskillsync sync --profile security
 
 # Show current config
 ./setup.sh --config
 
 # Override with env vars
-HARNESS_ROOT=/custom/path ./setup.sh --sync
+HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 ```
 
 ---
@@ -247,15 +243,12 @@ spawn_codex(
 
 ---
 
-## Provider Skill Locations
+## Provider Skill Projection
 
-| Provider | Directory |
-|----------|-----------|
-| Claude Code | `~/.claude/skills/` (or `$CLAUDE_SKILLS_DIR`) |
-| Codex | `~/.agents/skills/` (or `$CODEX_SKILLS_DIR`) |
-| Ghost/OpenClaw | `~/.openclaw/workspace/skills/` (or `$GHOST_SKILLS_DIR`) |
-
-Sync with: `./sync_skills.sh` or `./setup.sh --sync`; both publish from canonical source `skills/{name}/` to all provider targets by default.
+Canonical BBH skills live only under `skills/{name}/`. Aiskillsync owns the
+provider/profile projection and links each configured destination to the selected
+lane source. Run `aiskillsync sync --profile security --dry-run` before applying
+`aiskillsync sync --profile security`; BBH does not copy provider directories.
 
 ---
 
@@ -296,13 +289,12 @@ Per-program knowledge file:
 ```
 bug_bounty_harness/
 ├── config.env              # Config (edit for your paths)
-├── setup.sh               # Setup script (--init, --sync, --config)
-├── sync_skills.sh         # Sync skills to providers
+├── setup.sh               # Setup script (--init, --config)
 ├── prompts/               # Playbooks
 │   ├── xss-playbook.md
 │   └── ...
 ├── agents/live_map.py     # Runtime/browser/proxy application map writer
-├── skills/                # Canonical skill source; sync to external provider roots
+├── skills/                # Canonical skill source; Aiskillsync projects external links
 │   ├── xss/SKILL.md
 │   └── ...
 └── SKILL_REGISTRY.md      # This file

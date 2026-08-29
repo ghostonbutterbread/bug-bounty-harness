@@ -420,6 +420,8 @@ def queue_remote(args: argparse.Namespace) -> None:
         "  cp \"$queue_root/rate_limit.conf\" \"$project/rate_limit.conf\"\n"
         "  item_log=\"$HOME/recon-ry-logs/queue-$(date -u +%Y%m%dT%H%M%SZ)-$target_host.log\"\n"
         f"  {auth_env}\"$HOME/bin/recon-ry\" recon {profile_flag} --project \"$project\" --url \"$target_url\"{auth_arg} -v > \"$item_log\" 2>&1\n"
+        "  echo '[*] recon complete; aggregating run into Recon Bus' >> \"$item_log\"\n"
+        f"  bbh scripts/recon_bus.py promote-run {shell_quote(args.program)} --run-root \"$project\" --no-probe >> \"$item_log\" 2>&1\n"
         "  printf 'completed target=%s log=%s\\n' \"$target_url\" \"$item_log\"\n"
         "done < \"$queue_file\"\n"
     )
@@ -432,6 +434,7 @@ def queue_remote(args: argparse.Namespace) -> None:
         f"{auth_file_cmds}"
         f"cat > {shell_quote(queue_root + '/rate_limit.conf')} <<'RECONRY_RATE_LIMIT'\n{rate_conf}RECONRY_RATE_LIMIT\n"
         f"master_log=\"$HOME/recon-ry-logs/{safe_slug(args.program)}-exact-url-queue-$(date -u +%Y%m%dT%H%M%SZ).log\"; "
+        "bbh --root; bbh --print-command scripts/recon_bus.py; "
         f"nohup bash -c {shell_quote(worker)} > \"$master_log\" 2>&1 & "
         "printf 'pid=%s\\nlog=%s\\nqueue=%s\\ntargets=%s\\nauth=%s\\n' \"$!\" \"$master_log\" "
         f"{shell_quote(queue_root)} {shell_quote(str(len(targets)))} {shell_quote(str(auth_summary.get('status', 'disabled')))}"

@@ -227,7 +227,12 @@ def test_queue_dry_run_uses_one_exact_url_at_a_time(tmp_path: Path, capsys) -> N
     assert "queue_urls.txt" in output
     assert "timeout=0" in output
     assert "--exact-urls" in output
-    assert "promote-run" not in output
+    assert "bbh --root" in output
+    assert "bbh --print-command scripts/recon_bus.py" in output
+    assert "bbh scripts/recon_bus.py" in output
+    assert "promote-run" in output
+    assert "/home/ryushe/projects/bug_bounty_harness/scripts/recon_bus.py" not in output
+    assert output.index("bbh --root") < output.index("nohup")
     assert "one.example.com" in output
     assert "two.example.com" in output
     assert "while IFS= read -r target_url" in output

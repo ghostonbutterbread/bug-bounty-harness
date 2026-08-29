@@ -22,6 +22,7 @@ FIXED_REMOTE_CHECKOUT = re.compile(r"(?:cd|python(?:3)?)\s+/home/ryushe/projects
 STALE_CHECKOUT_GUIDANCE = re.compile(r"the (?:active|selected) BBH checkout")
 HOST_SPECIFIC_WORKSPACE = re.compile(r"/home/ryushe/\.(?:openclaw|claude)/workspace")
 DISPATCHER_BYPASS = re.compile(r"PYTHONPATH=.*(?:bounty-core|\$PWD)")
+ABSOLUTE_HARNESS_GUIDANCE = re.compile(r"absolute .*?(?:manual_hunter|me_ledger|agents/)")
 
 
 class SkillCommandLaneSafetyTests(unittest.TestCase):
@@ -37,7 +38,12 @@ class SkillCommandLaneSafetyTests(unittest.TestCase):
         violations: list[str] = []
         for path in ROOT.glob("skills/**/SKILL.md"):
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-                if STALE_CHECKOUT_GUIDANCE.search(line) or HOST_SPECIFIC_WORKSPACE.search(line) or DISPATCHER_BYPASS.search(line):
+                if (
+                    STALE_CHECKOUT_GUIDANCE.search(line)
+                    or HOST_SPECIFIC_WORKSPACE.search(line)
+                    or DISPATCHER_BYPASS.search(line)
+                    or ABSOLUTE_HARNESS_GUIDANCE.search(line)
+                ):
                     violations.append(f"{path.relative_to(ROOT)}:{number}: {line.strip()}")
         self.assertEqual(violations, [], "\n".join(violations))
 

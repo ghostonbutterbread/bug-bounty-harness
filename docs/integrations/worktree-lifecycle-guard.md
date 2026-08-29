@@ -5,9 +5,9 @@ branch: feat/worktree-lifecycle-guard
 worktree: /home/ryushe/worktrees/bbh-worktree-lifecycle-guard
 base: ac13c67bc96234ca5791399eb7b3dbf888fc6c7b
 target: beta
-status: active
+status: review-ready
 opened_at: 2026-08-28T19:00:00Z
-checkpoint: 35d2e063978038e51e2307b98dbd24443c0e6fe3
+checkpoint: 646fd07
 ---
 
 # Worktree lifecycle guard
@@ -22,4 +22,13 @@ Prevent unmerged, forgotten BBH worktrees by making the existing branch-local in
 - The repository-local pre-push hook invokes branch-scoped strict audit.
 
 ## Evidence and resume
-Initial checkpoint commits this dossier. Implementation and tests will follow in this worktree; beta activation is deferred until focused tests and hook/setup checks pass.
+
+Verified from this worktree with the checkout runtime:
+
+```text
+15 tests passed: tests.test_worktree_lifecycle + tests.test_bbh_launcher
+bash -n setup.sh
+python3 scripts/worktree_lifecycle.py audit --strict --branch feat/worktree-lifecycle-guard
+```
+
+The AGENTS.md operational wording update was not applied because the protected-instruction-file approval did not arrive; the executable guard, hook, setup installation, and branch-local dossier are the implemented enforcement boundary.

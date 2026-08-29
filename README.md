@@ -24,6 +24,25 @@ Repository-owned tools invoked from skills use
 `bbh <repository-relative-script-path> ...`; see
 [docs/bbh-launcher.md](docs/bbh-launcher.md).
 
+### Program initialization
+
+Before an agent starts a new or stale program, pull scope and initialize the
+canonical Shared and mounted-artifact lanes:
+
+```bash
+bbh scripts/program_init.py example --platform bugcrowd --lane web
+
+# Add APK storage when the program has a mobile surface.
+bbh scripts/program_init.py example --platform bugcrowd --lane web --lane apk
+
+# Use only when scope must be imported manually; the manifest records this state.
+bbh scripts/program_init.py example --skip-scope
+```
+
+The command is idempotent and never deletes existing program state. It creates
+the Bounty Core Shared layout, recon seeds from pulled scope, and a non-secret
+`/mnt/bounty/<program>/` artifact library. Use `--dry-run` to preview paths.
+
 ---
 
 ## ResearchMap

@@ -28,7 +28,11 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
    it accepts a host, domain, or URL and stores non-matching extracted URLs as
    external context instead of test targets.
 3. Use `agents/js_analyzer.py inventory` to download, hash, dedupe, cheaply
-   parse, and chunk JavaScript into agent packets.
+   parse, and chunk JavaScript into agent packets. For every in-scope bundle
+   with a `sourceMappingURL`, it also retrieves a bounded source map, inventories
+   all original module names, and creates module-level packets from embedded
+   source text. Start source-map review from `source_map_modules.jsonl` and
+   `source_map_packets/`, not from a raw map pasted into a prompt.
 4. For natural-language requests such as "dig into the JS", "vuln test the JS",
    "run JS deep", or "look at the JS for vulnerabilities", prefer the staged
    JavaScript Team wrapper when the run has enough packets to justify

@@ -36,7 +36,7 @@ DEFAULT_CONFIG_PATHS = (
 URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
 PATH_RE = re.compile(r"['\"](?P<path>/(?:api|v\d|graphql|gql|rest|backend|auth|oauth|login|admin|user|account|billing|checkout)[^'\"<>\s]{0,180})['\"]", re.IGNORECASE)
 PARAM_RE = re.compile(r"[?&]([A-Za-z0-9_.:-]{2,80})=")
-SOURCE_MAP_RE = re.compile(r"//#\s*sourceMappingURL=(?P<url>\S+)")
+SOURCE_MAP_RE = re.compile(r"//[@#]\s*sourceMappingURL=(?P<url>\S+)")
 IMPORT_RE = re.compile(r"\bimport\s*(?:\(|[^;\n]+from\s*)['\"]([^'\"]+)['\"]")
 SECRET_HINT_RE = re.compile(r"\b(api[_-]?key|secret|token|bearer|authorization|password|client[_-]?secret|private[_-]?key)\b", re.IGNORECASE)
 PARAM_NAME_RE = re.compile(
@@ -595,68 +595,42 @@ def write_source_map_modules(
     chunk_size: int,
     chunk_overlap: int,
     module_limit: int,
-) -> tuple[list[dict], list[dict]]:
-    """Persist every module name and make bounded packets from embedded source text."""
+    max_packets: int,
+    max_expanded_bytes: int,
+) -> tuple[list[dict], list[dict], dict]:
+    """Persist module names and bounded embedded-source packets."""
     rows: list[dict] = []
     packets: list[dict] = []
     module_dir = source_maps_dir / source_map_sha256 / "modules"
     packet_dir = root / "source_map_packets" / record.sha256[:16]
-    packet_budget = max(module_limit, 0)
     packeted_modules = 0
+    expanded_bytes = 0
+    truncated_modules = 0
     for module in modules:
-        row = {
-            "bundle_url": record.url,
-            "bundle_sha256": record.sha256,
-            "source_map": record.source_map,
-            "source_map_sha256": source_map_sha256,
-            "source_index": module["source_index"],
-            "source": module["source"],
-            "source_root": module["source_root"],
-            "source_label": module["source_label"],
-            "has_content": module["has_content"],
-            "module_path": "",
-            "packet_paths": [],
-        }
-        if module["has_content"] and packeted_modules < packet_budget:
-            module_dir.mkdir(parents=True, exist_ok=True)
-            module_path = module_dir / f"{module['source_index']:05d}.js"
-            module_path.write_text(module["content"], encoding="utf-8")
-            row["module_path"] = str(module_path)
+        row = {"bundle_url": record.url, "bundle_sha256": record.sha256, "source_map": record.source_map, "source_map_sha256": source_map_sha256, "source_index": module["source_index"], "source": module["source"], "source_root": module["source_root"], "source_label": module["source_label"], "has_content": module["has_content"], "module_path": "", "packet_paths": [], "packet_status": "no_content"}
+        if module["has_content"]:
             chunks = chunk_text(module["content"], chunk_size, chunk_overlap)
-            packet_dir.mkdir(parents=True, exist_ok=True)
-            for chunk_index, (start, end, chunk) in enumerate(chunks):
-                packet_path = packet_dir / f"{module['source_index']:05d}-{chunk_index + 1:03d}.md"
-                packet_path.write_text(
-                    build_source_map_packet(
-                        record=record,
-                        source_map_sha256=source_map_sha256,
-                        module=module,
-                        chunk_index=chunk_index,
-                        chunk_count=len(chunks),
-                        start=start,
-                        end=end,
-                        chunk=chunk,
-                    ),
-                    encoding="utf-8",
-                )
-                row["packet_paths"].append(str(packet_path))
-                packets.append({
-                    "url": record.url,
-                    "sha256": record.sha256,
-                    "artifact_kind": "source_map_module",
-                    "source_map_sha256": source_map_sha256,
-                    "source_index": module["source_index"],
-                    "source_label": module["source_label"],
-                    "chunk_index": chunk_index,
-                    "chunk_count": len(chunks),
-                    "chunk_path": str(module_path),
-                    "packet_path": str(packet_path),
-                    "byte_start": start,
-                    "byte_end": end,
-                })
-            packeted_modules += 1
+            content_bytes = len(module["content"].encode("utf-8"))
+            allowed = packeted_modules < module_limit and len(packets) + len(chunks) <= max_packets and expanded_bytes + content_bytes <= max_expanded_bytes
+            if allowed:
+                module_dir.mkdir(parents=True, exist_ok=True)
+                module_path = module_dir / f"{module['source_index']:05d}.js"
+                module_path.write_text(module["content"], encoding="utf-8")
+                row["module_path"] = str(module_path)
+                row["packet_status"] = "packetized"
+                packet_dir.mkdir(parents=True, exist_ok=True)
+                for chunk_index, (start, end, chunk) in enumerate(chunks):
+                    packet_path = packet_dir / f"{module['source_index']:05d}-{chunk_index + 1:03d}.md"
+                    packet_path.write_text(build_source_map_packet(record=record, source_map_sha256=source_map_sha256, module=module, chunk_index=chunk_index, chunk_count=len(chunks), start=start, end=end, chunk=chunk), encoding="utf-8")
+                    row["packet_paths"].append(str(packet_path))
+                    packets.append({"url": record.url, "sha256": record.sha256, "artifact_kind": "source_map_module", "source_map_sha256": source_map_sha256, "source_index": module["source_index"], "source_label": module["source_label"], "chunk_index": chunk_index, "chunk_count": len(chunks), "chunk_path": str(module_path), "packet_path": str(packet_path), "byte_start": start, "byte_end": end})
+                packeted_modules += 1
+                expanded_bytes += content_bytes
+            else:
+                row["packet_status"] = "truncated_by_budget"
+                truncated_modules += 1
         rows.append(row)
-    return rows, packets
+    return rows, packets, {"module_limit": module_limit, "packet_limit": max_packets, "expanded_byte_limit": max_expanded_bytes, "expanded_bytes": expanded_bytes, "truncated_modules": truncated_modules}
 
 
 def chunk_text(text: str, size: int, overlap: int) -> list[tuple[int, int, str]]:
@@ -1535,6 +1509,10 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
 
 
 def command_inventory(args: argparse.Namespace) -> int:
+    if args.chunk_size <= 0 or args.chunk_overlap < 0 or args.chunk_overlap >= args.chunk_size:
+        raise SystemExit("chunk overlap must be non-negative and smaller than chunk size")
+    if args.source_map_max_packets < 0 or args.source_map_max_expanded_bytes < 0:
+        raise SystemExit("source-map packet and expanded-byte limits must be non-negative")
     run_id = args.run_id or f"js-{utc_stamp()}"
     root, library_root, integration_index_root, config_summary = resolve_inventory_paths(args, run_id)
     provenance_input = Path(args.provenance_input).expanduser() if args.provenance_input else None
@@ -1578,6 +1556,7 @@ def command_inventory(args: argparse.Namespace) -> int:
     records: list[JsRecord] = []
     packet_rows: list[dict] = []
     source_map_module_rows: list[dict] = []
+    source_map_packet_budgets: list[dict] = []
     external_integration_rows: list[ExternalIntegration] = []
     provenance_rows: list[JsProvenance] = []
     provenance_rows_by_sha: dict[str, list[dict]] = {}
@@ -1719,7 +1698,7 @@ def command_inventory(args: argparse.Namespace) -> int:
             chunk_count=len(chunks),
         )
         if source_map_modules:
-            module_rows, source_map_packets = write_source_map_modules(
+            module_rows, source_map_packets, source_map_budget = write_source_map_modules(
                 root=root,
                 source_maps_dir=source_maps_dir,
                 record=record,
@@ -1728,9 +1707,12 @@ def command_inventory(args: argparse.Namespace) -> int:
                 chunk_size=args.chunk_size,
                 chunk_overlap=args.chunk_overlap,
                 module_limit=args.source_map_module_limit,
+                max_packets=args.source_map_max_packets,
+                max_expanded_bytes=args.source_map_max_expanded_bytes,
             )
             source_map_module_rows.extend(module_rows)
             packet_rows.extend(source_map_packets)
+            source_map_packet_budgets.append(source_map_budget)
             record.source_map_packet_count = len(source_map_packets)
         records.append(record)
         record_provenance_rows = build_provenance_rows(
@@ -1850,6 +1832,7 @@ def command_inventory(args: argparse.Namespace) -> int:
         "source_maps_too_large": source_maps_too_large,
         "source_map_modules": len(source_map_module_rows),
         "source_map_packets": sum(record.source_map_packet_count for record in records),
+        "source_map_packet_budgets": source_map_packet_budgets,
         "packets": len(packet_rows),
         "external_integrations": len(external_integration_rows),
         "outputs": {
@@ -1947,6 +1930,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=500,
         help="Maximum embedded source modules to turn into review packets; all module names remain inventoried",
     )
+    inv.add_argument("--source-map-max-packets", type=int, default=1000, help="Maximum source-map review packets per bundle")
+    inv.add_argument("--source-map-max-expanded-bytes", type=int, default=64 * 1024 * 1024, help="Maximum embedded source bytes materialized per bundle")
     inv.add_argument("--chunk-size", type=int, default=60000)
     inv.add_argument("--chunk-overlap", type=int, default=500)
     inv.set_defaults(func=command_inventory)

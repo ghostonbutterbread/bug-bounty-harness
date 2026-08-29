@@ -38,6 +38,12 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
     assert "user_id" in signals["interesting_keys"]
 
 
+def test_extract_signals_accepts_legacy_source_map_directive():
+    signals = J.extract_signals("//@ sourceMappingURL=legacy.js.map", "https://app.example.com/static/app.js")
+
+    assert signals["source_map"] == "https://app.example.com/static/legacy.js.map"
+
+
 def test_extract_signals_splits_in_scope_and_external_endpoints():
     text = """
     const internal = "https://static.canva.com/app.js";
@@ -351,6 +357,19 @@ def test_inventory_records_too_large_source_map_without_reading_it(tmp_path: Pat
     manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
     assert metadata[0]["source_map_status"] == "too_large"
     assert manifest["source_maps_too_large"] == 1
+
+
+def test_inventory_records_source_map_packet_budget_truncation(tmp_path: Path):
+    input_file = tmp_path / "jsfiles.txt"
+    input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
+    source_map = {"version": 3, "sources": ["src/large.ts"], "sourcesContent": ["x" * 100]}
+    with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(J, "http_get_limited", return_value=(json.dumps(source_map).encode(), 200, "application/json", False)):
+        assert J.main(["inventory", "demo", "--input", str(input_file), "--target-host", "example.com", "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"), "--source-map-max-expanded-bytes", "10"]) == 0
+
+    modules = [json.loads(line) for line in (tmp_path / "out" / "source_map_modules.jsonl").read_text().splitlines()]
+    manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert modules[0]["packet_status"] == "truncated_by_budget"
+    assert manifest["source_map_packet_budgets"][0]["truncated_modules"] == 1
 
 
 def test_inventory_reuses_cached_source_map(tmp_path: Path):

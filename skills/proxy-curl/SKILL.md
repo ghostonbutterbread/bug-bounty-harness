@@ -12,8 +12,8 @@ This skill is a request-shape preservation skill. It does not decide whether a t
 ## Load Order
 
 1. Read scope, owned-account context, live-testing policy, and the owning skill for the security question.
-2. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
-3. Read `$HARNESS_ROOT/prompts/proxy-curl-playbook.md`.
+2. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
+3. Read `prompts/proxy-curl-playbook.md`.
 4. If a raw request is available as a file or pasted block, use:
    ```bash
    bbh skills/proxy-curl/scripts/raw_to_curl.py request.raw

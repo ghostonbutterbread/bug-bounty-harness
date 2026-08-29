@@ -38,7 +38,7 @@ If scripts are relevant, check existing helper indexes before writing a new one:
 ```text
 ~/Shared/bounty_recon/_shared/script-index.md
 ~/Shared/bounty_recon/_shared/scripts/README.md
-$HARNESS_ROOT/SCRIPT_INDEX.md
+SCRIPT_INDEX.md
 ```
 
 Small reusable wrappers and records can live in Shared. Heavy inputs, raw

@@ -21,9 +21,9 @@ Use for profile-picture, avatar, profile-image, account-photo, and image URL imp
 ## Required Preflight
 
 1. Read program scope, owned-account context, and active live-testing policy.
-2. Read `$HARNESS_ROOT/prompts/pfp-playbook.md`.
-3. Read `$HARNESS_ROOT/prompts/pfp-context-pack.md` to load the focused branch map and local-note sources.
-4. Use `$HARNESS_ROOT/prompts/pfp-research-terms.md` only when a branch needs expansion.
+2. Read `prompts/pfp-playbook.md`.
+3. Read `prompts/pfp-context-pack.md` to load the focused branch map and local-note sources.
+4. Use `prompts/pfp-research-terms.md` only when a branch needs expansion.
 5. Default to ledger mode for prior context and durable findings. If the user says `--no-ledger`, do not read prior findings or write durable ledger/coverage state.
 6. Use a scheduler gate for live/browser work: only one child lane may own Chrome/CDP/session state at a time unless Ryushe explicitly approves parallel browser instances.
 7. Keep tests tied to owned accounts and owned profile/image resources.

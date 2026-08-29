@@ -59,7 +59,7 @@ state, environment, program-policy ambiguity, or behavior that may change.
 Update status when an agent has evidence from the current surface:
 
 ```bash
-python3 agents/map_store.py update-status \
+bbh agents/map_store.py update-status \
   --program canva \
   --family web_bounty \
   --lane web \
@@ -182,7 +182,7 @@ Agents query `map.jsonl`; do not parse the directory tree directly.
 Query confirmed gadgets across every surface:
 
 ```bash
-python3 agents/map_store.py query \
+bbh agents/map_store.py query \
   --program canva \
   --family web_bounty \
   --lane web \
@@ -202,7 +202,7 @@ old material.
 ## Cross-Family Pointer
 
 ```bash
-python3 agents/map_store.py write \
+bbh agents/map_store.py write \
   --program canva --family binaries --lane exe \
   --surface electron --scope app \
   --body-file /tmp/mapstore-body.md \

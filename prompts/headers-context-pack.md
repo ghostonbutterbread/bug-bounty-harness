@@ -16,7 +16,7 @@ Use this as the compact branch map for `/headers`.
 Load when requests enforce or reflect `Origin`, `Referer`, `Sec-Fetch-*`, or browser-cross-site behavior.
 
 Reference:
-- `$HARNESS_ROOT/skills/headers/references/technique-packs/origin.md`
+- `skills/headers/references/technique-packs/origin.md`
 
 Look for:
 - missing origin validation
@@ -28,7 +28,7 @@ Look for:
 Load when access, rate limit, geo, admin, or audit behavior depends on client-IP headers.
 
 Reference:
-- `$HARNESS_ROOT/skills/headers/references/technique-packs/proxy-trust.md`
+- `skills/headers/references/technique-packs/proxy-trust.md`
 
 Look for:
 - `X-Forwarded-For`
@@ -41,7 +41,7 @@ Look for:
 Load when a forbidden/internal route may be reached through trusted rewrite headers.
 
 Reference:
-- `$HARNESS_ROOT/skills/headers/references/technique-packs/route-override.md`
+- `skills/headers/references/technique-packs/route-override.md`
 
 Look for:
 - `X-Original-URL`
@@ -54,7 +54,7 @@ Look for:
 Load when a route rejects or treats HTTP methods differently.
 
 Reference:
-- `$HARNESS_ROOT/skills/headers/references/technique-packs/method-override.md`
+- `skills/headers/references/technique-packs/method-override.md`
 
 Look for:
 - `X-HTTP-Method-Override`
@@ -67,7 +67,7 @@ Look for:
 Load when tenant, virtual-host, upstream, or absolute-URL behavior depends on host headers.
 
 Reference:
-- `$HARNESS_ROOT/skills/headers/references/technique-packs/host-routing.md`
+- `skills/headers/references/technique-packs/host-routing.md`
 
 Look for:
 - `Host`
@@ -80,7 +80,7 @@ Look for:
 Load when body parsing or API behavior changes with representation headers.
 
 Reference:
-- `$HARNESS_ROOT/skills/headers/references/technique-packs/content-negotiation.md`
+- `skills/headers/references/technique-packs/content-negotiation.md`
 
 Look for:
 - `Content-Type`
@@ -94,7 +94,7 @@ Look for:
 Load when multiple auth mechanisms may conflict.
 
 Reference:
-- `$HARNESS_ROOT/skills/headers/references/technique-packs/auth-context.md`
+- `skills/headers/references/technique-packs/auth-context.md`
 
 Look for:
 - duplicated auth headers

@@ -32,9 +32,9 @@ If the token is generated per action or per request, use `/single-request-grabbe
 
 ## Files
 
-- **Playbook:** `$HARNESS_ROOT/prompts/csrf-playbook.md`
-- **Origin/Referer Headers:** `$HARNESS_ROOT/skills/headers/references/technique-packs/origin.md`
-- **Live Request Capture:** `$HARNESS_ROOT/skills/single-request-grabber/references/technique-packs/csrf-token.md`
+- **Playbook:** `prompts/csrf-playbook.md`
+- **Origin/Referer Headers:** `skills/headers/references/technique-packs/origin.md`
+- **Live Request Capture:** `skills/single-request-grabber/references/technique-packs/csrf-token.md`
 - **Shared Root:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`
 - **CSRF Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/csrf/findings.md`
 - **CSRF Artifacts:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/csrf/`

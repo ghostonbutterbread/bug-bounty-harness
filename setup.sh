@@ -253,11 +253,29 @@ install_dispatchers() {
     install_recon_bus
 }
 
+refuse_foreign_launcher() {
+    local launcher="$1"
+    local expected="$2"
+    if [ ! -e "$launcher" ] && [ ! -L "$launcher" ]; then
+        return 0
+    fi
+    if [ -L "$launcher" ] && [ "$(readlink -f "$launcher")" = "$(readlink -f "$expected")" ]; then
+        return 0
+    fi
+    if [ -f "$launcher" ] && grep -Fq "# BBH_CHECKOUT=$SCRIPT_DIR" "$launcher"; then
+        return 0
+    fi
+    echo "  Error: refusing to replace $launcher because it belongs to another checkout or tool" >&2
+    echo "  Choose a lane-specific LOCAL_BIN_DIR (for example ~/.local/bin/bbh-beta) instead." >&2
+    return 1
+}
+
 install_bbh() {
     echo "Installing lane-safe bbh launcher..."
 
     mkdir -p "$LOCAL_BIN_DIR"
     local launcher="$LOCAL_BIN_DIR/bbh"
+    refuse_foreign_launcher "$launcher" "$SCRIPT_DIR/scripts/bbh"
     ln -sfn "$SCRIPT_DIR/scripts/bbh" "$launcher"
     echo "  ✓ $launcher -> $SCRIPT_DIR/scripts/bbh"
     echo ""

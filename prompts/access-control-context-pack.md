@@ -6,19 +6,19 @@ Do not load every access-control reference at once. Load `related-terms.md`, cla
 
 ## Source Files
 
-- Related terms and route keywords: `$HARNESS_ROOT/skills/access-control/references/related-terms.md`
-- Account setup routing: `$HARNESS_ROOT/skills/access-control/references/account-setup.md`
+- Related terms and route keywords: `skills/access-control/references/related-terms.md`
+- Account setup routing: `skills/access-control/references/account-setup.md`
 - Temporary email creation: `/temporary-email` for disposable inbox/account setup when a destructible or burnable account is needed.
-- IDOR-specific object mutations: `$HARNESS_ROOT/skills/access-control/references/mutations/idor.md`
-- Horizontal access: `$HARNESS_ROOT/skills/access-control/references/technique-packs/horizontal.md`
-- Vertical access: `$HARNESS_ROOT/skills/access-control/references/technique-packs/vertical.md`
-- Tenant/workspace isolation: `$HARNESS_ROOT/skills/access-control/references/technique-packs/tenant.md`
-- Workflow/context-dependent access: `$HARNESS_ROOT/skills/access-control/references/technique-packs/workflow.md`
-- Auth-state access: `$HARNESS_ROOT/skills/access-control/references/technique-packs/auth-state.md`
-- GraphQL BOLA: `$HARNESS_ROOT/skills/access-control/references/technique-packs/graphql-bola.md`
-- Storage/CDN/export/media links: `$HARNESS_ROOT/skills/access-control/references/technique-packs/storage-links.md`
-- Shared bypass mutations: `/bypass` and `$HARNESS_ROOT/prompts/bypass-playbook.md`
-- Deep reference only when needed: `$HARNESS_ROOT/prompts/access-control-playbook.md`
+- IDOR-specific object mutations: `skills/access-control/references/mutations/idor.md`
+- Horizontal access: `skills/access-control/references/technique-packs/horizontal.md`
+- Vertical access: `skills/access-control/references/technique-packs/vertical.md`
+- Tenant/workspace isolation: `skills/access-control/references/technique-packs/tenant.md`
+- Workflow/context-dependent access: `skills/access-control/references/technique-packs/workflow.md`
+- Auth-state access: `skills/access-control/references/technique-packs/auth-state.md`
+- GraphQL BOLA: `skills/access-control/references/technique-packs/graphql-bola.md`
+- Storage/CDN/export/media links: `skills/access-control/references/technique-packs/storage-links.md`
+- Shared bypass mutations: `/bypass` and `prompts/bypass-playbook.md`
+- Deep reference only when needed: `prompts/access-control-playbook.md`
 
 ## Router
 

@@ -157,7 +157,7 @@ waf.print_summary()
 
 ## Files
 
-- **Playbook:** `$HARNESS_ROOT/prompts/waf-playbook.md`
+- **Playbook:** `prompts/waf-playbook.md`
 - **Shared Root:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`
 - **WAF Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/waf/findings.md`
 - **WAF Artifacts:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/waf/`

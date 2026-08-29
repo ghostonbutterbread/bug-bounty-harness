@@ -15,7 +15,7 @@ secret material.
 
 ## Load Order
 
-1. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
+1. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
 2. Resolve `$HARNESS_SHARED_BASE`; default is `/home/ryushe/Shared/web_bounty`. Retired registry tombstones must be treated as errors, not empty inventories.
 3. Open the registry for the selected program (not a generic inventory or a
    browser-lane subdirectory):
@@ -24,7 +24,7 @@ secret material.
      for example, `Acme Platform` becomes `acme-platform`.
 4. If the file is missing, initialize it before testing:
    - `bbh skills/account-management/scripts/account_inventory.py init {program}`
-5. Read `$HARNESS_ROOT/prompts/account-management-playbook.md` for required fields and handoff format.
+5. Read `prompts/account-management-playbook.md` for required fields and handoff format.
 
 ## What To Record
 

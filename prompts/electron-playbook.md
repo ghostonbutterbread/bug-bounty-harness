@@ -17,7 +17,6 @@ The MVP profiles are:
 Prompt smoke:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   bbh agents/electron_team.py <program> <target_path> --dry-run-prompts
 ```

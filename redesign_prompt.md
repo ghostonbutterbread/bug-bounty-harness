@@ -1,7 +1,7 @@
 # TASK: Redesign zero_day_team.py class/vulnerability system
 
 ## Target file
-/home/ryushe/projects/bug_bounty_harness/agents/zero_day_team.py
+`agents/zero_day_team.py` (repository-relative source reference)
 
 ## INSTRUCTIONS
 1. READ the full target file first

@@ -8,9 +8,9 @@ Use this skill to brief an agent before manual bug bounty hunting. The goal is t
 
 ## Current harness roots
 
-- Harness repo: `/home/ryushe/projects/bug_bounty_harness`
-- Manual hunt CLI: `/home/ryushe/projects/bug_bounty_harness/agents/manual_hunter.py`
-- Ledger coordination CLI: `/home/ryushe/projects/bug_bounty_harness/agents/me_ledger.py`
+- Harness repo: `the selected BBH checkout`
+- Manual hunt CLI: `agents/manual_hunter.py`
+- Ledger coordination CLI: `agents/me_ledger.py`
 - Shared storage resolver: `agents/storage_resolver.py` → `bounty_core.storage`
 - Bounty Core package: `/home/ryushe/projects/bounty-core`
 
@@ -273,7 +273,7 @@ Before taking a profile, surface, or vuln class:
 Useful state summary command when a pipeline plan is known:
 
 ```bash
-PYTHONPATH=/home/ryushe/projects/bug_bounty_harness python3 - <<'PY'
+PYTHONPATH=the selected BBH checkout python3 - <<'PY'
 from agents.hunt_pipeline.run_state import summarize_run
 print(summarize_run('/path/to/pipeline_plan.json'))
 PY

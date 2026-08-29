@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-DEFAULT_CORE_ROOT = Path.home() / "projects" / "hunter-memory-loop"
 DEFAULT_MEMORY_ROOT = Path.home() / "Shared" / "bounty_recon"
 ATTEMPT_FENCE_RE = re.compile(
     r"```(?:hunter-memory-attempts|hunter_memory_attempts)\s*(.*?)```",
@@ -148,7 +147,10 @@ def harvest_hunter_memory_from_log(log_path: Path, ref: HunterMemoryRef | None) 
 
 
 def _ensure_core_importable() -> None:
-    core_root = Path(os.environ.get("HUNTER_MEMORY_LOOP_ROOT") or DEFAULT_CORE_ROOT).expanduser()
+    configured_root = str(os.environ.get("HUNTER_MEMORY_LOOP_ROOT") or "").strip()
+    if not configured_root:
+        raise RuntimeError("Hunter Memory is optional; set HUNTER_MEMORY_LOOP_ROOT to its checkout before enabling it")
+    core_root = Path(configured_root).expanduser()
     if core_root.as_posix() not in sys.path:
         sys.path.insert(0, core_root.as_posix())
 

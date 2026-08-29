@@ -78,7 +78,7 @@ The implementation should remain offline and replayable. It reads local campaign
 MVP command:
 
 ```bash
-python3 agents/appmap_research_librarian.py hypothesize \
+bbh agents/appmap_research_librarian.py hypothesize \
   <campaign> \
   --appmap-run <run_root> \
   [--category <name>] \

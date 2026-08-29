@@ -14,8 +14,8 @@ Use when the AI can call tools or mutate state: edit a document, publish, export
 
 ## Load Order
 
-1. `$HARNESS_ROOT/prompts/agent-tool-abuse-playbook.md`
-2. `$HARNESS_ROOT/prompts/prompt-injection-playbook.md`
+1. `prompts/agent-tool-abuse-playbook.md`
+2. `prompts/prompt-injection-playbook.md`
 3. `/ai-trust-map` output and any captured request/tool traces
 
 ## Rules

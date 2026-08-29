@@ -145,6 +145,27 @@ class BbhLauncherTests(unittest.TestCase):
                 self.assertIn(path, content)
                 self.assertNotIn("HARNESS_ROOT", content)
 
+    def test_setup_refuses_to_replace_a_launcher_from_another_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            foreign = Path(tmp) / "stable" / "scripts" / "bbh"
+            foreign.parent.mkdir(parents=True)
+            foreign.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+            foreign.chmod(0o755)
+            (bin_dir / "bbh").symlink_to(foreign)
+            env = {**os.environ, "LOCAL_BIN_DIR": str(bin_dir)}
+            completed = subprocess.run(
+                ["bash", "-c", 'source "$1"; load_config; install_bbh', "--", str(ROOT / "setup.sh")],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("refusing to replace", completed.stderr)
+            self.assertEqual((bin_dir / "bbh").resolve(), foreign.resolve())
+
     def test_absolute_or_escaping_paths_fail_closed(self) -> None:
         for value in ("/tmp/tool.py", "../outside.py"):
             stderr = io.StringIO()

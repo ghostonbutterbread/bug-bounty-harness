@@ -41,5 +41,5 @@ bbh agents/sync_reports.py notion --verbose
 ## Harness
 
 ```text
-~/projects/bug_bounty_harness/agents/sync_reports.py
+agents/sync_reports.py
 ```

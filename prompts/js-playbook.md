@@ -109,7 +109,6 @@ Use deterministic scripts before asking agents to reason over code.
 Primary helper:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 
 bbh agents/js_analyzer.py inventory canva \
   --input "$HOME/Shared/web_bounty/canva/web/recon/aggregated/jsfiles.txt" \

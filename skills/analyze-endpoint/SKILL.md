@@ -21,7 +21,7 @@ This skill turns proxy evidence into a durable endpoint folder. It is not a live
    ```bash
    bbh skills/analyze-endpoint/scripts/analyze_endpoint.py <program> request.raw
    ```
-6. Read `$HARNESS_ROOT/prompts/analyze-endpoint-playbook.md` for the full workflow.
+6. Read `prompts/analyze-endpoint-playbook.md` for the full workflow.
 7. Read `references/artifact-contract.md` for required artifact fields and merge rules.
 
 ## Storage

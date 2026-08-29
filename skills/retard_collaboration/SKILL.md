@@ -25,7 +25,7 @@ Examples:
 ```
 
 ## Harness Location
-`~/projects/bug_bounty_harness/agents/retard_collaboration.py`
+`agents/retard_collaboration.py`
 
 ## Workflow Position
 ```

@@ -23,15 +23,15 @@ Examples:
 
 Read the playbook before running or preparing prompts:
 
-1. `$HARNESS_ROOT/prompts/electron-playbook.md`
+1. `prompts/electron-playbook.md`
 2. Existing target lane notes and reports, when present
 3. Any operator-supplied `--research-context` paths
 
 ## Canonical Files
 
-- **Playbook:** `$HARNESS_ROOT/prompts/electron-playbook.md`
-- **Team CLI:** `$HARNESS_ROOT/agents/electron_team.py`
-- **Profiles:** `$HARNESS_ROOT/agents/electron_profiles/`
+- **Playbook:** `prompts/electron-playbook.md`
+- **Team CLI:** `agents/electron_team.py`
+- **Profiles:** `agents/electron_profiles/`
 - **Default storage:** `~/Shared/binaries/{program}/exe/`
 
 ## Workflow
@@ -41,7 +41,6 @@ Read the playbook before running or preparing prompts:
 3. Start with a prompt smoke:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   bbh agents/electron_team.py <program> <target_path> --dry-run-prompts
 ```

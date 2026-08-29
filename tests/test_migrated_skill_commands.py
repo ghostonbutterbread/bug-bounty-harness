@@ -7,7 +7,15 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCUMENTS = [*ROOT.glob("skills/**/SKILL.md"), *ROOT.glob("prompts/*.md")]
+DOCUMENTS = [
+    ROOT / "README.md",
+    ROOT / "SKILL_REGISTRY.md",
+    *ROOT.glob("skills/**/*.md"),
+    *ROOT.glob("prompts/**/*.md"),
+    *ROOT.glob("docs/**/*.md"),
+    *ROOT.glob(".agents/**/*.md"),
+    *ROOT.glob(".claude/**/*.md"),
+]
 BBH_TARGET = re.compile(r"\bbbh\s+((?:agents|scripts|skills)/[^\s`\"']+?\.(?:py|js|sh))")
 
 

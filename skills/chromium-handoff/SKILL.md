@@ -111,7 +111,7 @@ assume an ACL change is authorized.
    HANDOFF_PORT=<kasmvnc_web_port> \
    HANDOFF_PORT_MIN=8463 HANDOFF_PORT_MAX=8499 \
    HANDOFF_HTTPS_PORT=<unique_tailnet_https_port> \
-     "$HARNESS_ROOT/skills/chromium-handoff/scripts/handoff_transport.sh" start
+     "skills/chromium-handoff/scripts/handoff_transport.sh" start
    ```
    Give Ryushe `https://<hoster-tailnet-dns>:<unique_tailnet_https_port>/`.
    KasmVNC authenticates the browser itself; never print its password. Use SSH
@@ -120,9 +120,9 @@ assume an ACL change is authorized.
    path route and give Ryushe the HTTPS URL for `/handoff/<handoff_port>`:
    ```bash
    HANDOFF_PORT=<handoff_port> \
-     "$HARNESS_ROOT/skills/chromium-handoff/scripts/handoff_transport.sh" start
+     "skills/chromium-handoff/scripts/handoff_transport.sh" start
    HANDOFF_PORT=<handoff_port> \
-     "$HARNESS_ROOT/skills/chromium-handoff/scripts/handoff_transport.sh" status
+     "skills/chromium-handoff/scripts/handoff_transport.sh" status
    ```
 4. Always give the SSH fallback for that same handoff port. Run these **on
    Ryushe's workstation**, not Hoster:
@@ -139,7 +139,7 @@ assume an ACL change is authorized.
    local CDP endpoint is closed before removing the matching disposable profile:
    ```bash
    HANDOFF_PORT=<handoff_port> \
-     "$HARNESS_ROOT/skills/chromium-handoff/scripts/handoff_transport.sh" stop
+     "skills/chromium-handoff/scripts/handoff_transport.sh" stop
    ```
 
 ## Failure and Fallback

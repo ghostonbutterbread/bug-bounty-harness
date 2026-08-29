@@ -12,7 +12,7 @@ Use this skill **only** when the user explicitly starts a bug-bounty goal with
 chat, ordinary security questions, one-off investigation, or background work.
 
 This is a Bug Bounty Harness skill. Keep its canonical source under
-`~/projects/bug_bounty_harness/skills/bug-goals/`; do not place goal-routing,
+`skills/bug-goals/`; do not place goal-routing,
 research-escalation, or hunt orchestration in the AI Policies repository. AI
 Policies may define safety boundaries and the meanings of knowledge sources, but
 must not own bug-bounty goal workflow.

@@ -6,7 +6,7 @@ Agents should put reusable XSS automation here when the script belongs to the
 vulnerability class rather than one target. The first planned script is the XSS
 canary reflection mapper:
 
-- Spec: `/home/ryushe/projects/bug_bounty_harness/docs/xss-canary-reflection-mapper-spec.md`
+- Spec: `docs/xss-canary-reflection-mapper-spec.md`
 - Script: `xss_canary_mapper.py`
 - Purpose: ingest parameter, proxy, JavaScript, URL, and browser evidence; inject
   unique inert canaries; crawl/search for reflections; classify sink context;
@@ -35,7 +35,7 @@ Rules:
 Plan canaries from URL/tool/source artifacts:
 
 ```bash
-python3 skills/xss/scripts/xss_canary_mapper.py plan \
+bbh skills/xss/scripts/xss_canary_mapper.py plan \
   --input urls-or-tool-output.txt \
   --out-dir /tmp/xss-map \
   --run-id target-001
@@ -44,7 +44,7 @@ python3 skills/xss/scripts/xss_canary_mapper.py plan \
 Scan saved responses for the generated canaries:
 
 ```bash
-python3 skills/xss/scripts/xss_canary_mapper.py scan \
+bbh skills/xss/scripts/xss_canary_mapper.py scan \
   --sources /tmp/xss-map/sources.jsonl \
   --response saved-responses.jsonl \
   --out-dir /tmp/xss-map
@@ -53,7 +53,7 @@ python3 skills/xss/scripts/xss_canary_mapper.py scan \
 One-shot fixture/offline use:
 
 ```bash
-python3 skills/xss/scripts/xss_canary_mapper.py map \
+bbh skills/xss/scripts/xss_canary_mapper.py map \
   --input sources.jsonl \
   --response responses.jsonl \
   --out-dir /tmp/xss-map \
@@ -72,7 +72,7 @@ HTTP collection is live by default for the `fetch` command, but it requires
 either saved program scope or an explicit host allowlist:
 
 ```bash
-python3 skills/xss/scripts/xss_canary_mapper.py fetch \
+bbh skills/xss/scripts/xss_canary_mapper.py fetch \
   --planned /tmp/xss-map/planned_requests.jsonl \
   --out-dir /tmp/xss-map \
   --program target \
@@ -87,7 +87,7 @@ Browser collection uses Playwright when installed. This is useful for pages that
 need JavaScript rendering or browser storage inspection:
 
 ```bash
-python3 skills/xss/scripts/xss_canary_mapper.py browser-fetch \
+bbh skills/xss/scripts/xss_canary_mapper.py browser-fetch \
   --planned /tmp/xss-map/planned_requests.jsonl \
   --out-dir /tmp/xss-map \
   --program target \

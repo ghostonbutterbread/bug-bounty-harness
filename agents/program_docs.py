@@ -8,15 +8,15 @@ without turning MapStore into a verbose ledger. They live at::
 
 Examples::
 
-    python3 agents/program_docs.py init --program poster
-    python3 agents/program_docs.py write --program poster \
+    bbh agents/program_docs.py init --program poster
+    bbh agents/program_docs.py write --program poster \
       --topic integrations/poster-sdk-export-flow \
       --title "Poster SDK export integration" \
       --body-file /tmp/model.md \
       --source https://docs.poster.example/sdk \
       --mapstore-ref recon/maps/_app/sdk-poster/index.md
-    python3 agents/program_docs.py search --program poster --query "poster sdk export"
-    python3 agents/program_docs.py show --program poster \
+    bbh agents/program_docs.py search --program poster --query "poster sdk export"
+    bbh agents/program_docs.py show --program poster \
       --topic integrations/poster-sdk-export-flow
 
 This CLI writes the fixed document structure. Agents supply only the scoped

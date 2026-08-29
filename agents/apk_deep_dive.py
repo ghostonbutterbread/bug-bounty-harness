@@ -29,7 +29,7 @@ from typing import Any, Optional
 # ── path bootstrap ──────────────────────────────────────────────────────────
 _AGENT_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _AGENT_DIR.parent
-for _p in (_PROJECT_ROOT, Path.home() / "projects" / "memory-graph-protocol"):
+for _p in (_PROJECT_ROOT,):
     if _p.as_posix() not in (x.as_posix() for x in map(Path, sys.path)):
         sys.path.insert(0, _p.as_posix())
 
@@ -44,9 +44,9 @@ except ImportError:
     get_snapshot_identity = None
     ApkSurfaceRegistry = None
 
-# MGP / BountyMemory (lazy, best-effort — never blocks the scan)
-MGP_ROOT = Path.home() / "projects" / "memory-graph-protocol"
-if MGP_ROOT.exists():
+# MGP / BountyMemory is optional and requires an explicit source root.
+MGP_ROOT = Path(os.environ["MGP_ROOT"]).expanduser() if os.environ.get("MGP_ROOT") else None
+if MGP_ROOT is not None:
     _sys_path_strs = [p.as_posix() for p in map(Path, sys.path)]
     if MGP_ROOT.as_posix() not in _sys_path_strs:
         sys.path.insert(0, MGP_ROOT.as_posix())
@@ -538,30 +538,15 @@ def main() -> None:
         return
     _ensure_dir(output_dir)
 
-    # Resolve extracted source
-    if apk_path:
-        extracted_root = apk_path if not apk_path.is_file() else Path("/tmp") / f"{program}_dd"
-    else:
-        candidates = list(Path("/home/ryushe/source").glob(f"{program}*"))
-        extracted_root = candidates[0] if candidates else None
-        if not extracted_root:
-            _log(f"No APK or extraction found for {program}. Use --apk.", "❌")
-            sys.exit(1)
+    # APK/extraction and registry are caller-selected external inputs. Do not
+    # guess a host-local source or a cross-program registry.
+    if not apk_path:
+        parser.error("--apk is required; provide an APK or already-extracted source path")
+    extracted_root = apk_path if not apk_path.is_file() else Path("/tmp") / f"{program}_dd"
 
-    # Resolve surface registry
-    if args.registry:
-        registry_path = Path(args.registry)
-    else:
-        for candidate in [
-            SHARED_ROOT / "surface_registry.json",
-            Path.home() / "Shared" / "bounty_recon" / "surface_registry.json",
-        ]:
-            if candidate.exists():
-                registry_path = candidate
-                break
-        else:
-            _log("No surface_registry.json. Run apk_team first.", "❌")
-            sys.exit(1)
+    if not args.registry:
+        parser.error("--registry is required; provide the surface_registry.json for this run")
+    registry_path = Path(args.registry)
 
     findings_path = _ensure_dir(output_dir / "findings")
 

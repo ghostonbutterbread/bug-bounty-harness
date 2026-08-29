@@ -36,11 +36,11 @@ Prioritize end-to-end flows another agent would need to replay safely:
 
 ## Files
 
-- **Playbook:** `$HARNESS_ROOT/prompts/mental-map-playbook.md`
+- **Playbook:** `prompts/mental-map-playbook.md`
 - **Output Root:** `$HARNESS_SHARED_BASE/{program}/agent_shared/application-structure/`
 - **Universal Runtime Map:** `$HARNESS_SHARED_BASE/{program}/agent_shared/application-map/`
-- **Live Map CLI:** `$HARNESS_ROOT/agents/live_map.py`
-- **Flow Template:** `$HARNESS_ROOT/agent_shared/templates/application-structure/flow-template.md`
+- **Live Map CLI:** `agents/live_map.py`
+- **Flow Template:** `agent_shared/templates/application-structure/flow-template.md`
 
 ## Output Contract
 

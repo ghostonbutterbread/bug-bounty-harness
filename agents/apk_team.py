@@ -21,9 +21,9 @@ _PROJECT_ROOT = _AGENT_DIR.parent
 if _PROJECT_ROOT.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
     sys.path.insert(0, _PROJECT_ROOT.as_posix())
 
-# MGP / BountyMemory (lazy, best-effort — never blocks the scan)
-_MGP_ROOT = Path.home() / "projects" / "memory-graph-protocol"
-if _MGP_ROOT.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
+# MGP / BountyMemory is optional and requires an explicit source root.
+_MGP_ROOT = Path(os.environ["MGP_ROOT"]).expanduser() if os.environ.get("MGP_ROOT") else None
+if _MGP_ROOT is not None and _MGP_ROOT.as_posix() not in (p.as_posix() for p in map(Path, sys.path)):
     sys.path.insert(0, _MGP_ROOT.as_posix())
 try:
     from mgp.bounty_integration import BountyMemory

@@ -28,13 +28,13 @@ This skill is designed to be used with other skills. Use it to capture or mutate
 ## Load Order
 
 1. Read program scope, owned-account context, current task goal, and live-testing policy.
-2. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
-3. Read `$HARNESS_ROOT/prompts/single-request-grabber-context-pack.md`.
+2. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
+3. Read `prompts/single-request-grabber-context-pack.md`.
 4. Classify the mutation lane:
-   - CSRF token or one-time action token -> `$HARNESS_ROOT/skills/single-request-grabber/references/technique-packs/csrf-token.md`
-   - approved account/resource substitution -> `$HARNESS_ROOT/skills/single-request-grabber/references/technique-packs/access-control-replay.md`
-   - header or request-shape repair -> `$HARNESS_ROOT/skills/single-request-grabber/references/technique-packs/request-shape-repair.md`
-5. Read `$HARNESS_ROOT/prompts/single-request-grabber-playbook.md` for step-by-step operation or report writing.
+   - CSRF token or one-time action token -> `skills/single-request-grabber/references/technique-packs/csrf-token.md`
+   - approved account/resource substitution -> `skills/single-request-grabber/references/technique-packs/access-control-replay.md`
+   - header or request-shape repair -> `skills/single-request-grabber/references/technique-packs/request-shape-repair.md`
+5. Read `prompts/single-request-grabber-playbook.md` for step-by-step operation or report writing.
 6. Use proxy setup helpers only if needed:
    - agent-lane proxy/MCP -> `/agent-proxy`
    - Caido MCP inspection/replay -> `/caido`

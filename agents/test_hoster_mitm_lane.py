@@ -93,7 +93,8 @@ def test_acquire_start_releases_lease_when_remote_start_fails(monkeypatch):
     result = module.acquire_start(base_args())
 
     assert result["status"] == "start-failed"
-    assert any("lease-release" in call for call in calls)
+    release = next(call for call in calls if "lease-release" in call)
+    assert release[:2] == ["bbh", "skills/chromium-test/scripts/proxy_store.py"]
 
 
 def test_index_stop_release_orders_remote_cleanup(monkeypatch):

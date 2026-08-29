@@ -16,7 +16,7 @@ Use this as the compact branch map for `/jwt-auth`.
 Load when the lab/page/history mentions `alg:none`, array wrapping, no signature verification, missing signature, or signature stripping.
 
 Reference:
-- `$HARNESS_ROOT/skills/jwt-auth/references/technique-packs/algorithm-signature.md`
+- `skills/jwt-auth/references/technique-packs/algorithm-signature.md`
 
 Lab seeds:
 - `https://403.brutelogic.net/authz/jwt/none` - alg:None, Array Wrapping
@@ -27,7 +27,7 @@ Lab seeds:
 Load when authorization depends on `iss`, `aud`, `jti`, `sub`, `role`, `scope`, `tenant`, object IDs, expiry, replay, wildcard, null, array, or removed claim behavior.
 
 Reference:
-- `$HARNESS_ROOT/skills/jwt-auth/references/technique-packs/claims.md`
+- `skills/jwt-auth/references/technique-packs/claims.md`
 
 Lab seeds:
 - `https://403.brutelogic.net/authz/jwt/iss` - iss Spoofing + Array Bypass
@@ -42,7 +42,7 @@ Lab seeds:
 Load when JWT header or discovery uses `kid`, `jku`, `x5u`, `x5c`, `x5t`, inline `jwk`, or JWKS/certificate lookup.
 
 Reference:
-- `$HARNESS_ROOT/skills/jwt-auth/references/technique-packs/key-source.md`
+- `skills/jwt-auth/references/technique-packs/key-source.md`
 
 Lab seeds:
 - `https://403.brutelogic.net/authz/jwt/kid` - kid Path Traversal + URL Injection
@@ -57,7 +57,7 @@ Lab seeds:
 Load when RS256/HS256 confusion, public-key-as-HMAC-secret, weak HMAC secret, JWKS public key reuse, or whitespace bypass is plausible.
 
 Reference:
-- `$HARNESS_ROOT/skills/jwt-auth/references/technique-packs/key-confusion-weak-secret.md`
+- `skills/jwt-auth/references/technique-packs/key-confusion-weak-secret.md`
 
 Lab seeds:
 - `https://403.brutelogic.net/authz/jwt/confusion` - RS256->HS256 + Whitespace Bypass
@@ -68,7 +68,7 @@ Lab seeds:
 Load when parser behavior matters: duplicate claims, extra dots, JSON arrays, base64 padding, whitespace, nested JWTs, JWE accepted as JWS, or sign/encrypt confusion.
 
 Reference:
-- `$HARNESS_ROOT/skills/jwt-auth/references/technique-packs/format-confusion.md`
+- `skills/jwt-auth/references/technique-packs/format-confusion.md`
 
 Lab seeds:
 - `https://403.brutelogic.net/authz/jwt/format` - JWT Format Confusion

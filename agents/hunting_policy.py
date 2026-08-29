@@ -205,7 +205,7 @@ def _policy_config_paths(policy_id: str) -> list[Path]:
     safe_id = str(policy_id).strip().lower().replace("_", "-")
     paths: list[Path] = []
     env_root = str(os.environ.get(AI_POLICIES_ROOT_ENV) or "").strip()
-    ai_roots = [Path(env_root).expanduser()] if env_root else [Path.home() / "projects" / "ai-policies" / "policies"]
+    ai_roots = [Path(env_root).expanduser()] if env_root else []
     for root in ai_roots:
         paths.extend(
             [

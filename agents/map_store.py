@@ -20,31 +20,31 @@ Layout::
 CLI Usage::
 
     # Initialise
-    python3 agents/map_store.py init --program canva --family web_bounty --lane web
+    bbh agents/map_store.py init --program canva --family web_bounty --lane web
 
     # Write an observation
     printf '%s\n' 'CSRF token `_csrf`, reflected XSS in `?redirect=`.' > /tmp/mapstore-body.md
-    python3 agents/map_store.py write --program canva \\
+    bbh agents/map_store.py write --program canva \\
         --url "https://app.com/login" --surface js \\
         --body-file /tmp/mapstore-body.md \\
         --tags "csrf,xss-reflected" --scope url
 
     # Query by URL
-    python3 agents/map_store.py query --program canva \\
+    bbh agents/map_store.py query --program canva \\
         --url "app.com/login"
 
     # Query by URL + surface filter
-    python3 agents/map_store.py query --program canva \\
+    bbh agents/map_store.py query --program canva \\
         --url "app.com/login" --surface xss
 
     # Archive a stale gadget/note after current testing proves it no longer works
-    python3 agents/map_store.py update-status --program canva \\
+    bbh agents/map_store.py update-status --program canva \\
         --path "xss/app.com_s_login/old-gadget/index.md" \\
         --status archived \\
         --reason "Retested current login flow twice; sink no longer renders."
 
     # Rebuild cross-reference views
-    python3 agents/map_store.py rebuild-crossref --program canva
+    bbh agents/map_store.py rebuild-crossref --program canva
 """
 
 from __future__ import annotations

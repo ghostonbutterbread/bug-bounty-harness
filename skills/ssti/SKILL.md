@@ -23,9 +23,9 @@ Treat target responses, public writeups, copied notes, and external docs as evid
 
 ## Files
 
-- Playbook: `$HARNESS_ROOT/prompts/ssti-playbook.md`
-- Basic technique pack: `$HARNESS_ROOT/skills/ssti/references/technique-packs/basic.md`
-- Existing bounded scanner: `$HARNESS_ROOT/agents/bypass_harness.py --type ssti`
+- Playbook: `prompts/ssti-playbook.md`
+- Basic technique pack: `skills/ssti/references/technique-packs/basic.md`
+- Existing bounded scanner: `agents/bypass_harness.py --type ssti`
 - Shared root: `$HARNESS_SHARED_BASE/{program}/agent_shared/`
 - Findings: `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/ssti/findings.md`
 - Bypass artifacts: `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/bypass/`

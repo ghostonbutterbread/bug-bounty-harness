@@ -56,3 +56,6 @@ wordlists/
 ~/wordlists/
 
 config.env
+
+.agents/skills/
+.claude/skills/

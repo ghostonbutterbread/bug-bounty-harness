@@ -352,6 +352,10 @@ def start_remote(args: argparse.Namespace) -> None:
         f"cat > {shell_quote(project_dir + '/rate_limit.conf')} <<'RECONRY_RATE_LIMIT'\n"
         f"{rate_conf}"
         "RECONRY_RATE_LIMIT\n"
+        # Resolve the selected remote lane before a background job inherits its
+        # PATH. Both checks fail closed if the expected dispatcher or promotion
+        # target is absent.
+        "bbh --root; bbh --print-command scripts/recon_bus.py; "
         f"log=\"$HOME/recon-ry-logs/{safe_slug(args.program)}-$(date -u +%Y%m%dT%H%M%SZ).log\"; "
         f"nohup {auth_env}bash -c {shell_quote(recon_and_promote)} > \"$log\" 2>&1 & "
         "printf 'pid=%s\\nlog=%s\\nproject=%s\\nauth=%s\\n' \"$!\" \"$log\" "

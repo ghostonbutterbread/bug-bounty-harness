@@ -25,7 +25,7 @@ an evasion campaign.
   failed because `skills/leads/SKILL.md` did not exist.
 - GREEN: `uv run --with pytest python -m pytest agents/test_leads_skill.py agents/test_manual_places_to_hunt_skill.py -q` — 4 passed.
 - CLI: a temporary MapStore fixture was created and queried through
-  `python3 agents/leads.py create ...` then `search ...` successfully.
+  `bbh agents/leads.py create ...` then `search ...` successfully.
 
 ## Activation
 

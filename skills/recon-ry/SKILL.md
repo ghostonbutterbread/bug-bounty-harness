@@ -11,7 +11,7 @@ This skill is a long-running recon wrapper and directory map. Start scans and re
 
 ## Load Order
 
-1. Read `$HARNESS_ROOT/prompts/recon-ry-playbook.md`.
+1. Read `prompts/recon-ry-playbook.md`.
 2. Confirm target scope/rate policy from program notes or `/pullscope` artifacts.
 3. Use Hoster via `ryushe@hoster` and `/home/ryushe/.ssh/hoster`.
 4. Use `agents/recon_ry.py` for start/status/ingest actions.

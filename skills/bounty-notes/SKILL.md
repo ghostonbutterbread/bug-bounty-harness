@@ -90,7 +90,6 @@ Do not leave reusable hunt knowledge only in ad hoc scratch notes.
 ## Commands
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 bbh agents/bounty_notes.py init <program> --family web_bounty --lane web
 bbh agents/bounty_notes.py note <program> --family web_bounty --lane web --bucket hypotheses --title "Title" --status untested --agent codex --run-id <run-id> --url "https://target.example/path" --tag xss --body "Hypothesis..."
 bbh agents/bounty_notes.py artifact <program> --family web_bounty --lane web --run-id <run-id> --agent codex --source /tmp/sanitized.json --note "Sanitized baseline"

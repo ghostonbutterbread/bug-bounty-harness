@@ -260,7 +260,6 @@ For direct discoveries made by an agent during exploration, append through the
 recon bus instead of hand-editing aggregate files:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 bbh scripts/recon_bus.py append <program> --kind url --input new_urls.txt
 bbh scripts/recon_bus.py append <program> --kind url --input new_urls.txt --liveness probe
 bbh scripts/recon_bus.py append <program> --kind alive --input httpx_alive.txt
@@ -275,7 +274,6 @@ delta, and appends confirmed output to `aggregated/alive.txt`.
 For completed run directories that were not launched through `tool-run`, ingest:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 bbh scripts/recon_bus.py promote-run <program> --run-root "<run-root>"
 ```
 
@@ -283,7 +281,6 @@ For long-running jobs or delayed workers, use the watcher as a one-shot cron or
 heartbeat-safe pass:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 bbh scripts/recon_bus.py watch-runs <program> --root "$HOME/Shared/web_bounty/<program>/web/recon/tools"
 ```
 

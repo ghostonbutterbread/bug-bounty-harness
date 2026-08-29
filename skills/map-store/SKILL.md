@@ -462,7 +462,7 @@ Use `docs/mapstore-request-contracts.md` for the canonical schema. Key rules:
 
 ## Commands
 
-Run from `~/projects/bug_bounty_harness` with bounty-core on `PYTHONPATH`.
+Run from `the selected BBH checkout` with bounty-core on `PYTHONPATH`.
 
 ```bash
 PYTHONPATH=".:$HOME/projects/bounty-core"

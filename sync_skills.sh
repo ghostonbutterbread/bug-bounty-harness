@@ -121,6 +121,11 @@ sync_skill() {
                 echo "  - $skill (already linked)"
                 return 0
             fi
+            # This directory is BBH-managed because its name comes from the
+            # canonical source inventory. Replace only that entry so removed
+            # packaged files cannot linger, while unrelated provider skills stay
+            # untouched.
+            rm -rf "$dest_dir/$skill"
             mkdir -p "$dest_dir/$skill"
             cp -a "$src_dir/." "$dest_dir/$skill/"
             echo "  ✓ $skill"

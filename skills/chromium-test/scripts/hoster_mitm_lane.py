@@ -178,7 +178,7 @@ def acquire_start(args: argparse.Namespace) -> dict[str, Any]:
         run_remote(
             args,
             [
-                "python3",
+                "bbh",
                 "skills/chromium-test/scripts/proxy_store.py",
                 "--json",
                 "lease-release",

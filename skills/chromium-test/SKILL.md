@@ -256,7 +256,7 @@ bbh skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir 
 ## Required Preflight
 
 1. Read program scope/rules and the interpreted rate limit before live interaction.
-2. Read `$HARNESS_ROOT/prompts/chromium-test-playbook.md`.
+2. Read `prompts/chromium-test-playbook.md`.
 3. Check existing program context under `$HARNESS_SHARED_BASE/{normalized-program}/`.
 4. Resolve browser/account state from explicit task context or a locked-down auth seed file. Do not query external profile services during browser launch.
    - If `--auth-seed-file` is not provided, `--account <alias-or-color>` or
@@ -295,16 +295,16 @@ bbh skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir 
 
 ## Canonical Files
 
-- Playbook: `$HARNESS_ROOT/prompts/chromium-test-playbook.md`
-- Launcher: `$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py`
-- Persistent profile lease/status: `$HARNESS_ROOT/skills/chromium-test/scripts/browser_profile_lease.py`
-- Script walkthrough: `$HARNESS_ROOT/skills/chromium-test/scripts/README.md`
+- Playbook: `prompts/chromium-test-playbook.md`
+- Launcher: `skills/chromium-test/scripts/chromium_test.py`
+- Persistent profile lease/status: `skills/chromium-test/scripts/browser_profile_lease.py`
+- Script walkthrough: `skills/chromium-test/scripts/README.md`
 - Profiles: `$HARNESS_SHARED_BASE/{program}/ghost/chromium-test/profiles/`
-- MITM profile helper: `$HARNESS_ROOT/skills/chromium-test/scripts/mitm_chromium_profile.py`
-- MITM lane helper: `$HARNESS_ROOT/skills/chromium-test/scripts/mitm_lane.py`
-- Hoster lane helper: `$HARNESS_ROOT/skills/chromium-test/scripts/hoster_mitm_lane.py`
-- Sanitized proxy store: `$HARNESS_ROOT/skills/chromium-test/scripts/proxy_store.py`
-- Dependency installer: `$HARNESS_ROOT/skills/chromium-test/scripts/install.sh`
+- MITM profile helper: `skills/chromium-test/scripts/mitm_chromium_profile.py`
+- MITM lane helper: `skills/chromium-test/scripts/mitm_lane.py`
+- Hoster lane helper: `skills/chromium-test/scripts/hoster_mitm_lane.py`
+- Sanitized proxy store: `skills/chromium-test/scripts/proxy_store.py`
+- Dependency installer: `skills/chromium-test/scripts/install.sh`
 - Notes/evidence: `$HARNESS_SHARED_BASE/{program}/ghost/chromium-test/`
 
 ## Workflow

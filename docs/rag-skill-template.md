@@ -63,12 +63,12 @@ This is a RAG-style skill. Keep the first pass small: classify the lane, load on
 ## Load Order
 
 1. Read program scope, owned-account context, and active live-testing policy.
-2. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
-3. Read `$HARNESS_ROOT/prompts/{skill}-context-pack.md` if this is a router skill.
-4. Read `$HARNESS_ROOT/prompts/{skill}-playbook.md` for deep review, stuck analysis, or report writing.
+2. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
+3. Read `prompts/{skill}-context-pack.md` if this is a router skill.
+4. Read `prompts/{skill}-playbook.md` for deep review, stuck analysis, or report writing.
 5. Classify the lane:
-   - {observable condition} -> `$HARNESS_ROOT/skills/{skill}/references/technique-packs/{lane}.md`
-   - {observable condition} -> `$HARNESS_ROOT/skills/{skill}/references/technique-packs/{lane}.md`
+   - {observable condition} -> `skills/{skill}/references/technique-packs/{lane}.md`
+   - {observable condition} -> `skills/{skill}/references/technique-packs/{lane}.md`
 6. For cross-skill work, route instead of copying:
    - account setup or disposable inbox -> `/temporary-email`
    - method/header/path/filter bypass -> `/bypass`
@@ -144,7 +144,7 @@ Use this as the compact branch map for `{skill}`.
 Load when {observable condition}.
 
 Reference:
-- `$HARNESS_ROOT/skills/{skill}/references/technique-packs/{lane}.md`
+- `skills/{skill}/references/technique-packs/{lane}.md`
 
 Look for:
 - {classifier}

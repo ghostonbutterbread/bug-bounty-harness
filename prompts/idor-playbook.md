@@ -4,7 +4,7 @@
 
 Use this as the object-level authorization lane under `/access-control`: capture the baseline, map object references and ownership boundaries, choose the matching authorization lane, verify access with the correct account context, then report the exact object transition and impact.
 
-For role, tenant, workflow, unauthenticated, method/header/path, Referer/Origin, GraphQL/RPC, or broad broken-access-control work, load `$HARNESS_ROOT/prompts/access-control-playbook.md` first and use this playbook only for the object-reference lane.
+For role, tenant, workflow, unauthenticated, method/header/path, Referer/Origin, GraphQL/RPC, or broad broken-access-control work, load `prompts/access-control-playbook.md` first and use this playbook only for the object-reference lane.
 
 ## Decision Tree
 

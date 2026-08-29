@@ -22,7 +22,7 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
    `/pullscope`. If the program has no published scope, write `no scope` stub.
 2. **Cold Surface Pass** — Read
-   `$HARNESS_ROOT/prompts/focused-recon-playbook.md`. Resolve raw source
+   `prompts/focused-recon-playbook.md`. Resolve raw source
    artifacts through Recon Bus, for example
    `bbh scripts/recon_bus.py query <program> --artifact urls --format path`.
    The command uses `$HARNESS_SHARED_BASE`; do not search cwd or construct an

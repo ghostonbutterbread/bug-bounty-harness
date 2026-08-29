@@ -44,7 +44,7 @@ idea merely because it is not the current highest-information test.
 
 ## Commands
 
-Run from `$HARNESS_ROOT`:
+Run from `the active BBH checkout`:
 
 ```bash
 bbh agents/hypothesis_ledger.py create <program> \

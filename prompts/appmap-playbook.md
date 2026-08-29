@@ -47,7 +47,6 @@ If the target path is missing or ambiguous, ask before running the mapper.
 Baseline posture command:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   bbh agents/app_mapper.py <program> <target_path> \
   --target-kind auto \
@@ -66,7 +65,6 @@ bbh agents/app_mapper.py canva /home/ryushe/Shared/binaries/canva/exe/input/app_
 Default focused RCE command:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   bbh agents/app_mapper.py <program> <target_path> \
   --target-kind auto \
@@ -321,7 +319,6 @@ Include:
 Use a generated spec with existing team commands only when requested:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   bbh agents/zero_day_team.py <program> <target_path> \
   --brainstorm-spec <appmap-output>/generated_specs/rce-spec.md \

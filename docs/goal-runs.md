@@ -7,8 +7,7 @@ for normal agent work. The BBH skill router is `bug-goals`; the BBH helper is
 ## Plan a goal
 
 ```bash
-cd ~/projects/bug_bounty_harness
-python3 scripts/goal_router.py plan \
+bbh scripts/goal_router.py plan \
   --program example \
   --objective "Find a new vulnerability"
 ```
@@ -16,7 +15,7 @@ python3 scripts/goal_router.py plan \
 Initialize small routing state only after choosing a run-artifact directory:
 
 ```bash
-python3 scripts/goal_router.py init \
+bbh scripts/goal_router.py init \
   --program example \
   --objective "Assess comment preview for XSS" \
   --url "https://app.example/comments/preview" \
@@ -69,5 +68,5 @@ must become an explicit, scoped discriminator before it drives live activity.
 
 ```bash
 uv run --with pytest python -m pytest tests/test_goal_router.py -q
-python3 scripts/goal_router.py plan --program example --objective "Find a new vulnerability"
+bbh scripts/goal_router.py plan --program example --objective "Find a new vulnerability"
 ```

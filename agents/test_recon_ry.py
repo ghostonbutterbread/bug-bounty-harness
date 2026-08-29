@@ -151,6 +151,9 @@ def test_start_dry_run_uses_hoster_wrapper(capsys) -> None:
     assert "timeout=0" in output
     assert "default=2" in output
     assert "aggregating run into Recon Bus" in output
+    assert "bbh --root" in output
+    assert "bbh --print-command scripts/recon_bus.py" in output
+    assert output.index("bbh --root") < output.index("nohup")
     assert "bbh scripts/recon_bus.py" in output
     assert "/home/ryushe/projects/bug_bounty_harness" not in output
     assert "promote-run" in output

@@ -1301,11 +1301,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         epilog=textwrap.dedent(
             """\
             Examples:
-              python3 agents/zero_day_hunter.py --file app.py
-              python3 agents/zero_day_hunter.py --dir src --severity HIGH --lang python
-              python3 agents/zero_day_hunter.py --dir . --output findings.json
-              python3 agents/zero_day_hunter.py --dir . --gate-model auto --report report.md
-              python3 agents/zero_day_hunter.py --dir . --no-validate  # disable AI gate
+              bbh agents/zero_day_hunter.py --file app.py
+              bbh agents/zero_day_hunter.py --dir src --severity HIGH --lang python
+              bbh agents/zero_day_hunter.py --dir . --output findings.json
+              bbh agents/zero_day_hunter.py --dir . --gate-model auto --report report.md
+              bbh agents/zero_day_hunter.py --dir . --no-validate  # disable AI gate
             """
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,

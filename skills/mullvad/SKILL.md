@@ -12,7 +12,7 @@ Do not use relay switching to evade target rules, rate limits, account bans, WAF
 ## Required Preflight
 
 1. Confirm the task is in scope and live testing is allowed.
-2. Read `$HARNESS_ROOT/prompts/mullvad-playbook.md`.
+2. Read `prompts/mullvad-playbook.md`.
 3. Check current state:
    ```bash
    mullvad status

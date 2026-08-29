@@ -12,17 +12,17 @@ This is a RAG-style mechanism skill. Classify the header lane first, load one fo
 ## Load Order
 
 1. Read program scope, owned-account context, and active live-testing policy.
-2. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
-3. Read `$HARNESS_ROOT/prompts/headers-context-pack.md`.
+2. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
+3. Read `prompts/headers-context-pack.md`.
 4. Classify the lane:
-   - `Origin` or `Referer` behavior -> `$HARNESS_ROOT/skills/headers/references/technique-packs/origin.md`
-   - client IP or proxy trust -> `$HARNESS_ROOT/skills/headers/references/technique-packs/proxy-trust.md`
-   - internal route rewrite or forbidden path access -> `$HARNESS_ROOT/skills/headers/references/technique-packs/route-override.md`
-   - HTTP method tunneling -> `$HARNESS_ROOT/skills/headers/references/technique-packs/method-override.md`
-   - tenant, virtual host, or upstream routing -> `$HARNESS_ROOT/skills/headers/references/technique-packs/host-routing.md`
-   - `Accept`, `Content-Type`, charset, compression, or API version behavior -> `$HARNESS_ROOT/skills/headers/references/technique-packs/content-negotiation.md`
-   - auth header/session precedence -> `$HARNESS_ROOT/skills/headers/references/technique-packs/auth-context.md`
-5. Read `$HARNESS_ROOT/prompts/headers-playbook.md` for deep review, stuck analysis, or report writing.
+   - `Origin` or `Referer` behavior -> `skills/headers/references/technique-packs/origin.md`
+   - client IP or proxy trust -> `skills/headers/references/technique-packs/proxy-trust.md`
+   - internal route rewrite or forbidden path access -> `skills/headers/references/technique-packs/route-override.md`
+   - HTTP method tunneling -> `skills/headers/references/technique-packs/method-override.md`
+   - tenant, virtual host, or upstream routing -> `skills/headers/references/technique-packs/host-routing.md`
+   - `Accept`, `Content-Type`, charset, compression, or API version behavior -> `skills/headers/references/technique-packs/content-negotiation.md`
+   - auth header/session precedence -> `skills/headers/references/technique-packs/auth-context.md`
+5. Read `prompts/headers-playbook.md` for deep review, stuck analysis, or report writing.
 6. Route instead of duplicating:
    - concrete `403` endpoint -> `/403`
    - broad bypass or parser mutation -> `/bypass`

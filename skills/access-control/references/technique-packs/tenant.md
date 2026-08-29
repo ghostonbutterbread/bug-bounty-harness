@@ -18,7 +18,7 @@ store_id, shop_id, group_id, member_id, role, owner_id, invite_id
 
 ## Try
 
-- Load `$HARNESS_ROOT/skills/access-control/references/mutations/idor.md` for object, parent/child, and tenant-reference mutations.
+- Load `skills/access-control/references/mutations/idor.md` for object, parent/child, and tenant-reference mutations.
 - Swap tenant/workspace/project IDs between two owned contexts.
 - Test role mismatch: viewer in one workspace, owner in another.
 - Replay invites, removed memberships, and pending membership requests.

@@ -32,15 +32,15 @@ Read shared state before changing the brainstorm spec:
 2. `brainstorm/coverage.jsonl`, if present
 3. Current confirmed and dormant reports for the target lane
 4. `notes/summary.md`, `notes/observations.md`, `checklist.md`, and `todo.md` when they exist
-5. `$HARNESS_ROOT/prompts/brainstorm-spec-playbook.md`
+5. `prompts/brainstorm-spec-playbook.md`
 
 ## Canonical Files
 
-- **Playbook:** `$HARNESS_ROOT/prompts/brainstorm-spec-playbook.md`
+- **Playbook:** `prompts/brainstorm-spec-playbook.md`
 - **Default lane spec:** `~/Shared/{family}/{program}/{lane}/brainstorm/spec.md`
 - **Default coverage ledger:** `~/Shared/{family}/{program}/{lane}/brainstorm/coverage.jsonl`
 - **Legacy web spec:** `$HARNESS_SHARED_BASE/{program}/brainstorm/spec.md` (read-only discovery/migration source only)
-- **Parser/runtime module:** `$HARNESS_ROOT/agents/brainstorm_spec.py`
+- **Parser/runtime module:** `agents/brainstorm_spec.py`
 
 Use the existing target lane root when one is obvious from reports, team output, or the requested `--family`, `--lane`, or `--target-path`.
 Do not create or update new specs under `$HARNESS_SHARED_BASE`; write to the lane-local `~/Shared/{family}/{program}/{lane}/brainstorm/` path unless the user explicitly overrides the spec path.
@@ -58,7 +58,7 @@ Do not create or update new specs under `$HARNESS_SHARED_BASE`; write to the lan
 ## Workflow
 
 1. Resolve the lane root and spec path.
-2. Read `$HARNESS_ROOT/prompts/brainstorm-spec-playbook.md`.
+2. Read `prompts/brainstorm-spec-playbook.md`.
 3. If the spec does not exist, create it from the playbook template.
 4. For `--add-hypothesis`, ask for or infer the surface, entry point, expected chain, priority, suggested agents, tags, focus files, and evidence.
 5. For `--from-report`, extract impact primitives and hypothesis candidates from the report, then add only source-backed entries.
@@ -71,11 +71,9 @@ Do not create or update new specs under `$HARNESS_SHARED_BASE`; write to the lan
 When the user wants to run hypotheses, pass the spec to the team runtime instead of implementing execution here:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   bbh agents/zero_day_team.py <program> <target> --brainstorm-spec <spec-path>
 
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   bbh agents/apk_team.py <program> <target> --brainstorm-spec <spec-path>
 ```
@@ -92,7 +90,6 @@ Use focused runtime flags only when explicitly requested:
 Lightweight validation:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 SPEC_PATH="PATH_TO_BRAINSTORM_SPEC" \
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
 python3 - <<'PY'

@@ -6,10 +6,10 @@ creates the corpus layout, validates card metadata, rebuilds a local SQLite FTS
 index, and returns compact cited research briefings for agents.
 
 Examples:
-    python3 scripts/research_map.py init
-    python3 scripts/research_map.py validate
-    python3 scripts/research_map.py index
-    python3 scripts/research_map.py query --terms "custom protocol parser" --class xss
+    bbh scripts/research_map.py init
+    bbh scripts/research_map.py validate
+    bbh scripts/research_map.py index
+    bbh scripts/research_map.py query --terms "custom protocol parser" --class xss
 """
 
 from __future__ import annotations
@@ -85,9 +85,9 @@ search state and may be regenerated at any time.
 Use the BBH CLI:
 
 ```bash
-python3 scripts/research_map.py validate
-python3 scripts/research_map.py index
-python3 scripts/research_map.py query --terms "sanitizer svg" --class xss
+bbh scripts/research_map.py validate
+bbh scripts/research_map.py index
+bbh scripts/research_map.py query --terms "sanitizer svg" --class xss
 ```
 
 Card statuses: `draft`, `source-reported`, `credible-source-reported`,

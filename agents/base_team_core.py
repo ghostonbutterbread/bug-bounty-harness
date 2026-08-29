@@ -205,7 +205,7 @@ def _load_program_scope_prompt(program: str) -> str:
             [
                 "Scope status: not loaded.",
                 "Before any live network testing, pull scope and rules with:",
-                f"  python3 agents/scope_puller.py {program} --platform <hackerone|bugcrowd|intigriti>",
+                f"  bbh agents/scope_puller.py {program} --platform <hackerone|bugcrowd|intigriti>",
                 "Bugcrowd public engagement pages are scraped by default; use --api only when an API-backed path is intentionally configured.",
                 "Until canonical scope exists, do static/offline analysis only. Do not send live requests, crawl, fuzz, or probe vendor systems.",
             ]

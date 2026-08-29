@@ -18,7 +18,7 @@ file_id, document_id, order_id, invoice_id, uuid, guid, gid, node_id, cursor
 
 ## Try
 
-- Load `$HARNESS_ROOT/skills/access-control/references/mutations/idor.md` for IDOR-specific object/reference mutations.
+- Load `skills/access-control/references/mutations/idor.md` for IDOR-specific object/reference mutations.
 - Swap User A object ID into User B request.
 - Compare list endpoint filtering against direct object fetch.
 - Check 302, 401, and 403 response bodies for leaked private data.

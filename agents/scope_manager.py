@@ -127,7 +127,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         epilog=dedent(
             """\
             Example:
-              python3 agents/scope_manager.py adobe
+              bbh agents/scope_manager.py adobe
 
             Output:
               Reads from ~/Shared/scopes/<program>/ with legacy fallback.

@@ -99,7 +99,6 @@ Update fields:
 After each checkpoint or completion, ingest URL-like results:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 bbh agents/url_ingest.py aggregate <program> \
   --input ~/Shared/web_bounty/<program>/web/recon/fuzz/runs/<run-id>/normalized \
   --run-id <run-id> \

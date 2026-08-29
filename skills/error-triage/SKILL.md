@@ -15,17 +15,17 @@ smallest safe next step under the current goal.
 ## Load Order
 
 1. Read program scope, owned-account context, current task goal, and live-testing policy.
-2. Resolve `$HARNESS_ROOT`; default is `/home/ryushe/projects/bug_bounty_harness`.
-3. Read `$HARNESS_ROOT/prompts/error-triage-context-pack.md`.
+2. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
+3. Read `prompts/error-triage-context-pack.md`.
 4. Classify by current goal plus observed response:
-   - login/session/account setup errors -> `$HARNESS_ROOT/skills/error-triage/references/technique-packs/auth-errors.md`
-   - `401`, `403`, ownership, or authorization errors -> `$HARNESS_ROOT/skills/error-triage/references/technique-packs/access-errors.md`
-   - `500`, framework, server, or infrastructure errors -> `$HARNESS_ROOT/skills/error-triage/references/technique-packs/server-errors.md`
-   - `400`, `415`, schema, content-type, or parser errors -> `$HARNESS_ROOT/skills/error-triage/references/technique-packs/parser-errors.md`
-   - `405` or method mismatch -> `$HARNESS_ROOT/skills/error-triage/references/technique-packs/method-errors.md`
-   - `429`, WAF, CAPTCHA, bot challenge, or temporary block -> `$HARNESS_ROOT/skills/error-triage/references/technique-packs/rate-limit-waf.md`
-   - unclear, mixed, custom, or unhandled errors -> `$HARNESS_ROOT/skills/error-triage/references/technique-packs/unhandled-errors.md`
-5. Read `$HARNESS_ROOT/prompts/error-triage-playbook.md` for deep review, stuck analysis, or report writing.
+   - login/session/account setup errors -> `skills/error-triage/references/technique-packs/auth-errors.md`
+   - `401`, `403`, ownership, or authorization errors -> `skills/error-triage/references/technique-packs/access-errors.md`
+   - `500`, framework, server, or infrastructure errors -> `skills/error-triage/references/technique-packs/server-errors.md`
+   - `400`, `415`, schema, content-type, or parser errors -> `skills/error-triage/references/technique-packs/parser-errors.md`
+   - `405` or method mismatch -> `skills/error-triage/references/technique-packs/method-errors.md`
+   - `429`, WAF, CAPTCHA, bot challenge, or temporary block -> `skills/error-triage/references/technique-packs/rate-limit-waf.md`
+   - unclear, mixed, custom, or unhandled errors -> `skills/error-triage/references/technique-packs/unhandled-errors.md`
+5. Read `prompts/error-triage-playbook.md` for deep review, stuck analysis, or report writing.
 6. Route instead of duplicating:
    - concrete owned `403` -> `/403`
    - WAF/rate-limit behavior -> `/waf`

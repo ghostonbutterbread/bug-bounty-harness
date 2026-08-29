@@ -3,11 +3,23 @@ import io
 import json
 from pathlib import Path
 
+import pytest
+
 from agents.hunter_memory_adapter import build_hunter_memory_ref, harvest_hunter_memory_from_log
 from agents.hunter_memory_tool import main as hunter_memory_tool_main
 
 
-def test_hunter_memory_adapter_harvests_attempts_and_claims(tmp_path: Path) -> None:
+HUNTER_MEMORY_LOOP_ROOT = Path.home() / "projects" / "hunter-memory-loop"
+
+
+def _configure_hunter_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    if not HUNTER_MEMORY_LOOP_ROOT.is_dir():
+        pytest.skip("optional hunter-memory-loop checkout is unavailable")
+    monkeypatch.setenv("HUNTER_MEMORY_LOOP_ROOT", str(HUNTER_MEMORY_LOOP_ROOT))
+
+
+def test_hunter_memory_adapter_harvests_attempts_and_claims(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_hunter_memory(monkeypatch)
     ref = build_hunter_memory_ref(
         program="adapter-smoke",
         agent_key="xss",
@@ -61,7 +73,8 @@ def test_hunter_memory_adapter_ignores_missing_disabled_ref(tmp_path: Path) -> N
     assert result == {"enabled": False, "attempts": 0, "claims": 0, "errors": []}
 
 
-def test_hunter_memory_tool_start_attempt_claim_and_harvest(tmp_path: Path) -> None:
+def test_hunter_memory_tool_start_attempt_claim_and_harvest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_hunter_memory(monkeypatch)
     prompt_path = tmp_path / "prompt.md"
     output = io.StringIO()
     with contextlib.redirect_stdout(output):

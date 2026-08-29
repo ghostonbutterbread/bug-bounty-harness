@@ -4231,7 +4231,7 @@ def _parse_cli_args(argv: Sequence[str]) -> argparse.Namespace:
         "--chain",
         action="store_true",
         help="After review, run the chainer to develop exploit chains from findings. "
-             "Disabled by default. To use: python3 agents/zero_day_team.py <program> <target> --chain",
+             "Disabled by default. To use: bbh agents/zero_day_team.py <program> <target> --chain",
     )
     parser.add_argument(
         "--fresh",

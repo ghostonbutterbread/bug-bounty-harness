@@ -15,7 +15,7 @@ This skill is a router and evidence combiner. It does not replace `/js`,
 ## Load Order
 
 1. Read
-   `/home/ryushe/projects/bug_bounty_harness/prompts/parameter-mining-playbook.md`.
+   `prompts/parameter-mining-playbook.md`.
 2. Load `/bounty-storage` and resolve the active Bounty Core family/lane before
    writing. Do not hard-code legacy `bounty_recon` roots when a
    `context/target_profile.json` or resolver output exists.

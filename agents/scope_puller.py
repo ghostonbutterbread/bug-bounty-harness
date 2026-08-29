@@ -464,7 +464,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         epilog=dedent(
             """\
             Example:
-              python3 agents/scope_puller.py canva --platform bugcrowd
+              bbh agents/scope_puller.py canva --platform bugcrowd
 
             Output:
               ~/Shared/scopes/<program>/

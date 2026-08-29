@@ -110,7 +110,7 @@ ffuf -u 'https://target.com/api/search?FUZZ=test' \
 
 ## Files
 
-- **Playbook:** `$HARNESS_ROOT/prompts/fuzz-playbook.md`
+- **Playbook:** `prompts/fuzz-playbook.md`
 - **Shared Root:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`
 - **Fuzz Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/fuzz/findings.md`
 - **Fuzz Artifacts:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/fuzz/`

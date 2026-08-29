@@ -14,8 +14,8 @@ Use to choose technique families and evaluator design for authorized model/app t
 
 ## Load Order
 
-1. `$HARNESS_ROOT/prompts/model-redteam-taxonomy-playbook.md`
-2. `$HARNESS_ROOT/prompts/prompt-injection-playbook.md` for app-boundary work
+1. `prompts/model-redteam-taxonomy-playbook.md`
+2. `prompts/prompt-injection-playbook.md` for app-boundary work
 3. `/liberate-fren` for authorized local/cloud model behavior research
 
 ## Technique Families

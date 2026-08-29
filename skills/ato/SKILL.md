@@ -20,23 +20,23 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    `/pullscope`. If the program has no published scope, write `no scope` stub.
 2. **Cold Surface Pass** — Confirm every account, email address, IdP account,
    workspace, invite, recovery artifact, and resource is owned or explicitly
-   approved. Resolve `$HARNESS_ROOT`; default is
-   `/home/ryushe/projects/bug_bounty_harness`. Look at the target auth/identity
+   approved. Resolve `the active BBH checkout`; default is
+   `the selected BBH checkout`. Look at the target auth/identity
    flow with fresh eyes. Observe the flow directly. Avoid broad prior-state reads until the agent has current observations.
 3. **Fresh Observations** — Aim to identify 3-5 fresh identity flows, auth boundaries, or
    session behaviors from direct observation.
-4. **Memory Overlay** — Now read `$HARNESS_ROOT/prompts/ato-context-pack.md`
+4. **Memory Overlay** — Now read `prompts/ato-context-pack.md`
    and any prior hunt state.
 5. Classify one lane:
    - forgot-password, reset link/code, recovery code, password change by token -> `/password-reset`
-   - email change, recovery email, alternate email, verification code, identity merge -> `$HARNESS_ROOT/prompts/ato-playbook.md`
-   - SSO/OAuth/SAML/OIDC, social login, account linking, first-login provisioning -> `$HARNESS_ROOT/prompts/ato-playbook.md`
+   - email change, recovery email, alternate email, verification code, identity merge -> `prompts/ato-playbook.md`
+   - SSO/OAuth/SAML/OIDC, social login, account linking, first-login provisioning -> `prompts/ato-playbook.md`
    - user ID, account ID, org ID, invite ID, membership, tenant binding -> `/access-control` or `/idor`
    - CSRF on login/link/change/recovery actions -> `/csrf`
    - race between verification, linking, reset, invite, or session state -> `/race`
    - host/header/path/method/parser mismatch -> `/headers` or `/bypass`
    - one live browser/proxy request must be captured and safely modified -> `/single-request-grabber`
-6. Load `$HARNESS_ROOT/prompts/ato-playbook.md` for full flow mapping, stuck analysis, or report writing.
+6. Load `prompts/ato-playbook.md` for full flow mapping, stuck analysis, or report writing.
 
 ## Workflow
 

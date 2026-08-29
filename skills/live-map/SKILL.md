@@ -14,7 +14,7 @@ Use this when an agent needs to explore a live app without being told the vulner
 
 ## Load Order
 
-1. Read `$HARNESS_ROOT/prompts/live-map-playbook.md`.
+1. Read `prompts/live-map-playbook.md`.
 2. Read scope, live-testing policy, and approved account context.
 3. Initialize or load `$HARNESS_SHARED_BASE/{program}/agent_shared/application-map/`.
 4. Capture or ingest one small exploration slice at a time.
@@ -23,7 +23,6 @@ Use this when an agent needs to explore a live app without being told the vulner
 ## Commands
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 bbh agents/live_map.py init <program>
 bbh agents/live_map.py add-route <program> --url https://target.example/my-account?id=123 --auth-state user-a --source browser
 bbh agents/live_map.py add-route <program> --url https://target.example/admin --source browser --blind-mode

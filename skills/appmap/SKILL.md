@@ -32,15 +32,15 @@ Examples:
 
 Read the playbook before running the mapper:
 
-1. `$HARNESS_ROOT/prompts/appmap-playbook.md`
+1. `prompts/appmap-playbook.md`
 2. Existing target lane notes when the family/lane is obvious
 3. Existing `brainstorm/spec.md` only for context; do not overwrite it from AppMap
 
 ## Canonical Files
 
-- **Playbook:** `$HARNESS_ROOT/prompts/appmap-playbook.md`
-- **Mapper:** `$HARNESS_ROOT/agents/app_mapper.py`
-- **Research module:** `$HARNESS_ROOT/agents/appmap_research.py`
+- **Playbook:** `prompts/appmap-playbook.md`
+- **Mapper:** `agents/app_mapper.py`
+- **Research module:** `agents/appmap_research.py`
 - **Default output:** `~/Shared/appmap/{program}/static/appmap/{run_id}/`
 - **Canonical output:** `~/Shared/{family}/{program}/{lane}/appmap/{run_id}/`
 - **Generated specs:** `{output}/generated_specs/`
@@ -83,7 +83,6 @@ Read the playbook before running the mapper:
 3. For a reusable baseline/posture map, run:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   bbh agents/app_mapper.py <program> <target_path> \
   --target-kind auto \
@@ -102,7 +101,6 @@ bbh agents/app_mapper.py <program> <target_path> \
 4. For focused RCE output, run:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   bbh agents/app_mapper.py <program> <target_path> \
   --target-kind auto \
@@ -166,7 +164,6 @@ Promoted specs and packets keep pointers to the originating AppMap run. Existing
 AppMap stops after artifact and spec generation. If the user asks to run a generated spec, use the existing runtime explicitly:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   bbh agents/zero_day_team.py <program> <target_path> \
   --brainstorm-spec <appmap-output>/generated_specs/rce-spec.md \
@@ -182,14 +179,12 @@ Do not introduce a `zero_day_team --appmap` invocation here.
 Promoted handoff discovery:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 bbh agents/app_mapper.py --list-handoffs --brainstorm-root ~/Shared/<family>/<program>/<lane>/brainstorm
 ```
 
 Campaign status / operator view:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 bbh agents/app_mapper.py --campaign-status --brainstorm-root ~/Shared/<family>/<program>/<lane>/brainstorm
 ```
 
@@ -208,7 +203,6 @@ bbh agents/app_mapper.py --plan-handoff <promoted-spec> --brainstorm-hypothesis 
 The planned command must use `bbh agents/zero_day_team.py <program> <target_path> --brainstorm-spec <promoted-spec> --brainstorm-only` and must not include `--appmap`. Runtime defaults to one agent per hypothesis. If the user explicitly wants clustered execution for a reviewed AppMap campaign, pass `--brainstorm-cluster-size 2` (or another small value); clustering is only for assignments sharing the same focus files, source, and sink.
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 python3 -m pytest agents/test_app_mapper.py -q
 ./sync_skills.sh --dry-run
 ```

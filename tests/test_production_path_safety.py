@@ -31,6 +31,31 @@ class ProductionPathSafetyTests(unittest.TestCase):
     def test_receipt_based_bounty_core_resolvers_are_removed(self) -> None:
         self.assertFalse((ROOT / "agents" / "dependency_context.py").exists())
         self.assertFalse((ROOT / "agents" / "bounty_core_bootstrap.py").exists())
+    def test_generated_operator_commands_use_the_dispatcher(self) -> None:
+        direct = re.compile(r"\bpython(?:3)?\s+(?:agents|scripts|skills)/")
+        violations = [
+            str(path.relative_to(ROOT))
+            for path in PRODUCTION_PYTHON
+            if direct.search(path.read_text(encoding="utf-8"))
+        ]
+        self.assertEqual(violations, [], "\n".join(violations))
+
+    def test_optional_integrations_do_not_probe_conventional_home_source_checkouts(self) -> None:
+        files = [
+            ROOT / "agents" / "apk_team.py",
+            ROOT / "agents" / "apk_deep_dive.py",
+            ROOT / "agents" / "hunting_policy.py",
+            ROOT / "agents" / "hunter_memory_adapter.py",
+        ]
+        violations = [
+            str(path.relative_to(ROOT))
+            for path in files
+            if (
+                'Path.home() / "projects"' in path.read_text(encoding="utf-8")
+                or "/home/ryushe/source" in path.read_text(encoding="utf-8")
+            )
+        ]
+        self.assertEqual(violations, [], "\n".join(violations))
 
 
 if __name__ == "__main__":

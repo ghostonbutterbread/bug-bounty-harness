@@ -30,7 +30,7 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    live-testing policy. Check `~/Shared/scopes/{program}/` first, then
    `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
    `/pullscope`. If the program has no published scope, write `no scope` stub.
-2. **Cold Surface Pass** — Read `$HARNESS_ROOT/prompts/hunter-loop-playbook.md`.
+2. **Cold Surface Pass** — Read `prompts/hunter-loop-playbook.md`.
    Look at the app with fresh eyes. Browse, map endpoints, observe behavior.
    Avoid broad MapStore, ledger, or prior-lead reads until the agent has current observations.
 3. **Fresh Observations** — Aim to identify 3-5 fresh surfaces, flows, parameters, roles,

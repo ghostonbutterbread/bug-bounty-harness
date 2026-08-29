@@ -280,7 +280,7 @@ tag metadata.
 Example:
 
 ```bash
-python3 agents/map_request_tags.py explain \
+bbh agents/map_request_tags.py explain \
   --gate company \
   --status 403 \
   --reason not_in_company \

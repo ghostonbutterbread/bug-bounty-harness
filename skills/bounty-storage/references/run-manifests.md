@@ -76,7 +76,7 @@ the archive manifest says where the active path is or Ryushe approves restore.
 ## Script Ownership
 
 ```text
-Universal harness behavior -> /home/ryushe/projects/bug_bounty_harness/
+Universal harness behavior -> BBH active checkout
 Program-specific helper    -> ~/Shared/web_bounty/<program>/web/scripts/
                             or ~/Shared/bounty_recon/<program>/scripts/
 General local utility      -> ~/scripts/

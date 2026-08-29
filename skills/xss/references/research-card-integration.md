@@ -37,8 +37,7 @@ at run startup or merely because a framework name was detected.
 Example:
 
 ```bash
-cd /home/ryushe/projects/bug_bounty_harness
-python3 scripts/research_map.py query \
+bbh scripts/research_map.py query \
   --class xss \
   --terms "react markdown dangerouslySetInnerHTML" \
   --tag dom-xss \

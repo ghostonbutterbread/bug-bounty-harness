@@ -14,7 +14,7 @@ Skills use paths from `config.env` or environment variables.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `HARNESS_ROOT` | Bug bounty harness repo root | `~/projects/bug_bounty_harness` |
+| `HARNESS_ROOT` | Compatibility setting; setup always derives the BBH repository root from its own location | Auto-detected |
 | `HARNESS_SHARED_BASE` | Base for bounty recon data | `~/Shared/web_bounty` |
 | `HARNESS_WORDLISTS` | Wordlists directory | `~/wordlists` |
 | `CLAUDE_SKILLS_DIR` | Claude Code skills directory | `~/.claude/skills` |
@@ -169,8 +169,8 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 /js analyze canva --page https://www.canva.com/login --page-context "login/auth flow"
 /js generate canva --from-run js-canva-20260615T000000Z
 /js deep canva --offline-fanout --from-run js-canva-20260615T000000Z
-python3 agents/js_team.py dry-run --js-run-root ~/Shared/web_bounty/canva/web/recon/js/js-canva-20260615T000000Z --mode deep
-python3 agents/js_team.py run --js-run-root ~/Shared/web_bounty/canva/web/recon/js/js-canva-20260615T000000Z --stage planner --execute
+bbh agents/js_team.py dry-run --js-run-root ~/Shared/web_bounty/canva/web/recon/js/js-canva-20260615T000000Z --mode deep
+bbh agents/js_team.py run --js-run-root ~/Shared/web_bounty/canva/web/recon/js/js-canva-20260615T000000Z --stage planner --execute
 /recon superdrug
 /recon-ry superdrug --url example.com --profile full
 /focused-recon canva --top 20
@@ -229,7 +229,7 @@ python3 agents/js_team.py run --js-run-root ~/Shared/web_bounty/canva/web/recon/
 
 ```bash
 # Prompt injection vulnerable local lab: starts, tests, and shuts down
-python3 agents/prompt_injection_lab.py --eval --json
+bbh agents/prompt_injection_lab.py --eval --json
 ```
 
 ### Agent Spawn
@@ -238,7 +238,7 @@ spawn_codex(
     task="Hunt for xss on superdrug",
     context={
         "program": "superdrug",
-        "playbook": "$HARNESS_ROOT/prompts/xss-playbook.md",
+        "playbook": "prompts/xss-playbook.md",
         "findings": "$HARNESS_SHARED_BASE/superdrug/ghost/skills/xss/findings.md",
         "knowledge": "$HARNESS_SHARED_BASE/superdrug/ghost/knowledge.md"
     }
@@ -302,12 +302,9 @@ bug_bounty_harness/
 │   ├── xss-playbook.md
 │   └── ...
 ├── agents/live_map.py     # Runtime/browser/proxy application map writer
-├── skills/                # Skill wrappers (source)
+├── skills/                # Canonical skill source; sync to external provider roots
 │   ├── xss/SKILL.md
 │   └── ...
-├── .claude/skills/        # Synced for Claude Code
-├── .agents/skills/        # Synced for Codex
-├── .openclaw/workspace/skills/ # Synced for Ghost/OpenClaw
 └── SKILL_REGISTRY.md      # This file
 ```
 

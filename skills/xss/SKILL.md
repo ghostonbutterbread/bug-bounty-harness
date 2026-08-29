@@ -87,8 +87,8 @@ payload-selection reference:
 
 Useful local sources:
 
-- `/home/ryushe/projects/bug_bounty_harness/prompts/xss-playbook.md`
-- `/home/ryushe/projects/bug_bounty_harness/prompts/xss-payloads.md`
+- `prompts/xss-playbook.md`
+- `prompts/xss-payloads.md`
 - `/home/ryushe/Shared/word_lists/xss/payloads.txt`
 - `/home/ryushe/.axss/knowledge.db` when curated rows exist
 

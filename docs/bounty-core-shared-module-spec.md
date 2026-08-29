@@ -81,7 +81,7 @@ Recommended local development layout:
 
 ```text
 ~/projects/bounty-core/
-~/projects/bug_bounty_harness/
+
 ~/projects/bounty-tools/
 ```
 

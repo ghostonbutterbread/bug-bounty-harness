@@ -19,7 +19,7 @@ directly.
 ## Load Order
 
 1. Read scope, account context, and the active live-testing policy.
-2. Read `$HARNESS_ROOT/prompts/hunter-memory-playbook.md`.
+2. Read `prompts/hunter-memory-playbook.md`.
 3. If an application map exists, read the relevant packet or summary from
    `$HARNESS_SHARED_BASE/{program}/agent_shared/application-map/`.
 4. Start a memory run for the exact surface/idea being tested.
@@ -34,7 +34,6 @@ directly.
 ## Commands
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
 
 bbh agents/hunter_memory_tool.py start <program> \
   --vulnerability xss \

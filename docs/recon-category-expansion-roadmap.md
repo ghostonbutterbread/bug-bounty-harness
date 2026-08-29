@@ -87,13 +87,98 @@ Recon agent planner
 child skill or harness agent assignment
 ```
 
+## Documentation-guided semantic enrichment (planned)
+
+This is an AI-assisted **post-recon reasoning layer**, not a replacement for
+existing collection, scanner, or planner lanes. It turns a bounded cluster of
+observed JavaScript, GraphQL, route, UI, and integration evidence into a
+feature-level question: what is the product intended to permit, what should it
+deny, and which smallest next observation could distinguish the enforcement
+model?
+
+### Invocation and ownership
+
+- Auto Recon remains the authority for saved scope, target selection, rate
+  buckets, queue leases, retries, raw-artifact preservation, and normalization.
+- After normalization, it may enqueue semantic enrichment only for a
+  **new or materially changed** bounded surface cluster. Use a stable identity
+  such as program + feature/surface key + relevant artifact/schema hashes so
+  unchanged historical bundles are not repeatedly reconsidered.
+- The enrichment worker is AI-guided but has no authority to expand scope,
+  execute arbitrary commands, select new targets, or begin live testing. It
+  receives a bounded evidence packet and returns a structured result.
+- The same behavior should be exposed as a focused skill for an interactive
+  application-research agent. An agent that sees a concrete feature, operation,
+  route, or consumer can invoke it independently without waiting for a cron
+  run. This is intentionally skill-first rather than a mandatory monolithic
+  workflow.
+
+### Documentation and durable knowledge boundary
+
+Reuse the existing `/docs` Program Docs lane rather than creating a competing
+"documentation database": Program Docs hold the compact target-specific model
+of a workflow, object/role relationship, provider, or trust boundary. MapStore
+holds concise observed facts and pointers to the relevant Program Doc.
+ResearchMap remains the optional portable-mechanism source when a concrete
+technology or surface signal warrants it. A documentation claim is evidence of
+intended behavior, not proof of server-side enforcement; a missing document is
+uncertainty, not a negative target result.
+
+### Worker contract
+
+**Input:** scoped program/lane, selected surface identity, source-attributed
+JS/GraphQL/route/UI evidence, relevant artifact pointers and hashes, and the
+reason the cluster was admitted.
+
+**Output:** one of:
+
+1. a compact feature/contract packet stating actor, action, object,
+   preconditions, expected denials/invariants, observed implementation signals,
+   sources, and open discriminators;
+2. a Program Doc/MapStore proposal when the model is sufficiently useful and
+   source-backed;
+3. a deduplicated hypothesis packet with the smallest owned-resource or
+   ordinary-observation check; or
+4. `needs_exploration` / `insufficient_evidence`, with the precise missing
+   context and a retry/cooldown key.
+
+Examples of useful questions include whether a documented project-role boundary
+is enforced by a mapped GraphQL mutation, whether a content feature preserves
+safe rendering across feed/notification/export consumers, or whether a
+share/invite workflow keeps its documented state transition after revocation.
+
+The worker must not convert an operation name, vendor analogy, documentation
+copy, or generic vulnerability class into a finding. Authentication, account
+selection, browser state, and any target-directed validation stay with the
+existing policy-governed hypothesis/testing lanes.
+
+### Integration point
+
+```text
+new or changed normalized recon evidence
+        ↓
+AI semantic-enrichment queue (bounded, idempotent, cooldown-aware)
+        ↓
+feature/contract packet + Program Docs/MapStore proposal
+        ↓
+hypothesis or needs-exploration packet
+        ↓
+existing policy-governed review and testing lanes
+```
+
+Implementation should first add an offline plan/fixture path and verify stable
+packet identities, dedupe, retries, and no-live-action behavior. Cron or runtime
+activation is a separate explicit change after that contract is tested.
+
 ## Build order
 
 1. Implement `recon/models.py` plus asset intelligence graph with offline fixtures.
 2. Implement surface map normalization using local recon/live-map fixtures.
 3. Implement plan-only Recon agent planner.
 4. Implement `/intel` or connect the existing `/intel` spec into the planner once available.
-5. Add skill wrappers only when the corresponding module has tests and stable artifact paths.
+5. Add the plan-only documentation-guided semantic-enrichment packet/queue contract and its offline fixtures; reuse `/docs` and MapStore rather than adding a new durable store.
+6. Add the independent skill wrapper once the corresponding module has tests and stable artifact paths.
+7. Consider scheduled activation only after the queue, cooldown, and no-live-action integration path is verified.
 
 ## Safety boundaries
 

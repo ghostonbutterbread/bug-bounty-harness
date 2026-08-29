@@ -272,6 +272,16 @@ Script responsibilities:
   over noisy "token/password/secret" matches
 - store chunk sets by file hash plus chunk settings, then write bounded packet
   files for agents
+- when an in-scope bundle declares `sourceMappingURL`, fetch its map by default,
+  retain it content-addressed under `_library/sourcemaps/`, and inventory every
+  original module name in `source_map_modules.jsonl`
+- turn embedded `sourcesContent` into bounded, module-level review packets so
+  agents can map original source instead of treating minified bundles as the
+  only available code; preserve the bundle URL/SHA and map SHA on every packet
+- never make source maps an unbounded download or prompt dump: the default
+  per-map cap is 64 MiB and the default packet budget is 500 embedded modules;
+  record maps that exceed either review boundary so a deliberate follow-up can
+  raise the limit instead of silently pretending coverage is complete
 
 Use `--refresh` only when intentionally checking whether a URL's content has
 changed:
@@ -283,6 +293,13 @@ python3 agents/js_analyzer.py inventory canva \
   --provenance-source recon-aggregate \
   --refresh
 ```
+
+Source maps are automatic for in-scope JavaScript. Use `--source-maps off` only
+when a run must avoid source-map retrieval; use `--source-map-max-bytes` or
+`--source-map-module-limit` when an explicitly scoped mapping task needs a
+larger bounded review set. Start source-map review from
+`source_map_modules.jsonl` and `source_map_packets/`; do not paste the raw map
+into an agent prompt.
 
 After a worker reviews packets, write its pre-finding conclusions as JSONL and
 index them:

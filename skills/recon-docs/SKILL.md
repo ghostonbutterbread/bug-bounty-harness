@@ -33,8 +33,7 @@ An agent collects a bounded JSON/JSONL source list. Each row may contain:
 Normalize it without network retrieval:
 
 ```bash
-cd "${HARNESS_ROOT:-$HOME/projects/bug_bounty_harness}"
-python3 agents/recon_docs.py <program> --target <scoped-origin-or-host> \
+bbh agents/recon_docs.py <program> --target <scoped-origin-or-host> \
   --input <agent-collected-docs.jsonl> --json
 ```
 

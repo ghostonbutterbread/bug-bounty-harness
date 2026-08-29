@@ -72,7 +72,7 @@ applicable lanes and their ownership; it never bypasses a child skill's scope,
 authentication, rate, browser, or live-action gate.
 
 ```bash
-python3 agents/recon_full.py <program> --target <scoped-origin> --mode full \
+bbh agents/recon_full.py <program> --target <scoped-origin> --mode full \
   --auth <approved-account-alias> --include-proxy-history
 ```
 

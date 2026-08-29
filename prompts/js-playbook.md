@@ -279,9 +279,10 @@ Script responsibilities:
   agents can map original source instead of treating minified bundles as the
   only available code; preserve the bundle URL/SHA and map SHA on every packet
 - never make source maps an unbounded download or prompt dump: the default
-  per-map cap is 64 MiB and the default packet budget is 500 embedded modules;
-  record maps that exceed either review boundary so a deliberate follow-up can
-  raise the limit instead of silently pretending coverage is complete
+  per-map cap is 64 MiB; embedded source expansion is additionally capped at
+  64 MiB and 1,000 packets per bundle. Record modules truncated by any budget
+  so a deliberate follow-up can raise the limit instead of silently pretending
+  coverage is complete
 
 Use `--refresh` only when intentionally checking whether a URL's content has
 changed:

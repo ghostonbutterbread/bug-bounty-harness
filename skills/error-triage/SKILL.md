@@ -15,7 +15,7 @@ smallest safe next step under the current goal.
 ## Load Order
 
 1. Read program scope, owned-account context, current task goal, and live-testing policy.
-2. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
+2. If dispatcher diagnosis is needed, run `bbh --root`; do not select a checkout manually.
 3. Read `prompts/error-triage-context-pack.md`.
 4. Classify by current goal plus observed response:
    - login/session/account setup errors -> `skills/error-triage/references/technique-packs/auth-errors.md`

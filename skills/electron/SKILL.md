@@ -41,8 +41,7 @@ Read the playbook before running or preparing prompts:
 3. Start with a prompt smoke:
 
 ```bash
-PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-  bbh agents/electron_team.py <program> <target_path> --dry-run-prompts
+bbh agents/electron_team.py <program> <target_path> --dry-run-prompts
 ```
 
 4. Prepare reusable prompts when the operator wants artifacts without agent execution:

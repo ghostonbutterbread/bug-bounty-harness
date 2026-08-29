@@ -60,3 +60,16 @@ hardcoded examples outside this bounded migration scope.
 A lane owner must install/symlink `bbh` from the intended beta or stable
 checkout into that lane's command path. Promotion and Hoster checkout repair
 remain separate, explicit operations.
+
+## Skill-audit follow-up
+
+- Source branch: `fix/skill-command-audit`; base and target: `beta` at
+  `4809212`.
+- The 89 canonical `SKILL.md` files were audited after beta activation. This
+  follow-up removes checkout-selection, ambient `PYTHONPATH`, machine-local
+  helper, and cwd-dependent sync guidance that could bypass the launcher
+  contract.
+- The static command-safety regression rejects those stale guidance forms and
+  validates documented `bbh` targets, including `sync_skills.sh`.
+- Verification: `python3 -m unittest -v tests.test_skill_command_lane_safety
+  tests.test_migrated_skill_commands`.

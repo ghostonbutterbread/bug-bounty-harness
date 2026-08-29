@@ -236,7 +236,6 @@ Use intent modes to keep MapStore as lazy retrieval instead of prompt baggage.
 CLI example for the two common questions:
 
 ```bash
-PYTHONPATH=".:$HOME/projects/bounty-core" \
 bbh agents/map_store.py query --program <program> --family web_bounty --lane web \
   --url "https://app.example/path" --surface xss --intent dedupe
 ```
@@ -380,7 +379,6 @@ Capability:
 Query the current gadget ledger with:
 
 ```bash
-PYTHONPATH=".:$HOME/projects/bounty-core" \
 bbh agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget
 ```
 
@@ -462,10 +460,10 @@ Use `docs/mapstore-request-contracts.md` for the canonical schema. Key rules:
 
 ## Commands
 
-Run from `the selected BBH checkout` with bounty-core on `PYTHONPATH`.
+Use the selected lane's `bbh`; it supplies the BBH checkout and its local
+virtual environment, including the installed Bounty Core dependency.
 
 ```bash
-PYTHONPATH=".:$HOME/projects/bounty-core"
 bbh agents/map_store.py init --program <program> --family web_bounty --lane web
 bbh agents/map_store.py query --program <program> --family web_bounty --lane web --url "https://app.example/path" --surface xss
 bbh agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget,confirmed

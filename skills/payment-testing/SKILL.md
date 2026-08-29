@@ -20,8 +20,7 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    Read `/payment-testing-policy` before touching payment forms, payment
    methods, purchases, subscriptions, refunds, credits, gift cards, invoices,
    or entitlements.
-2. **Cold Surface Pass** — Resolve `the active BBH checkout`; default is
-   `the selected BBH checkout`. Look at the payment flow
+2. **Cold Surface Pass** — Look at the payment flow
    directly. Browse checkout, observe what the backend trusts. Avoid broad
    prior-state reads until the agent has current observations.
 3. **Fresh Observations** — Aim to identify 3-5 fresh price fields, coupon flows,

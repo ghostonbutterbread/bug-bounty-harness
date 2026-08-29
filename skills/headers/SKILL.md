@@ -12,7 +12,7 @@ This is a RAG-style mechanism skill. Classify the header lane first, load one fo
 ## Load Order
 
 1. Read program scope, owned-account context, and active live-testing policy.
-2. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
+2. If dispatcher diagnosis is needed, run `bbh --root`; do not select a checkout manually.
 3. Read `prompts/headers-context-pack.md`.
 4. Classify the lane:
    - `Origin` or `Referer` behavior -> `skills/headers/references/technique-packs/origin.md`

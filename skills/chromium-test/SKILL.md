@@ -121,12 +121,13 @@ user-systemd service. The provisioner starts the browser under its own recorded
 user-systemd unit; a `queued` result is normal admission control, not a reason
 to bypass it with a direct launcher invocation.
 
+Use the portable `hoster-ssh` skill interface to create the named remote
+user-systemd unit. Do not substitute a machine-local helper path or directly
+invoke an unrecorded remote launcher. The unit must run:
+
 ```bash
-run_id="$(date -u +%Y%m%dT%H%M%SZ)"
-unit="hoster-browser-request-$run_id"
-HELPER=/home/ryushe/.openclaw/workspace/skills/hoster-ssh/scripts/hoster_user_unit.py
-python3 "$HELPER" --unit="$unit" -- \
-  /bin/bash -lc "bbh skills/chromium-test/scripts/browser_provisioner.py request <program> <account> --agent-id <agent-id> --run-id '$run_id' --purpose '<task>' --url '<url>'"
+bbh skills/chromium-test/scripts/browser_provisioner.py request <program> <account> \
+  --agent-id <agent-id> --run-id <run-id> --purpose '<task>' --url '<url>'
 ```
 
 Read the provisioner result from the recorded request unit. It returns safe

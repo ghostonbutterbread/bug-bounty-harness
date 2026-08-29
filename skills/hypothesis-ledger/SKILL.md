@@ -44,7 +44,7 @@ idea merely because it is not the current highest-information test.
 
 ## Commands
 
-Run from `the active BBH checkout`:
+Use the selected lane's dispatcher:
 
 ```bash
 bbh agents/hypothesis_ledger.py create <program> \

@@ -71,10 +71,8 @@ Do not create or update new specs under `$HARNESS_SHARED_BASE`; write to the lan
 When the user wants to run hypotheses, pass the spec to the team runtime instead of implementing execution here:
 
 ```bash
-PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   bbh agents/zero_day_team.py <program> <target> --brainstorm-spec <spec-path>
 
-PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   bbh agents/apk_team.py <program> <target> --brainstorm-spec <spec-path>
 ```
 
@@ -89,20 +87,8 @@ Use focused runtime flags only when explicitly requested:
 
 Lightweight validation:
 
-```bash
-SPEC_PATH="PATH_TO_BRAINSTORM_SPEC" \
-PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
-python3 - <<'PY'
-import os
-from agents.brainstorm_spec import BrainstormSpecStore
-
-spec = BrainstormSpecStore.load(os.environ["SPEC_PATH"])
-coverage = spec.path.with_name("coverage.jsonl")
-summary = BrainstormSpecStore.coverage_summary(coverage, spec=spec)
-print(f"loaded {len(spec.hypotheses)} hypotheses from {spec.path}")
-print(f"status counts: {summary['counts_by_status']}")
-print(f"outcome counts: {summary['counts_by_outcome']}")
-PY
-```
+Use the documented team runtime dry-run or the Brainstorm Spec store's
+repository-owned CLI for validation; do not set `PYTHONPATH` or run an inline
+Python import from an agent skill.
 
 Do not move brainstorm code into `bounty_core` from this skill.

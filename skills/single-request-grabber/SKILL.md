@@ -28,7 +28,7 @@ This skill is designed to be used with other skills. Use it to capture or mutate
 ## Load Order
 
 1. Read program scope, owned-account context, current task goal, and live-testing policy.
-2. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
+2. If dispatcher diagnosis is needed, run `bbh --root`; do not select a checkout manually.
 3. Read `prompts/single-request-grabber-context-pack.md`.
 4. Classify the mutation lane:
    - CSRF token or one-time action token -> `skills/single-request-grabber/references/technique-packs/csrf-token.md`

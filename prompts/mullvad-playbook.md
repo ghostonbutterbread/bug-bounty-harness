@@ -75,6 +75,8 @@ curl -I --max-time 15 <url>
 
 For browser work, reload one in-scope page once. Do not immediately resume high-volume probing.
 
+After connectivity recovers, return the resume point to the agent that encountered the blocker. That agent retries the specific blocked action once when retry-safe, then continues its task if it succeeds; if it still fails, record that the relay refresh did not resolve the blocker rather than cycling relays.
+
 ## Notes Format
 
 ```text

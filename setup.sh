@@ -5,11 +5,11 @@
 # Usage: ./setup.sh [OPTIONS]
 #
 # Options:
-#   --init          Initialize directories and sync skills
+#   --init          Initialize directories and install BBH dependencies
 #   --install-tools Install checkout-local Python dependencies and helper commands
 #   --install-python-deps Install Bounty Core into this checkout's .venv
 #   --install-dispatchers Install only lane-safe local command launchers
-#   --sync          Sync skills to Claude Code and Codex
+
 #   --prompt        Display agent prompt (use --prompt --program NAME for custom)
 #   --config        Show current config
 #   --help          Show this help message
@@ -18,9 +18,7 @@
 #   HARNESS_ROOT           - Bug bounty harness repo root (auto-detected)
 #   HARNESS_SHARED_BASE    - Base for bounty recon data
 #   HARNESS_WORDLISTS      - Wordlists directory
-#   CLAUDE_SKILLS_DIR      - Claude Code skills directory
-#   CODEX_SKILLS_DIR       - Codex skills directory
-#   GHOST_SKILLS_DIR       - Ghost/OpenClaw workspace skills directory
+
 #   LOCAL_BIN_DIR          - User-local command directory
 #   RECON_RY_HOME          - recon-ry checkout used by EyeWitness wrapper
 #
@@ -28,9 +26,9 @@
 #   ./setup.sh                           # Full setup (default)
 #   ./setup.sh --init                    # Full setup (explicit)
 #   ./setup.sh --install-tools           # Install helper commands/deps
-#   ./setup.sh --sync                   # Just sync skills
+
 #   ./setup.sh --prompt --program xss-lab # Show agent prompt for program
-#   HARNESS_ROOT=/custom/path ./setup.sh --sync  # Override with env var
+
 #
 # =============================================================================
 
@@ -66,9 +64,7 @@ load_config() {
     
     : "${HARNESS_SHARED_BASE:=${HOME}/Shared/web_bounty}"
     : "${HARNESS_WORDLISTS:=${HOME}/wordlists}"
-    : "${CLAUDE_SKILLS_DIR:=${HOME}/.claude/skills}"
-    : "${CODEX_SKILLS_DIR:=${HOME}/.agents/skills}"
-    : "${GHOST_SKILLS_DIR:=${HOME}/.openclaw/workspace/skills}"
+
     : "${LOCAL_BIN_DIR:=${HOME}/.local/bin}"
     : "${RECON_RY_HOME:=${HOME}/tools/recon-ry}"
 }
@@ -96,9 +92,6 @@ create_directories() {
     local dirs=(
         "$HARNESS_SHARED_BASE"
         "$HARNESS_WORDLISTS"
-        "$CLAUDE_SKILLS_DIR"
-        "$CODEX_SKILLS_DIR"
-        "$GHOST_SKILLS_DIR"
     )
     
     for dir in "${dirs[@]}"; do
@@ -113,22 +106,6 @@ create_directories() {
     echo ""
 }
 
-# =============================================================================
-# Sync skills to providers
-# =============================================================================
-
-sync_skills() {
-    echo "Syncing skills from this checkout..."
-    
-    if [ -x "$SCRIPT_DIR/sync_skills.sh" ]; then
-        "$SCRIPT_DIR/sync_skills.sh"
-    else
-        echo "  sync_skills.sh not found or not executable"
-        return 1
-    fi
-    
-    echo ""
-}
 
 # =============================================================================
 # Install local helper commands and tool dependencies
@@ -331,9 +308,7 @@ show_config() {
     echo "  HARNESS_ROOT:        $HARNESS_ROOT (auto-detected)"
     echo "  HARNESS_SHARED_BASE: $HARNESS_SHARED_BASE"
     echo "  HARNESS_WORDLISTS:   $HARNESS_WORDLISTS"
-    echo "  CLAUDE_SKILLS_DIR:   $CLAUDE_SKILLS_DIR"
-    echo "  CODEX_SKILLS_DIR:    $CODEX_SKILLS_DIR"
-    echo "  GHOST_SKILLS_DIR:    $GHOST_SKILLS_DIR"
+
     echo "  LOCAL_BIN_DIR:       $LOCAL_BIN_DIR"
     echo "  RECON_RY_HOME:       $RECON_RY_HOME"
     echo ""
@@ -371,7 +346,7 @@ show_prompt() {
 }
 
 # =============================================================================
-# Initialize (create dirs + sync)
+# Initialize (create dirs + install)
 # =============================================================================
 
 refresh_checkout() {
@@ -389,7 +364,6 @@ init() {
     refresh_checkout
     create_directories
     install_tools
-    sync_skills
     
     echo "========================================"
     echo "Setup complete!"
@@ -397,7 +371,7 @@ init() {
     echo ""
     echo "Next steps:"
     echo "  1. Edit $CONFIG_FILE for your paths (optional)"
-    echo "  2. Run: ./setup.sh --sync  (after updating skills)"
+    echo "  2. Use Aiskillsync to project canonical skills to agent runtimes."
     echo "  3. Run: ./setup.sh --prompt  (to get agent prompt)"
     echo "  4. Start hunting!"
     echo ""
@@ -427,9 +401,7 @@ main() {
         --init|-i)
             init
             ;;
-        --sync|-s)
-            sync_skills
-            ;;
+
         --install-tools|--tools)
             install_tools
             ;;

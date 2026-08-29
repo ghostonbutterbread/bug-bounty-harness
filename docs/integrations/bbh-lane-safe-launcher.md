@@ -70,6 +70,6 @@ remain separate, explicit operations.
   helper, and cwd-dependent sync guidance that could bypass the launcher
   contract.
 - The static command-safety regression rejects those stale guidance forms and
-  validates documented `bbh` targets, including `sync_skills.sh`.
+  validates documented `bbh` targets.
 - Verification: `python3 -m unittest -v tests.test_skill_command_lane_safety
   tests.test_migrated_skill_commands`.

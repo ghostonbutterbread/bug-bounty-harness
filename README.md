@@ -7,11 +7,11 @@ Multi-agent bug bounty hunting framework. Supports XSS, IDOR, SQLi, SSRF, fuzzin
 ## Quick Start
 
 ```bash
-# First time setup (creates dirs + syncs skills)
+# First time setup (creates BBH directories and dependencies)
 ./setup.sh --init
 
-# Sync skills after updating
-./setup.sh --sync
+# Project the selected BBH lane to configured agent runtimes
+aiskillsync sync --profile security
 
 # Show current config
 ./setup.sh --config
@@ -96,8 +96,7 @@ Paths are configured via `config.env` or environment variables.
 | `HARNESS_ROOT` | Compatibility setting; setup always derives the BBH repository root from its own location | Auto-detected |
 | `HARNESS_SHARED_BASE` | Canonical shared bounty root, including Recon Bus aggregate reads and writes | `~/Shared/web_bounty` |
 | `HARNESS_WORDLISTS` | Wordlists | `~/wordlists` |
-| `CLAUDE_SKILLS_DIR` | Claude Code skills | `~/.claude/skills` |
-| `CODEX_SKILLS_DIR` | Codex skills | `~/.agents/skills` |
+
 
 ### Setup (First Time)
 
@@ -110,7 +109,7 @@ Paths are configured via `config.env` or environment variables.
 ### Override with Environment
 
 ```bash
-HARNESS_ROOT=/custom/path ./setup.sh --sync
+HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 ```
 
 ---
@@ -136,9 +135,8 @@ HARNESS_ROOT=/custom/path ./setup.sh --sync
 bug_bounty_harness/
 ├── config.env              # Config (edit for your paths)
 ├── setup.sh               # Setup script
-├── sync_skills.sh         # Sync skills to providers
 ├── prompts/               # Playbooks (shared source of truth)
-├── skills/                # Canonical skill source; sync externally with setup.sh --sync
+├── skills/                # Canonical skill source; Aiskillsync projects it externally
 ├── shared/
     └── knowledge-template.md
 ```
@@ -168,18 +166,16 @@ See `SKILL_REGISTRY.md` for:
 3. Query MapStore only with a concrete dedupe, fact, coverage, or gadget questi...[truncated]
 ---
 
-## Syncing Skills
+## Projecting Skills
 
 ```bash
-./setup.sh --sync           # Sync all
-./setup.sh --sync --claude  # Claude Code only
-./setup.sh --sync --codex   # Codex only
-./setup.sh --sync --dry-run # Preview
+aiskillsync sync --profile security --dry-run
+aiskillsync sync --profile security
 ```
 
-Skills are synced to:
-- `~/.claude/skills/` (Claude Code)
-- `~/.agents/skills/` (Codex)
+BBH owns canonical `skills/` and the lane-safe `bbh` dispatcher. Aiskillsync
+owns provider/profile projection, selected lanes, managed symlink reconciliation,
+and destination conflict handling. Do not use BBH to copy provider skill trees.
 
 ---
 
@@ -207,7 +203,7 @@ Skills are synced to:
 6. Put verbose method in `prompts/{name}-playbook.md` or lane-specific `references/`.
 7. Create `agents/{name}_hunter.py` only when the skill needs executable harness code.
 8. Add the skill or module to `SKILL_REGISTRY.md`.
-9. Run `./setup.sh --sync`.
+9. Run the configured Aiskillsync profile sync and verify its dry-run becomes a no-op.
 
 See `SKILL_TEMPLATE.md` for the template chooser.
 

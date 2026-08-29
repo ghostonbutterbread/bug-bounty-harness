@@ -14,9 +14,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from bounty_core_bootstrap import ensure_bounty_core_importable
-
-ensure_bounty_core_importable("bounty_core.recon")
 from bounty_core.recon import start_run, write_manifest
 
 VALID_KINDS = {"product", "developer", "api", "sdk", "integration", "webhook", "permission", "workflow"}

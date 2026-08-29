@@ -11,9 +11,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from bounty_core_bootstrap import ensure_bounty_core_importable
-
-ensure_bounty_core_importable("bounty_core.recon")
 from bounty_core.recon import start_run, write_manifest
 
 ReconMode = Literal["baseline-full", "full", "delta", "map-only"]

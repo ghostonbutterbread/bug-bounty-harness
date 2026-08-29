@@ -1,2 +1,4 @@
-# Runtime dependency for a BBH checkout. Track Bounty Core's default branch.
+# Runtime dependencies for a BBH checkout. Track Bounty Core's default branch.
 bounty-core @ git+https://github.com/ghostonbutterbread/bounty-core.git
+# Dispatcher-routed HTTP runners import this at module load.
+httpx>=0.28,<1

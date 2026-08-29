@@ -405,4 +405,7 @@ For web/API work, change `--family web_bounty --lane web` or `--family web_bount
 
 ## Current caveat
 
-A future Bounty Core CLI is planned (`bounty-core ledger ...`), but the installed console command is not the current reliable interface. Until that exists, use the absolute `manual_hunter.py` and `me_ledger.py` harness paths above.
+A future Bounty Core CLI is planned (`bounty-core ledger ...`), but the installed
+console command is not the current reliable interface. Until that exists, use
+the lane-resolved `bbh agents/manual_hunter.py ...` and
+`bbh agents/me_ledger.py ...` commands above.

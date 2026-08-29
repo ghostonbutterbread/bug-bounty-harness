@@ -123,6 +123,31 @@ def test_extract_signals_ignores_malformed_urlish_strings():
     assert "user_id" in signals["params"]
 
 
+def test_limited_source_map_fetch_uses_no_redirect_handler():
+    class Response:
+        headers = {"content-type": "application/json"}
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _size: int):
+            return b"{}"
+
+    class Opener:
+        def open(self, _request, timeout: int):
+            assert timeout == 7
+            return Response()
+
+    with patch.object(J.urllib.request, "build_opener", return_value=Opener()) as build_opener:
+        assert J.http_get_limited("https://app.example.com/app.js.map", timeout=7, max_bytes=100) == (b"{}", 200, "application/json", False)
+
+    assert isinstance(build_opener.call_args.args[0], J.NoRedirectHandler)
+
+
 def test_inventory_writes_metadata_and_packets(tmp_path: Path):
     input_file = tmp_path / "jsfiles.txt"
     input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
@@ -267,6 +292,86 @@ def test_inventory_reuses_ledger_download_and_chunk_set(tmp_path: Path):
     metadata = (tmp_path / "run2" / "metadata.jsonl").read_text(encoding="utf-8")
     assert '"reused_download": true' in metadata
     assert '"reused_chunks": true' in metadata
+
+
+def test_inventory_unpacks_in_scope_source_map_into_module_packets(tmp_path: Path):
+    input_file = tmp_path / "jsfiles.txt"
+    input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
+    source_map = {
+        "version": 3,
+        "sources": ["src/auth.ts", "src/no-content.ts"],
+        "sourcesContent": ["export const login = () => fetch('/api/login');", None],
+    }
+
+    def fake_get(url: str, timeout: int = 20):
+        return (b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")
+
+    def fake_limited(url: str, *, timeout: int, max_bytes: int):
+        assert url == "https://app.example.com/static/app.js.map"
+        return json.dumps(source_map).encode(), 200, "application/json", False
+
+    with patch.object(J, "http_get", side_effect=fake_get), patch.object(J, "http_get_limited", side_effect=fake_limited):
+        assert J.main([
+            "inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+            "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
+            "--run-id", "source-map-unit", "--chunk-size", "30", "--chunk-overlap", "5",
+        ]) == 0
+
+    metadata = [json.loads(line) for line in (tmp_path / "out" / "metadata.jsonl").read_text().splitlines()]
+    assert metadata[0]["source_map_status"] == "downloaded"
+    assert metadata[0]["source_map_module_count"] == 2
+    assert metadata[0]["source_map_modules_with_content"] == 1
+    assert metadata[0]["source_map_packet_count"] > 0
+    module_rows = [json.loads(line) for line in (tmp_path / "out" / "source_map_modules.jsonl").read_text().splitlines()]
+    assert [row["source_label"] for row in module_rows] == ["src/auth.ts", "src/no-content.ts"]
+    assert module_rows[0]["packet_paths"]
+    assert not module_rows[1]["packet_paths"]
+    packet = Path(module_rows[0]["packet_paths"][0]).read_text(encoding="utf-8")
+    assert "Source-Map Module Review Packet" in packet
+    assert "src/auth.ts" in packet
+    with sqlite3.connect(tmp_path / "library" / "js_info.sqlite") as db:
+        source_map_artifacts = db.execute("SELECT count(*) FROM js_artifacts WHERE artifact_type = 'source_map'").fetchone()[0]
+    assert source_map_artifacts == 1
+
+
+def test_inventory_records_too_large_source_map_without_reading_it(tmp_path: Path):
+    input_file = tmp_path / "jsfiles.txt"
+    input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
+
+    with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(
+        J, "http_get_limited", return_value=(b"", 200, "application/json", True)
+    ):
+        assert J.main([
+            "inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+            "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
+            "--run-id", "source-map-limit-unit",
+        ]) == 0
+
+    metadata = [json.loads(line) for line in (tmp_path / "out" / "metadata.jsonl").read_text().splitlines()]
+    manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert metadata[0]["source_map_status"] == "too_large"
+    assert manifest["source_maps_too_large"] == 1
+
+
+def test_inventory_reuses_cached_source_map(tmp_path: Path):
+    input_file = tmp_path / "jsfiles.txt"
+    input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
+    source_map_calls = {"count": 0}
+
+    def fake_limited(url: str, *, timeout: int, max_bytes: int):
+        source_map_calls["count"] += 1
+        return json.dumps({"version": 3, "sources": ["src/app.ts"], "sourcesContent": ["export const app = 1;"]}).encode(), 200, "application/json", False
+
+    common = ["inventory", "demo", "--input", str(input_file), "--target-host", "example.com", "--library-root", str(tmp_path / "library")]
+    with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(J, "http_get_limited", side_effect=fake_limited):
+        assert J.main(common + ["--output-root", str(tmp_path / "run1"), "--run-id", "source-map-cache-1"]) == 0
+        assert J.main(common + ["--output-root", str(tmp_path / "run2"), "--run-id", "source-map-cache-2"]) == 0
+
+    assert source_map_calls["count"] == 1
+    metadata = [json.loads(line) for line in (tmp_path / "run2" / "metadata.jsonl").read_text().splitlines()]
+    manifest = json.loads((tmp_path / "run2" / "manifest.json").read_text())
+    assert metadata[0]["source_map_status"] == "cached"
+    assert manifest["source_maps_reused"] == 1
 
 
 def test_inventory_can_skip_cached_url_processing(tmp_path: Path):

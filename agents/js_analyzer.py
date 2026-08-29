@@ -117,6 +117,12 @@ class JsRecord:
     page_context: str = ""
     source: str = ""
     source_map: str = ""
+    source_map_status: str = "not_detected"
+    source_map_sha256: str = ""
+    source_map_artifact_path: str = ""
+    source_map_module_count: int = 0
+    source_map_modules_with_content: int = 0
+    source_map_packet_count: int = 0
     endpoints: list[str] = field(default_factory=list)
     in_scope_endpoints: list[str] = field(default_factory=list)
     external_endpoints: list[str] = field(default_factory=list)
@@ -310,6 +316,37 @@ def http_get(url: str, timeout: int = 20) -> tuple[bytes, int | None, str]:
         return b"", None, ""
 
 
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Keep a scoped source-map request from silently crossing to another host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        return None
+
+
+def http_get_limited(url: str, *, timeout: int, max_bytes: int) -> tuple[bytes, int | None, str, bool]:
+    """Fetch one artifact without allowing an unbounded source-map download."""
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+            "Accept": "application/json, */*",
+        },
+    )
+    try:
+        opener = urllib.request.build_opener(NoRedirectHandler())
+        with opener.open(req, timeout=timeout) as resp:
+            content_type = resp.headers.get("content-type", "")
+            content_length = resp.headers.get("content-length")
+            if content_length and content_length.isdigit() and int(content_length) > max_bytes:
+                return b"", int(getattr(resp, "status", 0) or 0), content_type, True
+            body = resp.read(max_bytes + 1)
+            return body[:max_bytes], int(getattr(resp, "status", 0) or 0), content_type, len(body) > max_bytes
+    except urllib.error.HTTPError as exc:
+        return exc.read(max_bytes), exc.code, exc.headers.get("content-type", "") if exc.headers else "", False
+    except Exception:
+        return b"", None, "", False
+
+
 def normalize_url(value: str, base: str | None = None) -> str | None:
     value = value.strip()
     if not value or value.startswith(("data:", "javascript:", "mailto:")):
@@ -488,6 +525,138 @@ def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = No
         "route_hints": route_hints,
         "hidden_state_hints": hidden_state_hints,
     }
+
+
+def parse_source_map(body: bytes) -> tuple[list[dict], int]:
+    """Return source-map module rows while keeping malformed maps non-fatal."""
+    try:
+        document = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return [], 0
+    if not isinstance(document, dict) or not isinstance(document.get("sources"), list):
+        return [], 0
+    sources = document["sources"]
+    contents = document.get("sourcesContent")
+    source_root = document.get("sourceRoot") if isinstance(document.get("sourceRoot"), str) else ""
+    rows: list[dict] = []
+    content_count = 0
+    for index, source in enumerate(sources):
+        source_name = str(source) if source is not None else ""
+        content = contents[index] if isinstance(contents, list) and index < len(contents) else None
+        has_content = isinstance(content, str)
+        if has_content:
+            content_count += 1
+        rows.append({
+            "source_index": index,
+            "source": source_name,
+            "source_root": source_root,
+            "source_label": f"{source_root}{source_name}",
+            "content": content if has_content else "",
+            "has_content": has_content,
+        })
+    return rows, content_count
+
+
+def build_source_map_packet(*, record: JsRecord, source_map_sha256: str, module: dict, chunk_index: int, chunk_count: int, start: int, end: int, chunk: str) -> str:
+    return "\n".join([
+        f"# Source-Map Module Review Packet {chunk_index + 1}/{chunk_count}",
+        "",
+        f"- Bundle URL: {record.url}",
+        f"- Bundle SHA256: {record.sha256}",
+        f"- Source map: {record.source_map}",
+        f"- Source map SHA256: {source_map_sha256}",
+        f"- Original module: {module['source_label'] or module['source_index']}",
+        f"- Source-map module index: {module['source_index']}",
+        f"- Module byte range: {start}-{end}",
+        f"- Page context: {record.page_context or 'unknown'}",
+        "",
+        "## Review Goals",
+        "",
+        "- Use this original source module to map routes, request builders, parameters, auth/storage behavior, and source-to-sink flows hidden by the bundled output.",
+        "- Trace concrete values through functions, callers, callees, guards, and final request or DOM effects; source-map text is evidence, not a finding by itself.",
+        "- Correlate leads to the bundle URL/SHA and page or proxy provenance before any live-validation handoff.",
+        "",
+        "## Original Source Module",
+        "",
+        "```javascript",
+        chunk,
+        "```",
+        "",
+    ])
+
+
+def write_source_map_modules(
+    *,
+    root: Path,
+    source_maps_dir: Path,
+    record: JsRecord,
+    source_map_sha256: str,
+    modules: list[dict],
+    chunk_size: int,
+    chunk_overlap: int,
+    module_limit: int,
+) -> tuple[list[dict], list[dict]]:
+    """Persist every module name and make bounded packets from embedded source text."""
+    rows: list[dict] = []
+    packets: list[dict] = []
+    module_dir = source_maps_dir / source_map_sha256 / "modules"
+    packet_dir = root / "source_map_packets" / record.sha256[:16]
+    packet_budget = max(module_limit, 0)
+    packeted_modules = 0
+    for module in modules:
+        row = {
+            "bundle_url": record.url,
+            "bundle_sha256": record.sha256,
+            "source_map": record.source_map,
+            "source_map_sha256": source_map_sha256,
+            "source_index": module["source_index"],
+            "source": module["source"],
+            "source_root": module["source_root"],
+            "source_label": module["source_label"],
+            "has_content": module["has_content"],
+            "module_path": "",
+            "packet_paths": [],
+        }
+        if module["has_content"] and packeted_modules < packet_budget:
+            module_dir.mkdir(parents=True, exist_ok=True)
+            module_path = module_dir / f"{module['source_index']:05d}.js"
+            module_path.write_text(module["content"], encoding="utf-8")
+            row["module_path"] = str(module_path)
+            chunks = chunk_text(module["content"], chunk_size, chunk_overlap)
+            packet_dir.mkdir(parents=True, exist_ok=True)
+            for chunk_index, (start, end, chunk) in enumerate(chunks):
+                packet_path = packet_dir / f"{module['source_index']:05d}-{chunk_index + 1:03d}.md"
+                packet_path.write_text(
+                    build_source_map_packet(
+                        record=record,
+                        source_map_sha256=source_map_sha256,
+                        module=module,
+                        chunk_index=chunk_index,
+                        chunk_count=len(chunks),
+                        start=start,
+                        end=end,
+                        chunk=chunk,
+                    ),
+                    encoding="utf-8",
+                )
+                row["packet_paths"].append(str(packet_path))
+                packets.append({
+                    "url": record.url,
+                    "sha256": record.sha256,
+                    "artifact_kind": "source_map_module",
+                    "source_map_sha256": source_map_sha256,
+                    "source_index": module["source_index"],
+                    "source_label": module["source_label"],
+                    "chunk_index": chunk_index,
+                    "chunk_count": len(chunks),
+                    "chunk_path": str(module_path),
+                    "packet_path": str(packet_path),
+                    "byte_start": start,
+                    "byte_end": end,
+                })
+            packeted_modules += 1
+        rows.append(row)
+    return rows, packets
 
 
 def chunk_text(text: str, size: int, overlap: int) -> list[tuple[int, int, str]]:
@@ -768,6 +937,7 @@ def build_metadata_row(
         "provenance": summarize_provenance(provenance_rows),
         "artifact_links": {
             "download": record.artifact_path,
+            "source_map": record.source_map_artifact_path,
             "library_root": str(library_root),
             "library_metadata": str(library_root / "metadata.jsonl"),
             "library_provenance": str(library_root / "provenance.jsonl"),
@@ -961,6 +1131,8 @@ def write_metadata_db(path: Path, metadata_rows: list[dict], packet_rows: list[d
             run_id = str(row.get("run_id") or "")
             if row.get("artifact_path"):
                 artifact_rows.append((sha, "download", str(row["artifact_path"]), run_id, "", None))
+            if row.get("source_map_artifact_path"):
+                artifact_rows.append((sha, "source_map", str(row["source_map_artifact_path"]), run_id, "", None))
             for packet_path in row.get("packet_paths") or []:
                 artifact_rows.append((sha, "packet", str(packet_path), run_id, "", None))
             for chunk_path in row.get("chunk_paths") or []:
@@ -1194,6 +1366,40 @@ def load_body_from_ledger(
     return body, sha, artifact_path
 
 
+def load_source_map_from_ledger(ledger: dict, *, url: str, source_maps_dir: Path) -> tuple[bytes, str, Path] | None:
+    entry = ledger.get("source_maps", {}).get(url)
+    if not isinstance(entry, dict):
+        return None
+    sha = entry.get("sha256")
+    if not isinstance(sha, str) or not sha:
+        return None
+    artifact_path = source_maps_dir / f"{sha}.map"
+    if not artifact_path.exists() or hashlib.sha256(artifact_path.read_bytes()).hexdigest() != sha:
+        return None
+    return artifact_path.read_bytes(), sha, artifact_path
+
+
+def update_ledger_source_map(
+    ledger: dict,
+    *,
+    url: str,
+    sha256: str,
+    artifact_path: Path,
+    byte_count: int,
+    status: int | None,
+    content_type: str,
+) -> None:
+    source_maps = ledger.setdefault("source_maps", {})
+    source_maps[url] = {
+        "sha256": sha256,
+        "artifact_path": str(artifact_path),
+        "byte_count": byte_count,
+        "status": status,
+        "content_type": content_type,
+        "last_seen": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+    }
+
+
 def cached_artifact_from_ledger(
     ledger: dict,
     *,
@@ -1333,9 +1539,11 @@ def command_inventory(args: argparse.Namespace) -> int:
     root, library_root, integration_index_root, config_summary = resolve_inventory_paths(args, run_id)
     provenance_input = Path(args.provenance_input).expanduser() if args.provenance_input else None
     downloads_dir = library_root / "downloads"
+    source_maps_dir = library_root / "sourcemaps"
     library_chunks_dir = library_root / "chunks"
     packets_dir = root / "packets"
     downloads_dir.mkdir(parents=True, exist_ok=True)
+    source_maps_dir.mkdir(parents=True, exist_ok=True)
     library_chunks_dir.mkdir(parents=True, exist_ok=True)
     packets_dir.mkdir(parents=True, exist_ok=True)
     ledger_path = library_root / "ledger.json"
@@ -1369,12 +1577,16 @@ def command_inventory(args: argparse.Namespace) -> int:
 
     records: list[JsRecord] = []
     packet_rows: list[dict] = []
+    source_map_module_rows: list[dict] = []
     external_integration_rows: list[ExternalIntegration] = []
     provenance_rows: list[JsProvenance] = []
     provenance_rows_by_sha: dict[str, list[dict]] = {}
     reused_downloads = 0
     reused_chunk_sets = 0
     skipped_cached_urls = 0
+    source_maps_downloaded = 0
+    source_maps_reused = 0
+    source_maps_too_large = 0
     for index, url in enumerate(normalized_urls, start=1):
         if args.skip_cached_processing and not args.refresh:
             cached_artifact = cached_artifact_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
@@ -1411,6 +1623,59 @@ def command_inventory(args: argparse.Namespace) -> int:
                 artifact_path.write_bytes(body)
         text = body.decode("utf-8", errors="ignore")
         signals = extract_signals(text, url, scope_hosts)
+        source_map_status = "not_detected"
+        source_map_sha256 = ""
+        source_map_artifact_path = ""
+        source_map_path: Path | None = None
+        source_map_modules: list[dict] = []
+        source_map_modules_with_content = 0
+        if signals["source_map"]:
+            if args.source_maps == "off":
+                source_map_status = "disabled"
+            elif not in_scope_url(signals["source_map"], scope_hosts):
+                source_map_status = "external_not_fetched"
+            else:
+                cached_source_map = None if args.refresh else load_source_map_from_ledger(
+                    ledger,
+                    url=signals["source_map"],
+                    source_maps_dir=source_maps_dir,
+                )
+                if cached_source_map:
+                    source_map_body, source_map_sha256, source_map_path = cached_source_map
+                    source_map_status = "cached"
+                    source_maps_reused += 1
+                else:
+                    source_map_body, source_map_status_code, _source_map_content_type, source_map_too_large = http_get_limited(
+                        signals["source_map"],
+                        timeout=args.timeout,
+                        max_bytes=args.source_map_max_bytes,
+                    )
+                    if source_map_too_large:
+                        source_map_status = "too_large"
+                        source_maps_too_large += 1
+                    elif not source_map_body:
+                        source_map_status = "fetch_failed"
+                    else:
+                        source_map_sha256 = hashlib.sha256(source_map_body).hexdigest()
+                        source_map_path = source_maps_dir / f"{source_map_sha256}.map"
+                        if not source_map_path.exists():
+                            source_map_path.write_bytes(source_map_body)
+                        update_ledger_source_map(
+                            ledger,
+                            url=signals["source_map"],
+                            sha256=source_map_sha256,
+                            artifact_path=source_map_path,
+                            byte_count=len(source_map_body),
+                            status=source_map_status_code,
+                            content_type=_source_map_content_type,
+                        )
+                        source_map_status = "downloaded"
+                        source_maps_downloaded += 1
+                if source_map_sha256 and source_map_path:
+                    source_map_artifact_path = str(source_map_path)
+                    source_map_modules, source_map_modules_with_content = parse_source_map(source_map_body)
+                    if not source_map_modules:
+                        source_map_status = "invalid" if source_map_status != "cached" else "cached_invalid"
         chunks = chunk_text(text, args.chunk_size, args.chunk_overlap)
         chunk_set_key, chunk_manifest_path, chunk_rows, reused_chunks = write_chunk_set(
             chunks_root=library_chunks_dir,
@@ -1433,6 +1698,11 @@ def command_inventory(args: argparse.Namespace) -> int:
             page_context=args.page_context or "",
             source=args.input or args.page or "",
             source_map=signals["source_map"],
+            source_map_status=source_map_status,
+            source_map_sha256=source_map_sha256,
+            source_map_artifact_path=source_map_artifact_path,
+            source_map_module_count=len(source_map_modules),
+            source_map_modules_with_content=source_map_modules_with_content,
             endpoints=signals["endpoints"],
             in_scope_endpoints=signals["in_scope_endpoints"],
             external_endpoints=signals["external_endpoints"],
@@ -1448,6 +1718,20 @@ def command_inventory(args: argparse.Namespace) -> int:
             hidden_state_hints=signals["hidden_state_hints"],
             chunk_count=len(chunks),
         )
+        if source_map_modules:
+            module_rows, source_map_packets = write_source_map_modules(
+                root=root,
+                source_maps_dir=source_maps_dir,
+                record=record,
+                source_map_sha256=source_map_sha256,
+                modules=source_map_modules,
+                chunk_size=args.chunk_size,
+                chunk_overlap=args.chunk_overlap,
+                module_limit=args.source_map_module_limit,
+            )
+            source_map_module_rows.extend(module_rows)
+            packet_rows.extend(source_map_packets)
+            record.source_map_packet_count = len(source_map_packets)
         records.append(record)
         record_provenance_rows = build_provenance_rows(
             record=record,
@@ -1533,6 +1817,7 @@ def command_inventory(args: argparse.Namespace) -> int:
     ]
     write_jsonl(root / "metadata.jsonl", metadata_rows)
     write_jsonl(root / "packets.jsonl", packet_rows)
+    write_jsonl(root / "source_map_modules.jsonl", source_map_module_rows)
     write_jsonl(root / "page_context.jsonl", page_records)
     write_jsonl(root / "js_provenance.jsonl", (asdict(row) for row in provenance_rows))
     write_jsonl(root / "external_integrations.jsonl", (asdict(row) for row in external_integration_rows))
@@ -1560,12 +1845,18 @@ def command_inventory(args: argparse.Namespace) -> int:
         "cached_urls_skipped": skipped_cached_urls,
         "downloads_reused": reused_downloads,
         "chunk_sets_reused": reused_chunk_sets,
+        "source_maps_downloaded": source_maps_downloaded,
+        "source_maps_reused": source_maps_reused,
+        "source_maps_too_large": source_maps_too_large,
+        "source_map_modules": len(source_map_module_rows),
+        "source_map_packets": sum(record.source_map_packet_count for record in records),
         "packets": len(packet_rows),
         "external_integrations": len(external_integration_rows),
         "outputs": {
             "metadata": str(root / "metadata.jsonl"),
             "library_metadata": str(library_metadata_path),
             "packets": str(root / "packets.jsonl"),
+            "source_map_modules": str(root / "source_map_modules.jsonl"),
             "page_context": str(root / "page_context.jsonl"),
             "js_provenance": str(root / "js_provenance.jsonl"),
             "library_provenance": str(library_provenance_path),
@@ -1576,6 +1867,7 @@ def command_inventory(args: argparse.Namespace) -> int:
             "ledger": str(ledger_path),
             "library": str(library_root),
             "downloads": str(downloads_dir),
+            "source_maps": str(source_maps_dir),
             "chunks": str(library_chunks_dir),
             "packet_dir": str(packets_dir),
         },
@@ -1637,6 +1929,24 @@ def build_parser() -> argparse.ArgumentParser:
     inv.add_argument("--limit", type=int, help="Maximum JS URLs to download")
     inv.add_argument("--timeout", type=int, default=20)
     inv.add_argument("--delay", type=float, default=0.0, help="Delay between JS downloads")
+    inv.add_argument(
+        "--source-maps",
+        choices=("auto", "off"),
+        default="auto",
+        help="Fetch and unpack in-scope source maps referenced by collected JavaScript (default: auto)",
+    )
+    inv.add_argument(
+        "--source-map-max-bytes",
+        type=int,
+        default=64 * 1024 * 1024,
+        help="Maximum bytes to read from one source map before recording it as too large",
+    )
+    inv.add_argument(
+        "--source-map-module-limit",
+        type=int,
+        default=500,
+        help="Maximum embedded source modules to turn into review packets; all module names remain inventoried",
+    )
     inv.add_argument("--chunk-size", type=int, default=60000)
     inv.add_argument("--chunk-overlap", type=int, default=500)
     inv.set_defaults(func=command_inventory)

@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-branch="$(git branch --show-current)"
-[ -n "$branch" ] || exit 0
-exec python3 scripts/worktree_lifecycle.py audit --strict --branch "$branch"

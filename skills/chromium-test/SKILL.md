@@ -231,7 +231,13 @@ bbh skills/chromium-test/scripts/hoster_mitm_lane.py --json acquire-start \
   --program <program> \
   --task "<task>" \
   --account-label <account-label>
- # Provisioner implementation MITM smoke; agents use browser_provisioner.py.
+```
+
+> **Implementation-only smoke test — not an agent launch instruction.** This
+> directly invokes the provisioner's internal launcher only for provisioner
+> implementation tests. Task agents must use `browser_provisioner.py request`.
+>
+```bash
 bbh skills/chromium-test/scripts/chromium_test.py <program> "<task>" \
   --proxy-server http://hoster:<leased-port> \
   --ephemeral-profile \

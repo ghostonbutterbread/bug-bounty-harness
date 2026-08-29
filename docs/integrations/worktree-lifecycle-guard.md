@@ -7,7 +7,7 @@ base: ac13c67bc96234ca5791399eb7b3dbf888fc6c7b
 target: beta
 status: active
 opened_at: 2026-08-28T19:00:00Z
-checkpoint: pending-initial-commit
+checkpoint: 35d2e063978038e51e2307b98dbd24443c0e6fe3
 ---
 
 # Worktree lifecycle guard

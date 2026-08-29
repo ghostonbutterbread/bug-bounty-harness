@@ -349,6 +349,12 @@ show_prompt() {
 # Initialize (create dirs + install)
 # =============================================================================
 
+install_worktree_hook() {
+    git -C "$SCRIPT_DIR" config core.hooksPath "$SCRIPT_DIR/.githooks"
+    chmod +x "$SCRIPT_DIR/.githooks/pre-push"
+    echo "  ✓ Installed repository worktree lifecycle hook"
+}
+
 refresh_checkout() {
     echo "Refreshing this checkout once before setup..."
     if git -C "$SCRIPT_DIR" pull --ff-only; then
@@ -364,6 +370,7 @@ init() {
     refresh_checkout
     create_directories
     install_tools
+    install_worktree_hook
     
     echo "========================================"
     echo "Setup complete!"

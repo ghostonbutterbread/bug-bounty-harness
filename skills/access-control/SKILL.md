@@ -17,8 +17,7 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    policy. Check `~/Shared/scopes/{program}/` first, then
    `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
    `/pullscope`. If the program has no published scope, write `no scope` stub.
-2. **Cold Surface Pass** — Resolve `the active BBH checkout` first; default is
-   `the selected BBH checkout`. Look at the target
+2. **Cold Surface Pass** — Look at the target
    endpoint/object with fresh eyes. Observe auth boundaries and response
    patterns directly. Avoid broad prior-map or MapStore reads until the agent has current observations.
 3. **Fresh Observations** — Aim to identify 3-5 fresh object references, role differences,

@@ -6,15 +6,17 @@ description: Use when the user asks for /me, a Ghost-aware bug bounty hunting br
 
 Use this skill to brief an agent before manual bug bounty hunting. The goal is to make the agent use Ghost's current harness layout instead of guessing paths, editing JSON directly, or writing reports into cwd.
 
-## Current harness roots
+## Current harness tools
 
-- Harness repo: `the selected BBH checkout`
-- Manual hunt CLI: `agents/manual_hunter.py`
-- Ledger coordination CLI: `agents/me_ledger.py`
-- Shared storage resolver: `agents/storage_resolver.py` → `bounty_core.storage`
-- Bounty Core package: `/home/ryushe/projects/bounty-core`
+- Harness diagnostic: `bbh --root`
+- Manual hunt CLI: `bbh agents/manual_hunter.py ...`
+- Ledger coordination CLI: `bbh agents/me_ledger.py ...`
+- Shared storage resolver: `agents/storage_resolver.py` → installed `bounty_core.storage`
 
-Always use absolute script paths unless already running from the harness repo.
+Use `bbh <repository-relative-target> ...` for every BBH-owned executable.
+Do not choose a checkout, construct absolute BBH script paths, or set
+`PYTHONPATH`: the selected lane's `bbh` resolves the checkout and its local
+virtual environment.
 
 ## Canonical storage layout
 
@@ -270,14 +272,9 @@ Before taking a profile, surface, or vuln class:
 - If the desired profile appears active or locked, back off: choose another uncovered surface, write a handoff note explaining the conflict, or ask Ryushe before overriding.
 - Never delete lock/state files to force progress. Use official pipeline controls or ask Ryushe.
 
-Useful state summary command when a pipeline plan is known:
-
-```bash
-PYTHONPATH=the selected BBH checkout python3 - <<'PY'
-from agents.hunt_pipeline.run_state import summarize_run
-print(summarize_run('/path/to/pipeline_plan.json'))
-PY
-```
+When a pipeline plan is known, use the task's documented pipeline status
+command or inspect its generated `run_state.json`; do not use an inline Python
+snippet or a manually selected checkout to import BBH modules.
 
 ## Model-specific source workspaces
 

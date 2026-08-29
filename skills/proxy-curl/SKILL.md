@@ -12,7 +12,7 @@ This skill is a request-shape preservation skill. It does not decide whether a t
 ## Load Order
 
 1. Read scope, owned-account context, live-testing policy, and the owning skill for the security question.
-2. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
+2. If dispatcher diagnosis is needed, run `bbh --root`; do not select a checkout manually.
 3. Read `prompts/proxy-curl-playbook.md`.
 4. If a raw request is available as a file or pasted block, use:
    ```bash

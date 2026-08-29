@@ -17,7 +17,7 @@ complete ceiling.
 ## Load Order
 
 1. Read scope, owned-account context, and active live-testing policy.
-2. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
+2. If dispatcher diagnosis is needed, run `bbh --root`; do not select a checkout manually.
 3. After selecting a likely SQL-backed URL/parameter, read relevant shared
    state in this order when it helps understand the surface:
    - `notes/summary.md`

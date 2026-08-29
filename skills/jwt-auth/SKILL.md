@@ -12,7 +12,7 @@ This is a RAG-style child skill. Classify the token behavior, load one focused r
 ## Load Order
 
 1. Read program scope, owned-account context, active live-testing policy, and the current `/403`, `/access-control`, `/idor`, or `/api` handoff.
-2. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
+2. If dispatcher diagnosis is needed, run `bbh --root`; do not select a checkout manually.
 3. Capture and decode only header/payload metadata. Redact signatures, tokens, cookies, and secrets in chat or broad reports.
 4. Read `prompts/jwt-auth-context-pack.md`.
 5. Classify the lane:

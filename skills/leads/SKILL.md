@@ -56,7 +56,6 @@ hypotheses into MapStore.
 Use MapStore's existing lead intent and tag/status filters. For example:
 
 ```bash
-PYTHONPATH=".:$HOME/projects/bounty-core" \
 bbh agents/map_store.py query --program <program> --family web_bounty --lane web \
   --surface <vuln-class> --intent old-leads --tags lead,<vuln-class> \
   --status active,candidate,needs_recheck

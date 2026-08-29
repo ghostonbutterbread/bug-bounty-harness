@@ -83,7 +83,6 @@ Read the playbook before running the mapper:
 3. For a reusable baseline/posture map, run:
 
 ```bash
-PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   bbh agents/app_mapper.py <program> <target_path> \
   --target-kind auto \
   --mode baseline
@@ -101,7 +100,6 @@ bbh agents/app_mapper.py <program> <target_path> \
 4. For focused RCE output, run:
 
 ```bash
-PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   bbh agents/app_mapper.py <program> <target_path> \
   --target-kind auto \
   --focus rce \
@@ -164,7 +162,6 @@ Promoted specs and packets keep pointers to the originating AppMap run. Existing
 AppMap stops after artifact and spec generation. If the user asks to run a generated spec, use the existing runtime explicitly:
 
 ```bash
-PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" \
   bbh agents/zero_day_team.py <program> <target_path> \
   --brainstorm-spec <appmap-output>/generated_specs/rce-spec.md \
   --brainstorm-only
@@ -204,5 +201,5 @@ The planned command must use `bbh agents/zero_day_team.py <program> <target_path
 
 ```bash
 python3 -m pytest agents/test_app_mapper.py -q
-./sync_skills.sh --dry-run
+bbh sync_skills.sh --dry-run
 ```

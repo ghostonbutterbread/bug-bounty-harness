@@ -15,7 +15,7 @@ secret material.
 
 ## Load Order
 
-1. Resolve `the active BBH checkout`; default is `the selected BBH checkout`.
+1. If dispatcher diagnosis is needed, run `bbh --root`; do not select a checkout manually.
 2. Resolve `$HARNESS_SHARED_BASE`; default is `/home/ryushe/Shared/web_bounty`. Retired registry tombstones must be treated as errors, not empty inventories.
 3. Open the registry for the selected program (not a generic inventory or a
    browser-lane subdirectory):

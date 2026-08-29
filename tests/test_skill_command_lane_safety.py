@@ -19,6 +19,9 @@ DIRECT_BBH_EXECUTABLE = re.compile(
     r"(?:python(?:3)?|node|(?:/bin/)?bash)\s+(?:[\"']?(?:\$\{?HARNESS_ROOT\}?/)?|[\"']?)(?:agents|scripts|skills)/[^\s`\"']+"
 )
 FIXED_REMOTE_CHECKOUT = re.compile(r"(?:cd|python(?:3)?)\s+/home/ryushe/projects/bug_bounty_harness(?:-stable)?")
+STALE_CHECKOUT_GUIDANCE = re.compile(r"the (?:active|selected) BBH checkout")
+HOST_SPECIFIC_WORKSPACE = re.compile(r"/home/ryushe/\.(?:openclaw|claude)/workspace")
+DISPATCHER_BYPASS = re.compile(r"PYTHONPATH=.*(?:bounty-core|\$PWD)")
 
 
 class SkillCommandLaneSafetyTests(unittest.TestCase):
@@ -27,6 +30,14 @@ class SkillCommandLaneSafetyTests(unittest.TestCase):
         for path in DOCUMENTS:
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
                 if DIRECT_BBH_EXECUTABLE.search(line) or FIXED_REMOTE_CHECKOUT.search(line):
+                    violations.append(f"{path.relative_to(ROOT)}:{number}: {line.strip()}")
+        self.assertEqual(violations, [], "\n".join(violations))
+
+    def test_canonical_skills_do_not_teach_stale_checkout_or_import_routing(self) -> None:
+        violations: list[str] = []
+        for path in ROOT.glob("skills/**/SKILL.md"):
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                if STALE_CHECKOUT_GUIDANCE.search(line) or HOST_SPECIFIC_WORKSPACE.search(line) or DISPATCHER_BYPASS.search(line):
                     violations.append(f"{path.relative_to(ROOT)}:{number}: {line.strip()}")
         self.assertEqual(violations, [], "\n".join(violations))
 

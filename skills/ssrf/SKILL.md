@@ -26,8 +26,7 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    live-testing policy. Check `~/Shared/scopes/{program}/` first, then
    `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
    `/pullscope`. If the program has no published scope, write `no scope` stub.
-2. **Cold Surface Pass** — Resolve `the active BBH checkout`; default is
-   `the selected BBH checkout`. Look at the target for
+2. **Cold Surface Pass** — Look at the target for
    fetch/URL-handling surfaces directly. Observe what the app does with URLs.
    Avoid broad prior-state reads until the agent has current observations.
 3. **Fresh Observations** — Aim to identify 3-5 fetch surfaces, URL parameters, webhook

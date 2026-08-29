@@ -16,7 +16,7 @@ DOCUMENTS = [
     *ROOT.glob(".agents/**/*.md"),
     *ROOT.glob(".claude/**/*.md"),
 ]
-BBH_TARGET = re.compile(r"\bbbh\s+((?:agents|scripts|skills)/[^\s`\"']+?\.(?:py|js|sh))")
+BBH_TARGET = re.compile(r"\bbbh\s+((?:(?:agents|scripts|skills)/[^\s`\"']+?\.(?:py|js|sh)|sync_skills\.sh))")
 
 
 class MigratedSkillCommandTests(unittest.TestCase):

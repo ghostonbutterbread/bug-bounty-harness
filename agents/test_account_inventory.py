@@ -93,6 +93,40 @@ def test_v4_inventory_migrates_with_empty_link_and_integration_lists(tmp_path, m
     assert inventory["accounts"][0]["integrations"] == []
 
 
+def test_migrate_lifecycle_rewrites_only_recognized_legacy_values(tmp_path, monkeypatch, capsys):
+    module = load_inventory_module()
+    shared = tmp_path / "shared"
+    path = shared / "demo" / "credentials" / "account_inventory.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({
+        "schema_version": 6,
+        "program": "demo",
+        "accounts": [
+            {"alias": "blue", "lifecycle": "live"},
+            {"alias": "green", "lifecycle": "active"},
+            {"alias": "unknown", "lifecycle": "legacy-custom"},
+        ],
+    }))
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    assert module.main(["migrate-lifecycle", "demo", "--dry-run"]) == 0
+    dry_run = json.loads(capsys.readouterr().out)
+    assert dry_run["status"] == "dry-run"
+    assert dry_run["changes"] == [{"alias": "blue", "from": "live", "to": "active"}]
+    assert json.loads(path.read_text())["accounts"][0]["lifecycle"] == "live"
+
+    assert module.main(["migrate-lifecycle", "demo"]) == 0
+    migrated = json.loads(capsys.readouterr().out)
+    inventory = json.loads(path.read_text())
+    assert migrated["status"] == "migrated"
+    assert inventory["accounts"][0]["lifecycle"] == "active"
+    assert inventory["accounts"][1]["lifecycle"] == "active"
+    assert inventory["accounts"][2]["lifecycle"] == "legacy-custom"
+
+    assert module.main(["migrate-lifecycle", "demo"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "no-changes"
+
+
 def test_account_and_ledger_upserts_preserve_existing_linked_records(tmp_path, monkeypatch):
     module = load_inventory_module()
     monkeypatch.setenv("HARNESS_SHARED_BASE", str(tmp_path / "shared"))

@@ -145,10 +145,16 @@ Caido presence filter: req.raw.cont:"X-PwnFox-Color"
 Caido color filter template: req.raw.cont:"X-PwnFox-Color" AND req.raw.cont:"{color}"
 ```
 
+## Lifecycle migration
+
+When an agent observes the recognized legacy lifecycle value `live` in the selected program inventory, it should run `migrate-lifecycle {program}` before continuing account work. The command rewrites only `live` to canonical `active`, is idempotent, and reports aliases changed without exposing credentials. Use `--dry-run` when the agent needs to report the intended change before writing. Unknown lifecycle values remain unchanged and must be handled explicitly rather than guessed.
+
 ## CLI
 
 ```bash
 bbh skills/account-management/scripts/account_inventory.py show {program}
+bbh skills/account-management/scripts/account_inventory.py migrate-lifecycle {program} --dry-run
+bbh skills/account-management/scripts/account_inventory.py migrate-lifecycle {program}
 bbh skills/account-management/scripts/account_inventory.py add-account {program} --alias primary --email ryushe+ai@example.com --user-id USER_ID --tier admin --credential-ref "bitwarden:item-name" --auth-seed-ref "auth-seed:/secure/path/primary.json" --auth-check-url "https://target.example/account" --auth-host-filter "target.example" --pwnfox-color blue --lifecycle active --browser-lease-enabled yes --organization-access owned-team:admin:enterprise --capability billing:invoices --capability shared-org:owned-team --destructible no
 bbh skills/account-management/scripts/account_inventory.py set-primary-idor-accounts {program} --account pink --account purple
 bbh skills/account-management/scripts/auth_resolver.py resolve --program {program} --account blue

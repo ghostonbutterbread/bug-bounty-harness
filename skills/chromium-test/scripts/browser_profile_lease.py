@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -31,6 +32,8 @@ from inventory_paths import inventory_path, program_key, shared_base
 DEFAULT_STATE_DIR = Path("~/.local/state/ghost/browser-profile-leases").expanduser()
 DEFAULT_TTL_SECONDS = 30 * 60
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+ANONYMOUS_PROFILE_ALIASES = ("anon", "anon1", "anon2")
+ANONYMOUS_PROFILE_PATTERN = re.compile(r"anon(?:[1-9][0-9]*)?$")
 
 
 def now() -> float:
@@ -49,6 +52,19 @@ def slug(value: str) -> str:
 
 def profile_dir(program: str, account_alias: str) -> Path:
     return artifact_base() / program_key(program) / "web" / "browser-profiles" / slug(account_alias)
+
+
+def anonymous_profile_record(selector: str) -> dict[str, Any] | None:
+    """Return a leasable anonymous browser slot without consulting accounts."""
+    alias = slug(selector)
+    if not ANONYMOUS_PROFILE_PATTERN.fullmatch(alias):
+        return None
+    return {
+        "alias": alias,
+        "profile_kind": "anonymous",
+        "lifecycle": "active",
+        "browser_lease_enabled": True,
+    }
 
 
 def state_db(args: argparse.Namespace) -> Path:
@@ -119,6 +135,10 @@ def load_inventory(program: str) -> dict[str, Any]:
 
 
 def resolve_account(program: str, selector: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    anonymous = anonymous_profile_record(selector)
+    if anonymous is not None:
+        # Anonymous slots are durable browser state, not account fixtures.
+        return anonymous, {"program": program, "accounts": [], "resources": []}
     inventory = load_inventory(program)
     wanted = selector.lower()
     accounts = [entry for entry in inventory.get("accounts", []) if isinstance(entry, dict)]
@@ -157,6 +177,7 @@ def account_summary(account: dict[str, Any], inventory: dict[str, Any]) -> dict[
         capabilities = []
     return {
         "alias": alias,
+        "profile_kind": account.get("profile_kind", "account"),
         "color": account.get("pwnfox_color"),
         "tier": principal_tier(account),
         "role": account.get("role"),
@@ -225,9 +246,37 @@ def safe_lease(row: sqlite3.Row | None, *, include_cdp: bool = False) -> dict[st
 
 
 def account_lease_eligible(account: dict[str, Any]) -> bool:
-    """Lease only accounts explicitly health-cleared in the shared inventory."""
+    """Lease health-cleared accounts and inventory-free anonymous slots."""
     lifecycle = str(account.get("lifecycle", "unknown")).lower()
-    return account.get("browser_lease_enabled") is True and lifecycle == "active"
+    # `live` is accepted for legacy inventories; writers must continue to use
+    # canonical `active`.
+    return account.get("browser_lease_enabled") is True and lifecycle in {"active", "live"}
+
+
+def anonymous_profile_aliases(conn: sqlite3.Connection, program: str) -> list[str]:
+    rows = conn.execute(
+        "SELECT DISTINCT account_alias FROM browser_profile_leases WHERE program=?",
+        (slug(program),),
+    ).fetchall()
+    aliases = set(ANONYMOUS_PROFILE_ALIASES)
+    aliases.update(row["account_alias"] for row in rows if anonymous_profile_record(row["account_alias"]))
+    return sorted(aliases, key=lambda value: (len(value), value))
+
+
+def anonymous_profile_status(conn: sqlite3.Connection, program: str, timestamp: float) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for alias in anonymous_profile_aliases(conn, program):
+        profile = anonymous_profile_record(alias)
+        assert profile is not None
+        status, lease, release = lease_availability(conn, program, profile, timestamp)
+        rows.append({
+            "alias": alias,
+            "profile_kind": "anonymous",
+            "status": status,
+            "lease": safe_lease(lease),
+            "last_release": safe_lease(release),
+        })
+    return rows
 
 
 def last_release(conn: sqlite3.Connection, program: str, alias: str) -> sqlite3.Row | None:
@@ -306,13 +355,13 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
         init_db(conn)
         expire_leases(conn, timestamp)
         conn.commit()
-        if args.tier == "anonymous":
+        if args.tier == "anonymous" or args.anonymous:
             return {
-                "status": "anonymous",
+                "status": "ok",
                 "program": slug(args.program),
-                "tier": "anonymous",
-                "lease_required": False,
-                "next": "use an ephemeral unauthenticated browser or direct request lane; no account profile is allocated",
+                "profile_kind": "anonymous",
+                "profiles": anonymous_profile_status(conn, args.program, timestamp),
+                "next": "request an exact available anonymous profile through browser_provisioner.py; no account or auth seed is used",
             }
         if args.tier:
             tier_accounts = []
@@ -512,8 +561,8 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
         "launch": {
             "required": True,
             "account": alias,
-            "profile_mode": "persistent-account-profile",
-            "command_hint": "request this resolved account through browser_provisioner.py; do not launch chromium_test.py directly",
+            "profile_mode": "persistent-anonymous-profile" if account.get("profile_kind") == "anonymous" else "persistent-account-profile",
+            "command_hint": "request this resolved profile through browser_provisioner.py; do not launch chromium_test.py directly",
         },
         "next": "register the browser with this lease after Chromium is ready; never substitute another account automatically",
     }
@@ -634,7 +683,8 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("program")
     status.add_argument("--account", help="Owned account alias or color. Omit for a program overview.")
     status_filter = status.add_mutually_exclusive_group()
-    status_filter.add_argument("--tier", choices=("admin", "user", "anonymous"), help="List accounts in a global principal tier; anonymous has no account lease.")
+    status_filter.add_argument("--tier", choices=("admin", "user", "anonymous"), help="List accounts in a global principal tier, or durable anonymous browser slots.")
+    status_filter.add_argument("--anonymous", action="store_true", help="List durable anonymous browser slots without consulting account inventory.")
     status_filter.add_argument("--idor", action="store_true", help="List primary IDOR accounts first, their live lease state, then eligible fallback accounts.")
     status.set_defaults(func=cmd_status)
 

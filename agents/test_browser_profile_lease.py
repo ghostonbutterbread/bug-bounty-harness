@@ -267,7 +267,7 @@ def test_color_availability_includes_lane_only_mapping(monkeypatch, tmp_path):
     ]
 
 
-def test_global_tiers_map_owner_to_admin_and_anonymous_needs_no_profile(monkeypatch, tmp_path):
+def test_global_tiers_map_owner_to_admin_and_anonymous_lists_durable_slots(monkeypatch, tmp_path):
     module = load_module()
     shared = tmp_path / "shared"
     state = tmp_path / "state"
@@ -275,18 +275,64 @@ def test_global_tiers_map_owner_to_admin_and_anonymous_needs_no_profile(monkeypa
     monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
 
     admins = module.cmd_status(args(module, state, "status", tier="admin"))
-    anonymous = module.cmd_status(args(module, state, "status", tier="anonymous"))
+    anonymous = module.cmd_status(args(module, state, "status", anonymous=True))
+    legacy_anonymous = module.cmd_status(args(module, state, "status", tier="anonymous"))
 
     assert admins["status"] == "ok"
     assert [row["account"]["alias"] for row in admins["accounts"]] == ["green-owner"]
     assert admins["accounts"][0]["account"]["tier"] == "admin"
-    assert anonymous == {
-        "status": "anonymous",
-        "program": "demo",
-        "tier": "anonymous",
-        "lease_required": False,
-        "next": "use an ephemeral unauthenticated browser or direct request lane; no account profile is allocated",
-    }
+    assert anonymous["status"] == "ok"
+    assert anonymous["profile_kind"] == "anonymous"
+    assert legacy_anonymous == anonymous
+    assert [(row["alias"], row["status"]) for row in anonymous["profiles"]] == [
+        ("anon", "available"),
+        ("anon1", "available"),
+        ("anon2", "available"),
+    ]
+
+
+def test_legacy_live_inventory_lifecycle_remains_leasable_during_migration(monkeypatch, tmp_path):
+    module = load_module()
+    shared = tmp_path / "shared"
+    state = tmp_path / "state"
+    write_inventory(shared)
+    inventory_path = shared / "demo" / "credentials" / "account_inventory.json"
+    inventory = json.loads(inventory_path.read_text())
+    inventory["accounts"][0]["lifecycle"] = "live"
+    inventory_path.write_text(json.dumps(inventory))
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    result = module.cmd_acquire(
+        args(module, state, "acquire", account="green", agent_id="agent-a", run_id="run-a", purpose="legacy-live")
+    )
+
+    assert result["status"] == "leased"
+    assert result["account"]["lifecycle"] == "live"
+
+
+def test_anonymous_slot_is_persistent_exclusive_and_does_not_need_inventory(monkeypatch, tmp_path):
+    module = load_module()
+    state = tmp_path / "state"
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(tmp_path / "missing-shared"))
+
+    first = module.cmd_acquire(
+        args(module, state, "acquire", account="anon2", agent_id="agent-a", run_id="run-a", purpose="anonymous-cart")
+    )
+    second = module.cmd_acquire(
+        args(module, state, "acquire", account="anon2", agent_id="agent-b", run_id="run-b", purpose="anonymous-cart")
+    )
+    module.cmd_release(
+        args(module, state, "release", lease_id=first["lease"]["lease_id"], agent_id="agent-a", disposition="completed", profile_health="healthy")
+    )
+    status = module.cmd_status(args(module, state, "status", account="anon2"))
+
+    assert first["status"] == "leased"
+    assert first["account"]["profile_kind"] == "anonymous"
+    assert first["launch"]["profile_mode"] == "persistent-anonymous-profile"
+    assert first["lease"]["profile_dir"].endswith("demo/web/browser-profiles/anon2")
+    assert second["status"] == "locked"
+    assert second["lease"]["owner_agent_id"] == "agent-a"
+    assert status["status"] == "available"
 
 
 def test_status_probes_the_registered_loopback_browser_without_returning_cdp(monkeypatch, tmp_path):

@@ -209,6 +209,22 @@ def test_other_owner_lease_denial_starts_no_systemd_unit(monkeypatch, tmp_path):
     except SystemExit as e: assert e.code == 2
 
 
+def test_capacity_rejection_never_leases_or_starts_a_browser(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], []))
+    monkeypatch.setattr(m, "admission", lambda *_: {"status": "rejected", "swap_free_mib": 0})
+    monkeypatch.setattr(m, "lease", lambda *_: calls.append("lease") or {"status": "leased"})
+    monkeypatch.setattr(m.subprocess, "run", lambda *_a, **_k: calls.append("systemd"))
+
+    try:
+        m.start(start_args())
+    except SystemExit as e:
+        assert e.code == 2
+
+    assert calls == []
+
+
 def test_failed_systemd_launch_releases_just_acquired_lease(monkeypatch, tmp_path):
     m = load(monkeypatch, tmp_path); calls=[]
     monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], [])); monkeypatch.setattr(m, "admission", lambda *_: {"status":"admitted"})

@@ -48,10 +48,14 @@ def start(args):
  # Serialized automatic retention sweep runs before every new admission.
  c=db(); sweep_rows(c,14,True); row=c.execute('select * from browsers where program=? and account=? order by created desc limit 1',(slug(args.program),slug(args.account))).fetchone()
  if row and row['agent_id']==args.agent_id and row['run_id']==args.run_id and row['state']=='running' and unit_active(row['unit']): emit({'status':'already-running',**safe(row)})
+ # Capacity is an admission gate, not a lease outcome. Do not acquire a profile
+ # until this node can actually start Chromium: a no-capacity retry must leave
+ # the next profile user with a healthy, available profile.
+ adm=admission(args.min_ram_available_mib,args.min_swap_free_mib)
+ if adm['status']!='admitted': emit({'status':'queued','reason':'no-capacity','retry_after_seconds':30,'admission':adm},2)
  got=lease(args,'acquire',args.program,args.account,'--agent-id',args.agent_id,'--run-id',args.run_id,'--purpose',args.purpose,'--ttl-seconds',str(args.ttl_seconds))
  if got.get('status') not in ('leased','already-owned'): emit(got,2)
- lid=got['lease']['lease_id']; adm=admission(args.min_ram_available_mib,args.min_swap_free_mib)
- if adm['status']!='admitted': release_lease(lid,args.agent_id); emit({'status':'queued','reason':'no-capacity','retry_after_seconds':30,'admission':adm},2)
+ lid=got['lease']['lease_id']
  prof=profile_path(args.program, got['lease'].get('account_alias',args.account)); bid=(row['browser_id'] if row and row['agent_id']==args.agent_id and row['run_id']==args.run_id else str(uuid.uuid4()))
  unit='browser-'+bid; launch=STATE.parent/(bid+'.launch.json'); launch.parent.mkdir(parents=True,exist_ok=True); os.chmod(launch.parent,0o700)
  # The unit stays foreground via sleep; Chromium remains inside its cgroup.

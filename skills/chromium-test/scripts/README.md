@@ -58,10 +58,16 @@
 - **Walkthrough:**
 
   ```bash
-  # Ask by global principal tier; owner roles map to admin. Anonymous has no
-  # account or persistent browser profile and should use an ephemeral lane.
+  # Ask by global principal tier; owner roles map to admin. Anonymous slots are
+  # durable unauthenticated browser profiles, not account fixtures.
   bbh skills/chromium-test/scripts/browser_profile_lease.py status <program> --tier admin
-  bbh skills/chromium-test/scripts/browser_profile_lease.py status <program> --tier anonymous
+  bbh skills/chromium-test/scripts/browser_profile_lease.py status <program> --anonymous
+
+  # Request an exact anonymous profile to retain carts and other browser-only
+  # state. It is exclusively leased but has no account record or auth seed.
+  bbh skills/chromium-test/scripts/browser_provisioner.py request \
+    <program> anon1 --agent-id <agent-id> --run-id <run-id> \
+    --purpose "anonymous cart investigation"
 
   # Ask first for a named profile. This reports role, program-specific org/plan
   # access, capabilities, lock state, and probes a registered local CDP endpoint.
@@ -89,8 +95,12 @@
   ```
 
   `browser_lease_enabled=no` and lifecycle `deleted`/`disabled`/`suspended` are
-  never offered as alternatives. Record global principal tier as `admin` (the
-  owner-equivalent) or `user`; `anonymous` is virtual and has no account record.
+  never offered as account alternatives. Account writers use lifecycle `active`;
+  legacy `live` records remain leasable during migration. `anon`, `anon1`, and
+  `anon2` are the default durable anonymous slots, and an exact `anon<N>` slot
+  may be requested without adding a fake account record. Record global principal
+  tier as `admin` (the owner-equivalent) or `user`; anonymous browser slots are not
+  accounts.
   Record program-specific organization access with
   `--organization-access ORG[:TIER[:PLAN]]`, and program-specific permission
   labels through repeatable `--capability`. These are shown so the caller can

@@ -40,6 +40,7 @@ DEFAULT_HOSTER_CA_CERT = Path(
 ).expanduser()
 AUTH_SEED_REF_PREFIXES = ("auth-seed:", "auth_seed:", "file:")
 AUTH_SESSION_MODES = ("browser-bound", "proxy-replayable", "hybrid", "unknown")
+ANONYMOUS_PROFILE_PATTERN = re.compile(r"anon(?:[1-9][0-9]*)?$")
 AUTH_RESOLVER = Path(__file__).resolve().parents[2] / "account-management" / "scripts" / "auth_resolver.py"
 CHROME_BINARIES = (
     "chromium",
@@ -587,6 +588,13 @@ def maybe_refresh_auth_seed(
 
 def resolve_auth_seed_file(args: argparse.Namespace) -> tuple[str | None, dict[str, Any]]:
     selector = args.account or args.account_label
+    if selector and ANONYMOUS_PROFILE_PATTERN.fullmatch(sanitize_slug(selector)):
+        return None, {
+            "status": "anonymous",
+            "profile_kind": "anonymous",
+            "selector": selector,
+            "auth_session_mode": "hybrid",
+        }
     resolution = resolve_account_record(args.program, selector)
     account = resolution.get("account") if resolution.get("status") == "resolved" else None
     inventory = load_account_inventory(args.program)

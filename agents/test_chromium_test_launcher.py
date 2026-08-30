@@ -35,6 +35,22 @@ def test_manual_handoff_policy_requires_recorded_kasm_failure_and_trusted_ca():
     assert "Ryushe explicitly approves that exception" not in policy
 
 
+def test_anonymous_profile_skips_account_inventory_and_auth_seed_resolution():
+    module = load_launcher_module()
+
+    seed_path, resolution = module.resolve_auth_seed_file(
+        argparse.Namespace(account="anon1", account_label=None)
+    )
+
+    assert seed_path is None
+    assert resolution == {
+        "status": "anonymous",
+        "profile_kind": "anonymous",
+        "selector": "anon1",
+        "auth_session_mode": "hybrid",
+    }
+
+
 def test_build_command_includes_remote_allow_origins(monkeypatch):
     module = load_launcher_module()
     monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/usr/bin/chromium")

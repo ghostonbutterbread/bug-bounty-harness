@@ -20,6 +20,10 @@ Prevent a capacity-rejected browser request from changing the health state of an
 
 `uv run --with pytest pytest -q agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_chromium_test_launcher.py` passed: 61 tests.
 
+## Review
+
+An independent review approved the implementation: the rejection regression observes both lease calls (including cleanup releases) and `subprocess.run`, so it would fail under the old acquire-then-cancel ordering. No defect was found.
+
 ## Activation boundary
 
 This is source-only until the reviewed change is merged into `beta` and the Hoster runtime is explicitly fast-forwarded to the resulting commit. Hoster currently has complete swap exhaustion and nine Chromium roots in unmanaged sibling `app-org.chromium.*` scopes; no live browser restart or profile cleanup is part of this change.

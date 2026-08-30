@@ -19,6 +19,7 @@ AUTH_SESSION_MODES = ("browser-bound", "proxy-replayable", "hybrid", "unknown")
 LINK_STATUSES = ("linked", "unlinked", "unknown")
 INTEGRATION_STATUSES = ("connected", "disconnected", "unknown")
 INTEGRATION_PROFILE_STATUSES = ("active", "inactive", "unknown")
+LEGACY_LIFECYCLE_MIGRATIONS = {"live": "active"}
 FORBIDDEN_HINTS = (
     "password",
     "passwd",
@@ -204,6 +205,34 @@ def upsert(items: list[dict[str, Any]], record: dict[str, Any], keys: tuple[str,
     record["updated_at"] = now
     items.append(record)
     return "added"
+
+
+def cmd_migrate_lifecycle(args: argparse.Namespace) -> int:
+    """Rewrite recognized legacy account lifecycles to canonical values."""
+    data = load_inventory(args.program)
+    changes: list[dict[str, str]] = []
+    for account in data["accounts"]:
+        lifecycle = account.get("lifecycle")
+        if not isinstance(lifecycle, str):
+            continue
+        canonical = LEGACY_LIFECYCLE_MIGRATIONS.get(lifecycle.lower())
+        if canonical is None:
+            continue
+        changes.append({"alias": str(account.get("alias", "")), "from": lifecycle, "to": canonical})
+        if not args.dry_run:
+            account["lifecycle"] = canonical
+
+    path = inventory_path(args.program)
+    if changes and not args.dry_run:
+        path = save_inventory(args.program, data)
+    result = {
+        "status": "dry-run" if args.dry_run else "migrated" if changes else "no-changes",
+        "program": program_key(args.program),
+        "path": str(path),
+        "changes": changes,
+    }
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -464,6 +493,11 @@ def build_parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init", help="Create or normalize an inventory file.")
     init.add_argument("program")
     init.set_defaults(func=cmd_init)
+
+    migrate_lifecycle = sub.add_parser("migrate-lifecycle", help="Rewrite recognized legacy account lifecycle values to canonical values.")
+    migrate_lifecycle.add_argument("program")
+    migrate_lifecycle.add_argument("--dry-run", action="store_true", help="Report recognized lifecycle rewrites without changing the inventory.")
+    migrate_lifecycle.set_defaults(func=cmd_migrate_lifecycle)
 
     show = sub.add_parser("show", help="Show non-secret inventory summary.")
     show.add_argument("program")

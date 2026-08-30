@@ -26,4 +26,5 @@ This is source-only until the reviewed change is merged into `beta` and the Host
 
 ## Resume point
 
-Review the focused two-file diff, commit the feature branch, then merge it into a clean, current `beta` worktree. Remove this dossier from `beta` during the integration operation.
+- Implementation checkpoint: `bdfd2b152aacd4efcde895521179e2fe6e7de74f`.
+- Review the focused two-file implementation diff and its regression, then merge it into a clean, current `beta` worktree. Remove this dossier from `beta` during the integration operation.

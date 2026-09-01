@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-01
 - **Owning feature branch/ref:** `recovery/hoster-beta-manual-hunter-20260901`
-- **Latest immutable recovery checkpoint:** `f2b0a8f8834c11afe2b71499320ad1f39aee9a1d`
-- **Feature implementation commit(s):** `0719ba1111e78f2d133e5079badccc332bff07ce`, `f2b0a8f8834c11afe2b71499320ad1f39aee9a1d`
+- **Latest immutable recovery checkpoint:** `c1b312912cb78ed7e35fa617c093ce1392bd5d40`
+- **Feature implementation commit(s):** `0719ba1111e78f2d133e5079badccc332bff07ce`, `f2b0a8f8834c11afe2b71499320ad1f39aee9a1d`, `c1b312912cb78ed7e35fa617c093ce1392bd5d40`
 - **Inspiration / canonical references:** recovered from Hoster’s dirty `bug_bounty_harness-aiskillsync-beta` worktree.
 
 ## Intent
@@ -40,9 +40,9 @@ Recover and integrate the focused manual-finding ingestion fix found on Hoster w
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `recovery/hoster-beta-manual-hunter-20260901`
-- **Latest immutable recovery checkpoint:** `f2b0a8f8834c11afe2b71499320ad1f39aee9a1d`
-- **Feature implementation commit(s):** `0719ba1111e78f2d133e5079badccc332bff07ce`, `f2b0a8f8834c11afe2b71499320ad1f39aee9a1d`
-- **Exact resume point:** independent reviewer must inspect `0719ba1`, the corrective `f2b0a8f`, and this dossier-only checkpoint; merge only after approval.
+- **Latest immutable recovery checkpoint:** `c1b312912cb78ed7e35fa617c093ce1392bd5d40`
+- **Feature implementation commit(s):** `0719ba1111e78f2d133e5079badccc332bff07ce`, `f2b0a8f8834c11afe2b71499320ad1f39aee9a1d`, `c1b312912cb78ed7e35fa617c093ce1392bd5d40`
+- **Exact resume point:** independent reviewer must inspect `0719ba1`, `f2b0a8f`, parse-level test `c1b3129`, and this dossier-only checkpoint; merge only after approval.
 - **Working-tree state at handoff:** clean after the dossier checkpoint is committed.
 
 ## Decision gates
@@ -55,4 +55,5 @@ Recover and integrate the focused manual-finding ingestion fix found on Hoster w
 
 - 2026-09-01 — recovered from Hoster dirty beta checkout; 16 focused tests passed with the canonical checkout-local environment.
 - 2026-09-01 — recovered implementation checkpoint `0719ba1` was reviewable but incomplete: hostname-shaped `.go`, `.rs`, and `.js` tokens still matched.
-- 2026-09-01 — corrective checkpoint `f2b0a8f` makes unlabelled inference conservative and adds the missing hostname cases; focused suite passed 16 tests and 4 subtests.
+- 2026-09-01 — corrective checkpoint `f2b0a8f` makes unlabelled inference conservative and adds missing hostname cases; direct behavior passed but review required parse-level coverage.
+- 2026-09-01 — parse-level test checkpoint `c1b3129` covers fallback inference for `src/api/validate.py#12` and explicit `File: www.example.go`; focused suite passed 18 tests and 4 subtests.

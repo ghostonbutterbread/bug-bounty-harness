@@ -196,6 +196,68 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(parsed.finding["review_tier"], "CONFIRMED")
         self.assertTrue(parsed.finding["sink"])
 
+    def test_hostname_is_not_mistaken_for_a_source_file(self) -> None:
+        """Regression: '.c' inside 'www.example.com' used to be read as a C source file,
+        silently truncating the finding's identity field to 'www.example.c'."""
+        from agents.manual_hunter import FILE_HINT_RE
+
+        self.assertIsNone(FILE_HINT_RE.search("Asset: www.superdrugmobile.com (in scope)"))
+        match = FILE_HINT_RE.search("Found SQLite injection in preload.js:4.")
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group("path"), "preload.js")
+        self.assertEqual(match.group("line"), "4")
+
+    def test_markdown_note_without_file_field_is_rejected_not_corrupted(self) -> None:
+        """Regression: a markdown note with no 'File:' used to be rescued by a bogus
+        hostname match instead of failing loudly."""
+        hunter = ManualHunter(self.program)
+        note = "\n".join(
+            [
+                "# Uncaught exception on www.example.com/api/validate",
+                "**Asset:** `www.example.com` (in scope).",
+                "Sending a brace pair returns a 500 with the internal exception text.",
+            ]
+        )
+        with self.assertRaises(ValueError) as ctx:
+            hunter.parse_text(note, source_label="unit-test")
+        self.assertIn("File", str(ctx.exception))
+
+    def test_markdown_heading_yields_a_clean_title(self) -> None:
+        """Regression: the title used to run the heading and the next paragraph together."""
+        hunter = ManualHunter(self.program)
+        note = "\n".join(
+            [
+                "# Uncaught exception on the validate endpoint",
+                "**Asset:** `www.example.com` (in scope). **Severity:** low.",
+                "File: src/api/validate.py",
+                "Class: error-handling",
+            ]
+        )
+        parsed = hunter.parse_text(note, source_label="unit-test")
+        self.assertEqual(parsed.finding["title"], "Uncaught exception on the validate endpoint")
+        self.assertEqual(parsed.finding["type"], "Uncaught exception on the validate endpoint")
+        self.assertNotIn("**", parsed.finding["title"])
+        self.assertNotIn("#", parsed.finding["title"])
+
+    def test_inferred_class_is_flagged_and_stated_class_is_not(self) -> None:
+        """Regression: a class guessed from keywords was written to the ledger with the
+        same confidence as one the operator stated. Text that DENIES a class used to be
+        classified as that class."""
+        hunter = ManualHunter(self.program)
+        denial = "\n".join(
+            [
+                "No SSRF was demonstrated: every path and authority probe returned the ordinary 404.",
+                "It is a precondition for SSRF, not evidence of it.",
+                "File: src/api/validate.py",
+            ]
+        )
+        inferred = hunter.parse_text(denial, source_label="unit-test").finding
+        self.assertTrue(inferred["class_inferred"])
+
+        stated = hunter.parse_text(denial + "\nClass: error-handling", source_label="unit-test").finding
+        self.assertFalse(stated["class_inferred"])
+        self.assertEqual(stated["class_name"], "error-handling")
+
     @patch("agents.manual_hunter.update_team_finding")
     def test_ingest_uses_team_finding_adapter_after_duplicate_reservation(self, mock_update_team_finding) -> None:
         storage_root = self.tmp / "explicit-storage"

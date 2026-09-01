@@ -3,9 +3,11 @@
 For a BBH skill being authored or migrated that runs a repository-owned script,
 use `bbh <repository-relative-script-path> ...`—for example,
 `bbh agents/manual_hunter.py ...`. Do not add a checkout path or a
-`bbh` resolves its own installed symlink and does not accept a repository-root fallback, which makes that command run from the selected beta or stable checkout. Direct Python commands are legacy and must be migrated before use. See
-[`docs/bbh-launcher.md`](../docs/bbh-launcher.md) when authoring or changing a
-runnable BBH skill command.
+`HARNESS_ROOT` fallback: `bbh` resolves its own installed symlink and does not
+accept a repository-root override. This makes the command run from the selected
+beta or stable checkout. Direct Python commands are legacy and must be migrated
+before use. See [`docs/bbh-launcher.md`](../docs/bbh-launcher.md) when authoring
+or changing a runnable BBH skill command.
 
 Use this as the compact runtime entry point for a Bug Bounty Harness agent.
 

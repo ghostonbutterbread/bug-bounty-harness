@@ -25,7 +25,7 @@ It must cite WHATWG HTML/Encoding, Unicode UAX #15 and UTS #39, and OWASP.
 - Parent-skill link added at `skills/xss-payload-engineering/SKILL.md`.
 - Local skill-reference contract and `git diff --check` passed.
 - Independent review: no critical/high/medium findings; the parent link, code-point claims, whitespace checks, and five primary-spec URLs were verified. The OWASP URL was bot-protected to automated retrieval, but its syntax was valid.
-- Pending: inspect staged diff and commit the focused documentation change.
+- Pending: reviewed commit `9fe3333aae84b9baf2516cb7b8bb7b9c3565ee7a` is ready for beta integration; after a clean beta merge, remove this temporary dossier in the integration operation.
 
 ## Activation boundary
 

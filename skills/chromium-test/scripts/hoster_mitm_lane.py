@@ -351,6 +351,14 @@ def ensure_default(args: argparse.Namespace) -> dict[str, Any]:
             ),
         ],
     )
+    if args.dry_run:
+        return {
+            "status": "dry-run",
+            "lane": args.lane,
+            "proxy_server": f"http://{args.proxy_host}:{args.port}",
+            "proxy_port": args.port,
+            "start": start,
+        }
     if start.get("status") not in {"running", "already-running"}:
         return {"status": "start-failed", "lane": args.lane, "start": start}
     ca_sync = sync_lane_ca(args, start)

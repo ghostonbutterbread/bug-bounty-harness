@@ -104,8 +104,12 @@ MULTILINE_FIELDS = {
 FIELD_RE = re.compile(
     r"^\s*(?:[-*]\s+)?(?:\*\*)?(?P<label>[A-Za-z][A-Za-z0-9 _-]*?)(?:\*\*)?\s*:\s*(?P<value>.*)$"
 )
+# Unlabelled file inference is intentionally conservative. A hostname can share
+# any extension (for example, www.example.go), while an explicit `File:` field
+# is authoritative and remains able to carry more unusual filenames.
 FILE_HINT_RE = re.compile(
-    r"(?P<path>[\w./-]+\.(?:js|jsx|ts|tsx|py|rb|java|go|rs|php|c|cc|cpp|h|hpp|swift|kt|mjs|cjs|json|html|md))"
+    r"(?<![\w.-])"
+    r"(?P<path>(?:[\w-]+/)*[\w-]+\.(?:js|jsx|ts|tsx|py|rb|java|go|rs|php|c|cc|cpp|h|hpp|swift|kt|mjs|cjs|json|html|md))"
     r"(?![A-Za-z0-9_])"
     r"(?:[:#](?P<line>\d+))?"
 )

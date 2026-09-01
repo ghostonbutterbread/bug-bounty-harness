@@ -201,7 +201,9 @@ class ManualHunterTests(unittest.TestCase):
         silently truncating the finding's identity field to 'www.example.c'."""
         from agents.manual_hunter import FILE_HINT_RE
 
-        self.assertIsNone(FILE_HINT_RE.search("Asset: www.superdrugmobile.com (in scope)"))
+        for hostname in ("www.superdrugmobile.com", "www.example.go", "www.example.rs", "www.example.js"):
+            with self.subTest(hostname=hostname):
+                self.assertIsNone(FILE_HINT_RE.search(f"Asset: {hostname} (in scope)"))
         match = FILE_HINT_RE.search("Found SQLite injection in preload.js:4.")
         self.assertIsNotNone(match)
         self.assertEqual(match.group("path"), "preload.js")

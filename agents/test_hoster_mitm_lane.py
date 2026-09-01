@@ -181,6 +181,17 @@ def test_ensure_default_starts_missing_listener(monkeypatch):
     assert "8080" in calls[1]
 
 
+def test_ensure_default_dry_run_returns_planning_success(monkeypatch):
+    module = load_hoster_lane()
+    monkeypatch.setattr(module, "running_on_requested_hoster", lambda _args: True)
+
+    result = module.ensure_default(base_args(lane="hoster-default-8080", port=8080, dry_run=True))
+
+    assert result["status"] == "dry-run"
+    assert result["proxy_server"] == "http://hoster:8080"
+    assert result["start"]["status"] == "dry-run"
+
+
 def test_local_hoster_dispatch_uses_this_checkout_not_ssh(monkeypatch):
     module = load_hoster_lane()
     calls = []

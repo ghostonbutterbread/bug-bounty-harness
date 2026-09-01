@@ -1,14 +1,14 @@
 # BBH runtime papercuts integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes
 - **Branch:** `bug-bounty-harness/t_6d6bf8c7-resolve-bbh-runtime-papercuts`
 - **Base commit:** `7b7abd9a374f9cf4ec20feb0f00e6668b7b6ebc8`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-01
 - **Owning feature branch/ref:** `bug-bounty-harness/t_6d6bf8c7-resolve-bbh-runtime-papercuts`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `ea4386a01f9887ee3f8932a6fa1e58f54dd5de8a`
+- **Feature implementation commit(s):** `ea4386a01f9887ee3f8932a6fa1e58f54dd5de8a`
 - **Inspiration / canonical references:** Discord `1544427475382046781`; PC-20260825-223955-78c60f84; PC-20260830-190637-53ad9bc6; PC-20260830-182926-9141abea.
 
 ## Intent
@@ -39,10 +39,10 @@ Remove three BBH-owned execution papercuts without changing any target-facing be
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `bug-bounty-harness/t_6d6bf8c7-resolve-bbh-runtime-papercuts`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** inspect staged diff, commit this coherent patch, request independent review, merge only after approval.
-- **Working-tree state at handoff:** intentionally uncommitted while preparing the first checkpoint.
+- **Latest immutable recovery checkpoint:** `ea4386a01f9887ee3f8932a6fa1e58f54dd5de8a`
+- **Feature implementation commit(s):** `ea4386a01f9887ee3f8932a6fa1e58f54dd5de8a`
+- **Exact resume point:** independent reviewer must inspect `ea4386a` and this dossier-only checkpoint, then merge only after approval.
+- **Working-tree state at handoff:** clean after the dossier checkpoint is committed.
 
 ## Decision gates
 
@@ -53,3 +53,4 @@ Remove three BBH-owned execution papercuts without changing any target-facing be
 ## Decision record
 
 - 2026-09-01 — created for BBH runtime papercut remediation.
+- 2026-09-01 — implementation checkpoint `ea4386a` passed 29 focused tests and is ready for independent review.

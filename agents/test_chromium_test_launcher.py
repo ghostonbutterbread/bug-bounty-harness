@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import builtins
 import importlib.util
 import json
 import os
@@ -16,6 +17,27 @@ def load_launcher_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_finds_playwright_cache_through_real_lookup_when_playwright_is_unavailable(monkeypatch, tmp_path):
+    module = load_launcher_module()
+    executable = tmp_path / ".cache" / "ms-playwright" / "chromium-1223" / "chrome-linux64" / "chrome"
+    executable.parent.mkdir(parents=True)
+    executable.write_text("#!/bin/sh\n")
+    executable.chmod(0o755)
+    monkeypatch.setattr(module.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("CHROMIUM_TEST_CHROME", raising=False)
+
+    original_import = builtins.__import__
+
+    def deny_playwright_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "playwright" or name.startswith("playwright."):
+            raise ImportError("playwright unavailable in the BBH runtime")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", deny_playwright_import)
+
+    assert module.find_chrome_binary() == str(executable)
 
 
 def authorize_provisioner_child(monkeypatch, module) -> None:

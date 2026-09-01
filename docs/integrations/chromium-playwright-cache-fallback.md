@@ -1,6 +1,6 @@
 # Chromium Playwright-cache fallback integration dossier
 
-- **Status:** review-ready
+- **Status:** corrective review ready
 - **Owner:** Hermes
 - **Branch:** `fix/chromium-playwright-cache-fallback`
 - **Base commit:** `a9db75eee30ffa8948e49c15887cc45c90afdcff`
@@ -22,8 +22,8 @@ Permit the BBH checkout-local Python environment to use an already-installed hos
 ## Evidence and review
 
 - Tests and commands: `PYTHONPATH="$PWD" uv run --with pytest python -m pytest -q agents/test_chromium_test_launcher.py agents/test_browser_provisioner.py agents/test_hoster_mitm_lane.py` → 57 passed; `python3 -m py_compile skills/chromium-test/scripts/chromium_test.py`; `git diff --check`.
-- Independent review: pending.
-- Replay/cohort/fixture evidence: a temporary executable in a synthetic Playwright cache proves cache discovery without importing Playwright.
+- Independent review: initial review approved the constrained lookup and precedence but required an end-to-end fallback regression; corrective rereview is pending.
+- Replay/cohort/fixture evidence: synthetic cache executable plus a denied `playwright` import proves `find_chrome_binary()` reaches the cache fallback through the real launcher lookup.
 - Merge/ancestry evidence: pending.
 
 ## Blockers and deferred work

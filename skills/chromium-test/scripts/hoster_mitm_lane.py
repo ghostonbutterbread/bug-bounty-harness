@@ -444,7 +444,7 @@ def main() -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
     else:
         print(f"{result.get('status')}: {result.get('proxy_server', '')}")
-    return 0 if result.get("status") not in {"lease-failed", "start-failed", "release-failed", "ssh-failed"} else 2
+    return 0 if result.get("status") not in {"lease-failed", "start-failed", "release-failed", "ssh-failed", "local-failed"} else 2
 
 
 if __name__ == "__main__":

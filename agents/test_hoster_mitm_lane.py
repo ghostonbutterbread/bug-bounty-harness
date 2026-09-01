@@ -213,3 +213,29 @@ def test_local_hoster_dispatch_preserves_stderr_on_failure(monkeypatch):
     result = module.run_remote(base_args(), ["bbh", "skills/chromium-test/scripts/mitm_lane.py", "--json", "index-store"])
 
     assert result == {"status": "local-failed", "local_returncode": 1, "local_stderr": "missing dependency"}
+
+
+def test_nonlocal_hoster_dispatch_keeps_bounded_ssh(monkeypatch):
+    module = load_hoster_lane()
+    monkeypatch.setattr(module, "running_on_requested_hoster", lambda _args: False)
+
+    result = module.run_remote(
+        base_args(ssh_host="hoster.example.test", dry_run=True),
+        ["bbh", "skills/chromium-test/scripts/mitm_lane.py", "--json", "status"],
+    )
+
+    assert result["status"] == "dry-run"
+    assert result["ssh_command"][0] == "ssh"
+    assert result["ssh_command"][-1] == "bbh skills/chromium-test/scripts/mitm_lane.py --json status"
+
+
+def test_local_dispatch_failure_returns_nonzero_cli_exit(monkeypatch, capsys):
+    module = load_hoster_lane()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: argparse.Namespace(json=True, func=lambda _args: {"status": "local-failed", "local_stderr": "missing dependency"}),
+    )
+
+    assert module.main() == 2
+    assert '"status": "local-failed"' in capsys.readouterr().out

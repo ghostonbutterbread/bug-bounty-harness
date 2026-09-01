@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-01
 - **Owning feature branch/ref:** `bug-bounty-harness/t_6d6bf8c7-resolve-bbh-runtime-papercuts`
-- **Latest immutable recovery checkpoint:** `ea4386a01f9887ee3f8932a6fa1e58f54dd5de8a`
-- **Feature implementation commit(s):** `ea4386a01f9887ee3f8932a6fa1e58f54dd5de8a`
+- **Latest immutable recovery checkpoint:** `d4408039610272e454a804df0b27971b9ab7c832`
+- **Feature implementation commit(s):** `ea4386a01f9887ee3f8932a6fa1e58f54dd5de8a`, `d4408039610272e454a804df0b27971b9ab7c832`
 - **Inspiration / canonical references:** Discord `1544427475382046781`; PC-20260825-223955-78c60f84; PC-20260830-190637-53ad9bc6; PC-20260830-182926-9141abea.
 
 ## Intent
@@ -23,8 +23,8 @@ Remove three BBH-owned execution papercuts without changing any target-facing be
 
 ## Evidence and review
 
-- Tests and commands: `uv run --with pytest python -m pytest -q agents/test_browser_provisioner.py agents/test_hoster_mitm_lane.py tests/test_bbh_launcher.py` → 29 passed; `python3 -m py_compile skills/chromium-test/scripts/browser_provisioner.py skills/chromium-test/scripts/hoster_mitm_lane.py`; `python3 scripts/bbh.py --print-command skills/chromium-test/scripts/hoster_mitm_lane.py`; `git diff --check`.
-- Independent review: pending.
+- Tests and commands: `uv run --with pytest python -m pytest -q agents/test_browser_provisioner.py agents/test_hoster_mitm_lane.py tests/test_bbh_launcher.py` → 31 passed; `python3 -m py_compile skills/chromium-test/scripts/browser_provisioner.py skills/chromium-test/scripts/hoster_mitm_lane.py`; `python3 scripts/bbh.py --print-command skills/chromium-test/scripts/hoster_mitm_lane.py`; `git diff --check`.
+- Independent review: REQUEST_CHANGES on `ea4386a` / `0623b08` found the missing `local-failed` CLI exit and absent remote-path regression. Commit `d440803` adds both tests and returns `2` for `local-failed`; focused rereview pending.
 - Replay/cohort/fixture evidence: unit tests cover failed-systemd lease health, Hoster-local dispatcher selection, and local failure diagnostics. No live target or browser launch is required.
 - Merge/ancestry evidence: pending after review.
 
@@ -39,9 +39,9 @@ Remove three BBH-owned execution papercuts without changing any target-facing be
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `bug-bounty-harness/t_6d6bf8c7-resolve-bbh-runtime-papercuts`
-- **Latest immutable recovery checkpoint:** `ea4386a01f9887ee3f8932a6fa1e58f54dd5de8a`
-- **Feature implementation commit(s):** `ea4386a01f9887ee3f8932a6fa1e58f54dd5de8a`
-- **Exact resume point:** independent reviewer must inspect `ea4386a` and this dossier-only checkpoint, then merge only after approval.
+- **Latest immutable recovery checkpoint:** `d4408039610272e454a804df0b27971b9ab7c832`
+- **Feature implementation commit(s):** `ea4386a01f9887ee3f8932a6fa1e58f54dd5de8a`, `d4408039610272e454a804df0b27971b9ab7c832`
+- **Exact resume point:** focused rereview must inspect `d440803` and this dossier-only checkpoint, then merge only after approval.
 - **Working-tree state at handoff:** clean after the dossier checkpoint is committed.
 
 ## Decision gates
@@ -53,4 +53,5 @@ Remove three BBH-owned execution papercuts without changing any target-facing be
 ## Decision record
 
 - 2026-09-01 — created for BBH runtime papercut remediation.
-- 2026-09-01 — implementation checkpoint `ea4386a` passed 29 focused tests and is ready for independent review.
+- 2026-09-01 — implementation checkpoint `ea4386a` passed 29 focused tests and was returned for the local-dispatch exit contract and remote-path regression coverage.
+- 2026-09-01 — corrective checkpoint `d440803` passed 31 focused tests; focused rereview pending.

@@ -209,6 +209,30 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(match.group("path"), "preload.js")
         self.assertEqual(match.group("line"), "4")
 
+    def test_unlabelled_slash_path_is_inferred_by_parse_text(self) -> None:
+        hunter = ManualHunter(self.program)
+        parsed = hunter.parse_text(
+            "Potential error-handling flaw in src/api/validate.py#12.",
+            source_label="unit-test",
+        )
+
+        self.assertEqual(parsed.finding["file"], "src/api/validate.py")
+        self.assertEqual(parsed.finding["line"], 12)
+
+    def test_explicit_file_value_remains_authoritative_for_hostname_shaped_value(self) -> None:
+        hunter = ManualHunter(self.program)
+        parsed = hunter.parse_text(
+            "\n".join(
+                [
+                    "File: www.example.go",
+                    "Description: The explicitly supplied value must not be replaced by fallback inference.",
+                ]
+            ),
+            source_label="unit-test",
+        )
+
+        self.assertEqual(parsed.finding["file"], "www.example.go")
+
     def test_markdown_note_without_file_field_is_rejected_not_corrupted(self) -> None:
         """Regression: a markdown note with no 'File:' used to be rescued by a bogus
         hostname match instead of failing loudly."""

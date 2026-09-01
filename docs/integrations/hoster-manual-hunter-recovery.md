@@ -24,9 +24,9 @@ Recover and integrate the focused manual-finding ingestion fix found on Hoster w
 
 ## Evidence and review
 
-- Tests and commands: `PYTHONPATH="$PWD" /home/ryushe/projects/bug_bounty_harness/.venv/bin/python -m pytest -q agents/test_manual_hunter.py` → 16 passed, 4 hostname subtests passed; `python3 -m py_compile agents/manual_hunter.py`; `git diff --check`.
-- Independent review: the initial review correctly found hostname-as-file false positives for `.go`, `.rs`, and `.js`; corrective rereview is pending.
-- Replay/cohort/fixture evidence: explicit hostname, Markdown title, and inferred-class regression tests are included.
+- Tests and commands: `PYTHONPATH="$PWD" /home/ryushe/projects/bug_bounty_harness/.venv/bin/python -m pytest -q agents/test_manual_hunter.py` → 18 passed, 4 hostname subtests passed; `python3 -m py_compile agents/manual_hunter.py`; `git diff --check`.
+- Independent review: corrective review confirmed runtime behavior but required parse-level regression tests for unlabelled slash paths and explicit unusual `File:` values; second corrective rereview is pending.
+- Replay/cohort/fixture evidence: direct hostname guard plus parse-level unlabelled path and explicit hostname-shaped `File:` regression tests are included.
 - Merge/ancestry evidence: pending.
 
 ## Blockers and deferred work

@@ -1,6 +1,6 @@
 # Hoster manual-hunter recovery integration dossier
 
-- **Status:** corrective review ready
+- **Status:** approved for beta integration
 - **Owner:** Hermes
 - **Branch:** `recovery/hoster-beta-manual-hunter-20260901`
 - **Base commit:** `a9db75eee30ffa8948e49c15887cc45c90afdcff`
@@ -25,7 +25,7 @@ Recover and integrate the focused manual-finding ingestion fix found on Hoster w
 ## Evidence and review
 
 - Tests and commands: `PYTHONPATH="$PWD" /home/ryushe/projects/bug_bounty_harness/.venv/bin/python -m pytest -q agents/test_manual_hunter.py` → 18 passed, 4 hostname subtests passed; `python3 -m py_compile agents/manual_hunter.py`; `git diff --check`.
-- Independent review: corrective review confirmed runtime behavior but required parse-level regression tests for unlabelled slash paths and explicit unusual `File:` values; second corrective rereview is pending.
+- Independent review: APPROVED after the second corrective rereview. It verified the parse-level slash-path and explicit `File:` tests, hostname guard, py_compile, clean diff/status, and 18-test focused suite.
 - Replay/cohort/fixture evidence: direct hostname guard plus parse-level unlabelled path and explicit hostname-shaped `File:` regression tests are included.
 - Merge/ancestry evidence: pending.
 
@@ -42,7 +42,7 @@ Recover and integrate the focused manual-finding ingestion fix found on Hoster w
 - **Owning feature branch/ref:** `recovery/hoster-beta-manual-hunter-20260901`
 - **Latest immutable recovery checkpoint:** `c1b312912cb78ed7e35fa617c093ce1392bd5d40`
 - **Feature implementation commit(s):** `0719ba1111e78f2d133e5079badccc332bff07ce`, `f2b0a8f8834c11afe2b71499320ad1f39aee9a1d`, `c1b312912cb78ed7e35fa617c093ce1392bd5d40`
-- **Exact resume point:** independent reviewer must inspect `0719ba1`, `f2b0a8f`, parse-level test `c1b3129`, and this dossier-only checkpoint; merge only after approval.
+- **Exact resume point:** integrate the approved recovery branch into a clean/current `beta`, remove this dossier from the integration lane, push beta, and fast-forward the clean actual Hoster checkout.
 - **Working-tree state at handoff:** clean after the dossier checkpoint is committed.
 
 ## Decision gates
@@ -57,3 +57,4 @@ Recover and integrate the focused manual-finding ingestion fix found on Hoster w
 - 2026-09-01 — recovered implementation checkpoint `0719ba1` was reviewable but incomplete: hostname-shaped `.go`, `.rs`, and `.js` tokens still matched.
 - 2026-09-01 — corrective checkpoint `f2b0a8f` makes unlabelled inference conservative and adds missing hostname cases; direct behavior passed but review required parse-level coverage.
 - 2026-09-01 — parse-level test checkpoint `c1b3129` covers fallback inference for `src/api/validate.py#12` and explicit `File: www.example.go`; focused suite passed 18 tests and 4 subtests.
+- 2026-09-01 — independent second corrective rereview APPROVED the recovery candidate after verifying hostname blocking, ordinary parse-level fallback, explicit-file authority, py_compile, diff check, and clean status.

@@ -225,14 +225,17 @@ def test_capacity_rejection_never_leases_or_starts_a_browser(monkeypatch, tmp_pa
     assert calls == []
 
 
-def test_failed_systemd_launch_releases_just_acquired_lease(monkeypatch, tmp_path):
-    m = load(monkeypatch, tmp_path); calls=[]
+def test_failed_systemd_launch_releases_just_acquired_lease_with_healthy_profile(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path); calls=[]; release_args=[]
     monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], [])); monkeypatch.setattr(m, "admission", lambda *_: {"status":"admitted"})
     def fake_lease(_, action, *rest):
         calls.append(action)
+        if action == "release":
+            release_args.extend(rest)
         return {"status":"leased","lease":{"lease_id":"l","account_alias":"fixture"}} if action == "acquire" else {"status":"released"}
     monkeypatch.setattr(m, "lease", fake_lease)
     monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: argparse.Namespace(returncode=1, stderr="systemd denied", stdout=""))
     try: m.start(start_args())
     except SystemExit as e: assert e.code == 2
     assert calls == ["acquire", "release"]
+    assert release_args[release_args.index("--profile-health") + 1] == "healthy"

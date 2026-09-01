@@ -6,7 +6,10 @@ from __future__ import annotations
 import argparse
 import json
 import shlex
+import shutil
+import socket
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +46,47 @@ def remote_command(args: argparse.Namespace, argv: list[str]) -> str:
     return " ".join(shlex.quote(part) for part in argv)
 
 
+def running_on_requested_hoster(args: argparse.Namespace) -> bool:
+    """Avoid SSH-to-self; the current checkout remains the lane authority."""
+    requested = args.ssh_host.strip().lower().rstrip(".")
+    local_names = {
+        socket.gethostname().lower().rstrip("."),
+        socket.getfqdn().lower().rstrip("."),
+    }
+    return requested in local_names or requested.split(".", 1)[0] in {
+        name.split(".", 1)[0] for name in local_names
+    }
+
+
+def local_bbh_command(argv: list[str]) -> list[str]:
+    """Run the dispatcher from this checkout rather than relying on PATH."""
+    if not argv or argv[0] != "bbh":
+        raise ValueError("local Hoster dispatch requires a BBH command")
+    root = Path(__file__).resolve().parents[3]
+    return [sys.executable, str(root / "scripts" / "bbh.py"), *argv[1:]]
+
+
 def run_remote(args: argparse.Namespace, argv: list[str]) -> dict[str, Any]:
+    if running_on_requested_hoster(args):
+        command = local_bbh_command(argv)
+        if args.dry_run:
+            return {"status": "dry-run", "local_command": command}
+        proc = subprocess.run(
+            command,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=args.timeout,
+        )
+        try:
+            parsed: dict[str, Any] = json.loads(proc.stdout) if proc.stdout.strip() else {}
+        except json.JSONDecodeError:
+            parsed = {"raw_stdout": proc.stdout}
+        parsed.update({"local_returncode": proc.returncode, "local_stderr": proc.stderr.strip()})
+        if proc.returncode != 0:
+            parsed.setdefault("status", "local-failed")
+        return parsed
     command = ssh_base(args) + [remote_command(args, argv)]
     if args.dry_run:
         return {"status": "dry-run", "ssh_command": command}
@@ -73,6 +116,15 @@ def run_remote(args: argparse.Namespace, argv: list[str]) -> dict[str, Any]:
 
 def copy_remote_file(args: argparse.Namespace, remote_path: str, local_path: Path) -> dict[str, Any]:
     local_path.parent.mkdir(parents=True, exist_ok=True)
+    if running_on_requested_hoster(args):
+        source = Path(remote_path).expanduser()
+        try:
+            if source.resolve() == local_path.resolve():
+                return {"status": "already-local", "local_path": str(local_path), "remote_path": str(source)}
+            shutil.copyfile(source, local_path)
+        except OSError as exc:
+            return {"status": "copy-failed", "local_path": str(local_path), "remote_path": str(source), "copy_error": str(exc)}
+        return {"status": "copied", "local_path": str(local_path), "remote_path": str(source)}
     command = [
         "scp",
         "-i",

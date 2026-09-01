@@ -179,3 +179,37 @@ def test_ensure_default_starts_missing_listener(monkeypatch):
     assert "start" in calls[1]
     assert "--port" in calls[1]
     assert "8080" in calls[1]
+
+
+def test_local_hoster_dispatch_uses_this_checkout_not_ssh(monkeypatch):
+    module = load_hoster_lane()
+    calls = []
+    monkeypatch.setattr(module, "running_on_requested_hoster", lambda _args: True)
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda command, **_kwargs: calls.append(command) or argparse.Namespace(
+            returncode=0, stdout='{"status":"running"}', stderr=""
+        ),
+    )
+
+    result = module.run_remote(base_args(), ["bbh", "skills/chromium-test/scripts/mitm_lane.py", "--json", "status"])
+
+    assert result == {"status": "running", "local_returncode": 0, "local_stderr": ""}
+    assert calls[0][0] == module.sys.executable
+    assert calls[0][1].endswith("scripts/bbh.py")
+    assert "ssh" not in calls[0]
+
+
+def test_local_hoster_dispatch_preserves_stderr_on_failure(monkeypatch):
+    module = load_hoster_lane()
+    monkeypatch.setattr(module, "running_on_requested_hoster", lambda _args: True)
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: argparse.Namespace(returncode=1, stdout="", stderr="missing dependency"),
+    )
+
+    result = module.run_remote(base_args(), ["bbh", "skills/chromium-test/scripts/mitm_lane.py", "--json", "index-store"])
+
+    assert result == {"status": "local-failed", "local_returncode": 1, "local_stderr": "missing dependency"}

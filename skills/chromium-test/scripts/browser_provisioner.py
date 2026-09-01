@@ -41,7 +41,7 @@ def stop_unit(unit):
  subprocess.run(['systemctl','--user','stop',unit],env=sysenv(),check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  subprocess.run(['systemctl','--user','reset-failed',unit],env=sysenv(),check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 def safe(row): return {k:row[k] for k in ('browser_id','lease_id','program','account','state','tab_count','last_activity','created','updated')}
-def release_lease(lease_id, agent, disp='cancelled', health='unknown'): return lease(None,'release','--lease-id',lease_id,'--agent-id',agent,'--disposition',disp,'--profile-health',health)
+def release_lease(lease_id, agent, disp='cancelled', health='healthy'): return lease(None,'release','--lease-id',lease_id,'--agent-id',agent,'--disposition',disp,'--profile-health',health)
 def profile_path(program,account): return Path(os.environ.get('HARNESS_BOUNTY_ARTIFACT_ROOT','/mnt/bounty'))/slug(program)/'web'/'browser-profiles'/slug(account)
 def start(args):
  # Existing owner may resume only its own stopped profile.

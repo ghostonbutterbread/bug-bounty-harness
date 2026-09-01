@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-01
 - **Owning feature branch/ref:** `fix/hoster-mitm-dry-run`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `2e84654f491f55f737e72493ae0c713d3399b029`
+- **Feature implementation commit(s):** `2e84654f491f55f737e72493ae0c713d3399b029`
 - **Inspiration / canonical references:** Hoster beta smoke after PC-20260901-193838-ffaf7988.
 
 ## Intent
@@ -37,10 +37,10 @@ Ensure `hoster_mitm_lane.py ensure-default --dry-run` is a successful planning o
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/hoster-mitm-dry-run`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit the patch and dossier, then obtain independent review.
-- **Working-tree state at handoff:** intentionally uncommitted while preparing the first checkpoint.
+- **Latest immutable recovery checkpoint:** `2e84654f491f55f737e72493ae0c713d3399b029`
+- **Feature implementation commit(s):** `2e84654f491f55f737e72493ae0c713d3399b029`
+- **Exact resume point:** independent reviewer must inspect `2e84654` and this dossier-only checkpoint, then merge only after approval.
+- **Working-tree state at handoff:** clean after the dossier checkpoint is committed.
 
 ## Decision gates
 
@@ -51,3 +51,4 @@ Ensure `hoster_mitm_lane.py ensure-default --dry-run` is a successful planning o
 ## Decision record
 
 - 2026-09-01 — created after deployment smoke revealed dry-run was misclassified as `start-failed`.
+- 2026-09-01 — implementation checkpoint `2e84654` passed 32 focused tests and is ready for independent review.

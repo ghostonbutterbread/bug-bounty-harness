@@ -27,6 +27,12 @@ current consumer and any later-consumer branch
 Use the profile to answer: **what language can this input still speak, and
 which executable consumer could interpret it?**
 
+For character encodings, Unicode variants, entity/escape representations, and
+parser-stage differentials, read
+`references/parser-stage-character-variants.md`. Treat it as a transformation
+map: test the observed decoder/normalizer/reparse boundary, not a generic list
+of lookalike characters.
+
 ## Candidate Queues
 
 Keep both queues available for a plausible warm/hot vector.

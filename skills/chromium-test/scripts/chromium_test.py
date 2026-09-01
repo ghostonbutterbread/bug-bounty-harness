@@ -196,21 +196,39 @@ def load_runtime_route(runtime: str) -> dict[str, str]:
     return defaults
 
 
+def find_cached_playwright_chromium_binary() -> str | None:
+    """Find a host-installed Playwright Chromium without importing Playwright.
+
+    BBH runs from its own checkout-local virtual environment. The browser itself
+    can legitimately be installed by the host's Playwright runtime, so an absent
+    Python package in BBH's venv must not hide an otherwise usable local browser.
+    """
+    cache_root = Path.home() / ".cache" / "ms-playwright"
+    candidates = [
+        path
+        for path in cache_root.glob("chromium-*/chrome-*/chrome")
+        if path.is_file() and os.access(path, os.X_OK)
+    ]
+    if not candidates:
+        return None
+    return str(max(candidates, key=lambda path: path.stat().st_mtime))
+
+
 def find_playwright_chromium_binary() -> str | None:
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
     except Exception:
-        return None
+        return find_cached_playwright_chromium_binary()
 
     try:
         with sync_playwright() as playwright:
             path = playwright.chromium.executable_path
     except Exception:
-        return None
+        return find_cached_playwright_chromium_binary()
 
     if path and Path(path).exists():
         return str(path)
-    return None
+    return find_cached_playwright_chromium_binary()
 
 
 def find_chrome_binary(explicit: str | None = None) -> str:

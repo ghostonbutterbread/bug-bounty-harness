@@ -18,6 +18,17 @@ def load_launcher_module():
     return module
 
 
+def test_finds_executable_playwright_cache_without_playwright_module(monkeypatch, tmp_path):
+    module = load_launcher_module()
+    executable = tmp_path / ".cache" / "ms-playwright" / "chromium-1223" / "chrome-linux64" / "chrome"
+    executable.parent.mkdir(parents=True)
+    executable.write_text("#!/bin/sh\n")
+    executable.chmod(0o755)
+    monkeypatch.setattr(module.Path, "home", lambda: tmp_path)
+
+    assert module.find_cached_playwright_chromium_binary() == str(executable)
+
+
 def authorize_provisioner_child(monkeypatch, module) -> None:
     monkeypatch.setattr(module, "is_provisioner_service_child", lambda: True)
 

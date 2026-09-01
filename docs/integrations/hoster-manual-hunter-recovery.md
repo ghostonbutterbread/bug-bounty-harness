@@ -1,14 +1,14 @@
 # Hoster manual-hunter recovery integration dossier
 
-- **Status:** corrective review required
+- **Status:** corrective review ready
 - **Owner:** Hermes
 - **Branch:** `recovery/hoster-beta-manual-hunter-20260901`
 - **Base commit:** `a9db75eee30ffa8948e49c15887cc45c90afdcff`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-01
 - **Owning feature branch/ref:** `recovery/hoster-beta-manual-hunter-20260901`
-- **Latest immutable recovery checkpoint:** `f5b845baff65020819fa24f7320fc3ad729d639e`; corrective checkpoint pending commit
-- **Feature implementation commit(s):** `0719ba1111e78f2d133e5079badccc332bff07ce`; corrective commit pending
+- **Latest immutable recovery checkpoint:** `f2b0a8f8834c11afe2b71499320ad1f39aee9a1d`
+- **Feature implementation commit(s):** `0719ba1111e78f2d133e5079badccc332bff07ce`, `f2b0a8f8834c11afe2b71499320ad1f39aee9a1d`
 - **Inspiration / canonical references:** recovered from Hoster’s dirty `bug_bounty_harness-aiskillsync-beta` worktree.
 
 ## Intent
@@ -40,9 +40,9 @@ Recover and integrate the focused manual-finding ingestion fix found on Hoster w
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `recovery/hoster-beta-manual-hunter-20260901`
-- **Latest immutable recovery checkpoint:** `f5b845baff65020819fa24f7320fc3ad729d639e`; corrective checkpoint pending commit
-- **Feature implementation commit(s):** `0719ba1111e78f2d133e5079badccc332bff07ce`; corrective commit pending
-- **Exact resume point:** independent reviewer must inspect `0719ba1` and this dossier-only checkpoint, then merge only after approval.
+- **Latest immutable recovery checkpoint:** `f2b0a8f8834c11afe2b71499320ad1f39aee9a1d`
+- **Feature implementation commit(s):** `0719ba1111e78f2d133e5079badccc332bff07ce`, `f2b0a8f8834c11afe2b71499320ad1f39aee9a1d`
+- **Exact resume point:** independent reviewer must inspect `0719ba1`, the corrective `f2b0a8f`, and this dossier-only checkpoint; merge only after approval.
 - **Working-tree state at handoff:** clean after the dossier checkpoint is committed.
 
 ## Decision gates
@@ -54,4 +54,5 @@ Recover and integrate the focused manual-finding ingestion fix found on Hoster w
 ## Decision record
 
 - 2026-09-01 — recovered from Hoster dirty beta checkout; 16 focused tests passed with the canonical checkout-local environment.
-- 2026-09-01 — recovered implementation checkpoint `0719ba1` is ready for independent review.
+- 2026-09-01 — recovered implementation checkpoint `0719ba1` was reviewable but incomplete: hostname-shaped `.go`, `.rs`, and `.js` tokens still matched.
+- 2026-09-01 — corrective checkpoint `f2b0a8f` makes unlabelled inference conservative and adds the missing hostname cases; focused suite passed 16 tests and 4 subtests.

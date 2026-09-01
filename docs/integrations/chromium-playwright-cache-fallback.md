@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-01
 - **Owning feature branch/ref:** `fix/chromium-playwright-cache-fallback`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `c8d46364d31a78b670e2457cabe707830a141cbf`
+- **Feature implementation commit(s):** `c8d46364d31a78b670e2457cabe707830a141cbf`
 - **Inspiration / canonical references:** Hoster onlinedoctor provisioner diagnosis.
 
 ## Intent
@@ -37,10 +37,10 @@ Permit the BBH checkout-local Python environment to use an already-installed hos
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/chromium-playwright-cache-fallback`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit the patch and dossier, then obtain independent review.
-- **Working-tree state at handoff:** intentionally uncommitted while preparing the first checkpoint.
+- **Latest immutable recovery checkpoint:** `c8d46364d31a78b670e2457cabe707830a141cbf`
+- **Feature implementation commit(s):** `c8d46364d31a78b670e2457cabe707830a141cbf`
+- **Exact resume point:** independent reviewer must inspect `c8d4636` and this dossier-only checkpoint, then merge only after approval.
+- **Working-tree state at handoff:** clean after the dossier checkpoint is committed.
 
 ## Decision gates
 
@@ -51,3 +51,4 @@ Permit the BBH checkout-local Python environment to use an already-installed hos
 ## Decision record
 
 - 2026-09-01 — Hoster diagnosis: the active BBH venv lacked the Playwright module while an executable Chromium already existed in the host Playwright cache; direct launcher dry-run failed `No Chromium/Chrome binary found`.
+- 2026-09-01 — implementation checkpoint `c8d4636` passed 57 focused tests and is ready for independent review.

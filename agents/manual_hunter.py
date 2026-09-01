@@ -104,8 +104,14 @@ MULTILINE_FIELDS = {
 FIELD_RE = re.compile(
     r"^\s*(?:[-*]\s+)?(?:\*\*)?(?P<label>[A-Za-z][A-Za-z0-9 _-]*?)(?:\*\*)?\s*:\s*(?P<value>.*)$"
 )
+# Unlabelled file inference is intentionally conservative. A hostname can share
+# any extension (for example, www.example.go), while an explicit `File:` field
+# is authoritative and remains able to carry more unusual filenames.
 FILE_HINT_RE = re.compile(
-    r"(?P<path>[\w./-]+\.(?:js|jsx|ts|tsx|py|rb|java|go|rs|php|c|cc|cpp|h|hpp|swift|kt|mjs|cjs|json|html|md))(?:[:#](?P<line>\d+))?"
+    r"(?<![\w.-])"
+    r"(?P<path>(?:[\w-]+/)*[\w-]+\.(?:js|jsx|ts|tsx|py|rb|java|go|rs|php|c|cc|cpp|h|hpp|swift|kt|mjs|cjs|json|html|md))"
+    r"(?![A-Za-z0-9_])"
+    r"(?:[:#](?P<line>\d+))?"
 )
 CALL_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_$.]*\([^()\n]{0,160}\))")
 
@@ -500,7 +506,28 @@ def _read_multiline_input(prompt: str) -> str:
     return "\n".join(lines).strip()
 
 
-def _derive_title(description: str, fallback: str = "Untitled finding") -> str:
+def _derive_title(
+    description: str,
+    fallback: str = "Untitled finding",
+    *,
+    first_line_only: bool = False,
+) -> str:
+    """Summarise ``description`` in <=140 chars.
+
+    ``first_line_only`` scopes the result to the first meaningful line and strips
+    markdown heading/bold markers. Callers deriving a *title* want that: joining
+    every line first lets a markdown note's heading and its following paragraph
+    merge into one blob. It is opt-in because ``sync_reports`` calls this to build
+    a *description*, where the joined-sentence form is the intended behaviour.
+    """
+    if first_line_only:
+        for raw_line in description.splitlines():
+            line = re.sub(r"^#{1,6}\s*", "", raw_line.strip()).replace("**", "").strip()
+            if not line:
+                continue
+            sentence = re.split(r"(?<=[.!?])\s+", line, maxsplit=1)[0].strip()
+            return (sentence or line)[:140]
+        return fallback
     text = " ".join(part.strip() for part in description.splitlines() if part.strip())
     if not text:
         return fallback
@@ -825,8 +852,15 @@ class ManualHunter:
         line_number = _safe_int(parsed.get("line")) or inline_line
 
         class_name = _normalize_class(parsed.get("class_name"))
-        if not class_name:
+        class_inferred = not class_name
+        if class_inferred:
             class_name = _infer_class(text)
+            print(
+                f"warning: no 'Class:' in note; class_name inferred as '{class_name}' by keyword match. "
+                "Keyword matching cannot tell an asserted class from a denied one -- state 'Class: <x>' "
+                "in the note to override.",
+                file=sys.stderr,
+            )
 
         category = _normalize_text(parsed.get("category")).lower() or ("novel" if class_name == "novel" else "class")
         if category not in {"class", "novel"}:
@@ -838,7 +872,11 @@ class ManualHunter:
         if not description:
             raise ValueError("finding note is missing Description")
 
-        title = _normalize_text(parsed.get("title")) or _normalize_text(parsed.get("type")) or _derive_title(description)
+        title = (
+            _normalize_text(parsed.get("title"))
+            or _normalize_text(parsed.get("type"))
+            or _derive_title(description, first_line_only=True)
+        )
         finding_type = _normalize_text(parsed.get("type")) or title
         severity = _normalize_severity(parsed.get("severity"))
         sink = _infer_sink(parsed)
@@ -867,6 +905,7 @@ class ManualHunter:
             "agent": "manual-hunter",
             "category": category,
             "class_name": class_name,
+            "class_inferred": class_inferred,
             "type": finding_type,
             "title": title,
             "vulnerability_name": vulnerability_name,

@@ -15,6 +15,9 @@ requires browser-side source-to-sink reasoning and execution proof.
 - `waf-live-policy` for browser/raw-client, sanitizer, and parser differences
 - `chromium-test` when local browser verification is possible
 - `skills/xss/references/payload-selection.md`
+- `skills/xss/references/research-card-integration.md` when a framework,
+  renderer, sanitizer, source, or sink fingerprint needs a next discriminating
+  check
 
 ## Source Map
 
@@ -52,6 +55,23 @@ Framework-specific review:
   HTML
 - Angular: `[innerHTML]`, `bypassSecurityTrustHtml`,
   `bypassSecurityTrustUrl`, `bypassSecurityTrustScript`
+- jQuery: HTML-producing APIs such as `.html()`, `.append()`, `.after()`,
+  `.before()`, `.replaceWith()`, `.wrap*()`, and `parseHTML()`
+
+## Technology-Guided Research
+
+After the source/sink map identifies a concrete technology or trust boundary,
+write that observed target fact to MapStore. If it does not already yield a next
+discriminating check, query ResearchMap using the framework plus the observed
+renderer, source, sink, sanitizer, or parser clue. For example, a React
+markdown renderer with a raw-HTML helper is a valid narrow query; "React XSS"
+is not.
+
+Use at most a compact, cited briefing in a worker packet. Research cards can
+suggest a recognition question and a safe next check, but never prove the target
+is vulnerable or replace browser source-to-sink verification. Keep any newly
+noticed but untested path in the Hypothesis Ledger; promote reusable external
+knowledge only through reviewed ResearchMap-card promotion.
 
 ## Testing Loop
 
@@ -66,7 +86,7 @@ Framework-specific review:
 
 ## Deep-Run Requirements
 
-For `/hybrid`, `/deep-hunt`, URL-batch, or route-cluster handoffs, do not stop
+For `/hybrid`, `/hunter-loop`, URL-batch, or route-cluster handoffs, do not stop
 at "marker reflected" or "framework detected." Produce a compact source-to-sink
 map:
 
@@ -77,8 +97,14 @@ map:
   boundaries
 - framework evidence: React/Vue/Angular/router/state-library clues, bundle
   names, CSP, and browser-vs-raw response differences
-- payload accounting: one `attempts.jsonl` row per deliberate source/sink probe
-  with payload family, transformation result, browser result, and stop reason
+- payload accounting: one row per deliberate source/sink probe in the resolved
+  canonical Attempts stream, `<lane>/attempts/_runs/<run-id>/attempts.jsonl`,
+  written with `append_attempt(...)`; payload family, transformation result,
+  browser result, and stop reason remain redacted event metadata
+
+Resolve the stream with `resolve_attempts_path(...)`. For bounded discovery
+across runs use `read_attempt_bucket(program, where=..., limit=...)`; use
+`read_attempts(exact_path, ...)` only for forensic review of a known run.
 
 If the route is browser-only due to challenge or client rendering, raw HTTP is
 not sufficient evidence to close the DOM lane.

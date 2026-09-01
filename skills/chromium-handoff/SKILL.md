@@ -12,6 +12,25 @@ manually.
 This skill does not launch the browser. Use `chromium-test` first, then attach
 this handoff server to the existing CDP endpoint.
 
+## Handoff Selection Rule
+
+For login, password entry, MFA, OAuth popups, wallet approval, CAPTCHA, or any
+other interactive authentication/UI task, the browser must be launched with
+`chromium-test --display-backend auto` before handoff. This tries the dedicated
+KasmVNC graphical endpoint first while preserving a receipt when KasmVNC cannot
+be used; do **not** substitute this screenshot/CDP handoff
+because an Xvfb or headless browser already exists. If KasmVNC is unavailable or
+its required CDP readiness check fails, a screenshot/CDP handoff is permitted as
+the operational fallback. The launch receipt must record `display_fallback` with
+the failure reason, and the browser must still use the task MITM listener with
+`proxy_cert_mode: import` and `proxy_cert_status.status: trusted` before any
+operator handoff.
+
+The screenshot/CDP handoff is otherwise for non-login visual inspection and
+narrow non-graphical recovery only. Never infer a KasmVNC fallback from
+convenience or a stale handoff route; record the availability failure and retain
+the same certificate gate.
+
 ## Required Pairings
 
 1. Load `proxy-routing-policy` first when proxy lane selection matters.
@@ -34,9 +53,12 @@ this handoff server to the existing CDP endpoint.
   existing proxy/effective egress IP.
 - Handoff UI ports are allocated atomically from `9501–9599`; this is separate
   from Chromium's `9223–9500` CDP range and supports concurrent sessions.
-- Each handoff gets its own Tailscale route at `/handoff/<handoff_port>` and
-  its own SSH local/remote port pair. Never reuse a port or route owned by an
-  active task.
+- Screenshot handoffs use the shared HTTPS listener and a unique path such as
+  `/handoff/<handoff_port>`.
+- **KasmVNC graphical handoffs use a dedicated tailnet HTTPS port** (for
+  example `https://hoster.tailnet.ts.net:9502/`) mapped to a unique loopback
+  KasmVNC port. Do not mount KasmVNC below a path: its root-relative assets and
+  WebSocket connection otherwise fail after the initial page load.
 
 ## One-time Hoster Prerequisites
 
@@ -64,11 +86,13 @@ assume an ACL change is authorized.
    ```bash
    curl --fail --silent http://127.0.0.1:<cdp_port>/json/list
    ```
-2. Start the loopback-only handoff server through its task-owned supervisor with
-   `LISTEN_PORT=auto`. It atomically claims the first free port in `9501–9599`
-   and writes a `cdp_handoff_ready` JSON record containing the selected
-   `listen_port`; record that port in the task handoff metadata:
+2. For a screenshot/CDP handoff, first validate the launch receipt: it must
+   record a KasmVNC `display_fallback`, `proxy_cert_mode: import`, and
+   `proxy_cert_status.status: trusted`, and the live Chromium PID/profile/CDP
+   identity. Pass that receipt to the server; it refuses to listen when any gate
+   is absent, stale, or mismatched to `CDP_URL`:
    ```bash
+   BROWSER_LAUNCH_RECEIPT=<launch-receipt.json> \
    CDP_URL=http://127.0.0.1:<cdp_port> \
    LISTEN_HOST=127.0.0.1 \
    LISTEN_PORT=auto \
@@ -79,8 +103,21 @@ assume an ACL change is authorized.
    ```bash
    curl --fail --silent http://127.0.0.1:<handoff_port>/ >/dev/null
    ```
-3. Prefer Tailscale Serve. Create the task-specific route and give Ryushe the
-   HTTPS URL for `/handoff/<handoff_port>`:
+3. For a KasmVNC Chromium run from `chromium-test --display-backend kasmvnc`,
+   publish its recorded `kasmvnc.web_port` as a dedicated tailnet HTTPS port.
+   Allocate this external port from `9501–9599`, but do **not** reuse a port
+   already owned by an active screenshot route:
+   ```bash
+   HANDOFF_PORT=<kasmvnc_web_port> \
+   HANDOFF_PORT_MIN=8463 HANDOFF_PORT_MAX=8499 \
+   HANDOFF_HTTPS_PORT=<unique_tailnet_https_port> \
+     "$HARNESS_ROOT/skills/chromium-handoff/scripts/handoff_transport.sh" start
+   ```
+   Give Ryushe `https://<hoster-tailnet-dns>:<unique_tailnet_https_port>/`.
+   KasmVNC authenticates the browser itself; never print its password. Use SSH
+   fallback only against the loopback KasmVNC web port.
+4. For a screenshot handoff, prefer Tailscale Serve. Create the task-specific
+   path route and give Ryushe the HTTPS URL for `/handoff/<handoff_port>`:
    ```bash
    HANDOFF_PORT=<handoff_port> \
      "$HARNESS_ROOT/skills/chromium-handoff/scripts/handoff_transport.sh" start

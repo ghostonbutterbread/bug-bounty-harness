@@ -19,6 +19,27 @@ browser context instead of treating raw HTTP as app-layer coverage.
 
 The launcher prefers Playwright's bundled Chromium when Playwright is installed, then falls back to system Chromium/Chrome.
 
+## Browser versus engagement-profile admission
+
+For normal, non-engagement web work—search, research, or a generic web lookup—
+agents may invoke `chromium_test.py` directly with `--ephemeral-profile`. Those
+disposable browser runs do not need an account-profile lease.
+
+For **bug-bounty engagement browser work**, use `browser_provisioner.py`, even
+when the immediate reason is bot protection, browser fingerprinting, UI/JS
+exploration, or capture of a request for later replay. The provisioner gives the
+engagement an isolated profile, capacity admission, a recorded owner, and a
+terminal lifecycle. When the engagement uses a named color/account profile, it
+also leases that exact profile so another agent cannot control it concurrently.
+The alias must resolve exactly from the program inventory—never derive an alias
+by adding a suffix such as `green2`.
+
+IDOR is replay-first after a browser-derived session/request has been captured:
+stop and release the browser/profile at that point unless further browser work
+is necessary, then build and run bounded direct replays through the task MITM
+lane. A stored session supports replay; it is not a reason to leave a browser
+or its profile lease running.
+
 ## Hoster GPU-Backed Headed Escalation
 
 When a genuine bot challenge or browser-fingerprint block prevents normal scoped
@@ -37,11 +58,12 @@ controls.
    interactive SSH shell. Completion: the launcher reports `runtime: hoster`,
    a Hoster-local profile/CDP endpoint, and a ControlGroup outside
    `ssh.service`.
-3. Launch via the canonical launcher *on Hoster*, with a unique run ID,
-   ephemeral profile, and Hoster-local proxy (`http://localhost:<leased-port>`).
-   Do not launch raw Chrome, reuse an existing Chrome process/profile, or invoke
-   `chromium_test.py` directly from an SSH cgroup: the launcher rejects that
-   unsafe ownership path.
+3. Request via the canonical provisioner *on Hoster*, with a unique run ID and
+   Hoster-local proxy (`http://localhost:<leased-port>`). Use an ephemeral
+   profile only where the engagement does not need a named account profile. Do
+   not launch raw Chrome, reuse an existing Chrome process/profile, or invoke
+   `chromium_test.py` directly from an SSH cgroup: bypassing engagement
+   admission and ownership is unsafe.
 4. Before treating the run as GPU-backed, verify its recorded browser PID owns
    `/dev/dri/renderD128` and that `eglinfo -B` reports `NV134`, rather than
    `llvmpipe`. `nvidia-smi` is not the verification path here: this host uses
@@ -95,20 +117,22 @@ ssh -i /home/ryushe/.ssh/hoster -o BatchMode=yes -o ConnectTimeout=10 \
 
 ### From Ghost or another machine
 
-Use `hoster-ssh` to place the whole launcher in a named Hoster user-systemd
-service. Pass `--supervise` so the launcher remains the service's foreground
-owner for Chromium's full lifetime; Chromium therefore remains owned by that
-service rather than `ssh.service`.
+Use `hoster-ssh` to place the provisioner request in a named Hoster
+user-systemd service. The provisioner starts the browser under its own recorded
+user-systemd unit; a `queued` result is normal admission control, not a reason
+to bypass it with a direct launcher invocation.
 
 ```bash
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
-unit="hoster-chromium-$run_id"
+unit="hoster-browser-request-$run_id"
 HELPER=/home/ryushe/.openclaw/workspace/skills/hoster-ssh/scripts/hoster_user_unit.py
-python3 "$HELPER" --unit="$unit" --memory-high=2G --memory-max=3G -- \
-  /bin/bash -lc "cd /home/ryushe/projects/bug_bounty_harness-stable && exec python3 skills/chromium-test/scripts/chromium_test.py <program> <task> --run-id '$run_id' --ephemeral-profile --supervise --json"
+python3 "$HELPER" --unit="$unit" -- \
+  /bin/bash -lc "cd /home/ryushe/projects/bug_bounty_harness-stable && exec python3 skills/chromium-test/scripts/browser_provisioner.py request <program> <account> --agent-id <agent-id> --run-id '$run_id' --purpose '<task>' --url '<url>'"
 ```
 
-Read the launcher JSON (browser PID and CDP endpoint) from the recorded unit:
+Read the provisioner result from the recorded request unit. It returns safe
+lease/browser metadata only; use the owner-recorded local control path rather
+than printing or sharing CDP endpoints:
 
 ```bash
 ssh -i /home/ryushe/.ssh/hoster -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=no -T \
@@ -123,10 +147,44 @@ browser merely because a prior task's process is old.
 ### Local Hoster invocation
 
 ```text
-/chromium-test <program> <task> [--url <url>] [--port <port>] [--remote-allow-origins <value>]
-/chromium-test superdrug pfp
-/chromium-test canva upload-flow --account-label qa-primary --url https://www.canva.com/
+python3 "$HARNESS_ROOT/skills/chromium-test/scripts/browser_provisioner.py" request \
+  <program> <account> --agent-id <agent-id> --run-id <run-id> \
+  --purpose "<task>" --url <url>
 ```
+
+### KasmVNC manual-display handoff
+
+**Manual-authentication selection rule:** for a user-operated login, password
+entry, MFA, OAuth popup, wallet connection, CAPTCHA, or other interactive
+browser flow, launch or reuse an isolated browser with `--display-backend auto`
+**before** creating any handoff. `auto` attempts the required KasmVNC graphical
+handoff first and produces a receipt if it must fall back; use strict
+`--display-backend kasmvnc` only when a KasmVNC-only failure is intended. A
+screenshot/CDP handoff is not an acceptable default
+because it is materially worse for focus, popups, password managers, and other
+interactive UI. Do not first launch Xvfb/headless and then retrofit a screenshot
+handoff just because the browser is already running.
+
+A screenshot/CDP handoff is otherwise limited to a non-login visual inspection.
+For an interactive authentication flow, it is allowed only when **KasmVNC is
+unavailable or its required CDP readiness check fails**. Retain the launch
+receipt's `display_fallback` failure reason and verify the same task MITM gate:
+`proxy_cert_mode: import` and `proxy_cert_status.status: trusted`. Do not use a
+stale non-graphical browser, a convenience preference, or prior approval as a
+substitute for that recorded KasmVNC failure. This creates a dedicated KasmVNC
+display and a loopback-only HTTP viewer while CDP remains on `127.0.0.1`:
+
+```bash
+python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" \
+  <program> "manual handoff" --ephemeral-profile --run-id <run-id> \
+  --display-backend kasmvnc --kasmvnc-display 20 --kasmvnc-web-port 8463 --json
+```
+
+The JSON record includes `kasmvnc.web_url` (`http://127.0.0.1:<port>/`) and a
+scoped `kasmvnc.stop_command`. Use only a task-specific **Tailscale Serve**
+route to terminate HTTPS in front of that local HTTP endpoint; never use
+Funnel or a public/LAN listener. Stop the recorded KasmVNC display after the
+handoff alongside the browser and profile cleanup.
 
 ## MITM Proxy Certificate Handling
 
@@ -135,8 +193,8 @@ Do not use blanket certificate-ignore mode as the normal path.
 
 Default behavior:
 
-- `--proxy-cert-mode auto`: import the mitmproxy CA into the profile when possible; fall back to `--ignore-certificate-errors` only when `certutil` or the CA file is missing.
-- `--proxy-cert-mode import`: require CA import and fail if it cannot be prepared.
+- `--proxy-cert-mode import` is the default: require the mitmproxy CA import and fail before launch if it cannot be prepared.
+- `--proxy-cert-mode auto`: explicit disposable debugging mode only; it may fall back to `--ignore-certificate-errors` when `certutil` or the CA file is missing.
 - `--proxy-cert-mode ignore`: explicit disposable debugging mode.
 - `--proxy-cert-mode none`: attach the proxy without CA setup or ignore flags.
 
@@ -207,12 +265,20 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
      `credential_ref` or `auth_seed_ref` values such as
      `auth-seed:/absolute/path/to/seed.json`, but never cookie/token/header
      values.
-   - If Ryushe explicitly requested that account/color and the auth seed is
-     missing, stale, or fails, follow the account record's
-     `auth_refresh_source` and `auth_refresh_hint`. For
-     `auth_refresh_source=ryushe-proxy`, load `/ryushe-proxy`, refresh only
-     that selected account's seed, and never print or persist the raw values
-     anywhere except the locked-down seed file.
+   - When a selected account needs authentication and has no usable stored auth
+     seed, automatically refresh only that exact account when its program record
+     permits `auth_refresh_source=ryushe-proxy`. Existing auth seeds are never
+     reset or replaced merely because the launcher starts.
+   - If the proxy is unavailable or has no matching usable evidence, lease and
+     provision the exact account's browser profile for its existing session or
+     browser-native login. If that cannot establish a usable session, retain the
+     exact lease as `awaiting-input`, publish only its loopback UI through
+     task-scoped Tailscale Serve with the SSH-loopback fallback, and pause for
+     Ryushe. The handoff message must identify the resolved session account,
+     state the attempted safe login/auth-check failure, include the actual
+     Tailnet URL and scoped SSH fallback, and list freshly queried safe account
+     availability (use `status {program} --idor` for IDOR/BOLA). Never print or
+     persist raw values outside the locked-down seed file.
 5. If Ryushe names an account/profile, for example "use blue to go look at X", use that scoped account context. If the needed account/profile is unclear, ask before borrowing or creating auth state.
 6. If the task needs live intercept/modify/forward behavior, read `intercepted-proxy` before launching the browser.
 7. Confirm the MITM proxy setup:
@@ -228,6 +294,8 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
 
 - Playbook: `$HARNESS_ROOT/prompts/chromium-test-playbook.md`
 - Launcher: `$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py`
+- Persistent profile lease/status: `$HARNESS_ROOT/skills/chromium-test/scripts/browser_profile_lease.py`
+- Script walkthrough: `$HARNESS_ROOT/skills/chromium-test/scripts/README.md`
 - Profiles: `$HARNESS_SHARED_BASE/{program}/ghost/chromium-test/profiles/`
 - MITM profile helper: `$HARNESS_ROOT/skills/chromium-test/scripts/mitm_chromium_profile.py`
 - MITM lane helper: `$HARNESS_ROOT/skills/chromium-test/scripts/mitm_lane.py`
@@ -238,12 +306,32 @@ python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" cleanup-pr
 
 ## Workflow
 
-1. Start an isolated browser with the launcher:
+0. For every bug-bounty browser engagement, request the browser through the
+   provisioner. If it requires a durable named account profile (for example a
+   color used across a multi-agent owned-account test), first run
+   `browser_profile_lease.py status <program> --account <color>`, then acquire
+   that **exact** account if available.
+   A locked response may show safe, explicitly available alternatives but never
+   authorizes automatic account substitution. Run the helper on the browser
+   profile host. Use the persistent account profile after acquisition; retain
+   `--ephemeral-profile` for disposable one-off runs. A lease remains locked
+   while work awaits input: renew it with `--work-state awaiting-input`; only a
+   terminal completion, handoff, or cancellation may call `release`, which must
+   declare a non-secret `--profile-health` for the next agent.
+1. Request the engagement browser through the provisioner:
    ```bash
-   python3 "$HARNESS_ROOT/skills/chromium-test/scripts/chromium_test.py" <program> "<task>"
+   python3 "$HARNESS_ROOT/skills/chromium-test/scripts/browser_provisioner.py" request \
+     <program> <account> --agent-id <agent-id> --run-id <run-id> \
+     --purpose "<task>" --url <url>
    ```
-   The launcher resolves the runtime route and adds `--proxy-server=<mitm-proxy>` by default.
-2. Use the returned CDP URL to connect browser automation or manual debugging.
+   On `queued`/`queued-timeout`, preserve the exact task and account, perform
+   only non-browser preparation, and retry with bounded backoff. Never launch
+   `chromium_test.py` directly to evade engagement admission. On `started` or
+   `already-running`, use the browser's owner-recorded control path. The
+   underlying launcher resolves the runtime route and adds
+   `--proxy-server=<mitm-proxy>` by default.
+2. Use the owner-recorded browser control path to connect browser automation or
+   manual debugging; do not disclose or borrow another agent's CDP endpoint.
 3. For challenge/fingerprint/browser-only escalation, revisit the blocked URL in
    this browser profile before running more probes. Confirm whether the app
    layer, JS, route params, and proxy-observed requests are now visible.
@@ -301,10 +389,13 @@ than reporting a false clean state.
   exist, but must never print cookie, bearer, CSRF, or token values.
 - Verify the launcher output or the local Chromium root-process command includes `--proxy-server=<browser-proxy>` and that `proxy_cert_status` is `trusted` when proxy TLS interception is expected. Do **not** infer a missing proxy from CDP `Browser.getBrowserCommandLine`: Chrome returns that command only when started with `--enable-automation`. If the launcher falls back to `--ignore-certificate-errors`, record that as debug/fallback behavior.
 - Live browser traffic should be observed from this browser's MITM proxy lane. Do not pull live browser requests from Ryushe's proxy unless Ryushe specifically asks for Ryushe-lane comparison or request lookup.
-- Named-account auth fallback is allowed when Ryushe asked for that account,
-  for example "blue credentials", and the account inventory explicitly permits
-  `auth_refresh_source=ryushe-proxy`. Use Ryushe's proxy only to refresh the
-  seed for that account, then test through the agent MITM lane.
+- Named-account auth refresh is automatic when Ryushe asked for that account
+  (for example "blue credentials"), no usable seed exists, and the account
+  inventory permits `auth_refresh_source=ryushe-proxy`. It refreshes only that
+  account's seed and does not reset an existing seed. If no usable evidence can
+  be pulled, use the exact account's browser profile; if login still needs
+  Ryushe, hand over the private Tailscale Serve login UI plus SSH fallback. Test
+  through the agent MITM lane after authentication succeeds.
 - Direct HTTP replay is preferred after a live request is captured and should use `curl -x <mitm-proxy>` when request logging is desired.
 - For intercepted proxy testing, do not launch the browser until the resolved `--proxy-server=<browser-proxy>` value is known. Route to `intercepted-proxy` for the intercept on/off and temporary Tamper rule lifecycle.
 - Stay inside the program scope, account authorization, and rate limits.

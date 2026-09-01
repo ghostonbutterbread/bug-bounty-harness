@@ -45,12 +45,21 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    - anonymous, logged-out, expired, or stale session -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/auth-state.md`
    - GraphQL arguments or global IDs -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/graphql-bola.md`
    - signed URLs, CDN objects, exports, attachments, media -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/storage-links.md`
+   - blocked/inconclusive direct swap; observed actor hint; deferred consumer; indirect object field; or sibling representation -> `$HARNESS_ROOT/skills/access-control/references/technique-packs/desync-secondorder-surface.md`
    - JWT/Bearer/cookie claims influence role, tenant, object, issuer, audience, or token lifecycle -> load `/jwt-auth`
    - method/header/path/parser discrepancy -> load `/headers` for header mechanisms or `/bypass` with type `403`/`idor`
    - one live browser/proxy request must be captured and safely modified -> `/single-request-grabber`
 9. For IDOR/BOLA object mutations, load `$HARNESS_ROOT/skills/access-control/references/mutations/idor.md`.
 10. For header mechanisms, load `/headers`; for encoding, parser, path, WAF, or filter mutations, load `/bypass` instead of duplicating bypass content here.
 11. Load `$HARNESS_ROOT/prompts/access-control-playbook.md` only for deep review, stuck analysis, or report writing.
+
+## Cross-account control harness
+
+For two-identity authorization comparisons, load and follow `idor-live-policy`.
+For API mining, GraphQL, batch REST, or direct replay, load the control-harness
+section of `$HARNESS_ROOT/prompts/access-control-playbook.md`. For a one-shot,
+signed, nonce-bound, or stateful action, use `/single-request-grabber` to
+capture and mutate one fresh owned live request.
 
 ## Sub-Agent Rule
 

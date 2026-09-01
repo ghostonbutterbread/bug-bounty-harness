@@ -65,6 +65,19 @@ Do not treat these lanes as mutually exclusive. A stored value can become DOM
 XSS at render time; a reflected value can be inert in raw HTML but exploitable
 after client-side parsing; a DOM route can also call server APIs.
 
+## Incremental XSS Overlays
+
+Load only the overlay that answers the next concrete question:
+
+| Trigger | Load | Owns |
+| --- | --- | --- |
+| A controlled value persists, transforms, or may reach a later consumer | `xss-lifecycle` | Canary lineage, consumer expansion, and lane branching. |
+| A warm/hot lane needs tailored payload choice, mutation, reduction, or creative exploration | `xss-payload-engineering` | Capability profile and directed/exploratory candidate queues. |
+| Stack, renderer, sanitizer, parser, browser, or defense evidence could alter the next hypothesis | `xss-technology-research` | Bounded research packet and reusable-card promotion. |
+| Filtering, normalization, challenge, or edge/origin differential is the current question | `waf-live-policy` | Defense-boundary characterization. |
+
+The parent XSS agent owns synthesis, execution choices, and hypothesis closure.
+
 ## Shared Payload Sources
 
 Use context-specific payloads, not generic spraying. Start with the shared
@@ -162,20 +175,24 @@ python /home/ryushe/projects/bug_bounty_harness/agents/xss_hunter.py \
    stored object field, router state, storage, or message.
 2. Send an inert marker and record where it lands.
 3. Classify the render context before choosing payloads.
-4. Query MapStore and prior attempts for this URL, surface, parameter, and
-   render context.
-5. Load `reflected-xss`, `stored-xss`, or `dom-xss`.
-6. Use the lane skill to pick payload families, browser proof, cleanup, and
-   report shape.
-7. Escalate to `waf-live-policy` and bypass/mutation work when filtering or
-   parsing behavior becomes the interesting surface.
+4. Record framework/library, renderer/consumer, source, sink/trust boundary,
+   transform/defense clues, and raw/browser differences; query concrete prior
+   state without replacing current observation.
+5. Load the matching incremental overlay when its trigger appears, then return
+   its compact evidence packet to this lane.
+6. Use the lane skill for browser proof, cleanup, and report shape.
 
 ## Pressure Mode
 
-Every deliberate probe should write an attempts row in the run's attempts
-directory. Record the exact payload, payload family, encoding, why that payload
-matched the context, observed transform, browser result, block reason, and next
-mutation.
+Every deliberate probe should resolve the canonical lane stream with
+`resolve_attempts_path(...)` and append through `append_attempt(...)` to
+`<lane>/attempts/_runs/<run-id>/attempts.jsonl`. Record the exact payload,
+payload family, encoding, why that payload matched the context, observed
+transform, browser result, block reason, and next mutation. Vulnerability class,
+payload family, target, parameter, and input location are redacted event
+metadata—not path taxonomy. Use `read_attempt_bucket(program, where=...,
+limit=...)` for bounded cross-run discovery; use `read_attempts(exact_path, ...)`
+only for exact-run forensic review.
 
 Use this state model:
 
@@ -202,15 +219,18 @@ Typical XSS pressure ladder:
 5. family queue: text breakout, attribute breakout, tag breakout, URL scheme,
    markdown, JSON/script string, DOM reparse, storage/postMessage, sanitizer
    bypass
-6. browser proof, residual next probe, or exact kill reason
+6. load `xss-payload-engineering` for tailored mutation, novelty candidates, or
+   signal reduction; load `xss-lifecycle` for later-consumer expansion
+7. browser proof, residual next probe, later-consumer branch, or exact kill
+   reason
 
 Do not summarize the lane as "blocked" without saying which families were
 tried, what blocked them, what evidence proves the block, and whether any
 source/sink remains unexplored.
 
-## Deep Default For Hybrid And Deep-Hunt
+## Deep Default For Hybrid And Hunter Loop
 
-For `/hybrid`, `/deep-hunt`, URL-batch, or route-cluster runs, XSS workers must
+For `/hybrid`, `/hunter-loop`, URL-batch, or route-cluster runs, XSS workers must
 default to source-to-sink mapping before payload volume. The goal is to explain
 why a payload family matches the observed sink, not to spray generic payloads.
 
@@ -229,9 +249,9 @@ Required sequence:
 4. Choose payload families from the context: attribute breakout, tag breakout,
    URL-scheme, template-literal, JSON/XML/iframe-attribute, DOM-source, hash,
    storage, or `postMessage`.
-5. Track every deliberate probe in `attempts.jsonl` with payload family,
-   source, sink/context, encoding/normalization result, browser result, and
-   stop reason. If no execution occurs, record the exact boundary.
+5. Track every deliberate probe in the resolved canonical Attempts stream with
+   payload family, source, sink/context, encoding/normalization result, browser
+   result, and stop reason. If no execution occurs, record the exact boundary.
 
 Do not mark an XSS lane complete from raw HTTP alone when browser-only routing,
 Cloudflare/challenge behavior, or framework rendering is material to the route.

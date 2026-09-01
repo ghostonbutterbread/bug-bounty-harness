@@ -71,9 +71,14 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
 
 ## Pressure Mode
 
-Write every deliberate SSRF probe to the run's attempts directory. Record the
-exact URL payload, payload family, placement, expected fetch behavior, callback
-or response evidence, observed filter, block reason, and next mutation.
+Resolve the canonical lane stream with `resolve_attempts_path(...)` and write
+every deliberate SSRF probe through `append_attempt(...)` to
+`<lane>/attempts/_runs/<run-id>/attempts.jsonl`. Record the exact URL payload,
+payload family, placement, expected fetch behavior, callback or response
+evidence, observed filter, block reason, and next mutation. Class, payload
+family, target, parameter, and input location are redacted event metadata. Use
+`read_attempt_bucket(program, where=..., limit=...)` for bounded cross-run
+discovery and `read_attempts(exact_path, ...)` for exact-run forensic review.
 
 Use this state model:
 
@@ -99,7 +104,10 @@ Typical SSRF pressure ladder:
 5. family queue: redirects, DNS tricks, parser confusion, userinfo, IPv6,
    octal/decimal, suffix/prefix allowlist, protocol smuggling, Host/header
    trust
-6. impact proof, residual next probe, or exact kill reason
+6. internal-surface discovery when reached with a low rate limit: IP/root
+   checks, service identity/protocol/banner/status classification, and candidate
+   surface mapping from non-sensitive evidence
+7. impact proof, residual next probe, or exact kill reason
 
 ## Primary Harness
 
@@ -118,7 +126,11 @@ Do not promote client-side-only navigation, generic fetch errors, public URL fet
 
 ## Stop Conditions
 
-Stop before harvesting secrets, deep internal enumeration, DNS rebinding without explicit approval, high-volume scans, non-owned private resources, or destructive protocol interactions.
+Stop before harvesting secrets, credential/token use, sensitive internal data
+reads, state-changing or destructive internal requests, DNS rebinding without
+explicit approval, or broad/high-volume scans. Bounded internal service
+discovery with a low rate limit and non-sensitive surface classification remain
+allowed when program rules permit.
 
 ## Evidence
 

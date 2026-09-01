@@ -13,7 +13,11 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 6
+AUTH_SESSION_MODES = ("browser-bound", "proxy-replayable", "hybrid", "unknown")
+LINK_STATUSES = ("linked", "unlinked", "unknown")
+INTEGRATION_STATUSES = ("connected", "disconnected", "unknown")
+INTEGRATION_PROFILE_STATUSES = ("active", "inactive", "unknown")
 FORBIDDEN_HINTS = (
     "password",
     "passwd",
@@ -43,11 +47,16 @@ def utc_now() -> str:
 
 
 def shared_base() -> Path:
-    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/bounty_recon")).expanduser()
+    """Return the sole shared, non-secret account-registry root.
+
+    Browser profiles and auth seeds remain local/owner-restricted; only inventory
+    metadata is shared here.  Callers may override this in disposable tests.
+    """
+    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
 
 
 def inventory_path(program: str) -> Path:
-    return shared_base() / program / "credentials" / "account_inventory.json"
+    return shared_base().joinpath(program, "credentials", "account_inventory.json")
 
 
 def blank_inventory(program: str) -> dict[str, Any]:
@@ -55,9 +64,12 @@ def blank_inventory(program: str) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
         "program": program,
+        "auth_session_mode": "hybrid",
         "created_at": now,
         "updated_at": now,
         "accounts": [],
+        "primary_idor_accounts": [],
+        "integration_profile": None,
         "resources": [],
         "pwnfox_lanes": [],
         "proxy_identity": {
@@ -75,9 +87,36 @@ def load_inventory(program: str) -> dict[str, Any]:
         return blank_inventory(program)
     with path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
-    data.setdefault("schema_version", SCHEMA_VERSION)
+    if not isinstance(data, dict):
+        raise SystemExit(f"account inventory must be a JSON object: {path}")
+    if data.get("status") == "retired":
+        replacement = data.get("replaced_by", "the current canonical registry")
+        raise SystemExit(f"account inventory is retired: {path}; use {replacement}")
+    version = data.get("schema_version", 1)
+    if version in (1, 2, 3, 4, 5):
+        # Older schemas lacked lifecycle/lease/session-transport policy fields.
+        # Preserve records while making safe defaults visible on the next save.
+        for account in data.get("accounts", []):
+            if not isinstance(account, dict):
+                continue
+            account.setdefault("role", "unknown")
+            account.setdefault("tier", "unknown")
+            account.setdefault("lifecycle", "unknown")
+            account.setdefault("browser_lease_enabled", False)
+            account.setdefault("organization_access", [])
+            account.setdefault("linked_logins", [])
+            account.setdefault("integrations", [])
+        data.setdefault("auth_session_mode", "hybrid")
+        data["schema_version"] = SCHEMA_VERSION
+    elif version != SCHEMA_VERSION:
+        raise SystemExit(f"unsupported account inventory schema version {version}: {path}")
     data.setdefault("program", program)
+    data.setdefault("auth_session_mode", "hybrid")
+    if data["auth_session_mode"] not in AUTH_SESSION_MODES:
+        raise SystemExit(f"invalid auth_session_mode {data['auth_session_mode']!r}")
     data.setdefault("accounts", [])
+    data.setdefault("primary_idor_accounts", [])
+    data.setdefault("integration_profile", None)
     data.setdefault("resources", [])
     data.setdefault("pwnfox_lanes", [])
     data.setdefault("proxy_identity", {})
@@ -85,6 +124,32 @@ def load_inventory(program: str) -> dict[str, Any]:
     for key, value in PWNFOX_CONFIG.items():
         data["proxy_identity"]["pwnfox"].setdefault(key, value)
     data.setdefault("notes", [])
+    normalized_aliases: set[str] = set()
+    for account in data["accounts"]:
+        if not isinstance(account, dict):
+            raise SystemExit("account inventory accounts must contain JSON objects")
+        normalized_alias = str(account.get("alias", "")).lower()
+        if normalized_alias in {"integration-profile", "integration_profile"}:
+            raise SystemExit("account alias integration-profile is reserved for the designated integration profile")
+        if normalized_alias in normalized_aliases:
+            raise SystemExit("account aliases must be unique without regard to case")
+        normalized_aliases.add(normalized_alias)
+        account.setdefault("linked_logins", [])
+        account.setdefault("integrations", [])
+    if not isinstance(data["primary_idor_accounts"], list) or not all(isinstance(alias, str) for alias in data["primary_idor_accounts"]):
+        raise SystemExit("primary_idor_accounts must be a list of account aliases")
+    known_aliases = {str(account.get("alias", "")).lower() for account in data["accounts"]}
+    if len({alias.lower() for alias in data["primary_idor_accounts"]}) != len(data["primary_idor_accounts"]):
+        raise SystemExit("primary_idor_accounts must not repeat an account alias")
+    if any(alias.lower() not in known_aliases for alias in data["primary_idor_accounts"]):
+        raise SystemExit("primary_idor_accounts must reference existing owned account aliases")
+    profile = data["integration_profile"]
+    if profile is not None:
+        if not isinstance(profile, dict) or not profile.get("account"):
+            raise SystemExit("integration_profile must be null or an object with an account alias")
+        if profile.get("status", "active") not in INTEGRATION_PROFILE_STATUSES:
+            raise SystemExit(f"invalid integration_profile status {profile.get('status')!r}")
+        profile.setdefault("status", "active")
     return data
 
 
@@ -119,6 +184,24 @@ def compact_record(values: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value not in (None, "")}
 
 
+def parse_organization_access(values: list[str] | None) -> list[dict[str, str]] | None:
+    """Parse repeatable ORG[:TIER[:PLAN]] records without storing secrets."""
+    if not values:
+        return None
+    records: list[dict[str, str]] = []
+    for value in values:
+        parts = value.split(":", 2)
+        if not parts[0]:
+            raise SystemExit("--organization-access requires ORG[:TIER[:PLAN]]")
+        record = {"organization": parts[0]}
+        if len(parts) > 1 and parts[1]:
+            record["tier"] = parts[1]
+        if len(parts) > 2 and parts[2]:
+            record["plan"] = parts[2]
+        records.append(record)
+    return records
+
+
 def upsert(items: list[dict[str, Any]], record: dict[str, Any], keys: tuple[str, ...]) -> str:
     now = utc_now()
     for item in items:
@@ -148,12 +231,18 @@ def cmd_show(args: argparse.Namespace) -> int:
     path = inventory_path(args.program)
     print(f"Path: {path}")
     print(f"Accounts: {len(data.get('accounts', []))}")
+    profile = data.get("integration_profile")
+    if profile:
+        print(f"Integration profile: {profile.get('account')} ({profile.get('status')})")
+    if data["primary_idor_accounts"]:
+        print("Primary IDOR accounts: " + ", ".join(data["primary_idor_accounts"]))
     for account in data.get("accounts", []):
         parts = [
             account.get("alias", ""),
             account.get("email") or account.get("username") or "",
             f"user_id={account.get('user_id')}" if account.get("user_id") else "",
             f"role={account.get('role')}" if account.get("role") else "",
+
             f"pwnfox={account.get('pwnfox_color')}" if account.get("pwnfox_color") else "",
             f"destructible={account.get('destructible')}" if account.get("destructible") else "",
         ]
@@ -179,6 +268,8 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 
 def cmd_add_account(args: argparse.Namespace) -> int:
+    if args.alias.lower() in {"integration-profile", "integration_profile"}:
+        raise SystemExit("account alias integration-profile is reserved for the designated integration profile")
     values = compact_record(
         {
             "alias": args.alias,
@@ -186,11 +277,19 @@ def cmd_add_account(args: argparse.Namespace) -> int:
             "username": args.username,
             "user_id": args.user_id,
             "role": args.role,
+
+            "tier": args.tier,
             "tenant_id": args.tenant_id,
+            "organization_access": parse_organization_access(args.organization_access),
+            "lifecycle": args.lifecycle,
+            "browser_lease_enabled": (None if args.browser_lease_enabled is None else args.browser_lease_enabled == "yes"),
+            "capabilities": args.capability or None,
             "credential_ref": args.credential_ref,
             "auth_seed_ref": args.auth_seed_ref,
             "auth_refresh_source": args.auth_refresh_source,
             "auth_refresh_hint": args.auth_refresh_hint,
+            "auth_session_mode": args.auth_session_mode,
+            "auth_check": compact_record({"url": args.auth_check_url, "method": args.auth_check_method}),
             "auth_check_url": args.auth_check_url,
             "auth_host_filter": args.auth_host_filter,
             "pwnfox_color": args.pwnfox_color,
@@ -201,7 +300,15 @@ def cmd_add_account(args: argparse.Namespace) -> int:
     )
     reject_secretish(values)
     data = load_inventory(args.program)
+    normalized_alias = args.alias.lower()
+    if any(
+        str(account.get("alias", "")).lower() == normalized_alias and account.get("alias") != args.alias
+        for account in data["accounts"]
+    ):
+        raise SystemExit("account aliases must be unique without regard to case")
     action = upsert(data["accounts"], values, ("alias",))
+    account_by_alias(data, args.alias).setdefault("linked_logins", [])
+    account_by_alias(data, args.alias).setdefault("integrations", [])
     if args.pwnfox_color:
         upsert(
             data["pwnfox_lanes"],
@@ -210,6 +317,106 @@ def cmd_add_account(args: argparse.Namespace) -> int:
         )
     path = save_inventory(args.program, data)
     print(f"{action} account {args.alias} in {path}")
+    return 0
+
+
+def cmd_set_auth_session_mode(args: argparse.Namespace) -> int:
+    data = load_inventory(args.program)
+    data["auth_session_mode"] = args.auth_session_mode
+    path = save_inventory(args.program, data)
+    print(f"set auth_session_mode={args.auth_session_mode} in {path}")
+    return 0
+
+
+def cmd_set_primary_idor_accounts(args: argparse.Namespace) -> int:
+    data = load_inventory(args.program)
+    aliases = [account_by_alias(data, alias)["alias"] for alias in args.account]
+    if len({alias.lower() for alias in aliases}) != len(aliases):
+        raise SystemExit("primary IDOR accounts must not repeat an alias")
+    data["primary_idor_accounts"] = aliases
+    path = save_inventory(args.program, data)
+    print(f"set primary IDOR accounts in {path}: {', '.join(aliases)}")
+    return 0
+
+
+def account_by_alias(data: dict[str, Any], alias: str) -> dict[str, Any]:
+    if alias.lower() in {"integration-profile", "integration_profile"}:
+        profile = data.get("integration_profile")
+        if not isinstance(profile, dict) or profile.get("status") != "active":
+            raise SystemExit("integration profile is not configured and active for this program")
+        alias = str(profile["account"])
+    profile = data.get("integration_profile")
+    profile_alias = str(profile.get("account", "")) if isinstance(profile, dict) else ""
+    for account in data["accounts"]:
+        if account.get("alias") == alias:
+            if alias == profile_alias and account.get("lifecycle") != "active":
+                raise SystemExit("integration profile account must have lifecycle active")
+            return account
+    raise SystemExit(f"unknown account alias {alias!r}; add the owned account first")
+
+
+def cmd_link_login(args: argparse.Namespace) -> int:
+    """Record one non-secret sign-in identity linked to an owned account."""
+    values = compact_record(
+        {
+            "provider": args.provider,
+            "identity": args.identity,
+            "status": args.status,
+            "source": args.source,
+            "notes": args.notes,
+        }
+    )
+    reject_secretish(values)
+    data = load_inventory(args.program)
+    account = account_by_alias(data, args.account)
+    action = upsert(account["linked_logins"], values, ("provider", "identity"))
+    save_inventory(args.program, data)
+    print(f"{action} linked login {args.provider}:{args.identity} for account {args.account}")
+    return 0
+
+
+def cmd_add_integration(args: argparse.Namespace) -> int:
+    """Record one non-secret connected integration for an owned account."""
+    values = compact_record(
+        {
+            "provider": args.provider,
+            "integration_id": args.integration_id,
+            "external_account": args.external_account,
+            "status": args.status,
+            "capabilities": args.capability or None,
+            "source": args.source,
+            "notes": args.notes,
+        }
+    )
+    reject_secretish(values)
+    data = load_inventory(args.program)
+    account = account_by_alias(data, args.account)
+    action = upsert(account["integrations"], values, ("provider", "integration_id"))
+    save_inventory(args.program, data)
+    print(f"{action} integration {args.provider}:{args.integration_id} for account {args.account}")
+    return 0
+
+
+def cmd_set_integration_profile(args: argparse.Namespace) -> int:
+    """Designate an existing owned account as this program's central integration profile."""
+    if args.account.lower() in {"integration-profile", "integration_profile"}:
+        raise SystemExit("set-integration-profile requires an existing concrete account alias")
+    data = load_inventory(args.program)
+    account = account_by_alias(data, args.account)
+    if account.get("lifecycle") != "active":
+        raise SystemExit("integration profile account must have lifecycle active")
+    values = compact_record(
+        {
+            "account": args.account,
+            "status": args.status,
+            "source": args.source,
+            "notes": args.notes,
+        }
+    )
+    reject_secretish(values)
+    data["integration_profile"] = values
+    path = save_inventory(args.program, data)
+    print(f"set integration profile to account {args.account} ({args.status}) in {path}")
     return 0
 
 
@@ -279,7 +486,13 @@ def build_parser() -> argparse.ArgumentParser:
     account.add_argument("--username")
     account.add_argument("--user-id")
     account.add_argument("--role")
+
+    account.add_argument("--tier", choices=("admin", "user", "unknown"), help="Global principal tier; admin is the canonical owner-equivalent tier.")
     account.add_argument("--tenant-id")
+    account.add_argument("--organization-access", action="append", help="Repeatable non-secret ORG[:TIER[:PLAN]] access record for this program.")
+    account.add_argument("--lifecycle", choices=("active", "inactive", "suspended", "deleted", "unknown"), help="Non-secret account lifecycle state.")
+    account.add_argument("--browser-lease-enabled", choices=("yes", "no"), help="Whether this account may be offered to browser_profile_lease.py.")
+    account.add_argument("--capability", action="append", help="Repeatable non-secret permission/resource label, e.g. org-member or shared-org:owned-team.")
     account.add_argument("--credential-ref")
     account.add_argument(
         "--auth-seed-ref",
@@ -295,8 +508,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Non-secret hint for locating the account in the approved refresh source, such as pwnfox:blue.",
     )
     account.add_argument(
+        "--auth-session-mode",
+        choices=AUTH_SESSION_MODES,
+        help="Account override for whether session material may leave its owning browser.",
+    )
+    account.add_argument(
         "--auth-check-url",
         help="Safe read-only URL used by auth_resolver.py to check whether this account is logged in.",
+    )
+    account.add_argument(
+        "--auth-check-method",
+        choices=("GET", "HEAD", "POST"),
+        default="GET",
+        help="Method the application's safe auth endpoint actually uses; stored as a reusable program auth-check contract.",
     )
     account.add_argument(
         "--auth-host-filter",
@@ -307,6 +531,46 @@ def build_parser() -> argparse.ArgumentParser:
     account.add_argument("--source", default="manual")
     account.add_argument("--notes")
     account.set_defaults(func=cmd_add_account)
+
+    session_mode = sub.add_parser("set-auth-session-mode", help="Set the program default session transport policy.")
+    session_mode.add_argument("program")
+    session_mode.add_argument("auth_session_mode", choices=AUTH_SESSION_MODES)
+    session_mode.set_defaults(func=cmd_set_auth_session_mode)
+
+    idor_accounts = sub.add_parser("set-primary-idor-accounts", help="Set the ordered normal accounts agents should check first for IDOR/BOLA work.")
+    idor_accounts.add_argument("program")
+    idor_accounts.add_argument("--account", action="append", required=True, help="Existing owned account alias; repeat in preferred order.")
+    idor_accounts.set_defaults(func=cmd_set_primary_idor_accounts)
+
+    linked_login = sub.add_parser("link-login", help="Add or update a non-secret login identity linked to an owned account.")
+    linked_login.add_argument("program")
+    linked_login.add_argument("--account", required=True, help="Owned account alias in this inventory.")
+    linked_login.add_argument("--provider", required=True, help="Login provider, e.g. google, github, or discord.")
+    linked_login.add_argument("--identity", required=True, help="Non-secret provider handle, email, or opaque identifier approved for handoff.")
+    linked_login.add_argument("--status", choices=LINK_STATUSES, default="linked")
+    linked_login.add_argument("--source", default="manual")
+    linked_login.add_argument("--notes")
+    linked_login.set_defaults(func=cmd_link_login)
+
+    integration = sub.add_parser("add-integration", help="Add or update a non-secret integration connected to an owned account.")
+    integration.add_argument("program")
+    integration.add_argument("--account", required=True, help="Owned account alias in this inventory.")
+    integration.add_argument("--provider", required=True, help="Integration provider, e.g. github, slack, or discord.")
+    integration.add_argument("--integration-id", required=True, help="Non-secret integration, installation, workspace, or connection identifier.")
+    integration.add_argument("--external-account", help="Linked social/account handle or opaque ID, when approved for handoff.")
+    integration.add_argument("--status", choices=INTEGRATION_STATUSES, default="connected")
+    integration.add_argument("--capability", action="append", help="Repeatable non-secret granted capability label, e.g. repo:read.")
+    integration.add_argument("--source", default="manual")
+    integration.add_argument("--notes")
+    integration.set_defaults(func=cmd_add_integration)
+
+    integration_profile = sub.add_parser("set-integration-profile", help="Designate an existing owned account as this program's integration profile.")
+    integration_profile.add_argument("program")
+    integration_profile.add_argument("--account", required=True, help="Existing owned account alias; this account's email/identities remain unchanged.")
+    integration_profile.add_argument("--status", choices=INTEGRATION_PROFILE_STATUSES, default="active")
+    integration_profile.add_argument("--source", default="manual")
+    integration_profile.add_argument("--notes")
+    integration_profile.set_defaults(func=cmd_set_integration_profile)
 
     resource = sub.add_parser("add-resource", help="Add or update an owned resource/object record.")
     resource.add_argument("program")

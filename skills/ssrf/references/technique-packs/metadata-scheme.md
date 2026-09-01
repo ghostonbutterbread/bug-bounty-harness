@@ -5,6 +5,8 @@ Use when cloud/container metadata or non-HTTP schemes may be reachable through a
 ## Checks
 
 - Start with low-risk metadata roots or banners.
+- After reachability, make bounded low-rate checks needed to identify the service,
+  protocol, non-sensitive interface/root shape, and candidate dangerous surfaces.
 - Add required metadata headers only when the platform requires them and `/headers` confirms the header behavior is relevant.
 - Check alternate schemes only when the feature accepts or partially parses them.
 - Prefer banner/status proof over secret retrieval.
@@ -28,4 +30,7 @@ Use when cloud/container metadata or non-HTTP schemes may be reachable through a
 
 ## Stop
 
-Stop after proving metadata/internal reachability. Do not enumerate deeper, collect tokens, or interact with destructive internal protocols.
+Stop before credential/token retrieval, sensitive data reads, state-changing
+requests, destructive internal protocols, or broad/high-volume scans. Continue
+only while each request advances non-sensitive service classification or safely
+bounds a candidate dangerous surface.

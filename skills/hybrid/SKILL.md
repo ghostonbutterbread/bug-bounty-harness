@@ -39,7 +39,7 @@ python3 agents/hybrid_runner.py deep-dive recon canva \
   --max-requests-per-worker 0
 
 python3 agents/hybrid_runner.py deep-dive xss canva \
-  --input ~/Shared/web_bounty/canva/web/recon/aggregated/params.txt \
+  --input "$(python3 "$HARNESS_ROOT/scripts/recon_bus.py" query canva --artifact params --format path)" \
   --worker claude \
   --worker-model claude-sonnet-4-6
 ```
@@ -49,12 +49,14 @@ CLIs should actually be spawned.
 
 ## Workflow
 
-1. Resolve the input file. Relative names such as `params.txt` are resolved
-   from the program aggregate store:
-   `~/Shared/web_bounty/<program>/web/recon/aggregated/`.
+1. Resolve the input through Recon Bus. A relative artifact name such as
+   `params.txt` is a Recon Bus query: run
+   `python3 "$HARNESS_ROOT/scripts/recon_bus.py" query <program> --artifact params --format path`.
+   Both Recon Bus and the runner use `$HARNESS_SHARED_BASE`; never derive the
+   aggregate path from cwd.
 2. Build a planner packet and focused worker packets.
 3. Route worker packets by lane and skill:
-   - XSS and frontend routes: `/deep-hunt`, `/dom-xss`, `/reflected-xss`,
+   - XSS and frontend routes: `/hunter-loop`, `/dom-xss`, `/reflected-xss`,
      `/error-mapper`
    - URL-fetch/API/embed: `/ssrf`, `/headers`, `/error-mapper`
    - auth/OAuth/session: `/access-control`, `/jwt-auth`, `/error-triage`

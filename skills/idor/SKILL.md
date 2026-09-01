@@ -33,9 +33,27 @@ Use the registry to identify owned account aliases, user IDs, PwnFox colors,
 resource IDs, owner relationships, and destructible/cleanup status before
 swapping any object identifier.
 
+For replay-first IDOR work, establish or refresh the selected owned account's
+live session through the engagement browser path when necessary: query the
+program's primary IDOR accounts first on the profile host with
+`browser_profile_lease.py status {program} --idor`, select an explicitly
+available alias, and request that named profile through the provisioner. It
+reports their current locked/unlocked state and color availability, followed by
+eligible ordinary-account fallbacks if the primary accounts are busy; never
+assume availability, auto-substitute, or synthesize an alias such as `green2`.
+
+After the browser has captured a usable live session/request, stop and release
+that exact browser/profile lease promptly, then build bounded direct replays
+through the task MITM lane. Do not keep a browser running solely for replay.
+Escalate back to the provisioned named browser only when the flow is genuinely
+browser-bound. If login requires human input, retain that exact browser lease as
+`awaiting-input` and provide Ryushe the private Tailnet/Tailscale Serve route
+and scoped SSH-loopback fallback; release it immediately after the session is
+established or the work becomes terminal.
+
 ## Primary Harness
 
-Use `agents/bypass_harness.py` in `--type idor` mode for first-pass ID swapping and header-trick coverage. Expand manually for multi-step workflows, write actions, and role-bound objects once you identify a promising reference.
+Use `agents/bypass_harness.py` in `--type idor` mode for first-pass ID swapping and header-trick coverage. For blocked/inconclusive swaps, observed actor hints, deferred consumers, indirect object fields, or sibling representations, load `$HARNESS_ROOT/skills/access-control/references/technique-packs/desync-secondorder-surface.md`. Expand manually for multi-step workflows, write actions, and role-bound objects once you identify a promising reference.
 
 ```bash
 python agents/bypass_harness.py --target https://target.com/api/v1/orders/123 \
@@ -92,7 +110,7 @@ python agents/bypass_harness.py --target https://target.com/api/v1/order?id=123 
 2. Read `prompts/access-control-context-pack.md` if the request is broader than direct object references.
 3. Read `prompts/idor-playbook.md`.
 4. Run `agents/bypass_harness.py` in `--type idor` mode for first-pass coverage.
-5. Confirm promising cases manually with baseline captures and multi-account comparison from `/account-management` owned records.
+5. Confirm promising cases manually with baseline captures and multi-account comparison from `/account-management` owned records. For any state-changing owned request, load `$HARNESS_ROOT/skills/access-control/references/idor-postconditions.md` and verify the resulting state; a response code alone is inconclusive.
 6. Write findings to `agent_shared/findings/idor/findings.md`.
 7. Record newly observed owned IDs/resources in `/account-management`.
 8. Update IDOR entries in `checklist.md`, `todo.md`, and relevant notes.

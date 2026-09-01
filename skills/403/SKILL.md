@@ -7,7 +7,7 @@ description: "Use when an in-scope endpoint returns 403 Forbidden and the agent 
 
 Use only after a concrete `403 Forbidden` response is observed on an in-scope endpoint.
 
-This is a RAG-style child skill. Classify why the 403 exists, load one focused reference pack, then test the smallest safe bypass family.
+This is a RAG-style child skill. Classify why the 403 exists, load one focused reference pack, then test the applicable rate-limited bypass families.
 
 ## Load Order
 
@@ -33,8 +33,9 @@ This is a RAG-style child skill. Classify why the 403 exists, load one focused r
 1. Capture the baseline `403` with method, full URL, auth state, redirects, body length, response headers, and visible denial reason.
 2. Record why the endpoint/resource is safe to probe.
 3. Load one lane reference pack.
-4. Run a bounded pass: baseline, one mutation family, compare, then stop or pivot.
-5. Record the result as a note unless there is a security-relevant delta.
+4. Run the applicable rate-limited bypass families; breadth is bounded by program rules, service safety, and ownership—not an arbitrary request count.
+5. For verified owned normal application actions, state-changing methods are allowed when needed for proof; load `$HARNESS_ROOT/skills/access-control/references/idor-postconditions.md` before interpreting the response.
+6. Record the result as a note unless there is a security-relevant delta.
 
 ## Proof Standard
 
@@ -44,7 +45,7 @@ Do not promote cosmetic error changes, soft redirects, cache artifacts, public d
 
 ## Stop Conditions
 
-Stop if the resource belongs to a real user or organization outside approved accounts, the endpoint is out of scope, the path is destructive, the block is rate-limit/WAF enforcement, or the next step would bypass billing, abuse controls, privacy controls, or explicit program policy.
+Stop if the resource belongs to a real user or organization outside approved accounts, the endpoint is out of scope, the block is rate-limit/WAF enforcement, or the next step would affect billing, abuse controls, privacy controls, staff/customer workflows, prominent public artifacts, or explicit program policy. Ordinary destructive actions on verified owned resources are governed by `/idor-live-policy` and `/account-testing-policy`.
 
 ## Evidence
 

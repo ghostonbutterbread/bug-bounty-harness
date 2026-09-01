@@ -18,6 +18,10 @@ from pathlib import Path
 from typing import Any, Iterable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from kasmvnc_session import KasmVNCSessionError
+from kasmvnc_session import LISTENER_HOST as KASMVNC_LISTENER_HOST
+from kasmvnc_session import start_session as start_kasmvnc_session
+from kasmvnc_session import stop_session as stop_kasmvnc_session
 from mitm_chromium_profile import DEFAULT_CA_CERT, DEFAULT_CERT_NAME, prepare_profile_ca
 
 
@@ -30,6 +34,7 @@ DEFAULT_HOSTER_CA_CERT = Path(
     "~/.local/state/ghost/mitm-lanes/hoster-default-8080/mitmproxy/mitmproxy-ca-cert.pem"
 ).expanduser()
 AUTH_SEED_REF_PREFIXES = ("auth-seed:", "auth_seed:", "file:")
+AUTH_SESSION_MODES = ("browser-bound", "proxy-replayable", "hybrid", "unknown")
 AUTH_RESOLVER = Path(__file__).resolve().parents[2] / "account-management" / "scripts" / "auth_resolver.py"
 CHROME_BINARIES = (
     "chromium",
@@ -42,6 +47,11 @@ CHROME_BINARIES = (
 def sanitize_slug(value: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip()).strip(".-")
     return slug or "default"
+
+
+def requires_browser_handoff(session_mode: str) -> bool:
+    """Fail closed when a record has not classified session portability."""
+    return session_mode in {"browser-bound", "unknown"}
 
 
 def listening_ports() -> set[int]:
@@ -130,6 +140,11 @@ def wait_for_browser_if_requested(process: subprocess.Popen[Any], *, supervise: 
 
 def load_runtime_route(runtime: str) -> dict[str, str]:
     allowed_route_keys = {"browser_proxy", "lane"}
+    defaults = (
+        {"browser_proxy": "http://localhost:8080", "lane": "agent" if runtime == "hoster" else "ryushe"}
+        if runtime in {"hoster", "ryushespc", "abommie"}
+        else {"browser_proxy": "http://hoster:8080", "lane": "agent"}
+    )
     if DEFAULT_ROUTE_TABLE.exists():
         try:
             data = json.loads(DEFAULT_ROUTE_TABLE.read_text())
@@ -139,21 +154,17 @@ def load_runtime_route(runtime: str) -> dict[str, str]:
         if isinstance(runtimes, dict):
             route = runtimes.get(runtime)
             if isinstance(route, dict):
+                # A route table may declare only a lane. Preserve the safe browser
+                # proxy default rather than silently launching Chrome unproxied.
                 return {
-                    str(k): str(v)
-                    for k, v in route.items()
-                    if v is not None and str(k) in allowed_route_keys
+                    **defaults,
+                    **{
+                        str(k): str(v)
+                        for k, v in route.items()
+                        if v is not None and str(k) in allowed_route_keys
+                    },
                 }
-
-    if runtime in {"hoster", "ryushespc", "abommie"}:
-        return {
-            "browser_proxy": "http://localhost:8080",
-            "lane": "agent" if runtime == "hoster" else "ryushe",
-        }
-    return {
-        "browser_proxy": "http://hoster:8080",
-        "lane": "agent",
-    }
+    return defaults
 
 
 def find_playwright_chromium_binary() -> str | None:
@@ -197,11 +208,10 @@ def find_chrome_binary(explicit: str | None = None) -> str:
 
 def default_profile_dir(program: str, account: str) -> Path:
     return (
-        shared_base()
+        artifact_base()
         / sanitize_slug(program)
-        / "ghost"
-        / "chromium-test"
-        / "profiles"
+        / "web"
+        / "browser-profiles"
         / sanitize_slug(account)
     )
 
@@ -209,22 +219,26 @@ def default_profile_dir(program: str, account: str) -> Path:
 def default_ephemeral_profile_dir(program: str, run_id: str | None) -> Path:
     label = sanitize_slug(run_id or f"run-{int(time.time())}")
     return (
-        shared_base()
+        artifact_base()
         / sanitize_slug(program)
-        / "ghost"
-        / "chromium-test"
-        / "profiles"
+        / "web"
+        / "browser-profiles"
         / "runs"
         / label
     )
 
 
 def shared_base() -> Path:
-    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/bounty_recon")).expanduser()
+    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
+
+
+def artifact_base() -> Path:
+    return Path(os.environ.get("HARNESS_BOUNTY_ARTIFACT_ROOT", "/mnt/bounty")).expanduser()
 
 
 def account_inventory_path(program: str) -> Path:
-    return shared_base() / sanitize_slug(program) / "credentials" / "account_inventory.json"
+    lane = () if os.environ.get("HARNESS_SHARED_BASE") else ("web",)
+    return shared_base().joinpath(sanitize_slug(program), *lane, "credentials", "account_inventory.json")
 
 
 def load_account_inventory(program: str) -> dict[str, Any]:
@@ -342,6 +356,7 @@ def safe_account_resolution(resolution: dict[str, Any], auth_seed_file: Path | N
         "role": account.get("role"),
         "auth_refresh_source": account.get("auth_refresh_source"),
         "auth_refresh_hint": account.get("auth_refresh_hint"),
+        "auth_session_mode": resolution.get("auth_session_mode", "hybrid"),
         "credential_ref_type": ref_type,
         "auth_seed_file": str(auth_seed_file) if auth_seed_file else None,
     }
@@ -356,6 +371,7 @@ def auth_fallback_plan(
     ref_type = account_resolution.get("credential_ref_type")
     refresh_source = account_resolution.get("auth_refresh_source")
     refresh_hint = account_resolution.get("auth_refresh_hint")
+    session_mode = account_resolution.get("auth_session_mode", "hybrid")
 
     if status == "explicit":
         if auth_seed_error:
@@ -371,6 +387,19 @@ def auth_fallback_plan(
             "status": "unresolved-account",
             "reason": status or "no-account-selector",
             "next": "load account-management and register or select an owned account alias/color",
+        }
+
+    if requires_browser_handoff(session_mode):
+        return {
+            "status": "needs-browser-handoff",
+            "account_alias": account_resolution.get("account_alias"),
+            "auth_session_mode": session_mode,
+            "reason": "this account session must remain in its owning browser",
+            "steps": [
+                "lease and provision the exact persistent browser profile",
+                "publish only its loopback handoff UI through Tailscale Serve and provide the SSH-loopback fallback",
+                "mark the lease awaiting-input, pause automation, then re-run the safe browser auth check after login",
+            ],
         }
 
     if auth_seed_file and not auth_seed_error:
@@ -389,12 +418,14 @@ def auth_fallback_plan(
 
     steps: list[str] = []
     if refresh_source == "ryushe-proxy":
-        detail = "try ryushe-proxy only as source lookup/auth refresh for this selected account"
+        detail = "try ryushe-proxy as source lookup/auth refresh for this selected account when the program record permits it"
         if refresh_hint:
             detail += f" using hint {refresh_hint}"
         steps.append(detail)
-        steps.append("if ryushe-proxy is unreachable or has no matching evidence, use bitwarden fallback")
-        steps.append("after refresh, retry active testing through the agent MITM lane")
+        steps.append(
+            "if ryushe-proxy is unreachable or has no matching usable evidence, publish the exact browser's loopback handoff through Tailscale Serve with the SSH-loopback fallback, mark awaiting-input, and pause"
+        )
+        steps.append("after a usable session is established, retry active testing through the agent MITM lane")
     elif refresh_source == "secret-store":
         steps.append("try the approved secret-store reference for this selected account")
         steps.append("if secret-store auth fails or is unavailable, use bitwarden fallback")
@@ -470,10 +501,18 @@ def host_filter_from_url(url: str | None) -> str | None:
     return parsed.hostname
 
 
-def maybe_refresh_auth_seed(args: argparse.Namespace, account: dict[str, Any] | None, seed_path: Path | None) -> tuple[Path | None, dict[str, Any] | None]:
+def maybe_refresh_auth_seed(
+    args: argparse.Namespace, account: dict[str, Any] | None, seed_path: Path | None, session_mode: str
+) -> tuple[Path | None, dict[str, Any] | None]:
     if not getattr(args, "auth_auto_refresh", True):
         return seed_path, None
     selector = args.account or args.account_label
+    if requires_browser_handoff(session_mode):
+        return seed_path, {
+            "status": "not-permitted",
+            "reason": "browser-bound-session-must-not-be-copied-from-ryushe-proxy",
+            "auth_session_mode": session_mode,
+        }
     if not selector or not account or account.get("auth_refresh_source") != "ryushe-proxy":
         return seed_path, None
     if seed_path and seed_path.exists():
@@ -520,17 +559,31 @@ def maybe_refresh_auth_seed(args: argparse.Namespace, account: dict[str, Any] | 
 
 
 def resolve_auth_seed_file(args: argparse.Namespace) -> tuple[str | None, dict[str, Any]]:
+    selector = args.account or args.account_label
+    resolution = resolve_account_record(args.program, selector)
+    account = resolution.get("account") if resolution.get("status") == "resolved" else None
+    inventory = load_account_inventory(args.program)
+    session_mode = (account or {}).get("auth_session_mode", inventory.get("auth_session_mode", "hybrid"))
+    if session_mode not in AUTH_SESSION_MODES:
+        raise SystemExit(f"invalid auth_session_mode {session_mode!r}")
+    resolution["auth_session_mode"] = session_mode
+    if requires_browser_handoff(session_mode):
+        safe = safe_account_resolution(resolution, None)
+        safe["auth_auto_refresh"] = {
+            "status": "not-permitted",
+            "reason": "browser-bound-session-must-not-be-copied-from-ryushe-proxy",
+            "auth_session_mode": session_mode,
+        }
+        return None, safe
     if args.auth_seed_file:
         return args.auth_seed_file, {
             "status": "explicit",
             "auth_seed_file": str(Path(args.auth_seed_file).expanduser()),
+            "auth_session_mode": session_mode,
         }
-    selector = args.account or args.account_label
-    resolution = resolve_account_record(args.program, selector)
-    account = resolution.get("account") if resolution.get("status") == "resolved" else None
     seed_path = auth_seed_path_from_account(account)
     refresh_result = None
-    seed_path, refresh_result = maybe_refresh_auth_seed(args, account, seed_path)
+    seed_path, refresh_result = maybe_refresh_auth_seed(args, account, seed_path, session_mode)
     safe = safe_account_resolution(resolution, seed_path)
     if refresh_result:
         safe["auth_auto_refresh"] = refresh_result
@@ -701,7 +754,10 @@ def parse_args() -> argparse.Namespace:
         "--auth-auto-refresh",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="When --account resolves a permitted missing auth seed, refresh it through auth_resolver.py before launch.",
+        help=(
+            "Refresh a permitted missing auth seed through auth_resolver.py before launch (default). "
+            "Existing auth seeds are retained rather than reset; use --no-auth-auto-refresh to opt out."
+        ),
     )
     parser.add_argument(
         "--ephemeral-profile",
@@ -715,7 +771,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--proxy-cert-mode",
         choices=("auto", "import", "ignore", "none"),
-        default=os.environ.get("CHROMIUM_TEST_PROXY_CERT_MODE", "auto"),
+        default=os.environ.get("CHROMIUM_TEST_PROXY_CERT_MODE", "import"),
         help=(
             "How to handle proxy TLS interception. auto/import trust a CA in the profile; "
             "ignore adds --ignore-certificate-errors; none does neither."
@@ -739,6 +795,27 @@ def parse_args() -> argparse.Namespace:
         help="Value for Chromium --remote-allow-origins. Defaults to '*'.",
     )
     parser.add_argument("--chrome-binary", help="Override Chromium/Chrome executable.")
+    parser.add_argument(
+        "--display-backend",
+        choices=("auto", "default", "kasmvnc"),
+        default="auto",
+        help=(
+            "Display backend. auto (the default) starts a task-owned loopback-only KasmVNC display and "
+            "falls back to the caller-provided legacy display if KasmVNC is unavailable; kasmvnc requires it; "
+            "default preserves the legacy display."
+        ),
+    )
+    parser.add_argument(
+        "--kasmvnc-display",
+        type=int,
+        default=20,
+        help="Dedicated KasmVNC X display number when --display-backend kasmvnc is selected.",
+    )
+    parser.add_argument(
+        "--kasmvnc-web-port",
+        type=int,
+        help="KasmVNC local HTTP port; omit to select a free loopback port.",
+    )
     parser.add_argument(
         "--headless",
         action="store_true",
@@ -810,6 +887,8 @@ def main() -> int:
             os.environ.get("CHROMIUM_TEST_PROXY_SERVER")
             or runtime_route.get("browser_proxy")
         )
+    if args.proxy_cert_mode == "import" and not args.proxy_server:
+        raise SystemExit("--proxy-cert-mode import requires a task MITM proxy listener")
     mitm_ca_cert = resolve_mitm_ca_cert(args.mitm_ca_cert, args.proxy_server)
     if not args.dry_run:
         profile_dir.mkdir(parents=True, exist_ok=True)
@@ -906,8 +985,27 @@ def main() -> int:
         "proxy_cert_status": cert_status,
         "auth_application": {"status": "dry-run" if auth_seed_data and args.dry_run else "none"},
         "command": command,
+        "display_backend": args.display_backend,
         "dry_run": args.dry_run,
     }
+
+    kasmvnc_session: dict[str, Any] | None = None
+    kasmvnc_state_dir = profile_dir / "kasmvnc"
+    requested_display_backend = args.display_backend
+    use_kasmvnc = requested_display_backend in {"auto", "kasmvnc"} and not args.headless
+    if use_kasmvnc and args.dry_run:
+        kasmvnc_session = {
+            "display": f":{args.kasmvnc_display}",
+            "listener_host": KASMVNC_LISTENER_HOST,
+            "status": "dry-run",
+            "web_port": args.kasmvnc_web_port or "auto",
+            "web_url": (
+                f"http://{KASMVNC_LISTENER_HOST}:{args.kasmvnc_web_port}/"
+                if args.kasmvnc_web_port
+                else None
+            ),
+        }
+        result["kasmvnc"] = kasmvnc_session
 
     proc: subprocess.Popen[Any] | None = None
     if not args.dry_run:
@@ -919,13 +1017,81 @@ def main() -> int:
                 print("Next: " + "; ".join(auth_next_step.get("steps", [])), file=sys.stderr)
             return 2
         assert_hoster_workload_isolated(runtime)
-        proc = subprocess.Popen(
-            command,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env={**os.environ, **({"HOME": str(home_dir)} if home_dir else {})},
-            start_new_session=True,
-        )
+        if use_kasmvnc:
+            try:
+                kasmvnc_session = start_kasmvnc_session(
+                    display=args.kasmvnc_display,
+                    web_port=args.kasmvnc_web_port,
+                    state_dir=kasmvnc_state_dir,
+                )
+            except KasmVNCSessionError as exc:
+                if requested_display_backend != "auto":
+                    raise
+                use_kasmvnc = False
+                result["display_backend"] = "default"
+                result["display_fallback"] = {
+                    "from": "kasmvnc",
+                    "to": "default",
+                    "reason": str(exc),
+                }
+            else:
+                result["display_backend"] = "kasmvnc"
+                kasmvnc_session["state_dir"] = str(kasmvnc_state_dir)
+                kasmvnc_session["stop_command"] = [
+                    str(Path(__file__).with_name("kasmvnc_session.py")),
+                    "stop",
+                    "--display",
+                    str(args.kasmvnc_display),
+                    "--state-dir",
+                    str(kasmvnc_state_dir),
+                    "--json",
+                ]
+                result["kasmvnc"] = kasmvnc_session
+        try:
+            proc = subprocess.Popen(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env={
+                    **os.environ,
+                    **({"HOME": str(home_dir)} if home_dir else {}),
+                    # Chromium's profile HOME may be task-isolated, while the
+                    # KasmVNC X server uses the operator's Xauthority cookie.
+                    **(
+                        {"DISPLAY": kasmvnc_session["display"], "XAUTHORITY": str(Path.home() / ".Xauthority")}
+                        if kasmvnc_session
+                        else {}
+                    ),
+                },
+                start_new_session=True,
+            )
+        except OSError:
+            if kasmvnc_session:
+                stop_kasmvnc_session(args.kasmvnc_display, kasmvnc_state_dir)
+            raise
+        if kasmvnc_session and requested_display_backend == "auto" and not wait_for_cdp_page(port, timeout=4.0):
+            # A GUI listener alone is not a usable KasmVNC browser session. Tear
+            # down only this task's display, then retry the established Xvfb/
+            # screenshot lane inherited from the caller.
+            if proc.poll() is None:
+                proc.terminate()
+                proc.wait(timeout=5)
+            stop_kasmvnc_session(args.kasmvnc_display, kasmvnc_state_dir)
+            kasmvnc_session = None
+            result.pop("kasmvnc", None)
+            result["display_backend"] = "default"
+            result["display_fallback"] = {
+                "from": "kasmvnc",
+                "to": "default",
+                "reason": "Chromium CDP did not become ready on the KasmVNC display",
+            }
+            proc = subprocess.Popen(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env={**os.environ, **({"HOME": str(home_dir)} if home_dir else {})},
+                start_new_session=True,
+            )
         time.sleep(1)
         result["pid"] = proc.pid
         result["auth_application"] = apply_auth_seed_via_cdp(port, target_url, auth_seed_data)

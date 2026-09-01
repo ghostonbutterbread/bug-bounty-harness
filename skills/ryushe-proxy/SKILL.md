@@ -13,9 +13,9 @@ Phrase mapping: "my proxy", "Ryushe's proxy", "my Caido", or "Ryushe's Caido" me
 
 ## Capture vs Testing Lane
 
-Use this skill for source lookup by default. If an agent needs to test the application after pulling a request from Ryushe's proxy, replay through the agent lane with `agent-proxy` unless the same-host exception applies.
+Use this skill for source lookup by default. If an agent needs to test the application after pulling a request from Ryushe's proxy, replay through the agent lane with `agent-proxy` unless the agent is executing locally on Abommie.
 
-Same-host exception: active testing may use Ryushe's proxy only when the agent is running on the same host as the proxy and `my proxy` resolves to `localhost` from that agent runtime. Verify the runtime/hostname and resolved endpoint before testing. If the endpoint resolves to `ryushespc`, a tunnel, or any remote host, this skill remains source lookup only.
+Abommie exception: active testing may use local Caido only when the agent is executing on Abommie. Verify hostname/runtime and that the Caido endpoint is local before testing. A remote `ryushespc` endpoint, tunnel, or any other host remains source lookup only.
 
 Do not replay from Ryushe's proxy just because the request was found there. Treat the Ryushe-lane request as a shape/template: method, full URL, parameters, body structure, and non-secret headers. Use agent-owned cookies, tokens, browser state, and test-account resources for active replay.
 
@@ -40,8 +40,7 @@ Ryushe's proxy to refresh that account's auth seed when all of these are true:
 
 The agent must not print, summarize, commit, paste, or otherwise persist the
 raw cookies, bearer tokens, CSRF tokens, or private headers. After refreshing the
-seed, retry active testing through the agent MITM lane, not through Ryushe's
-proxy, unless Ryushe explicitly asks for same-host active testing.
+seed, retry active testing through the agent MITM lane, not through Ryushe's proxy, unless the agent is executing locally on Abommie.
 
 ## Endpoint
 
@@ -63,14 +62,13 @@ Current boundary note: the Ghost/OpenClaw host, also referred to as `ghostonbrea
 4. Inspect only the relevant project/history/workflow requested.
 5. For approved named-account refresh, update only the locked-down auth seed
    for that account, then close the Ryushe-proxy lookup path.
-6. For active testing, switch to the agent MITM/proxy lane unless the same-host
-   localhost exception applies.
+6. For active testing, switch to the agent MITM/proxy lane unless the agent is executing locally on Abommie.
 7. Compare equivalent flows against the agent lane when needed.
 
 ## Guardrails
 
 - Read/compare by default; do not mutate Ryushe's Caido projects unless requested.
-- Do not actively test through Ryushe's proxy unless the current agent is on the same host as the proxy and `my proxy` resolves to `localhost`.
+- Do not actively test through Ryushe's proxy unless the current agent is executing locally on Abommie and the Caido endpoint is local.
 - Do not copy cookies, bearer tokens, API keys, or other secrets from Ryushe's proxy into agent browsers/API clients unless Ryushe explicitly approves that action. The standing approval in this skill applies only to named-account auth refresh records with `auth_refresh_source=ryushe-proxy`.
 - Do not print, persist, or paste raw secrets from Ryushe's traffic into prompts, chat, logs, findings, reports, commits, or notes.
 - Keep Ryushe-lane evidence labeled separately from agent-lane evidence.

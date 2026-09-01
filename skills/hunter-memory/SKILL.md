@@ -7,7 +7,10 @@ description: "Use when agents need an observe-learn-adapt memory loop during map
 
 Use this after `/live-map`, `/me`, `/brainstorm`, manual hunting, or any skill
 handoff where the agent should remember experiments, failed attempts, learned
-boundaries, next mutations, and reusable claims.
+boundaries, next mutations, and run-local claims. A Hunter Memory claim is not
+shared app memory: when it becomes stable enough to guide a future specialist,
+promote one concise fact to `/map-store` and retain only the run learning plus
+that pointer here.
 
 This skill is not only for BaseTeam. BaseTeam can enable it with
 `--hunter-memory`, but standalone agents can use `agents/hunter_memory_tool.py`
@@ -20,7 +23,13 @@ directly.
 3. If an application map exists, read the relevant packet or summary from
    `$HARNESS_SHARED_BASE/{program}/agent_shared/application-map/`.
 4. Start a memory run for the exact surface/idea being tested.
-5. Record distilled attempts, observations, boundaries, and next actions.
+5. Let the selected live-testing skill own any target-directed probe and its
+   canonical Attempt record.
+6. Record only distilled learning, boundaries, and next actions in Hunter
+   Memory; link an existing canonical `attempt_id` or stream path when one
+   motivated the learning.
+7. Do not use Hunter Memory to discover, create, query, or retain raw Attempt
+   history.
 
 ## Commands
 
@@ -33,15 +42,6 @@ python3 agents/hunter_memory_tool.py start <program> \
   --goal "Learn whether avatar upload reaches a stored render context" \
   --agent-id scout \
   --prompt-out /tmp/hunter-memory-prompt.md
-
-python3 agents/hunter_memory_tool.py attempt \
-  --agent-dir <agent-path> \
-  --goal "Learn whether avatar upload reaches a stored render context" \
-  --action "Uploaded benign png baseline" \
-  --result "inconclusive" \
-  --observation "Upload accepted and profile rendered image tag" \
-  --learning "PNG path is accepted; filename render still untested" \
-  --next-action "Check filename, metadata, admin, and email render contexts"
 
 python3 agents/hunter_memory_tool.py claim \
   --run-path <run-path> \
@@ -75,7 +75,10 @@ Important files:
 - `shared_summary.md`
 - `claims.jsonl`
 - `agents/{agent-id}/goal_state.json`
-- `agents/{agent-id}/attempts.jsonl`
+- `agents/{agent-id}/attempts.jsonl` — legacy Hunter Memory action-log filename;
+  it is **not** target-directed Attempt evidence and must not receive raw probe
+  rows. Treat it as deprecated internal compatibility until its separate rename
+  migration is scheduled.
 - `agents/{agent-id}/observations.md`
 - `agents/{agent-id}/hypotheses.md`
 - `agents/{agent-id}/final_summary.md`

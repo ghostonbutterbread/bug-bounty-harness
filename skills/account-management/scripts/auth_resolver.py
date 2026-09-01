@@ -26,27 +26,25 @@ DEFAULT_ROUTE_TABLE = Path(
 )
 DEFAULT_HOSTER_SSH_KEY = Path("/home/ryushe/.ssh/hoster")
 AUTH_SEED_REF_PREFIXES = ("auth-seed:", "auth_seed:", "file:")
+AUTH_SESSION_MODES = ("browser-bound", "proxy-replayable", "hybrid", "unknown")
 COOKIE_SPLIT_RE = re.compile(r";\s*")
-AUTH_HEADER_ALLOWLIST = {
-    "authorization",
-    "x-csrf-token",
-    "x-xsrf-token",
-    "x-requested-with",
-}
-HEADER_PREFIX_ALLOWLIST = ("x-canva-",)
-HEADER_DENYLIST = {
+# Replay the application's request shape rather than guessing which headers
+# carry auth.  Cookies are stored separately so the replay client can attach
+# them correctly; these hop-by-hop/routing headers must be regenerated locally.
+REPLAY_HEADER_DENYLIST = {
     "cookie",
     "host",
     "content-length",
-    "x-pwnfox-color",
-    "user-agent",
-    "accept",
-    "accept-encoding",
-    "accept-language",
     "connection",
-    "origin",
-    "referer",
-    "priority",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "proxy-connection",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "x-pwnfox-color",
 }
 SAFE_ACCOUNT_FIELDS = (
     "alias",
@@ -54,23 +52,30 @@ SAFE_ACCOUNT_FIELDS = (
     "username",
     "user_id",
     "role",
+    "tier",
     "tenant_id",
+    "organization_access",
+    "lifecycle",
+    "browser_lease_enabled",
+    "capabilities",
     "pwnfox_color",
     "credential_ref",
     "auth_seed_ref",
     "auth_refresh_source",
     "auth_refresh_hint",
+    "auth_session_mode",
+    "auth_check",
     "auth_check_url",
     "auth_host_filter",
 )
 
 
 def shared_base() -> Path:
-    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/bounty_recon")).expanduser()
+    return Path(os.environ.get("HARNESS_SHARED_BASE", "~/Shared/web_bounty")).expanduser()
 
 
 def inventory_path(program: str) -> Path:
-    return shared_base() / program / "credentials" / "account_inventory.json"
+    return shared_base().joinpath(program, "credentials", "account_inventory.json")
 
 
 def load_json_file(path: Path) -> dict[str, Any]:
@@ -86,7 +91,29 @@ def load_json_file(path: Path) -> dict[str, Any]:
 
 
 def load_inventory(program: str) -> dict[str, Any]:
-    return load_json_file(inventory_path(program))
+    path = inventory_path(program)
+    inventory = load_json_file(path)
+    if inventory.get("status") == "retired":
+        replacement = inventory.get("replaced_by", "the current canonical registry")
+        raise SystemExit(f"account inventory is retired: {path}; use {replacement}")
+    return inventory
+
+
+def auth_session_mode(inventory: dict[str, Any], account: dict[str, Any] | None) -> str:
+    """Return the account override or program default without guessing transport.
+
+    ``auth_refresh_source`` says where auth evidence can be found. This separate
+    policy says whether that material may leave its owning browser.
+    """
+    mode = (account or {}).get("auth_session_mode", inventory.get("auth_session_mode", "hybrid"))
+    if mode not in AUTH_SESSION_MODES:
+        raise SystemExit(f"invalid auth_session_mode {mode!r}; expected one of {', '.join(AUTH_SESSION_MODES)}")
+    return mode
+
+
+def requires_browser_handoff(session_mode: str) -> bool:
+    """Fail closed when session portability is unclassified."""
+    return session_mode in {"browser-bound", "unknown"}
 
 
 def current_runtime(explicit: str | None = None) -> str:
@@ -203,6 +230,35 @@ def resolve_account(inventory: dict[str, Any], selector: str | None, program: st
         for account in accounts
         if isinstance(account, dict) and account.get("alias")
     }
+    if normalized in {"integration-profile", "integration_profile"}:
+        reserved_aliases = {"integration-profile", "integration_profile"}
+        if any(str(account.get("alias", "")).lower() in reserved_aliases for account in accounts if isinstance(account, dict)):
+            return {
+                "status": "integration-profile-unavailable",
+                "selector": selector,
+                "inventory_path": str(inventory_path(program)),
+            }
+        profile = inventory.get("integration_profile")
+        if not isinstance(profile, dict) or profile.get("status") != "active":
+            return {
+                "status": "integration-profile-unavailable",
+                "selector": selector,
+                "inventory_path": str(inventory_path(program)),
+            }
+        designated_alias = str(profile.get("account", ""))
+        matching_accounts = [
+            account
+            for account in accounts
+            if isinstance(account, dict) and str(account.get("alias", "")).lower() == designated_alias.lower()
+        ]
+        if len(matching_accounts) == 1 and matching_accounts[0].get("alias") == designated_alias and matching_accounts[0].get("lifecycle") == "active":
+            return resolved_account(selector, "integration_profile", matching_accounts[0], program)
+        return {
+            "status": "integration-profile-unavailable",
+            "selector": selector,
+            "inventory_path": str(inventory_path(program)),
+        }
+
     if normalized in by_alias:
         return resolved_account(selector, "alias", by_alias[normalized], program)
 
@@ -332,6 +388,35 @@ def cookie_header(seed: dict[str, Any]) -> str | None:
     return "; ".join(pairs) if pairs else None
 
 
+AUTH_CHECK_METHODS = ("GET", "HEAD", "POST")
+
+
+def auth_check_target(
+    account: dict[str, Any] | None, *, target_url: str | None, method_override: str | None
+) -> dict[str, str | None]:
+    """Resolve a program-declared safe auth endpoint without app-specific code."""
+    configured = (account or {}).get("auth_check")
+    config = configured if isinstance(configured, dict) else {}
+    url = target_url or config.get("url") or (account or {}).get("auth_check_url")
+    method = str(method_override or config.get("method") or "GET").upper()
+    if method not in AUTH_CHECK_METHODS:
+        raise ValueError(f"unsupported auth check method: {method}")
+    return {"url": str(url) if url else None, "method": method}
+
+
+def auth_check_required_headers(account: dict[str, Any] | None) -> list[str]:
+    config = (account or {}).get("auth_check")
+    names = config.get("required_header_names") if isinstance(config, dict) else []
+    return [str(name).lower() for name in names] if isinstance(names, list) else []
+
+
+def host_filter_from_auth_target(target: dict[str, str | None]) -> str | None:
+    url = target.get("url")
+    if not url:
+        return None
+    return urllib.parse.urlsplit(url).hostname
+
+
 def run_auth_check(url: str | None, method: str, timeout: float, seed_path: Path | None) -> dict[str, Any]:
     if not url:
         return {"status": "skipped", "reason": "no-target-url"}
@@ -386,23 +471,36 @@ def host_filter_from_args(args: argparse.Namespace, account: dict[str, Any] | No
     explicit = getattr(args, "host_filter", None)
     if explicit:
         return explicit
+    endpoint_host = host_filter_from_auth_target(
+        auth_check_target(account, target_url=getattr(args, "target_url", None), method_override=getattr(args, "method", None))
+    )
+    if endpoint_host:
+        return endpoint_host
     if account and account.get("auth_host_filter"):
         return str(account["auth_host_filter"])
-    url = getattr(args, "target_url", None) or (account or {}).get("auth_check_url")
-    if url:
-        parsed = urllib.parse.urlsplit(str(url))
-        if parsed.hostname:
-            return parsed.hostname
     return None
 
 
-def build_pwnfox_httpql(color: str, host_filter: str | None = None, require_cookie: bool = False) -> str:
+def auth_check_capture_path(account: dict[str, Any] | None, args: argparse.Namespace) -> str | None:
+    if getattr(args, "host_filter", None):
+        return None
+    url = auth_check_target(
+        account, target_url=getattr(args, "target_url", None), method_override=getattr(args, "method", None)
+    ).get("url")
+    return urllib.parse.urlsplit(url).path if url else None
+
+
+def build_pwnfox_httpql(
+    color: str, host_filter: str | None = None, request_path: str | None = None, require_cookie: bool = False
+) -> str:
     clauses = [
         'req.raw.cont:"X-PwnFox-Color"',
         f'req.raw.cont:"{color}"',
     ]
     if host_filter:
         clauses.append(f'req.host.cont:"{host_filter}"')
+    if request_path:
+        clauses.append(f'req.path.cont:"{request_path}"')
     if require_cookie:
         clauses.append('req.raw.cont:"Cookie:"')
     return " AND ".join(clauses)
@@ -445,14 +543,16 @@ def mcp_text_json(data: dict[str, Any]) -> dict[str, Any]:
     return parsed
 
 
-def list_proxy_requests(endpoint: str, color: str, host_filter: str | None, limit: int) -> list[dict[str, Any]]:
+def list_proxy_requests(
+    endpoint: str, color: str, host_filter: str | None, request_path: str | None, limit: int
+) -> list[dict[str, Any]]:
     order = {"target": "req", "field": "created_at", "direction": "desc"}
     for require_cookie in (True, False):
         data = mcp_call(
             endpoint,
             "list_requests",
             {
-                "filter": build_pwnfox_httpql(color, host_filter, require_cookie=require_cookie),
+                "filter": build_pwnfox_httpql(color, host_filter, request_path, require_cookie=require_cookie),
                 "limit": limit,
                 "order": order,
                 "serialization": {"include_body": False, "max_text_body_chars": 0},
@@ -479,9 +579,7 @@ def selected_headers(headers: dict[str, Any]) -> dict[str, str]:
     selected: dict[str, str] = {}
     for key, value in headers.items():
         lower = str(key).lower()
-        if lower in HEADER_DENYLIST or lower.startswith("sec-"):
-            continue
-        if lower not in AUTH_HEADER_ALLOWLIST and not lower.startswith(HEADER_PREFIX_ALLOWLIST):
+        if lower in REPLAY_HEADER_DENYLIST:
             continue
         if isinstance(value, list):
             text = ", ".join(str(part) for part in value if part is not None)
@@ -522,6 +620,7 @@ def seed_from_proxy_items(
     account: dict[str, Any],
     color: str,
     program: str,
+    required_headers: list[str] | None = None,
 ) -> dict[str, Any]:
     for item in items:
         request = item.get("request")
@@ -532,6 +631,9 @@ def seed_from_proxy_items(
             continue
         cookies = parse_cookie_header(first_header(headers, "Cookie"), request.get("url"), request.get("host"))
         selected = selected_headers(headers)
+        names = {str(key).lower() for key in headers}
+        if any(name.lower() not in names for name in (required_headers or [])):
+            continue
         if not cookies and not selected:
             continue
         return {
@@ -563,9 +665,7 @@ def seed_from_proxy_items(
 REMOTE_PROXY_QUERY_SCRIPT = r'''
 import base64, json, re, sys, urllib.request
 COOKIE_SPLIT_RE = re.compile(r";\s*")
-AUTH_HEADER_ALLOWLIST = {"authorization", "x-csrf-token", "x-xsrf-token", "x-requested-with"}
-HEADER_PREFIX_ALLOWLIST = ("x-canva-",)
-HEADER_DENYLIST = {"cookie", "host", "content-length", "x-pwnfox-color", "user-agent", "accept", "accept-encoding", "accept-language", "connection", "origin", "referer", "priority"}
+REPLAY_HEADER_DENYLIST = {"cookie", "host", "content-length", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade", "x-pwnfox-color"}
 def mcp_call(endpoint, tool_name, arguments):
     payload = {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":tool_name,"arguments":arguments}}
     req = urllib.request.Request(endpoint, data=json.dumps(payload).encode(), headers={"Content-Type":"application/json","Accept":"application/json, text/event-stream"})
@@ -581,10 +681,12 @@ def text_json(data):
     content = data.get("result", {}).get("content")
     text = content[0].get("text") if isinstance(content, list) and content and isinstance(content[0], dict) else None
     return json.loads(text or "{}")
-def filt(color, host_filter, require_cookie):
+def filt(color, host_filter, request_path, require_cookie):
     clauses = ['req.raw.cont:"X-PwnFox-Color"', f'req.raw.cont:"{color}"']
     if host_filter:
         clauses.append(f'req.host.cont:"{host_filter}"')
+    if request_path:
+        clauses.append(f'req.path.cont:"{request_path}"')
     if require_cookie:
         clauses.append('req.raw.cont:"Cookie:"')
     return " AND ".join(clauses)
@@ -599,9 +701,7 @@ def selected_headers(headers):
     selected = {}
     for key, value in headers.items():
         lower = str(key).lower()
-        if lower in HEADER_DENYLIST or lower.startswith("sec-"):
-            continue
-        if lower not in AUTH_HEADER_ALLOWLIST and not lower.startswith(HEADER_PREFIX_ALLOWLIST):
+        if lower in REPLAY_HEADER_DENYLIST:
             continue
         text = ", ".join(str(part) for part in value if part is not None) if isinstance(value, list) else str(value)
         if text:
@@ -621,7 +721,7 @@ def parse_cookie_header(header, request_url, host):
             cookie["url"] = request_url or (f"https://{host}/" if host else None)
             cookies.append({k:v for k,v in cookie.items() if v is not None})
     return cookies
-def seed_from_items(items, account, color, program):
+def seed_from_items(items, account, color, program, required_headers):
     for item in items:
         request = item.get("request") if isinstance(item, dict) else None
         headers = request.get("headers") if isinstance(request, dict) else None
@@ -629,6 +729,9 @@ def seed_from_items(items, account, color, program):
             continue
         cookies = parse_cookie_header(first_header(headers, "Cookie"), request.get("url"), request.get("host"))
         selected = selected_headers(headers)
+        names = {str(key).lower() for key in headers}
+        if any(str(name).lower() not in names for name in required_headers):
+            continue
         if cookies or selected:
             return {"status":"found","seed":{"account_label":account.get("alias"),"pwnfox_color":color,"program":program,"session_source":"ryushe-proxy","source_request_id":request.get("id") or item.get("id"),"source_host":request.get("host"),"source_path":request.get("path"),"source_time":request.get("created_at") or item.get("time"),"cookies":cookies,"headers":selected},"provenance":{"request_id":request.get("id") or item.get("id"),"host":request.get("host"),"path":request.get("path"),"time":request.get("created_at") or item.get("time"),"cookie_count":len(cookies),"header_names":sorted(selected.keys())}}
     return {"status":"no-usable-auth-material","items_seen":len(items)}
@@ -636,16 +739,19 @@ args = json.loads(base64.b64decode(sys.argv[1]).decode())
 order = {"target":"req","field":"created_at","direction":"desc"}
 items = []
 for require_cookie in (True, False):
-    data = mcp_call(args["endpoint"], "list_requests", {"filter":filt(args["color"], args.get("host_filter"), require_cookie), "limit":args.get("limit", 50), "order":order, "serialization":{"include_body":False,"max_text_body_chars":0}})
+    data = mcp_call(args["endpoint"], "list_requests", {"filter":filt(args["color"], args.get("host_filter"), args.get("request_path"), require_cookie), "limit":args.get("limit", 50), "order":order, "serialization":{"include_body":False,"max_text_body_chars":0}})
     parsed = text_json(data)
     items = [item for item in parsed.get("items", []) if isinstance(item, dict)]
     if items:
         break
-print(json.dumps(seed_from_items(items, args["account"], args["color"], args["program"])))
+print(json.dumps(seed_from_items(items, args["account"], args["color"], args["program"], args.get("required_headers", []))))
 '''
 
 
-def query_proxy_seed(route: dict[str, Any], account: dict[str, Any], color: str, program: str, host_filter: str | None, limit: int) -> dict[str, Any]:
+def query_proxy_seed(
+    route: dict[str, Any], account: dict[str, Any], color: str, program: str,
+    host_filter: str | None, request_path: str | None, required_headers: list[str], limit: int,
+) -> dict[str, Any]:
     mode = route.get("ryushe_proxy_mode")
     endpoint = route.get("ryushe_proxy_endpoint")
     payload = {
@@ -654,13 +760,15 @@ def query_proxy_seed(route: dict[str, Any], account: dict[str, Any], color: str,
         "color": color,
         "program": program,
         "host_filter": host_filter,
+        "request_path": request_path,
+        "required_headers": required_headers,
         "limit": limit,
     }
     if mode in {"direct", "same-host-localhost"}:
         if not endpoint:
             return {"status": "blocked", "reason": "missing-ryushe-proxy-endpoint"}
-        items = list_proxy_requests(str(endpoint), color, host_filter, limit)
-        return seed_from_proxy_items(items, account, color, program)
+        items = list_proxy_requests(str(endpoint), color, host_filter, request_path, limit)
+        return seed_from_proxy_items(items, account, color, program, required_headers)
     if mode == "hoster-ssh":
         if not endpoint:
             endpoint = "http://ryushespc:3333/mcp"
@@ -735,6 +843,16 @@ def refresh_from_ryushe_proxy(args: argparse.Namespace) -> dict[str, Any]:
             },
             "runtime_route": route,
         }
+    session_mode = auth_session_mode(inventory, account)
+    if requires_browser_handoff(session_mode):
+        return {
+            "status": "not-permitted",
+            "reason": "browser-bound-session-must-not-be-copied-from-ryushe-proxy",
+            "auth_session_mode": session_mode,
+            "account": safe_account_record(account),
+            "runtime_route": route,
+            "safe_next": "provision the exact owned browser profile and use the private manual-login handoff",
+        }
     if account.get("auth_refresh_source") != "ryushe-proxy":
         return {
             "status": "not-permitted",
@@ -745,7 +863,9 @@ def refresh_from_ryushe_proxy(args: argparse.Namespace) -> dict[str, Any]:
     seed_path = auth_seed_path(account) or default_auth_seed_path(args.program, account, args.account)
     color = auth_color(account, args.account)
     host_filter = host_filter_from_args(args, account)
-    query_result = query_proxy_seed(route, account, color, args.program, host_filter, args.limit)
+    request_path = auth_check_capture_path(account, args)
+    required_headers = auth_check_required_headers(account)
+    query_result = query_proxy_seed(route, account, color, args.program, host_filter, request_path, required_headers, args.limit)
     if query_result.get("status") != "found":
         return {
             "status": "no-matching-proxy-auth",
@@ -773,11 +893,19 @@ def refresh_from_ryushe_proxy(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def proxy_refresh_plan(account: dict[str, Any] | None, route: dict[str, Any], auth_check: dict[str, Any]) -> dict[str, Any]:
+def proxy_refresh_plan(
+    account: dict[str, Any] | None, route: dict[str, Any], auth_check: dict[str, Any], session_mode: str
+) -> dict[str, Any]:
     if not account:
         return {"status": "not-applicable", "reason": "no-resolved-account"}
     if auth_check.get("status") == "passed":
         return {"status": "not-needed", "reason": "auth-check-passed"}
+    if requires_browser_handoff(session_mode):
+        return {
+            "status": "not-permitted",
+            "reason": "browser-bound-session-must-not-be-copied-from-ryushe-proxy",
+            "auth_session_mode": session_mode,
+        }
     if account.get("auth_refresh_source") != "ryushe-proxy":
         return {
             "status": "not-permitted",
@@ -838,11 +966,36 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
     resolution = resolve_account(inventory, args.account, args.program)
     account = resolution.get("account") if resolution.get("status") == "resolved" else None
     route = resolve_runtime_route(args)
+    session_mode = auth_session_mode(inventory, account)
+    if account and requires_browser_handoff(session_mode):
+        return {
+            "status": "needs-browser-handoff",
+            "program": args.program,
+            "account_selector": args.account,
+            "account_resolution": {
+                key: resolution.get(key)
+                for key in ("status", "selector", "matched_by", "inventory_path")
+                if resolution.get(key) is not None
+            },
+            "account": safe_account_record(account),
+            "auth_session_mode": session_mode,
+            "auth_source": "browser-owned-profile",
+            "auth_seed": {"status": "not-inspected", "reason": "browser-bound-session"},
+            "auth_check": {"status": "not-run", "reason": "browser-bound-session"},
+            "runtime_route": route,
+            "proxy_refresh": {
+                "status": "not-permitted",
+                "reason": "browser-bound-session-must-not-be-copied-from-ryushe-proxy",
+                "auth_session_mode": session_mode,
+            },
+            "bitwarden": {"status": "not-applicable", "reason": "browser-bound-session"},
+            "safe_next": safe_next("needs-browser-handoff"),
+        }
     seed_path = auth_seed_path(account)
     seed = inspect_auth_seed(seed_path)
-    target_url = args.target_url or (account or {}).get("auth_check_url")
-    auth_check = run_auth_check(target_url, args.method, args.timeout, seed_path)
-    proxy_plan = proxy_refresh_plan(account, route, auth_check)
+    target = auth_check_target(account, target_url=args.target_url, method_override=args.method)
+    auth_check = run_auth_check(target["url"], str(target["method"]), args.timeout, seed_path)
+    proxy_plan = proxy_refresh_plan(account, route, auth_check, session_mode)
     if seed.get("status") == "available" and auth_check.get("reason") == "no-target-url":
         proxy_plan = {"status": "not-needed", "reason": "stored-auth-seed-available"}
     refreshed = False
@@ -856,7 +1009,7 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
         if refresh_result.get("status") == "refreshed":
             seed_path = auth_seed_path({**account, "auth_seed_ref": refresh_result["account"].get("auth_seed_ref")})
             seed = inspect_auth_seed(seed_path)
-            auth_check = run_auth_check(target_url, args.method, args.timeout, seed_path)
+            auth_check = run_auth_check(target["url"], str(target["method"]), args.timeout, seed_path)
             proxy_plan = {"status": "completed", "provenance": refresh_result.get("proxy_provenance", {})}
             refreshed = True
         else:
@@ -895,6 +1048,7 @@ def resolve(args: argparse.Namespace) -> dict[str, Any]:
             if resolution.get(key) is not None
         },
         "account": safe_account_record(account or {}),
+        "auth_session_mode": session_mode,
         "auth_source": auth_source,
         "auth_seed": seed,
         "auth_check": auth_check,
@@ -915,6 +1069,8 @@ def safe_next(status: str) -> str:
         return "load Bitwarden in resolver context and create or refresh a locked-down auth seed; do not pass plaintext credentials to agents"
     if status == "unresolved-account":
         return "load account-management and register or select an owned account alias/color"
+    if status == "needs-browser-handoff":
+        return "lease and provision the exact owned Chromium profile, publish only its loopback handoff UI with Tailscale Serve plus SSH fallback, mark awaiting-input, and pause"
     return "ask Ryushe for manual auth refresh or a safe auth-check URL"
 
 
@@ -929,10 +1085,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     res = sub.add_parser("resolve", help="Resolve safe account auth handoff metadata.")
     res.add_argument("--program", required=True)
-    res.add_argument("--account", required=True, help="Account alias or PwnFox color, such as blue.")
+    res.add_argument("--account", required=True, help="Account alias, PwnFox color, or active integration-profile.")
     res.add_argument("--target-url", help="Safe read-only URL for auth validation.")
     res.add_argument("--host-filter", help="Restrict Ryushe-proxy lookup to a host substring, such as canva.com.")
-    res.add_argument("--method", default="GET", choices=("GET", "HEAD"))
+    res.add_argument("--method", choices=AUTH_CHECK_METHODS, help="Override the program-declared auth-check method.")
     res.add_argument("--timeout", type=float, default=8.0)
     res.add_argument("--limit", type=int, default=80, help="Maximum proxy requests to inspect during refresh.")
     res.add_argument("--refresh", action="store_true", help="If stored auth is not ready, refresh from approved Ryushe-proxy source.")
@@ -942,7 +1098,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     refresh = sub.add_parser("refresh-from-ryushe-proxy", help="Refresh one account/color auth seed from approved Ryushe-proxy traffic.")
     refresh.add_argument("--program", required=True)
-    refresh.add_argument("--account", required=True, help="Account alias or PwnFox color, such as blue.")
+    refresh.add_argument("--account", required=True, help="Account alias, PwnFox color, or active integration-profile.")
     refresh.add_argument("--target-url", help="Safe URL used only to derive a host filter when --host-filter is omitted.")
     refresh.add_argument("--host-filter", help="Restrict Ryushe-proxy lookup to a host substring, such as canva.com.")
     refresh.add_argument("--limit", type=int, default=80, help="Maximum proxy requests to inspect.")

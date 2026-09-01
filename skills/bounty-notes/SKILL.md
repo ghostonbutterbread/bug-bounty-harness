@@ -19,20 +19,22 @@ was killed, or which condition gates further testing, promote the factual part
 to `/map-store` and use Bounty Notes only for the hunt narrative, handoff, or
 next-step decision.
 
-Exact payload and probe history belongs in attempts folders, not directly in
-Bounty Notes. Use Bounty Notes to explain why the agent kept pressure, pivoted,
-paused, or killed a hypothesis, then link the MapStore entry and attempts
-artifact.
+Exact payload and probe history belongs in the canonical Attempts stream, not
+directly in Bounty Notes. Use Bounty Notes to explain why the agent kept
+pressure, pivoted, paused, or killed a hypothesis, then link the MapStore entry
+and Attempts artifact.
 
 ## Fast Routing
 
 - URL/app/surface behavior -> `/map-store`.
-- Timeline, decisions, hypotheses, handoffs, blockers, next-agent guidance,
-  report-polish notes -> `/bounty-notes`.
+- Private live-agent candidate, branch, reclaimable follow-up, or continuation checkpoint -> `/hypothesis-ledger`.
+- Deliberately published human hypothesis/decision record, timeline, handoff, or blocker -> `/bounty-notes`.
 - Bulk URL queue/review state -> `/url-ingest`.
 - Already-tested coverage -> `me_ledger.py` / coverage ledgers.
-- Exact payload/probe attempts -> `agent_shared/attempts/<vuln-class>/<surface>/<run-id>/`
-  with MapStore pointers.
+- Exact payload/probe attempts -> the resolved lane's
+  `<lane>/attempts/_runs/<run-id>/attempts.jsonl`, created through
+  `resolve_attempts_path(...)` and written through `append_attempt(...)`, with
+  MapStore pointers. Vulnerability class and surface stay redacted event metadata.
 - Concrete findings and proof packets -> `manual_hunter.py` / `/findings`.
 
 If both are true, split it: factual behavior in `/map-store`, hypothesis or
@@ -53,17 +55,27 @@ export until an account with create_video is available"; MapStore should say the
 specific endpoint returned `ACL_PERMISSION_DENIED`, which variants were tested,
 and what evidence file contains the proof.
 
+## Live Hypothesis Boundary
+
+A newly generated agent hypothesis belongs in `/hypothesis-ledger`, not
+`notes/hypotheses/`. Keep the ledger creator-private while its owner is live.
+Use a Bounty Notes hypothesis only when an agent or Ryushe deliberately
+publishes a human coordination decision/handoff that links back to the ledger
+ID and non-secret evidence pointers; never mirror a private queue into Notes.
+
 ## Canonical Buckets
 
 Default lane root: `~/Shared/{family}/{program}/{lane}/`
 
 - `notes/timeline/YYYY-MM-DD.md` - chronology and decisions
-- `notes/hypotheses/<slug>.md` - testable ideas or assumption chains
+- `notes/hypotheses/<slug>.md` - deliberately published human hypothesis or coordination decisions, linked to ledger IDs
 - `notes/handoffs/<run-id>.md` - takeover-ready summaries
 - `notes/faq/<slug>.md` - stable solved target facts
 - `notes/_index/` and `notes/index.md` - generated lookup/pointers
-- `agent_shared/attempts/<vuln-class>/<surface>/<run-id>/` - exact payload/probe
-  attempts, transformations, evidence, block reasons, and next mutations
+- `<lane>/attempts/_runs/<run-id>/attempts.jsonl` - exact payload/probe attempts,
+  transformations, evidence, block reasons, and next mutations; use
+  `read_attempt_bucket(...)` to discover bounded cross-run history and
+  `read_attempts(exact_path, ...)` only for a known run's forensic record
 - `working/scratch/<run-id>/` - durable-but-unpublished quick notes and
   sanitized artifacts promoted from `~/workdir/`
 - `scripts/` - reusable program-specific helper scripts, PoCs, repro tools, or

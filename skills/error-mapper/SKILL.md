@@ -17,7 +17,7 @@ review and surface mapping.
 1. Read scope, ownership/account context, and live-testing policy.
 2. Read `$HARNESS_ROOT/prompts/error-mapper-playbook.md`.
 3. Check `/url-ingest history` for the URL and lane before probing.
-4. If the URL belongs to a section deep dive, keep the `/deep-hunt` hypothesis
+4. If the URL belongs to a section-scoped Hunter Loop task, keep the selected
    ID in every note and handoff.
 
 ## Commands

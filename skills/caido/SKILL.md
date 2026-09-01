@@ -1,40 +1,33 @@
 ---
 name: caido
-description: "Connect to a Caido MCP instance for proxy traffic inspection and request comparison."
+description: "Inspect Ryushe’s Caido history as read-only source evidence; never use it as active agent transport."
 ---
 
 # Caido
 
-Use this when a bug bounty task needs Caido MCP traffic, project history, request inspection, or request comparison.
+Use this only when a task explicitly needs Ryushe’s personal Caido project/history, a PwnFox-colored source request, or a named account’s approved auth refresh source.
 
-If Ryushe says "look at the request <request>", inspect the matching request in Ryushe's proxy by default unless he specifies another proxy, lane, browser profile, or MCP endpoint. If an agent uses that request to test an application, the active replay/testing lane remains the agent's own proxy by default; use the Ryushe-lane request as shape evidence only. The only active-testing exception is when the agent is on the same host as Ryushe's proxy and `my proxy` resolves to `localhost` from that runtime.
+## Boundary
 
-For replaying a known request shape, do not require Caido MCP by default. Prefer direct HTTP replay with `curl`, `httpx`, or a focused script. Use the agent's local MCP/proxy replay only when direct replay fails because the server expects browser/proxy-like behavior, such as Cloudflare/bot challenges, TLS/header fingerprint issues, browser-only flow state, or missing JS-generated tokens.
+Caido is **source history**, not the agent proxy, unless the agent itself is executing on **Abommie**. Outside Abommie, agents poll relevant Ryushe-Caido history from an approved Hoster context, copy only the minimum non-secret request shape needed to understand a flow, and perform every active replay/browser action through the task-scoped agent MITM listener.
 
-## MCP URL
+Do not require a Caido MCP connection for normal active testing. Outside Abommie, do not route curl, httpx, scripts, browsers, intercepts, or replays through Caido.
 
-Default to:
+## Source Workflow
+
+1. Confirm Ryushe explicitly requested personal-Caido inspection/comparison or named account/color context.
+2. From the approved Hoster context, query only the relevant program, host, PwnFox color, route, or workflow.
+3. Extract only method, URL, parameter/body shape, and necessary non-secret headers.
+4. If the selected account record permits `auth_refresh_source=ryushe-proxy`, refresh only its registered locked-down auth seed.
+5. Close the Caido lookup and switch to the task MITM listener for live work.
+
+## Evidence
+
+Keep source and replay distinct:
 
 ```text
-http://localhost:3333/mcp
+source: Ryushe Caido
+replay: agent MITM
 ```
 
-If the user gives a hostname or IP address, use:
-
-```text
-http://<hostname-or-ip>:3333/mcp
-```
-
-If the user gives a full URL, use that exact URL.
-
-## Workflow
-
-1. Resolve the MCP URL from the user's request.
-2. Check connectivity before assuming Caido is available.
-3. If the task mentions PwnFox, a colored browser/profile/session, or a phrase
-   like "Red session", load `/pwnfox` and filter history by
-   `X-PwnFox-Color: <color>`.
-4. If unreachable, report whether it looks like host, firewall, bind-address, or port exposure trouble.
-5. For comparisons, keep Caido projects isolated and compare equivalent workflows request-by-request.
-6. For one live owned-session request capture or intercept/modify testing, route to `/single-request-grabber` after Caido connectivity is confirmed.
-7. For live browser exploration, route to `/chromium-test`; the browser should attach to the agent's local proxy so browser-generated requests are observable.
+Never print raw cookies, bearer tokens, CSRF values, API keys, or private bodies from Caido.

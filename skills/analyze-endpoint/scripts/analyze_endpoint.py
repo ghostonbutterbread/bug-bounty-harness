@@ -426,7 +426,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("program")
     parser.add_argument("request", help="Raw HTTP request file, or '-' for stdin.")
-    parser.add_argument("--base", default="/home/ryushe/Shared/bounty_recon")
+    parser.add_argument("--base", default="/home/ryushe/Shared/web_bounty")
     parser.add_argument("--scheme", choices=["https", "http"], default="https")
     parser.add_argument("--proxy-lane", default="unknown")
     parser.add_argument("--pwnfox-color")
@@ -451,7 +451,9 @@ def main(argv: list[str]) -> int:
     out_dir = (
         Path(args.base)
         / args.program
-        / "ghost"
+        / "web"
+        / "recon"
+        / "maps"
         / "endpoints"
         / parsed.netloc
         / f"{slug_for(method, template_path)}_{endpoint_hash}"

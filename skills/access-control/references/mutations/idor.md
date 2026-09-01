@@ -88,6 +88,14 @@ Keep these IDOR-specific. For general encoding/parser tricks, use `/bypass`.
 - Composite IDs: `user:123`, `project:456:file:789`.
 - Cursors or page tokens that embed user, tenant, or object scope.
 
+## When the Fixed List Is Not Enough
+
+For a blocked direct swap or a novel authority model, load
+`../technique-packs/desync-secondorder-surface.md`. Vary one observed authority
+axis—value, location, representation, principal, method/consumer, timing, or
+surface—against a known-good baseline. For a state-changing owned request, load
+`../idor-postconditions.md` before interpreting the response.
+
 ## Proof
 
 The mutation must prove unauthorized read, list, export, write, delete, finalize, workflow transition, or cross-tenant access.

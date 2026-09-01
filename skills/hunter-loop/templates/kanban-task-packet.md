@@ -67,7 +67,7 @@
 
 ## Execution contract
 
-- Attempts directory:
+- Canonical Attempts path (`<lane>/attempts/_runs/<run-id>/attempts.jsonl`):
 - Workspace/artifact reference:
 - Maximum runtime:
 - Stop condition:

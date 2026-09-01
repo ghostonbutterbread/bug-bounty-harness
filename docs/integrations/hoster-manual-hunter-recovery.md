@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-01
 - **Owning feature branch/ref:** `recovery/hoster-beta-manual-hunter-20260901`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `0719ba1111e78f2d133e5079badccc332bff07ce`
+- **Feature implementation commit(s):** `0719ba1111e78f2d133e5079badccc332bff07ce`
 - **Inspiration / canonical references:** recovered from Hoster’s dirty `bug_bounty_harness-aiskillsync-beta` worktree.
 
 ## Intent
@@ -40,10 +40,10 @@ Recover and integrate the focused manual-finding ingestion fix found on Hoster w
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `recovery/hoster-beta-manual-hunter-20260901`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit recovered patch and dossier, obtain independent review, then merge only after approval.
-- **Working-tree state at handoff:** intentionally uncommitted while preparing the first checkpoint.
+- **Latest immutable recovery checkpoint:** `0719ba1111e78f2d133e5079badccc332bff07ce`
+- **Feature implementation commit(s):** `0719ba1111e78f2d133e5079badccc332bff07ce`
+- **Exact resume point:** independent reviewer must inspect `0719ba1` and this dossier-only checkpoint, then merge only after approval.
+- **Working-tree state at handoff:** clean after the dossier checkpoint is committed.
 
 ## Decision gates
 
@@ -54,3 +54,4 @@ Recover and integrate the focused manual-finding ingestion fix found on Hoster w
 ## Decision record
 
 - 2026-09-01 — recovered from Hoster dirty beta checkout; 16 focused tests passed with the canonical checkout-local environment.
+- 2026-09-01 — recovered implementation checkpoint `0719ba1` is ready for independent review.

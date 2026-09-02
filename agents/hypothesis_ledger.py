@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 
 
 from bounty_core.hypothesis_ledger import DEFAULT_TTL_SECONDS, UNRESOLVED_STATUSES, HypothesisLedger  # noqa: E402
+from agents.map_store import MapStore  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -88,6 +89,22 @@ def _ledger(args: argparse.Namespace) -> HypothesisLedger:
     )
 
 
+def _public_lead(args: argparse.Namespace, lead_id: str) -> dict[str, Any]:
+    """Resolve one exact public MapStore lead card for a deliberate follow-up."""
+    store = MapStore(args.program, family=args.family, lane=args.lane, root=args.root, create=False)
+    lead = next(
+        (
+            entry
+            for entry in store.query(include_archived=True)
+            if entry.get("path") == lead_id and "lead" in entry.get("tags", [])
+        ),
+        None,
+    )
+    if lead is None:
+        raise ValueError("lead-followup requires an exact public MapStore lead ID/path")
+    return lead
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     ledger = _ledger(args)
     if args.command == "create":
@@ -106,7 +123,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "release":
         return ledger.release(args.hypothesis_id, agent_id=args.agent_id, run_id=args.run_id)
     if args.command == "lead-followup":
-        return {"hypotheses": ledger.lead_followup(
+        lead = _public_lead(args, args.lead_id)
+        return {"lead": lead, "hypotheses": ledger.lead_followup(
             agent_id=args.agent_id, run_id=args.run_id, lead_id=args.lead_id,
         )}
     if args.command == "continuation":

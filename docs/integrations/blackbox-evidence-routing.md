@@ -22,13 +22,13 @@ Add a bounded current-run provenance slice to shared MapStore facts so an active
 - The filters compose with existing URL, surface, tag, status, time, limit, intent, and archived-state behavior; returned entries remain deterministically newest first.
 - MapStore provenance remains factual and shared. This does not create a private MapStore store, a filesystem scan fallback, a broad historical preload, or any Hypothesis Ledger visibility bypass.
 - The BBH Hypothesis Ledger CLI accepts an optional opaque `--lead-id` at creation, owner-only `release`, and explicit `lead-followup --lead-id` retrieval. Ordinary `list` remains owner/run private; the wrapper delegates eligibility to Bounty Core and does not expose a broad peer queue.
+- BBH treats the MapStore-relative path returned by `leads.py create` as the public Lead ID. `lead-followup` resolves that exact public `lead` card and returns it with eligible Core context; arbitrary, unrelated, or nonexistent IDs fail before Ledger retrieval.
 
 ## Evidence and review
 
 - Tests and commands:
   - `PYTHONPATH=. uv run --with /home/ryushe/worktrees/bounty-core-lead-scoped-hypothesis-context --with pytest python -m pytest agents/test_map_store.py::TestMapStore::test_query_filters_to_exact_agent_and_run_provenance agents/test_map_store.py::TestMapStore::test_cli_query_filters_to_agent_and_run_provenance -q` — 2 passed.
-  - `PYTHONPATH=. uv run --with /home/ryushe/worktrees/bounty-core-lead-scoped-hypothesis-context --with pytest python -m pytest agents/test_map_store.py -q` — 67 passed.
-  - `PYTHONPATH=. uv run --with /home/ryushe/worktrees/bounty-core-lead-scoped-hypothesis-context --with pytest python -m pytest agents/test_hypothesis_ledger.py -q` — 3 passed.
+  - `PYTHONPATH=. uv run --with /home/ryushe/worktrees/bounty-core-lead-scoped-hypothesis-context --with pytest python -m pytest agents/test_map_store.py agents/test_hypothesis_ledger.py agents/test_leads_cli.py -q` — 72 passed.
   - `git diff --check` — passed.
 - Independent review: not yet performed.
 - Replay/cohort/fixture evidence: real temporary shared-storage fixture; no target activity.
@@ -36,11 +36,11 @@ Add a bounded current-run provenance slice to shared MapStore facts so an active
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** Public Lead-card stable-ID/validation integration, canonical skill promotion, and independent review.
+- **Missing test or evidence:** Canonical skill promotion for all six seeds, an explicit consumable/published Bounty Core revision, and independent review.
 - **Command / fixture / environment needed:** BBH isolated test environment with an explicit committed Bounty Core revision; use the current Core feature worktree only as an intermediate local package receipt until a merged/published revision is selected.
-- **Trigger to run it:** after the Lead-card ID and validation slice is committed.
-- **Why it blocks integration, activation, or promotion:** the CLI safely delegates an opaque ID to Core but BBH still needs to prove that selected IDs name an existing public lead card before this multi-slice feature can be integrated.
-- **Next completion step / successor reference:** make Leads expose/validate a stable public lead ID and test that `lead-followup` rejects an unrelated or nonexistent public lead ID before querying Core.
+- **Trigger to run it:** after canonical skills and Bounty Core revision selection are committed.
+- **Why it blocks integration, activation, or promotion:** the runtime implementation is now lead-card scoped, but production integration still requires durable operator guidance, a pinned Core dependency rather than a local path, and review of the complete multi-repository contract.
+- **Next completion step / successor reference:** promote the six seed rules into their specified canonical security skills, then update BBH dependency provenance and run independent review.
 
 ## Interruption / resume handoff
 

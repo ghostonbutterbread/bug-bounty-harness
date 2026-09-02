@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
                 exact_unknown=args.exact_unknown, next_discriminator=args.next_discriminator,
                 blocker=args.blocker, wake_condition=args.wake_condition, evidence_refs=args.evidence_ref),
             scope=args.scope, tags=tags, agent=args.agent, run_id=args.run_id, title=args.title, status=args.status)
-        print(path); return 0
+        print(path.relative_to(store.maps_root).as_posix()); return 0
     if args.command == "search":
         tags = ["lead"] + ([args.vuln_class] if args.vuln_class else [])
         for lead in store.query(tags=tags, statuses=args.status.split(",")):

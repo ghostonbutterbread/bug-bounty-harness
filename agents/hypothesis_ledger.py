@@ -89,7 +89,7 @@ def _ledger(args: argparse.Namespace) -> HypothesisLedger:
     )
 
 
-def _public_lead(args: argparse.Namespace, lead_id: str) -> dict[str, Any]:
+def _public_lead(args: argparse.Namespace, lead_id: str) -> tuple[dict[str, Any], tuple[str, ...]]:
     """Resolve one exact public MapStore lead card for a deliberate follow-up."""
     store = MapStore(args.program, family=args.family, lane=args.lane, root=args.root, create=False)
     lead = next(
@@ -106,7 +106,9 @@ def _public_lead(args: argparse.Namespace, lead_id: str) -> dict[str, Any]:
     )
     if lead is None:
         raise ValueError("lead-followup requires an exact public MapStore lead ID/path")
-    return lead
+    canonical_relative_id = str(lead["path"])
+    canonical_absolute_id = str(store.maps_root / canonical_relative_id)
+    return lead, tuple(dict.fromkeys((canonical_relative_id, canonical_absolute_id)))
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
@@ -127,10 +129,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "release":
         return ledger.release(args.hypothesis_id, agent_id=args.agent_id, run_id=args.run_id)
     if args.command == "lead-followup":
-        lead = _public_lead(args, args.lead_id)
-        return {"lead": lead, "hypotheses": ledger.lead_followup(
-            agent_id=args.agent_id, run_id=args.run_id, lead_id=args.lead_id,
-        )}
+        lead, lead_ids = _public_lead(args, args.lead_id)
+        hypotheses_by_id: dict[str, dict[str, Any]] = {}
+        for candidate_lead_id in lead_ids:
+            for hypothesis in ledger.lead_followup(
+                agent_id=args.agent_id, run_id=args.run_id, lead_id=candidate_lead_id,
+            ):
+                hypotheses_by_id.setdefault(hypothesis["id"], hypothesis)
+        return {"lead": lead, "hypotheses": list(hypotheses_by_id.values())}
     if args.command == "continuation":
         return ledger.continuation_state(agent_id=args.agent_id, run_id=args.run_id, surface=args.surface)
     if args.command == "transition":

@@ -142,6 +142,49 @@ def test_cli_lead_followup_requires_a_public_lead_and_returns_its_card(tmp_path)
     assert [item["id"] for item in followup["hypotheses"]] == [created["id"]]
 
 
+def test_cli_lead_followup_canonicalizes_relative_storage_for_legacy_absolute_lookup(tmp_path):
+    program = "demo"
+    prepare_mapstore_root(tmp_path, program)
+    lead_result = subprocess.run(
+        [
+            sys.executable, str(ROOT / "agents" / "leads.py"), "create",
+            "--program", program, "--root", str(tmp_path), "--relative-id",
+            "--class", "authz", "--surface", "export", "--title", "Export authorization seam",
+            "--observed-basis", "Owned export starts a worker.",
+            "--candidate-chain", "export -> worker -> authorization boundary",
+            "--exact-unknown", "Whether the worker rechecks authorization.",
+            "--next-discriminator", "Owned two-account export comparison.",
+            "--evidence-ref", "mapstore:export-worker",
+        ],
+        cwd=ROOT, capture_output=True, text=True, env={**os.environ, "PYTHONPATH": ""}, check=True,
+    )
+    relative_lead_id = lead_result.stdout.strip()
+    absolute_lead_id = str(tmp_path / "web_bounty" / program / "web" / "recon" / "maps" / relative_lead_id)
+    created = run_cli(
+        tmp_path, "create", program, "--agent-id", "agent-a", "--run-id", "run-a",
+        "--title", "Worker authorization branch", "--surface", "export", "--lead-id", relative_lead_id,
+    )
+    run_cli(tmp_path, "release", program, created["id"], "--agent-id", "agent-a", "--run-id", "run-a")
+
+    followup = run_cli(
+        tmp_path, "lead-followup", program, "--agent-id", "agent-b", "--run-id", "run-b", "--lead-id", absolute_lead_id,
+    )
+
+    assert followup["lead"]["path"] == relative_lead_id
+    assert [item["id"] for item in followup["hypotheses"]] == [created["id"]]
+
+    legacy_created = run_cli(
+        tmp_path, "create", program, "--agent-id", "agent-a", "--run-id", "run-a",
+        "--title", "Legacy worker authorization branch", "--surface", "export", "--lead-id", absolute_lead_id,
+    )
+    run_cli(tmp_path, "release", program, legacy_created["id"], "--agent-id", "agent-a", "--run-id", "run-a")
+    relative_followup = run_cli(
+        tmp_path, "lead-followup", program, "--agent-id", "agent-b", "--run-id", "run-b", "--lead-id", relative_lead_id,
+    )
+
+    assert [item["id"] for item in relative_followup["hypotheses"]] == [created["id"], legacy_created["id"]]
+
+
 def test_leads_create_preserves_legacy_absolute_path_output(tmp_path):
     program = "demo"
     prepare_mapstore_root(tmp_path, program)

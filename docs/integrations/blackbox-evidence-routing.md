@@ -7,9 +7,9 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-02
 - **Owning feature branch/ref:** `feat/blackbox-evidence-routing`
-- **Latest immutable recovery checkpoint:** `2b8030ce2c76407fdb1f6babb9a8f661d1eaa132`
-- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`, `934d20e84184a76941ca78456613ad453b5267b8`, `b5c63962ac3118f9ae24a63d0aa004acbe4a6d11`, `2644bc47f70fc68bf589751c240e857bf9915986`, `008da96dd007b29aa016f3093c8256080deef811`, `33e0a866f28ca0392ce4a26ef3485b29e484db08`, `2b8030ce2c76407fdb1f6babb9a8f661d1eaa132`
-- **Inspiration / canonical references:** `Shared/skill_seeds/2026-09-01-current-run-provenance-slices.md`; `Shared/skill_seeds/2026-09-01-lead-scoped-hypothesis-context.md`; Bounty Core `58a01ba6e68482dac00db480b86f47e0cdb595b2`; AI Policies `e936ab7a6f93746901fd99735d4bfc8f3751a05a`
+- **Latest immutable recovery checkpoint:** `3192862bbbbcbe2f79c6ee12b3cbc86a2c6baf83`
+- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`, `934d20e84184a76941ca78456613ad453b5267b8`, `b5c63962ac3118f9ae24a63d0aa004acbe4a6d11`, `2644bc47f70fc68bf589751c240e857bf9915986`, `008da96dd007b29aa016f3093c8256080deef811`, `33e0a866f28ca0392ce4a26ef3485b29e484db08`, `2b8030ce2c76407fdb1f6babb9a8f661d1eaa132`, `3192862bbbbcbe2f79c6ee12b3cbc86a2c6baf83`
+- **Inspiration / canonical references:** `Shared/skill_seeds/2026-09-01-current-run-provenance-slices.md`; `Shared/skill_seeds/2026-09-01-lead-scoped-hypothesis-context.md`; published Bounty Core `04b5149f617dafe7837726faec4d1bc5cf5471b6`; accepted AI Policies `9f84af0c14c4d7f594107e7416675a64df2d8a81`
 
 ## Intent
 
@@ -27,28 +27,28 @@ Add a bounded current-run provenance slice to shared MapStore facts so an active
 ## Evidence and review
 
 - Tests and commands:
-  - `PYTHONPATH=. uv run --with /home/ryushe/worktrees/bounty-core-lead-scoped-hypothesis-context --with pytest python -m pytest agents/test_map_store.py::TestMapStore::test_query_filters_to_exact_agent_and_run_provenance agents/test_map_store.py::TestMapStore::test_cli_query_filters_to_agent_and_run_provenance -q` — 2 passed.
-  - `PYTHONPATH=. uv run --with /home/ryushe/worktrees/bounty-core-lead-scoped-hypothesis-context --with pytest python -m pytest agents/test_map_store.py agents/test_hypothesis_ledger.py agents/test_leads_cli.py -q` — 75 passed using Core `5089b104e7229cbf0f012875a4fbe3dc8d271af5`.
-  - `git diff --check` — passed.
-- Independent review: Core `5089b10` accepted. BBH review found equivalent absolute/relative Lead-ID aggregation lost Core ordering and the dossier was stale; `2b8030c` restores the Core `created_at, id` order after alias deduplication, covers reverse creation order through both input forms, and reconciles this handoff. Fresh BBH re-review remains required.
+  - `PYTHONPATH=. uv run --python .venv/bin/python --with pytest python -m pytest tests/test_runtime_dependencies.py agents/test_map_store.py agents/test_hypothesis_ledger.py agents/test_leads_cli.py -q` — 77 passed with the installed manifest pin.
+  - `./setup.sh --install-python-deps` — installed `bounty-core @ git+https://github.com/ghostonbutterbread/bounty-core.git@04b5149f617dafe7837726faec4d1bc5cf5471b6` into the checkout-local `.venv`; `uv pip freeze --python .venv/bin/python` verified the exact revision.
+  - `bash -n setup.sh` and `git diff --check` — passed.
+- Independent review: Core `5089b10` accepted and is reachable through published Core `beta` revision `04b5149f617dafe7837726faec4d1bc5cf5471b6`. BBH re-review accepted the implementation conditionally: it confirmed alias ordering/privacy/provenance behavior and required this portable pin/receipt before beta integration. Fresh final review remains required after this pin checkpoint.
 - Replay/cohort/fixture evidence: real temporary shared-storage fixture; no target activity.
-- Merge/ancestry evidence: not yet performed.
+- Merge/ancestry evidence: Core `origin/beta` at `04b5149f617dafe7837726faec4d1bc5cf5471b6` contains accepted `5089b10`; BBH beta merge remains pending.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** Explicit consumable/published Bounty Core revision and fresh BBH re-review of Lead-ID alias compatibility and aggregate ordering.
-- **Command / fixture / environment needed:** BBH isolated test environment with the accepted Core revision; use the current Core feature worktree only as an intermediate local package receipt until it is published.
-- **Trigger to run it:** after fresh BBH review accepts this checkpoint and the reviewed Core revision is published through its integration lane.
-- **Why it blocks integration, activation, or promotion:** BBH must not ship a feature whose Core dependency is only a local worktree, and compatibility claims need independent verification.
-- **Next completion step / successor reference:** accept the fresh BBH review, publish/integrate Core, pin BBH to that immutable revision, and rerun the integration suite.
+- **Missing test or evidence:** Fresh independent BBH review of this immutable-pin checkpoint, then clean beta merge verification.
+- **Command / fixture / environment needed:** Checkout-local `.venv` after `./setup.sh --install-python-deps` with the manifest pin.
+- **Trigger to run it:** now; do not merge until review accepts the pin/portable dossier receipt.
+- **Why it blocks integration, activation, or promotion:** the manifest pin and receipt affect BBH's runtime dependency contract and must be independently reviewed.
+- **Next completion step / successor reference:** accept final BBH review, merge into clean current `beta`, rerun the isolated suite from beta, and retain runtime activation as a separate decision.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/blackbox-evidence-routing`
-- **Latest immutable recovery checkpoint:** `2b8030ce2c76407fdb1f6babb9a8f661d1eaa132`
-- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`, `934d20e84184a76941ca78456613ad453b5267b8`, `b5c63962ac3118f9ae24a63d0aa004acbe4a6d11`, `2644bc47f70fc68bf589751c240e857bf9915986`, `008da96dd007b29aa016f3093c8256080deef811`, `33e0a866f28ca0392ce4a26ef3485b29e484db08`, `2b8030ce2c76407fdb1f6babb9a8f661d1eaa132`
-- **Exact resume point:** obtain fresh BBH review of the alias-compatible, Core-ordered follow-up checkpoint; then publish/integrate the accepted Core revision, pin BBH, and rerun the integration suite.
-- **Working-tree state at handoff:** ordering repair is committed at `2b8030c`; this dossier update is the final handoff checkpoint before fresh review.
+- **Latest immutable recovery checkpoint:** `3192862bbbbcbe2f79c6ee12b3cbc86a2c6baf83`
+- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`, `934d20e84184a76941ca78456613ad453b5267b8`, `b5c63962ac3118f9ae24a63d0aa004acbe4a6d11`, `2644bc47f70fc68bf589751c240e857bf9915986`, `008da96dd007b29aa016f3093c8256080deef811`, `33e0a866f28ca0392ce4a26ef3485b29e484db08`, `2b8030ce2c76407fdb1f6babb9a8f661d1eaa132`, `3192862bbbbcbe2f79c6ee12b3cbc86a2c6baf83`
+- **Exact resume point:** obtain final BBH review of immutable Core pin `04b5149f617dafe7837726faec4d1bc5cf5471b6` and this portable receipt; then merge into clean beta and rerun the beta suite.
+- **Working-tree state at handoff:** immutable pin is committed at `3192862`; this dossier update is the final review handoff.
 
 ## Decision gates
 

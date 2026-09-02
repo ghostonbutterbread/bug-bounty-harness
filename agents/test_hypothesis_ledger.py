@@ -285,6 +285,11 @@ def test_cli_peer_surface_review_is_explicit_and_limited_to_the_exact_surface_ur
         tmp_path, "peer-surface-review", program, "--agent-id", "agent-d", "--run-id", "run-d",
         "--surface", "export", "--url", "https://app.example/export", "--review-intent", "wrong",
     )
+    invalid_limit = run_cli_result(
+        tmp_path, "peer-surface-review", program, "--agent-id", "agent-d", "--run-id", "run-d",
+        "--surface", "export", "--url", "https://app.example/export",
+        "--review-intent", "current-surface-peer-history", "--limit", "51",
+    )
     reviewed = run_cli(
         tmp_path, "peer-surface-review", program, "--agent-id", "agent-d", "--run-id", "run-d",
         "--surface", "export", "--url", "https://app.example/export",
@@ -294,6 +299,7 @@ def test_cli_peer_surface_review_is_explicit_and_limited_to_the_exact_surface_ur
     assert private_list == {"hypotheses": []}
     assert missing_scope.returncode != 0
     assert wrong_intent.returncode != 0
+    assert invalid_limit.returncode != 0
     assert reviewed["review_scope"] == "peer-current-surface"
     assert reviewed["review_intent"] == "current-surface-peer-history"
     assert reviewed["query"] == {
@@ -327,6 +333,11 @@ def test_cli_operator_app_review_requires_explicit_operator_request_and_intent(t
         tmp_path, "operator-app-review", program, "--agent-id", "operator", "--run-id", "review-1",
         "--operator-request-id", "operator-request-7", "--operator-intent", "wrong",
     )
+    invalid_limit = run_cli_result(
+        tmp_path, "operator-app-review", program, "--agent-id", "operator", "--run-id", "review-1",
+        "--operator-request-id", "operator-request-7", "--operator-intent", "application-thinking-review",
+        "--limit", "101",
+    )
     reviewed = run_cli(
         tmp_path, "operator-app-review", program, "--agent-id", "operator", "--run-id", "review-1",
         "--operator-request-id", "operator-request-7", "--operator-intent", "application-thinking-review",
@@ -335,6 +346,7 @@ def test_cli_operator_app_review_requires_explicit_operator_request_and_intent(t
 
     assert missing_request.returncode != 0
     assert wrong_intent.returncode != 0
+    assert invalid_limit.returncode != 0
     assert reviewed["review_scope"] == "operator-app-wide"
     assert reviewed["operator_request_id"] == "operator-request-7"
     assert reviewed["operator_intent"] == "application-thinking-review"

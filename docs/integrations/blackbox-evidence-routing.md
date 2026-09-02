@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-02
 - **Owning feature branch/ref:** `feat/blackbox-evidence-routing`
-- **Latest immutable recovery checkpoint:** `9dbbe1933438567ca5333a26386e5460a4aacb0a`
-- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`
+- **Latest immutable recovery checkpoint:** `934d20e84184a76941ca78456613ad453b5267b8`
+- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`, `934d20e84184a76941ca78456613ad453b5267b8`
 - **Inspiration / canonical references:** `Shared/skill_seeds/2026-09-01-current-run-provenance-slices.md`; `Shared/skill_seeds/2026-09-01-lead-scoped-hypothesis-context.md`; Bounty Core `58a01ba6e68482dac00db480b86f47e0cdb595b2`
 
 ## Intent
@@ -45,9 +45,9 @@ Add a bounded current-run provenance slice to shared MapStore facts so an active
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/blackbox-evidence-routing`
-- **Latest immutable recovery checkpoint:** `9dbbe1933438567ca5333a26386e5460a4aacb0a`
-- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`
-- **Exact resume point:** inspect and test the lead-followup adapter as a separate TDD slice, then update this dossier with its immutable checkpoint.
+- **Latest immutable recovery checkpoint:** `934d20e84184a76941ca78456613ad453b5267b8`
+- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`, `934d20e84184a76941ca78456613ad453b5267b8`
+- **Exact resume point:** add and test public Lead-card ID validation for `lead-followup`, then promote the six seed rules to their canonical skills and request independent review.
 - **Working-tree state at handoff:** dossier-only update pending commit.
 
 ## Decision gates

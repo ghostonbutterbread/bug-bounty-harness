@@ -11,7 +11,8 @@ Current shared-evidence and deferred secret-resolution direction:
 
 > **Runtime dependency decision (2026-09-02):** This historical extraction
 > document no longer defines BBH installation behavior. BBH installs reviewed
-> immutable Bounty Core revision `04b5149f617dafe7837726faec4d1bc5cf5471b6`
+> published Bounty Core `beta` revision `fc361eca86f9c86acb357e1b9ce6426bc44aef83`
+> (including stale-reclaim repair `2da1e22d381e6c8c4fad1b2bfdb21692ae398d04`)
 > from `requirements-bounty-core.txt` into that BBH checkout's own `.venv` using
 > `./setup.sh --install-python-deps`. A `~/projects/bounty-core` clone remains
 > useful for Bounty Core development, but is never a BBH runtime selector and

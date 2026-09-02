@@ -136,7 +136,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 agent_id=args.agent_id, run_id=args.run_id, lead_id=candidate_lead_id,
             ):
                 hypotheses_by_id.setdefault(hypothesis["id"], hypothesis)
-        return {"lead": lead, "hypotheses": list(hypotheses_by_id.values())}
+        ordered_hypotheses = sorted(
+            hypotheses_by_id.values(),
+            key=lambda hypothesis: (hypothesis["created_at"], hypothesis["id"]),
+        )
+        return {"lead": lead, "hypotheses": ordered_hypotheses}
     if args.command == "continuation":
         return ledger.continuation_state(agent_id=args.agent_id, run_id=args.run_id, surface=args.surface)
     if args.command == "transition":

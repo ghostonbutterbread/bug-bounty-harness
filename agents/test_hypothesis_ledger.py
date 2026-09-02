@@ -160,29 +160,28 @@ def test_cli_lead_followup_canonicalizes_relative_storage_for_legacy_absolute_lo
     )
     relative_lead_id = lead_result.stdout.strip()
     absolute_lead_id = str(tmp_path / "web_bounty" / program / "web" / "recon" / "maps" / relative_lead_id)
+    legacy_created = run_cli(
+        tmp_path, "create", program, "--agent-id", "agent-a", "--run-id", "run-a",
+        "--title", "Legacy worker authorization branch", "--surface", "export", "--lead-id", absolute_lead_id,
+    )
+    run_cli(tmp_path, "release", program, legacy_created["id"], "--agent-id", "agent-a", "--run-id", "run-a")
     created = run_cli(
         tmp_path, "create", program, "--agent-id", "agent-a", "--run-id", "run-a",
         "--title", "Worker authorization branch", "--surface", "export", "--lead-id", relative_lead_id,
     )
     run_cli(tmp_path, "release", program, created["id"], "--agent-id", "agent-a", "--run-id", "run-a")
 
-    followup = run_cli(
+    absolute_followup = run_cli(
         tmp_path, "lead-followup", program, "--agent-id", "agent-b", "--run-id", "run-b", "--lead-id", absolute_lead_id,
     )
-
-    assert followup["lead"]["path"] == relative_lead_id
-    assert [item["id"] for item in followup["hypotheses"]] == [created["id"]]
-
-    legacy_created = run_cli(
-        tmp_path, "create", program, "--agent-id", "agent-a", "--run-id", "run-a",
-        "--title", "Legacy worker authorization branch", "--surface", "export", "--lead-id", absolute_lead_id,
-    )
-    run_cli(tmp_path, "release", program, legacy_created["id"], "--agent-id", "agent-a", "--run-id", "run-a")
     relative_followup = run_cli(
         tmp_path, "lead-followup", program, "--agent-id", "agent-b", "--run-id", "run-b", "--lead-id", relative_lead_id,
     )
 
-    assert [item["id"] for item in relative_followup["hypotheses"]] == [created["id"], legacy_created["id"]]
+    assert absolute_followup["lead"]["path"] == relative_lead_id
+    expected_ids = [legacy_created["id"], created["id"]]
+    assert [item["id"] for item in absolute_followup["hypotheses"]] == expected_ids
+    assert [item["id"] for item in relative_followup["hypotheses"]] == expected_ids
 
 
 def test_leads_create_preserves_legacy_absolute_path_output(tmp_path):

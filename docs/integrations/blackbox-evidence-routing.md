@@ -21,16 +21,16 @@ Add a bounded current-run provenance slice to shared MapStore facts so an active
 - `map_store.py query` exposes those filters as `--agent-id` and `--run-id`.
 - The filters compose with existing URL, surface, tag, status, time, limit, intent, and archived-state behavior; returned entries remain deterministically newest first.
 - MapStore provenance remains factual and shared. This does not create a private MapStore store, a filesystem scan fallback, a broad historical preload, or any Hypothesis Ledger visibility bypass.
-- The BBH Hypothesis Ledger CLI accepts an optional opaque `--lead-id` at creation, owner-only `release`, and explicit `lead-followup --lead-id` retrieval. Ordinary `list` remains owner/run private; the wrapper delegates eligibility to Bounty Core and does not expose a broad peer queue.
-- BBH treats the MapStore-relative path returned by `leads.py create` as the public Lead ID. `lead-followup` resolves that exact public `lead` card and returns it with eligible Core context; arbitrary, unrelated, or nonexistent IDs fail before Ledger retrieval.
+- BBH accepts an opaque `--lead-id` at creation, owner-only `release`, and explicit `lead-followup --lead-id` retrieval. Ordinary `list` remains owner/run private; the wrapper validates the exact public Lead card before Core retrieval and does not expose a broad peer queue.
+- `leads.py create` retains legacy absolute-path stdout by default and emits the portable MapStore-relative Lead ID with `--relative-id`; `lead-followup` and `update-status` accept either exact form. The follow-up response returns the public Lead card with eligible Core context; arbitrary, unrelated, or nonexistent IDs fail before Ledger retrieval.
 
 ## Evidence and review
 
 - Tests and commands:
   - `PYTHONPATH=. uv run --with /home/ryushe/worktrees/bounty-core-lead-scoped-hypothesis-context --with pytest python -m pytest agents/test_map_store.py::TestMapStore::test_query_filters_to_exact_agent_and_run_provenance agents/test_map_store.py::TestMapStore::test_cli_query_filters_to_agent_and_run_provenance -q` — 2 passed.
-  - `PYTHONPATH=. uv run --with /home/ryushe/worktrees/bounty-core-lead-scoped-hypothesis-context --with pytest python -m pytest agents/test_map_store.py agents/test_hypothesis_ledger.py agents/test_leads_cli.py -q` — 72 passed.
+  - `PYTHONPATH=. uv run --with /home/ryushe/worktrees/bounty-core-lead-scoped-hypothesis-context --with pytest python -m pytest agents/test_map_store.py agents/test_hypothesis_ledger.py agents/test_leads_cli.py -q` — 74 passed using Core `5089b104e7229cbf0f012875a4fbe3dc8d271af5`.
   - `git diff --check` — passed.
-- Independent review: not yet performed.
+- Independent review: completed with changes requested; BBH compatibility and dossier/skill findings are addressed in the next checkpoint, pending rerun review after the corrected Core migration revision.
 - Replay/cohort/fixture evidence: real temporary shared-storage fixture; no target activity.
 - Merge/ancestry evidence: not yet performed.
 
@@ -45,10 +45,10 @@ Add a bounded current-run provenance slice to shared MapStore facts so an active
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/blackbox-evidence-routing`
-- **Latest immutable recovery checkpoint:** `934d20e84184a76941ca78456613ad453b5267b8`
-- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`, `934d20e84184a76941ca78456613ad453b5267b8`
-- **Exact resume point:** reconcile the independent reviewer verdicts, then integrate/publish the reviewed Core revision and pin BBH before the final integration run.
-- **Working-tree state at handoff:** BBH skill/dossier update pending commit.
+- **Latest immutable recovery checkpoint:** `2644bc47f70fc68bf589751c240e857bf9915986`
+- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`, `934d20e84184a76941ca78456613ad453b5267b8`, `b5c6396`, `2644bc47f70fc68bf589751c240e857bf9915986`
+- **Exact resume point:** rerun independent review against the Core migration checkpoint and this BBH compatibility checkpoint, then integrate/publish the reviewed Core revision and pin BBH before the final integration run.
+- **Working-tree state at handoff:** compatibility regression, skills, and dossier update pending commit.
 
 ## Decision gates
 

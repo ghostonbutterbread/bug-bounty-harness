@@ -96,7 +96,11 @@ def _public_lead(args: argparse.Namespace, lead_id: str) -> dict[str, Any]:
         (
             entry
             for entry in store.query(include_archived=True)
-            if entry.get("path") == lead_id and "lead" in entry.get("tags", [])
+            if "lead" in entry.get("tags", [])
+            and (
+                entry.get("path") == lead_id
+                or str(store.maps_root / entry.get("path", "")) == lead_id
+            )
         ),
         None,
     )

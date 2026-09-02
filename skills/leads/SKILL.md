@@ -40,17 +40,18 @@ Use the BBH wrapper rather than hand-writing MapStore bodies:
 bbh agents/leads.py create --program <program> --class <vuln-class> --surface <surface> \\
   --title "<concise lead>" --observed-basis "<fact>" --candidate-chain "<chain>" \\
   --exact-unknown "<one question>" --next-discriminator "<safe check>" \\
-  --evidence-ref "<sanitized pointer>"
+  --evidence-ref "<sanitized pointer>" --relative-id
 bbh agents/leads.py search --program <program> --class <vuln-class>
-bbh agents/leads.py update-status --program <program> --path <MapStore-relative-path> \\
+bbh agents/leads.py update-status --program <program> --path <MapStore-relative-or-legacy-absolute-path> \\
   --status needs_recheck --reason "<evidence-backed blocker>"
 ```
 
-`create` adds the public `lead` and class tags and prints its MapStore-relative
-path, which is the stable public Lead ID for `hypothesis_ledger.py lead-followup`.
-`search` reads only public lead projections, and `update-status` appends a
-lifecycle annotation without deleting evidence. Do not use this CLI to copy
-another live agent's private hypotheses into MapStore.
+`create` keeps printing its legacy absolute path by default. Pass `--relative-id`
+to print the portable MapStore-relative public Lead ID for
+`hypothesis_ledger.py lead-followup`; follow-up and status updates accept either
+form for compatibility. `search` reads only public lead projections, and
+`update-status` appends a lifecycle annotation without deleting evidence. Do not
+use this CLI to copy another live agent's private hypotheses into MapStore.
 
 ## Retrieval
 

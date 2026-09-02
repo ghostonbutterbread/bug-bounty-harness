@@ -44,6 +44,7 @@ def parser() -> argparse.ArgumentParser:
     create.add_argument("--blocker", default=""); create.add_argument("--wake-condition", default="")
     create.add_argument("--evidence-ref", action="append", required=True); create.add_argument("--tag", action="append", default=[])
     create.add_argument("--agent", default="ghost"); create.add_argument("--run-id", default=None); create.add_argument("--status", default="candidate")
+    create.add_argument("--relative-id", action="store_true", help="Print the portable MapStore-relative Lead ID instead of the legacy absolute path")
     search = subs.add_parser("search", help="Search public leads")
     common(search); search.add_argument("--class", dest="vuln_class", default=""); search.add_argument("--status", default="active,candidate,needs_recheck")
     status = subs.add_parser("update-status", help="Update a lead lifecycle status")
@@ -62,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
                 exact_unknown=args.exact_unknown, next_discriminator=args.next_discriminator,
                 blocker=args.blocker, wake_condition=args.wake_condition, evidence_refs=args.evidence_ref),
             scope=args.scope, tags=tags, agent=args.agent, run_id=args.run_id, title=args.title, status=args.status)
-        print(path.relative_to(store.maps_root).as_posix()); return 0
+        print(path.relative_to(store.maps_root).as_posix() if args.relative_id else path); return 0
     if args.command == "search":
         tags = ["lead"] + ([args.vuln_class] if args.vuln_class else [])
         for lead in store.query(tags=tags, statuses=args.status.split(",")):
@@ -70,10 +71,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.status not in VALID_LEAD_STATUSES:
         raise ValueError(f"invalid lead status: {args.status}; use one of {sorted(VALID_LEAD_STATUSES)}")
-    entry = next((item for item in store.query(include_archived=True) if item.get("path") == args.path), None)
-    if entry is None or "lead" not in entry.get("tags", []):
+    entry = next(
+        (
+            item
+            for item in store.query(include_archived=True)
+            if "lead" in item.get("tags", [])
+            and (
+                item.get("path") == args.path
+                or str(store.maps_root / item.get("path", "")) == args.path
+            )
+        ),
+        None,
+    )
+    if entry is None:
         raise ValueError("update-status requires a MapStore lead path")
-    updated = store.update_status(path=args.path, status=args.status, reason=args.reason, agent=args.agent)
+    updated = store.update_status(path=entry["path"], status=args.status, reason=args.reason, agent=args.agent)
     print(updated["path"]); return 0
 
 

@@ -46,10 +46,11 @@ bbh agents/leads.py update-status --program <program> --path <MapStore-relative-
   --status needs_recheck --reason "<evidence-backed blocker>"
 ```
 
-`create` adds the public `lead` and class tags, `search` reads only public
-lead projections, and `update-status` appends a lifecycle annotation without
-deleting evidence. Do not use this CLI to copy another live agent's private
-hypotheses into MapStore.
+`create` adds the public `lead` and class tags and prints its MapStore-relative
+path, which is the stable public Lead ID for `hypothesis_ledger.py lead-followup`.
+`search` reads only public lead projections, and `update-status` appends a
+lifecycle annotation without deleting evidence. Do not use this CLI to copy
+another live agent's private hypotheses into MapStore.
 
 ## Retrieval
 

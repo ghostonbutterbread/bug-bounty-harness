@@ -382,6 +382,22 @@ Query the current gadget ledger with:
 bbh agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget
 ```
 
+## Control-Gap and Enforcement Facts
+
+MapStore contains demonstrated application behavior, enforcement outcomes, and
+material residuals. It does not contain the private conclusion that a control is
+missing or a full exploit rationale; preserve that candidate chain in Hypothesis
+Ledger until a bounded question and evidence justify a Lead.
+
+Useful factual records include a UI-versus-server boundary with an observed
+allow/deny result, a revocation denial plus separately observed non-sensitive
+metadata residual, an enforced workflow prerequisite with its tested variation,
+an async job’s actor/object/state transition, or a defended authorization result
+that exposes a stable reachability/format/oracle residual. State the observed
+actor, object, action/state, and server-side outcome; link the sanitized Attempts
+artifact. Use `defended` only when the control was exercised and enforced, and
+use `failed` for attempt-specific problems rather than correct enforcement.
+
 ## Promotion Requirement
 
 Raw Markdown, JSON, screenshots, callback logs, proxy exports, and tool output
@@ -466,6 +482,7 @@ virtual environment, including the installed Bounty Core dependency.
 ```bash
 bbh agents/map_store.py init --program <program> --family web_bounty --lane web
 bbh agents/map_store.py query --program <program> --family web_bounty --lane web --url "https://app.example/path" --surface xss
+bbh agents/map_store.py query --program <program> --family web_bounty --lane web --agent-id <current-agent> --run-id <current-run> --limit 20
 bbh agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget,confirmed
 bbh agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget --status active,candidate
 bbh agents/map_store.py query --program <program> --family web_bounty --lane web --tags gadget --include-archived

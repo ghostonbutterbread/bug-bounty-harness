@@ -9,7 +9,7 @@
 - **Owning feature branch/ref:** `feat/blackbox-evidence-routing`
 - **Latest immutable recovery checkpoint:** `934d20e84184a76941ca78456613ad453b5267b8`
 - **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`, `934d20e84184a76941ca78456613ad453b5267b8`
-- **Inspiration / canonical references:** `Shared/skill_seeds/2026-09-01-current-run-provenance-slices.md`; `Shared/skill_seeds/2026-09-01-lead-scoped-hypothesis-context.md`; Bounty Core `58a01ba6e68482dac00db480b86f47e0cdb595b2`
+- **Inspiration / canonical references:** `Shared/skill_seeds/2026-09-01-current-run-provenance-slices.md`; `Shared/skill_seeds/2026-09-01-lead-scoped-hypothesis-context.md`; Bounty Core `58a01ba6e68482dac00db480b86f47e0cdb595b2`; AI Policies `e936ab7a6f93746901fd99735d4bfc8f3751a05a`
 
 ## Intent
 
@@ -36,19 +36,19 @@ Add a bounded current-run provenance slice to shared MapStore facts so an active
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** Canonical skill promotion for all six seeds, an explicit consumable/published Bounty Core revision, and independent review.
+- **Missing test or evidence:** Explicit consumable/published Bounty Core revision and independent review.
 - **Command / fixture / environment needed:** BBH isolated test environment with an explicit committed Bounty Core revision; use the current Core feature worktree only as an intermediate local package receipt until a merged/published revision is selected.
-- **Trigger to run it:** after canonical skills and Bounty Core revision selection are committed.
-- **Why it blocks integration, activation, or promotion:** the runtime implementation is now lead-card scoped, but production integration still requires durable operator guidance, a pinned Core dependency rather than a local path, and review of the complete multi-repository contract.
-- **Next completion step / successor reference:** promote the six seed rules into their specified canonical security skills, then update BBH dependency provenance and run independent review.
+- **Trigger to run it:** after independent review accepts both Core and BBH branches and a reviewed Core revision is selected.
+- **Why it blocks integration, activation, or promotion:** the six seed rules are now promoted to their owning BBH/AI Policies sources, but BBH must not ship a feature whose Core dependency is only a local worktree.
+- **Next completion step / successor reference:** reconcile independent review, integrate/publish the reviewed Bounty Core revision through its normal lane, then pin BBH to that immutable revision and rerun the integration suite.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/blackbox-evidence-routing`
 - **Latest immutable recovery checkpoint:** `934d20e84184a76941ca78456613ad453b5267b8`
 - **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`, `934d20e84184a76941ca78456613ad453b5267b8`
-- **Exact resume point:** add and test public Lead-card ID validation for `lead-followup`, then promote the six seed rules to their canonical skills and request independent review.
-- **Working-tree state at handoff:** dossier-only update pending commit.
+- **Exact resume point:** reconcile the independent reviewer verdicts, then integrate/publish the reviewed Core revision and pin BBH before the final integration run.
+- **Working-tree state at handoff:** BBH skill/dossier update pending commit.
 
 ## Decision gates
 

@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-01
 - **Owning feature branch/ref:** `fix/stale-reclaim-core-pin`
-- **Latest immutable recovery checkpoint:** `2fe9eecbdd0a8b13ce4540eac2c72474aa72468c`
-- **Feature implementation commit(s):** recorded by the final branch tip
+- **Latest immutable recovery checkpoint:** `462bc2b70cd0525ee581cde1aa2a61f114ceeeb9`
+- **Feature implementation commit(s):** `462bc2b70cd0525ee581cde1aa2a61f114ceeeb9` (`fix: pin published Core stale-reclaim repair`).
 - **Inspiration / canonical references:** published Core `origin/beta` `fc361eca86f9c86acb357e1b9ce6426bc44aef83`; accepted stale-reclaim repair `2da1e22d381e6c8c4fad1b2bfdb21692ae398d04`.
 
 ## Intent
@@ -45,10 +45,10 @@ The installed direct URL must end in `@fc361eca86f9c86acb357e1b9ce6426bc44aef83`
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/stale-reclaim-core-pin`
-- **Latest immutable recovery checkpoint:** `2fe9eecbdd0a8b13ce4540eac2c72474aa72468c`
-- **Feature implementation commit(s):** inspect the current branch tip after this dossier's coherent commit.
-- **Exact resume point:** inspect the branch tip, run the commands in Evidence and review, inspect the staged diff, and merge only through the clean `beta` worktree after explicit review.
-- **Working-tree state at handoff:** clean after the final coherent commit.
+- **Latest immutable recovery checkpoint:** `462bc2b70cd0525ee581cde1aa2a61f114ceeeb9`
+- **Feature implementation commit(s):** `462bc2b70cd0525ee581cde1aa2a61f114ceeeb9` (`fix: pin published Core stale-reclaim repair`).
+- **Exact resume point:** review the current branch tip, which contains implementation commit `462bc2b70cd0525ee581cde1aa2a61f114ceeeb9` plus this dossier-only handoff commit; then run the Evidence and review commands and merge only through a clean `beta` worktree after explicit review.
+- **Working-tree state at handoff:** clean after this dossier-only handoff commit.
 
 ## Decision gates
 

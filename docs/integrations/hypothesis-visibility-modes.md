@@ -46,7 +46,7 @@ any cross-repository policy wording or activation decision.
 ## Resume/review point
 
 Review implementation commit `171e301df9ba13e53b7ccf0a1848c41ea1d95e4a` and
-final test/dossier handoff commit `376b663afece722f3b87fbe357025ade6482b58a`
+test/dossier checkpoint `376b663afece722f3b87fbe357025ade6482b58a`
 together against BBH `beta`. Before integration, re-run the recorded
 installed-environment commands from this worktree, verify the Core pin, and
 preserve the no-runtime gate.

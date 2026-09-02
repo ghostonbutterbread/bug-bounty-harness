@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-02
 - **Owning feature branch/ref:** `feat/blackbox-evidence-routing`
-- **Latest immutable recovery checkpoint:** `008da96dd007b29aa016f3093c8256080deef811`
-- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`, `934d20e84184a76941ca78456613ad453b5267b8`, `b5c63962ac3118f9ae24a63d0aa004acbe4a6d11`, `2644bc47f70fc68bf589751c240e857bf9915986`, `008da96dd007b29aa016f3093c8256080deef811`
+- **Latest immutable recovery checkpoint:** `2b8030ce2c76407fdb1f6babb9a8f661d1eaa132`
+- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`, `934d20e84184a76941ca78456613ad453b5267b8`, `b5c63962ac3118f9ae24a63d0aa004acbe4a6d11`, `2644bc47f70fc68bf589751c240e857bf9915986`, `008da96dd007b29aa016f3093c8256080deef811`, `33e0a866f28ca0392ce4a26ef3485b29e484db08`, `2b8030ce2c76407fdb1f6babb9a8f661d1eaa132`
 - **Inspiration / canonical references:** `Shared/skill_seeds/2026-09-01-current-run-provenance-slices.md`; `Shared/skill_seeds/2026-09-01-lead-scoped-hypothesis-context.md`; Bounty Core `58a01ba6e68482dac00db480b86f47e0cdb595b2`; AI Policies `e936ab7a6f93746901fd99735d4bfc8f3751a05a`
 
 ## Intent
@@ -30,13 +30,13 @@ Add a bounded current-run provenance slice to shared MapStore facts so an active
   - `PYTHONPATH=. uv run --with /home/ryushe/worktrees/bounty-core-lead-scoped-hypothesis-context --with pytest python -m pytest agents/test_map_store.py::TestMapStore::test_query_filters_to_exact_agent_and_run_provenance agents/test_map_store.py::TestMapStore::test_cli_query_filters_to_agent_and_run_provenance -q` — 2 passed.
   - `PYTHONPATH=. uv run --with /home/ryushe/worktrees/bounty-core-lead-scoped-hypothesis-context --with pytest python -m pytest agents/test_map_store.py agents/test_hypothesis_ledger.py agents/test_leads_cli.py -q` — 75 passed using Core `5089b104e7229cbf0f012875a4fbe3dc8d271af5`.
   - `git diff --check` — passed.
-- Independent review: Core `5089b10` accepted. BBH review found equivalent absolute/relative Lead-ID lookups were not canonicalized through Core and the dossier was stale; this checkpoint adds bidirectional canonical lookup, regression coverage, and reconciled handoff metadata. Fresh BBH re-review remains required.
+- Independent review: Core `5089b10` accepted. BBH review found equivalent absolute/relative Lead-ID aggregation lost Core ordering and the dossier was stale; `2b8030c` restores the Core `created_at, id` order after alias deduplication, covers reverse creation order through both input forms, and reconciles this handoff. Fresh BBH re-review remains required.
 - Replay/cohort/fixture evidence: real temporary shared-storage fixture; no target activity.
 - Merge/ancestry evidence: not yet performed.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** Explicit consumable/published Bounty Core revision and fresh BBH re-review of bidirectional Lead-ID compatibility.
+- **Missing test or evidence:** Explicit consumable/published Bounty Core revision and fresh BBH re-review of Lead-ID alias compatibility and aggregate ordering.
 - **Command / fixture / environment needed:** BBH isolated test environment with the accepted Core revision; use the current Core feature worktree only as an intermediate local package receipt until it is published.
 - **Trigger to run it:** after fresh BBH review accepts this checkpoint and the reviewed Core revision is published through its integration lane.
 - **Why it blocks integration, activation, or promotion:** BBH must not ship a feature whose Core dependency is only a local worktree, and compatibility claims need independent verification.
@@ -45,10 +45,10 @@ Add a bounded current-run provenance slice to shared MapStore facts so an active
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/blackbox-evidence-routing`
-- **Latest immutable recovery checkpoint:** `008da96dd007b29aa016f3093c8256080deef811`
-- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`, `934d20e84184a76941ca78456613ad453b5267b8`, `b5c63962ac3118f9ae24a63d0aa004acbe4a6d11`, `2644bc47f70fc68bf589751c240e857bf9915986`, `008da96dd007b29aa016f3093c8256080deef811`
-- **Exact resume point:** rerun BBH review for the bidirectional Lead-ID compatibility checkpoint, then publish/integrate the accepted Core revision and pin BBH before the final integration run.
-- **Working-tree state at handoff:** bidirectional compatibility regression, wrapper repair, and dossier reconciliation pending commit.
+- **Latest immutable recovery checkpoint:** `2b8030ce2c76407fdb1f6babb9a8f661d1eaa132`
+- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`, `934d20e84184a76941ca78456613ad453b5267b8`, `b5c63962ac3118f9ae24a63d0aa004acbe4a6d11`, `2644bc47f70fc68bf589751c240e857bf9915986`, `008da96dd007b29aa016f3093c8256080deef811`, `33e0a866f28ca0392ce4a26ef3485b29e484db08`, `2b8030ce2c76407fdb1f6babb9a8f661d1eaa132`
+- **Exact resume point:** obtain fresh BBH review of the alias-compatible, Core-ordered follow-up checkpoint; then publish/integrate the accepted Core revision, pin BBH, and rerun the integration suite.
+- **Working-tree state at handoff:** ordering repair is committed at `2b8030c`; this dossier update is the final handoff checkpoint before fresh review.
 
 ## Decision gates
 

@@ -54,3 +54,26 @@ def test_cli_can_transition_an_owned_hypothesis_to_active(tmp_path):
 
     assert active["status"] == "active"
     assert checkpoint == {"private_unresolved_count": 1, "active_count": 1, "surface": "export"}
+
+
+def test_cli_lead_followup_returns_released_context_without_broadening_list(tmp_path):
+    created = run_cli(
+        tmp_path, "create", "demo", "--agent-id", "agent-a", "--run-id", "run-a",
+        "--title", "Export worker authorization seam", "--surface", "export",
+        "--lead-id", "lead-export-worker",
+    )
+
+    released = run_cli(
+        tmp_path, "release", "demo", created["id"],
+        "--agent-id", "agent-a", "--run-id", "run-a",
+    )
+    ordinary_list = run_cli(tmp_path, "list", "demo", "--agent-id", "agent-b", "--run-id", "run-b")
+    followup = run_cli(
+        tmp_path, "lead-followup", "demo", "--agent-id", "agent-b", "--run-id", "run-b",
+        "--lead-id", "lead-export-worker",
+    )
+
+    assert released["context_state"] == "released"
+    assert ordinary_list == {"hypotheses": []}
+    assert [item["id"] for item in followup["hypotheses"]] == [created["id"]]
+    assert followup["hypotheses"][0]["visibility"] == "released"

@@ -37,6 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--url")
     create.add_argument("--tag", action="append", default=[])
     create.add_argument("--parent-id")
+    create.add_argument("--lead-id", help="Opaque public Lead ID for explicit follow-up context")
     create.add_argument("--expected-chain")
     create.add_argument("--next-discriminator")
     create.add_argument("--evidence-ref", action="append", default=[])
@@ -49,6 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
     listing.add_argument("--surface")
     listing.add_argument("--tag", action="append", default=[])
     listing.add_argument("--status", action="append")
+
+    release = program_command("release")
+    release.add_argument("hypothesis_id")
+
+    followup = program_command("lead-followup")
+    followup.add_argument("--lead-id", required=True)
 
     continuation = program_command("continuation")
     continuation.add_argument("--surface")
@@ -86,8 +93,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "create":
         return ledger.create(
             agent_id=args.agent_id, run_id=args.run_id, title=args.title, surface=args.surface,
-            url=args.url, tags=args.tag, parent_id=args.parent_id, expected_chain=args.expected_chain,
-            next_discriminator=args.next_discriminator, evidence_refs=args.evidence_ref,
+            url=args.url, tags=args.tag, parent_id=args.parent_id, lead_id=args.lead_id,
+            expected_chain=args.expected_chain, next_discriminator=args.next_discriminator, evidence_refs=args.evidence_ref,
         )
     if args.command == "heartbeat":
         return ledger.heartbeat(agent_id=args.agent_id, run_id=args.run_id)
@@ -95,6 +102,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         return {"hypotheses": ledger.list_visible(
             agent_id=args.agent_id, run_id=args.run_id, url=args.url, surface=args.surface,
             tags=args.tag, statuses=args.status,
+        )}
+    if args.command == "release":
+        return ledger.release(args.hypothesis_id, agent_id=args.agent_id, run_id=args.run_id)
+    if args.command == "lead-followup":
+        return {"hypotheses": ledger.lead_followup(
+            agent_id=args.agent_id, run_id=args.run_id, lead_id=args.lead_id,
         )}
     if args.command == "continuation":
         return ledger.continuation_state(agent_id=args.agent_id, run_id=args.run_id, surface=args.surface)

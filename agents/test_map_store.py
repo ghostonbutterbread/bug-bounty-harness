@@ -1073,6 +1073,74 @@ class TestMapStore:
         results = store.query(url="https://app.com/login")
         assert results == []
 
+    def test_query_filters_to_exact_agent_and_run_provenance(self, store: MapStore):
+        store.init()
+        store.write(
+            url="https://app.com/one",
+            surface="xss",
+            body="Current run fact.",
+            agent="xss-worker",
+            run_id="run-current",
+            title="current run",
+        )
+        store.write(
+            url="https://app.com/two",
+            surface="xss",
+            body="Same agent, older run.",
+            agent="xss-worker",
+            run_id="run-older",
+            title="older run",
+        )
+        store.write(
+            url="https://app.com/three",
+            surface="xss",
+            body="Different agent, matching run label.",
+            agent="other-worker",
+            run_id="run-current",
+            title="peer run",
+        )
+
+        results = store.query(agent_id="xss-worker", run_id="run-current")
+
+        assert [entry["title"] for entry in results] == ["current run"]
+        assert results[0]["agent"] == "xss-worker"
+        assert results[0]["run_id"] == "run-current"
+
+    def test_cli_query_filters_to_agent_and_run_provenance(self, store: MapStore):
+        store.init()
+        repo_root = Path(__file__).resolve().parents[1]
+        store.write(
+            url="https://app.com/current",
+            surface="xss",
+            body="Current run fact.",
+            agent="xss-worker",
+            run_id="run-current",
+            title="current run",
+        )
+        store.write(
+            url="https://app.com/other",
+            surface="xss",
+            body="Other run fact.",
+            agent="xss-worker",
+            run_id="run-other",
+            title="other run",
+        )
+
+        proc = subprocess.run([
+            sys.executable,
+            "agents/map_store.py",
+            "query",
+            "--program", "testprog",
+            "--root", str(store._layout.base_root),
+            "--agent-id", "xss-worker",
+            "--run-id", "run-current",
+            "--json",
+        ], cwd=repo_root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
+        payload = json.loads(proc.stdout)
+        assert [entry["title"] for entry in payload] == ["current run"]
+
     def test_query_filters_by_since_until_and_limit(self, store: MapStore):
         store.init()
         store.write(url="https://app.com/old", surface="xss", body="Old", title="old")

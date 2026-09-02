@@ -9,13 +9,13 @@ Updated: 2026-04-28 after initial `bounty-core` extraction and `bounty-tools` cl
 Current shared-evidence and deferred secret-resolution direction:
 [`bounty-core-evidence-and-secrets-workstream.md`](bounty-core-evidence-and-secrets-workstream.md).
 
-> **Runtime dependency decision (2026-08-28):** This historical extraction
-> document no longer defines BBH installation behavior. BBH installs the tracked
-> Bounty Core default branch from `requirements-bounty-core.txt` into that BBH
-> checkout's own `.venv` using `./setup.sh --install-python-deps`. A
-> `~/projects/bounty-core` clone remains useful for Bounty Core development, but
-> is never a BBH runtime selector and BBH does not use editable installs or clone
-> Bounty Core during setup.
+> **Runtime dependency decision (2026-09-02):** This historical extraction
+> document no longer defines BBH installation behavior. BBH installs reviewed
+> immutable Bounty Core revision `04b5149f617dafe7837726faec4d1bc5cf5471b6`
+> from `requirements-bounty-core.txt` into that BBH checkout's own `.venv` using
+> `./setup.sh --install-python-deps`. A `~/projects/bounty-core` clone remains
+> useful for Bounty Core development, but is never a BBH runtime selector and
+> BBH does not use editable installs or clone Bounty Core during setup.
 That workstream extends this extraction with generic evidence primitives and
 regenerated projections; it does not replace this spec's storage, finding, or
 ledger ownership boundaries.

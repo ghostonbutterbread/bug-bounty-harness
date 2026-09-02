@@ -1037,6 +1037,8 @@ class MapStore:
         scope: str | None = None,
         tags: list[str] | None = None,
         statuses: list[str] | None = None,
+        agent_id: str | None = None,
+        run_id: str | None = None,
         include_archived: bool = False,
         since: datetime | None = None,
         until: datetime | None = None,
@@ -1054,6 +1056,8 @@ class MapStore:
             scope: Filter to ``app``, ``surface``, or ``url``.
             tags: Filter to entries that contain every listed tag.
             statuses: Filter to entries with any listed lifecycle status.
+            agent_id: Filter to observations authored by this exact agent ID.
+            run_id: Filter to observations authored by this exact run ID.
             include_archived: Include archived entries when no explicit status
                 filter is provided.
             since: Include observations at or after this UTC timestamp.
@@ -1089,6 +1093,12 @@ class MapStore:
             entry_status = _entry_status(entry)
             entry_time = _entry_time(entry)
             entry_tag_set = {slugify(tag) for tag in entry_tags}
+
+            # --- Provenance filtering -----------------------------------------
+            if agent_id is not None and entry.get("agent") != agent_id:
+                continue
+            if run_id is not None and entry.get("run_id") != run_id:
+                continue
 
             # --- URL matching -------------------------------------------------
             if url and entry_scope == URL_SCOPE:
@@ -1366,6 +1376,8 @@ def _build_parser() -> argparse.ArgumentParser:
     query_p.add_argument("--scope", default=None, choices=sorted(VALID_SCOPES))
     query_p.add_argument("--tags", default="", help="Comma-separated required tags")
     query_p.add_argument("--status", default="", help="Comma-separated lifecycle statuses to include")
+    query_p.add_argument("--agent-id", default=None, help="Only show observations written by this agent ID")
+    query_p.add_argument("--run-id", default=None, help="Only show observations written by this run ID")
     query_p.add_argument("--include-archived", action="store_true", help="Include archived entries when no explicit --status filter is set")
     query_p.add_argument("--since", default=None, help="Only show observations since ISO time/date or relative value like 24h, 7d, 2w")
     query_p.add_argument("--until", default=None, help="Only show observations until ISO time/date or relative value like 24h, 7d, 2w")
@@ -1473,6 +1485,8 @@ def _run_query(store: MapStore, args: argparse.Namespace) -> int:
         scope=effective_scope,
         tags=[t.strip() for t in args.tags.split(",") if t.strip()],
         statuses=[s.strip() for s in args.status.split(",") if s.strip()],
+        agent_id=args.agent_id,
+        run_id=args.run_id,
         include_archived=args.include_archived,
         since=since,
         until=until,

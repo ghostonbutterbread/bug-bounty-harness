@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 
 
 from bounty_core.hypothesis_ledger import DEFAULT_TTL_SECONDS, UNRESOLVED_STATUSES, HypothesisLedger  # noqa: E402
+from agents.map_store import MapStore  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,6 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--url")
     create.add_argument("--tag", action="append", default=[])
     create.add_argument("--parent-id")
+    create.add_argument("--lead-id", help="Opaque public Lead ID for explicit follow-up context")
     create.add_argument("--expected-chain")
     create.add_argument("--next-discriminator")
     create.add_argument("--evidence-ref", action="append", default=[])
@@ -49,6 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
     listing.add_argument("--surface")
     listing.add_argument("--tag", action="append", default=[])
     listing.add_argument("--status", action="append")
+
+    release = program_command("release")
+    release.add_argument("hypothesis_id")
+
+    followup = program_command("lead-followup")
+    followup.add_argument("--lead-id", required=True)
 
     continuation = program_command("continuation")
     continuation.add_argument("--surface")
@@ -81,13 +89,35 @@ def _ledger(args: argparse.Namespace) -> HypothesisLedger:
     )
 
 
+def _public_lead(args: argparse.Namespace, lead_id: str) -> tuple[dict[str, Any], tuple[str, ...]]:
+    """Resolve one exact public MapStore lead card for a deliberate follow-up."""
+    store = MapStore(args.program, family=args.family, lane=args.lane, root=args.root, create=False)
+    lead = next(
+        (
+            entry
+            for entry in store.query(include_archived=True)
+            if "lead" in entry.get("tags", [])
+            and (
+                entry.get("path") == lead_id
+                or str(store.maps_root / entry.get("path", "")) == lead_id
+            )
+        ),
+        None,
+    )
+    if lead is None:
+        raise ValueError("lead-followup requires an exact public MapStore lead ID/path")
+    canonical_relative_id = str(lead["path"])
+    canonical_absolute_id = str(store.maps_root / canonical_relative_id)
+    return lead, tuple(dict.fromkeys((canonical_relative_id, canonical_absolute_id)))
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     ledger = _ledger(args)
     if args.command == "create":
         return ledger.create(
             agent_id=args.agent_id, run_id=args.run_id, title=args.title, surface=args.surface,
-            url=args.url, tags=args.tag, parent_id=args.parent_id, expected_chain=args.expected_chain,
-            next_discriminator=args.next_discriminator, evidence_refs=args.evidence_ref,
+            url=args.url, tags=args.tag, parent_id=args.parent_id, lead_id=args.lead_id,
+            expected_chain=args.expected_chain, next_discriminator=args.next_discriminator, evidence_refs=args.evidence_ref,
         )
     if args.command == "heartbeat":
         return ledger.heartbeat(agent_id=args.agent_id, run_id=args.run_id)
@@ -96,6 +126,21 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             agent_id=args.agent_id, run_id=args.run_id, url=args.url, surface=args.surface,
             tags=args.tag, statuses=args.status,
         )}
+    if args.command == "release":
+        return ledger.release(args.hypothesis_id, agent_id=args.agent_id, run_id=args.run_id)
+    if args.command == "lead-followup":
+        lead, lead_ids = _public_lead(args, args.lead_id)
+        hypotheses_by_id: dict[str, dict[str, Any]] = {}
+        for candidate_lead_id in lead_ids:
+            for hypothesis in ledger.lead_followup(
+                agent_id=args.agent_id, run_id=args.run_id, lead_id=candidate_lead_id,
+            ):
+                hypotheses_by_id.setdefault(hypothesis["id"], hypothesis)
+        ordered_hypotheses = sorted(
+            hypotheses_by_id.values(),
+            key=lambda hypothesis: (hypothesis["created_at"], hypothesis["id"]),
+        )
+        return {"lead": lead, "hypotheses": ordered_hypotheses}
     if args.command == "continuation":
         return ledger.continuation_state(agent_id=args.agent_id, run_id=args.run_id, surface=args.surface)
     if args.command == "transition":

@@ -41,6 +41,11 @@ idea merely because it is not the current highest-information test.
   private candidate has a durable observed fact plus one bounded unresolved
   security question, create or update the sanitized `/leads` projection; it may
   link this hypothesis ID but must not copy private rationale.
+- Ordinary `list` is private to the caller's exact `agent_id` + `run_id`.
+  For deliberate follow-up, select a concrete public MapStore Lead ID/path and
+  use `lead-followup`; it returns that public card plus only owner, released, or
+  stale/reclaimable context linked to that exact Lead. It never grants a broad
+  peer-hypothesis feed.
 
 ## Commands
 
@@ -54,12 +59,15 @@ bbh agents/hypothesis_ledger.py create <program> \
   --tag export --tag worker --tag auth-boundary \
   --expected-chain "signed URL -> worker fetch -> cross-account object" \
   --next-discriminator "owned two-account export comparison" \
-  --evidence-ref "mapstore:recon/maps/export/..."
+  --evidence-ref "mapstore:recon/maps/export/..." \
+  --lead-id "<MapStore-relative-public-lead-path-or-legacy-absolute-path>"
 
 bbh agents/hypothesis_ledger.py heartbeat <program> --agent-id <agent> --run-id <run>
 bbh agents/hypothesis_ledger.py continuation <program> --agent-id <agent> --run-id <run> --surface export
 bbh agents/hypothesis_ledger.py transition <program> H-... --agent-id <agent> --run-id <run> --status active
 bbh agents/hypothesis_ledger.py list <program> --agent-id <agent> --run-id <run> --url "https://app.example/export" --tag worker
+bbh agents/hypothesis_ledger.py release <program> H-... --agent-id <agent> --run-id <run>
+bbh agents/hypothesis_ledger.py lead-followup <program> --agent-id <agent> --run-id <run> --lead-id "<MapStore-relative-public-lead-path-or-legacy-absolute-path>"
 bbh agents/hypothesis_ledger.py delegate <program> H-... --agent-id <parent> --run-id <parent-run> --child-agent-id <child> --child-run-id <child-run>
 bbh agents/hypothesis_ledger.py reclaim <program> H-... --agent-id <new-agent> --run-id <new-run>
 bbh agents/hypothesis_ledger.py complete <program> H-... --agent-id <agent> --run-id <run> --status completed

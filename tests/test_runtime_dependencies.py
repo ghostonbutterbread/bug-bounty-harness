@@ -8,6 +8,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RuntimeDependencyTests(unittest.TestCase):
+    def test_checkout_runtime_manifest_pins_bounty_core_to_an_immutable_revision(self) -> None:
+        requirements = (ROOT / "requirements-bounty-core.txt").read_text(encoding="utf-8")
+        self.assertRegex(
+            requirements,
+            r"(?m)^bounty-core\s*@\s*git\+https://github\.com/ghostonbutterbread/bounty-core\.git@[0-9a-f]{40}$",
+        )
+
     def test_checkout_runtime_manifest_includes_httpx_for_dispatcher_tools(self) -> None:
         requirements = (ROOT / "requirements-bounty-core.txt").read_text(encoding="utf-8")
         self.assertRegex(requirements, r"(?m)^httpx(?:[<>=!~]|\s|$)")

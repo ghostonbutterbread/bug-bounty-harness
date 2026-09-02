@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-02
 - **Owning feature branch/ref:** `feat/blackbox-evidence-routing`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `9dbbe1933438567ca5333a26386e5460a4aacb0a`
+- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`
 - **Inspiration / canonical references:** `Shared/skill_seeds/2026-09-01-current-run-provenance-slices.md`; `Shared/skill_seeds/2026-09-01-lead-scoped-hypothesis-context.md`; Bounty Core `58a01ba6e68482dac00db480b86f47e0cdb595b2`
 
 ## Intent
@@ -43,10 +43,10 @@ Add a bounded current-run provenance slice to shared MapStore facts so an active
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/blackbox-evidence-routing`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit the verified MapStore provenance slice and dossier, then implement the lead-followup adapter as a separate TDD slice.
-- **Working-tree state at handoff:** intentionally uncommitted pending first BBH checkpoint.
+- **Latest immutable recovery checkpoint:** `9dbbe1933438567ca5333a26386e5460a4aacb0a`
+- **Feature implementation commit(s):** `9dbbe1933438567ca5333a26386e5460a4aacb0a`
+- **Exact resume point:** inspect and test the lead-followup adapter as a separate TDD slice, then update this dossier with its immutable checkpoint.
+- **Working-tree state at handoff:** dossier-only update pending commit.
 
 ## Decision gates
 

@@ -48,8 +48,11 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    Use Recon Bus `append` or `promote-run` for writes; do not create, edit, or
    recursively search for competing corpus files.
 8. Query durable memory only with a concrete URL, surface, role, parameter, or
-   handoff question. Pass a child only its selected packet, not the parent
-   backlog.
+   handoff question. Broad Hypothesis Ledger peer/app views are allowed only by
+   their named explicit review modes, never as a cold-start or default query;
+   ordinary `list`, `continuation`, and exact Lead follow-up keep their private
+   or Lead-bounded semantics. Pass a child only its selected packet, not the
+   parent backlog.
 9. Include the selected policy chain, one BBH lane, evidence pointers, exact
    stop condition, and account/browser lane only when required in every child
    packet.

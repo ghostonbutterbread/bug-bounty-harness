@@ -12,7 +12,8 @@ Canonical ownership:
 - scope, ownership, rate, impact, and stop/ask decisions: **AI Policies**;
 - runner commands, packet shape, artifact paths, and evidence schemas: **BBH**;
 - reusable app facts: `/map-store`;
-- private candidate branches: `/hypothesis-ledger`;
+- private candidate branches: `/hypothesis-ledger` (peer/app context only through
+  its named explicit review modes, never automatically);
 - shared evidence-backed unresolved lead projections: `/leads`;
 - exact target-directed probes: the canonical Attempts stream via `/attempt-recording-policy`;
 - human decisions and handoffs: `/bounty-notes`.

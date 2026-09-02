@@ -23,6 +23,16 @@ def run_cli(tmp_path: Path, *args: str) -> dict:
     return json.loads(result.stdout)
 
 
+def run_cli_result(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(CLI), "--root", str(tmp_path), *args],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": ""},
+    )
+
+
 def prepare_mapstore_root(tmp_path: Path, program: str) -> None:
     lane_root = tmp_path / "web_bounty" / program / "web"
     recon_root = lane_root / "recon"
@@ -247,3 +257,92 @@ def test_cli_lead_followup_accepts_legacy_absolute_lead_path(tmp_path):
 
     assert followup["lead"]["path"] == relative_lead_id
     assert [item["id"] for item in followup["hypotheses"]] == [created["id"]]
+
+
+def test_cli_peer_surface_review_is_explicit_and_limited_to_the_exact_surface_url(tmp_path):
+    program = "demo"
+    peer_match = run_cli(
+        tmp_path, "create", program, "--agent-id", "agent-a", "--run-id", "run-a",
+        "--title", "Matching export peer", "--surface", "export",
+        "--url", "https://app.example/export", "--tag", "worker",
+    )
+    run_cli(
+        tmp_path, "create", program, "--agent-id", "agent-b", "--run-id", "run-b",
+        "--title", "Different export URL", "--surface", "export",
+        "--url", "https://app.example/other", "--tag", "worker",
+    )
+    run_cli(
+        tmp_path, "create", program, "--agent-id", "agent-c", "--run-id", "run-c",
+        "--title", "Different surface", "--surface", "billing",
+        "--url", "https://app.example/export", "--tag", "worker",
+    )
+
+    private_list = run_cli(tmp_path, "list", program, "--agent-id", "agent-d", "--run-id", "run-d")
+    missing_scope = run_cli_result(
+        tmp_path, "peer-surface-review", program, "--agent-id", "agent-d", "--run-id", "run-d",
+    )
+    wrong_intent = run_cli_result(
+        tmp_path, "peer-surface-review", program, "--agent-id", "agent-d", "--run-id", "run-d",
+        "--surface", "export", "--url", "https://app.example/export", "--review-intent", "wrong",
+    )
+    reviewed = run_cli(
+        tmp_path, "peer-surface-review", program, "--agent-id", "agent-d", "--run-id", "run-d",
+        "--surface", "export", "--url", "https://app.example/export",
+        "--review-intent", "current-surface-peer-history", "--tag", "worker", "--limit", "1",
+    )
+
+    assert private_list == {"hypotheses": []}
+    assert missing_scope.returncode != 0
+    assert wrong_intent.returncode != 0
+    assert reviewed["review_scope"] == "peer-current-surface"
+    assert reviewed["review_intent"] == "current-surface-peer-history"
+    assert reviewed["query"] == {
+        "surface": "export", "url": "https://app.example/export", "tags": ["worker"],
+        "statuses": ["active", "blocked", "candidate", "deferred", "queued"],
+    }
+    assert reviewed["limit"] == 1
+    assert reviewed["returned_count"] == 1
+    assert reviewed["total_matching_count"] == 1
+    assert [item["id"] for item in reviewed["results"]] == [peer_match["id"]]
+    assert reviewed["has_more"] is False
+    assert reviewed["cursor"] is None
+
+
+def test_cli_operator_app_review_requires_explicit_operator_request_and_intent(tmp_path):
+    program = "demo"
+    first = run_cli(
+        tmp_path, "create", program, "--agent-id", "agent-a", "--run-id", "run-a",
+        "--title", "Export peer", "--surface", "export", "--url", "https://app.example/export",
+    )
+    second = run_cli(
+        tmp_path, "create", program, "--agent-id", "agent-b", "--run-id", "run-b",
+        "--title", "Billing peer", "--surface", "billing", "--url", "https://app.example/billing",
+    )
+
+    missing_request = run_cli_result(
+        tmp_path, "operator-app-review", program, "--agent-id", "operator", "--run-id", "review-1",
+        "--operator-intent", "application-thinking-review",
+    )
+    wrong_intent = run_cli_result(
+        tmp_path, "operator-app-review", program, "--agent-id", "operator", "--run-id", "review-1",
+        "--operator-request-id", "operator-request-7", "--operator-intent", "wrong",
+    )
+    reviewed = run_cli(
+        tmp_path, "operator-app-review", program, "--agent-id", "operator", "--run-id", "review-1",
+        "--operator-request-id", "operator-request-7", "--operator-intent", "application-thinking-review",
+        "--limit", "2",
+    )
+
+    assert missing_request.returncode != 0
+    assert wrong_intent.returncode != 0
+    assert reviewed["review_scope"] == "operator-app-wide"
+    assert reviewed["operator_request_id"] == "operator-request-7"
+    assert reviewed["operator_intent"] == "application-thinking-review"
+    assert reviewed["query"] == {"statuses": ["active", "blocked", "candidate", "deferred", "queued"]}
+    assert reviewed["limit"] == 2
+    assert reviewed["returned_count"] == 2
+    assert reviewed["total_matching_count"] == 2
+    assert {item["id"] for item in reviewed["results"]} == {first["id"], second["id"]}
+    assert reviewed["surface_counts"] == {"billing": 1, "export": 1}
+    assert reviewed["has_more"] is False
+    assert reviewed["cursor"] is None

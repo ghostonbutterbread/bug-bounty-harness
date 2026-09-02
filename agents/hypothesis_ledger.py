@@ -58,6 +58,22 @@ def build_parser() -> argparse.ArgumentParser:
     followup = program_command("lead-followup")
     followup.add_argument("--lead-id", required=True)
 
+    peer_surface_review = program_command("peer-surface-review")
+    peer_surface_review.add_argument("--surface", required=True)
+    peer_surface_review.add_argument("--url", required=True)
+    peer_surface_review.add_argument("--review-intent", required=True)
+    peer_surface_review.add_argument("--tag", action="append", default=[])
+    peer_surface_review.add_argument("--status", action="append")
+    peer_surface_review.add_argument("--limit", type=int, default=25)
+    peer_surface_review.add_argument("--cursor")
+
+    operator_app_review = program_command("operator-app-review")
+    operator_app_review.add_argument("--operator-request-id", required=True)
+    operator_app_review.add_argument("--operator-intent", required=True)
+    operator_app_review.add_argument("--status", action="append")
+    operator_app_review.add_argument("--limit", type=int, default=50)
+    operator_app_review.add_argument("--cursor")
+
     continuation = program_command("continuation")
     continuation.add_argument("--surface")
 
@@ -141,6 +157,28 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             key=lambda hypothesis: (hypothesis["created_at"], hypothesis["id"]),
         )
         return {"lead": lead, "hypotheses": ordered_hypotheses}
+    if args.command == "peer-surface-review":
+        return ledger.review_current_surface(
+            viewer_agent_id=args.agent_id,
+            viewer_run_id=args.run_id,
+            surface=args.surface,
+            url=args.url,
+            review_intent=args.review_intent,
+            tags=args.tag,
+            statuses=args.status,
+            limit=args.limit,
+            cursor=args.cursor,
+        )
+    if args.command == "operator-app-review":
+        return ledger.operator_app_review(
+            actor_agent_id=args.agent_id,
+            actor_run_id=args.run_id,
+            operator_request_id=args.operator_request_id,
+            operator_intent=args.operator_intent,
+            statuses=args.status,
+            limit=args.limit,
+            cursor=args.cursor,
+        )
     if args.command == "continuation":
         return ledger.continuation_state(agent_id=args.agent_id, run_id=args.run_id, surface=args.surface)
     if args.command == "transition":

@@ -28,9 +28,9 @@ idea merely because it is not the current highest-information test.
   same atomic liveness semantics without depending on BaseTeam. The default
   private TTL is two hours. Time passing does **not** release an active agent's
   backlog; only a missing owner heartbeat makes unresolved work reclaimable.
-- Do not query another agent's unexpired hypotheses. A caller sees its own
-  private candidates plus stale, reclaimable hypotheses matching its explicit
-  URL/surface/tag query.
+- Do not automatically query another agent's unexpired hypotheses. There is no
+  cold-start or default peer/app query: ordinary `list` remains private, and
+  `continuation` remains counts-only.
 - Delegate only one selected branch to one child. The child receives that branch
   only, not the parent agent's other private hypotheses.
 - At a natural completion/pivot checkpoint, query `continuation` first. It
@@ -46,6 +46,26 @@ idea merely because it is not the current highest-information test.
   use `lead-followup`; it returns that public card plus only owner, released, or
   stale/reclaimable context linked to that exact Lead. It never grants a broad
   peer-hypothesis feed.
+
+## Retrieval modes
+
+Use exactly one named mode only when its review purpose is explicit:
+
+1. **Private continuation:** `list` and `continuation` are the normal owner
+   retrievals. They never reveal active peers. `continuation` returns counts
+   only.
+2. **Exact public Lead follow-up:** `lead-followup` requires one exact public
+   MapStore Lead ID/path and retains its legacy relative/absolute aliases. It
+   is separate from broad review.
+3. **Explicit review:** `peer-surface-review` deliberately exposes unresolved
+   peer context only for one required normalized `--surface` plus `--url` and
+   the literal `--review-intent current-surface-peer-history`. `operator-app-review`
+   is the bounded program-wide operator view; it requires a named
+   `--operator-request-id` and literal
+   `--operator-intent application-thinking-review`.
+
+Never invoke a peer or operator review as a default, a cold-start memory query,
+or a fallback from `list`, `continuation`, or `lead-followup`.
 
 ## Commands
 
@@ -68,6 +88,12 @@ bbh agents/hypothesis_ledger.py transition <program> H-... --agent-id <agent> --
 bbh agents/hypothesis_ledger.py list <program> --agent-id <agent> --run-id <run> --url "https://app.example/export" --tag worker
 bbh agents/hypothesis_ledger.py release <program> H-... --agent-id <agent> --run-id <run>
 bbh agents/hypothesis_ledger.py lead-followup <program> --agent-id <agent> --run-id <run> --lead-id "<MapStore-relative-public-lead-path-or-legacy-absolute-path>"
+bbh agents/hypothesis_ledger.py peer-surface-review <program> --agent-id <agent> --run-id <run> \
+  --surface export --url "https://app.example/export" \
+  --review-intent current-surface-peer-history [--tag worker] [--status candidate] [--limit 1..50] [--cursor <cursor>]
+bbh agents/hypothesis_ledger.py operator-app-review <program> --agent-id <agent> --run-id <run> \
+  --operator-request-id "<operator-request>" --operator-intent application-thinking-review \
+  [--status candidate] [--limit 1..100] [--cursor <cursor>]
 bbh agents/hypothesis_ledger.py delegate <program> H-... --agent-id <parent> --run-id <parent-run> --child-agent-id <child> --child-run-id <child-run>
 bbh agents/hypothesis_ledger.py reclaim <program> H-... --agent-id <new-agent> --run-id <new-run>
 bbh agents/hypothesis_ledger.py complete <program> H-... --agent-id <agent> --run-id <run> --status completed

@@ -100,7 +100,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **bounty-notes** | `/bounty-notes {init|note|search|link|artifact} {program}` | `prompts/bounty-notes-playbook.md` |
 | **bounty-tools** | `/bounty-tools {program} {tool} {target-or-goal}` | `prompts/bounty-tools-playbook.md` |
 | **hunter-memory** | `/hunter-memory {program} {surface}` | `prompts/hunter-memory-playbook.md` |
-| **hypothesis-ledger** | `/hypothesis-ledger {create|heartbeat|continuation|list|delegate|reclaim|complete} {program}` | `skills/hypothesis-ledger/SKILL.md` |
+| **hypothesis-ledger** | `/hypothesis-ledger {create|heartbeat|continuation|list|lead-followup|peer-surface-review|operator-app-review|transition|release|delegate|reclaim|complete} {program}` | `skills/hypothesis-ledger/SKILL.md` |
 | **hunter-loop** | `/hunter-loop {program} --goal {objective}` | `prompts/hunter-loop-playbook.md` |
 | **brainstorm-spec** | `/brainstorm-spec {program}` | `prompts/brainstorm-spec-playbook.md` |
 | **appmap** | `/appmap {program} {target_path}` | `prompts/appmap-playbook.md` |

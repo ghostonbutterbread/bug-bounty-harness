@@ -14,6 +14,7 @@ import argparse
 import hashlib
 import json
 import re
+import secrets
 import sys
 import time
 from dataclasses import dataclass
@@ -171,10 +172,11 @@ class Source:
         basis = "|".join([self.method, sanitized_url, self.vector, self.field, self.source_type])
         return stable_hash(basis, 16)
 
-    def canary(self, run_id: str) -> str:
-        return f"GHOST_XSS_{run_id}_{self.source_id[:10]}"
+    def canary(self, run_id: str, attempt_nonce: str) -> str:
+        """Keep canaries fresh even when callers deliberately reuse a run ID."""
+        return f"GHOST_XSS_{run_id}_{self.source_id[:10]}_{attempt_nonce}"
 
-    def to_record(self, run_id: str) -> dict[str, Any]:
+    def to_record(self, run_id: str, attempt_nonce: str) -> dict[str, Any]:
         sanitized_url, redacted_url = sanitize_url(self.url)
         record = {
             "source_id": self.source_id,
@@ -186,7 +188,8 @@ class Source:
             "field": self.field,
             "source_type": self.source_type,
             "origin": self.origin,
-            "canary": self.canary(run_id),
+            "canary": self.canary(run_id, attempt_nonce),
+            "attempt_nonce": attempt_nonce,
             "evidence": self.evidence,
         }
         if self.original_value:
@@ -400,12 +403,14 @@ def load_sources(inputs: list[Path]) -> list[Source]:
     return list(deduped.values())
 
 
-def mutate_query_url(url: str, field: str, canary: str) -> str | None:
+def mutate_query_url(url: str, field: str, canary: str, cache_buster: str = "") -> str | None:
     parsed = urlsplit(url)
     params = parse_qsl(parsed.query, keep_blank_values=True)
     if not any(key == field for key, _ in params):
         return None
     mutated = [(key, canary if key == field else value) for key, value in params]
+    if cache_buster:
+        mutated.append(("__ghost_xss_cb", cache_buster))
     return urlunsplit(
         (parsed.scheme, parsed.netloc, parsed.path, urlencode(mutated, doseq=True), parsed.fragment)
     )
@@ -418,7 +423,7 @@ def planned_request(source_record: dict[str, Any]) -> dict[str, Any]:
     sensitive_replay_required = False
     if source_record["vector"] == "query" and source_record["method"] == "GET":
         mutated_url = mutate_query_url(
-            source_record["url"], source_record["field"], source_record["canary"]
+            source_record["url"], source_record["field"], source_record["canary"], source_record.get("attempt_nonce", "")
         )
         sensitive_replay_required = bool(source_record.get("url_redacted"))
         if mutated_url:
@@ -446,7 +451,9 @@ def planned_request(source_record: dict[str, Any]) -> dict[str, Any]:
 def private_replay_request(source: Source, source_record: dict[str, Any]) -> dict[str, Any]:
     mutated_url = None
     if source_record["vector"] == "query" and source_record["method"] == "GET":
-        mutated_url = mutate_query_url(source.url, source_record["field"], source_record["canary"])
+        mutated_url = mutate_query_url(
+            source.url, source_record["field"], source_record["canary"], source_record.get("attempt_nonce", "")
+        )
     return {
         "source_id": source_record["source_id"],
         "run_id": source_record["run_id"],
@@ -464,11 +471,13 @@ def load_response_records(paths: list[Path]) -> list[dict[str, Any]]:
     for path in paths:
         if path.suffix.lower() in {".json", ".jsonl"}:
             for index, record in enumerate(read_json_records(path), 1):
-                body = (
-                    record.get("body")
-                    or record.get("html")
-                    or record.get("text")
-                    or record.get("content")
+                body = next(
+                    (
+                        record[key]
+                        for key in ("body", "html", "text", "content")
+                        if key in record and record[key] is not None
+                    ),
+                    None,
                 )
                 body_path = record.get("body_path") or record.get("file") or record.get("path")
                 if body is None and body_path:
@@ -481,6 +490,10 @@ def load_response_records(paths: list[Path]) -> list[dict[str, Any]]:
                         "url": str(record.get("url") or record.get("response_url") or path),
                         "body": str(body),
                         "origin": str(path),
+                        "request_source_id": record.get("request_source_id"),
+                        "request_canary": record.get("request_canary"),
+                        "scan_status": record.get("scan_status"),
+                        "status_code": record.get("status_code"),
                     }
                 )
         else:
@@ -723,14 +736,47 @@ def response_record(
 
 def scan_responses(
     source_records: list[dict[str, Any]], responses: list[dict[str, Any]]
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     sinks: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
+    exclusions: list[dict[str, Any]] = []
     source_by_canary = {record["canary"]: record for record in source_records}
+    source_by_id = {record["source_id"]: record for record in source_records}
 
     for response in responses:
+        status_code = response.get("status_code")
+        status_is_blocked = status_code in {403, 429} or str(status_code) in {"403", "429"}
+        if response.get("scan_status") or status_is_blocked:
+            exclusions.append({
+                "response_id": response["response_id"],
+                "response_url": response["url"],
+                "reason": str(response.get("scan_status") or "inconclusive_waf_or_access_block"),
+            })
+            continue
         body = response["body"]
-        for canary, source in source_by_canary.items():
+        matching_canaries = [canary for canary in source_by_canary if canary in body]
+        requested_source_id = str(response.get("request_source_id") or "")
+        if requested_source_id:
+            requested_source = source_by_id.get(requested_source_id)
+            if requested_source is None or requested_source["canary"] not in matching_canaries:
+                exclusions.append({
+                    "response_id": response["response_id"],
+                    "response_url": response["url"],
+                    "reason": "request_response_marker_mismatch",
+                })
+                continue
+            matching_canaries = [requested_source["canary"]]
+        elif len(matching_canaries) > 1:
+            exclusions.append({
+                "response_id": response["response_id"],
+                "response_url": response["url"],
+                "reason": "query_echo_ambiguous_multiple_canaries",
+                "canary_count": len(matching_canaries),
+            })
+            continue
+
+        for canary in matching_canaries:
+            source = source_by_canary[canary]
             start = 0
             while True:
                 index = body.find(canary, start)
@@ -777,7 +823,7 @@ def scan_responses(
                 sinks.append(sink)
                 edges.append(edge)
                 start = index + len(canary)
-    return sinks, edges
+    return sinks, edges, exclusions
 
 
 def packet_name(edge: dict[str, Any]) -> str:
@@ -907,16 +953,19 @@ def fetch_planned_http(args: argparse.Namespace) -> list[dict[str, Any]]:
             body = str(exc.reason)
             status_code = None
             content_type = None
-        responses.append(
-            response_record(
-                response_id=f"http:{record.get('source_id', processed)}",
-                url=url,
-                body=artifact_body_for_canaries(body, canaries),
-                status_code=status_code,
-                origin="http-fetch",
-                content_type=content_type,
-            )
+        response = response_record(
+            response_id=f"http:{record.get('source_id', processed)}",
+            url=url,
+            body=artifact_body_for_canaries(body, canaries),
+            status_code=status_code,
+            origin="http-fetch",
+            content_type=content_type,
         )
+        response["request_source_id"] = str(record.get("source_id") or "")
+        response["request_canary"] = str(record.get("canary") or "")
+        if status_code in {403, 429}:
+            response["scan_status"] = "inconclusive_waf_or_access_block"
+        responses.append(response)
         if rate_delay > 0:
             time.sleep(rate_delay)
     out_dir = Path(args.out_dir)
@@ -989,32 +1038,39 @@ def browser_fetch_planned(args: argparse.Namespace) -> list[dict[str, Any]]:
                         | {"blocked_reason": "host_not_allowlisted"}
                     )
                     continue
-                page.goto(url, wait_until=args.wait_until, timeout=args.timeout * 1000)
+                navigation = page.goto(url, wait_until=args.wait_until, timeout=args.timeout * 1000)
+                status_code = navigation.status if navigation is not None else None
                 html = page.evaluate("document.documentElement.outerHTML")
-                responses.append(
-                    response_record(
-                        response_id=f"browser-dom:{record.get('source_id', processed)}",
-                        url=url,
-                        body=artifact_body_for_canaries(str(html), canaries),
-                        status_code=None,
-                        origin="browser-dom",
-                        content_type="text/html",
-                    )
+                dom_response = response_record(
+                    response_id=f"browser-dom:{record.get('source_id', processed)}",
+                    url=url,
+                    body=artifact_body_for_canaries(str(html), canaries),
+                    status_code=status_code,
+                    origin="browser-dom",
+                    content_type="text/html",
                 )
+                dom_response["request_source_id"] = str(record.get("source_id") or "")
+                dom_response["request_canary"] = str(record.get("canary") or "")
+                if status_code in {403, 429}:
+                    dom_response["scan_status"] = "inconclusive_waf_or_access_block"
+                responses.append(dom_response)
                 storage_blob = page.evaluate(
                     "() => JSON.stringify({localStorage: Object.assign({}, window.localStorage), "
                     "sessionStorage: Object.assign({}, window.sessionStorage)})"
                 )
-                responses.append(
-                    response_record(
-                        response_id=f"browser-storage:{record.get('source_id', processed)}",
-                        url=url,
-                        body=artifact_body_for_canaries(str(storage_blob), canaries),
-                        status_code=None,
-                        origin="browser-storage",
-                        content_type="application/json",
-                    )
+                storage_response = response_record(
+                    response_id=f"browser-storage:{record.get('source_id', processed)}",
+                    url=url,
+                    body=artifact_body_for_canaries(str(storage_blob), canaries),
+                    status_code=status_code,
+                    origin="browser-storage",
+                    content_type="application/json",
                 )
+                storage_response["request_source_id"] = str(record.get("source_id") or "")
+                storage_response["request_canary"] = str(record.get("canary") or "")
+                if status_code in {403, 429}:
+                    storage_response["scan_status"] = "inconclusive_waf_or_access_block"
+                responses.append(storage_response)
                 if rate_delay > 0:
                     time.sleep(rate_delay)
         finally:
@@ -1028,7 +1084,7 @@ def browser_fetch_planned(args: argparse.Namespace) -> list[dict[str, Any]]:
 def build_sources(args: argparse.Namespace) -> list[dict[str, Any]]:
     run_id = safe_run_id(args.run_id)
     sources = load_sources([Path(path) for path in args.input])
-    records = [source.to_record(run_id) for source in sources]
+    records = [source.to_record(run_id, secrets.token_hex(8)) for source in sources]
     out_dir = Path(args.out_dir)
     write_jsonl(out_dir / "sources.jsonl", records)
     write_jsonl(out_dir / "planned_requests.jsonl", (planned_request(record) for record in records))
@@ -1044,13 +1100,14 @@ def load_source_records(path: Path) -> list[dict[str, Any]]:
     return [record for record in records if "source_id" in record and "canary" in record]
 
 
-def scan(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def scan(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     out_dir = Path(args.out_dir)
     source_records = load_source_records(Path(args.sources))
     responses = load_response_records([Path(path) for path in args.response])
-    sinks, edges = scan_responses(source_records, responses)
+    sinks, edges, exclusions = scan_responses(source_records, responses)
     write_jsonl(out_dir / "sinks.jsonl", sinks)
     write_jsonl(out_dir / "edges.jsonl", edges)
+    write_jsonl(out_dir / "scan_exclusions.jsonl", exclusions)
     packets = write_agent_packets(out_dir, source_records, sinks, edges)
     summary = {
         "generated_at": now_iso(),
@@ -1058,10 +1115,11 @@ def scan(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[str,
         "responses": len(responses),
         "sinks": len(sinks),
         "edges": len(edges),
+        "exclusions": len(exclusions),
         "agent_packets": packets,
     }
     (out_dir / "summary.json").write_text(json_dump(summary) + "\n", encoding="utf-8")
-    return sinks, edges
+    return sinks, edges, exclusions
 
 
 def cmd_plan(args: argparse.Namespace) -> int:
@@ -1071,8 +1129,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
-    sinks, edges = scan(args)
-    print(json_dump({"sinks": len(sinks), "edges": len(edges), "out_dir": args.out_dir}))
+    sinks, edges, exclusions = scan(args)
+    print(json_dump({"sinks": len(sinks), "edges": len(edges), "exclusions": len(exclusions), "out_dir": args.out_dir}))
     return 0
 
 
@@ -1091,13 +1149,14 @@ def cmd_browser_fetch(args: argparse.Namespace) -> int:
 def cmd_map(args: argparse.Namespace) -> int:
     source_records = build_sources(args)
     args.sources = str(Path(args.out_dir) / "sources.jsonl")
-    sinks, edges = scan(args)
+    sinks, edges, exclusions = scan(args)
     print(
         json_dump(
             {
                 "sources": len(source_records),
                 "sinks": len(sinks),
                 "edges": len(edges),
+                "exclusions": len(exclusions),
                 "out_dir": args.out_dir,
             }
         )

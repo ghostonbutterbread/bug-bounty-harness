@@ -429,3 +429,106 @@ def test_sensitive_replay_requires_explicit_flag_but_keeps_private_artifact(tmp_
     finally:
         server.shutdown()
         thread.join(timeout=2)
+
+
+def test_plan_uses_fresh_canaries_and_cache_busters_when_run_id_reused(tmp_path: Path) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.test/search?q=seed\n", encoding="utf-8")
+    first, second = tmp_path / "first", tmp_path / "second"
+
+    run_mapper("plan", "--input", str(source), "--out-dir", str(first), "--run-id", "repeat")
+    run_mapper("plan", "--input", str(source), "--out-dir", str(second), "--run-id", "repeat")
+
+    first_request = read_jsonl(first / "planned_requests.jsonl")[0]
+    second_request = read_jsonl(second / "planned_requests.jsonl")[0]
+    assert first_request["canary"] != second_request["canary"]
+    assert "__ghost_xss_cb=" in first_request["mutated_url"]
+    assert "__ghost_xss_cb=" in second_request["mutated_url"]
+
+
+def test_scan_rejects_unbound_multi_marker_query_echo(tmp_path: Path) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.test/search?q=seed&sort=asc\n", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    run_mapper("plan", "--input", str(source), "--out-dir", str(out_dir), "--run-id", "unit")
+    sources = read_jsonl(out_dir / "sources.jsonl")
+    response = tmp_path / "responses.jsonl"
+    response.write_text(
+        json.dumps({"url": "https://example.test/search", "body": " ".join(row["canary"] for row in sources)}) + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_mapper("scan", "--sources", str(out_dir / "sources.jsonl"), "--response", str(response), "--out-dir", str(out_dir))
+
+    assert result["sinks"] == 0
+    assert result["exclusions"] == 1
+    exclusion = read_jsonl(out_dir / "scan_exclusions.jsonl")[0]
+    assert exclusion["reason"] == "query_echo_ambiguous_multiple_canaries"
+
+
+def test_scan_rejects_response_marker_not_belonging_to_recorded_request(tmp_path: Path) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.test/search?q=seed&sort=asc\n", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    run_mapper("plan", "--input", str(source), "--out-dir", str(out_dir), "--run-id", "unit")
+    sources = read_jsonl(out_dir / "sources.jsonl")
+    response = tmp_path / "responses.jsonl"
+    response.write_text(
+        json.dumps({
+            "url": "https://example.test/search",
+            "body": sources[1]["canary"],
+            "request_source_id": sources[0]["source_id"],
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_mapper("scan", "--sources", str(out_dir / "sources.jsonl"), "--response", str(response), "--out-dir", str(out_dir))
+
+    assert result["sinks"] == 0
+    assert read_jsonl(out_dir / "scan_exclusions.jsonl")[0]["reason"] == "request_response_marker_mismatch"
+
+
+def test_scan_marks_imported_403_response_inconclusive(tmp_path: Path) -> None:
+    source = tmp_path / "urls.txt"
+    source.write_text("https://example.test/search?q=seed\n", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    run_mapper("plan", "--input", str(source), "--out-dir", str(out_dir), "--run-id", "unit")
+    canary = read_jsonl(out_dir / "sources.jsonl")[0]["canary"]
+    response = tmp_path / "responses.jsonl"
+    response.write_text(
+        json.dumps({"url": "https://example.test/search", "body": canary, "status_code": 403}) + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_mapper("scan", "--sources", str(out_dir / "sources.jsonl"), "--response", str(response), "--out-dir", str(out_dir))
+
+    assert result["sinks"] == 0
+    assert read_jsonl(out_dir / "scan_exclusions.jsonl")[0]["reason"] == "inconclusive_waf_or_access_block"
+
+
+def test_fetch_403_is_inconclusive_not_a_negative_reflection(tmp_path: Path) -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(403)
+            self.end_headers()
+
+        def log_message(self, _fmt: str, *_args: object) -> None:
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        source = tmp_path / "urls.txt"
+        source.write_text(f"http://127.0.0.1:{server.server_address[1]}/search?q=seed\n", encoding="utf-8")
+        out_dir = tmp_path / "out"
+        run_mapper("plan", "--input", str(source), "--out-dir", str(out_dir), "--run-id", "unit")
+        run_mapper("fetch", "--planned", str(out_dir / "planned_requests.jsonl"), "--out-dir", str(out_dir), "--allow-host", "127.0.0.1", "--max-requests", "1", "--rate-delay", "0")
+        response = read_jsonl(out_dir / "responses.jsonl")[0]
+        assert response["scan_status"] == "inconclusive_waf_or_access_block"
+        result = run_mapper("scan", "--sources", str(out_dir / "sources.jsonl"), "--response", str(out_dir / "responses.jsonl"), "--out-dir", str(out_dir))
+        assert result["sinks"] == 0
+        assert read_jsonl(out_dir / "scan_exclusions.jsonl")[0]["reason"] == "inconclusive_waf_or_access_block"
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)

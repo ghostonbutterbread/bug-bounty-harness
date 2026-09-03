@@ -6,6 +6,7 @@
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-canary-attribution`
 - **Base:** `eb22b08418a5f7ae71ad502c0693dcc426a0ec76`
 - **Target:** `beta`
+- **Implementation commit:** `b54c2bad40ae751cf59f70d98291f0abdcb6c366`
 - **Kanban:** `bug_bounty_harness/t_b2b8c6a9`
 
 ## Contract

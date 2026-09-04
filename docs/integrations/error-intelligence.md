@@ -12,9 +12,9 @@ this change does not build generic vulnerability-cue routing.
 - Feature branch: `feat/error-intelligence`
 - Base: BBH `origin/beta` at `10a13f3`
 - Intended integration target: `beta`
-- Required Core dependency: `feat/error-store` repair commit
-  `75cbcc6193f5070052e30a12de214d9e2b5b1904`, pending re-review and Core beta
-  integration.
+- Required Core dependency: reviewed Core `beta` commit
+  `0a73cd7e982f06fc5c830e5658c201a9593f0fc3`, now pinned in
+  `requirements-bounty-core.txt`.
 
 ## Implemented contract
 
@@ -37,9 +37,8 @@ this change does not build generic vulnerability-cue routing.
   agents/test_error_store.py -q` passed after the wrapper was added and again
   after the documented global-option order and route (`--subject`) query filter
   were corrected.
-- Independent review also identified the Core free-text bearer-redaction blocker;
-  BBH remains gated on repair commit `75cbcc6` being re-reviewed and integrated
-  into Core beta.
+- Core bearer-redaction repair was independently accepted and integrated into
+  Core beta as `0a73cd7`; this branch now pins that exact immutable commit.
 - Existing broader BBH tests currently fail to collect/run in this environment
   because their subprocess fixtures clear `PYTHONPATH` while the checkout does
   not have its pinned Bounty Core dependency installed. This is tracked as
@@ -54,6 +53,6 @@ pinned package, then independently review both diffs.
 
 ## Resume point
 
-Await Core repair re-review for `75cbcc6193f5070052e30a12de214d9e2b5b1904`;
-if accepted, merge it to Core beta, pin that resulting immutable beta commit here,
-run isolated focused regression tests, then re-review and integrate BBH.
+The Core pin resolves to the accepted immutable beta commit and the focused BBH
+wrapper test passes against that exact Core source. Obtain final independent BBH
+review; if accepted, merge this clean feature into BBH `beta`, test, and push it.

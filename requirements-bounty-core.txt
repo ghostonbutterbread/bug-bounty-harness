@@ -1,4 +1,4 @@
 # Runtime dependencies for a BBH checkout. Pin Bounty Core to a reviewed immutable revision.
-bounty-core @ git+https://github.com/ghostonbutterbread/bounty-core.git@f3d02453f26a4e221632466c26742dfb55368f28
+bounty-core @ git+https://github.com/ghostonbutterbread/bounty-core.git@0a73cd7e982f06fc5c830e5658c201a9593f0fc3
 # Dispatcher-routed HTTP runners import this at module load.
 httpx>=0.28,<1

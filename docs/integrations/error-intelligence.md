@@ -53,9 +53,15 @@ review, an immutable reviewed beta ref exists, and this branch pins that exact
 ref in `requirements-bounty-core.txt`. Re-run the focused CLI test using the
 pinned package, then independently review both diffs.
 
+## Activation decision
+
+Independent re-review accepted edge-gate commit
+`d9be3f75405cbff13b59bb764e9ebe2b1dd397fd`: missing edge novelty evidence is
+rejected before storage, a supplied basis is structured/redacted, and non-edge
+records remain unaffected (`2 passed`). The feature is approved for BBH `beta`
+integration; it does not activate any runtime agent or generate network traffic.
+
 ## Resume point
 
-The Core pin resolves to the accepted immutable beta commit; focused BBH tests
-now prove routine edge input without `--novelty-basis` is rejected before writing.
-Obtain a narrow independent re-review of this edge gate; if accepted, merge this
-clean feature into BBH `beta`, test, and push it.
+Merge this clean reviewed feature into BBH `beta`, install the pinned dependency
+in an isolated temporary test environment, run the BBH suite, then push beta.

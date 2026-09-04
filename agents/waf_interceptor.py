@@ -140,6 +140,7 @@ _WAF_HEADERS = {
 # ---------------------------------------------------------------------------
 
 _CHROME_UA  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+_ANDROID_CHROME_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
 _IPHONE_UA  = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 _GOOGLEBOT  = "Googlebot/2.1 (+http://www.google.com/bot.html)"
 _BINGBOT    = "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"
@@ -148,6 +149,7 @@ WAF_BYPASSES: dict[str, list[dict[str, Any]]] = {
     "Akamai": [
         {"delay": 2},
         {"headers": {"User-Agent": _CHROME_UA}},
+        {"headers": {"User-Agent": _ANDROID_CHROME_UA}},
         {"headers": {"Accept-Encoding": "identity"}},
         {"headers": {"Pragma": "akamai-x-cache-on"}},
         {"path_case": "lower"},
@@ -763,13 +765,16 @@ class WAFInterceptor:
             return response
 
         self._stats["waf_blocks"] += 1
-        path = "/" + url.split("/", 3)[-1] if "/" in url else "/"
+        parsed = urlparse(url)
+        path = parsed.path or "/"
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
         self._log(f"[!] WAF detected: {waf['name']} ({waf['confidence']}) at {url}")
         self._write_log(
             "blocks_log.txt",
             f"WAF={waf['name']} confidence={waf['confidence']} method={method} url={url} status={response.status_code} evidence={waf['evidence']}",
         )
-        return await self._async_bypass(client, method, url, response, waf, **kwargs)
+        return await self._async_bypass(client, method, url, response, waf, path=path, **kwargs)
 
     async def _async_call(
         self,

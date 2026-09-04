@@ -7,6 +7,7 @@ Add a BBH skill that separates validation of target-disclosed login credentials 
 - Base: `beta` at `496fa9f8e7c34aa607881151ec4d824034dd5cd3`
 - Feature branch: `bug-bounty-harness/t_25f4b6b0-add-credential-exposure-validation-skill`
 - Worktree: `/home/ryushe/projects/bug_bounty_harness/.worktrees/t_25f4b6b0`
+- Implementation checkpoint: `619dcc10cb1f7dc4a96147a9489508b687f5d2a7` (`feat(skills): add credential exposure validation`)
 - Intended integration target: `beta`
 
 ## Implemented contract
@@ -26,4 +27,4 @@ Add a BBH skill that separates validation of target-disclosed login credentials 
 This branch prepares the BBH source skill. It is not active in a synced runtime until the reviewed change is integrated into `beta` and the relevant BBH skill projection is synchronized and verified in a fresh runtime.
 
 ## Next action
-Obtain independent review, address concrete findings, re-run the focused checks, then make a local feature-branch commit.
+The implementation is independently reviewed and locally committed. Await explicit integration into `beta`; before activation, integrate this feature, synchronize the BBH skill projection, and verify resolution from a fresh runtime.

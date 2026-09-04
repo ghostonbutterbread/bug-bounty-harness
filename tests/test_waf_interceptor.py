@@ -8,6 +8,7 @@ import importlib.util
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "agents" / "waf_interceptor.py"
@@ -44,7 +45,8 @@ class WAFInterceptorTests(unittest.TestCase):
             return next(responses)
 
         interceptor._sync_request = request
-        response = interceptor.get("/protected")
+        with patch.object(WAF.time, "sleep"):
+            response = interceptor.get("/protected")
 
         self.assertIs(response, CLEAN_RESPONSE)
         self.assertEqual(calls[1]["headers"]["User-Agent"], WAF._CHROME_UA)
@@ -64,11 +66,35 @@ class WAFInterceptorTests(unittest.TestCase):
                 return next(responses)
 
         client = Client()
-        response = asyncio.run(interceptor.aget("/protected", client=client))
+        with patch.object(WAF.asyncio, "sleep", new=AsyncMock()):
+            response = asyncio.run(interceptor.aget("/protected", client=client))
 
         self.assertIs(response, CLEAN_RESPONSE)
         self.assertEqual(client.calls[1]["headers"]["User-Agent"], WAF._CHROME_UA)
         self.assertEqual(client.calls[2]["headers"]["User-Agent"], WAF._ANDROID_CHROME_UA)
+        self.assertEqual(interceptor._stats["bypass_success"], 1)
+
+    def test_wrap_async_retries_original_path_and_query_with_mobile_ua(self) -> None:
+        interceptor = WAF.WAFInterceptor("https://example.test", verbose=False)
+        responses = iter([AKAMAI_BLOCK, CLEAN_RESPONSE])
+
+        class Client:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+            async def request(self, method: str, url: str, **kwargs: Any) -> FakeResponse:
+                self.calls.append((method, url, kwargs))
+                return next(responses)
+
+        client = Client()
+        blocked_url = "https://example.test/protected?mode=test"
+        with patch.object(WAF.asyncio, "sleep", new=AsyncMock()):
+            response = asyncio.run(interceptor.wrap_async(client, "GET", blocked_url, AKAMAI_BLOCK))
+
+        self.assertIs(response, CLEAN_RESPONSE)
+        self.assertEqual([call[1] for call in client.calls], [blocked_url, blocked_url])
+        self.assertEqual(client.calls[0][2]["headers"]["User-Agent"], WAF._CHROME_UA)
+        self.assertEqual(client.calls[1][2]["headers"]["User-Agent"], WAF._ANDROID_CHROME_UA)
         self.assertEqual(interceptor._stats["bypass_success"], 1)
 
 

@@ -765,13 +765,16 @@ class WAFInterceptor:
             return response
 
         self._stats["waf_blocks"] += 1
-        path = "/" + url.split("/", 3)[-1] if "/" in url else "/"
+        parsed = urlparse(url)
+        path = parsed.path or "/"
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
         self._log(f"[!] WAF detected: {waf['name']} ({waf['confidence']}) at {url}")
         self._write_log(
             "blocks_log.txt",
             f"WAF={waf['name']} confidence={waf['confidence']} method={method} url={url} status={response.status_code} evidence={waf['evidence']}",
         )
-        return await self._async_bypass(client, method, url, response, waf, **kwargs)
+        return await self._async_bypass(client, method, url, response, waf, path=path, **kwargs)
 
     async def _async_call(
         self,

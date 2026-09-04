@@ -21,8 +21,8 @@ Pending implementation. The Akamai list will retain the desktop Chrome retry and
 
 ## Evidence and review
 
-- Tests and commands: `PYTHONPATH=/home/ryushe/worktrees/bbh-akamai-mobile-ua-retry /home/ryushe/projects/bug_bounty_harness/.venv/bin/python -m unittest tests/test_waf_interceptor.py` (3 passed); `PYTHONPATH=/home/ryushe/worktrees/bbh-akamai-mobile-ua-retry /home/ryushe/projects/bug_bounty_harness/.venv/bin/python -m unittest discover -s tests -p 'test_*.py'` (75 passed)
-- Independent review: pending
+- Tests and commands: `PYTHONPATH=/home/ryushe/worktrees/bbh-akamai-mobile-ua-retry /home/ryushe/projects/bug_bounty_harness/.venv/bin/python -m unittest tests/test_waf_interceptor.py` (4 passed); `PYTHONPATH=/home/ryushe/worktrees/bbh-akamai-mobile-ua-retry /home/ryushe/projects/bug_bounty_harness/.venv/bin/python -m unittest discover -s tests -p 'test_*.py'` (76 passed)
+- Independent review: identified a high-severity `wrap_async()` retry-path defect; the branch now passes the original path and query into `_async_bypass()` and has a regression test. Re-review pending.
 - Replay/cohort/fixture evidence: deterministic local fake-response tests; no live target traffic
 - Merge/ancestry evidence: feature starts from local beta `496fa9f8e7c34aa607881151ec4d824034dd5cd3`, which was confirmed clean and four commits ahead of `origin/beta`
 
@@ -39,8 +39,8 @@ Pending implementation. The Akamai list will retain the desktop Chrome retry and
 - **Owning feature branch/ref:** `feat/akamai-mobile-ua-retry`
 - **Latest immutable recovery checkpoint:** `99eb70a1f9acda092fe76ddea5aae08ba4293075` (the current branch will also contain the following dossier-only checkpoint)
 - **Feature implementation commit(s):** `99eb70a1f9acda092fe76ddea5aae08ba4293075`
-- **Exact resume point:** receive the independent review, resolve any concrete finding, then reconcile the locally-ahead beta lane before requesting integration.
-- **Working-tree state at handoff:** clean after the dossier-only checkpoint is committed.
+- **Exact resume point:** obtain re-review of the retry-path correction, then reconcile the locally-ahead beta lane before requesting integration.
+- **Working-tree state at handoff:** clean after the corrective checkpoint is committed.
 
 ## Decision gates
 
@@ -51,3 +51,4 @@ Pending implementation. The Akamai list will retain the desktop Chrome retry and
 ## Decision record
 
 - 2026-09-03 — created feature branch from current clean local beta after fetching `origin/beta`; Hoster inspection confirmed runtime beta has an Akamai desktop-UA retry but no Android Chrome retry.
+- 2026-09-03 — independent review found `wrap_async()` retried the root rather than the blocked path; corrected path/query propagation and added a regression test before re-review.

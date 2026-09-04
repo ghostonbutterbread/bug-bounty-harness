@@ -28,11 +28,14 @@ normal BBH runtime.
   with `2 passed`, plus `agents/test_hypothesis_ledger.py` and
   `agents/test_map_store.py` with `76 passed`.
 
-## Activation boundary
+## Activation decision
 
-This is a test-only repair. It creates no runtime traffic or Error Store events.
+Independent review accepted `b1528954c66ff1f489eb6d5a628cdce877664172`.
+It verified both installed-pin resolution under a hostile inherited `PYTHONPATH`
+and explicit-source isolation; neighboring tests passed (`76 passed`). This
+repair is approved for BBH `beta` integration.
 
 ## Resume point
 
-Commit the repair, independently review its small diff, merge to BBH `beta`,
-re-run the isolated temporary-venv tests, and then push beta.
+Merge this clean reviewed repair into BBH `beta`, re-run its isolated temporary-
+venv tests, push beta, then remove this merged dossier/worktree/feature branch.

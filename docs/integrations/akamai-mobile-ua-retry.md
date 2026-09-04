@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-03
 - **Owning feature branch/ref:** `feat/akamai-mobile-ua-retry`
-- **Latest immutable recovery checkpoint:** `99eb70a1f9acda092fe76ddea5aae08ba4293075`
-- **Feature implementation commit(s):** `99eb70a1f9acda092fe76ddea5aae08ba4293075`
+- **Latest immutable recovery checkpoint:** `263b62cdad529b0abd833095421ea7b8162b73a6`
+- **Feature implementation commit(s):** `99eb70a1f9acda092fe76ddea5aae08ba4293075`, `263b62cdad529b0abd833095421ea7b8162b73a6`
 - **Inspiration / canonical references:** Hoster runtime observation of an Akamai block differential; Discord thread `1545266116836991056`; WAF Live Policy.
 
 ## Intent
@@ -22,7 +22,7 @@ Pending implementation. The Akamai list will retain the desktop Chrome retry and
 ## Evidence and review
 
 - Tests and commands: `PYTHONPATH=/home/ryushe/worktrees/bbh-akamai-mobile-ua-retry /home/ryushe/projects/bug_bounty_harness/.venv/bin/python -m unittest tests/test_waf_interceptor.py` (4 passed); `PYTHONPATH=/home/ryushe/worktrees/bbh-akamai-mobile-ua-retry /home/ryushe/projects/bug_bounty_harness/.venv/bin/python -m unittest discover -s tests -p 'test_*.py'` (76 passed)
-- Independent review: identified a high-severity `wrap_async()` retry-path defect; the branch now passes the original path and query into `_async_bypass()` and has a regression test. Re-review pending.
+- Independent review: the retry-path defect was corrected and independently re-reviewed with no unresolved runtime/code findings; the dossier checkpoint correction below addresses the review's remaining low-severity handoff finding.
 - Replay/cohort/fixture evidence: deterministic local fake-response tests; no live target traffic
 - Merge/ancestry evidence: feature starts from local beta `496fa9f8e7c34aa607881151ec4d824034dd5cd3`, which was confirmed clean and four commits ahead of `origin/beta`
 
@@ -37,10 +37,10 @@ Pending implementation. The Akamai list will retain the desktop Chrome retry and
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/akamai-mobile-ua-retry`
-- **Latest immutable recovery checkpoint:** `99eb70a1f9acda092fe76ddea5aae08ba4293075` (the current branch will also contain the following dossier-only checkpoint)
-- **Feature implementation commit(s):** `99eb70a1f9acda092fe76ddea5aae08ba4293075`
-- **Exact resume point:** obtain re-review of the retry-path correction, then reconcile the locally-ahead beta lane before requesting integration.
-- **Working-tree state at handoff:** clean after the corrective checkpoint is committed.
+- **Latest immutable recovery checkpoint:** `263b62cdad529b0abd833095421ea7b8162b73a6` (the current branch will also contain the following dossier-only checkpoint)
+- **Feature implementation commit(s):** `99eb70a1f9acda092fe76ddea5aae08ba4293075`, `263b62cdad529b0abd833095421ea7b8162b73a6`
+- **Exact resume point:** reconcile the locally-ahead beta lane before requesting integration; no code-review finding remains.
+- **Working-tree state at handoff:** clean after the dossier-only checkpoint is committed.
 
 ## Decision gates
 

@@ -5,9 +5,9 @@ description: Use when in-scope artifacts expose login credentials or a portal ne
 
 # Credential Exposure Validation
 
-Use when an in-scope URL, page source, JavaScript bundle, source map, configuration artifact, or target documentation exposes a complete login username/password pair, or when a discovered in-scope portal/admin panel needs a bounded default-admin check.
+Use when an in-scope URL, page source, JavaScript bundle, source map, configuration artifact, or target documentation exposes a complete login username/password pair. Also trigger immediately when mapping reaches an in-scope admin, claim, portal, or other privileged login panel.
 
-This skill validates target-disclosed credentials and tiny fixed default-pair sets. It does **not** run wordlists, enumerate users, permute passwords, spray accounts, or stuff third-party credential sets.
+This skill validates target-disclosed credentials and runs a capped default-admin credential campaign on discovered privileged panels. It does **not** enumerate users, permute unbounded passwords, spray an account list, or stuff third-party credential sets.
 
 ## Load Order
 
@@ -25,7 +25,7 @@ this skill; generic secret-like strings remain `/js` review signals.
 
 ## Program-rule distinction
 
-An explicit prohibition on authentication testing, disclosed-credential use, password/default-credential guessing, credential spraying, or traffic against a named panel controls this skill.
+An explicit prohibition on authentication testing, disclosed-credential use, password/default-credential guessing, credential spraying/brute force, or traffic against a named panel controls this skill. A panel-specific restriction wins over a general program allowance.
 
 A generic "do not brute force" restriction prohibits systematic searching of unknown credential space. It does not prohibit validating a complete username/password pair already exposed by the in-scope target. Respect all stated rate, CAPTCHA, lockout, and panel-specific restrictions.
 
@@ -39,13 +39,14 @@ A generic "do not brute force" restriction prohibits systematic searching of unk
 
 Do not use a disclosed pair against an out-of-scope or third-party service, derive variants, alter the username, or expand it into a general reuse campaign.
 
-### Bounded default-admin checks
+### Admin-panel default credential campaign
 
-1. For a discovered in-scope portal/admin login, prefer a product/version-matched documented default pair when page, JS, headers, or documentation identifies the product. Completion: the source of the default-pair association is recorded.
-2. If no product match exists, try no more than three conventional default/admin credential pairs appropriate to that single panel. Submit one pair at a time at the allowed normal rate. Completion: the capped set is exhausted or a stop condition occurs.
-3. Stop on success, CAPTCHA, 429, lockout, or unexpected state. Completion: no further pairs are sent after a stop condition.
+1. Trigger this check immediately for every discovered in-scope admin, claim, portal, or privileged login panel. Check the published program rules and panel-specific restrictions first. If authentication testing or default-password guessing is prohibited for the panel, make no default-credential submissions: record the restriction and stop. Completion: the panel's scope and relevant auth-testing rule are recorded.
+2. When the program does not expressly prohibit brute force or credential spraying on that panel, run a fixed campaign of at most five likely default/admin credential pairs. Every pair must be supported by product/version/panel documentation or observed in-scope target configuration evidence. Submit one pair at a time at the program's stated login rate, or the normal rate-safe baseline with backoff when the program has none. Completion: no more than five pairs are sent to that panel and each has a specific evidence rationale.
+3. When the program expressly prohibits brute force or credential spraying on that panel, do not launch the five-pair campaign. Use one to five pairs only where each username/password combination is supported by product/version/panel documentation or observed in-scope target configuration evidence. Submit one pair at a time at the program's stated login rate, or the normal rate-safe baseline with backoff when the program has none. Completion: every attempted pair has that specific evidence rationale and the cap is not exceeded.
+4. Stop on success, CAPTCHA, 429, lockout, or unexpected state. Completion: no further pairs are sent after a stop condition.
 
-A fixed set of up to three conventional default/admin pairs on one panel is a bounded default-configuration check. Loading common-password wordlists, iterating passwords, varying users across an account list, retrying through lockout signals, or distributing the same password over many accounts is brute force, spraying, or stuffing and is not part of this skill.
+A five-pair campaign against one discovered privileged panel is bounded default-admin coverage, not an unbounded password search. Do not load a generic password wordlist, vary usernames across an account list, retry through lockout signals, or distribute the same password across many accounts. Those actions are brute force, spraying, or stuffing beyond this skill's automatic panel trigger.
 
 ## Evidence and handoff
 

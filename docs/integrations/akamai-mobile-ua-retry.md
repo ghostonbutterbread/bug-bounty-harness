@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-03
 - **Owning feature branch/ref:** `feat/akamai-mobile-ua-retry`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `99eb70a1f9acda092fe76ddea5aae08ba4293075`
+- **Feature implementation commit(s):** `99eb70a1f9acda092fe76ddea5aae08ba4293075`
 - **Inspiration / canonical references:** Hoster runtime observation of an Akamai block differential; Discord thread `1545266116836991056`; WAF Live Policy.
 
 ## Intent
@@ -21,7 +21,7 @@ Pending implementation. The Akamai list will retain the desktop Chrome retry and
 
 ## Evidence and review
 
-- Tests and commands: pending
+- Tests and commands: `PYTHONPATH=/home/ryushe/worktrees/bbh-akamai-mobile-ua-retry /home/ryushe/projects/bug_bounty_harness/.venv/bin/python -m unittest tests/test_waf_interceptor.py` (3 passed); `PYTHONPATH=/home/ryushe/worktrees/bbh-akamai-mobile-ua-retry /home/ryushe/projects/bug_bounty_harness/.venv/bin/python -m unittest discover -s tests -p 'test_*.py'` (75 passed)
 - Independent review: pending
 - Replay/cohort/fixture evidence: deterministic local fake-response tests; no live target traffic
 - Merge/ancestry evidence: feature starts from local beta `496fa9f8e7c34aa607881151ec4d824034dd5cd3`, which was confirmed clean and four commits ahead of `origin/beta`
@@ -37,10 +37,10 @@ Pending implementation. The Akamai list will retain the desktop Chrome retry and
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/akamai-mobile-ua-retry`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** add the Android Chrome constant, one Akamai strategy entry, and local sync/async fixture tests.
-- **Working-tree state at handoff:** intentionally uncommitted while implementation is in progress.
+- **Latest immutable recovery checkpoint:** `99eb70a1f9acda092fe76ddea5aae08ba4293075` (the current branch will also contain the following dossier-only checkpoint)
+- **Feature implementation commit(s):** `99eb70a1f9acda092fe76ddea5aae08ba4293075`
+- **Exact resume point:** receive the independent review, resolve any concrete finding, then reconcile the locally-ahead beta lane before requesting integration.
+- **Working-tree state at handoff:** clean after the dossier-only checkpoint is committed.
 
 ## Decision gates
 

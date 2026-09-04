@@ -257,10 +257,16 @@ class TestMapStore:
     def test_write_application_behavior_is_queryable_without_becoming_an_observation(self, store: MapStore):
         store.init()
 
+        observation = store.write(
+            url="https://onlinedoctor.example/api/v2/patientmessages/",
+            surface="api",
+            body="Upload request accepts user-controlled attachment fields.\n",
+            title="attachment request contract",
+        )
         path = store.write_behavior(
             name="Online Doctor attachment processing",
             kinds=["upload", "file-transform"],
-            urls=["https://onlinedoctor.example/api/v2/patientmessages/"],
+            observation_paths=[observation.relative_to(store.maps_root).as_posix()],
             body="Client attempts HEIC conversion before upload. Server consumer is unknown.\n",
             tags=["health-data", "attachment"],
             agent="mapper",
@@ -277,14 +283,19 @@ class TestMapStore:
         assert len(behaviors) == 1
         assert behaviors[0]["id"] == "online-doctor-attachment-processing"
         assert behaviors[0]["urls"] == ["https://onlinedoctor.example/api/v2/patientmessages"]
-        assert store.query() == []
+        assert behaviors[0]["observation_paths"] == [observation.relative_to(store.maps_root).as_posix()]
+        assert store.query(url="https://onlinedoctor.example/api/v2/patientmessages") == [store.query()[0]]
 
     def test_observation_can_link_to_an_existing_application_behavior(self, store: MapStore):
         store.init()
+        source = store.write(
+            url="https://app.com/stocknotification", surface="api",
+            body="XML request body is accepted.\n", title="XML input",
+        )
         store.write_behavior(
             name="XML notification parser",
             kinds=["parser", "notification-input"],
-            urls=["https://app.com/stocknotification"],
+            observation_paths=[source.relative_to(store.maps_root).as_posix()],
             body="Unauthenticated XML request body is accepted.\n",
         )
 
@@ -304,12 +315,17 @@ class TestMapStore:
         body_file = tmp_path / "behavior.md"
         body_file.write_text("XML is accepted without authentication.\n", encoding="utf-8")
         root = str(store._layout.base_root)
+        source = store.write(
+            url="https://app.com/stocknotification", surface="api",
+            body="XML input observed.\n", title="CLI XML input",
+        )
+        source_path = source.relative_to(store.maps_root).as_posix()
         write = subprocess.run(
             [
                 sys.executable, "agents/map_store.py", "behavior", "write",
                 "--program", "testprog", "--root", root,
                 "--name", "XML notification parser", "--kind", "parser",
-                "--url", "https://app.com/stocknotification", "--body-file", str(body_file),
+                "--observation", source_path, "--body-file", str(body_file),
             ],
             cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True,
         )

@@ -17,7 +17,7 @@ Add a first-class Application Behavior layer within canonical MapStore so agents
 
 ## Implemented contract
 
-`agents/map_store.py behavior write` creates or updates a behavior stored under `recon/maps/_behaviors/` with a separate JSONL index. Every behavior requires a name, at least one kind, at least one concrete URL, and factual body content. `behavior query` filters by kind, URL, and tags. Ordinary `map_store.py write` accepts repeatable `--behavior` links and fails clearly when the named behavior does not exist. Behavior records do not enter `map.jsonl` or URL-Ingest projections.
+`agents/map_store.py behavior write` creates or updates a behavior stored under `recon/maps/_behaviors/` with a separate JSONL index. Every behavior requires a name, at least one kind, at least one existing MapStore observation path, and factual body content. Its concrete URLs are derived from the supporting URL observations. `behavior query` filters by kind, URL, and tags. Ordinary `map_store.py write` accepts repeatable `--behavior` links and fails clearly when the named behavior does not exist. Behavior records do not enter `map.jsonl` or URL-Ingest projections.
 
 ## Evidence and review
 

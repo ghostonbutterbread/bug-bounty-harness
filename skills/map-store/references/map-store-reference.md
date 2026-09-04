@@ -15,11 +15,16 @@ private Hypothesis Ledger and a bounded unresolved security question goes to
 Leads only when appropriate.
 
 ```bash
+bbh agents/map_store.py write \
+  --program canva --url "https://app.example/api/attachments" --surface api \
+  --body-file /tmp/request-observation.md
+
+# Use the printed MapStore-relative observation path as evidence for the behavior.
 bbh agents/map_store.py behavior write \
   --program canva --family web_bounty --lane web \
   --name "Attachment processing" \
   --kind upload --kind file-transform \
-  --url "https://app.example/api/attachments" \
+  --observation "api/app.example_s_api_s_attachments/request-observation/index.md" \
   --body-file /tmp/attachment-behavior.md \
   --tags "attachment,user-controlled"
 

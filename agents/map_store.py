@@ -755,19 +755,26 @@ class MapStore:
             "".join(json.dumps(entry, ensure_ascii=False) + "\n" for entry in entries),
         )
 
-    def write_behavior(self, *, name: str, kinds: list[str], urls: list[str], body: str,
+    def write_behavior(self, *, name: str, kinds: list[str], observation_paths: list[str], body: str,
                        tags: list[str] | None = None, agent: str = "ghost",
                        run_id: str | None = None) -> Path:
         """Create/update a named evidence-backed capability, not a vulnerability lead."""
         behavior_id = slugify(name, fallback="")
         normalized_kinds = list(dict.fromkeys(slugify(value) for value in kinds if value.strip()))
-        normalized_urls = list(dict.fromkeys(normalize_url(value) for value in urls if value.strip()))
+        normalized_paths = list(dict.fromkeys(value.strip() for value in observation_paths if value.strip()))
+        observation_index = {str(entry.get("path")): entry for entry in self._read_index()}
+        missing_paths = [path for path in normalized_paths if path not in observation_index]
+        if missing_paths:
+            raise ValueError("Unknown MapStore observation path(s): " + ", ".join(missing_paths))
+        normalized_urls = sorted({normalize_url(str(observation_index[path].get("url") or "")) for path in normalized_paths if observation_index[path].get("url")})
         if not behavior_id:
             raise ValueError("Application behavior name is required")
         if not normalized_kinds:
             raise ValueError("At least one application behavior kind is required")
+        if not normalized_paths:
+            raise ValueError("At least one supporting MapStore observation path is required")
         if not normalized_urls:
-            raise ValueError("At least one concrete application behavior URL is required")
+            raise ValueError("Supporting observations must include at least one concrete URL")
         if not body.strip():
             raise ValueError("Application behavior body is required")
         normalized_tags = sorted({slugify(value) for value in tags or [] if value.strip()})
@@ -776,15 +783,16 @@ class MapStore:
             path = self._maps_root / BEHAVIORS_DIR / behavior_id / OBSERVATION_FILE
             path.parent.mkdir(parents=True, exist_ok=True)
             header = [f"# {name.strip()}", "", "Record Type: application-behavior",
-                      f"Kinds: {', '.join(normalized_kinds)}", "URLs:",
+                      f"Kinds: {', '.join(normalized_kinds)}", "Observation Paths:",
+                      *[f"- {path}" for path in normalized_paths], "URLs:",
                       *[f"- {url}" for url in normalized_urls]]
             if normalized_tags:
                 header.append(f"Tags: {' '.join('#' + tag for tag in normalized_tags)}")
             header.extend([f"Agent: {agent}", f"Run: {run_id or 'manual'}", f"Updated: {timestamp}", ""])
             _atomic_write_text(path, "\n".join(header) + body.rstrip() + "\n")
             entries = [entry for entry in self._read_behavior_index() if entry.get("id") != behavior_id]
-            entries.append({"id": behavior_id, "name": name.strip(), "kinds": normalized_kinds,
-                            "urls": normalized_urls, "tags": normalized_tags,
+            entries.append({"record_type": "application_behavior", "id": behavior_id, "name": name.strip(), "kinds": normalized_kinds,
+                            "observation_paths": normalized_paths, "urls": normalized_urls, "tags": normalized_tags,
                             "path": path.relative_to(self._maps_root).as_posix(),
                             "timestamp": timestamp, "agent": agent, "run_id": run_id or ""})
             entries.sort(key=lambda entry: entry["name"].lower())
@@ -1451,7 +1459,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_common(behavior_write_p)
     behavior_write_p.add_argument("--name", required=True)
     behavior_write_p.add_argument("--kind", action="append", required=True, help="Behavior kind; repeat for multiple kinds")
-    behavior_write_p.add_argument("--url", action="append", required=True, help="Concrete behavior location; repeat for multiple URLs")
+    behavior_write_p.add_argument("--observation", action="append", required=True, help="Existing MapStore observation path that evidences the behavior; repeat for multiple")
     behavior_body = behavior_write_p.add_mutually_exclusive_group(required=True)
     behavior_body.add_argument("--body")
     behavior_body.add_argument("--body-file")
@@ -1595,7 +1603,7 @@ def _run_behavior(store: MapStore, args: argparse.Namespace) -> int:
         elif args.body_stdin:
             body = sys.stdin.read().strip()
         path = store.write_behavior(
-            name=args.name, kinds=args.kind, urls=args.url, body=body,
+            name=args.name, kinds=args.kind, observation_paths=args.observation, body=body,
             tags=[tag.strip() for tag in args.tags.split(",") if tag.strip()],
             agent=args.agent, run_id=args.run_id,
         )

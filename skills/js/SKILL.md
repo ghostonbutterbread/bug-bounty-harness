@@ -60,6 +60,8 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
    durable notes/handoffs.
 9. Send generated candidates to `/create-wordlists`, `/use-wordlists`, `/fuzz`,
    or vuln-specific skills such as `/xss`, `/ssrf`, `/sqli`, and `/idor`.
+   Route a complete exposed username/password pair with in-scope provenance to
+   `/credential-exposure-validation`; do not turn it into a wordlist candidate.
 
 ## Analysis Lenses
 

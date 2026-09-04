@@ -73,6 +73,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **create-wordlists** | `/create-wordlists {program}` | `prompts/create-wordlists-playbook.md` |
 | **use-wordlists** | `/use-wordlists {program}` | `prompts/use-wordlists-playbook.md` |
 | **js** | `/js {analyze|generate|deep|offline-fanout} {program-or-url}` | `prompts/js-playbook.md`; staged deep wrapper: `agents/js_team.py` |
+| **credential-exposure-validation** | `/credential-exposure-validation {program} {panel-or-source}` | `skills/credential-exposure-validation/SKILL.md` |
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
 | **recon-ry** | `/recon-ry {program}` | `prompts/recon-ry-playbook.md` |
 | **focused-recon** | `/focused-recon {program} [--host host] [--top N]` | `prompts/focused-recon-playbook.md` |

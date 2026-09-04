@@ -140,6 +140,7 @@ _WAF_HEADERS = {
 # ---------------------------------------------------------------------------
 
 _CHROME_UA  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+_ANDROID_CHROME_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
 _IPHONE_UA  = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 _GOOGLEBOT  = "Googlebot/2.1 (+http://www.google.com/bot.html)"
 _BINGBOT    = "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"
@@ -148,6 +149,7 @@ WAF_BYPASSES: dict[str, list[dict[str, Any]]] = {
     "Akamai": [
         {"delay": 2},
         {"headers": {"User-Agent": _CHROME_UA}},
+        {"headers": {"User-Agent": _ANDROID_CHROME_UA}},
         {"headers": {"Accept-Encoding": "identity"}},
         {"headers": {"Pragma": "akamai-x-cache-on"}},
         {"path_case": "lower"},

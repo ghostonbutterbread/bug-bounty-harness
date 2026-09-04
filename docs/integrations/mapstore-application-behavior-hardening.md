@@ -3,6 +3,7 @@
 - **Status:** verified, awaiting beta integration
 - **Owning feature branch/ref:** `fix/mapstore-application-behavior-regressions`
 - **Base beta commit:** `d3cef5f38f3cab80488306a851644eeb67cf588d`
+- **Implementation checkpoint:** `f07d361afdaee494e34e3107cea37d5e5182f79b`
 - **Intended integration target:** `beta`
 - **Context:** Follow-up requested after merging Application Behavior records to beta.
 

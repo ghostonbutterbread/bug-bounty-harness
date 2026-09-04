@@ -82,6 +82,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **caido** | `/caido {mcp-url-or-host?}` | `skills/caido/SKILL.md` |
 | **proxy-curl** | `/proxy-curl {raw-request-file}` | `prompts/proxy-curl-playbook.md` |
 | **analyze-endpoint** | `/analyze-endpoint {program} {raw-request-file}` | `prompts/analyze-endpoint-playbook.md` |
+| **api-surface-mapping** | `/api-surface-mapping {program} [--focus inventory|cross-implementation|cross-surface|contract-behavior]` | `skills/api-surface-mapping/SKILL.md` |
 | **request-exploration** | `/request-exploration {program} {request-context}` | `skills/request-exploration/SKILL.md` |
 | **intelligent-fuzzing** | `/intelligent-fuzzing {program} {endpoint-or-surface}` | `skills/intelligent-fuzzing/SKILL.md` |
 | **pwnfox** | `/pwnfox {color}` | `skills/pwnfox/SKILL.md` |

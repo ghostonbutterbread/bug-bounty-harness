@@ -64,6 +64,7 @@ Keep this skill's canonical contract shape either way.
 
 ## Handoff
 
+- API-wide inventory, cross-client/cross-surface comparison, or operation-context mapping -> `api-surface-mapping`; this skill remains the canonical selected-operation contract writer
 - Replay exact shape -> `proxy-curl` or a fresh-auth local replay from `replay.md`
 - Mutate known request fields -> `request-exploration`
 - Discover hidden fields/params -> `intelligent-fuzzing`

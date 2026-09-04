@@ -1,14 +1,14 @@
 # MapStore Application Behavior integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes
 - **Branch:** `feat/mapstore-application-behavior`
 - **Base commit:** `975bd6d433710567f9a447259a85271a3b54d9f9`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-04
 - **Owning feature branch/ref:** `feat/mapstore-application-behavior`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `1aa14fbc799ee930a04d1296b10bad793c1a0896`
+- **Feature implementation commit(s):** `1aa14fbc799ee930a04d1296b10bad793c1a0896`
 - **Inspiration / canonical references:** Discord thread `1545529965565444126`; MapStore skill and reference.
 
 ## Intent

@@ -285,6 +285,59 @@ class TestMapStore:
         assert behaviors[0]["urls"] == ["https://onlinedoctor.example/api/v2/patientmessages"]
         assert behaviors[0]["observation_paths"] == [observation.relative_to(store.maps_root).as_posix()]
         assert store.query(url="https://onlinedoctor.example/api/v2/patientmessages") == [store.query()[0]]
+        with url_ingest.get_conn(store.program, shared_base=store._layout.family_root) as conn:
+            receipts = conn.execute("SELECT evidence_path FROM test_runs ORDER BY id").fetchall()
+        assert [row["evidence_path"] for row in receipts] == [str(observation)]
+
+    def test_concurrent_behavior_writes_and_observation_links_preserve_all_records(self, store: MapStore, tmp_path: Path):
+        store.init()
+        sources = [
+            store.write(
+                url=f"https://app.com/import/{number}", surface="api",
+                body=f"XML import endpoint {number} accepts a document.\n", title=f"XML import {number}",
+            )
+            for number in ("one", "two")
+        ]
+        root = str(store._layout.base_root)
+        cwd = Path(__file__).resolve().parents[1]
+        behavior_commands = []
+        for number, source in enumerate(sources, start=1):
+            behavior_commands.append([
+                sys.executable, "agents/map_store.py", "behavior", "write",
+                "--program", "testprog", "--root", root,
+                "--name", f"XML import parser {number}", "--kind", "parser",
+                "--observation", source.relative_to(store.maps_root).as_posix(),
+                "--body", f"Parser {number} is evidenced by the cited observation.",
+            ])
+        behavior_results = [
+            process.communicate() for process in [
+                subprocess.Popen(command, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                for command in behavior_commands
+            ]
+        ]
+        assert all(not stderr for _, stderr in behavior_results), behavior_results
+        assert {entry["id"] for entry in store.query_behaviors(kind="parser")} == {
+            "xml-import-parser-1", "xml-import-parser-2",
+        }
+
+        link_commands = []
+        for number in ("one", "two"):
+            link_commands.append([
+                sys.executable, "agents/map_store.py", "write",
+                "--program", "testprog", "--root", root,
+                "--url", f"https://app.com/import/{number}/validation", "--surface", "api",
+                "--body", f"Validation observation for import {number}.",
+                "--behavior", "XML import parser 1",
+            ])
+        link_results = [
+            process.communicate() for process in [
+                subprocess.Popen(command, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                for command in link_commands
+            ]
+        ]
+        assert all(not stderr for _, stderr in link_results), link_results
+        linked = store.query(url="https://app.com/import/one/validation") + store.query(url="https://app.com/import/two/validation")
+        assert {entry["behaviors"][0] for entry in linked} == {"xml-import-parser-1"}
 
     def test_observation_can_link_to_an_existing_application_behavior(self, store: MapStore):
         store.init()

@@ -12,14 +12,18 @@ CLI = ROOT / "agents" / "error_store.py"
 
 
 def run_cli(tmp_path: Path, *args: str) -> dict:
-    core_source = os.environ.get("BOUNTY_CORE_TEST_SOURCE")
-    assert core_source, "BOUNTY_CORE_TEST_SOURCE must name the Core source under test"
+    env = os.environ.copy()
+    core_source = env.get("BOUNTY_CORE_TEST_SOURCE")
+    if core_source:
+        env["PYTHONPATH"] = core_source
+    else:
+        env.pop("PYTHONPATH", None)
     result = subprocess.run(
         [sys.executable, str(CLI), "--root", str(tmp_path), *args],
         cwd=ROOT,
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": core_source},
+        env=env,
         check=True,
     )
     return json.loads(result.stdout)
@@ -50,7 +54,12 @@ def test_record_and_dedupe_query_use_the_core_error_store(tmp_path):
 
 
 def test_edge_record_requires_a_novelty_basis_and_writes_nothing_when_rejected(tmp_path):
-    core_source = os.environ["BOUNTY_CORE_TEST_SOURCE"]
+    env = os.environ.copy()
+    core_source = env.get("BOUNTY_CORE_TEST_SOURCE")
+    if core_source:
+        env["PYTHONPATH"] = core_source
+    else:
+        env.pop("PYTHONPATH", None)
     result = subprocess.run(
         [
             sys.executable, str(CLI), "--root", str(tmp_path), "record",
@@ -63,7 +72,7 @@ def test_edge_record_requires_a_novelty_basis_and_writes_nothing_when_rejected(t
         cwd=ROOT,
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": core_source},
+        env=env,
     )
 
     assert result.returncode != 0

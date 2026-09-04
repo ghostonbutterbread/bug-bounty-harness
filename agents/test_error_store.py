@@ -28,6 +28,7 @@ def run_cli(tmp_path: Path, *args: str) -> dict:
 def test_record_and_dedupe_query_use_the_core_error_store(tmp_path):
     recorded = run_cli(
         tmp_path,
+        "--family", "web_bounty", "--lane", "web",
         "record", "--program", "ticket-signal", "--producer", "error-intelligence",
         "--subject", "https://tickets.example.test/api/tickets/1",
         "--reason", "unexpected parser failure", "--layer", "application",
@@ -36,8 +37,10 @@ def test_record_and_dedupe_query_use_the_core_error_store(tmp_path):
         "--input-location", "body.ticket_id",
     )
     dedupe = run_cli(
-        tmp_path, "query", "--program", "ticket-signal", "--intent", "dedupe",
+        tmp_path, "--family", "web_bounty", "--lane", "web",
+        "query", "--program", "ticket-signal", "--intent", "dedupe",
         "--fingerprint", "json-parser-type-error",
+        "--subject", "https://tickets.example.test/api/tickets/1",
     )
 
     assert recorded["error_id"].startswith("E-")

@@ -50,16 +50,17 @@ unredacted stack traces in Error Store fields.
 Use the selected BBH lane's dispatcher:
 
 ```bash
-bbh agents/error_store.py record --program <program> --family web_bounty --lane web \
+bbh agents/error_store.py --family web_bounty --lane web record --program <program> \
   --producer <agent-or-skill> --subject "<normalized-url-or-surface>" \
   --reason "<sanitized observed behavior>" --layer application --channel http \
   --status-or-event 500 --fingerprint "<normalized-redacted-signature>" \
   --trigger-family type --input-location "body.ticket_id"
 
-bbh agents/error_store.py query --program <program> --family web_bounty --lane web \
-  --intent events --fingerprint "<known-fingerprint>"
+bbh agents/error_store.py --family web_bounty --lane web query --program <program> \
+  --intent events --subject "<normalized-url-or-surface>" \
+  --fingerprint "<known-fingerprint>"
 
-bbh agents/error_store.py query --program <program> --family web_bounty --lane web \
+bbh agents/error_store.py --family web_bounty --lane web query --program <program> \
   --intent dedupe
 ```
 

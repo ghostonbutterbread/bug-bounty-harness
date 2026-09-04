@@ -47,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     query.add_argument("--program", required=True)
     query.add_argument("--intent", choices=VALID_QUERY_INTENTS, default="events")
     query.add_argument("--fingerprint")
+    query.add_argument("--subject")
     query.add_argument("--layer")
     query.add_argument("--channel")
     query.add_argument("--limit", type=int, default=100)
@@ -89,6 +90,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "query":
         where = {key: value for key, value in {
             "fingerprint": args.fingerprint,
+            "subject": args.subject,
             "layer": args.layer,
             "channel": args.channel,
         }.items() if value is not None}

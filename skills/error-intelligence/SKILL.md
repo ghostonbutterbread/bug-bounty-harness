@@ -25,6 +25,27 @@ service-degradation risk.
 Never put cookies, authorization values, raw private bodies, tokens, secrets, or
 unredacted stack traces in Error Store fields.
 
+## Edge and Noise Gate
+
+Do **not** record a routine CDN/WAF response just because it is an error. A
+baseline Akamai block or stock AkamaiGHost/Reference response is WAF telemetry,
+not Error Store evidence; retain it only in the WAF/block artifact path. The same
+rule applies to other known branded edge blocks, standard CAPTCHA/challenge
+pages, ordinary rate limits, and repeated identical validation errors.
+
+Record an edge/server/application/client event only when there is a documented
+**novelty basis**: it differs from the baseline or a known edge template; follows
+a single controlled request/parameter/header/state change; discloses a safe
+framework/version/service/parser/correlation detail; changes by owned role or
+workflow state; or exposes a new endpoint, consumer, or trust boundary. Keep the
+baseline and differential in the paired Attempt/artifact, and state that compact
+basis in the sanitized `reason` or `details`.
+
+If a branded edge page is materially different—for example it includes a new
+upstream error signature, origin/service disclosure, request-correlation change,
+or disappears after one controlled contract change—record the *differential*,
+not the generic Akamai page. Otherwise classify it as noise and continue safely.
+
 ## Error-Aware Exploration
 
 1. Capture the baseline: HTTP status, response shape and content type, relevant

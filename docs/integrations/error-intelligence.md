@@ -25,7 +25,9 @@ this change does not build generic vulnerability-cue routing.
   returns the bounded Core fingerprint summary.
 - `skills/error-intelligence/SKILL.md` describes default error-aware mapping,
   routes object-access questions to IDOR/BOLA rather than merging the skills,
-  and keeps Attempts/MapStore/Hypothesis/Findings responsibilities separate.
+  keeps Attempts/MapStore/Hypothesis/Findings responsibilities separate, and
+  explicitly excludes baseline Akamai/other branded edge errors from Error Store
+  unless a controlled differential provides a documented novelty basis.
 
 ## Evidence
 

@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-04
 - **Owning feature branch/ref:** `feat/mapstore-application-behavior`
-- **Latest immutable recovery checkpoint:** `1aa14fbc799ee930a04d1296b10bad793c1a0896`
-- **Feature implementation commit(s):** `1aa14fbc799ee930a04d1296b10bad793c1a0896`
+- **Latest immutable recovery checkpoint:** `f37379aeb65beed2e7b2ab562c348e2b2af22830`
+- **Feature implementation commit(s):** `1aa14fbc799ee930a04d1296b10bad793c1a0896`, `f37379aeb65beed2e7b2ab562c348e2b2af22830`
 - **Inspiration / canonical references:** Discord thread `1545529965565444126`; MapStore skill and reference.
 
 ## Intent

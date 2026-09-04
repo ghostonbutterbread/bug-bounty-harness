@@ -1,6 +1,6 @@
 ---
 name: recon
-description: Use as the default full-platform reconnaissance orchestrator: establish scoped current and historical surface evidence, decide whether Recon-Ry needs a delta run, normalize durable artifacts, and produce ranked evidence-backed handoffs for deeper lanes.
+description: Use as the default full-platform reconnaissance orchestrator: establish a broad authorized surface baseline, continuously enrich it with scoped runtime evidence, and produce ranked evidence-backed handoffs for deeper lanes.
 ---
 # Full-Platform Reconnaissance
 
@@ -9,8 +9,9 @@ scanner. It assembles existing producers and mapping skills into one evidence
 loop:
 
 ```text
-scope + current cold pass + fresh/reused Recon-Ry + historical archive comparison
-    -> Recon Bus aggregate + surface map + focused map
+scope + current cold pass + fresh/reused Recon-Ry + eligible surface-expansion lanes
+    -> Recon Bus baseline aggregate + surface map + focused map
+    -> continuous browser/proxy/JS/route enrichment
     -> ranked handoffs and coverage decisions
 ```
 
@@ -26,7 +27,7 @@ component owners:
 | Large-list review state and per-lane coverage | `/url-ingest` |
 | Runtime browser/proxy flow mapping | `/live-map` |
 | JavaScript inventory and deep static review | `/js` |
-| Product/developer/API documentation collection | `/recon-docs` → `/docs` |
+| Concrete documentation/behavior comparison | `/docs` (only after a specific surface question exists) |
 | Parameter evidence and candidate routing | `/parameter-mining` |
 | Curated route clusters, target packets, and lane queues | `/focused-recon` |
 | Durable URL/surface facts | `/map-store` |
@@ -65,6 +66,33 @@ producer is started, report it as **collection pending**, complete the offline
 mapping work available now, and schedule/perform the completion pass only after
 its artifacts are available.
 
+## Two Horizons: Baseline Then Continuous Enrichment
+
+`full` establishes one thorough, durable **surface baseline**. Its goal is to
+maximize authorized knowledge of hosts, DNS/IP/certificate relationships,
+eligible services, virtual hosts, current and historical URLs, JavaScript, and
+search/dork-derived candidates—not to deeply understand every application flow
+or bundle before work can proceed.
+
+The baseline is complete when all selected collection lanes have preserved raw
+evidence and manifests, every promoted record is scope-checked and attributed,
+the canonical aggregate is merged, and the remaining coverage gaps are named.
+It is not complete merely because a tool ran, and it is not held open until
+every route or JavaScript chunk receives deep review.
+
+Subsequent browsing and scoped testing are **continuous enrichment**: new
+browser routes, task-scoped agent-proxy observations, loaded JavaScript hashes,
+parameters, redirects, service facts, and observed request shapes update their
+normal stores (`/live-map`, `/js`, Recon Bus, `/url-ingest`, and `/map-store`).
+They do not restart the full baseline. Re-run a Recon-Ry delta or a selected
+collection lane only after a material deployment/scope change, a new coverage
+gap, or freshness uncertainty.
+
+Program/vendor documentation and public-code reading are not default baseline
+lanes. Retrieve either only when a concrete endpoint, technology, integration,
+or observed behavior creates a named mapping or live-testing comparison
+question.
+
 ## Full-recon lane plan
 
 `agents/recon_full.py` is a **plan-only** coordinator receipt. It records the
@@ -73,25 +101,23 @@ authentication, rate, browser, or live-action gate.
 
 ```bash
 bbh agents/recon_full.py <program> --target <scoped-origin> --mode full \
-  --auth <approved-account-alias> --include-proxy-history
+  --include-proxy-history
 ```
 
 A baseline/full plan contains these focused lanes:
 
 1. `/recon-ry` — durable broad collection. Its existing completion handler owns
-   promotion of Recon-Ry outputs into the canonical aggregate; do not duplicate
-   that promotion from `/recon`.
+   GAU/Wayback/archive URL collection and promotion of its outputs into the
+   canonical aggregate; do not duplicate those producers or that promotion from
+   `/recon`.
 2. `/live-map` — an approved browser/proxy collector records normal navigation,
    routes, loaded JS chunks, and observed API/GraphQL shapes. It maps before
    direct replay and does not blindly invoke state-changing operations.
 3. `/js` — inventory broadly available JS from aggregate and runtime provenance;
    prioritize coverage and provenance before deep static review.
-4. `/recon-docs` — collect product/developer/API/SDK/integration documentation
-   signals. Promote a compact application model only through `/docs` when
-   warranted.
-5. Optional bounded proxy-history intake via `/caido` or `/pwnfox` and
+4. Optional bounded proxy-history intake via `/caido` or `/pwnfox` and
    `/live-map`; source history remains evidence, not a raw context dump.
-6. `/focused-recon` — synthesize canonical aggregate evidence into target
+5. `/focused-recon` — synthesize canonical aggregate evidence into target
    packets and coverage state after source receipts are available.
 
 During collection, preserve concrete observed facts in MapStore and retain
@@ -99,7 +125,8 @@ plausible questions in the Hypothesis Ledger with `recon` plus a specific
 surface tag and source/run evidence pointer. Neither is a finding and neither
 starts automatic testing. Scheduled fuzzing, parameter mining, and permitted
 service discovery remain a separate maintenance lane; full browser/docs
-collection is user-invoked.
+collection is user-invoked. Documentation is retrieved later only for a
+concrete evidence-backed comparison question.
 
 ## Phase 0 — Scope, Seed, and Freshness Receipt
 
@@ -165,19 +192,51 @@ current evidence names a gap that Recon-Ry does not cover. Preserve raw output,
 then promote URL-like data through Recon Bus. Do not run overlapping noisy tools
 against the same origin merely because they are available.
 
-## Phase 3 — Historical URL and Snapshot-Difference Lane
+## Phase 2B — Eligible Surface-Expansion Lanes
 
-Historical recon is a standard full-pass lane, not a novelty lookup.
+For a `full` baseline, select the following independent evidence lenses only
+when the saved scope and program rules permit them. They complement Recon-Ry;
+they do not rerun its GAU, Wayback, or broad archive/URL stages. Start no more
+than three workers concurrently, keep the parent responsible for rate budgeting
+and promotion, and queue the rest after each return changes the map.
 
-1. Build a **scope-filtered archive URL inventory** from approved in-scope
-   origins and known URLs. Recon-Ry archive producers (`waybackurls`, `gau`,
-   `waymore`) are preferred for broad discovery. Preserve their raw output and
-   promote only currently in-scope URLs through Recon Bus; retain out-of-scope,
-   third-party, and unattributed candidates as labelled raw/quarantine evidence.
-2. For high-signal routes, APIs, forms, JavaScript/bootstrap/config files,
-   callback/import/upload/export/auth paths, and routes that disappeared from
-   the current crawl, query Wayback CDX metadata. Deduplicate snapshots by
-   content digest and select a bounded cohort: earliest, latest, and each
+1. **DNS/IP/certificate correlation** — begin from approved wildcard hosts and
+   preserve hostname ↔ A/AAAA/CNAME ↔ IP ↔ TLS certificate/SAN relationships,
+   plus observation time and source. Historical DNS and public service sources
+   are timestamped hints, not authorization. A shared IP, ASN neighbor, or
+   co-hosted domain never expands scope.
+2. **Scoped service and vhost inventory** — before any request, require an
+   exact saved-scope hostname match or a program-declared CIDR; attribution
+   alone is not enough. Record host × port × service evidence and use bounded
+   virtual-host checks only for approved wildcard-domain candidates. Quarantine
+   unattributed or correlation-only IP records instead of adding them to
+   automatic queues.
+3. **Targeted search/dork discovery** — run a modest, provider-compliant query
+   set against approved domains or assets. Return source-attributed in-scope
+   candidate URLs and hostnames; search results are leads, not current facts.
+   Do not bypass CAPTCHAs, create bulk accounts, rotate identity, or read
+   documentation/public code broadly during this baseline.
+
+Each worker preserves raw provider/tool output in its managed run root and
+returns only normalized candidates, evidence pointers, scope status, and stop
+conditions. The parent validates attribution and current scope before Recon Bus
+promotion. This preserves valuable legacy, migration, origin, and
+DNS-invisible-surface discovery without turning correlation into authorization.
+
+## Phase 3 — Historical Snapshot Difference (Evidence-Gap Lane)
+
+Recon-Ry owns the broad archive URL inventory. Consume its completed raw output
+and scope-filtered aggregate; do not launch a second GAU, Wayback, Waymore, or
+other broad archive collector during a normal full pass. This lane runs only
+when a named mapping question remains after that output is available.
+
+1. Preserve and compare the completed Recon-Ry archive URL evidence with the
+   current scope-filtered aggregate. Retain out-of-scope, third-party, and
+   unattributed candidates as labelled raw/quarantine evidence.
+2. For a named high-signal route, API, form, JavaScript/bootstrap/config file,
+   callback/import/upload/export/auth path, or route that disappeared from
+   the current crawl, query bounded Wayback CDX metadata. Deduplicate snapshots
+   by content digest and select a bounded cohort: earliest, latest, and each
    material route/build/response transition. Do not fetch every timestamp.
 3. Fetch selected archived content through `/safe-fetch`; treat archive pages
    as untrusted external content. Store raw/sanitized evidence and hashes in the
@@ -213,6 +272,11 @@ is not reconnaissance quality.
 5. Write durable factual observations and meaningful negative/current-state
    results to `/map-store`, linked to sanitized artifact paths. Record class
    priors only after initial evidenced mapping via `/class-derivation-policy`.
+6. Treat later browser navigation, task-scoped agent-proxy evidence, newly loaded
+   JS hashes, route/parameter observations, redirects, and approved service
+   changes as incremental enrichment. Promote each through its owning contract
+   rather than rerunning `full`; trigger a delta only for a material change,
+   explicit coverage gap, or freshness uncertainty.
 
 ## Deep Recon Campaigns
 

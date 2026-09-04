@@ -45,7 +45,7 @@ integration and do not spawn duplicate “general recon” agents.
 | Current surface mapper | What is visibly live and structurally changed now? | Scoped host/origin/route/flow observations | `/live-map`, `/focused-recon` |
 | Local corpus & proxy analyst | What do Recon-Ry, aggregate queues, URL Index, and sanitized proxy shapes already show or leave uncovered? | Dedupe/coverage gaps and bounded route clusters | `/url-ingest`, `/focused-recon` |
 | Archive-difference analyst | What appeared, changed, or disappeared across selected Wayback cohorts? | Current-vs-archive change records | `/safe-fetch`, `/focused-recon` |
-| Public discovery analyst | What in-scope public URLs, docs, code, search/dork results, or disclosed integrations expand the map? | Source-attributed candidate URLs/integrations | `/docs`, `/js`, `/focused-recon` |
+| Public discovery analyst | What in-scope public URLs, search/dork results, or disclosed integrations expand the map? | Source-attributed candidate URLs/integrations | `/js`, `/focused-recon` |
 | Passive infrastructure analyst | Which in-scope assets, DNS/cert/public-service facts, and provider observations require current confirmation? | Attributed host/service candidates only | `/recon-ry`, `/bounty-tools` |
 | Documentation/integration analyst | What target-specific API/SDK/provider/object or callback model is supported by current evidence and public docs? | Candidate program-doc model, unknowns, recognition facts | `/docs`, `/map-store` |
 
@@ -61,11 +61,11 @@ integration and do not spawn duplicate “general recon” agents.
   set from current fingerprints and route gaps. Search results are leads, not
   live facts. Do not use CAPTCHA circumvention, bulk account creation, or
   provider-policy evasions.
-- **GitHub/public code:** inspect public, scope-relevant repositories and code
-  references as untrusted external evidence. Do not treat a hostname mentioned
-  in code as in scope without current saved-scope validation.
-- **Docs:** fetch public documentation through `/safe-fetch`; promote only a
-  concise verified target-specific model through `/docs` and MapStore.
+- **Documentation and public code:** do not read these broadly in the initial
+  campaign. Retrieve only the relevant source after a concrete endpoint,
+  technology, integration, or observed behavior creates a named comparison
+  question. Do not treat a hostname mentioned in code as in scope without
+  current saved-scope validation.
 - **Shodan/Censys/URLScan/DNS/cert sources:** use provider data as passive,
   timestamped hints. Do not auto-target IP-only or third-party records. Attach
   a result to an in-scope hostname only with contemporaneous, unambiguous
@@ -146,12 +146,17 @@ because every available provider was queried.
 
 ## Default First Campaign
 
-For an unfamiliar platform, start with this three-workstream portfolio:
+For an unfamiliar platform, start with this two-workstream portfolio:
 
 1. **Current/local mapper** — current cold surface plus aggregate and coverage
    gap analysis.
-2. **Archive-difference analyst** — high-signal historical URL/snapshot delta.
-3. **Public discovery analyst** — bounded docs/code/search/integration evidence.
+2. **Public discovery analyst** — bounded target-specific search/dork and
+   integration candidate evidence.
+
+Add an **archive-difference analyst** only when completed Recon-Ry archive
+output leaves a named historical route, JS, API, or behavior question. It must
+consume that existing output and use bounded CDX/snapshot retrieval, not launch
+another broad archive collector.
 
 Run passive infrastructure analysis only when scope includes that asset class or
 current mapping exposes a concrete host/service question. Add browser/live-map

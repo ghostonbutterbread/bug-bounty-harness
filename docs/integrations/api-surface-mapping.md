@@ -13,6 +13,7 @@ owner skills for endpoint contract writing, transport, or later active testing.
 - Feature branch: `bug-bounty-harness/t_e78c77a9-implement-adaptive-api-surface-mapping-s`
 - Worktree: `/home/ryushe/projects/bug_bounty_harness/.worktrees/t_e78c77a9`
 - Base: BBH `beta` at `6dea5c2`
+- Implementation checkpoint: `716613a9f7f56bb7163c3eb9e63a46226900c7fa`
 - Intended integration target: `beta`
 - Related policy-lane change: add a narrow router row on AI Policies
   `beta/grant-policies`; it is a separate repository commit.

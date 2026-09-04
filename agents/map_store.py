@@ -93,6 +93,7 @@ from agents.storage_resolver import resolve_storage  # noqa: E402
 
 MAP_DIRNAME = "maps"
 MAP_INDEX = "map.jsonl"
+BEHAVIOR_INDEX = "application_behaviors.jsonl"
 LOCK_FILE = ".mapstore.lock"
 APP_SCOPE = "app"
 SURFACE_SCOPE = "surface"
@@ -153,6 +154,7 @@ OLD_LEAD_SOURCES = {
 }
 CROSSREF_DIR = "_crossref"
 APP_DIR = "_app"
+BEHAVIORS_DIR = "_behaviors"
 SURFACE_INDEX_DIR = "_surface"
 OBSERVATION_FILE = "index.md"
 
@@ -571,6 +573,10 @@ class MapStore:
         return self._maps_root / MAP_INDEX
 
     @property
+    def behavior_index_path(self) -> Path:
+        return self._maps_root / BEHAVIOR_INDEX
+
+    @property
     def lock_path(self) -> Path:
         return self._maps_root / LOCK_FILE
 
@@ -607,6 +613,16 @@ class MapStore:
             # Index file
             if not self.index_path.exists():
                 _atomic_write_text(self.index_path, "")
+            (self._maps_root / BEHAVIORS_DIR).mkdir(parents=True, exist_ok=True)
+            if not self.behavior_index_path.exists():
+                _atomic_write_text(self.behavior_index_path, "")
+            behavior_pointer = self._maps_root / BEHAVIORS_DIR / OBSERVATION_FILE
+            if not behavior_pointer.exists():
+                _atomic_write_text(
+                    behavior_pointer,
+                    f"# Application Behaviors: {self._program}\n\n"
+                    "Named, evidence-backed capabilities; not vulnerability leads.\n",
+                )
             # Crossref dir
             (self._maps_root / CROSSREF_DIR).mkdir(parents=True, exist_ok=True)
         return self._maps_root
@@ -718,6 +734,85 @@ class MapStore:
             lines.append("(none yet)")
         _atomic_write_text(directory / OBSERVATION_FILE, "\n".join(lines).rstrip() + "\n")
 
+    # -- application behaviors ----------------------------------------------
+
+    def _read_behavior_index(self) -> list[dict]:
+        if not self.behavior_index_path.exists():
+            return []
+        entries: list[dict] = []
+        for line in self.behavior_index_path.read_text(encoding="utf-8").splitlines():
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(entry, dict):
+                entries.append(entry)
+        return entries
+
+    def _write_behavior_index(self, entries: list[dict]) -> None:
+        _atomic_write_text(
+            self.behavior_index_path,
+            "".join(json.dumps(entry, ensure_ascii=False) + "\n" for entry in entries),
+        )
+
+    def write_behavior(self, *, name: str, kinds: list[str], urls: list[str], body: str,
+                       tags: list[str] | None = None, agent: str = "ghost",
+                       run_id: str | None = None) -> Path:
+        """Create/update a named evidence-backed capability, not a vulnerability lead."""
+        behavior_id = slugify(name, fallback="")
+        normalized_kinds = list(dict.fromkeys(slugify(value) for value in kinds if value.strip()))
+        normalized_urls = list(dict.fromkeys(normalize_url(value) for value in urls if value.strip()))
+        if not behavior_id:
+            raise ValueError("Application behavior name is required")
+        if not normalized_kinds:
+            raise ValueError("At least one application behavior kind is required")
+        if not normalized_urls:
+            raise ValueError("At least one concrete application behavior URL is required")
+        if not body.strip():
+            raise ValueError("Application behavior body is required")
+        normalized_tags = sorted({slugify(value) for value in tags or [] if value.strip()})
+        timestamp = iso_now()
+        with self._locked():
+            path = self._maps_root / BEHAVIORS_DIR / behavior_id / OBSERVATION_FILE
+            path.parent.mkdir(parents=True, exist_ok=True)
+            header = [f"# {name.strip()}", "", "Record Type: application-behavior",
+                      f"Kinds: {', '.join(normalized_kinds)}", "URLs:",
+                      *[f"- {url}" for url in normalized_urls]]
+            if normalized_tags:
+                header.append(f"Tags: {' '.join('#' + tag for tag in normalized_tags)}")
+            header.extend([f"Agent: {agent}", f"Run: {run_id or 'manual'}", f"Updated: {timestamp}", ""])
+            _atomic_write_text(path, "\n".join(header) + body.rstrip() + "\n")
+            entries = [entry for entry in self._read_behavior_index() if entry.get("id") != behavior_id]
+            entries.append({"id": behavior_id, "name": name.strip(), "kinds": normalized_kinds,
+                            "urls": normalized_urls, "tags": normalized_tags,
+                            "path": path.relative_to(self._maps_root).as_posix(),
+                            "timestamp": timestamp, "agent": agent, "run_id": run_id or ""})
+            entries.sort(key=lambda entry: entry["name"].lower())
+            self._write_behavior_index(entries)
+            lines = [f"# Application Behaviors: {self._program}", "", "Named, evidence-backed capabilities; not vulnerability leads.", "", "## Behaviors"]
+            lines.extend(f"- [{entry['name']}]({entry['id']}/{OBSERVATION_FILE}) — {', '.join(entry['kinds'])}" for entry in entries)
+            _atomic_write_text(self._maps_root / BEHAVIORS_DIR / OBSERVATION_FILE, "\n".join(lines) + "\n")
+        return path
+
+    def query_behaviors(self, *, kind: str | None = None, url: str | None = None,
+                        tags: list[str] | None = None, limit: int | None = None) -> list[dict]:
+        required_tags = {slugify(value) for value in tags or [] if value}
+        normalized_kind = slugify(kind) if kind else ""
+        normalized_url = normalize_url(url) if url else ""
+        results = [entry for entry in self._read_behavior_index()
+                   if (not normalized_kind or normalized_kind in entry.get("kinds", []))
+                   and (not normalized_url or normalized_url in entry.get("urls", []))
+                   and required_tags.issubset(set(entry.get("tags", [])))]
+        return results[:limit] if limit is not None and limit >= 0 else results
+
+    def _behavior_ids(self, values: list[str]) -> list[str]:
+        requested = sorted({slugify(value) for value in values if value.strip()})
+        known = {str(entry.get("id")) for entry in self._read_behavior_index()}
+        missing = [value for value in requested if value not in known]
+        if missing:
+            raise ValueError("Unknown application behavior ID(s): " + ", ".join(missing) + ". Create them first with `map_store.py behavior write`.")
+        return requested
+
     # -- write observation ---------------------------------------------------
 
     def write(
@@ -733,6 +828,7 @@ class MapStore:
         run_id: str | None = None,
         title: str = "",
         status: str = ACTIVE_STATUS,
+        behaviors: list[str] | None = None,
     ) -> Path:
         """Write a surface observation and index it.
 
@@ -757,6 +853,7 @@ class MapStore:
 
         tags = tags or []
         crossfamily = crossfamily or []
+        behaviors = self._behavior_ids(behaviors or [])
         status = normalize_status(status)
 
         with self._locked():
@@ -771,6 +868,7 @@ class MapStore:
                 run_id=run_id,
                 title=title,
                 status=status,
+                behaviors=behaviors,
             )
         self._sync_url_coverage(
             url=url,
@@ -865,6 +963,7 @@ class MapStore:
         run_id: str | None,
         title: str,
         status: str,
+        behaviors: list[str],
     ) -> Path:
         # Determine file path
         if scope == APP_SCOPE:
@@ -911,6 +1010,8 @@ class MapStore:
             header.append(f"URL: {url}")
         if tags:
             header.append(f"Tags: {' '.join('#' + t for t in tags)}")
+        if behaviors:
+            header.append(f"Application Behaviors: {', '.join(behaviors)}")
         header.extend([
             f"Agent: {agent}",
             f"Run: {run_id or 'manual'}",
@@ -936,6 +1037,7 @@ class MapStore:
             "status_updated": timestamp,
             "status_agent": agent,
             "status_reason": "initial write",
+            "behaviors": behaviors,
         }
         self._upsert_entry(entry)
         self._refresh_pointer_index(
@@ -1342,6 +1444,29 @@ def _build_parser() -> argparse.ArgumentParser:
         p.add_argument("--lane", default="web")
         p.add_argument("--root", default=None)
 
+    # application behavior map layer
+    behavior_p = sub.add_parser("behavior", help="Create or query named application behaviors")
+    behavior_sub = behavior_p.add_subparsers(dest="behavior_command", required=True)
+    behavior_write_p = behavior_sub.add_parser("write", help="Create or update a named application behavior")
+    _add_common(behavior_write_p)
+    behavior_write_p.add_argument("--name", required=True)
+    behavior_write_p.add_argument("--kind", action="append", required=True, help="Behavior kind; repeat for multiple kinds")
+    behavior_write_p.add_argument("--url", action="append", required=True, help="Concrete behavior location; repeat for multiple URLs")
+    behavior_body = behavior_write_p.add_mutually_exclusive_group(required=True)
+    behavior_body.add_argument("--body")
+    behavior_body.add_argument("--body-file")
+    behavior_body.add_argument("--body-stdin", action="store_true")
+    behavior_write_p.add_argument("--tags", default="")
+    behavior_write_p.add_argument("--agent", default="ghost")
+    behavior_write_p.add_argument("--run-id", default=None)
+    behavior_query_p = behavior_sub.add_parser("query", help="Query named application behaviors")
+    _add_common(behavior_query_p)
+    behavior_query_p.add_argument("--kind", default=None)
+    behavior_query_p.add_argument("--url", default=None)
+    behavior_query_p.add_argument("--tags", default="")
+    behavior_query_p.add_argument("--limit", type=int, default=None)
+    behavior_query_p.add_argument("--json", action="store_true")
+
     # init
     init_p = sub.add_parser("init", help="Create maps directory structure")
     _add_common(init_p)
@@ -1357,6 +1482,7 @@ def _build_parser() -> argparse.ArgumentParser:
     body_group.add_argument("--body-stdin", action="store_true", help="Read Markdown observation content from stdin")
     write_p.add_argument("--scope", default=URL_SCOPE, choices=sorted(VALID_SCOPES))
     write_p.add_argument("--tags", default="", help="Comma-separated tags")
+    write_p.add_argument("--behavior", action="append", default=[], help="Existing application behavior name/ID to link; repeat for multiple")
     write_p.add_argument("--crossfamily", default="", help="Comma-separated family/program/lane refs")
     write_p.add_argument("--agent", default="ghost")
     write_p.add_argument("--run-id", default=None)
@@ -1455,8 +1581,40 @@ def _run_write(store: MapStore, args: argparse.Namespace) -> int:
         run_id=args.run_id,
         title=args.title,
         status=args.status,
+        behaviors=args.behavior,
     )
     print(str(path))
+    return 0
+
+
+def _run_behavior(store: MapStore, args: argparse.Namespace) -> int:
+    if args.behavior_command == "write":
+        body = args.body
+        if args.body_file:
+            body = Path(args.body_file).read_text(encoding="utf-8").strip()
+        elif args.body_stdin:
+            body = sys.stdin.read().strip()
+        path = store.write_behavior(
+            name=args.name, kinds=args.kind, urls=args.url, body=body,
+            tags=[tag.strip() for tag in args.tags.split(",") if tag.strip()],
+            agent=args.agent, run_id=args.run_id,
+        )
+        print(path)
+        return 0
+    entries = store.query_behaviors(
+        kind=args.kind, url=args.url,
+        tags=[tag.strip() for tag in args.tags.split(",") if tag.strip()],
+        limit=args.limit,
+    )
+    if args.json:
+        print(json.dumps(entries, indent=2))
+    elif not entries:
+        print("(no application behaviors found)")
+    else:
+        for entry in entries:
+            print(f"{entry['name']} | {', '.join(entry['kinds'])}")
+            print(f"  URLs: {', '.join(entry['urls'])}")
+            print(f"  Path: {entry['path']}")
     return 0
 
 
@@ -1782,6 +1940,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "init":
         return _run_init(store)
+    elif args.command == "behavior":
+        return _run_behavior(store, args)
     elif args.command == "write":
         return _run_write(store, args)
     elif args.command == "query":

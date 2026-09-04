@@ -1,6 +1,6 @@
 # MapStore Application Behavior integration dossier
 
-- **Status:** review-ready
+- **Status:** feature
 - **Owner:** Hermes
 - **Branch:** `feat/mapstore-application-behavior`
 - **Base commit:** `975bd6d433710567f9a447259a85271a3b54d9f9`

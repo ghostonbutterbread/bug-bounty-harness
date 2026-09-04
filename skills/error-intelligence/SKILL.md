@@ -44,7 +44,9 @@ basis in the sanitized `reason` or `details`.
 If a branded edge page is materially different—for example it includes a new
 upstream error signature, origin/service disclosure, request-correlation change,
 or disappears after one controlled contract change—record the *differential*,
-not the generic Akamai page. Otherwise classify it as noise and continue safely.
+not the generic Akamai page. The CLI enforces `--novelty-basis` for every `edge`
+record and persists that basis with the event; without it, nothing is written.
+Otherwise classify it as noise and continue safely.
 
 ## Error-Aware Exploration
 
@@ -76,6 +78,13 @@ bbh agents/error_store.py --family web_bounty --lane web record --program <progr
   --reason "<sanitized observed behavior>" --layer application --channel http \
   --status-or-event 500 --fingerprint "<normalized-redacted-signature>" \
   --trigger-family type --input-location "body.ticket_id"
+
+# Edge events require a compact controlled differential/disclosure basis.
+bbh agents/error_store.py --family web_bounty --lane web record --program <program> \
+  --producer <agent-or-skill> --subject "<normalized-url-or-surface>" \
+  --reason "<sanitized differential>" --layer edge --channel http \
+  --status-or-event 502 --fingerprint "<normalized-signature>" \
+  --trigger-family contract --novelty-basis "new upstream service header after null input"
 
 bbh agents/error_store.py --family web_bounty --lane web query --program <program> \
   --intent events --subject "<normalized-url-or-surface>" \

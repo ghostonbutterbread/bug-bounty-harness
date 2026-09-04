@@ -36,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--status-or-event", required=True)
     record.add_argument("--fingerprint", required=True)
     record.add_argument("--trigger-family", required=True)
+    record.add_argument("--novelty-basis", help="Required for edge events; state the controlled differential or disclosure")
     record.add_argument("--input-location")
     record.add_argument("--actor-context", default="unknown")
     record.add_argument("--reproducibility", default="observed-once")
@@ -71,6 +72,12 @@ def _details(value: str) -> dict[str, Any]:
 def run(args: argparse.Namespace) -> dict[str, Any]:
     store = _store(args)
     if args.command == "record":
+        details = _details(args.details_json)
+        if args.layer.lower() == "edge":
+            novelty_basis = str(args.novelty_basis or "").strip()
+            if not novelty_basis:
+                raise ValueError("--novelty-basis is required for edge events; record routine branded/WAF responses as WAF telemetry")
+            details["novelty_basis"] = novelty_basis
         return store.record(
             producer=args.producer,
             subject=args.subject,
@@ -85,7 +92,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             reproducibility=args.reproducibility,
             attempt_ref=args.attempt_ref,
             artifact_ref=args.artifact_ref,
-            details=_details(args.details_json),
+            details=details,
         )
     if args.command == "query":
         where = {key: value for key, value in {

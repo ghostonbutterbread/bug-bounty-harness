@@ -20,7 +20,9 @@ this change does not build generic vulnerability-cue routing.
 
 - `agents/error_store.py` follows BBH's global `--root`, `--family`, and
   `--lane` pattern and exposes `record` and bounded `query` commands.
-- `record` forwards only structured, redaction-enforced Error Store fields.
+- `record` forwards only structured, redaction-enforced Error Store fields;
+  `--layer edge` additionally requires a persisted `--novelty-basis`, so routine
+  branded/WAF templates are rejected before any event is written.
 - `query --intent events` returns events; `query --intent dedupe` additionally
   returns the bounded Core fingerprint summary.
 - `skills/error-intelligence/SKILL.md` describes default error-aware mapping,
@@ -53,6 +55,7 @@ pinned package, then independently review both diffs.
 
 ## Resume point
 
-The Core pin resolves to the accepted immutable beta commit and the focused BBH
-wrapper test passes against that exact Core source. Obtain final independent BBH
-review; if accepted, merge this clean feature into BBH `beta`, test, and push it.
+The Core pin resolves to the accepted immutable beta commit; focused BBH tests
+now prove routine edge input without `--novelty-basis` is rejected before writing.
+Obtain a narrow independent re-review of this edge gate; if accepted, merge this
+clean feature into BBH `beta`, test, and push it.

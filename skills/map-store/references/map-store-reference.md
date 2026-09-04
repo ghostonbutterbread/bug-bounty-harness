@@ -1,5 +1,51 @@
 # MapStore Reference
 
+## Application Behaviors
+
+Application Behaviors are the named capability layer inside MapStore. They record
+what the target **has**—for example an XML parser, attachment pipeline, document
+renderer, URL fetcher, or template renderer—and the concrete locations where it
+was observed. They are not vulnerability claims, lead lifecycle records, or a
+replacement for URL observations.
+
+Create or update a behavior as soon as a mapper sees an evidence-backed,
+user-influenceable capability. Keep the body factual: observed transforms,
+consumers, controls, and unknowns belong there; exploit rationale stays in the
+private Hypothesis Ledger and a bounded unresolved security question goes to
+Leads only when appropriate.
+
+```bash
+bbh agents/map_store.py write \
+  --program canva --url "https://app.example/api/attachments" --surface api \
+  --body-file /tmp/request-observation.md
+
+# Use the printed MapStore-relative observation path as evidence for the behavior.
+bbh agents/map_store.py behavior write \
+  --program canva --family web_bounty --lane web \
+  --name "Attachment processing" \
+  --kind upload --kind file-transform \
+  --observation "api/app.example_s_api_s_attachments/request-observation/index.md" \
+  --body-file /tmp/attachment-behavior.md \
+  --tags "attachment,user-controlled"
+
+bbh agents/map_store.py behavior query \
+  --program canva --family web_bounty --lane web --kind upload
+```
+
+Link ordinary URL observations to their behavior with `--behavior`; the name is
+normalized to the behavior ID and must already exist:
+
+```bash
+bbh agents/map_store.py write \
+  --program canva --url "https://app.example/api/attachments" --surface api \
+  --behavior "Attachment processing" --body-file /tmp/request-observation.md
+```
+
+Behavior records are stored separately under `recon/maps/_behaviors/` with their
+own index, so a behavior cannot accidentally be presented as an active security
+lead or projected into URL-review coverage. The canonical MapStore still owns
+both record types.
+
 ## Scope Levels
 
 | Scope | Use | Visible to |

@@ -43,7 +43,10 @@ and a non-secret MapStore evidence pointer. Put the hunt narrative in
 `/bounty-notes` only when it affects a handoff or decision.
 
 Rule of thumb: if an agent would want it while standing at a specific URL,
-domain, app surface, role, or defense, write it to MapStore.
+domain, app surface, role, or defense, write it to MapStore. When that fact
+establishes a named, user-influenceable application capability—such as a parser,
+upload pipeline, renderer, fetcher, or transform—also create/update the linked
+Application Behavior record. It is a factual capability map, not a lead.
 
 ## Live Agent Flow
 

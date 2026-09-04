@@ -254,6 +254,102 @@ class TestMapStore:
             ).fetchall()
         assert [tuple(row) for row in rows] == [("recon", "map-store", "observation-sync")]
 
+    def test_write_application_behavior_is_queryable_without_becoming_an_observation(self, store: MapStore):
+        store.init()
+
+        observation = store.write(
+            url="https://onlinedoctor.example/api/v2/patientmessages/",
+            surface="api",
+            body="Upload request accepts user-controlled attachment fields.\n",
+            title="attachment request contract",
+        )
+        path = store.write_behavior(
+            name="Online Doctor attachment processing",
+            kinds=["upload", "file-transform"],
+            observation_paths=[observation.relative_to(store.maps_root).as_posix()],
+            body="Client attempts HEIC conversion before upload. Server consumer is unknown.\n",
+            tags=["health-data", "attachment"],
+            agent="mapper",
+            run_id="mapping-1",
+        )
+
+        assert path == store.maps_root / "_behaviors" / "online-doctor-attachment-processing" / "index.md"
+        content = path.read_text(encoding="utf-8")
+        assert "# Online Doctor attachment processing" in content
+        assert "Kinds: upload, file-transform" in content
+        assert "https://onlinedoctor.example/api/v2/patientmessages" in content
+
+        behaviors = store.query_behaviors(kind="upload")
+        assert len(behaviors) == 1
+        assert behaviors[0]["id"] == "online-doctor-attachment-processing"
+        assert behaviors[0]["urls"] == ["https://onlinedoctor.example/api/v2/patientmessages"]
+        assert behaviors[0]["observation_paths"] == [observation.relative_to(store.maps_root).as_posix()]
+        assert store.query(url="https://onlinedoctor.example/api/v2/patientmessages") == [store.query()[0]]
+
+    def test_observation_can_link_to_an_existing_application_behavior(self, store: MapStore):
+        store.init()
+        source = store.write(
+            url="https://app.com/stocknotification", surface="api",
+            body="XML request body is accepted.\n", title="XML input",
+        )
+        store.write_behavior(
+            name="XML notification parser",
+            kinds=["parser", "notification-input"],
+            observation_paths=[source.relative_to(store.maps_root).as_posix()],
+            body="Unauthenticated XML request body is accepted.\n",
+        )
+
+        path = store.write(
+            url="https://app.com/stocknotification",
+            surface="api",
+            body="DOCTYPE behavior has not been characterized.\n",
+            title="XML request acceptance",
+            behaviors=["XML notification parser"],
+        )
+
+        entry = store.query(url="https://app.com/stocknotification")[0]
+        assert entry["behaviors"] == ["xml-notification-parser"]
+        assert "Application Behaviors: xml-notification-parser" in path.read_text(encoding="utf-8")
+
+    def test_cli_behavior_write_and_query(self, store: MapStore, tmp_path: Path):
+        body_file = tmp_path / "behavior.md"
+        body_file.write_text("XML is accepted without authentication.\n", encoding="utf-8")
+        root = str(store._layout.base_root)
+        source = store.write(
+            url="https://app.com/stocknotification", surface="api",
+            body="XML input observed.\n", title="CLI XML input",
+        )
+        source_path = source.relative_to(store.maps_root).as_posix()
+        write = subprocess.run(
+            [
+                sys.executable, "agents/map_store.py", "behavior", "write",
+                "--program", "testprog", "--root", root,
+                "--name", "XML notification parser", "--kind", "parser",
+                "--observation", source_path, "--body-file", str(body_file),
+            ],
+            cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True,
+        )
+        assert write.returncode == 0, write.stderr
+        query = subprocess.run(
+            [
+                sys.executable, "agents/map_store.py", "behavior", "query",
+                "--program", "testprog", "--root", root, "--kind", "parser", "--json",
+            ],
+            cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True,
+        )
+        assert query.returncode == 0, query.stderr
+        assert json.loads(query.stdout)[0]["id"] == "xml-notification-parser"
+        observation = subprocess.run(
+            [
+                sys.executable, "agents/map_store.py", "write", "--program", "testprog", "--root", root,
+                "--url", "https://app.com/stocknotification", "--surface", "api", "--body", "XML accepted.",
+                "--behavior", "XML notification parser",
+            ],
+            cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True,
+        )
+        assert observation.returncode == 0, observation.stderr
+        assert store.query(url="https://app.com/stocknotification")[0]["behaviors"] == ["xml-notification-parser"]
+
     def test_write_app_scope(self, store: MapStore):
         store.init()
         path = store.write(

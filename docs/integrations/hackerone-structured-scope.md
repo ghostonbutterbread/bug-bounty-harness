@@ -1,0 +1,25 @@
+# HackerOne structured-scope integration
+
+- **Feature branch:** `fix/hackerone-structured-scope`
+- **Base:** `origin/beta` at `dca21228fe895038efcd1df4c7cf6064f5d4d400`
+- **Target:** `beta`
+- **Intent:** Replace HackerOne's client-rendered-page regex with its public structured-scope GraphQL response, preventing silently empty scopes and prose-derived campaign allow-lists.
+
+## Contract
+
+- Read a HackerOne team's public structured scopes, policy text, submission state, and bounty status from `https://hackerone.com/graphql`.
+- Include only submission-eligible network-shaped hosts/URLs in `in-scope.txt`; retain all structured assets in `assets.json` and excluded assets separately.
+- Refuse to overwrite scope files with zero network assets.
+- Prefer canonical pulled scope files over `scope.md` prose when deriving `ProgramConfig.scope_domains`.
+
+## Evidence
+
+- Focused regression suite: `PYTHONPATH="$PWD" python3 -m pytest agents/test_scope_puller_seed_files.py -q` — 5 passed.
+- Syntax and whitespace: `python3 -m py_compile agents/scope_puller.py program_config.py`; `git diff --check` — passed.
+- Public read-only smoke: Snapchat structured scope returned 32 domains, 1 URL, 6 excluded assets, and 4 asset groups. No scope files were written.
+
+## Review and activation
+
+- Independent review is pending before merge.
+- After review, merge into clean current `beta`, push from the beta worktree, then fast-forward the actual Hoster runtime checkout only after preserving/handling any dirty runtime state and run the focused no-side-effect smoke there.
+- No main promotion or runtime activation beyond that explicit Hoster validation is in scope.

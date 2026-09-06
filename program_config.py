@@ -19,8 +19,10 @@ import re
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlparse
 
 BASE_DIR = Path.home() / "Shared" / "web_bounty"
+SCOPES_DIR = Path.home() / "Shared" / "scopes"
 
 
 @dataclass
@@ -70,7 +72,33 @@ class ProgramConfig:
         if scope_md_path.exists():
             cfg = _parse_scope_md(scope_md_path, cfg)
 
+        authoritative = _load_in_scope_domains(safe)
+        if authoritative:
+            cfg.scope_domains = authoritative
+
         return cfg
+
+
+def _load_in_scope_domains(program: str) -> list[str]:
+    """Read a pulled platform scope before falling back to prose extraction."""
+    for path in (
+        SCOPES_DIR / program / "in-scope.txt",
+        BASE_DIR / program / "web" / "scope" / "in-scope.txt",
+    ):
+        if not path.exists():
+            continue
+        domains = []
+        for line in path.read_text().splitlines():
+            value = line.strip()
+            if not value or value.startswith("#"):
+                continue
+            if value.startswith(("http://", "https://")):
+                value = urlparse(value).hostname or ""
+            if value and value not in domains:
+                domains.append(value)
+        if domains:
+            return sorted(domains)
+    return []
 
 
 def _parse_rate_limit_conf(path: Path, cfg: "ProgramConfig") -> "ProgramConfig":

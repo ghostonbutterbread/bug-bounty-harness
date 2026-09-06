@@ -101,6 +101,17 @@ def canonical_program_slug(program: str) -> str:
     return parsed.netloc.replace(".", "-")
 
 
+def hackerone_handle(program: str) -> str:
+    """Extract a HackerOne team handle from a handle, shorthand, or URL."""
+    value = program.strip()
+    if not value.startswith("http"):
+        return value.strip("/").split("/")[-1]
+    parts = [part for part in urlparse(value).path.split("/") if part]
+    if not parts:
+        raise RuntimeError(f"Cannot determine HackerOne handle from: {program}")
+    return parts[0]
+
+
 def write_if_changed(path: Path, content: str) -> bool:
     """Write a text file only when content changed."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -158,26 +169,128 @@ def build_rules_profile(
     }
 
 
-def parse_hackerone_scope(html_content: str) -> dict:
-    """Parse scope from HackerOne page."""
-    domains = set()
-    urls = set()
-    
-    # Look for domain patterns in JSON/JS
-    domain_pattern = r'"domain":"([^"]+)"'
-    for match in re.finditer(domain_pattern, html_content):
-        domain = match.group(1)
-        if domain.startswith("*."):
-            domains.add(domain)
-        elif "." in domain:
-            domains.add(domain)
-    
-    # Look for URL patterns
-    url_pattern = r'"url":"(https?://[^"]+)"'
-    for match in re.finditer(url_pattern, html_content):
-        urls.add(match.group(1))
-    
-    return {"domains": domains, "urls": urls}
+HACKERONE_GRAPHQL = "https://hackerone.com/graphql"
+
+H1_TEAM_QUERY = """query TeamScope($handle: String!) {
+  team(handle: $handle) {
+    handle
+    policy
+    submission_state
+    offers_bounties
+    structured_scopes(first: 500, archived: false) {
+      edges {
+        node {
+          asset_type
+          asset_identifier
+          eligible_for_bounty
+          eligible_for_submission
+          instruction
+          max_severity
+        }
+      }
+    }
+  }
+}"""
+
+H1_ASSET_CATEGORY = {
+    "URL": "url", "WILDCARD": "wildcard", "CIDR": "cidr",
+    "GOOGLE_PLAY_APP_ID": "android", "OTHER_APK": "android",
+    "APPLE_STORE_APP_ID": "ios", "TESTFLIGHT": "ios",
+    "SOURCE_CODE": "source_code", "DOWNLOADABLE_EXECUTABLES": "executable",
+    "WINDOWS_APP_STORE_APP_ID": "executable", "HARDWARE": "hardware",
+    "AI_MODEL": "ai_model", "SMART_CONTRACT": "smart_contract", "OTHER": "other",
+}
+
+H1_NON_NETWORK_ASSET_TYPES = {
+    "GOOGLE_PLAY_APP_ID", "OTHER_APK", "APPLE_STORE_APP_ID", "TESTFLIGHT",
+    "WINDOWS_APP_STORE_APP_ID", "DOWNLOADABLE_EXECUTABLES", "HARDWARE",
+    "AI_MODEL", "SMART_CONTRACT", "CIDR",
+}
+
+
+def fetch_hackerone_team(handle: str) -> dict:
+    """Fetch the public HackerOne policy and structured scope for one team."""
+    payload = json.dumps({
+        "operationName": "TeamScope",
+        "variables": {"handle": handle},
+        "query": H1_TEAM_QUERY,
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        HACKERONE_GRAPHQL,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (compatible; ScopePuller/1.0)",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        body = json.loads(response.read().decode("utf-8"))
+    errors = body.get("errors") or []
+    if errors:
+        first = errors[0]
+        message = first.get("message", str(first)) if isinstance(first, dict) else str(first)
+        raise RuntimeError(f"HackerOne GraphQL error: {message}")
+    team = (body.get("data") or {}).get("team")
+    if not team:
+        raise RuntimeError(f"HackerOne program '{handle}' was not found or is not public")
+    return team
+
+
+def add_hackerone_target_to_scope(
+    domains: set[str], urls: set[str], *, asset_type: str, identifier: str,
+) -> None:
+    """Add a network-shaped HackerOne asset without treating prose as scope."""
+    value = (identifier or "").strip()
+    if not value or asset_type in H1_NON_NETWORK_ASSET_TYPES:
+        return
+    parsed = urlparse(value)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        host = parsed.hostname or ""
+        if "*" in host:
+            domains.add(host)
+        else:
+            urls.add(value)
+        return
+    if re.fullmatch(r"(?:\*\.)?[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+", value):
+        domains.add(value.lower())
+
+
+def parse_hackerone_scope(team: dict) -> dict:
+    """Normalize a HackerOne structured-scope payload into BBH scope data."""
+    domains: set[str] = set()
+    urls: set[str] = set()
+    groups: dict[str, list[dict]] = {}
+    out_of_scope: list[dict] = []
+    for edge in ((team.get("structured_scopes") or {}).get("edges") or []):
+        node = edge.get("node") or {}
+        asset_type = node.get("asset_type") or "OTHER"
+        identifier = node.get("asset_identifier") or ""
+        in_scope = bool(node.get("eligible_for_submission"))
+        severity = node.get("max_severity") or "none"
+        target = {
+            "name": identifier,
+            "uri": identifier,
+            "category": H1_ASSET_CATEGORY.get(asset_type, "other"),
+            "asset_type": asset_type,
+            "description": (node.get("instruction") or "").strip(),
+            "group": severity if in_scope else "out-of-scope",
+            "in_scope": in_scope,
+            "eligible_for_bounty": bool(node.get("eligible_for_bounty")),
+            "max_severity": severity,
+            "ip_address": None,
+        }
+        if not in_scope:
+            out_of_scope.append(target)
+            continue
+        add_hackerone_target_to_scope(domains, urls, asset_type=asset_type, identifier=identifier)
+        groups.setdefault(severity, []).append(target)
+    severity_order = ["critical", "high", "medium", "low", "none"]
+    assets = [
+        {"name": name, "targets": groups[name]}
+        for name in sorted(groups, key=lambda name: severity_order.index(name) if name in severity_order else len(severity_order))
+    ]
+    return {"domains": domains, "urls": urls, "assets": assets, "out_of_scope": out_of_scope}
 
 
 def add_bugcrowd_target_to_scope(domains: set[str], urls: set[str], *, name: str, uri: str) -> None:
@@ -334,6 +447,11 @@ def render_program_policy(scope_data: dict) -> str:
 def save_scope(program: str, scope_data: dict, *, legacy: bool = True):
     """Save scope data to the canonical Shared scopes folder."""
     slug = canonical_program_slug(program)
+    if not scope_data.get("domains") and not scope_data.get("urls"):
+        raise RuntimeError(
+            f"Parsed 0 in-scope network assets for '{slug}'; refusing to overwrite scope files. "
+            "Check the program handle, platform response, and current program scope."
+        )
     base = Path.home() / "Shared" / "scopes" / slug
     raw_base = base / "raw"
 
@@ -392,6 +510,30 @@ def pull_scope(program: str, platform: str = None, *, use_api: bool = False):
     if use_api and platform == "bugcrowd":
         raise RuntimeError("Bugcrowd API mode is not implemented yet; omit --api to use the public engagement scrape")
 
+    if platform == "hackerone":
+        handle = hackerone_handle(program)
+        source_url = PLATFORMS["hackerone"].format(program=handle)
+        print(f"[*] Fetching structured scope from: {HACKERONE_GRAPHQL} (handle={handle})")
+        team = fetch_hackerone_team(handle)
+        scope_data = parse_hackerone_scope(team)
+        scope_data.update({
+            "program": handle,
+            "platform": "hackerone",
+            "rules": build_rules_profile(
+                program=handle,
+                platform="hackerone",
+                source_url=f"{source_url}/policy_scopes",
+                source_brief_url=HACKERONE_GRAPHQL,
+                rules_text=team.get("policy") or "",
+                status="open" if team.get("submission_state") == "open" else team.get("submission_state"),
+                participation="bounty" if team.get("offers_bounties") else "vdp",
+                needs_review=["Structured scope is authoritative for assets; review policy text before live testing."],
+            ),
+            "raw": team,
+        })
+        save_scope(handle, scope_data)
+        return scope_data
+
     # Build URL
     if platform == "hackerone" and not program.startswith("http"):
         url = PLATFORMS.get(platform, PLATFORMS["hackerone"]).format(program=program)
@@ -408,24 +550,7 @@ def pull_scope(program: str, platform: str = None, *, use_api: bool = False):
         return
     
     # Parse
-    if platform == "hackerone":
-        scope_data = parse_hackerone_scope(content)
-        scope_data.update({
-            "program": canonical_program_slug(program),
-            "platform": "hackerone",
-            "assets": [],
-            "rules": build_rules_profile(
-                program=program,
-                platform="hackerone",
-                source_url=url,
-                rules_text=html_to_text(content),
-                needs_review=[
-                    "HackerOne public fallback currently extracts assets best-effort; review policy text/API output before live testing.",
-                ],
-            ),
-            "raw": None,
-        })
-    elif platform == "bugcrowd":
+    if platform == "bugcrowd":
         scope_data = parse_bugcrowd_public_engagement(program, content)
     else:
         domains = set()

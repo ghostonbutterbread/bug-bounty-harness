@@ -15,7 +15,7 @@
 
 ## Evidence
 
-- Focused regression suite: `PYTHONPATH="$PWD" python3 -m pytest agents/test_scope_puller_seed_files.py -q` — 5 passed.
+- Focused regression suite: `PYTHONPATH="$PWD" python3 -m pytest agents/test_scope_puller_seed_files.py agents/test_scope_manager.py agents/test_scope_validator.py agents/test_scope_seed_files.py -q` — 11 passed.
 - Syntax and whitespace: `python3 -m py_compile agents/scope_puller.py program_config.py`; `git diff --check` — passed.
 - Public read-only smoke: Snapchat structured scope returned 32 domains, 1 URL, 6 excluded assets, and 4 asset groups. No scope files were written.
 

@@ -3,7 +3,7 @@
 - **Feature branch:** `fix/hackerone-structured-scope`
 - **Base:** `origin/beta` at `dca21228fe895038efcd1df4c7cf6064f5d4d400`
 - **Target:** `beta`
-- **Implementation checkpoint:** `fe8c15bd4133f3ac63147ec0ca01019fa50b1145` (followed by `9358ea3a9d6833bf69e997922c8b6d0fc99aa13` to preserve URL path boundaries in campaign host allow-lists and `a5d4dd9` to retain source-code assets as metadata only)
+- **Implementation checkpoint:** `fe8c15bd4133f3ac63147ec0ca01019fa50b1145` (followed by `9358ea3a9d6833bf69e997922c8b6d0fc99aa13` to preserve URL path boundaries in campaign host allow-lists, `a5d4dd9` for the original hosted-code guard, and `edc928a` to retain program-owned product URLs while excluding known hosted repositories)
 - **Intent:** Replace HackerOne's client-rendered-page regex with its public structured-scope GraphQL response, preventing silently empty scopes and prose-derived campaign allow-lists.
 
 ## Contract

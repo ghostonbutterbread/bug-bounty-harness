@@ -459,7 +459,7 @@ class ManualHunterTests(unittest.TestCase):
         self.assertIn("## Task:", prompt)
         self.assertEqual(workdir, self.target_root)
         self.assertIn("extra_instructions", mock_run_codex_hunt.call_args.kwargs)
-        self.assertIn("/me context handoff bundle", mock_run_codex_hunt.call_args.kwargs["extra_instructions"])
+        self.assertIn("/ledger context handoff bundle", mock_run_codex_hunt.call_args.kwargs["extra_instructions"])
         reports_dir = self._storage().reports_root / "raw"
         mock_sync_reports_main.assert_called_once_with(
             self.program,

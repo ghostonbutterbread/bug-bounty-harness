@@ -385,9 +385,9 @@ def _build_subagent_handoff_bundle(
     }
 
     preview_parts = [
-        "# /me context handoff bundle",
+        "# /ledger context handoff bundle",
         "",
-        "This bundle should be forwarded to any spawned child agent so it inherits the exact resolved /me context.",
+        "This bundle should be forwarded to any spawned child agent so it inherits the exact resolved ledger context.",
         "Child agents should read the referenced context files first and use these resolved paths instead of guessing storage.",
         "",
         "```json",
@@ -414,7 +414,7 @@ def _build_subagent_handoff_bundle(
         [
             "",
             "## Child-agent rules",
-            "- Treat this /me bundle as authoritative for storage and coordination.",
+            "- Treat this /ledger bundle as authoritative for storage and coordination.",
             "- If you spawn another child, forward this same bundle unchanged unless you intentionally update the canonical context.",
             "- Do not assume cwd is canonical storage.",
         ]
@@ -752,7 +752,7 @@ class ManualHunter:
         write_context_files(self.storage)
         if self.migrate:
             print(
-                f"[/me] Migration mode requested for {self.program} ({self.family}/{self.lane}). "
+                f"[/ledger] Migration mode requested for {self.program} ({self.family}/{self.lane}). "
                 "Full migration helper is not implemented yet; current behavior only prepares canonical roots/context."
             )
         self.ledger = create_team_ledger_from_storage(
@@ -1228,21 +1228,21 @@ class ManualHunter:
         )
         context += (
             "\n## Sub-agent inheritance\n"
-            "- If you spawn a sub-agent, pass down the resolved /me context and canonical storage contract.\n"
+            "- If you spawn a sub-agent, pass down the resolved ledger context and canonical storage contract.\n"
             "- Forward the exact handoff bundle below so children inherit the same family, lane, roots, and context files.\n"
         )
         if fresh:
-            print(f"[/me] Fresh mode enabled for {self.program}; skipping ledger and coverage context...")
+            print(f"[/ledger] Fresh mode enabled for {self.program}; skipping ledger and coverage context...")
         else:
-            print(f"[/me] Loading Ghost state for {self.program}...")
+            print(f"[/ledger] Loading Ghost state for {self.program}...")
         print(
-            f"[/me] Snapshot {self.snapshot_id} version={self.version_label or '(unspecified)'} "
+            f"[/ledger] Snapshot {self.snapshot_id} version={self.version_label or '(unspecified)'} "
             f"channel={_normalize_text(self.snapshot_identity.get('channel')) or 'stable'}"
         )
-        print("[/me] Spawning Codex with context:")
+        print("[/ledger] Spawning Codex with context:")
         print(context)
         print("---")
-        print("[/me] Sub-agent handoff bundle prepared.")
+        print("[/ledger] Sub-agent handoff bundle prepared.")
         print(subagent_handoff)
         print("---")
 
@@ -1253,20 +1253,20 @@ class ManualHunter:
                 target_root,
                 timeout=timeout,
                 extra_instructions=(
-                    "If you decide to spawn a child agent, include the full /me handoff bundle below in that child prompt.\n\n"
+                    "If you decide to spawn a child agent, include the full /ledger handoff bundle below in that child prompt.\n\n"
                     + subagent_handoff
                 ),
             )
             codex_rc = int(result.returncode)
         except FileNotFoundError:
-            print("[/me] Codex executable not found in PATH")
+            print("[/ledger] Codex executable not found in PATH")
         except subprocess.TimeoutExpired:
-            print(f"[/me] Codex hunt timed out after {timeout} seconds")
+            print(f"[/ledger] Codex hunt timed out after {timeout} seconds")
         else:
             if codex_rc != 0:
-                print(f"[/me] Codex exited with code {codex_rc}")
+                print(f"[/ledger] Codex exited with code {codex_rc}")
 
-        print("[/me] Codex done. Running sync-reports to import findings...")
+        print("[/ledger] Codex done. Running sync-reports to import findings...")
         from agents.sync_reports import sync_reports_main
 
         sync_kwargs: dict[str, Any] = {
@@ -1281,10 +1281,10 @@ class ManualHunter:
             sync_kwargs["storage_root"] = str(self.storage_root)
         sync_rc = sync_reports_main(self.program, **sync_kwargs)
         if sync_rc != 0:
-            print(f"[/me] sync-reports exited with code {sync_rc}")
+            print(f"[/ledger] sync-reports exited with code {sync_rc}")
             return sync_rc
 
-        print("[/me] Hunt complete!")
+        print("[/ledger] Hunt complete!")
         return codex_rc
 
 
@@ -1374,14 +1374,14 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.hunt or not any((args.watch, args.add is not None, args.from_file, args.interactive, args.set_submission)):
         if verbosity.verbose:
-            print(f"[/me] verbosity={verbosity.level}")
-            print(f"[/me] storage_root={hunter.storage.lane_root}")
-            print(f"[/me] reports_root={hunter.storage.reports_root}")
-            print(f"[/me] ledgers_root={hunter.storage.ledgers_root}")
+            print(f"[/ledger] verbosity={verbosity.level}")
+            print(f"[/ledger] storage_root={hunter.storage.lane_root}")
+            print(f"[/ledger] reports_root={hunter.storage.reports_root}")
+            print(f"[/ledger] ledgers_root={hunter.storage.ledgers_root}")
         if verbosity.very_verbose:
-            print(f"[/me] context_root={hunter.storage.context_root}")
-            print(f"[/me] working_root={hunter.storage.working_root}")
-            print(f"[/me] notes_root={hunter.storage.notes_root}")
+            print(f"[/ledger] context_root={hunter.storage.context_root}")
+            print(f"[/ledger] working_root={hunter.storage.working_root}")
+            print(f"[/ledger] notes_root={hunter.storage.notes_root}")
         return hunter.hunt(fresh=args.fresh)
     raise AssertionError("unreachable")
 

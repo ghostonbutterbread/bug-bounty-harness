@@ -63,6 +63,7 @@ def test_hackerone_structured_scope_keeps_only_eligible_network_assets() -> None
             {"node": {"asset_type": "OTHER", "asset_identifier": "https://docs.example.com/guide", "eligible_for_submission": True, "eligible_for_bounty": False, "instruction": "", "max_severity": "low"}},
             {"node": {"asset_type": "OTHER", "asset_identifier": "Tier A - Core Assets", "eligible_for_submission": True, "eligible_for_bounty": True, "instruction": "", "max_severity": "high"}},
             {"node": {"asset_type": "GOOGLE_PLAY_APP_ID", "asset_identifier": "com.example.android", "eligible_for_submission": True, "eligible_for_bounty": True, "instruction": "", "max_severity": "medium"}},
+            {"node": {"asset_type": "SOURCE_CODE", "asset_identifier": "https://github.com/example/private-repo", "eligible_for_submission": True, "eligible_for_bounty": True, "instruction": "", "max_severity": "medium"}},
             {"node": {"asset_type": "URL", "asset_identifier": "https://out.example.com", "eligible_for_submission": False, "eligible_for_bounty": False, "instruction": "excluded", "max_severity": "none"}},
         ]},
     }

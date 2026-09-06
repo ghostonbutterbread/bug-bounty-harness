@@ -90,6 +90,76 @@ def test_hackerone_pull_uses_structured_scope_without_page_scrape(monkeypatch) -
     assert result["rules"]["source_brief_url"] == scope_puller.HACKERONE_GRAPHQL
 
 
+def test_hackerone_fetch_paginates_every_structured_scope_page(monkeypatch) -> None:
+    requests = []
+    responses = iter([
+        {
+            "data": {"team": {
+                "handle": "demo", "policy": "policy",
+                "structured_scopes": {
+                    "edges": [{"node": {"asset_identifier": "one.example.com"}}],
+                    "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
+                },
+            }},
+        },
+        {
+            "data": {"team": {
+                "handle": "demo", "policy": "policy",
+                "structured_scopes": {
+                    "edges": [{"node": {"asset_identifier": "two.example.com"}}],
+                    "pageInfo": {"hasNextPage": False, "endCursor": "cursor-2"},
+                },
+            }},
+        },
+    ])
+
+    class Response:
+        def __init__(self, body):
+            self.body = body
+
+        def read(self):
+            return json.dumps(self.body).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    def fake_urlopen(request, timeout):
+        assert timeout == 30
+        requests.append(json.loads(request.data.decode()))
+        return Response(next(responses))
+
+    monkeypatch.setattr(scope_puller.urllib.request, "urlopen", fake_urlopen)
+
+    team = scope_puller.fetch_hackerone_team("demo")
+
+    assert [request["variables"]["after"] for request in requests] == [None, "cursor-1"]
+    assert [edge["node"]["asset_identifier"] for edge in team["structured_scopes"]["edges"]] == [
+        "one.example.com", "two.example.com",
+    ]
+
+
+def test_hackerone_fetch_refuses_scope_response_without_pagination_metadata(monkeypatch) -> None:
+    class Response:
+        def read(self):
+            return json.dumps({
+                "data": {"team": {"handle": "demo", "structured_scopes": {"edges": []}}},
+            }).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(scope_puller.urllib.request, "urlopen", lambda *_args, **_kwargs: Response())
+
+    with pytest.raises(RuntimeError, match="pagination metadata"):
+        scope_puller.fetch_hackerone_team("demo")
+
+
 def test_program_config_prefers_pulled_scope_over_scope_prose(monkeypatch, tmp_path: Path) -> None:
     scopes = tmp_path / "scopes"
     web_bounty = tmp_path / "web_bounty"

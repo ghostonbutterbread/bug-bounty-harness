@@ -5,7 +5,7 @@ description: "Use when agents need an observe-learn-adapt memory loop during map
 
 # Hunter Memory
 
-Use this after `/live-map`, `/me`, `/brainstorm`, manual hunting, or any skill
+Use this after `/live-map`, `/ledger`, `/brainstorm`, manual hunting, or any skill
 handoff where the agent should remember experiments, failed attempts, learned
 boundaries, next mutations, and run-local claims. A Hunter Memory claim is not
 shared app memory: when it becomes stable enough to guide a future specialist,

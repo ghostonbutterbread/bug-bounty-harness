@@ -132,7 +132,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **bountylens** | `/bountylens {sessions|findings|leads|reports}` | `skills/bountylens/SKILL.md` |
 | **manual-places-to-hunt** | `/manual {program} [--run <run-id>] [--historical]` | `skills/manual-places-to-hunt/SKILL.md` |
 | **leads** | `/leads <program> [--class <vuln-class>]`; `agents/leads.py {create|search|update-status}` | `skills/leads/SKILL.md` |
-| **me** | `/me {program}` | `skills/me/SKILL.md` |
+| **ledger** | `/ledger {program}` | `skills/ledger/SKILL.md` |
 
 ---
 
@@ -219,8 +219,8 @@ bbh agents/js_team.py run --js-run-root ~/Shared/web_bounty/canva/web/recon/js/j
 /chromium-handoff 9224
 /pfp canva profile-picture
 /bountylens sessions --status active
-/me notion --hunt-type source
-/me canva --hunt-type source --lane exe
+/ledger notion --hunt-type source
+/ledger canva --hunt-type source --lane exe
 /access-control canva project-sharing
 ```
 

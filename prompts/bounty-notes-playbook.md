@@ -55,7 +55,7 @@ bbh agents/bounty_notes.py search <program> --report FID-123
 
 ## Directory Routing
 
-Use the active lane root resolved by `/me` or Bounty Core:
+Use the active lane root resolved by `/ledger` or Bounty Core:
 
 ```text
 ~/Shared/{family}/{program}/{lane}/
@@ -72,7 +72,7 @@ Use the active lane root resolved by `/me` or Bounty Core:
 └── context/
 ```
 
-For source-version collaboration notes, `/me` may also point to:
+For source-version collaboration notes, `/ledger` may also point to:
 
 ```text
 <source-version-root>/.ghost/notes/
@@ -179,7 +179,7 @@ shape, response summary, and a local evidence reference instead.
 - Use `/hunter-memory` for attempt-by-attempt learning, failed probes, and scoped
   claims during an experiment.
 - Use `/url-ingest` for URL-level reviewed/deep-reviewed/dismissed state.
-- Use `/me` and `me_ledger.py` for lane context and source/file coverage.
+- Use `/ledger` and `me_ledger.py` for lane context and source/file coverage.
 - Use `/findings`, `/manual_hunter`, or `/sync-reports` for vulnerabilities.
 - Use `/brainstorm-spec` for structured hypothesis packs that feed teams.
 

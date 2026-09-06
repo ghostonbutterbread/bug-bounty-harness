@@ -2,7 +2,7 @@
 
 ## Load Order
 
-1. Resolve active program, family, and lane from `/me`,
+1. Resolve active program, family, and lane from `/ledger`,
    `context/target_profile.json`, or the user request.
 2. Read `prompts/bounty-notes-playbook.md` when methodology is needed.
 3. Use `agents/bounty_notes.py` for deterministic note and artifact writes.

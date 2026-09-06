@@ -9,7 +9,7 @@
 ## Contract
 
 - Read a HackerOne team's public structured scopes, policy text, submission state, and bounty status from `https://hackerone.com/graphql`.
-- Include only submission-eligible web hosts/URLs in `in-scope.txt`; retain all structured assets in `assets.json` and excluded assets separately. App-store, CIDR, hardware/model, smart-contract, executable, and source-code assets remain metadata rather than executable network seeds.
+- Include only submission-eligible web hosts/URLs in `in-scope.txt`; retain all structured assets in `assets.json` and excluded assets separately. App-store, CIDR, hardware/model, smart-contract, executable, and hosted source-code-repository assets remain metadata rather than executable network seeds.
 - Refuse to overwrite scope files with zero network assets.
 - Prefer canonical pulled scope files over `scope.md` prose when deriving `ProgramConfig.scope_domains`.
 

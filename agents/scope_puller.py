@@ -204,7 +204,13 @@ H1_ASSET_CATEGORY = {
 H1_NON_NETWORK_ASSET_TYPES = {
     "GOOGLE_PLAY_APP_ID", "OTHER_APK", "APPLE_STORE_APP_ID", "TESTFLIGHT",
     "WINDOWS_APP_STORE_APP_ID", "DOWNLOADABLE_EXECUTABLES", "HARDWARE",
-    "AI_MODEL", "SMART_CONTRACT", "CIDR", "SOURCE_CODE",
+    "AI_MODEL", "SMART_CONTRACT", "CIDR",
+}
+
+# These are code-hosting services, not an executable web target just because a
+# program lists one repository under HackerOne's broad SOURCE_CODE category.
+H1_HOSTED_SOURCE_CODE_HOSTS = {
+    "github.com", "gist.github.com", "gitlab.com", "bitbucket.org", "dev.azure.com",
 }
 
 
@@ -247,6 +253,10 @@ def add_hackerone_target_to_scope(
     parsed = urlparse(value)
     if parsed.scheme in {"http", "https"} and parsed.netloc:
         host = parsed.hostname or ""
+        # HackerOne uses SOURCE_CODE both for actual product URLs and hosted
+        # repositories. A hosted repository is metadata, never a web seed.
+        if asset_type == "SOURCE_CODE" and host.lower() in H1_HOSTED_SOURCE_CODE_HOSTS:
+            return
         if "*" in host:
             domains.add(host)
         else:

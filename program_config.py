@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 BASE_DIR = Path.home() / "Shared" / "web_bounty"
+SCOPES_DIR = Path.home() / "Shared" / "scopes"
 
 
 @dataclass
@@ -70,7 +71,36 @@ class ProgramConfig:
         if scope_md_path.exists():
             cfg = _parse_scope_md(scope_md_path, cfg)
 
+        authoritative = _load_in_scope_domains(safe)
+        if authoritative:
+            cfg.scope_domains = authoritative
+
         return cfg
+
+
+def _load_in_scope_domains(program: str) -> list[str]:
+    """Read a pulled platform scope before falling back to prose extraction."""
+    for path in (
+        SCOPES_DIR / program / "in-scope.txt",
+        BASE_DIR / program / "web" / "scope" / "in-scope.txt",
+    ):
+        if not path.exists():
+            continue
+        domains = []
+        for line in path.read_text().splitlines():
+            value = line.strip()
+            if not value or value.startswith("#"):
+                continue
+            # HarnessConstraints consumes host/wildcard entries and cannot
+            # enforce a URL path. Never turn a path-scoped asset into a broad
+            # host allow-list; ScopeValidator retains URL-pattern semantics.
+            if value.lower().startswith(("http://", "https://")):
+                continue
+            if value and value not in domains:
+                domains.append(value)
+        if domains:
+            return sorted(domains)
+    return []
 
 
 def _parse_rate_limit_conf(path: Path, cfg: "ProgramConfig") -> "ProgramConfig":

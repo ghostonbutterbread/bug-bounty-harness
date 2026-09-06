@@ -7,8 +7,8 @@
   coverage, report-pipeline, and durable hunt-note guidance; update direct
   BBH documentation references.
 - **Activation boundary:** merge this removal/rename to BBH `beta` before adding
-  the same-named general `me` projection, then perform focused sync verification
-  so no duplicate `me` skill remains.
+  the general `/atme` projection, then perform focused sync verification so the
+  ledger and briefing routes resolve from their intended sources.
 
 ## Evidence
 

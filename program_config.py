@@ -19,7 +19,6 @@ import re
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
-from urllib.parse import urlparse
 
 BASE_DIR = Path.home() / "Shared" / "web_bounty"
 SCOPES_DIR = Path.home() / "Shared" / "scopes"
@@ -92,8 +91,11 @@ def _load_in_scope_domains(program: str) -> list[str]:
             value = line.strip()
             if not value or value.startswith("#"):
                 continue
+            # HarnessConstraints consumes host/wildcard entries and cannot
+            # enforce a URL path. Never turn a path-scoped asset into a broad
+            # host allow-list; ScopeValidator retains URL-pattern semantics.
             if value.startswith(("http://", "https://")):
-                value = urlparse(value).hostname or ""
+                continue
             if value and value not in domains:
                 domains.append(value)
         if domains:

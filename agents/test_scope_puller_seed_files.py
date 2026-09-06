@@ -99,7 +99,8 @@ def test_program_config_prefers_pulled_scope_over_scope_prose(monkeypatch, tmp_p
     monkeypatch.setattr(program_config, "SCOPES_DIR", scopes)
     monkeypatch.setattr(program_config, "BASE_DIR", web_bounty)
     cfg = program_config.ProgramConfig.load("demo")
-    assert cfg.scope_domains == ["*.example.com", "api.example.com"]
+    # A path-scoped URL must not be widened into a host-wide campaign allow-list.
+    assert cfg.scope_domains == ["*.example.com"]
 
 
 def test_save_scope_rejects_an_empty_network_scope() -> None:

@@ -3,6 +3,7 @@
 - **Feature branch:** `fix/hackerone-structured-scope`
 - **Base:** `origin/beta` at `dca21228fe895038efcd1df4c7cf6064f5d4d400`
 - **Target:** `beta`
+- **Implementation checkpoint:** `fe8c15bd4133f3ac63147ec0ca01019fa50b1145`
 - **Intent:** Replace HackerOne's client-rendered-page regex with its public structured-scope GraphQL response, preventing silently empty scopes and prose-derived campaign allow-lists.
 
 ## Contract

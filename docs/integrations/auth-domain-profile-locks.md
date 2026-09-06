@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-06
 - **Owning feature branch/ref:** `bug-bounty-harness/t_778adcb3-scope-persistent-auth-profile-locks-by-a`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `e591cae54981cb006a52ae01b2e349e5c42d3003` (implementation; the current tip will add this reviewed follow-up)
+- **Feature implementation commit(s):** `e591cae54981cb006a52ae01b2e349e5c42d3003`
 - **Inspiration / canonical references:** Discord thread `1546236602806964244`; `browser_profile_lease.py`; `browser_provisioner.py`
 
 ## Intent
@@ -26,8 +26,8 @@ Stop an active persistent browser lease for a color/account on one auth domain f
 
 ## Evidence and review
 
-- Tests and commands: `python3 -m py_compile skills/chromium-test/scripts/browser_profile_lease.py skills/chromium-test/scripts/browser_provisioner.py`; `PYTHONPATH=. python3 -m pytest agents/test_browser_profile_lease.py agents/test_browser_provisioner.py -q` — 30 passed; `git diff --check`.
-- Independent review: requested; pending reviewer result.
+- Tests and commands: `python3 -m py_compile skills/chromium-test/scripts/browser_profile_lease.py skills/chromium-test/scripts/browser_provisioner.py`; `PYTHONPATH=. python3 -m pytest agents/test_browser_profile_lease.py agents/test_browser_provisioner.py -q` — 32 passed; `git diff --check`.
+- Independent review: reviewer identified two high-severity domain-propagation gaps (status preflight and omitted-domain provisioner reuse). Both were fixed with focused regressions; no unresolved review findings remain.
 - Replay/cohort/fixture evidence: focused temporary SQLite/inventory fixtures cover distinct-domain concurrency, legacy active migration fencing, provisioner forwarding, and nested-profile cleanup.
 - Merge/ancestry evidence: branch is based on beta commit `86db5055db1adfa13a45b7561a4b4644a881aaa4`.
 

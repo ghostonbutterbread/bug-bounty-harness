@@ -221,6 +221,30 @@ def test_same_account_can_lease_distinct_auth_domains_with_isolated_profiles(mon
     assert duplicate["lease"]["auth_domain"] == "storefront.example.test"
 
 
+def test_status_uses_explicit_or_inventory_auth_domain_for_lock_checks(monkeypatch, tmp_path):
+    module = load_module()
+    shared = tmp_path / "shared"
+    state = tmp_path / "state"
+    write_inventory(shared)
+    inventory_path = shared / "demo" / "credentials" / "account_inventory.json"
+    inventory = json.loads(inventory_path.read_text())
+    inventory["accounts"][0]["auth_host_filter"] = "login.example.test"
+    inventory_path.write_text(json.dumps(inventory))
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    lease = module.cmd_acquire(
+        args(module, state, "acquire", account="green", agent_id="agent-a", run_id="run-a", purpose="auth-map")
+    )
+    inferred = module.cmd_status(args(module, state, "status", account="green"))
+    explicit = module.cmd_status(
+        args(module, state, "status", account="green", auth_domain="login.example.test")
+    )
+
+    assert lease["lease"]["auth_domain"] == "login.example.test"
+    assert inferred["status"] == "locked"
+    assert explicit["status"] == "locked"
+
+
 def test_legacy_active_lease_blocks_new_auth_domain_until_released(monkeypatch, tmp_path):
     module = load_module()
     shared = tmp_path / "shared"

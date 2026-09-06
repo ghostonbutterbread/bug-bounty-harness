@@ -217,6 +217,23 @@ def test_same_owner_running_browser_is_reused(monkeypatch, tmp_path):
     except SystemExit as e: assert e.code == 0
 
 
+def test_same_owner_reuses_inventory_resolved_auth_domain_without_cli_override(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    c = m.db(); t = time.time()
+    c.execute("insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", ("l","b","demo","fixture","login.example.test","agent","run","test","u",str(tmp_path/"artifacts/p"),"/tmp/x","running",0,t,t,t)); c.commit()
+    monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], []))
+    monkeypatch.setattr(m, "admission", lambda *_: {"status": "admitted"})
+    monkeypatch.setattr(m, "unit_active", lambda _: True)
+    monkeypatch.setattr(
+        m,
+        "lease",
+        lambda *_: {"status": "already-owned", "lease": {"lease_id": "l", "account_alias": "fixture", "auth_domain": "login.example.test", "profile_dir": str(tmp_path / "artifacts/p")}},
+    )
+
+    try: m.start(start_args())
+    except SystemExit as e: assert e.code == 0
+
+
 def test_other_owner_lease_denial_starts_no_systemd_unit(monkeypatch, tmp_path):
     m = load(monkeypatch, tmp_path)
     monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], []))

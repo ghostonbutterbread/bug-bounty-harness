@@ -366,6 +366,7 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
     timestamp = now()
     selector = args.account
     account, inventory = resolve_account(args.program, selector) if selector else (None, load_inventory(args.program))
+    requested_domain = auth_domain_for(args, account)
     with connect(state_db(args)) as conn:
         init_db(conn)
         expire_leases(conn, timestamp)
@@ -383,7 +384,7 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
             for candidate in inventory.get("accounts", []):
                 if not isinstance(candidate, dict) or principal_tier(candidate) != args.tier:
                     continue
-                candidate_status, lease, _ = lease_availability(conn, args.program, candidate, timestamp)
+                candidate_status, lease, _ = lease_availability(conn, args.program, candidate, timestamp, auth_domain_for(args, candidate))
                 tier_accounts.append({
                     "status": candidate_status,
                     "account": account_summary(candidate, inventory),
@@ -394,7 +395,7 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
                 "program": slug(args.program),
                 "tier": args.tier,
                 "accounts": tier_accounts,
-                "color_availability": color_availability(conn, args.program, inventory, timestamp),
+                "color_availability": color_availability(conn, args.program, inventory, timestamp, requested_domain),
             }
         if args.idor:
             by_alias = {
@@ -408,7 +409,7 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
                 candidate = by_alias.get(alias)
                 if candidate is None:
                     continue
-                candidate_status, lease, _ = lease_availability(conn, args.program, candidate, timestamp)
+                candidate_status, lease, _ = lease_availability(conn, args.program, candidate, timestamp, auth_domain_for(args, candidate))
                 primary_accounts.append({
                     "status": candidate_status,
                     "account": account_summary(candidate, inventory),
@@ -420,14 +421,14 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
                 for candidate in inventory.get("accounts", [])
                 if isinstance(candidate, dict)
                 and str(candidate.get("alias", "")).lower() not in primary_set
-                and lease_availability(conn, args.program, candidate, timestamp)[0] == "available"
+                and lease_availability(conn, args.program, candidate, timestamp, auth_domain_for(args, candidate))[0] == "available"
             ]
             return {
                 "status": "ok",
                 "program": slug(args.program),
                 "primary_idor_accounts": primary_accounts,
                 "fallback_accounts": sorted(fallback_accounts, key=lambda row: (str(row.get("color") or ""), row["alias"])),
-                "color_availability": color_availability(conn, args.program, inventory, timestamp),
+                "color_availability": color_availability(conn, args.program, inventory, timestamp, requested_domain),
             }
         if selector and account is None:
             return {
@@ -435,10 +436,10 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
                 "program": args.program,
                 "selector": selector,
                 "inventory_path": str(inventory_path(args.program)),
-                "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
+                "available_alternatives": alternatives(conn, args.program, inventory, timestamp, requested_domain),
             }
         if account is not None:
-            account_status, lease, last_release = lease_availability(conn, args.program, account, timestamp)
+            account_status, lease, last_release = lease_availability(conn, args.program, account, timestamp, requested_domain)
             if account_status == "unavailable":
                 return {
                     "status": "account-unavailable",
@@ -447,7 +448,7 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
                     "lease": safe_lease(lease),
                     "last_release": safe_lease(last_release),
                     "browser_probe": None,
-                    "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
+                    "available_alternatives": alternatives(conn, args.program, inventory, timestamp, requested_domain),
                     "next": "a current explicit health clearance is required before this profile may be leased",
                 }
             browser_probe = None
@@ -461,7 +462,7 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
                 "lease": safe_lease(lease),
                 "last_release": safe_lease(last_release),
                 "browser_probe": browser_probe,
-                "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
+                "available_alternatives": alternatives(conn, args.program, inventory, timestamp, requested_domain),
             }
         rows = conn.execute(
             """
@@ -475,8 +476,8 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
             "status": "ok",
             "program": slug(args.program),
             "active_leases": [safe_lease(row) for row in rows],
-            "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
-            "color_availability": color_availability(conn, args.program, inventory, timestamp),
+            "available_alternatives": alternatives(conn, args.program, inventory, timestamp, requested_domain),
+            "color_availability": color_availability(conn, args.program, inventory, timestamp, requested_domain),
         }
 
 

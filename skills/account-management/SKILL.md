@@ -112,7 +112,7 @@ do not assume a remembered lane is still free:
 
 ```bash
 bbh skills/chromium-test/scripts/browser_profile_lease.py \
-  status {program} --idor
+  status {program} --idor [--auth-domain <auth-host>]
 ```
 
 The structured result lists primary IDOR accounts first with every mapped

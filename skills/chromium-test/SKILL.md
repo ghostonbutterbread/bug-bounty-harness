@@ -319,9 +319,12 @@ bbh skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir 
 0. For every bug-bounty browser engagement, request the browser through the
    provisioner. If it requires a durable named account profile (for example a
    color used across a multi-agent owned-account test), first run
-   `browser_profile_lease.py status <program> --account <color>`, then acquire
-   that **exact** account if available.
-   A locked response may show safe, explicitly available alternatives but never
+   `browser_profile_lease.py status <program> --account <color> --auth-domain <auth-host>`, then acquire
+   that **exact** account and auth domain if available. Omit `--auth-domain`
+   only when the inventory's `auth_host_filter` is the intended auth surface.
+   A lock is scoped to the resolved auth domain and exact account, so unrelated
+   domains may use their own persistent profile for the same color. A locked
+   response may show safe, explicitly available alternatives but never
    authorizes automatic account substitution. Run the helper on the browser
    profile host. Use the persistent account profile after acquisition; retain
    `--ephemeral-profile` for disposable one-off runs. A lease remains locked

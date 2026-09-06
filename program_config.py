@@ -94,7 +94,7 @@ def _load_in_scope_domains(program: str) -> list[str]:
             # HarnessConstraints consumes host/wildcard entries and cannot
             # enforce a URL path. Never turn a path-scoped asset into a broad
             # host allow-list; ScopeValidator retains URL-pattern semantics.
-            if value.startswith(("http://", "https://")):
+            if value.lower().startswith(("http://", "https://")):
                 continue
             if value and value not in domains:
                 domains.append(value)

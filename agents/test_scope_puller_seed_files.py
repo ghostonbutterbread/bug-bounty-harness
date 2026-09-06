@@ -94,7 +94,7 @@ def test_program_config_prefers_pulled_scope_over_scope_prose(monkeypatch, tmp_p
     scopes = tmp_path / "scopes"
     web_bounty = tmp_path / "web_bounty"
     (scopes / "demo").mkdir(parents=True)
-    (scopes / "demo" / "in-scope.txt").write_text("# scope\n*.example.com\nhttps://api.example.com/v2\n")
+    (scopes / "demo" / "in-scope.txt").write_text("# scope\n*.example.com\nHTTPS://api.example.com/v2\n")
     scope_md = web_bounty / "demo" / "web" / "scope"
     scope_md.mkdir(parents=True)
     (scope_md / "scope.md").write_text("Out of scope: returns.example.com and hackerone.com\n")

@@ -21,7 +21,10 @@ def now(): return time.time()
 def slug(s): return ''.join(c.lower() if c.isalnum() or c in '._-' else '-' for c in s).strip('.-') or 'unknown'
 def db():
  STATE.parent.mkdir(parents=True, exist_ok=True); c=sqlite3.connect(STATE); c.row_factory=sqlite3.Row
- c.execute('''CREATE TABLE IF NOT EXISTS browsers (lease_id TEXT PRIMARY KEY,browser_id TEXT UNIQUE NOT NULL,program TEXT NOT NULL,account TEXT NOT NULL,agent_id TEXT NOT NULL,run_id TEXT NOT NULL,purpose TEXT NOT NULL,unit TEXT NOT NULL,profile_dir TEXT NOT NULL,launch_file TEXT NOT NULL,state TEXT NOT NULL,tab_count INTEGER NOT NULL DEFAULT 0,last_activity REAL NOT NULL,created REAL NOT NULL,updated REAL NOT NULL)'''); return c
+ c.execute('''CREATE TABLE IF NOT EXISTS browsers (lease_id TEXT PRIMARY KEY,browser_id TEXT UNIQUE NOT NULL,program TEXT NOT NULL,account TEXT NOT NULL,auth_domain TEXT NOT NULL DEFAULT 'legacy-global',agent_id TEXT NOT NULL,run_id TEXT NOT NULL,purpose TEXT NOT NULL,unit TEXT NOT NULL,profile_dir TEXT NOT NULL,launch_file TEXT NOT NULL,state TEXT NOT NULL,tab_count INTEGER NOT NULL DEFAULT 0,last_activity REAL NOT NULL,created REAL NOT NULL,updated REAL NOT NULL)''')
+ columns={row['name'] for row in c.execute('pragma table_info(browsers)')}
+ if 'auth_domain' not in columns: c.execute("alter table browsers add column auth_domain TEXT NOT NULL DEFAULT 'legacy-global'")
+ return c
 def meminfo():
  d={}
  for line in Path('/proc/meminfo').read_text().splitlines():
@@ -40,23 +43,27 @@ def unit_active(unit):
 def stop_unit(unit):
  subprocess.run(['systemctl','--user','stop',unit],env=sysenv(),check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  subprocess.run(['systemctl','--user','reset-failed',unit],env=sysenv(),check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-def safe(row): return {k:row[k] for k in ('browser_id','lease_id','program','account','state','tab_count','last_activity','created','updated')}
+def safe(row): return {k:row[k] for k in ('browser_id','lease_id','program','account','auth_domain','state','tab_count','last_activity','created','updated')}
 def release_lease(lease_id, agent, disp='cancelled', health='healthy'): return lease(None,'release','--lease-id',lease_id,'--agent-id',agent,'--disposition',disp,'--profile-health',health)
 def profile_path(program,account): return Path(os.environ.get('HARNESS_BOUNTY_ARTIFACT_ROOT','/mnt/bounty'))/slug(program)/'web'/'browser-profiles'/slug(account)
 def start(args):
  # Existing owner may resume only its own stopped profile.
  # Serialized automatic retention sweep runs before every new admission.
- c=db(); sweep_rows(c,14,True); row=c.execute('select * from browsers where program=? and account=? order by created desc limit 1',(slug(args.program),slug(args.account))).fetchone()
+ c=db(); sweep_rows(c,14,True); auth_domain=slug(args.auth_domain) if args.auth_domain else 'legacy-global'; row=c.execute("select * from browsers where program=? and account=? and auth_domain=? order by created desc limit 1",(slug(args.program),slug(args.account),auth_domain)).fetchone()
  if row and row['agent_id']==args.agent_id and row['run_id']==args.run_id and row['state']=='running' and unit_active(row['unit']): emit({'status':'already-running',**safe(row)})
  # Capacity is an admission gate, not a lease outcome. Do not acquire a profile
  # until this node can actually start Chromium: a no-capacity retry must leave
  # the next profile user with a healthy, available profile.
  adm=admission(args.min_ram_available_mib,args.min_swap_free_mib)
  if adm['status']!='admitted': emit({'status':'queued','reason':'no-capacity','retry_after_seconds':30,'admission':adm},2)
- got=lease(args,'acquire',args.program,args.account,'--agent-id',args.agent_id,'--run-id',args.run_id,'--purpose',args.purpose,'--ttl-seconds',str(args.ttl_seconds))
+ got=lease(args,'acquire',args.program,args.account,*(['--auth-domain',args.auth_domain] if args.auth_domain else []),'--agent-id',args.agent_id,'--run-id',args.run_id,'--purpose',args.purpose,'--ttl-seconds',str(args.ttl_seconds))
  if got.get('status') not in ('leased','already-owned'): emit(got,2)
  lid=got['lease']['lease_id']
- prof=profile_path(args.program, got['lease'].get('account_alias',args.account)); bid=(row['browser_id'] if row and row['agent_id']==args.agent_id and row['run_id']==args.run_id else str(uuid.uuid4()))
+ resolved_domain=got['lease'].get('auth_domain',auth_domain)
+ if row is None:
+  row=c.execute("select * from browsers where program=? and account=? and auth_domain=? order by created desc limit 1",(slug(args.program),slug(got['lease'].get('account_alias',args.account)),resolved_domain)).fetchone()
+ if row and row['agent_id']==args.agent_id and row['run_id']==args.run_id and row['state']=='running' and unit_active(row['unit']): emit({'status':'already-running',**safe(row)})
+ prof=Path(got['lease']['profile_dir']); bid=(row['browser_id'] if row and row['agent_id']==args.agent_id and row['run_id']==args.run_id else str(uuid.uuid4()))
  unit='browser-'+bid; launch=STATE.parent/(bid+'.launch.json'); launch.parent.mkdir(parents=True,exist_ok=True); os.chmod(launch.parent,0o700)
  # The unit stays foreground via sleep; Chromium remains inside its cgroup.
  cmd=[sys.executable,str(CHROMIUM),args.program,args.purpose,'--account',args.account,'--profile-dir',str(prof),'--run-id',args.run_id,'--agent-id',args.agent_id,'--account-label',args.account,'--proxy-cert-mode',args.proxy_cert_mode,'--json']
@@ -78,7 +85,7 @@ def start(args):
  reg=lease(args,'register-browser','--lease-id',lid,'--agent-id',args.agent_id,'--cdp-url',info['cdp_url'],'--service-unit',unit)
  if reg.get('status') not in ('registered','registered-unreachable'):
   stop_unit(unit); release_lease(lid,args.agent_id); emit({'status':'launch-failed','detail':'could not register owned browser'},2)
- t=now(); c.execute('delete from browsers where lease_id=?',(lid,)); c.execute('insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(lid,bid,slug(args.program),slug(got['lease'].get('account_alias',args.account)),args.agent_id,args.run_id,args.purpose,unit,str(prof),str(launch),'running',0,t,t,t)); c.commit(); out=c.execute('select * from browsers where lease_id=?',(lid,)).fetchone(); emit({'status':'started',**safe(out),'profile_lifetime':'persistent','idle_deadline_at':t+args.idle_seconds})
+ t=now(); c.execute('delete from browsers where lease_id=?',(lid,)); c.execute('insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(lid,bid,slug(args.program),slug(got['lease'].get('account_alias',args.account)),got['lease'].get('auth_domain',auth_domain),args.agent_id,args.run_id,args.purpose,unit,str(prof),str(launch),'running',0,t,t,t)); c.commit(); out=c.execute('select * from browsers where lease_id=?',(lid,)).fetchone(); emit({'status':'started',**safe(out),'profile_lifetime':'persistent','idle_deadline_at':t+args.idle_seconds})
 def touch(args):
  c=db(); r=c.execute('select * from browsers where lease_id=?',(args.lease_id,)).fetchone()
  if not r or r['agent_id']!=args.agent_id: emit({'status':'not-owner'},2)
@@ -109,8 +116,9 @@ def managed_profile(path):
  try:
   relative=Path(path).resolve().relative_to(managed_root())
  except ValueError: return False
- # Only manager-shaped <program>/web/browser-profiles/<account> directories qualify.
- return len(relative.parts)==4 and relative.parts[1:3]==('web','browser-profiles') and all(part not in ('','.','..') for part in relative.parts)
+ # Only manager-shaped legacy <program>/web/browser-profiles/<account> and
+ # auth-domain-scoped <program>/web/browser-profiles/<domain>/<account> qualify.
+ return len(relative.parts) in (4,5) and relative.parts[1:3]==('web','browser-profiles') and all(part not in ('','.','..') for part in relative.parts)
 def sweep_rows(c, older_than_days, confirm):
  cutoff=now()-older_than_days*86400; removed=[]; skipped=[]
  # The table is the explicit manager-created profile manifest: never discover arbitrary paths.
@@ -128,7 +136,7 @@ def sweep(args):
 def request(args):
  deadline=now()+args.wait_seconds; delay=30; attempts=0
  while True:
-  cmd=[sys.executable,str(Path(__file__).resolve()),'start',args.program,args.account,'--agent-id',args.agent_id,'--run-id',args.run_id,'--purpose',args.purpose,'--ttl-seconds',str(args.ttl_seconds),'--idle-seconds',str(args.idle_seconds),'--min-ram-available-mib',str(args.min_ram_available_mib),'--min-swap-free-mib',str(args.min_swap_free_mib),'--memory-high',args.memory_high,'--memory-max',args.memory_max,'--proxy-cert-mode',args.proxy_cert_mode]
+  cmd=[sys.executable,str(Path(__file__).resolve()),'start',args.program,args.account,*(['--auth-domain',args.auth_domain] if args.auth_domain else []),'--agent-id',args.agent_id,'--run-id',args.run_id,'--purpose',args.purpose,'--ttl-seconds',str(args.ttl_seconds),'--idle-seconds',str(args.idle_seconds),'--min-ram-available-mib',str(args.min_ram_available_mib),'--min-swap-free-mib',str(args.min_swap_free_mib),'--memory-high',args.memory_high,'--memory-max',args.memory_max,'--proxy-cert-mode',args.proxy_cert_mode]
   if args.proxy_server: cmd += ['--proxy-server',args.proxy_server]
   if args.mitm_ca_cert: cmd += ['--mitm-ca-cert',args.mitm_ca_cert]
   if args.url: cmd += ['--url',args.url]
@@ -147,8 +155,8 @@ def request(args):
 def main():
  p=argparse.ArgumentParser(); sub=p.add_subparsers(dest='cmd',required=True)
  a=sub.add_parser('admission'); a.add_argument('--min-ram-available-mib',type=int,default=DEFAULT_RAM_MIB); a.add_argument('--min-swap-free-mib',type=int,default=DEFAULT_SWAP_MIB)
- s=sub.add_parser('start'); s.add_argument('program'); s.add_argument('account'); s.add_argument('--agent-id',required=True); s.add_argument('--run-id',required=True); s.add_argument('--purpose',required=True); s.add_argument('--url'); s.add_argument('--ttl-seconds',type=int,default=1800); s.add_argument('--idle-seconds',type=int,default=DEFAULT_IDLE); s.add_argument('--min-ram-available-mib',type=int,default=DEFAULT_RAM_MIB); s.add_argument('--min-swap-free-mib',type=int,default=DEFAULT_SWAP_MIB); s.add_argument('--memory-high',default='1G'); s.add_argument('--memory-max',default='2G'); s.add_argument('--proxy-cert-mode',choices=('auto','import','ignore','none'),default='import'); s.add_argument('--proxy-server'); s.add_argument('--mitm-ca-cert'); s.add_argument('--display-backend',choices=('auto','default','kasmvnc')); s.add_argument('--kasmvnc-display',type=int); s.add_argument('--kasmvnc-web-port',type=int)
- r0=sub.add_parser('request'); r0.add_argument('program'); r0.add_argument('account'); r0.add_argument('--agent-id',required=True); r0.add_argument('--run-id',required=True); r0.add_argument('--purpose',required=True); r0.add_argument('--url'); r0.add_argument('--ttl-seconds',type=int,default=1800); r0.add_argument('--idle-seconds',type=int,default=DEFAULT_IDLE); r0.add_argument('--wait-seconds',type=int,default=120); r0.add_argument('--min-ram-available-mib',type=int,default=DEFAULT_RAM_MIB); r0.add_argument('--min-swap-free-mib',type=int,default=DEFAULT_SWAP_MIB); r0.add_argument('--memory-high',default='1G'); r0.add_argument('--memory-max',default='2G'); r0.add_argument('--proxy-cert-mode',choices=('auto','import','ignore','none'),default='import'); r0.add_argument('--proxy-server'); r0.add_argument('--mitm-ca-cert'); r0.add_argument('--display-backend',choices=('auto','default','kasmvnc')); r0.add_argument('--kasmvnc-display',type=int); r0.add_argument('--kasmvnc-web-port',type=int)
+ s=sub.add_parser('start'); s.add_argument('program'); s.add_argument('account'); s.add_argument('--auth-domain'); s.add_argument('--agent-id',required=True); s.add_argument('--run-id',required=True); s.add_argument('--purpose',required=True); s.add_argument('--url'); s.add_argument('--ttl-seconds',type=int,default=1800); s.add_argument('--idle-seconds',type=int,default=DEFAULT_IDLE); s.add_argument('--min-ram-available-mib',type=int,default=DEFAULT_RAM_MIB); s.add_argument('--min-swap-free-mib',type=int,default=DEFAULT_SWAP_MIB); s.add_argument('--memory-high',default='1G'); s.add_argument('--memory-max',default='2G'); s.add_argument('--proxy-cert-mode',choices=('auto','import','ignore','none'),default='import'); s.add_argument('--proxy-server'); s.add_argument('--mitm-ca-cert'); s.add_argument('--display-backend',choices=('auto','default','kasmvnc')); s.add_argument('--kasmvnc-display',type=int); s.add_argument('--kasmvnc-web-port',type=int)
+ r0=sub.add_parser('request'); r0.add_argument('program'); r0.add_argument('account'); r0.add_argument('--auth-domain'); r0.add_argument('--agent-id',required=True); r0.add_argument('--run-id',required=True); r0.add_argument('--purpose',required=True); r0.add_argument('--url'); r0.add_argument('--ttl-seconds',type=int,default=1800); r0.add_argument('--idle-seconds',type=int,default=DEFAULT_IDLE); r0.add_argument('--wait-seconds',type=int,default=120); r0.add_argument('--min-ram-available-mib',type=int,default=DEFAULT_RAM_MIB); r0.add_argument('--min-swap-free-mib',type=int,default=DEFAULT_SWAP_MIB); r0.add_argument('--memory-high',default='1G'); r0.add_argument('--memory-max',default='2G'); r0.add_argument('--proxy-cert-mode',choices=('auto','import','ignore','none'),default='import'); r0.add_argument('--proxy-server'); r0.add_argument('--mitm-ca-cert'); r0.add_argument('--display-backend',choices=('auto','default','kasmvnc')); r0.add_argument('--kasmvnc-display',type=int); r0.add_argument('--kasmvnc-web-port',type=int)
  t=sub.add_parser('touch'); t.add_argument('--lease-id',required=True); t.add_argument('--agent-id',required=True); t.add_argument('--ttl-seconds',type=int,default=1800); t.add_argument('--work-state',choices=('active','awaiting-input'),default='active')
  q=sub.add_parser('status'); q.add_argument('--lease-id',required=True); q.add_argument('--agent-id',required=True)
  r=sub.add_parser('reap-idle'); r.add_argument('--idle-seconds',type=int,default=DEFAULT_IDLE)

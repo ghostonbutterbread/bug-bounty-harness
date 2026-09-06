@@ -100,7 +100,7 @@ def test_color_selector_leases_one_persistent_program_account_profile(monkeypatc
     assert result["account"]["owned_resource_count"] == 2
     assert result["account"]["auth_seed_configured"] is True
     assert "/private/green.json" not in json.dumps(result)
-    assert result["lease"]["profile_dir"].endswith("demo/web/browser-profiles/green-owner")
+    assert result["lease"]["profile_dir"].endswith("demo/web/browser-profiles/legacy-global/green-owner")
     assert result["lease"]["profile_dir"].startswith("/mnt/bounty/")
     assert result["launch"]["account"] == "green-owner"
 
@@ -184,6 +184,66 @@ def test_pwnfox_blue_is_an_exact_locked_browser_lane_without_auto_fallback(monke
     assert second["lease"]["account_alias"] == "blue-primary"
     assert [row["alias"] for row in second["available_alternatives"]] == ["pink-member"]
     assert second["lease"]["account_alias"] != "pink-member"
+
+
+def test_same_account_can_lease_distinct_auth_domains_with_isolated_profiles(monkeypatch, tmp_path):
+    module = load_module()
+    shared = tmp_path / "shared"
+    state = tmp_path / "state"
+    write_inventory(shared)
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    storefront = module.cmd_acquire(
+        args(
+            module, state, "acquire", account="green", auth_domain="storefront.example.test",
+            agent_id="agent-a", run_id="run-a", purpose="storefront-auth",
+        )
+    )
+    video_gp = module.cmd_acquire(
+        args(
+            module, state, "acquire", account="green", auth_domain="videogp.example.test",
+            agent_id="agent-b", run_id="run-b", purpose="videogp-auth",
+        )
+    )
+    duplicate = module.cmd_acquire(
+        args(
+            module, state, "acquire", account="green", auth_domain="storefront.example.test",
+            agent_id="agent-c", run_id="run-c", purpose="storefront-auth",
+        )
+    )
+
+    assert storefront["status"] == "leased"
+    assert video_gp["status"] == "leased"
+    assert storefront["lease"]["auth_domain"] == "storefront.example.test"
+    assert video_gp["lease"]["auth_domain"] == "videogp.example.test"
+    assert storefront["lease"]["profile_dir"] != video_gp["lease"]["profile_dir"]
+    assert duplicate["status"] == "locked"
+    assert duplicate["lease"]["auth_domain"] == "storefront.example.test"
+
+
+def test_legacy_active_lease_blocks_new_auth_domain_until_released(monkeypatch, tmp_path):
+    module = load_module()
+    shared = tmp_path / "shared"
+    state = tmp_path / "state"
+    write_inventory(shared)
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+
+    legacy = module.cmd_acquire(
+        args(module, state, "acquire", account="green", agent_id="agent-a", run_id="run-a", purpose="legacy-auth")
+    )
+    with module.connect(state / "browser_profile_leases.sqlite") as conn:
+        conn.execute("UPDATE browser_profile_leases SET auth_domain=NULL WHERE lease_id=?", (legacy["lease"]["lease_id"],))
+        conn.commit()
+    requested = module.cmd_acquire(
+        args(
+            module, state, "acquire", account="green", auth_domain="videogp.example.test",
+            agent_id="agent-b", run_id="run-b", purpose="videogp-auth",
+        )
+    )
+
+    assert legacy["status"] == "leased"
+    assert requested["status"] == "locked"
+    assert requested["lease"]["auth_domain"] == module.DEFAULT_LEGACY_AUTH_DOMAIN
 
 
 def test_same_owner_renews_and_release_makes_profile_available(monkeypatch, tmp_path):
@@ -329,7 +389,7 @@ def test_anonymous_slot_is_persistent_exclusive_and_does_not_need_inventory(monk
     assert first["status"] == "leased"
     assert first["account"]["profile_kind"] == "anonymous"
     assert first["launch"]["profile_mode"] == "persistent-anonymous-profile"
-    assert first["lease"]["profile_dir"].endswith("demo/web/browser-profiles/anon2")
+    assert first["lease"]["profile_dir"].endswith("demo/web/browser-profiles/legacy-global/anon2")
     assert second["status"] == "locked"
     assert second["lease"]["owner_agent_id"] == "agent-a"
     assert status["status"] == "available"

@@ -41,7 +41,7 @@
 
 ## `browser_profile_lease.py`
 
-- **Purpose:** Coordinates one persistent Chromium profile per `program/account`
+- **Purpose:** Coordinates one persistent Chromium profile per `program/auth-domain/account`
   on the machine that hosts that browser. It prevents two agents from driving the
   same account profile concurrently while exposing non-secret account capability
   metadata and explicitly available alternative accounts.
@@ -71,12 +71,12 @@
 
   # Ask first for a named profile. This reports role, program-specific org/plan
   # access, capabilities, lock state, and probes a registered local CDP endpoint.
-  bbh skills/chromium-test/scripts/browser_profile_lease.py status <program> --account green
+  bbh skills/chromium-test/scripts/browser_profile_lease.py status <program> --account green --auth-domain videogp.superdrug.com
 
   # Request exactly the selected account; the provisioner leases it and never
   # falls back to another color. It starts/reuses only the matching owned run.
   bbh skills/chromium-test/scripts/browser_provisioner.py request \
-    <program> green --agent-id <agent-id> --run-id <run-id> \
+    <program> green --auth-domain videogp.superdrug.com --agent-id <agent-id> --run-id <run-id> \
     --purpose "owned IDOR comparison"
 
   # Once the recorded browser is ready on the profile host, bind its loopback CDP.
@@ -93,6 +93,12 @@
   bbh skills/chromium-test/scripts/browser_profile_lease.py release --lease-id <lease-id> --agent-id <agent-id> \
     --disposition completed --profile-health healthy
   ```
+
+  Omit `--auth-domain` only when the inventory's `auth_host_filter` identifies
+  the intended auth surface. Pass it explicitly when one account/color has
+  independent auth state for multiple domains. A lock applies to that exact
+  auth-domain/account pair; a pre-migration active lease without a domain is a
+  conservative global lock until it is released.
 
   `browser_lease_enabled=no` and lifecycle `deleted`/`disabled`/`suspended` are
   never offered as account alternatives. Account writers use lifecycle `active`;

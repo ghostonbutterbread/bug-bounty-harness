@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lease one persistent browser profile per program/account without exposing session material.
+"""Lease one persistent browser profile per program/auth-domain/account without exposing session material.
 
 This script is deliberately a local profile-host coordinator. Run it on the
 machine that owns the persistent Chromium profile (normally Hoster). It stores
@@ -31,6 +31,7 @@ from inventory_paths import inventory_path, program_key, shared_base
 
 DEFAULT_STATE_DIR = Path("~/.local/state/ghost/browser-profile-leases").expanduser()
 DEFAULT_TTL_SECONDS = 30 * 60
+DEFAULT_LEGACY_AUTH_DOMAIN = "legacy-global"
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 ANONYMOUS_PROFILE_ALIASES = ("anon", "anon1", "anon2")
 ANONYMOUS_PROFILE_PATTERN = re.compile(r"anon(?:[1-9][0-9]*)?$")
@@ -50,8 +51,17 @@ def slug(value: str) -> str:
     return safe or "unknown"
 
 
-def profile_dir(program: str, account_alias: str) -> Path:
-    return artifact_base() / program_key(program) / "web" / "browser-profiles" / slug(account_alias)
+def profile_dir(program: str, auth_domain: str, account_alias: str) -> Path:
+    return artifact_base() / program_key(program) / "web" / "browser-profiles" / slug(auth_domain) / slug(account_alias)
+
+
+def auth_domain_for(args: argparse.Namespace, account: dict[str, Any] | None = None) -> str:
+    explicit = getattr(args, "auth_domain", None)
+    if explicit:
+        return slug(str(explicit))
+    if account and account.get("auth_host_filter"):
+        return slug(str(account["auth_host_filter"]))
+    return DEFAULT_LEGACY_AUTH_DOMAIN
 
 
 def anonymous_profile_record(selector: str) -> dict[str, Any] | None:
@@ -87,6 +97,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             program TEXT NOT NULL,
             account_alias TEXT NOT NULL,
             account_color TEXT,
+            auth_domain TEXT,
             owner_agent_id TEXT NOT NULL,
             owner_run_id TEXT NOT NULL,
             purpose TEXT NOT NULL,
@@ -113,6 +124,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         "work_state": "TEXT NOT NULL DEFAULT 'active'",
         "profile_health": "TEXT NOT NULL DEFAULT 'unknown'",
         "release_disposition": "TEXT",
+        "auth_domain": "TEXT",
     }.items():
         if name not in columns:
             conn.execute(f"ALTER TABLE browser_profile_leases ADD COLUMN {name} {definition}")
@@ -207,14 +219,15 @@ def expire_leases(conn: sqlite3.Connection, timestamp: float) -> None:
     )
 
 
-def active_lease(conn: sqlite3.Connection, program: str, alias: str, timestamp: float) -> sqlite3.Row | None:
+def active_lease(conn: sqlite3.Connection, program: str, alias: str, auth_domain: str, timestamp: float) -> sqlite3.Row | None:
     return conn.execute(
         """
         SELECT * FROM browser_profile_leases
         WHERE program = ? AND account_alias = ? AND status = 'active' AND expires_at > ?
-        ORDER BY created_at DESC LIMIT 1
+          AND (auth_domain = ? OR auth_domain IS NULL)
+        ORDER BY CASE WHEN auth_domain IS NULL THEN 0 ELSE 1 END, created_at DESC LIMIT 1
         """,
-        (slug(program), slug(alias), timestamp),
+        (slug(program), slug(alias), timestamp, auth_domain),
     ).fetchone()
 
 
@@ -226,6 +239,7 @@ def safe_lease(row: sqlite3.Row | None, *, include_cdp: bool = False) -> dict[st
         "program": row["program"],
         "account_alias": row["account_alias"],
         "account_color": row["account_color"],
+        "auth_domain": row["auth_domain"] or DEFAULT_LEGACY_AUTH_DOMAIN,
         "owner_agent_id": row["owner_agent_id"],
         "owner_run_id": row["owner_run_id"],
         "purpose": row["purpose"],
@@ -268,7 +282,7 @@ def anonymous_profile_status(conn: sqlite3.Connection, program: str, timestamp: 
     for alias in anonymous_profile_aliases(conn, program):
         profile = anonymous_profile_record(alias)
         assert profile is not None
-        status, lease, release = lease_availability(conn, program, profile, timestamp)
+        status, lease, release = lease_availability(conn, program, profile, timestamp, DEFAULT_LEGACY_AUTH_DOMAIN)
         rows.append({
             "alias": alias,
             "profile_kind": "anonymous",
@@ -279,14 +293,14 @@ def anonymous_profile_status(conn: sqlite3.Connection, program: str, timestamp: 
     return rows
 
 
-def last_release(conn: sqlite3.Connection, program: str, alias: str) -> sqlite3.Row | None:
+def last_release(conn: sqlite3.Connection, program: str, alias: str, auth_domain: str) -> sqlite3.Row | None:
     return conn.execute(
         """
         SELECT * FROM browser_profile_leases
-        WHERE program=? AND account_alias=? AND status='released'
+        WHERE program=? AND account_alias=? AND auth_domain=? AND status='released'
         ORDER BY released_at DESC LIMIT 1
         """,
-        (slug(program), slug(alias)),
+        (slug(program), slug(alias), auth_domain),
     ).fetchone()
 
 
@@ -295,26 +309,27 @@ def profile_available(account: dict[str, Any], release: sqlite3.Row | None) -> b
     return account_lease_eligible(account) and (release is None or release["profile_health"] == "healthy")
 
 
-def lease_availability(conn: sqlite3.Connection, program: str, account: dict[str, Any], timestamp: float) -> tuple[str, sqlite3.Row | None, sqlite3.Row | None]:
+def lease_availability(conn: sqlite3.Connection, program: str, account: dict[str, Any], timestamp: float, auth_domain: str | None = None) -> tuple[str, sqlite3.Row | None, sqlite3.Row | None]:
     alias = str(account["alias"])
-    lease = active_lease(conn, program, alias, timestamp)
-    release = None if lease else last_release(conn, program, alias)
+    auth_domain = auth_domain or DEFAULT_LEGACY_AUTH_DOMAIN
+    lease = active_lease(conn, program, alias, auth_domain, timestamp)
+    release = None if lease else last_release(conn, program, alias, auth_domain)
     status = "unavailable" if not account_lease_eligible(account) else "locked" if lease else "available" if profile_available(account, release) else "unavailable"
     return status, lease, release
 
 
-def alternatives(conn: sqlite3.Connection, program: str, inventory: dict[str, Any], timestamp: float) -> list[dict[str, Any]]:
+def alternatives(conn: sqlite3.Connection, program: str, inventory: dict[str, Any], timestamp: float, auth_domain: str | None = None) -> list[dict[str, Any]]:
     available: list[dict[str, Any]] = []
     for account in inventory.get("accounts", []):
         if not isinstance(account, dict) or not account.get("alias"):
             continue
-        status, _, _ = lease_availability(conn, program, account, timestamp)
+        status, _, _ = lease_availability(conn, program, account, timestamp, auth_domain)
         if status == "available":
             available.append(account_summary(account, inventory))
     return sorted(available, key=lambda row: (str(row.get("color") or ""), row["alias"]))
 
 
-def color_availability(conn: sqlite3.Connection, program: str, inventory: dict[str, Any], timestamp: float) -> list[dict[str, Any]]:
+def color_availability(conn: sqlite3.Connection, program: str, inventory: dict[str, Any], timestamp: float, auth_domain: str | None = None) -> list[dict[str, Any]]:
     """Return non-secret PwnFox lane availability without selecting a substitute."""
     accounts = {
         str(account.get("alias", "")).lower(): account
@@ -335,7 +350,7 @@ def color_availability(conn: sqlite3.Connection, program: str, inventory: dict[s
             colors.setdefault(color, account)
     rows: list[dict[str, Any]] = []
     for color, account in colors.items():
-        status, lease, _ = lease_availability(conn, program, account, timestamp)
+        status, lease, _ = lease_availability(conn, program, account, timestamp, auth_domain)
         rows.append(
             {
                 "color": color,
@@ -475,6 +490,7 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
             "selector": args.account,
             "inventory_path": str(inventory_path(args.program)),
         }
+    auth_domain = auth_domain_for(args, account)
     if not account_lease_eligible(account):
         with connect(state_db(args)) as conn:
             init_db(conn)
@@ -482,7 +498,7 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
                 "status": "account-unavailable",
                 "program": slug(args.program),
                 "account": account_summary(account, inventory),
-                "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
+                "available_alternatives": alternatives(conn, args.program, inventory, timestamp, auth_domain),
                 "next": "choose an explicitly eligible account; do not override inventory availability",
             }
     alias = str(account["alias"])
@@ -490,7 +506,7 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
         init_db(conn)
         conn.execute("BEGIN IMMEDIATE")
         expire_leases(conn, timestamp)
-        release = last_release(conn, args.program, str(account["alias"]))
+        release = last_release(conn, args.program, str(account["alias"]), auth_domain)
         if not profile_available(account, release) and not (args.recover_profile and account_lease_eligible(account)):
             conn.commit()
             return {
@@ -498,10 +514,10 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
                 "program": slug(args.program),
                 "account": account_summary(account, inventory),
                 "last_release": safe_lease(release),
-                "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
+                "available_alternatives": alternatives(conn, args.program, inventory, timestamp, auth_domain),
                 "next": "acquire with --recover-profile only for profile repair, then record a healthy release before leasing it again",
             }
-        existing = active_lease(conn, args.program, alias, timestamp)
+        existing = active_lease(conn, args.program, alias, auth_domain, timestamp)
         if existing:
             same_owner = existing["owner_agent_id"] == args.agent_id and existing["owner_run_id"] == args.run_id
             if same_owner:
@@ -524,25 +540,26 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
                 "program": slug(args.program),
                 "account": account_summary(account, inventory),
                 "lease": safe_lease(existing),
-                "available_alternatives": alternatives(conn, args.program, inventory, timestamp),
-                "color_availability": color_availability(conn, args.program, inventory, timestamp),
+                "available_alternatives": alternatives(conn, args.program, inventory, timestamp, auth_domain),
+                "color_availability": color_availability(conn, args.program, inventory, timestamp, auth_domain),
                 "next": "do not attach to or replace this browser; choose an explicitly approved alternative account or wait",
             }
         lease_id = str(uuid.uuid4())
         expires_at = timestamp + args.ttl_seconds
-        persistent_profile = profile_dir(args.program, alias)
+        persistent_profile = profile_dir(args.program, auth_domain, alias)
         conn.execute(
             """
             INSERT INTO browser_profile_leases(
-                lease_id, program, account_alias, account_color, owner_agent_id, owner_run_id,
+                lease_id, program, account_alias, account_color, auth_domain, owner_agent_id, owner_run_id,
                 purpose, profile_dir, status, browser_status, created_at, heartbeat_at, expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 'not-started', ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'not-started', ?, ?, ?)
             """,
             (
                 lease_id,
                 slug(args.program),
                 slug(alias),
                 account.get("pwnfox_color"),
+                auth_domain,
                 args.agent_id,
                 args.run_id,
                 args.purpose,
@@ -679,18 +696,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--json", action="store_true", help="Emit structured JSON (default).")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    status = sub.add_parser("status", help="Show whether a program/account browser profile is available or locked.")
+    status = sub.add_parser("status", help="Show whether a program/auth-domain/account browser profile is available or locked.")
     status.add_argument("program")
     status.add_argument("--account", help="Owned account alias or color. Omit for a program overview.")
+    status.add_argument("--auth-domain", help="Auth host/domain whose persistent profile is being queried.")
     status_filter = status.add_mutually_exclusive_group()
     status_filter.add_argument("--tier", choices=("admin", "user", "anonymous"), help="List accounts in a global principal tier, or durable anonymous browser slots.")
     status_filter.add_argument("--anonymous", action="store_true", help="List durable anonymous browser slots without consulting account inventory.")
     status_filter.add_argument("--idor", action="store_true", help="List primary IDOR accounts first, their live lease state, then eligible fallback accounts.")
     status.set_defaults(func=cmd_status)
 
-    acquire = sub.add_parser("acquire", help="Exclusively lease one persistent program/account browser profile.")
+    acquire = sub.add_parser("acquire", help="Exclusively lease one persistent program/auth-domain/account browser profile.")
     acquire.add_argument("program")
     acquire.add_argument("account", help="Owned account alias or color; never falls back automatically.")
+    acquire.add_argument("--auth-domain", help="Auth host/domain that scopes this persistent profile lock.")
     acquire.add_argument("--agent-id", required=True)
     acquire.add_argument("--run-id", required=True)
     acquire.add_argument("--purpose", required=True)

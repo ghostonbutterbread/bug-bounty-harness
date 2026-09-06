@@ -12,7 +12,8 @@ The initial structured-scope integration requested only the first 500 records. T
 
 - Synthetic two-page regression verifies cursor propagation and combined edges.
 - Regression verifies a scope response without pagination metadata fails closed.
-- Focused suite: `PYTHONPATH="$PWD" python3 -m pytest agents/test_scope_puller_seed_files.py agents/test_scope_manager.py agents/test_scope_validator.py agents/test_scope_seed_files.py -q` — 13 passed.
+- Regression verifies a repeated continuation cursor fails closed and asserts the outgoing GraphQL query retains its cursor and `pageInfo` contract.
+- Focused suite: `PYTHONPATH="$PWD" python3 -m pytest agents/test_scope_puller_seed_files.py agents/test_scope_manager.py agents/test_scope_validator.py agents/test_scope_seed_files.py -q` — 14 passed.
 - Compilation: `PYTHONPATH="$PWD" python3 -m py_compile agents/scope_puller.py program_config.py`.
 - Diff check: `git diff --check`.
 - Public, read-only `snapchat` smoke: 46 structured-scope edges, `hasNextPage=False`, 32 domains, 1 URL; no scope files written.

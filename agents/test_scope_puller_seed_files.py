@@ -136,9 +136,39 @@ def test_hackerone_fetch_paginates_every_structured_scope_page(monkeypatch) -> N
     team = scope_puller.fetch_hackerone_team("demo")
 
     assert [request["variables"]["after"] for request in requests] == [None, "cursor-1"]
+    query = requests[0]["query"]
+    assert "query TeamScope($handle: String!, $after: String)" in query
+    assert "after: $after" in query
+    assert "pageInfo" in query and "hasNextPage" in query and "endCursor" in query
     assert [edge["node"]["asset_identifier"] for edge in team["structured_scopes"]["edges"]] == [
         "one.example.com", "two.example.com",
     ]
+
+
+def test_hackerone_fetch_refuses_a_repeated_pagination_cursor(monkeypatch) -> None:
+    responses = iter([
+        {"data": {"team": {"structured_scopes": {
+            "edges": [], "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
+        }}}},
+        {"data": {"team": {"structured_scopes": {
+            "edges": [], "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
+        }}}},
+    ])
+
+    class Response:
+        def read(self):
+            return json.dumps(next(responses)).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(scope_puller.urllib.request, "urlopen", lambda *_args, **_kwargs: Response())
+
+    with pytest.raises(RuntimeError, match="cannot continue scope pagination"):
+        scope_puller.fetch_hackerone_team("demo")
 
 
 def test_hackerone_fetch_refuses_scope_response_without_pagination_metadata(monkeypatch) -> None:

@@ -171,13 +171,17 @@ def build_rules_profile(
 
 HACKERONE_GRAPHQL = "https://hackerone.com/graphql"
 
-H1_TEAM_QUERY = """query TeamScope($handle: String!) {
+H1_TEAM_QUERY = """query TeamScope($handle: String!, $after: String) {
   team(handle: $handle) {
     handle
     policy
     submission_state
     offers_bounties
-    structured_scopes(first: 500, archived: false) {
+    structured_scopes(first: 500, after: $after, archived: false) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
       edges {
         node {
           asset_type
@@ -216,31 +220,60 @@ H1_HOSTED_SOURCE_CODE_HOSTS = {
 
 def fetch_hackerone_team(handle: str) -> dict:
     """Fetch the public HackerOne policy and structured scope for one team."""
-    payload = json.dumps({
-        "operationName": "TeamScope",
-        "variables": {"handle": handle},
-        "query": H1_TEAM_QUERY,
-    }).encode("utf-8")
-    request = urllib.request.Request(
-        HACKERONE_GRAPHQL,
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": "Mozilla/5.0 (compatible; ScopePuller/1.0)",
-        },
-    )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        body = json.loads(response.read().decode("utf-8"))
-    errors = body.get("errors") or []
-    if errors:
-        first = errors[0]
-        message = first.get("message", str(first)) if isinstance(first, dict) else str(first)
-        raise RuntimeError(f"HackerOne GraphQL error: {message}")
-    team = (body.get("data") or {}).get("team")
-    if not team:
-        raise RuntimeError(f"HackerOne program '{handle}' was not found or is not public")
-    return team
+    cursor = None
+    seen_cursors: set[str] = set()
+    all_edges: list[dict] = []
+    first_team = None
+
+    while True:
+        payload = json.dumps({
+            "operationName": "TeamScope",
+            "variables": {"handle": handle, "after": cursor},
+            "query": H1_TEAM_QUERY,
+        }).encode("utf-8")
+        request = urllib.request.Request(
+            HACKERONE_GRAPHQL,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0 (compatible; ScopePuller/1.0)",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            body = json.loads(response.read().decode("utf-8"))
+        errors = body.get("errors") or []
+        if errors:
+            first = errors[0]
+            message = first.get("message", str(first)) if isinstance(first, dict) else str(first)
+            raise RuntimeError(f"HackerOne GraphQL error: {message}")
+        team = (body.get("data") or {}).get("team")
+        if not team:
+            raise RuntimeError(f"HackerOne program '{handle}' was not found or is not public")
+        if first_team is None:
+            first_team = team
+
+        structured_scopes = team.get("structured_scopes")
+        if not isinstance(structured_scopes, dict):
+            raise RuntimeError("HackerOne GraphQL response omitted structured scope data")
+        edges = structured_scopes.get("edges")
+        page_info = structured_scopes.get("pageInfo")
+        if not isinstance(edges, list) or not isinstance(page_info, dict):
+            raise RuntimeError("HackerOne GraphQL response omitted scope pagination metadata")
+        all_edges.extend(edges)
+
+        has_next_page = page_info.get("hasNextPage")
+        if not isinstance(has_next_page, bool):
+            raise RuntimeError("HackerOne GraphQL response has invalid scope pagination metadata")
+        if not has_next_page:
+            result = dict(first_team)
+            result["structured_scopes"] = {"edges": all_edges, "pageInfo": page_info}
+            return result
+
+        cursor = page_info.get("endCursor")
+        if not isinstance(cursor, str) or not cursor or cursor in seen_cursors:
+            raise RuntimeError("HackerOne GraphQL response cannot continue scope pagination")
+        seen_cursors.add(cursor)
 
 
 def add_hackerone_target_to_scope(

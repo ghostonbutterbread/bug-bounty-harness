@@ -8,7 +8,7 @@ description: Coordinate BBH findings, coverage, and durable hunt context.
 Use this skill for the Bug Bounty Harness ledger and its adjacent durable hunt
 records. It owns finding deduplication, coverage coordination, and the
 canonical artifact locations. It does not provide a general session briefing;
-use the shared `me` skill for a concise “what are we working on?” summary.
+use the shared `atme` skill for a concise “what are we working on?” summary.
 
 ## When to Use
 

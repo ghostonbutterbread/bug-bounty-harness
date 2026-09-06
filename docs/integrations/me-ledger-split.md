@@ -12,10 +12,10 @@
 
 ## Evidence
 
-- `python3 -m unittest tests.test_skill_command_lane_safety`
+- `bbh agents/test_manual_hunter.py` (18 tests)
 - `python3 -m unittest tests.test_skill_command_lane_safety tests.test_migrated_skill_commands tests.test_portable_shell_launchers`
-- Repository-wide search finds no remaining BBH `skills/me` or `/me` command
-  references.
+- Repository-wide search finds no remaining BBH `skills/me`, `/me` command, or
+  stale manual-hunter handoff references.
 
 ## Review / next action
 

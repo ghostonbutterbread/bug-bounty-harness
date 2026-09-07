@@ -29,7 +29,23 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
      destructive restrictions. `normalized-program` lowercases the selected
      program and converts separators to `-`; it is never a generic inventory key.
    - Read `skills/access-control/references/account-setup.md`.
-   - Confirm the needed owned accounts/resources exist. If not, ask for the
+   - Confirm the needed owned accounts/resources and **the feature-specific
+     capability/fixture** exist. A selected account's existence or valid login is
+     not evidence that it can exercise an Ads org, campaign, billing object,
+     workspace, role, integration, or other feature under test. If absent,
+     record an open blocker before any coverage claim:
+     ```bash
+     bbh agents/blockers.py record --program {program} --producer access-control \
+       --subject "<exact operation/route>" --test-scope "access-control:<lane>:<object>" \
+       --blocker-key "<stable prerequisite key>" --blocker-type owned-fixture \
+       --reason "<evidenced missing role/capability/fixture>" \
+       --unblock-condition "<smallest owned fixture or access change>" \
+       --account-ref <alias> --fixture "<object type>"
+     ```
+     Query the same gate before a completion summary. An open blocker means
+     `not demonstrated under available prerequisites`, never `tested` or
+     `covered` for that feature.
+   - If not, ask for the
      account path, or use `/temporary-email` when a separate test account is
      needed for account-level destructive flows.
    - Check `$HARNESS_SHARED_BASE/{program}/agent_shared/application-map/` for

@@ -30,22 +30,21 @@ Capture:
 - Context: workflow step, object lifecycle state, ownership, membership, plan tier, geographic/location flag, feature flag, payment state, pending invitation.
 - Enforcement point: route, controller, API gateway, frontend, backend service, storage/CDN, worker, GraphQL resolver, websocket/RPC handler.
 
-### Capability and fixture gate
+### External-blocker handoff
 
-Before counting an access-control test as coverage, establish that each selected
-account can reach the **normal feature state** being compared and that the
-owned object fixture exists. A successful login, an account alias, or an
-in-scope SPA route does not establish a campaign, ad share, workspace,
-subscription, integration, role, or other feature prerequisite.
+Blockers are a **general optional handoff aid**, not an access-control coverage
+gate. Before spending time on an apparently unavailable prerequisite, an agent
+may run `bbh agents/blockers.py check` for the exact operation/scope. If a known
+external blocker exists, reuse its stated unblock condition and do not repeat
+the dead-end setup unless the agent can perform that setup now.
 
-If a prerequisite is absent, write one open **Blocker Store** event using
-`bbh agents/blockers.py record` with the exact operation as `subject`, a stable
-prerequisite `blocker_key`, selected account aliases, and the smallest owned
-unblock condition. The request/method matrix may still be retained as a routing
-observation, but it is not BOLA coverage for the unavailable feature. Before a
-summary, query `bbh agents/blockers.py query --intent coverage` for the exact
-subject and test scope. Open blockers require the verdict:
-`not demonstrated under available prerequisites`.
+Record a blocker only after ordinary authorized setup has failed because the
+needed action is outside the agent's authority (for example human-only
+verification, unavailable owned role, or a policy decision). Include the current
+run ID. At completion, use `bbh agents/blockers.py brief --run-id <run>` to give
+Ryushe a compact list of what remains open and the specific action that would
+unlock each item. Do not require a check, brief, or blocker record for normal
+work that is not externally blocked.
 
 
 Before every two-identity comparison, verify both selected owned authenticated

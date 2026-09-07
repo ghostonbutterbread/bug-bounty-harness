@@ -96,6 +96,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **live-map** | `/live-map {program}` | `prompts/live-map-playbook.md` |
 | **error-mapper** | `/error-mapper {program} --url {target_url}` | `prompts/error-mapper-playbook.md` |
 | **error-intelligence** | `/error-intelligence {program} [--url {target_url}]` | `skills/error-intelligence/SKILL.md`; `agents/error_store.py` |
+| **blockers** | `/blockers {program}` | `skills/blockers/SKILL.md`; `agents/blockers.py` |
 | **hybrid** | `/hybrid deep-dive {mode} {program} --input {urls-or-params-file}` | `prompts/hybrid-playbook.md` |
 | **url-ingest** | `/url-ingest {init|ingest|status|mark|search|stats} {program}` | `skills/url-ingest/SKILL.md` |
 | **bounty-storage** | `/bounty-storage` | `skills/bounty-storage/SKILL.md` |

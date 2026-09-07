@@ -29,22 +29,20 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
      destructive restrictions. `normalized-program` lowercases the selected
      program and converts separators to `-`; it is never a generic inventory key.
    - Read `skills/access-control/references/account-setup.md`.
-   - Confirm the needed owned accounts/resources and **the feature-specific
-     capability/fixture** exist. A selected account's existence or valid login is
-     not evidence that it can exercise an Ads org, campaign, billing object,
-     workspace, role, integration, or other feature under test. If absent,
-     record an open blocker before any coverage claim:
+   - Confirm the needed owned accounts/resources and the feature-specific
+     capability/fixture when access-control testing requires them. Do ordinary
+     owned setup first. **Only when the agent cannot perform the missing setup**
+     (for example a human-only verification, unavailable owned role, or explicit
+     policy decision), it may check for a known external blocker and reuse its
+     unblock condition rather than repeating dead-end work:
      ```bash
-     bbh agents/blockers.py record --program {program} --producer access-control \
-       --subject "<exact operation/route>" --test-scope "access-control:<lane>:<object>" \
-       --blocker-key "<stable prerequisite key>" --blocker-type owned-fixture \
-       --reason "<evidenced missing role/capability/fixture>" \
-       --unblock-condition "<smallest owned fixture or access change>" \
-       --account-ref <alias> --fixture "<object type>"
+     bbh agents/blockers.py check --program {program} \
+       --subject "<exact operation/route>" --test-scope "<class>:<surface>"
      ```
-     Query the same gate before a completion summary. An open blocker means
-     `not demonstrated under available prerequisites`, never `tested` or
-     `covered` for that feature.
+     If no known blocker matches and the condition remains outside the agent's
+     authority, record it with the current run ID. At run completion, a blocker
+     brief reports only the blockers that run left open; it is a handoff aid,
+     not a mandatory test gate.
    - If not, ask for the
      account path, or use `/temporary-email` when a separate test account is
      needed for account-level destructive flows.

@@ -4,7 +4,7 @@
 - **Branch:** `feat/blocker-run-brief`
 - **Base / target:** `beta` at `77f02b6` → `beta`
 - **Core dependency:** Bounty Core beta `1bba64b557aa3b604092b5bad47689fcb40cc0f7` (must merge first).
-- **Implementation commit:** pending commit after the clean dependency smoke.
+- **Implementation commit:** `8797cb41c290007a52d22a854cb92b27f6d64da3` (clean dependency smoke passed).
 
 ## Contract
 

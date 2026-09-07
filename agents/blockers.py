@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BBH CLI for Bounty Core's prerequisite-aware Blocker Store."""
+"""BBH CLI for known external blockers and end-of-run blocker briefs."""
 
 from __future__ import annotations
 
@@ -23,16 +23,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lane", default="web")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    record = subparsers.add_parser("record", help="Append one redacted blocker lifecycle event")
+    record = subparsers.add_parser("record", help="Record an external blocker the agent cannot solve")
     record.add_argument("--program", required=True)
     record.add_argument("--producer", required=True)
+    record.add_argument("--run-id", required=True)
     record.add_argument("--subject", required=True, help="Exact route, operation, or flow being gated")
-    record.add_argument("--test-scope", required=True, help="For example access-control:horizontal:campaign")
-    record.add_argument("--blocker-key", required=True, help="Stable dedupe key for this prerequisite")
+    record.add_argument("--test-scope", required=True)
+    record.add_argument("--blocker-key", required=True, help="Stable prerequisite key")
     record.add_argument("--blocker-type", required=True)
     record.add_argument("--reason", required=True)
     record.add_argument("--state", choices=("open", "resolved", "superseded"), default="open")
-    record.add_argument("--unblock-condition")
+    record.add_argument("--unblock-condition", help="External action that wakes an open blocker; omit for resolved/superseded events")
     record.add_argument("--account-ref", action="append", default=[])
     record.add_argument("--capability")
     record.add_argument("--fixture")
@@ -40,9 +41,20 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--artifact-ref")
     record.add_argument("--details-json", default="{}")
 
-    query = subparsers.add_parser("query", help="Read bounded blocker evidence or a coverage gate")
+    check = subparsers.add_parser("check", help="Check for known open blockers before spending effort")
+    check.add_argument("--program", required=True)
+    check.add_argument("--subject", required=True)
+    check.add_argument("--test-scope", required=True)
+    check.add_argument("--blocker-key")
+
+    brief = subparsers.add_parser("brief", help="Return open blockers from one completed run")
+    brief.add_argument("--program", required=True)
+    brief.add_argument("--run-id", required=True)
+    brief.add_argument("--limit", type=int, default=100)
+
+    query = subparsers.add_parser("query", help="Diagnostic blocker read; not required for ordinary testing")
     query.add_argument("--program", required=True)
-    query.add_argument("--intent", choices=("events", "active", "coverage"), default="events")
+    query.add_argument("--intent", choices=("events", "active"), default="events")
     query.add_argument("--subject")
     query.add_argument("--test-scope")
     query.add_argument("--blocker-key")
@@ -64,20 +76,45 @@ def _store(args: argparse.Namespace) -> BlockerStore:
     return BlockerStore(args.program, family=args.family, lane=args.lane, root_override=args.root)
 
 
+def _brief_item(row: dict[str, Any]) -> dict[str, Any]:
+    return {key: row.get(key) for key in (
+        "blocker_id", "blocker_key", "blocker_type", "subject", "test_scope", "reason",
+        "unblock_condition", "account_refs", "capability", "fixture", "attempt_ref", "artifact_ref",
+    )}
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     store = _store(args)
     if args.command == "record":
         return store.record(
-            producer=args.producer, subject=args.subject, test_scope=args.test_scope,
-            blocker_key=args.blocker_key, blocker_type=args.blocker_type, reason=args.reason,
-            state=args.state, unblock_condition=args.unblock_condition, account_refs=args.account_ref,
-            capability=args.capability, fixture=args.fixture, attempt_ref=args.attempt_ref,
-            artifact_ref=args.artifact_ref, details=_details(args.details_json),
+            producer=args.producer, run_id=args.run_id, subject=args.subject, test_scope=args.test_scope,
+            blocker_key=args.blocker_key, blocker_type=args.blocker_type, reason=args.reason, state=args.state,
+            unblock_condition=args.unblock_condition, account_refs=args.account_ref, capability=args.capability,
+            fixture=args.fixture, attempt_ref=args.attempt_ref, artifact_ref=args.artifact_ref,
+            details=_details(args.details_json),
         )
-    if args.intent == "coverage":
-        if not args.subject or not args.test_scope:
-            raise ValueError("--subject and --test-scope are required for coverage intent")
-        return store.coverage_gate(subject=args.subject, test_scope=args.test_scope)
+    if args.command == "check":
+        blockers = store.active(subject=args.subject, test_scope=args.test_scope, limit=100)
+        if args.blocker_key:
+            blockers = [row for row in blockers if row["blocker_key"] == args.blocker_key]
+        return {
+            "known_blocker": bool(blockers),
+            "blockers": [_brief_item(row) for row in blockers],
+            "next_action": (
+                "Do not repeat setup or exploratory work for these blockers; continue only if the agent can perform the stated unblock condition."
+                if blockers else "No known external blocker matches this scope. Continue normal work; record one only if the agent cannot perform the unblock."
+            ),
+        }
+    if args.command == "brief":
+        result = store.brief(run_id=args.run_id, limit=args.limit)
+        blockers = [_brief_item(row) for row in result.pop("open_blockers")]
+        result["open_blockers"] = blockers
+        result["what_happened"] = (
+            "The run completed with no externally blocked work."
+            if not blockers else f"The run completed with {len(blockers)} external blocker(s) left open."
+        )
+        result["next_to_push"] = [row["unblock_condition"] for row in blockers]
+        return result
     if args.intent == "active":
         return {"events": store.active(subject=args.subject, test_scope=args.test_scope, limit=args.limit)}
     where = {key: value for key, value in {

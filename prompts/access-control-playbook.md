@@ -30,7 +30,23 @@ Capture:
 - Context: workflow step, object lifecycle state, ownership, membership, plan tier, geographic/location flag, feature flag, payment state, pending invitation.
 - Enforcement point: route, controller, API gateway, frontend, backend service, storage/CDN, worker, GraphQL resolver, websocket/RPC handler.
 
-### Cross-account control harness
+### Capability and fixture gate
+
+Before counting an access-control test as coverage, establish that each selected
+account can reach the **normal feature state** being compared and that the
+owned object fixture exists. A successful login, an account alias, or an
+in-scope SPA route does not establish a campaign, ad share, workspace,
+subscription, integration, role, or other feature prerequisite.
+
+If a prerequisite is absent, write one open **Blocker Store** event using
+`bbh agents/blockers.py record` with the exact operation as `subject`, a stable
+prerequisite `blocker_key`, selected account aliases, and the smallest owned
+unblock condition. The request/method matrix may still be retained as a routing
+observation, but it is not BOLA coverage for the unavailable feature. Before a
+summary, query `bbh agents/blockers.py query --intent coverage` for the exact
+subject and test scope. Open blockers require the verdict:
+`not demonstrated under available prerequisites`.
+
 
 Before every two-identity comparison, verify both selected owned authenticated
 identities against their own known-good endpoint. Record sanitized aliases,

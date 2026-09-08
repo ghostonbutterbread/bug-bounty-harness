@@ -618,6 +618,21 @@ def cmd_renew(args: argparse.Namespace) -> dict[str, Any]:
     return {"status": "renewed", "lease": safe_lease(updated, include_cdp=True)}
 
 
+def cmd_inspect_lease(args: argparse.Namespace) -> dict[str, Any]:
+    """Return only the non-secret state needed for safe provisioner reclaim."""
+    with connect(state_db(args)) as conn:
+        init_db(conn)
+        row = conn.execute("SELECT * FROM browser_profile_leases WHERE lease_id=?", (args.lease_id,)).fetchone()
+    if row is None:
+        return {"status": "unknown"}
+    return {
+        "status": row["status"],
+        "work_state": row["work_state"],
+        "heartbeat_at": row["heartbeat_at"],
+        "expires_at": row["expires_at"],
+    }
+
+
 def local_cdp_version(cdp_url: str) -> dict[str, Any]:
     parsed = urlparse(cdp_url)
     if parsed.scheme != "http" or parsed.hostname not in LOOPBACK_HOSTS or not parsed.port:
@@ -724,6 +739,10 @@ def build_parser() -> argparse.ArgumentParser:
     renew.add_argument("--ttl-seconds", type=int, default=DEFAULT_TTL_SECONDS)
     renew.add_argument("--work-state", choices=("active", "awaiting-input"), default="active", help="Use awaiting-input while a question/blocker means the work is not terminal.")
     renew.set_defaults(func=cmd_renew)
+
+    inspect = sub.add_parser("inspect-lease", help="Return non-secret lease liveness state for provisioner-owned reclaim decisions.")
+    inspect.add_argument("--lease-id", required=True)
+    inspect.set_defaults(func=cmd_inspect_lease)
 
     register = sub.add_parser("register-browser", help="Attach verified local CDP metadata to an owned lease.")
     register.add_argument("--lease-id", required=True)

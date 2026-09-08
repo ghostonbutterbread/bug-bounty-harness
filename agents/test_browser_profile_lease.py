@@ -112,6 +112,27 @@ def test_shared_base_defaults_to_canonical_web_bounty(monkeypatch):
     assert module.shared_base() == Path.home() / "Shared" / "web_bounty"
 
 
+def test_inspect_lease_exposes_only_reclaim_safety_state(monkeypatch, tmp_path):
+    module = load_module()
+    shared = tmp_path / "shared"
+    state = tmp_path / "state"
+    write_inventory(shared)
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    acquired = module.cmd_acquire(
+        args(module, state, "acquire", account="green", agent_id="agent-a", run_id="run-a", purpose="auth-map")
+    )
+
+    result = module.cmd_inspect_lease(
+        args(module, state, "inspect-lease", lease_id=acquired["lease"]["lease_id"])
+    )
+
+    assert result["status"] == "active"
+    assert result["work_state"] == "active"
+    assert result["expires_at"] > result["heartbeat_at"]
+    assert "cdp_url" not in result
+    assert "profile_dir" not in result
+
+
 def test_locked_profile_returns_explicit_safe_alternatives_without_switching(monkeypatch, tmp_path):
     module = load_module()
     shared = tmp_path / "shared"

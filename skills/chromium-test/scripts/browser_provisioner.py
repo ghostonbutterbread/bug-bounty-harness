@@ -36,6 +36,7 @@ def lease(args, *parts):
  p=subprocess.run([sys.executable,str(LEASE),'--json',*parts],capture_output=True,text=True)
  try: return json.loads(p.stdout)
  except Exception: return {'status':'lease-error','detail':p.stderr.strip() or p.stdout.strip()}
+def lease_snapshot(lease_id): return lease(None,'inspect-lease','--lease-id',lease_id)
 def sysenv():
  e=os.environ.copy(); e['XDG_RUNTIME_DIR']=f'/run/user/{os.getuid()}'; e['DBUS_SESSION_BUS_ADDRESS']=f"unix:path={e['XDG_RUNTIME_DIR']}/bus"; return e
 def unit_active(unit):
@@ -46,6 +47,32 @@ def stop_unit(unit):
 def safe(row): return {k:row[k] for k in ('browser_id','lease_id','program','account','auth_domain','state','tab_count','last_activity','created','updated')}
 def release_lease(lease_id, agent, disp='cancelled', health='healthy'): return lease(None,'release','--lease-id',lease_id,'--agent-id',agent,'--disposition',disp,'--profile-health',health)
 def profile_path(program,account): return Path(os.environ.get('HARNESS_BOUNTY_ARTIFACT_ROOT','/mnt/bounty'))/slug(program)/'web'/'browser-profiles'/slug(account)
+def reclaim_one(c, args):
+ # Demand-triggered reclaim is fail-closed: an uncertain, active, or handoff
+ # browser remains protected even when capacity pressure is severe.
+ cutoff=now()-args.idle_seconds; skipped=[]
+ rows=c.execute("select * from browsers where state='running' and last_activity<? order by last_activity asc",(cutoff,)).fetchall()
+ for row in rows:
+  if row['agent_id']==args.agent_id and row['run_id']==args.run_id: skipped.append({'browser_id':row['browser_id'],'reason':'requester-owned'}); continue
+  if not unit_active(row['unit']): skipped.append({'browser_id':row['browser_id'],'reason':'unit-inactive'}); continue
+  snapshot=lease_snapshot(row['lease_id'])
+  if snapshot.get('status')!='active' or snapshot.get('work_state')!='active' or snapshot.get('expires_at',float('inf'))>now():
+   skipped.append({'browser_id':row['browser_id'],'reason':'lease-active-or-ambiguous'}); continue
+  stop_unit(row['unit'])
+  if unit_active(row['unit']):
+   return {'status':'stop-failed','browser_id':row['browser_id'],'skipped':skipped}
+  released=release_lease(row['lease_id'],row['agent_id'])
+  if released.get('status')!='released':
+   return {'status':'release-failed','browser_id':row['browser_id'],'skipped':skipped}
+  c.execute("update browsers set state='idle-stopped',updated=? where lease_id=?",(now(),row['lease_id'])); c.commit()
+  return {'status':'reclaimed','browser_id':row['browser_id'],'skipped':skipped}
+ return {'status':'none-eligible','skipped':skipped}
+def admit_or_reclaim(c, args):
+ adm=admission(args.min_ram_available_mib,args.min_swap_free_mib)
+ if adm['status']=='admitted': return adm,None
+ reclaimed=reclaim_one(c,args)
+ if reclaimed.get('status')=='reclaimed': adm=admission(args.min_ram_available_mib,args.min_swap_free_mib)
+ return adm,reclaimed
 def start(args):
  # Existing owner may resume only its own stopped profile.
  # Serialized automatic retention sweep runs before every new admission.
@@ -54,8 +81,8 @@ def start(args):
  # Capacity is an admission gate, not a lease outcome. Do not acquire a profile
  # until this node can actually start Chromium: a no-capacity retry must leave
  # the next profile user with a healthy, available profile.
- adm=admission(args.min_ram_available_mib,args.min_swap_free_mib)
- if adm['status']!='admitted': emit({'status':'queued','reason':'no-capacity','retry_after_seconds':30,'admission':adm},2)
+ adm,reclaim=admit_or_reclaim(c,args)
+ if adm['status']!='admitted': emit({'status':'queued','reason':'no-capacity','retry_after_seconds':30,'admission':adm,'reclaim':reclaim},2)
  got=lease(args,'acquire',args.program,args.account,*(['--auth-domain',args.auth_domain] if args.auth_domain else []),'--agent-id',args.agent_id,'--run-id',args.run_id,'--purpose',args.purpose,'--ttl-seconds',str(args.ttl_seconds))
  if got.get('status') not in ('leased','already-owned'): emit(got,2)
  lid=got['lease']['lease_id']
@@ -85,7 +112,7 @@ def start(args):
  reg=lease(args,'register-browser','--lease-id',lid,'--agent-id',args.agent_id,'--cdp-url',info['cdp_url'],'--service-unit',unit)
  if reg.get('status') not in ('registered','registered-unreachable'):
   stop_unit(unit); release_lease(lid,args.agent_id); emit({'status':'launch-failed','detail':'could not register owned browser'},2)
- t=now(); c.execute('delete from browsers where lease_id=?',(lid,)); c.execute('insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(lid,bid,slug(args.program),slug(got['lease'].get('account_alias',args.account)),got['lease'].get('auth_domain',auth_domain),args.agent_id,args.run_id,args.purpose,unit,str(prof),str(launch),'running',0,t,t,t)); c.commit(); out=c.execute('select * from browsers where lease_id=?',(lid,)).fetchone(); emit({'status':'started',**safe(out),'profile_lifetime':'persistent','idle_deadline_at':t+args.idle_seconds})
+ t=now(); c.execute('delete from browsers where lease_id=?',(lid,)); c.execute('insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(lid,bid,slug(args.program),slug(got['lease'].get('account_alias',args.account)),got['lease'].get('auth_domain',auth_domain),args.agent_id,args.run_id,args.purpose,unit,str(prof),str(launch),'running',0,t,t,t)); c.commit(); out=c.execute('select * from browsers where lease_id=?',(lid,)).fetchone(); emit({'status':'started',**safe(out),'profile_lifetime':'persistent','idle_deadline_at':t+args.idle_seconds,'reclaim':reclaim})
 def touch(args):
  c=db(); r=c.execute('select * from browsers where lease_id=?',(args.lease_id,)).fetchone()
  if not r or r['agent_id']!=args.agent_id: emit({'status':'not-owner'},2)

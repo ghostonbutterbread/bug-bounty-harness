@@ -33,6 +33,15 @@ Chromium process. `--dry-run` remains available for implementation planning and
 focused launcher tests. Hermes ordinary browsing uses its own managed browser
 provider rather than Chromium Test.
 
+When a request is rejected for capacity, the provisioner may make one
+**demand-triggered** reclaim attempt before queueing. It considers only its own
+manager-recorded browser units whose activity is older than the 15-minute idle
+deadline and whose lease heartbeat has expired. It never selects the requesting
+run, an active or `awaiting-input` lease, a manual handoff, or any browser with
+missing/ambiguous manager state. It stops at one candidate and returns queued
+rather than taking a second browser on any uncertain or failed release. This is
+not a timer or a license to terminate arbitrary Chromium processes.
+
 IDOR is replay-first after a browser-derived session/request has been captured:
 stop and release the browser/profile at that point unless further browser work
 is necessary, then build and run bounded direct replays through the task MITM

@@ -272,3 +272,114 @@ def test_failed_systemd_launch_releases_just_acquired_lease_with_healthy_profile
     except SystemExit as e: assert e.code == 2
     assert calls == ["acquire", "release"]
     assert release_args[release_args.index("--profile-health") + 1] == "healthy"
+
+
+def test_reclaim_one_only_stops_oldest_expired_browser(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    c = m.db()
+    now = 10_000
+    rows = [
+        ("active", "active-browser", "active-agent", now - 2_000),
+        ("awaiting", "awaiting-browser", "awaiting-agent", now - 3_000),
+        ("unknown", "unknown-browser", "unknown-agent", now - 4_000),
+        ("expired-newer", "expired-newer-browser", "expired-agent", now - 1_200),
+        ("expired-oldest", "expired-oldest-browser", "expired-agent", now - 5_000),
+    ]
+    for lease_id, browser_id, agent_id, last_activity in rows:
+        c.execute(
+            "insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (lease_id, browser_id, "demo", lease_id, "default", agent_id, "run", "test", lease_id + "-unit", str(tmp_path / lease_id), str(tmp_path / (lease_id + ".json")), "running", 0, last_activity, last_activity, last_activity),
+        )
+    c.commit()
+    snapshots = {
+        "active": {"status": "active", "work_state": "active", "expires_at": now + 60},
+        "awaiting": {"status": "active", "work_state": "awaiting-input", "expires_at": now - 60},
+        "unknown": {"status": "unknown"},
+        "expired-newer": {"status": "active", "work_state": "active", "expires_at": now - 60},
+        "expired-oldest": {"status": "active", "work_state": "active", "expires_at": now - 60},
+    }
+    stopped, released = [], []
+    monkeypatch.setattr(m, "now", lambda: now)
+    monkeypatch.setattr(m, "unit_active", lambda unit: unit not in stopped)
+    monkeypatch.setattr(m, "lease_snapshot", lambda lease_id: snapshots[lease_id])
+    monkeypatch.setattr(m, "stop_unit", lambda unit: stopped.append(unit))
+    monkeypatch.setattr(m, "release_lease", lambda lease_id, agent_id, *args: released.append((lease_id, agent_id)) or {"status": "released"})
+
+    result = m.reclaim_one(c, start_args())
+
+    assert result["status"] == "reclaimed"
+    assert result["browser_id"] == "expired-oldest-browser"
+    assert stopped == ["expired-oldest-unit"]
+    assert released == [("expired-oldest", "expired-agent")]
+    assert c.execute("select state from browsers where lease_id='expired-oldest'").fetchone()[0] == "idle-stopped"
+    assert c.execute("select state from browsers where lease_id='active'").fetchone()[0] == "running"
+
+
+def test_admission_reclaims_once_then_rechecks_capacity(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    results = iter(({"status": "rejected", "swap_free_mib": 0}, {"status": "admitted", "swap_free_mib": 700}))
+    monkeypatch.setattr(m, "admission", lambda *_: next(results))
+    monkeypatch.setattr(m, "reclaim_one", lambda *_: {"status": "reclaimed", "browser_id": "idle-browser"})
+
+    admission, reclaim = m.admit_or_reclaim(m.db(), start_args())
+
+    assert admission["status"] == "admitted"
+    assert reclaim == {"status": "reclaimed", "browser_id": "idle-browser"}
+
+
+def test_admission_never_reclaims_when_capacity_is_already_available(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    monkeypatch.setattr(m, "admission", lambda *_: {"status": "admitted"})
+    monkeypatch.setattr(m, "reclaim_one", lambda *_: (_ for _ in ()).throw(AssertionError("must not reclaim")))
+
+    admission, reclaim = m.admit_or_reclaim(m.db(), start_args())
+
+    assert admission["status"] == "admitted"
+    assert reclaim is None
+
+
+def test_reclaim_stops_after_one_failed_release(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    c = m.db()
+    now = 10_000
+    for lease_id, last_activity in (("oldest", now - 5_000), ("next", now - 4_000)):
+        c.execute(
+            "insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (lease_id, lease_id + "-browser", "demo", lease_id, "default", lease_id + "-agent", "run", "test", lease_id + "-unit", str(tmp_path / lease_id), str(tmp_path / (lease_id + ".json")), "running", 0, last_activity, last_activity, last_activity),
+        )
+    c.commit()
+    stopped = []
+    monkeypatch.setattr(m, "now", lambda: now)
+    monkeypatch.setattr(m, "unit_active", lambda unit: unit not in stopped)
+    monkeypatch.setattr(m, "lease_snapshot", lambda _lease_id: {"status": "active", "work_state": "active", "expires_at": now - 60})
+    monkeypatch.setattr(m, "stop_unit", lambda unit: stopped.append(unit))
+    monkeypatch.setattr(m, "release_lease", lambda *_args: {"status": "not-owner-or-missing"})
+
+    result = m.reclaim_one(c, start_args())
+
+    assert result["status"] == "release-failed"
+    assert stopped == ["oldest-unit"]
+    assert c.execute("select state from browsers where lease_id='next'").fetchone()[0] == "running"
+
+
+def test_reclaim_refuses_release_when_stop_does_not_finish(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    c = m.db()
+    now = 10_000
+    c.execute(
+        "insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("stuck", "stuck-browser", "demo", "stuck", "default", "stuck-agent", "run", "test", "stuck-unit", str(tmp_path / "stuck"), str(tmp_path / "stuck.json"), "running", 0, now - 5_000, now - 5_000, now - 5_000),
+    )
+    c.commit()
+    release_calls = []
+    monkeypatch.setattr(m, "now", lambda: now)
+    monkeypatch.setattr(m, "unit_active", lambda _unit: True)
+    monkeypatch.setattr(m, "lease_snapshot", lambda _lease_id: {"status": "active", "work_state": "active", "expires_at": now - 60})
+    monkeypatch.setattr(m, "stop_unit", lambda _unit: None)
+    monkeypatch.setattr(m, "release_lease", lambda *_args: release_calls.append(True) or {"status": "released"})
+
+    result = m.reclaim_one(c, start_args())
+
+    assert result["status"] == "stop-failed"
+    assert release_calls == []
+    assert c.execute("select state from browsers where lease_id='stuck'").fetchone()[0] == "running"

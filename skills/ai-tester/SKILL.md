@@ -29,6 +29,10 @@ Example:
 
 ## Load Order
 
+Before live work, read [AI action boundaries](references/action-boundaries.md)
+and load the shared security-policy owners it names. This skill does not grant
+permission for the actions described by its playbooks.
+
 1. `prompts/ai-action-chain-playbook.md`
 2. `prompts/ai-trust-map-playbook.md`
 3. `prompts/agent-tool-abuse-playbook.md`
@@ -119,10 +123,11 @@ and any response variance in the attempts artifact.
 
 ## Stop Conditions
 
-Pause before real destructive actions, real external messages/invites,
-purchases/refunds, publishing/sharing, accessing private data beyond minimal
-classification, or broad/internal network probing unless Ryushe explicitly
-approved that exact action or it is the stated objective of an authorized lab.
+Apply [AI action boundaries](references/action-boundaries.md): the live,
+account, and applicable class policies own approval and stop decisions.
+Distinguish permitted disposable application fixtures from protected server
+state; stop on an unexpected unapproved side effect. A lab objective does not
+waive those gates.
 
 ## Output
 

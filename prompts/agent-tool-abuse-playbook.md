@@ -1,5 +1,9 @@
 # Agent Tool Abuse Playbook
 
+Before live work, read [AI action boundaries](../skills/ai-tester/references/action-boundaries.md)
+and load its named security policies. They own permission for the action, even
+when the request is mediated by an AI.
+
 Use when an AI feature can call tools, APIs, browser actions, workflow steps, or state-changing functions. The core question: can model-readable untrusted content or prompt pressure cause an action outside the real user's intent or authorization?
 
 ## 1. Tool Inventory
@@ -52,7 +56,7 @@ Prefer:
 - no-op/sandbox/test resource
 - scratch document or disposable test record
 - dummy layer/text/title mutation
-- operator-owned callback URL for outbound request observation
+- authorized operator-owned callback URL for outbound request observation
 
 Callback rule:
 
@@ -65,7 +69,7 @@ For scanner/fetch tools, a model saying it will fetch a URL is not enough. Prefe
 
 For AI-invoked SSRF-style probes:
 
-- use owned callback URLs first
+- use owned callback URLs only when the outbound request and observer are authorized by the linked live/class policies
 - use a unique case ID per attempt
 - capture source IP, user agent, requested path/query, and timestamp
 - record redirect behavior if redirects are part of the hypothesis
@@ -92,15 +96,13 @@ Look for missing confirmation, missing schema validation, or backend trust in mo
 
 ## 5. Stop Conditions
 
-Stop and ask Ryushe before:
-
-- sending messages or invites
-- publishing/sharing externally
-- making purchases/refunds/billing changes
-- deleting content
-- changing real customer/vendor data
-- accessing private data beyond minimal classification
-- triggering broad SSRF-like or crawler behavior
+Apply [AI action boundaries](../skills/ai-tester/references/action-boundaries.md)
+and the live/account/class owners rather than classifying by the tool name or
+HTTP verb. A permitted disposable application-object mutation does not authorize
+deleting, overwriting, or replacing pre-existing server files. Stop and preserve
+evidence on an unexpected unapproved side effect, including execution during a
+requested dry-run. Scope, ownership, public impact, rate, and approval gates
+remain controlling.
 
 ## Evidence Template
 

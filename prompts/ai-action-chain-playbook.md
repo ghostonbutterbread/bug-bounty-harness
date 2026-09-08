@@ -1,5 +1,9 @@
 # AI Tester / AI Action Chain Playbook
 
+Before live work, read [AI action boundaries](../skills/ai-tester/references/action-boundaries.md)
+and load its named security policies. They govern every action in this playbook;
+AI-mediated capability evidence is not permission to act.
+
 Use this playbook when the bug bounty question is not just "can the model be jailbroken?" but "can attacker-controlled context make the AI cross a real app boundary?"
 
 Use `/ai-tester` as the user-facing command. `/ai-action-chain` remains a
@@ -285,7 +289,10 @@ Mutation rule:
 
 ## 6. PortSwigger Validation Mode
 
-Use hard Web Security Academy Web LLM labs as controlled validation targets. They are authorized labs; destructive actions are allowed only when they are the explicit lab objective.
+Use Web Security Academy Web LLM labs only within their authorized fixture
+scope. A lab objective is not a blanket exception: the scope must explicitly
+authorize the exact fixture action and its effects under the linked action
+boundaries. It does not authorize destructive operations on host/server files.
 
 Preferred hard-lab order:
 

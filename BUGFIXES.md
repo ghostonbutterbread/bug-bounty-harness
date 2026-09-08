@@ -1,5 +1,18 @@
 # Known defects awaiting their own task
 
+## Resolved integration dossier triggers the documentation lane check
+
+**Location:** `docs/integrations/broad-goal-map-reconciliation.md:24`.
+
+**Evidence:** `test_skill_command_lane_safety` reports direct script invocation
+examples in this retained integration dossier. The identical failure reproduces
+on unchanged beta at `aa99c3e02e84f94ae8b9c6ec5626bea2abc11f8f` and on the
+AI-action-guard feature branch.
+
+**Impact:** the broad documentation lane check is not green independently of the
+AI policy fix. The owning task should reconcile/remove its resolved dossier
+under the branch lifecycle, then rerun that test. Not fixed in this policy slice.
+
 ## `agents/sync_reports.py` — FILE_HINT_RE matches an extension inside a longer word
 
 **Location:** `agents/sync_reports.py:41` (its own copy of the pattern, independent of

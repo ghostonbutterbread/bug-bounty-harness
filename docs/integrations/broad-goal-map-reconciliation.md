@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-08
 - **Owning feature branch/ref:** `docs/broad-goal-map-reconciliation`
-- **Latest immutable recovery checkpoint:** `4f4a50c6b63930f33a7f7abb0591efe4ccb84d25`
-- **Feature implementation commit(s):** `4f4a50c6b63930f33a7f7abb0591efe4ccb84d25`
+- **Latest immutable recovery checkpoint:** `536a84544dcd48a75ef36a0ca56ccb1d32900574`
+- **Feature implementation commit(s):** `4f4a50c6b63930f33a7f7abb0591efe4ccb84d25`, `536a84544dcd48a75ef36a0ca56ccb1d32900574`
 - **Inspiration / canonical references:** broad-goal tunnel-vision review; `hunt-orchestration-policy`
 
 ## Intent
@@ -37,8 +37,8 @@ Broad plans load `hunt-orchestration-policy`, expose an opening contract that tr
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/broad-goal-map-reconciliation`
-- **Latest immutable recovery checkpoint:** `4f4a50c6b63930f33a7f7abb0591efe4ccb84d25`
-- **Feature implementation commit(s):** `4f4a50c6b63930f33a7f7abb0591efe4ccb84d25`
+- **Latest immutable recovery checkpoint:** `536a84544dcd48a75ef36a0ca56ccb1d32900574`
+- **Feature implementation commit(s):** `4f4a50c6b63930f33a7f7abb0591efe4ccb84d25`, `536a84544dcd48a75ef36a0ca56ccb1d32900574`
 - **Exact resume point:** await a deliberate beta-integration decision; preserve this dossier until the change is integrated or rejected.
 - **Working-tree state at handoff:** clean after committing this dossier.
 
@@ -51,3 +51,4 @@ Broad plans load `hunt-orchestration-policy`, expose an opening contract that tr
 ## Decision record
 
 - 2026-09-08 — implementation committed at `4f4a50c6b63930f33a7f7abb0591efe4ccb84d25`; independent review approved with non-blocking route-boundary test expansion applied.
+- 2026-09-08 — goal-specific coordination selection clarified in `536a84544dcd48a75ef36a0ca56ccb1d32900574`; independent review approved with no blocking issues.

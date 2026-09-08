@@ -34,9 +34,13 @@ Capture:
 
 Blockers are a **general optional handoff aid**, not an access-control coverage
 gate. Before spending time on an apparently unavailable prerequisite, an agent
-may run `bbh agents/blockers.py check` for the exact operation/scope. If a known
-external blocker exists, reuse its stated unblock condition and do not repeat
-the dead-end setup unless the agent can perform that setup now.
+may run `bbh agents/blockers.py check` for the exact operation/scope. A known
+blocker never lets an agent skip feasible ordinary remediation: first attempt
+permitted signup/free-trial enrollment, owned account or fixture creation,
+normal feature setup, and bounded auth recovery when applicable. If the agent
+can clear it now, it must do so and freshly verify the flow. Only if the
+remaining action is still outside its authority should it preserve the stated
+unblock condition and avoid repeating that specific proven dead end.
 
 Record a blocker only after ordinary authorized setup has failed because the
 needed action is outside the agent's authority (for example human-only

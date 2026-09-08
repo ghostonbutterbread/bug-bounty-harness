@@ -1,6 +1,7 @@
 # Remediation-first blocker semantics
 
 - **Objective:** prevent a known external blocker from short-circuiting ordinary authorized work an agent can perform itself.
+- **Implementation commit:** `1055f7a78087254e1294f68c15ea762489878348`
 - **Branch:** `fix/blocker-self-remediation`
 - **Base / target:** `beta` at `ef2d445607c201a195b128744939fddd2f73d16e` → `beta`
 

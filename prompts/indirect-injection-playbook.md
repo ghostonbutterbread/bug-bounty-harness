@@ -1,5 +1,9 @@
 # Indirect Injection Playbook
 
+Before live work, read [AI action boundaries](../skills/ai-tester/references/action-boundaries.md)
+and load its named security policies. Apply them to the source, reader, and
+downstream action; an owned source does not make every consumer owned.
+
 Use when attacker-controlled content is later read by an AI feature. The core question: can untrusted content become instruction and affect another user, role, workflow, output sink, memory, or tool action?
 
 ## 1. Select Content Surface
@@ -26,7 +30,8 @@ Do not perform external actions.
 [/SECURITY TEST CONTENT]
 ```
 
-For callback sink checks, use an operator-owned URL:
+For callback sink checks, use an operator-owned URL only when the outbound
+request and observer are authorized under the linked action boundaries:
 
 ```text
 https://webhook.site/<owned-id>?case=<case-id>&surface=<surface-name>
@@ -56,7 +61,10 @@ If a marker appears, escalate carefully:
 - callback: check whether a rendered output or tool attempts the callback URL
 - cross-user: check whether a second owned account sees the effect
 
-Stop before real messages, destructive edits, purchases, account changes, sensitive-data disclosure, or out-of-scope external requests.
+Apply the linked live/account/class approval and stop gates to each resulting
+effect. Permitted disposable application fixtures are distinct from protected
+server state. Stop on unexpected unapproved side effects; retain public,
+financial, sensitive-data, scope, and rate restrictions.
 
 ## 5. Evidence Checklist
 

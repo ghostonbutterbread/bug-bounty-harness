@@ -14,6 +14,10 @@ Use when untrusted content may influence another user, role, workflow, AI summar
 
 ## Load Order
 
+Before live work, read [AI action boundaries](../ai-tester/references/action-boundaries.md)
+and load the shared security-policy owners it names. Owning the stored content
+does not establish ownership of its readers or downstream effects.
+
 1. `prompts/indirect-injection-playbook.md`
 2. `prompts/prompt-injection-playbook.md`
 3. `/ai-trust-map` output if available
@@ -21,9 +25,9 @@ Use when untrusted content may influence another user, role, workflow, AI summar
 ## Rules
 
 - Start with harmless canaries and reversible test content.
-- For callback tests, use an operator-owned callback URL such as webhook.site.
+- For callback tests, use an operator-owned observer only when the request and observer are authorized under the linked action boundaries.
 - Never place secrets, cookies, private data, or real user identifiers in callback URLs.
-- Stop before destructive edits, spam, purchases, account changes, broad external requests, or sensitive-data exposure unless Ryushe explicitly approves the exact action.
+- Apply the linked live/account/class approval and stop gates to the actual effect, including every later consumer. Disposable application fixtures are distinct from protected server state; unexpected unapproved effects require a stop and evidence preservation.
 
 ## Evidence
 

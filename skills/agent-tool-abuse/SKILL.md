@@ -14,6 +14,10 @@ Use when the AI can call tools or mutate state: edit a document, publish, export
 
 ## Load Order
 
+Before live work, read [AI action boundaries](../ai-tester/references/action-boundaries.md)
+and load the shared security-policy owners it names. Tool-abuse evidence does
+not confer permission for the underlying action.
+
 1. `prompts/agent-tool-abuse-playbook.md`
 2. `prompts/prompt-injection-playbook.md`
 3. `/ai-trust-map` output and any captured request/tool traces
@@ -21,9 +25,9 @@ Use when the AI can call tools or mutate state: edit a document, publish, export
 ## Rules
 
 - Prefer preview, draft, dry-run, no-op, sandbox, or test-resource tools.
-- Use webhook.site-style callback URLs only as non-sensitive canaries for outbound request/tool behavior.
+- Use authorized operator-owned callback URLs only as non-sensitive canaries for outbound request/tool behavior; apply the linked scope and action gates.
 - For scanner, crawler, browser, or fetch behavior, require callback/log/request evidence; a model saying it would act is not enough.
-- Do not send messages, invite users, publish, purchase, delete, refund, edit real customer/vendor data, or exfiltrate private data without explicit approval.
+- Apply the linked live/account/class gates to the exact side effect. A permitted disposable application-object deletion is not permission to delete or overwrite pre-existing server files. Owning the application account does not establish server ownership.
 - A strong finding needs a tool/action authority failure, not just a model saying it would do something.
 
 ## Evidence

@@ -31,10 +31,14 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    - Read `skills/access-control/references/account-setup.md`.
    - Confirm the needed owned accounts/resources and the feature-specific
      capability/fixture when access-control testing requires them. Do ordinary
-     owned setup first. **Only when the agent cannot perform the missing setup**
-     (for example a human-only verification, unavailable owned role, or explicit
-     policy decision), it may check for a known external blocker and reuse its
-     unblock condition rather than repeating dead-end work:
+     owned setup first, including permitted signup/free-trial enrollment, owned
+     fixture/resource creation, normal feature setup, and bounded login/session
+     recovery. A known blocker never permits an agent to stop before attempting
+     a remedy it can perform. **Only after feasible remediation is exhausted and
+     the agent cannot perform the remaining setup** (for example human-only
+     verification, unavailable owned role, or explicit policy decision), it may
+     check for a known external blocker and reuse its unblock condition rather
+     than repeating the specific proven dead end:
      ```bash
      bbh agents/blockers.py check --program {program} \
        --subject "<exact operation/route>" --test-scope "<class>:<surface>"

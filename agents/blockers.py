@@ -37,6 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--account-ref", action="append", default=[])
     record.add_argument("--capability")
     record.add_argument("--fixture")
+    record.add_argument("--remediation-evidence", help="Sanitized attempt reference or attestation showing feasible authorized remedies were exhausted")
     record.add_argument("--attempt-ref")
     record.add_argument("--artifact-ref")
     record.add_argument("--details-json", default="{}")
@@ -86,12 +87,18 @@ def _brief_item(row: dict[str, Any]) -> dict[str, Any]:
 def run(args: argparse.Namespace) -> dict[str, Any]:
     store = _store(args)
     if args.command == "record":
+        details = _details(args.details_json)
+        remediation_evidence = str(args.remediation_evidence or "").strip()
+        if args.state == "open" and not remediation_evidence:
+            raise ValueError("--remediation-evidence is required for open blockers after feasible authorized remediation is exhausted")
+        if remediation_evidence:
+            details["remediation_evidence"] = remediation_evidence
         return store.record(
             producer=args.producer, run_id=args.run_id, subject=args.subject, test_scope=args.test_scope,
             blocker_key=args.blocker_key, blocker_type=args.blocker_type, reason=args.reason, state=args.state,
             unblock_condition=args.unblock_condition, account_refs=args.account_ref, capability=args.capability,
             fixture=args.fixture, attempt_ref=args.attempt_ref, artifact_ref=args.artifact_ref,
-            details=_details(args.details_json),
+            details=details,
         )
     if args.command == "check":
         blockers = store.active(subject=args.subject, test_scope=args.test_scope, limit=100)
@@ -100,9 +107,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         return {
             "known_blocker": bool(blockers),
             "blockers": [_brief_item(row) for row in blockers],
+            "remediation_first": (
+                "First determine whether this agent can now clear the prerequisite through normal authorized work, "
+                "including permitted signup/free-trial enrollment, owned-account or fixture creation, feature setup, "
+                "or bounded login recovery. If it can, perform that work and freshly verify the flow; a known blocker is not permission to stop."
+            ),
             "next_action": (
-                "Do not repeat setup or exploratory work for these blockers; continue only if the agent can perform the stated unblock condition."
-                if blockers else "No known external blocker matches this scope. Continue normal work; record one only if the agent cannot perform the unblock."
+                "If the prerequisite remains outside this agent's authority after that assessment, do not repeat the already-failed dead end; preserve the stated unblock condition and continue other runnable work."
+                if blockers else "No known external blocker matches this scope. Continue normal work; record one only after feasible authorized remediation is exhausted and the remaining action is outside the agent's authority."
             ),
         }
     if args.command == "brief":

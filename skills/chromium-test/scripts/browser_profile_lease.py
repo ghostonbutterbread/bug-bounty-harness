@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import uuid
 import os
 import re
 import sqlite3
@@ -113,6 +114,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             heartbeat_at REAL NOT NULL,
             expires_at REAL NOT NULL,
             released_at REAL,
+            reclaim_token TEXT,
             UNIQUE(program, account_alias, lease_id)
         );
         CREATE INDEX IF NOT EXISTS idx_browser_profile_leases_active
@@ -125,6 +127,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         "profile_health": "TEXT NOT NULL DEFAULT 'unknown'",
         "release_disposition": "TEXT",
         "auth_domain": "TEXT",
+        "reclaim_token": "TEXT",
     }.items():
         if name not in columns:
             conn.execute(f"ALTER TABLE browser_profile_leases ADD COLUMN {name} {definition}")
@@ -589,7 +592,7 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
 def owned_active_lease(conn: sqlite3.Connection, args: argparse.Namespace, timestamp: float) -> sqlite3.Row | None:
     expire_leases(conn, timestamp)
     row = conn.execute(
-        "SELECT * FROM browser_profile_leases WHERE lease_id=? AND status='active' AND expires_at > ?",
+        "SELECT * FROM browser_profile_leases WHERE lease_id=? AND status='active' AND work_state='active' AND reclaim_token IS NULL AND expires_at > ?",
         (args.lease_id, timestamp),
     ).fetchone()
     if row is None:
@@ -631,6 +634,51 @@ def cmd_inspect_lease(args: argparse.Namespace) -> dict[str, Any]:
         "heartbeat_at": row["heartbeat_at"],
         "expires_at": row["expires_at"],
     }
+
+
+def cmd_claim_expired_reclaim(args: argparse.Namespace) -> dict[str, Any]:
+    """Atomically fence renewal before a provisioner may stop an expired browser."""
+    timestamp = now()
+    token = str(uuid.uuid4())
+    with connect(state_db(args)) as conn:
+        init_db(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        claimed = conn.execute(
+            """
+            UPDATE browser_profile_leases
+            SET work_state='reclaiming', reclaim_token=?
+            WHERE lease_id=? AND status='active' AND work_state='active'
+              AND reclaim_token IS NULL AND expires_at <= ?
+            """,
+            (token, args.lease_id, timestamp),
+        )
+        if claimed.rowcount != 1:
+            conn.commit()
+            return {"status": "not-reclaimable"}
+        conn.commit()
+    return {"status": "reclaim-claimed", "reclaim_token": token}
+
+
+def cmd_complete_expired_reclaim(args: argparse.Namespace) -> dict[str, Any]:
+    """Release only the lease fenced by a successful provisioner reclaim."""
+    timestamp = now()
+    with connect(state_db(args)) as conn:
+        init_db(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        completed = conn.execute(
+            """
+            UPDATE browser_profile_leases
+            SET status='released', released_at=?, heartbeat_at=?, work_state='terminal',
+                release_disposition='cancelled', profile_health='healthy', reclaim_token=NULL
+            WHERE lease_id=? AND work_state='reclaiming' AND reclaim_token=?
+            """,
+            (timestamp, timestamp, args.lease_id, args.reclaim_token),
+        )
+        if completed.rowcount != 1:
+            conn.commit()
+            return {"status": "reclaim-not-owned"}
+        conn.commit()
+    return {"status": "reclaim-completed"}
 
 
 def local_cdp_version(cdp_url: str) -> dict[str, Any]:
@@ -744,6 +792,15 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("--lease-id", required=True)
     inspect.set_defaults(func=cmd_inspect_lease)
 
+    claim = sub.add_parser("claim-expired-reclaim", help="Atomically fence an expired lease before provisioner-owned reclaim.")
+    claim.add_argument("--lease-id", required=True)
+    claim.set_defaults(func=cmd_claim_expired_reclaim)
+
+    complete_reclaim = sub.add_parser("complete-expired-reclaim", help="Finalize a provisioner reclaim using its fence token.")
+    complete_reclaim.add_argument("--lease-id", required=True)
+    complete_reclaim.add_argument("--reclaim-token", required=True)
+    complete_reclaim.set_defaults(func=cmd_complete_expired_reclaim)
+
     register = sub.add_parser("register-browser", help="Attach verified local CDP metadata to an owned lease.")
     register.add_argument("--lease-id", required=True)
     register.add_argument("--agent-id", required=True)
@@ -765,7 +822,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     result = args.func(args)
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if result.get("status") in {"ok", "available", "locked", "anonymous", "leased", "already-owned", "renewed", "registered", "registered-unreachable", "released", "account-not-found", "account-unavailable"} else 2
+    return 0 if result.get("status") in {"ok", "available", "locked", "anonymous", "leased", "already-owned", "renewed", "registered", "registered-unreachable", "released", "reclaim-claimed", "reclaim-completed", "account-not-found", "account-unavailable"} else 2
 
 
 if __name__ == "__main__":

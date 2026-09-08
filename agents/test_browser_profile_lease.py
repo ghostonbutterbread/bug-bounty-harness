@@ -133,6 +133,33 @@ def test_inspect_lease_exposes_only_reclaim_safety_state(monkeypatch, tmp_path):
     assert "profile_dir" not in result
 
 
+def test_claimed_expired_reclaim_fences_later_renewal(monkeypatch, tmp_path):
+    module = load_module()
+    shared = tmp_path / "shared"
+    state = tmp_path / "state"
+    write_inventory(shared)
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(shared))
+    acquired = module.cmd_acquire(
+        args(module, state, "acquire", account="green", agent_id="agent-a", run_id="run-a", purpose="auth-map")
+    )
+    lease_id = acquired["lease"]["lease_id"]
+    with module.connect(module.state_db(args(module, state, "inspect-lease", lease_id=lease_id))) as conn:
+        module.init_db(conn)
+        conn.execute("update browser_profile_leases set expires_at=? where lease_id=?", (module.now() - 1, lease_id))
+        conn.commit()
+
+    claimed = module.cmd_claim_expired_reclaim(args(module, state, "claim-expired-reclaim", lease_id=lease_id))
+    with module.connect(module.state_db(args(module, state, "inspect-lease", lease_id=lease_id))) as conn:
+        module.init_db(conn)
+        conn.execute("update browser_profile_leases set expires_at=? where lease_id=?", (module.now() + 300, lease_id))
+        conn.commit()
+    renewed = module.cmd_renew(args(module, state, "renew", lease_id=lease_id, agent_id="agent-a", ttl_seconds=300))
+
+    assert claimed["status"] == "reclaim-claimed"
+    assert claimed["reclaim_token"]
+    assert renewed["status"] == "not-owner-or-expired"
+
+
 def test_locked_profile_returns_explicit_safe_alternatives_without_switching(monkeypatch, tmp_path):
     module = load_module()
     shared = tmp_path / "shared"

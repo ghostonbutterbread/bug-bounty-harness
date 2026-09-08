@@ -17,12 +17,12 @@ On a capacity rejection, reclaim at most one safely stale, BBH-managed browser a
 
 ## Implemented contract
 
-The provisioner inspects a lease through a non-secret `inspect-lease` command. A candidate must be a manager-recorded running unit, older than the configured idle threshold, non-requester-owned, explicitly `active`, and past its lease expiry. `awaiting-input`, live-heartbeat, unknown, inactive-unit, and release-failure states are retained. The provisioner stops after one candidate and reports reclaim metadata in the provisioning result.
+The provisioner atomically claims an expired lease through a non-secret lease-side transaction before it stops a browser. A candidate must be a manager-recorded running unit, older than the configured idle threshold, owned by another agent, and claimable only where `status=active`, `work_state=active`, and `expires_at <= now`. The claim fences renewal. `awaiting-input`, live-heartbeat, unknown, inactive-unit, and failed-claim states are retained. After confirmed unit stop, the same fence token must complete release; the provisioner stops after one candidate and reports reclaim metadata in the provisioning result.
 
 ## Evidence and review
 
-- Tests and commands: `python3 -m py_compile skills/chromium-test/scripts/browser_provisioner.py skills/chromium-test/scripts/browser_profile_lease.py`; `PYTHONPATH="$WT" uv run --with pytest pytest -q agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_chromium_test_launcher.py` — 73 passed.
-- Independent review: dispatched; pending result.
+- Tests and commands: `python3 -m py_compile skills/chromium-test/scripts/browser_provisioner.py skills/chromium-test/scripts/browser_profile_lease.py`; `PYTHONPATH="$WT" uv run --with pytest pytest -q agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_chromium_test_launcher.py` — 75 passed.
+- Independent review: initial review found a critical renewal race and requester-agent cross-run selection; both were corrected with an atomic claim/fence and agent-wide requester exclusion. Re-review pending.
 - Replay/cohort/fixture evidence: deterministic SQLite fixtures in focused tests.
 - Merge/ancestry evidence: feature branch starts at `ffc74f333b0a5a3d086c058aa87a77888b3d326a`.
 

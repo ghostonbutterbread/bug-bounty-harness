@@ -36,9 +36,10 @@ provider rather than Chromium Test.
 When a request is rejected for capacity, the provisioner may make one
 **demand-triggered** reclaim attempt before queueing. It considers only its own
 manager-recorded browser units whose activity is older than the 15-minute idle
-deadline and whose lease heartbeat has expired. It never selects the requesting
-run, an active or `awaiting-input` lease, a manual handoff, or any browser with
-missing/ambiguous manager state. It stops at one candidate and returns queued
+deadline and whose lease heartbeat has expired. It atomically fences that lease
+before it stops the unit, so a concurrent renewal makes the browser ineligible.
+It never selects the requesting agent's browser, an active or `awaiting-input`
+lease, a manual handoff, or any browser with missing/ambiguous manager state. It stops at one candidate and returns queued
 rather than taking a second browser on any uncertain or failed release. This is
 not a timer or a license to terminate arbitrary Chromium processes.
 

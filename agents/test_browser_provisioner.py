@@ -291,26 +291,26 @@ def test_reclaim_one_only_stops_oldest_expired_browser(monkeypatch, tmp_path):
             (lease_id, browser_id, "demo", lease_id, "default", agent_id, "run", "test", lease_id + "-unit", str(tmp_path / lease_id), str(tmp_path / (lease_id + ".json")), "running", 0, last_activity, last_activity, last_activity),
         )
     c.commit()
-    snapshots = {
-        "active": {"status": "active", "work_state": "active", "expires_at": now + 60},
-        "awaiting": {"status": "active", "work_state": "awaiting-input", "expires_at": now - 60},
-        "unknown": {"status": "unknown"},
-        "expired-newer": {"status": "active", "work_state": "active", "expires_at": now - 60},
-        "expired-oldest": {"status": "active", "work_state": "active", "expires_at": now - 60},
+    claims = {
+        "active": {"status": "not-reclaimable"},
+        "awaiting": {"status": "not-reclaimable"},
+        "unknown": {"status": "not-reclaimable"},
+        "expired-newer": {"status": "reclaim-claimed", "reclaim_token": "newer"},
+        "expired-oldest": {"status": "reclaim-claimed", "reclaim_token": "oldest"},
     }
     stopped, released = [], []
     monkeypatch.setattr(m, "now", lambda: now)
     monkeypatch.setattr(m, "unit_active", lambda unit: unit not in stopped)
-    monkeypatch.setattr(m, "lease_snapshot", lambda lease_id: snapshots[lease_id])
+    monkeypatch.setattr(m, "claim_expired_reclaim", lambda lease_id: claims[lease_id])
     monkeypatch.setattr(m, "stop_unit", lambda unit: stopped.append(unit))
-    monkeypatch.setattr(m, "release_lease", lambda lease_id, agent_id, *args: released.append((lease_id, agent_id)) or {"status": "released"})
+    monkeypatch.setattr(m, "complete_expired_reclaim", lambda lease_id, _token: released.append(lease_id) or {"status": "reclaim-completed"})
 
     result = m.reclaim_one(c, start_args())
 
     assert result["status"] == "reclaimed"
     assert result["browser_id"] == "expired-oldest-browser"
     assert stopped == ["expired-oldest-unit"]
-    assert released == [("expired-oldest", "expired-agent")]
+    assert released == ["expired-oldest"]
     assert c.execute("select state from browsers where lease_id='expired-oldest'").fetchone()[0] == "idle-stopped"
     assert c.execute("select state from browsers where lease_id='active'").fetchone()[0] == "running"
 
@@ -351,9 +351,9 @@ def test_reclaim_stops_after_one_failed_release(monkeypatch, tmp_path):
     stopped = []
     monkeypatch.setattr(m, "now", lambda: now)
     monkeypatch.setattr(m, "unit_active", lambda unit: unit not in stopped)
-    monkeypatch.setattr(m, "lease_snapshot", lambda _lease_id: {"status": "active", "work_state": "active", "expires_at": now - 60})
+    monkeypatch.setattr(m, "claim_expired_reclaim", lambda _lease_id: {"status": "reclaim-claimed", "reclaim_token": "token"})
     monkeypatch.setattr(m, "stop_unit", lambda unit: stopped.append(unit))
-    monkeypatch.setattr(m, "release_lease", lambda *_args: {"status": "not-owner-or-missing"})
+    monkeypatch.setattr(m, "complete_expired_reclaim", lambda *_args: {"status": "reclaim-not-owned"})
 
     result = m.reclaim_one(c, start_args())
 
@@ -374,12 +374,30 @@ def test_reclaim_refuses_release_when_stop_does_not_finish(monkeypatch, tmp_path
     release_calls = []
     monkeypatch.setattr(m, "now", lambda: now)
     monkeypatch.setattr(m, "unit_active", lambda _unit: True)
-    monkeypatch.setattr(m, "lease_snapshot", lambda _lease_id: {"status": "active", "work_state": "active", "expires_at": now - 60})
+    monkeypatch.setattr(m, "claim_expired_reclaim", lambda _lease_id: {"status": "reclaim-claimed", "reclaim_token": "token"})
     monkeypatch.setattr(m, "stop_unit", lambda _unit: None)
-    monkeypatch.setattr(m, "release_lease", lambda *_args: release_calls.append(True) or {"status": "released"})
+    monkeypatch.setattr(m, "complete_expired_reclaim", lambda *_args: release_calls.append(True) or {"status": "reclaim-completed"})
 
     result = m.reclaim_one(c, start_args())
 
     assert result["status"] == "stop-failed"
     assert release_calls == []
     assert c.execute("select state from browsers where lease_id='stuck'").fetchone()[0] == "running"
+
+
+def test_reclaim_never_selects_requester_agent_from_a_different_run(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    c = m.db()
+    now = 10_000
+    c.execute(
+        "insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("own", "own-browser", "demo", "own", "default", "agent", "old-run", "test", "own-unit", str(tmp_path / "own"), str(tmp_path / "own.json"), "running", 0, now - 5_000, now - 5_000, now - 5_000),
+    )
+    c.commit()
+    monkeypatch.setattr(m, "now", lambda: now)
+    monkeypatch.setattr(m, "claim_expired_reclaim", lambda *_: (_ for _ in ()).throw(AssertionError("must not claim requester browser")))
+
+    result = m.reclaim_one(c, start_args())
+
+    assert result["status"] == "none-eligible"
+    assert result["skipped"] == [{"browser_id": "own-browser", "reason": "requester-owned"}]

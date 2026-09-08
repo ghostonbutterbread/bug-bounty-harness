@@ -37,6 +37,8 @@ def lease(args, *parts):
  try: return json.loads(p.stdout)
  except Exception: return {'status':'lease-error','detail':p.stderr.strip() or p.stdout.strip()}
 def lease_snapshot(lease_id): return lease(None,'inspect-lease','--lease-id',lease_id)
+def claim_expired_reclaim(lease_id): return lease(None,'claim-expired-reclaim','--lease-id',lease_id)
+def complete_expired_reclaim(lease_id, token): return lease(None,'complete-expired-reclaim','--lease-id',lease_id,'--reclaim-token',token)
 def sysenv():
  e=os.environ.copy(); e['XDG_RUNTIME_DIR']=f'/run/user/{os.getuid()}'; e['DBUS_SESSION_BUS_ADDRESS']=f"unix:path={e['XDG_RUNTIME_DIR']}/bus"; return e
 def unit_active(unit):
@@ -53,16 +55,16 @@ def reclaim_one(c, args):
  cutoff=now()-args.idle_seconds; skipped=[]
  rows=c.execute("select * from browsers where state='running' and last_activity<? order by last_activity asc",(cutoff,)).fetchall()
  for row in rows:
-  if row['agent_id']==args.agent_id and row['run_id']==args.run_id: skipped.append({'browser_id':row['browser_id'],'reason':'requester-owned'}); continue
+  if row['agent_id']==args.agent_id: skipped.append({'browser_id':row['browser_id'],'reason':'requester-owned'}); continue
   if not unit_active(row['unit']): skipped.append({'browser_id':row['browser_id'],'reason':'unit-inactive'}); continue
-  snapshot=lease_snapshot(row['lease_id'])
-  if snapshot.get('status')!='active' or snapshot.get('work_state')!='active' or snapshot.get('expires_at',float('inf'))>now():
+  claim=claim_expired_reclaim(row['lease_id'])
+  if claim.get('status')!='reclaim-claimed':
    skipped.append({'browser_id':row['browser_id'],'reason':'lease-active-or-ambiguous'}); continue
   stop_unit(row['unit'])
   if unit_active(row['unit']):
    return {'status':'stop-failed','browser_id':row['browser_id'],'skipped':skipped}
-  released=release_lease(row['lease_id'],row['agent_id'])
-  if released.get('status')!='released':
+  completed=complete_expired_reclaim(row['lease_id'],claim['reclaim_token'])
+  if completed.get('status')!='reclaim-completed':
    return {'status':'release-failed','browser_id':row['browser_id'],'skipped':skipped}
   c.execute("update browsers set state='idle-stopped',updated=? where lease_id=?",(now(),row['lease_id'])); c.commit()
   return {'status':'reclaimed','browser_id':row['browser_id'],'skipped':skipped}

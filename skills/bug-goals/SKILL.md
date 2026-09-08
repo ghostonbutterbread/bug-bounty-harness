@@ -39,11 +39,27 @@ routing state only; durable target truth belongs in MapStore.
 
 Trigger: generic objectives such as “find a vulnerability.”
 
-Load Hunter Loop as the parent cadence. Begin with scope, cold recon/live map,
-fresh observations, and a chosen surface plus lens. Do not start from broad
-historical lead retrieval or assume a vulnerability class before current evidence
-justifies one. MapStore is available for a later targeted overlay, but do not
-query it until a concrete current surface and decision question exist.
+Load Hunter Loop as the parent cadence and `hunt-orchestration-policy` to
+consider whether a bounded mapper, knowledge, or verifier sidecar offers a
+concrete coordination advantage. It is optional and never requires delegation.
+Begin with scope, enough cold recon/live mapping to name meaningful current
+surfaces, fresh observations, and a chosen surface plus lens. Do not start from
+broad historical lead retrieval or assume a vulnerability class before current
+evidence justifies one. MapStore is available for a later targeted overlay, but
+do not query it until a concrete current surface and decision question exist.
+
+Mapping is orientation, not a prerequisite for exhaustive coverage. A strong
+current signal may be pursued immediately and as deeply as justified; incomplete
+mapping is not a reason to interrupt a warm/hot chain. Use the coordination
+overlay only when it provides a concrete advantage; it never requires children.
+
+Before a broad negative or exhaustion conclusion, ask: **“Is there more to
+map?”** Reconcile unvisited or unexercised normal UI/browser behavior, relevant
+client/JS capabilities, authorized task-MITM feature traffic, available
+role/auth states, and material consumer families. Record unavailable UI, missing
+access, failed auth recovery, or absent authorized MITM traffic as coverage gaps,
+not evidence of exhaustion. This reconciliation does not reopen a locally
+exhausted lane without a new wake condition.
 
 ### Focused surface
 

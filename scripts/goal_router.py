@@ -100,7 +100,14 @@ def unique(values: list[str]) -> list[str]:
 
 def mode_skills(mode: str, vulnerability_class: str | None) -> list[str]:
     if mode == "broad-program":
-        skills = BASE_SKILLS + ["hunter-loop", "recon", "live-map", "hunter-memory", "hypothesis-expansion-policy"]
+        skills = BASE_SKILLS + [
+            "hunter-loop",
+            "hunt-orchestration-policy",
+            "recon",
+            "live-map",
+            "hunter-memory",
+            "hypothesis-expansion-policy",
+        ]
     elif mode == "focused-surface":
         skills = BASE_SKILLS + ["live-map", "hunter-memory", "hypothesis-expansion-policy"]
     elif mode == "technology-review":
@@ -137,6 +144,7 @@ def build_plan(*, program: str, objective: str, url: str | None = None, vulnerab
         "run_artifact_kind": artifact_kind,
         "historical_material": "primary" if mode == "revalidation" else "targeted-after-fresh-observation",
         "opening_contract": opening_contract(mode),
+        "completion_contract": completion_contract(mode),
         "research_contract": [
             "Use target observation and internal surface synthesis before broad retrieval when sufficient evidence exists.",
             "MapStore is available but must not be queried until a concrete current surface and decision question exist.",
@@ -151,9 +159,10 @@ def opening_contract(mode: str) -> list[str]:
     contracts = {
         "broad-program": [
             "Verify scope and account context.",
-            "Perform a cold recon/live-map pass and collect fresh observations.",
+            "Perform enough cold recon/live mapping to name meaningful current surfaces and collect fresh observations.",
             "Select one surface plus lens before specialist depth.",
-            "Use Hunter Loop as the parent orchestration model.",
+            "Use Hunter Loop as the parent hunt cadence and Hunt Orchestration as an optional coordination overlay.",
+            "A strong current signal may be pursued immediately and as deeply as justified; incomplete mapping is not a reason to interrupt it.",
         ],
         "focused-surface": [
             "Verify scope and map the named surface's normal workflow.",
@@ -175,6 +184,17 @@ def opening_contract(mode: str) -> list[str]:
         ],
     }
     return contracts[mode]
+
+
+def completion_contract(mode: str) -> list[str]:
+    if mode != "broad-program":
+        return []
+    return [
+        "Before a broad negative or exhaustion conclusion, ask: is there more to map?",
+        "Reconcile unvisited or unexercised normal UI/browser behavior, relevant client or JavaScript capabilities, authorized task-MITM feature traffic, available role/auth states, and material consumer families.",
+        "Record unavailable UI, missing access, failed auth recovery, or absent authorized task-MITM traffic as coverage gaps, not evidence of exhaustion.",
+        "This reconciliation does not reopen a locally exhausted lane without a new wake condition or interrupt a warm/hot chain.",
+    ]
 
 
 def initialize_run(plan: dict[str, Any], run_dir: Path) -> Path:

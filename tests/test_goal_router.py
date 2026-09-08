@@ -19,10 +19,13 @@ def test_generic_find_vulnerability_uses_broad_program_mode() -> None:
 
     assert plan["mode"] == "broad-program"
     assert "hunter-loop" in plan["skills"]
+    assert "hunt-orchestration-policy" in plan["skills"]
     assert "recon" in plan["skills"]
     assert "map-store" not in plan["skills"]
     assert "map-store-target-facts" in plan["capabilities"]
     assert "MapStore is available but must not be queried until a concrete current surface and decision question exist." in plan["research_contract"]
+    assert plan["completion_contract"][0] == "Before a broad negative or exhaustion conclusion, ask: is there more to map?"
+    assert "incomplete mapping is not a reason to interrupt it." in plan["opening_contract"][-1]
     assert plan["run_artifact_kind"] == "hunter-loop"
 
 
@@ -41,6 +44,7 @@ def test_focused_xss_goal_stays_narrow() -> None:
     assert "map-store-target-facts" in plan["capabilities"]
     assert "MapStore is available but must not be queried until a concrete current surface and decision question exist." in plan["research_contract"]
     assert "xss" in plan["skills"]
+    assert plan["completion_contract"] == []
     assert plan["run_artifact_kind"] == "attempts"
 
 
@@ -57,6 +61,8 @@ def test_technology_goal_selects_implementation_analysis() -> None:
     assert "MapStore is available but must not be queried until a concrete current surface and decision question exist." in plan["research_contract"]
     assert "research-map" in plan["capabilities"]
     assert "official-docs-and-source" in plan["capabilities"]
+    assert "hunt-orchestration-policy" not in plan["skills"]
+    assert plan["completion_contract"] == []
 
 
 def test_continue_goal_preserves_hunter_memory() -> None:
@@ -66,6 +72,8 @@ def test_continue_goal_preserves_hunter_memory() -> None:
     assert "hunter-memory" in plan["skills"]
     assert "map-store" in plan["skills"]
     assert "research-map" in plan["capabilities"]
+    assert "hunt-orchestration-policy" not in plan["skills"]
+    assert plan["completion_contract"] == []
 
 
 def test_revalidation_goal_allows_historical_review() -> None:
@@ -74,6 +82,8 @@ def test_revalidation_goal_allows_historical_review() -> None:
     assert plan["mode"] == "revalidation"
     assert "map-store" in plan["skills"]
     assert plan["historical_material"] == "primary"
+    assert "hunt-orchestration-policy" not in plan["skills"]
+    assert plan["completion_contract"] == []
 
 
 def test_initialize_run_writes_small_routing_state(tmp_path: Path) -> None:

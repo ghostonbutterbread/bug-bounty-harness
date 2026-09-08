@@ -39,13 +39,14 @@ routing state only; durable target truth belongs in MapStore.
 
 Trigger: generic objectives such as “find a vulnerability.”
 
-Load Hunter Loop as the parent cadence and `hunt-orchestration-policy` as an
-optional coordination overlay. Begin with scope, enough cold recon/live mapping
-to name meaningful current surfaces, fresh observations, and a chosen surface
-plus lens. Do not start from broad historical lead retrieval or assume a
-vulnerability class before current evidence justifies one. MapStore is available
-for a later targeted overlay, but do not query it until a concrete current
-surface and decision question exist.
+Load Hunter Loop as the parent cadence and `hunt-orchestration-policy` to
+consider whether a bounded mapper, knowledge, or verifier sidecar offers a
+concrete coordination advantage. It is optional and never requires delegation.
+Begin with scope, enough cold recon/live mapping to name meaningful current
+surfaces, fresh observations, and a chosen surface plus lens. Do not start from
+broad historical lead retrieval or assume a vulnerability class before current
+evidence justifies one. MapStore is available for a later targeted overlay, but
+do not query it until a concrete current surface and decision question exist.
 
 Mapping is orientation, not a prerequisite for exhaustive coverage. A strong
 current signal may be pursued immediately and as deeply as justified; incomplete

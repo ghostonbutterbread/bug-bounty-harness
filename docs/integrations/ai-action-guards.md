@@ -6,8 +6,10 @@
 - Worktree: `~/worktrees/bbh-ai-action-guards`
 - Base commit: `aa99c3e02e84f94ae8b9c6ec5626bea2abc11f8f`
 - Intended integration target: `beta` (local only)
-- Latest immutable recovery checkpoint: none yet; initial review is of the working diff
-- Feature implementation commits: none yet
+- Latest immutable recovery checkpoint: `029f644c3395583ed1ffcdf6eee8eb1e71c4c259`
+- Feature implementation commits: `029f644c3395583ed1ffcdf6eee8eb1e71c4c259`
+- The feature tip includes a later dossier-only handoff commit; the implementation
+  checkpoint above contains the reviewed policy/reference/test changes.
 
 ## Intent and implemented contract
 
@@ -66,5 +68,9 @@ documentation checks is not proof of model behavior.
 - Activation: no lane selector or remote runtime changes. Report local installed
   symlink resolution separately from source integration.
 - Promotion: no stable merge, push, or remote deployment in this task.
-- Exact next step: commit the reviewed change, record its immutable checkpoint,
-  merge locally into beta, remove this temporary dossier from beta, and verify.
+- Decision: accepted for local beta integration with the documented pre-existing
+  broad-check failure; no new regression found. No deployment or push approved.
+- Exact next step: merge this reviewed feature into clean current local beta,
+  remove this temporary dossier in the merge operation, and verify the installed
+  local skill sources and focused checks. Feature working tree is clean after
+  the dossier-only handoff commit.

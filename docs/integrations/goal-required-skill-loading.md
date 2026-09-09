@@ -7,7 +7,7 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-09
 - **Owning task:** `t_b7a1a459`
-- **Implementation commit:** `c5ab75c9d72702240df4142537508bc7bec6c064`
+- **Implementation commit:** `c5ab75cd1bc74dc4369df123bec2c87b676aea08`
 
 ## Intent
 
@@ -21,9 +21,9 @@ Prevent an explicit `/goal` run from treating the `bug-goals` wrapper or its gen
 
 - Focused source: `skills/bug-goals/SKILL.md`
 - Verification: `uv run --with pytest python -m pytest tests/test_goal_router.py -q` → 6 passed.
-- Planner smoke: broad objective resolved to `broad-program` with 9 routes; focused creative objective resolved to `focused-surface` with 6 routes.
+- Planner smoke: `python3 scripts/goal_router.py plan --program example --objective 'Find a new vulnerability'` resolved to `broad-program` with 9 routes; `python3 scripts/goal_router.py plan --program example --objective 'Review the creative editor workflow' --url https://app.example/creative` resolved to `focused-surface` with 6 routes.
 - `git diff --check` passed.
-- Independent review: pending.
+- Independent review: policy wording approved; first review blocked on an incorrect full implementation SHA in this dossier. The SHA is corrected above; re-review pending.
 - Live target interaction: none.
 
 ## Boundaries
@@ -34,5 +34,5 @@ Prevent an explicit `/goal` run from treating the `bug-goals` wrapper or its gen
 
 ## Interruption / resume handoff
 
-- **Current checkpoint:** implementation committed at `c5ab75c9d72702240df4142537508bc7bec6c064`; the branch tip may contain a later dossier-only handoff commit.
+- **Current checkpoint:** implementation committed at `c5ab75cd1bc74dc4369df123bec2c87b676aea08`; the branch tip contains later dossier-only handoff/remediation commits.
 - **Exact resume point:** obtain independent review, reconcile only concrete findings, then propose beta integration; do not push or activate from this branch.

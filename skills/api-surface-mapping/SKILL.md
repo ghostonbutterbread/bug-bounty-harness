@@ -30,6 +30,22 @@ permission or replace the owner of a later test decision.
    material, use `live-map`.
 6. Use `analyze-endpoint` to persist selected per-operation request contracts.
 
+## Operation-scoped contract discovery
+
+Before testing an API operation, use available API documentation to understand
+the request shape needed for that operation as you test it. Do not require a
+complete API inventory before beginning. When the needed contract is not
+documented or remains unclear, research relevant first-party documentation and
+first-party stack/client evidence to establish the method, route,
+serialization, fields, headers, and prerequisite state.
+
+If the operation is web-backed and the request shape, values, or prerequisite
+state still cannot be established reliably, drive the closest normal client flow
+through the browser and observe the request through task MITM. Preserve the
+uncertainty when no normal browser client exists rather than guessing. A direct
+request that plausibly fails because its shape, values, or state are wrong is a
+reason to perform that recovery before drawing a server-behavior conclusion.
+
 ## JavaScript Lens
 
 When JavaScript is relevant, use compact `js` packets and provenance—not raw

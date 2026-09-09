@@ -1,12 +1,13 @@
 # Goal routed-skill loading integration dossier
 
-- **Status:** implementation complete; review pending
+- **Status:** review pending
 - **Owner:** Hermes
 - **Branch:** `docs/goal-required-skill-loading`
 - **Base commit:** `dfc5989466af3dbdca65493ce865ccc26ca18052`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-09
 - **Owning task:** `t_b7a1a459`
+- **Implementation commit:** `c5ab75c9d72702240df4142537508bc7bec6c064`
 
 ## Intent
 
@@ -33,5 +34,5 @@ Prevent an explicit `/goal` run from treating the `bug-goals` wrapper or its gen
 
 ## Interruption / resume handoff
 
-- **Current checkpoint:** uncommitted implementation in the named worktree.
-- **Exact resume point:** run proportional validation, commit the isolated change, request independent review, and reconcile only concrete findings before proposing beta integration.
+- **Current checkpoint:** implementation committed at `c5ab75c9d72702240df4142537508bc7bec6c064`; the branch tip may contain a later dossier-only handoff commit.
+- **Exact resume point:** obtain independent review, reconcile only concrete findings, then propose beta integration; do not push or activate from this branch.

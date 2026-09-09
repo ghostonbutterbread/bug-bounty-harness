@@ -18,9 +18,13 @@ Policies may define safety boundaries and the meanings of knowledge sources, but
 must not own bug-bounty goal workflow.
 
 This skill is a goal router. It does not replace `general-security-testing-policy`,
-`live-testing-policy`, `hunter-loop`, `map-store`, or specialist skills. Use the
-BBH helper named `scripts/goal_router.py`, not `goal.py`, to avoid ambiguity with
-Hermes, Codex, and Claude standing-goal commands.
+`live-testing-policy`, `hunter-loop`, `map-store`, or specialist skills. Loading
+`bug-goals` or reading its generated plan does not load or apply the skills the
+route names. Load each applicable routed skill before acting on the part of the
+goal it governs; load conditional specialist skills when their trigger applies
+rather than preloading every possible class. Use the BBH helper named
+`scripts/goal_router.py`, not `goal.py`, to avoid ambiguity with Hermes, Codex,
+and Claude standing-goal commands.
 
 Use the BBH helper to produce an auditable plan before the first target action:
 

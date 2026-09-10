@@ -6,19 +6,11 @@ This template is for code that performs actions. It is not the template for RAG-
 
 ## Reuse, Placement, and Discovery
 
-**Guidance:** load the shared `script_manager` skill, then search
-`scripts/README.md`, the selected skill's `SKILL.md` and `scripts/` directory,
-and existing `agents/` modules before writing. Repair or extend the documented
-owner when its responsibility matches instead of bypassing a maintained helper
-with an untracked scratch replacement.
-
-Shared `script_manager` guidance owns the general placement rule. BBH adds one
-repository-specific distinction: cross-skill command-line entrypoints live in
-`scripts/`, one-skill helpers live in `skills/<skill>/scripts/`, and established
-harness runtime modules live in `agents/`. Record a promoted helper in the
-nearest existing `scripts/README.md`; if the owner has helpers but no index,
-create one when first modifying that helper. Link skill-owned helpers from their
-`SKILL.md`.
+**Guidance:** load the shared `script_manager` skill, then follow the canonical
+repository-specific placement, discovery, indexing, and maintenance contract in
+[`../SCRIPT_POLICY.md`](../SCRIPT_POLICY.md). Repair or extend a documented owner
+when its responsibility matches instead of bypassing it with an untracked
+scratch replacement.
 
 **Required boundaries:** follow the lane-safe invocation owner in
 `agents/index.md` and `docs/bbh-launcher.md` rather than restating or bypassing

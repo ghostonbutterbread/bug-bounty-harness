@@ -215,12 +215,15 @@ and destination conflict handling. Do not use BBH to copy provider skill trees.
 ## Creating New Skills
 
 1. Read `SKILL_TEMPLATE.md` and choose a track.
-2. For executable Python modules, use `docs/executable-harness-template.md`.
+2. For executable helpers, follow `SCRIPT_POLICY.md`; for live-action harness
+   behavior, also use `docs/executable-harness-template.md`.
 3. For RAG-style skills, use `docs/rag-skill-template.md`.
 4. For router skills that hand off to child lanes, also use `docs/skill-tree-handoff-template.md`.
 5. Create the lean skill wrapper: `skills/{name}/SKILL.md`.
 6. Put verbose method in `prompts/{name}-playbook.md` or lane-specific `references/`.
-7. Create `agents/{name}_hunter.py` only when the skill needs executable harness code.
+7. Put standalone skill helpers in `skills/{name}/scripts/`. Add importable
+   harness runtime code to a responsibility-owned `agents/` package only when
+   the skill needs shared runtime implementation.
 8. Add the skill or module to `SKILL_REGISTRY.md`.
 9. Run the configured Aiskillsync profile sync and verify its dry-run becomes a no-op.
 

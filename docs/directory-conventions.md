@@ -2,7 +2,7 @@
 
 Status: active
 Owner: Ghost / Bug Bounty Harness maintainers
-Last updated: 2026-06-26
+Last updated: 2026-09-10
 
 This repo is being cleaned up incrementally. Prefer direct migrations when
 in-repo callers can be updated safely: put new implementation code in
@@ -12,6 +12,9 @@ only when an old public import or CLI path still has known consumers.
 
 ## Layout
 
+- `SCRIPT_POLICY.md` canonically owns standalone script placement and indexing;
+  this document owns importable harness package layout. Do not duplicate those
+  script rules here.
 - `agents/` remains the public compatibility namespace for harness modules and
   executable entrypoints.
 - `agents/<responsibility>/` owns reusable implementation code grouped by
@@ -39,8 +42,9 @@ only when an old public import or CLI path still has known consumers.
 - Temporary compatibility shims should re-export the same public names and
   delegate CLI execution to the new module's `main()`. Remove the shim once
   `rg` and tests show no known consumers remain.
-- Avoid adding new top-level `agents/*.py` implementation modules unless they
-  are intentional public entrypoints or compatibility wrappers.
+- Avoid adding new top-level `agents/*.py` implementation modules. New
+  argv-oriented public helpers follow `SCRIPT_POLICY.md`; retain a top-level
+  `agents/*.py` file only as a compatibility wrapper for a known consumer.
 
 ## Test Rules
 

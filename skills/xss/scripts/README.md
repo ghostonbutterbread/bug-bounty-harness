@@ -30,7 +30,23 @@ Rules:
   configs, or other secrets into mapper artifacts.
 - Keep live use scope-aware, low-rate, and tied to owned accounts/resources.
 
-## Canary Reflection Mapper
+## `xss_canary_mapper.py`
+
+- **Purpose:** Plan inert canaries, scan saved or bounded live responses, and
+  publish source-to-sink packets for agent-led XSS review.
+- **Inputs:** Parameter, proxy, JavaScript, URL, browser, planned-request, and
+  saved-response artifacts selected by the invoked subcommand.
+- **Outputs:** `sources.jsonl`, `sinks.jsonl`, `edges.jsonl`, planned/private
+  replay records, responses, and atomic agent packets under the declared output
+  directory.
+- **Mutates:** Local artifacts in every mode; `fetch` and `browser-fetch` also
+  send scope-validated, rate-limited canary requests under explicit live-use
+  controls.
+- **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest skills/xss/scripts/test_xss_canary_mapper.py -q`
+- **Owner/scope:** XSS skill.
+- **Last verified:** 2026-09-10.
+- **Coverage:** Reflection signatures and sink classifications are
+  non-exhaustive seeds; misses remain unknown until agent review.
 
 Plan canaries from URL/tool/source artifacts:
 

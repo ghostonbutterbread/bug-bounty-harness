@@ -41,6 +41,17 @@ def test_write_text_atomic_removes_temp_file_when_write_fails(tmp_path: Path):
     assert list(packet_path.parent.glob(".*.tmp")) == []
 
 
+def test_write_text_atomic_respects_restrictive_umask(tmp_path: Path):
+    packet_path = tmp_path / "packets" / "packet.md"
+    previous_umask = os.umask(0o077)
+    try:
+        J.write_text_atomic(packet_path, "sensitive packet\n")
+    finally:
+        os.umask(previous_umask)
+
+    assert os.stat(packet_path).st_mode & 0o777 == 0o600
+
+
 def test_extract_signals_finds_endpoints_params_and_sinks():
     text = """
     const url = "/api/v1/login?return_to=/home";

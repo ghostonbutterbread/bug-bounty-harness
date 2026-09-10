@@ -14,9 +14,9 @@ import html.parser
 import json
 import os
 import re
+import secrets
 import sqlite3
 import sys
-import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -673,16 +673,19 @@ def write_text_atomic(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            temporary_path = Path(handle.name)
-            os.fchmod(handle.fileno(), 0o644)
+        for _ in range(100):
+            temporary_path = path.parent / f".{path.name}.{secrets.token_hex(8)}.tmp"
+            try:
+                handle = temporary_path.open("x", encoding="utf-8")
+            except FileExistsError:
+                continue
+            break
+        else:
+            raise FileExistsError(f"could not allocate temporary file for {path}")
+
+        with handle:
+            created_mode = os.fstat(handle.fileno()).st_mode & 0o777
+            os.fchmod(handle.fileno(), created_mode & 0o644)
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())

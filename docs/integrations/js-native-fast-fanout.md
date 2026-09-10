@@ -29,7 +29,7 @@ Remove the stale `agents/js_team.py` planning layer from `/js deep`. Deep JavaSc
 ## Evidence
 
 - Baseline: `python3 -m pytest agents/test_js_team.py -q` → 4 passed; confirms the current wrapper exists and intentionally refuses execution rather than spawning workers.
-- Focused suite: `python3 -m pytest agents/test_js*.py -q` → 28 passed after the native-fanout, coverage, and atomic-publication changes.
+- Focused suite: `python3 -m pytest agents/test_js*.py -q` → 29 passed after the native-fanout, coverage, and atomic-publication changes.
 - RED: `python3 -m pytest agents/test_js_analyzer.py::test_inventory_writes_metadata_and_packets -q` failed with missing `signal_coverage` before implementation.
 - GREEN: the same focused test passed after adding machine-readable coverage metadata and packet caveats.
 - RED: `python3 -m pytest agents/test_js_analyzer.py::test_write_text_atomic_publishes_complete_packet_without_temp_file -q` failed because no atomic publisher existed.
@@ -38,6 +38,9 @@ Remove the stale `agents/js_team.py` planning layer from `/js deep`. Deep JavaSc
   temporary file; both focused regressions failed before correction.
 - Review GREEN: atomic packets now publish as `0644`, failure cleanup removes
   the temporary file, and both focused regressions pass.
+- Re-review hardening: atomic packet creation now respects restrictive process
+  umasks while removing group/world write bits; the focused `umask 077`
+  regression failed before correction and all three atomic-write checks pass.
 - Static checks: `git diff --check` and `python3 -m compileall -q agents` → passed.
 - Reference audit: bounded repository search found no live `js_team.py`, `JavaScript Team`, `staged wrapper`, `js_team_plan`, or old MapStore candidate-path references outside this branch-local dossier.
 - Independent review: blocked the first release candidate on two stale skill

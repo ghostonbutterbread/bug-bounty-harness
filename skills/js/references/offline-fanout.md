@@ -39,7 +39,9 @@ tasks through its native delegation capability.
 ## Flow
 
 1. Run `agents/js_analyzer.py inventory` to collect, hash, dedupe, chunk, and
-   packet JavaScript. During a long run, newly visible `packets/*.md` and
+   packet JavaScript. Pass an explicit `--run-id` or `--output-root` when early
+   packet review is intended so the consumer knows the run root. During a long
+   run, newly visible `packets/*.md` and
    `source_map_packets/**/*.md` files are complete atomic publications and may
    be reviewed immediately; final JSON/JSONL indexes are available only after
    inventory finishes.

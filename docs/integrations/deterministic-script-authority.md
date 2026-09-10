@@ -60,6 +60,8 @@ replacement for source/evidence review.
   `APPROVE`. Its one medium documentation finding was corrected by explicitly
   separating checkout-local worktree examples from installed `bbh` skill
   commands; the `program_init.py` dependency/network note was also restored.
+- Final focused re-review of `e6207ad` confirmed that correction and returned
+  `APPROVE` with no blocker.
 
 ## Activation boundary
 
@@ -70,6 +72,9 @@ new sessions and newly loaded skills receive the change.
 
 ## Next action
 
-Verify the canonical contract and complete root script index, then request
-independent review. The user declined a global `AGENTS.md` rule; keep ownership
-in the executable template and proposed `script_manager` policy.
+Implementation checkpoint: `e6207ad` on
+`fix/deterministic-script-authority` (the branch tip includes this later
+dossier-only handoff). Merge into `beta`, remove this temporary dossier from the
+integration target, then roll the reviewed beta revision to Hoster. The user
+declined a global `AGENTS.md` rule; keep ownership in the executable template
+and proposed `script_manager` policy.

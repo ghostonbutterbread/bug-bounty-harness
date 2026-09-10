@@ -20,14 +20,17 @@ unrelated behavior into one giant script merely to reuse a filename.
 
 ## Placement by Owner
 
-- **BBH-wide command-line helper:** `scripts/`.
-- **Vulnerability or capability helper:** `skills/<skill>/scripts/`, such as
-  `skills/xss/scripts/`.
+- **BBH infrastructure or cross-skill harness helper:** `scripts/`.
+- **Vulnerability-class helper:** `skills/<skill>/scripts/`, such as
+  `skills/xss/scripts/`. An existing capability owner such as Recon also keeps
+  its focused helper in that skill's `scripts/` directory.
 - **Program-specific helper whose program has a BBH skill:**
   `skills/<program-skill>/scripts/`.
-- **No existing skill owner:** start in `scripts/`. Do not create a new skill or
-  category solely to hold one script; split it into a narrower owner later when
-  a coherent reusable capability exists.
+- **Abstract reusable bug bounty tool with no existing class, capability, or
+  program owner:** `skills/bounty-tools/scripts/<category>/`. Reuse an existing
+  responsibility category; if none fits, create one narrow category and index
+  rather than using `misc`, `general`, or the top-level Bounty Tools script
+  directory.
 - **Importable harness runtime implementation:** the responsibility-owned
   package under `agents/`. New argv-oriented standalone helpers use one of the
   script homes above. Legacy entrypoints and existing cross-skill imports from a
@@ -45,6 +48,11 @@ script names, purpose, invocation or inputs, mutation boundary, verification,
 owner/scope, last verification date, and coverage limits when heuristic. The
 root [`scripts/README.md`](scripts/README.md) indexes BBH-wide helpers and links
 every skill-owned script index.
+
+`skills/bounty-tools/scripts/README.md` owns the category catalog for abstract
+bug bounty tools. Category directories contain the actual scripts and their
+complete local records; executable files do not live directly in the Bounty
+Tools script root.
 
 When adding, renaming, moving, or removing a script, update the nearest index in
 the same change. An index is discovery metadata, not proof that the script is

@@ -1,3 +1,4 @@
+import os
 import re
 from pathlib import Path
 
@@ -5,6 +6,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = ROOT / "SCRIPT_POLICY.md"
 ROOT_INDEX = ROOT / "scripts" / "README.md"
+BOUNTY_TOOLS_SCRIPTS = ROOT / "skills" / "bounty-tools" / "scripts"
+BOUNTY_TOOLS_INDEX = BOUNTY_TOOLS_SCRIPTS / "README.md"
 SCRIPT_SUFFIXES = {".py", ".sh", ".js", ".ts"}
 REQUIRED_RECORD_FIELDS = (
     "**Purpose:**",
@@ -22,8 +25,9 @@ def script_files(path: Path) -> list[Path]:
         child
         for child in path.iterdir()
         if child.is_file()
-        and (child.suffix in SCRIPT_SUFFIXES or child.name == "bbh")
+        and (child.suffix in SCRIPT_SUFFIXES or os.access(child, os.X_OK))
         and not child.name.startswith("test_")
+        and child.name != "README.md"
     )
 
 
@@ -40,6 +44,16 @@ def script_dirs() -> list[Path]:
     )
 
 
+def bounty_tool_category_dirs() -> list[Path]:
+    if not BOUNTY_TOOLS_SCRIPTS.is_dir():
+        return []
+    return sorted(
+        path
+        for path in BOUNTY_TOOLS_SCRIPTS.iterdir()
+        if path.is_dir()
+    )
+
+
 def test_repository_script_policy_defines_owner_based_placement() -> None:
     text = " ".join(POLICY.read_text(encoding="utf-8").lower().split())
 
@@ -47,6 +61,9 @@ def test_repository_script_policy_defines_owner_based_placement() -> None:
     assert "scripts/" in text
     assert "skills/<skill>/scripts/" in text
     assert "skills/<program-skill>/scripts/" in text
+    assert "skills/bounty-tools/scripts/<category>/" in text
+    assert "abstract reusable bug bounty tool" in text
+    assert "vulnerability-class helper" in text
     assert "multiple cohesive scripts" in text
     assert "one giant script" in text
     assert "reuse" in text
@@ -73,6 +90,45 @@ def test_root_index_links_every_skill_script_index() -> None:
         if f"../{(path / 'README.md').relative_to(ROOT).as_posix()}" not in root_text
     ]
     assert not missing, f"root script index missing child indexes: {missing}"
+
+
+def test_bounty_tools_uses_category_indexes() -> None:
+    assert BOUNTY_TOOLS_INDEX.is_file()
+    root_text = ROOT_INDEX.read_text(encoding="utf-8")
+    assert "../skills/bounty-tools/scripts/README.md" in root_text
+    assert not script_files(BOUNTY_TOOLS_SCRIPTS), "Bounty Tools scripts must live in a category"
+
+    parent_text = BOUNTY_TOOLS_INDEX.read_text(encoding="utf-8")
+    expected_links: set[str] = set()
+    for category in bounty_tool_category_dirs():
+        assert re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", category.name)
+        assert category.name not in {"general", "misc", "other"}
+        index = category / "README.md"
+        assert index.is_file(), f"Bounty Tools category missing README.md: {category}"
+        direct_scripts = script_files(category)
+        assert direct_scripts, f"empty Bounty Tools category: {category}"
+        nested_scripts = [
+            path
+            for path in category.rglob("*")
+            if path.parent != category
+            and path.is_file()
+            and (path.suffix in SCRIPT_SUFFIXES or os.access(path, os.X_OK))
+            and not path.name.startswith("test_")
+            and path.name != "README.md"
+        ]
+        assert not nested_scripts, (
+            f"nested Bounty Tools scripts bypass category inventory: {nested_scripts}"
+        )
+        expected_links.add(f"{category.name}/README.md")
+        assert_index_covers_scripts(category, index)
+
+    catalog_links = set(
+        re.findall(r"\[[^]]+\]\(([^()/]+/README\.md)\)", parent_text)
+    )
+    assert catalog_links == expected_links, (
+        f"Bounty Tools category catalog drift: expected {sorted(expected_links)}, "
+        f"found {sorted(catalog_links)}"
+    )
 
 
 def record(text: str, script_name: str) -> str | None:
@@ -119,7 +175,11 @@ def test_each_skill_index_has_complete_nonstale_records() -> None:
 
 
 def test_index_verification_commands_are_lane_safe_and_resolve() -> None:
-    indexes = [ROOT_INDEX, *(path / "README.md" for path in script_dirs())]
+    indexes = [
+        ROOT_INDEX,
+        *(path / "README.md" for path in script_dirs()),
+        *(path / "README.md" for path in bounty_tool_category_dirs()),
+    ]
     failures: list[str] = []
     for index in indexes:
         text = index.read_text(encoding="utf-8")

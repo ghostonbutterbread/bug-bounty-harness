@@ -53,8 +53,15 @@ category inventory. The regression now:
 - rejects empty/stale categories; and
 - rejects nested executable scripts.
 
-Post-fix focused suite: `9 passed in 0.03s`. Pending independent re-review. If
-accepted, record the decision here, remove this dossier from the integration
-target during merge, rerun the focused policy suite, push `beta`, verify the
-remote/runtime SHAs and a fresh agent interpretation, then close the Kanban
-task.
+Post-fix focused suite: `9 passed in 0.03s`. The first re-review found two
+remaining parser bypasses: executable files named `test_*` were exempt and
+noncanonical Markdown category links could evade catalog reconciliation. The
+second correction now includes every Bounty Tools script regardless of filename,
+normalizes an optional `./` prefix, compares every category-index link exactly,
+and treats extensionless records as stale after removal. The focused suite
+remains `9 passed in 0.03s`.
+
+Pending final independent re-review. If accepted, record the decision here,
+remove this dossier from the integration target during merge, rerun the focused
+policy suite, push `beta`, verify the remote/runtime SHAs and a fresh agent
+interpretation, then close the Kanban task.

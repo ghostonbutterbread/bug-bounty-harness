@@ -6,6 +6,10 @@ One-skill helpers belong with that skill; runtime modules stay under `agents/`.
 For invocation and lane resolution, follow the canonical owner in
 [`../agents/index.md`](../agents/index.md) and
 [`../docs/bbh-launcher.md`](../docs/bbh-launcher.md).
+The examples below use the checkout-local `scripts/bbh` shim so feature-worktree
+verification executes that checkout. Installed skill commands must use
+`bbh <repository-relative-path> ...` as required by the canonical launcher
+guidance; do not copy the checkout-local form into a skill.
 
 Script output follows
 [`../docs/executable-harness-template.md`](../docs/executable-harness-template.md):
@@ -83,6 +87,8 @@ checkout-local interpreter.
 - **Preview:** `scripts/bbh scripts/program_init.py example --skip-scope --dry-run --json`
 - **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest tests/test_program_init.py -q`
 - **Owner/scope:** Bug Bounty Harness / cross-program bootstrap.
+- **Dependencies:** Python 3 and the checkout-local Bounty Core environment;
+  network access only when `--platform` pulls scope.
 - **Last verified:** 2026-09-10.
 
 ## `recon_bus.py`

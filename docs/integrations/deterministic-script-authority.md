@@ -56,7 +56,10 @@ replacement for source/evidence review.
 - Corrected feature-local verification: eight help smokes passed, the index
   matched all eight helpers, and the seven focused suites returned
   `56 passed in 39.26s`.
-- Re-review remains pending.
+- Independent re-review verified every original blocker as resolved and returned
+  `APPROVE`. Its one medium documentation finding was corrected by explicitly
+  separating checkout-local worktree examples from installed `bbh` skill
+  commands; the `program_init.py` dependency/network note was also restored.
 
 ## Activation boundary
 

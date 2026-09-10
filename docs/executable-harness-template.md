@@ -4,6 +4,25 @@ Use this checklist when writing a hard-coded Python harness, scanner, probe, cam
 
 This template is for code that performs actions. It is not the template for RAG-style `SKILL.md` files.
 
+## Reuse, Placement, and Discovery
+
+Search before writing: check `scripts/README.md`, the selected skill's
+`scripts/` directory and README, and existing `agents/` modules. Repair or
+extend the documented owner when its responsibility matches; do not bypass an
+imperfect maintained helper with an untracked scratch replacement.
+
+Place a cross-skill BBH CLI under `scripts/`, a one-skill helper under
+`skills/<skill>/scripts/`, and an established harness runtime module under
+`agents/`. Record every promoted helper in the nearest `scripts/README.md` with
+its purpose, inputs, outputs, mutation boundary, invocation, verification, and
+owner. Link skill-owned helpers from the owning `SKILL.md`. Invoke repository
+helpers through `bbh <repository-relative-path> ...` so the selected lane owns
+execution.
+
+If repeated script use exposes reusable skill or policy guidance outside the
+acting agent's repository authority, write a skill seed for controlled review;
+do not edit an installed runtime skill copy.
+
 ## Deterministic Accelerator Contract
 
 Scripts should automate repeatable mechanics without becoming an epistemic
@@ -29,6 +48,12 @@ record. Keep the shape small and stable:
 proof that a technology or vulnerability class was fully searched. A positive
 seed is also not a finding until an agent or deterministic verifier follows its
 evidence to the underlying input.
+
+Set `exhaustive: true` only when the script declares and validates a closed input
+universe and the parser covers that universe completely. Deterministic execution
+alone does not establish exhaustive knowledge. Agents consuming script output
+must preserve this distinction even when the script is old, heavily tested, or
+usually accurate.
 
 ### Live producer/consumer handoff
 
@@ -183,6 +208,9 @@ if __name__ == "__main__":
 - [ ] Unsupported or unparsed input is surfaced as unknown instead of dropped.
 - [ ] Concurrent agent review consumes only atomically finalized, disjoint units.
 - [ ] Agent-discovered rules require evidence, a failing fixture, and review before promotion.
+- [ ] Existing documented helpers were searched before adding another script.
+- [ ] The helper is in its narrowest durable home and recorded in the nearest scripts README.
+- [ ] Any `exhaustive: true` claim names a closed input universe and a completeness test.
 - [ ] `ScopeValidator` instantiated and used before processing every target.
 - [ ] `RateLimiter` instantiated and `wait()` or `wait_for_host()` called before every request.
 - [ ] `adapt_to_response()` called after each response.

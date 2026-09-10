@@ -15,9 +15,9 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
   wordlist, and vuln-lane handoffs.
 - `deep` - spend the task budget on selected chunks instead of scanning a huge
   JS list shallowly.
-- `offline-fanout` - after inventory, build a local JavaScript artifact
-  campaign and give mapper/anomaly plus selected specialist task packets to the
-  active CLI agent's native subagents. It never calls `zero_day_team`.
+- `offline-fanout` - after inventory, have the active parent agent directly fan
+  bounded local packets out to native subagents, then verify and synthesize the
+  results. It never calls a repository-specific team runner.
 
 ## Workflow
 
@@ -34,16 +34,19 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
    source text. Start source-map review from `source_map_modules.jsonl` and
    `source_map_packets/`, not from a raw map pasted into a prompt.
 4. For natural-language requests such as "dig into the JS", "vuln test the JS",
-   "run JS deep", or "look at the JS for vulnerabilities", prefer the staged
-   JavaScript Team wrapper when the run has enough packets to justify
-   multi-agent review. Use `agents/js_team.py dry-run` first to preview the
-   mapper/anomaly-first plan without starting agents or leaving a campaign
-   unless `--campaign-root` or `--write-plan` is supplied. In normal `/js`
-   work, inspect packets directly and only fan out when evidence/budget warrants
-   it. For `/js deep`, use `agents/js_team.py run --stage planner` to
-   start only the local general-map and anomaly task packets. The active CLI
-   agent spawns its own native subagents from that plan; review their reports
-   before selecting `--follow-up-lane` task packets.
+   "run JS deep", or "look at the JS for vulnerabilities", inspect the
+   inventory manifest, metadata, packet index, and source-map module index, then
+   use the active agent's native delegation tool directly when there are enough
+   independent packets to justify fanout. Start with bounded general-map and
+   anomaly workers; do not invoke a repository-specific team wrapper or
+   recreate a fixed team matrix in another script. Prefer the runtime's
+   configured fast/low-cost delegation model for these high-volume workers.
+   Model selection is a Hermes
+   runtime concern: do not hardcode model family names, and do not claim cheaper
+   routing when the delegation model is unset and children inherit the parent.
+   The parent model must read the workers' cited evidence and synthesize their
+   reports before dispatching only the specialist follow-ups justified by the
+   first wave.
 5. Deep-review selected packets with page/flow context. Require function-level
    tracing: source value, transforms/checks, callers/callees, sink/request/DOM
    effect, controllability, and missing proof.
@@ -91,14 +94,16 @@ For a broad review, run the general map first, then split workers by broad
 attack-surface category. Do not ask one worker to deeply analyze every lens
 across every packet.
 
-For offline fanout, default to broad category agents, not the old fixed narrow
-lens matrix. The intended `/js deep` entrypoint is `agents/js_team.py`, which
-stages execution: `js-general-map` and `js-anomaly-hunter` run first, then only
-selected follow-up categories run after mapper/anomaly output is reviewed.
-Category agents cover related lenses together, for example client-side trust
-includes DOM/postMessage/storage/workers, and auth-account-tenant includes ATO,
-access-control, IDOR, roles, tenants, and owned objects. Use `--granularity
-lens` only when deliberately spending budget on the old narrow matrix.
+For offline fanout, the parent constructs a direct native-subagent batch from
+the inventory rather than calling a repository team wrapper. Start with broad
+general-map and classless-anomaly packets, grouped so each worker receives a
+bounded independent artifact set and exact local paths. After the parent checks
+those reports against packet citations, dispatch only useful broad follow-up
+categories. Category workers may cover related lenses together—for example,
+client-side trust includes DOM/postMessage/storage/workers, while
+auth-account-tenant includes ATO, access control, IDOR, roles, tenants, and
+owned objects. Use narrow per-lens workers only for a deliberate high-budget
+follow-up, not as a fixed matrix.
 
 Use the classifier as an accelerator, not a boundary: classifier signals decide
 which packet/category combinations start first, but missing signals do not
@@ -116,10 +121,10 @@ For offline fanout, treat MapStore as lazy retrieval instead of prompt baggage:
 agents should query it only when current packet evidence gives a concrete URL,
 surface, field, or tag set. Missing MapStore context means a lead is
 unlinked/new-to-current-index, not automatically globally novel. Offline agents
-write proposed durable observations to
-`offline_campaign/mapstore_candidates.jsonl` using the generated schema; a
-later synthesis/promoter pass dedupes and promotes selected entries into
-durable MapStore.
+Workers return proposed durable observations in their individual reports. The
+parent verifies and serializes accepted rows to
+`native_fanout/mapstore_candidates.jsonl`; a later synthesis/promoter pass
+dedupes and promotes selected entries into durable MapStore.
 
 Do not paste huge bundles into prompts. Store raw JS locally, pass bounded
 packets to agents, and treat regex hits as leads until impact is verified.

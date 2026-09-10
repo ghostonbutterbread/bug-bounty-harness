@@ -4,6 +4,30 @@ Use this checklist when writing a hard-coded Python harness, scanner, probe, cam
 
 This template is for code that performs actions. It is not the template for RAG-style `SKILL.md` files.
 
+## Reuse, Placement, and Discovery
+
+**Guidance:** load the shared `script_manager` skill, then search
+`scripts/README.md`, the selected skill's `SKILL.md` and `scripts/` directory,
+and existing `agents/` modules before writing. Repair or extend the documented
+owner when its responsibility matches instead of bypassing a maintained helper
+with an untracked scratch replacement.
+
+Shared `script_manager` guidance owns the general placement rule. BBH adds one
+repository-specific distinction: cross-skill command-line entrypoints live in
+`scripts/`, one-skill helpers live in `skills/<skill>/scripts/`, and established
+harness runtime modules live in `agents/`. Record a promoted helper in the
+nearest existing `scripts/README.md`; if the owner has helpers but no index,
+create one when first modifying that helper. Link skill-owned helpers from their
+`SKILL.md`.
+
+**Required boundaries:** follow the lane-safe invocation owner in
+`agents/index.md` and `docs/bbh-launcher.md` rather than restating or bypassing
+its resolver rules. If repeated script use exposes reusable skill or policy
+guidance outside the acting agent's repository authority, write a skill seed for
+controlled review; do not edit an installed runtime skill copy. These are hard
+boundaries because cross-lane execution invalidates verification and installed
+runtime copies are not canonical sources.
+
 ## Deterministic Accelerator Contract
 
 Scripts should automate repeatable mechanics without becoming an epistemic
@@ -29,6 +53,16 @@ record. Keep the shape small and stable:
 proof that a technology or vulnerability class was fully searched. A positive
 seed is also not a finding until an agent or deterministic verifier follows its
 evidence to the underlying input.
+
+Set `exhaustive: true` only when the script declares and validates a closed input
+universe and the parser covers that universe completely. Deterministic execution
+alone does not establish exhaustive knowledge. Agents consuming script output
+must preserve this distinction even when the script is old, heavily tested, or
+usually accurate.
+
+When output has no coverage declaration, consumers must default to
+`exhaustive: false`. Absence of metadata is not permission to infer that the
+script recognized every relevant case.
 
 ### Live producer/consumer handoff
 
@@ -183,6 +217,9 @@ if __name__ == "__main__":
 - [ ] Unsupported or unparsed input is surfaced as unknown instead of dropped.
 - [ ] Concurrent agent review consumes only atomically finalized, disjoint units.
 - [ ] Agent-discovered rules require evidence, a failing fixture, and review before promotion.
+- [ ] Existing documented helpers were searched before adding another script.
+- [ ] The helper is in its narrowest durable home and recorded in the nearest scripts README.
+- [ ] Any `exhaustive: true` claim names a closed input universe and a completeness test.
 - [ ] `ScopeValidator` instantiated and used before processing every target.
 - [ ] `RateLimiter` instantiated and `wait()` or `wait_for_host()` called before every request.
 - [ ] `adapt_to_response()` called after each response.

@@ -27,5 +27,7 @@
   verification-path checks, full records for every current skill script, an
   explicit compatibility exception, one placement owner, and root-catalog edit
   authority without policy-edit authority.
-- **Next:** Obtain focused re-review, reconcile current `origin/beta`, then merge
-  and remove this dossier from beta.
+- **Decision:** Focused independent re-review returned `APPROVE`; its remaining
+  directory-conventions date note was corrected before integration.
+- **Next:** Reconcile current `origin/beta`, merge, push, update Hoster's selected
+  runtime-beta checkout, and remove this dossier from the integration result.

@@ -2,7 +2,7 @@
 
 Status: active
 Owner: Ghost / Bug Bounty Harness maintainers
-Last updated: 2026-06-26
+Last updated: 2026-09-10
 
 This repo is being cleaned up incrementally. Prefer direct migrations when
 in-repo callers can be updated safely: put new implementation code in

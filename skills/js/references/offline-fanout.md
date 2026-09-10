@@ -12,6 +12,9 @@ tasks through its native delegation capability.
 ## Principles
 
 - The classifier accelerates routing; it never excludes a class.
+- Script outputs are deterministic seed sets, not exhaustive coverage. Hits are
+  starting places; misses are not evidence that a technology, bundle, or class
+  was fully searched. Agents own unfamiliar and semantic interpretation.
 - Prefer the active Hermes profile's configured fast/low-cost delegation model
   for high-volume packet review. Do not encode provider or model names in BBH;
   when no delegation override is configured, children inherit the parent.

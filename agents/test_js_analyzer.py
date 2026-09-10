@@ -211,6 +211,11 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
     assert metadata_rows[0]["url"] == "https://app.example.com/static/app.js"
     assert "https://app.example.com/api/auth/login?next=/dashboard" in metadata_text
     assert metadata_rows[0]["metadata_schema_version"] == 2
+    assert metadata_rows[0]["signal_coverage"] == {
+        "method": "deterministic_seed_patterns",
+        "exhaustive": False,
+        "interpretation": "starting_points_for_agent_review",
+    }
     assert metadata_rows[0]["provenance"]["page_urls"] == ["https://app.example.com/login"]
     assert metadata_rows[0]["provenance"]["proxy_request_ids"] == ["req-1"]
     assert metadata_rows[0]["artifact_links"]["packets"]
@@ -253,6 +258,8 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
     assert packets
     packet = packets[0].read_text(encoding="utf-8")
     assert "JS Deep Review Packet" in packet
+    assert "Deterministic seed coverage: non-exhaustive starting points for agent review" in packet
+    assert "Zero hits do not mean the bundle or technology was fully searched" in packet
     assert "Nearby In-Scope Extracted Endpoints" in packet
     assert "Trace:" in packet
     assert "Hidden/bootstrap state hints" in packet

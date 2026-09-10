@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Script-first JavaScript inventory and chunk packet builder.
+"""Deterministic JavaScript inventory and chunk packet builder.
 
 This helper handles deterministic high-volume work for the /js skill:
 collecting JS URLs from pages or files, downloading bodies, hashing/deduping,
@@ -91,6 +91,15 @@ FLOW_HINTS = {
 }
 
 
+def deterministic_signal_coverage() -> dict[str, object]:
+    """Describe regex extraction as bounded seed discovery, not coverage proof."""
+    return {
+        "method": "deterministic_seed_patterns",
+        "exhaustive": False,
+        "interpretation": "starting_points_for_agent_review",
+    }
+
+
 class ScriptSrcParser(html.parser.HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -136,6 +145,7 @@ class JsRecord:
     graphql_operations: list[str] = field(default_factory=list)
     route_hints: list[str] = field(default_factory=list)
     hidden_state_hints: list[str] = field(default_factory=list)
+    signal_coverage: dict[str, object] = field(default_factory=deterministic_signal_coverage)
     chunk_count: int = 0
 
 
@@ -524,6 +534,7 @@ def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = No
         "graphql_operations": graphql_operations,
         "route_hints": route_hints,
         "hidden_state_hints": hidden_state_hints,
+        "signal_coverage": deterministic_signal_coverage(),
     }
 
 
@@ -562,6 +573,8 @@ def build_source_map_packet(*, record: JsRecord, source_map_sha256: str, module:
         f"# Source-Map Module Review Packet {chunk_index + 1}/{chunk_count}",
         "",
         f"- Bundle URL: {record.url}",
+        "- Deterministic seed coverage: non-exhaustive starting points for agent review",
+        "- Coverage limit: Zero hits do not mean the bundle or technology was fully searched",
         f"- Bundle SHA256: {record.sha256}",
         f"- Source map: {record.source_map}",
         f"- Source map SHA256: {source_map_sha256}",
@@ -1447,6 +1460,8 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
         f"- SHA256: {record.sha256}",
         f"- Bytes: {record.byte_count}",
         f"- Chunk byte range: {start}-{end}",
+        "- Deterministic seed coverage: non-exhaustive starting points for agent review",
+        "- Coverage limit: Zero hits do not mean the bundle or technology was fully searched",
         f"- Page context: {record.page_context or 'unknown'}",
         f"- Source map: {record.source_map or 'none detected'}",
         f"- In-scope extracted endpoints: {len(record.in_scope_endpoints)}",
@@ -1695,6 +1710,7 @@ def command_inventory(args: argparse.Namespace) -> int:
             graphql_operations=signals["graphql_operations"],
             route_hints=signals["route_hints"],
             hidden_state_hints=signals["hidden_state_hints"],
+            signal_coverage=signals["signal_coverage"],
             chunk_count=len(chunks),
         )
         if source_map_modules:

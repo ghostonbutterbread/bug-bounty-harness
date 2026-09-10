@@ -5,7 +5,7 @@ description: Use when analyzing JavaScript bundles, source maps, endpoints, secr
 
 # JavaScript Analysis
 
-Use `/js` for script-first JavaScript inventory and agent-led deep review.
+Use `/js` for deterministic JavaScript inventory and agent-led deep review.
 
 ## Modes
 
@@ -65,6 +65,18 @@ Use `/js` for script-first JavaScript inventory and agent-led deep review.
    or vuln-specific skills such as `/xss`, `/ssrf`, `/sqli`, and `/idor`.
    Route a complete exposed username/password pair with in-scope provenance to
    `/credential-exposure-validation`; do not turn it into a wordlist candidate.
+
+## Deterministic Script Boundary
+
+Use scripts for facts they can determine mechanically: collection, hashing,
+deduplication, parsing known syntax, bounded regex seed extraction, chunking,
+and artifact indexing. Hardcoded source/sink/framework/route/key patterns are
+versioned starting points, not a model of every technology or application.
+Their hits prioritize review; their misses never prove absence, completion, or
+that a bundle was fully searched. Give ambiguous code comprehension, unfamiliar
+framework behavior, dynamic construction, semantic dataflow, and technology-
+specific interpretation to agents reading the actual bounded source. Agent
+review extends the deterministic inventory instead of being constrained by it.
 
 ## Analysis Lenses
 

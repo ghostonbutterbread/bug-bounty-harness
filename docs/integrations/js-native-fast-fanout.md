@@ -19,12 +19,16 @@ Remove the stale `agents/js_team.py` planning layer from `/js deep`. Deep JavaSc
 - Workers use Hermes' configured delegation model. The skill prefers a fast/low-cost sibling tier but does not hardcode model names or claim reduced cost when no delegation override exists.
 - The parent model verifies cited packet evidence, synthesizes stage-one results, and selects any specialist follow-up wave.
 - Offline workers do not make live target requests; live validation remains a separate policy-governed handoff.
+- The analyzer labels hardcoded regex/keyword output as deterministic, non-exhaustive seed coverage. Hits are starting points; misses cannot establish completion or absence.
+- Ambiguous framework behavior, computed routes, semantic dataflow, and unfamiliar technology interpretation stay with source-reading agents rather than scripts.
 - Remove `js_team.py`, its tests, and all live documentation references.
 
 ## Evidence
 
 - Baseline: `python3 -m pytest agents/test_js_team.py -q` → 4 passed; confirms the current wrapper exists and intentionally refuses execution rather than spawning workers.
 - Focused suite: `python3 -m pytest agents/test_js*.py -q` → 26 passed after removal.
+- RED: `python3 -m pytest agents/test_js_analyzer.py::test_inventory_writes_metadata_and_packets -q` failed with missing `signal_coverage` before implementation.
+- GREEN: the same focused test passed after adding machine-readable coverage metadata and packet caveats.
 - Static checks: `git diff --check` and `python3 -m compileall -q agents` → passed.
 - Reference audit: bounded repository search found no live `js_team.py`, `JavaScript Team`, `staged wrapper`, `js_team_plan`, or old MapStore candidate-path references outside this branch-local dossier.
 - Independent review: pending.
@@ -35,4 +39,4 @@ Repository change only. Merging to `beta` does not change the active synchronize
 
 ## Next action
 
-Patch the skill/playbook/reference/registry, delete the stale wrapper and test, run focused JS tests plus a bounded reference audit, then request independent review.
+Commit the analyzer coverage correction, then request independent re-review of the full branch.

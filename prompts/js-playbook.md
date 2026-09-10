@@ -45,6 +45,20 @@ interpretation and security reasoning.
 - synthesize outputs into findings, MapStore gadget candidates, endpoint
   handoffs, or live-validation hypotheses
 
+## Script versus agent responsibility
+
+Script the deterministic substrate: acquire known inputs, hash and deduplicate
+bodies, parse known syntax, extract bounded regex seeds, chunk artifacts, and
+write stable indexes. Keep ambiguity with agents: unfamiliar frameworks,
+computed routes, semantic dataflow, custom parsers, technology-specific
+behavior, and whether a suspicious construct matters in context.
+
+Every script-produced source, sink, flow, framework, route, parameter, secret,
+or key list is a non-exhaustive set of starting points. A hit is a review
+priority, not a finding. A miss is not negative evidence and must never be used
+to claim that the technology, bundle, surface, or vulnerability class was fully
+searched. Native agents inspect actual packet content beyond those lists.
+
 ## Analysis Lenses
 
 `/js` is the JavaScript evidence router. It should not force every worker to
@@ -575,7 +589,7 @@ bbh agents/url_ingest.py mark canva \
   --status surface_reviewed \
   --skill js \
   --test-family js-inventory \
-  --technique script-first-inventory \
+  --technique deterministic-js-inventory \
   --evidence "/mnt/bounty/canva/web/recon/js/<run-id>/manifest.json"
 ```
 

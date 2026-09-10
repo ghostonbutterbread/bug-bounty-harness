@@ -56,5 +56,10 @@ push only their own ref for backup/review. Never push `HEAD:beta`, force-push
 beta, or merge directly into `main`. A non-fast-forward beta push is a stop and
 intentional reconciliation condition, never permission to overwrite history.
 
-Hoster is execution-only: it fetches a reviewed beta commit for an explicit
-runtime test but never authors, commits, merges, or pushes harness source.
+Hoster is execution-only by default. For an explicitly authorized repository task,
+it may perform an existing-script repair when its current GitHub credential
+passes a non-mutating write check for this repository. Follow
+`coding-agent-operations-policy` and `branch-lifecycle`; those policies own the
+branch, independent release gate, integration, and cleanup. If write access is
+unavailable, use `coding-proposal-packets-policy`. If the needed change is a
+skill or policy, write a skill seed instead of editing it here.

@@ -35,3 +35,17 @@ value instead of being rejected, and `file` feeds finding identity/dedup. Observ
 two modules rather than keeping duplicate copies.
 
 **Not fixed here** because it is outside the manual_hunter ingest-parser fix scope.
+
+## Runtime dependency test expects a different Bounty Core revision
+
+**Location:** `tests/test_runtime_dependencies.py:18` and
+`requirements-bounty-core.txt:2`.
+
+**Evidence:** the focused test expects Bounty Core
+`f3d02453f26a4e221632466c26742dfb55368f28`, while the runtime manifest pins
+`1bba64b557aa3b604092b5bad47689fcb40cc0f7`. The failure reproduces on unchanged
+beta `5ef9b5b304fa3ce995e3700d32f3e7d4789539ee`.
+
+**Impact:** the complete `tests/` suite remains red independently of the Hoster
+script-authority guidance. The owning dependency task must decide which reviewed
+revision is canonical and update the test or manifest coherently.

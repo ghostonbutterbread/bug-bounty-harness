@@ -10,6 +10,8 @@
 - **Mutates:** Files only in the declared artifact location; it sends no target
   traffic.
 - **Example:** `bbh skills/analyze-endpoint/scripts/analyze_endpoint.py <program> request.raw`
-- **Verification:** `bbh skills/analyze-endpoint/scripts/analyze_endpoint.py --help`
+- **Verification:** `scripts/bbh skills/analyze-endpoint/scripts/analyze_endpoint.py --help`
+- **Owner/scope:** Analyze Endpoint skill.
+- **Last verified:** 2026-09-10.
 - **Coverage:** Request parsing is deterministic; inferred route shapes are
   non-exhaustive seeds for agent review.

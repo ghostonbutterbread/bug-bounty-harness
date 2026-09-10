@@ -9,7 +9,9 @@
 - **Mutates:** The selected browser page through explicit UI actions; it does not
   publish CDP directly.
 - **Example:** `bbh skills/chromium-handoff/scripts/cdp_handoff_server.js`
-- **Verification:** `python3 -m pytest agents/test_cdp_handoff_receipt.py -q`
+- **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest agents/test_cdp_handoff_receipt.py -q`
+- **Owner/scope:** Chromium Handoff skill.
+- **Last verified:** 2026-09-10.
 
 ## `handoff_transport.sh`
 
@@ -20,7 +22,9 @@
 - **Mutates:** The selected private Serve route for `start` and `stop`; never
   publishes Chrome CDP or uses Funnel.
 - **Example:** `bbh skills/chromium-handoff/scripts/handoff_transport.sh --help`
-- **Verification:** `bbh skills/chromium-handoff/scripts/handoff_transport.sh --help`
+- **Verification:** `scripts/bbh skills/chromium-handoff/scripts/handoff_transport.sh --help`
+- **Owner/scope:** Chromium Handoff skill.
+- **Last verified:** 2026-09-10.
 
 These helpers expose only the selected live handoff. They do not enumerate or
 prove the state of other browser sessions.

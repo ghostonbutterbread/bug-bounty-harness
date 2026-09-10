@@ -30,7 +30,9 @@ unrelated behavior into one giant script merely to reuse a filename.
   a coherent reusable capability exists.
 - **Importable harness runtime implementation:** the responsibility-owned
   package under `agents/`. New argv-oriented standalone helpers use one of the
-  script homes above; legacy entrypoints are not moved automatically.
+  script homes above. Legacy entrypoints and existing cross-skill imports from a
+  skill script directory are not moved automatically and must not be copied as
+  the pattern for new shared modules.
 
 New scripts must follow the selected repository lane and use repository-relative
 paths. Do not hardcode a developer checkout, host, username, transient run, or
@@ -40,12 +42,17 @@ provider-specific runtime path.
 
 Every directory that owns executable scripts has a `README.md` containing the
 script names, purpose, invocation or inputs, mutation boundary, verification,
-and coverage limits when heuristic. The root [`scripts/README.md`](scripts/README.md)
-indexes BBH-wide helpers and links every skill-owned script index.
+owner/scope, last verification date, and coverage limits when heuristic. The
+root [`scripts/README.md`](scripts/README.md) indexes BBH-wide helpers and links
+every skill-owned script index.
 
 When adding, renaming, moving, or removing a script, update the nearest index in
 the same change. An index is discovery metadata, not proof that the script is
 exhaustive or correct.
+
+The root catalog link is the scripts-only discovery path. A skill owner may link
+its local script index from `SKILL.md`, but creating or maintaining a script does
+not grant the scripts-only lane authority to edit that policy file.
 
 ## Scripts-Only Maintenance Boundary
 
@@ -53,7 +60,7 @@ An explicitly authorized script-maintenance agent may change:
 
 - canonical scripts in the homes above;
 - directly associated tests and fixtures;
-- the nearest script index;
+- the nearest script index and the root `scripts/README.md` catalog link;
 - the branch-local integration dossier.
 
 A scripts-only maintenance agent must not edit `SCRIPT_POLICY.md`, any

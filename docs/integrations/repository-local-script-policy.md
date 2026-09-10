@@ -11,7 +11,7 @@
   authority.
 - **Evidence:** `tests/test_script_policy.py` was created first and failed for the
   absent policy and five missing indexes before implementation. The policy and
-  focused script suites now pass (`35 passed`), all newly indexed entrypoints
+  focused script suites now pass (`122 passed`), all newly indexed entrypoints
   pass bounded help/syntax smoke checks, and `git diff --check` passes.
 - **Baseline drift:** The broader `tests/` suite reports `114 passed` with two
   failures that reproduce unchanged on `beta`: a Bounty Core pin expectation
@@ -20,5 +20,12 @@
   `PC-20260910-222417-7495b4bc`.
 - **Activation:** Merge and push BBH beta, update the selected Hoster runtime-beta
   checkout, and verify repository files through the active checkout.
-- **Next:** Obtain independent review, reconcile current `origin/beta`, then
-  merge and remove this dossier from beta.
+- **Review:** Initial independent review blocked on incomplete index records,
+  filename-only tests, one undocumented legacy cross-skill import, conflicting
+  `agents/` placement text, lane-unsafe verification commands, and an incomplete
+  maintenance allowlist. The follow-up adds complete/nonstale record validation,
+  verification-path checks, full records for every current skill script, an
+  explicit compatibility exception, one placement owner, and root-catalog edit
+  authority without policy-edit authority.
+- **Next:** Obtain focused re-review, reconcile current `origin/beta`, then merge
+  and remove this dossier from beta.

@@ -10,6 +10,8 @@
 - **Mutates:** Network state only when the chosen API method and endpoint mutate;
   callers must follow the BountyLens skill's write boundary.
 - **Example:** `bbh skills/bountylens/scripts/bountylens_api.py GET /programs`
-- **Verification:** `bbh skills/bountylens/scripts/bountylens_api.py --help`
+- **Verification:** `scripts/bbh skills/bountylens/scripts/bountylens_api.py --help`
+- **Owner/scope:** BountyLens skill.
+- **Last verified:** 2026-09-10.
 - **Coverage:** This is a transport helper, not an exhaustive inventory of
   BountyLens endpoints or supported workflows.

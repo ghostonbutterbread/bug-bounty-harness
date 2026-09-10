@@ -9,6 +9,8 @@
 - **Mutates:** No external system; `--body-file` writes the declared local file.
   The generated command is not executed automatically.
 - **Example:** `bbh skills/proxy-curl/scripts/raw_to_curl.py request.raw`
-- **Verification:** `bbh skills/proxy-curl/scripts/raw_to_curl.py --help`
+- **Verification:** `scripts/bbh skills/proxy-curl/scripts/raw_to_curl.py --help`
+- **Owner/scope:** Proxy Curl skill.
+- **Last verified:** 2026-09-10.
 - **Coverage:** Conversion covers the parsed request shape; it does not prove
   replay safety, authentication portability, or endpoint behavior.

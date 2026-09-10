@@ -42,8 +42,9 @@ only when an old public import or CLI path still has known consumers.
 - Temporary compatibility shims should re-export the same public names and
   delegate CLI execution to the new module's `main()`. Remove the shim once
   `rg` and tests show no known consumers remain.
-- Avoid adding new top-level `agents/*.py` implementation modules unless they
-  are intentional public entrypoints or compatibility wrappers.
+- Avoid adding new top-level `agents/*.py` implementation modules. New
+  argv-oriented public helpers follow `SCRIPT_POLICY.md`; retain a top-level
+  `agents/*.py` file only as a compatibility wrapper for a known consumer.
 
 ## Test Rules
 

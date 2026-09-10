@@ -1,8 +1,9 @@
 # Harness Scripts
 
-Cross-skill BBH command-line helpers live here. Before adding another script,
-search this index, `skills/<skill>/scripts/`, and established `agents/` modules.
-One-skill helpers belong with that skill; runtime modules stay under `agents/`.
+Cross-skill BBH command-line helpers live here. The repository-specific
+placement and maintenance owner is [`../SCRIPT_POLICY.md`](../SCRIPT_POLICY.md).
+Before adding another script, search this index, the linked skill indexes below,
+and established `agents/` modules.
 For invocation and lane resolution, follow the canonical owner in
 [`../agents/index.md`](../agents/index.md) and
 [`../docs/bbh-launcher.md`](../docs/bbh-launcher.md).
@@ -22,6 +23,16 @@ open. If a script emits no coverage declaration, treat it as
 Before running verification commands, create this checkout's dependency
 environment with `./setup.sh --install-python-deps`. The commands below use that
 checkout-local interpreter.
+
+## Skill-owned script indexes
+
+- [Account Management](../skills/account-management/scripts/README.md)
+- [Analyze Endpoint](../skills/analyze-endpoint/scripts/README.md)
+- [BountyLens](../skills/bountylens/scripts/README.md)
+- [Chromium Handoff](../skills/chromium-handoff/scripts/README.md)
+- [Chromium Test](../skills/chromium-test/scripts/README.md)
+- [Proxy Curl](../skills/proxy-curl/scripts/README.md)
+- [XSS](../skills/xss/scripts/README.md)
 
 ## `bbh`
 

@@ -12,6 +12,9 @@ only when an old public import or CLI path still has known consumers.
 
 ## Layout
 
+- `SCRIPT_POLICY.md` canonically owns standalone script placement and indexing;
+  this document owns importable harness package layout. Do not duplicate those
+  script rules here.
 - `agents/` remains the public compatibility namespace for harness modules and
   executable entrypoints.
 - `agents/<responsibility>/` owns reusable implementation code grouped by

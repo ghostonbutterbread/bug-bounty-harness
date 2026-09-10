@@ -1,5 +1,24 @@
 # Chromium Test Scripts
 
+## Inventory
+
+- `browser_provisioner.py` — canonical admission, profile-lease, and Chromium
+  request path.
+- `chromium_test.py` — isolated Chromium launcher used by the provisioner.
+- `browser_profile_lease.py` — exclusive owned-account/profile lease registry.
+- `kasmvnc_session.py` — task-owned headed display lifecycle.
+- `mitm_lane.py` — local task MITM lane lifecycle.
+- `hoster_mitm_lane.py` — bounded Hoster-backed MITM lane lifecycle.
+- `proxy_store.py` — sanitized SQLite index for captured lane traffic.
+- `mitm_chromium_profile.py` — imports the selected MITM CA into one Chromium
+  profile.
+- `install.sh` — explicit package-manager installer for the required `certutil`
+  dependency; review before running because it invokes system package tooling.
+
+Use the detailed records below for supported invocation and safety boundaries.
+Each helper owns deterministic mechanics only; lane availability, account
+selection, target scope, and browser state still require agent verification.
+
 ## `kasmvnc_session.py`
 
 - **Purpose:** Starts, checks, and stops one task-owned KasmVNC display for a

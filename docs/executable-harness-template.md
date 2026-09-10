@@ -4,6 +4,56 @@ Use this checklist when writing a hard-coded Python harness, scanner, probe, cam
 
 This template is for code that performs actions. It is not the template for RAG-style `SKILL.md` files.
 
+## Deterministic Accelerator Contract
+
+Scripts should automate repeatable mechanics without becoming an epistemic
+authority over an open-world surface. Separate outputs into:
+
+- **observed facts:** mechanically parsed values with evidence pointers;
+- **seed signals:** bounded patterns or classifiers that prioritize agent review;
+- **unknowns:** input the script did not understand or coverage it cannot prove.
+
+Any output derived from hardcoded keywords, signatures, regexes, framework
+lists, payload lists, or classifiers must carry a machine-readable coverage
+record. Keep the shape small and stable:
+
+```json
+{
+  "method": "deterministic_seed_patterns",
+  "exhaustive": false,
+  "interpretation": "starting_points_for_agent_review"
+}
+```
+
+`exhaustive: false` means a miss is unknown—not absence, safety, completion, or
+proof that a technology or vulnerability class was fully searched. A positive
+seed is also not a finding until an agent or deterministic verifier follows its
+evidence to the underlying input.
+
+### Live producer/consumer handoff
+
+Long deterministic runs may overlap with agent review when the script publishes
+independent completed units. Write each packet atomically (temporary file then
+rename) or announce it through an append-only ready record only after the packet
+is complete. Give every worker a disjoint packet/report path. Agents may inspect
+ready packets while the producer continues, but must not read half-written
+indexes, infer global completion from an in-progress run, or append concurrently
+to one shared output.
+
+The script remains responsible for ordering, deduplication, provenance, and run
+status. The agent remains responsible for nuance: unfamiliar technology,
+computed behavior, semantic dataflow, custom parsers, contextual impact, and
+evidence-driven expansion beyond the seed vocabulary.
+
+### Learning loop
+
+Agent discoveries may propose a new deterministic rule, but do not teach the
+running script by silently editing its pattern set or accepting the agent claim
+as truth. Preserve the triggering evidence, add a focused fixture that fails on
+the old behavior, implement the generalized rule, and review it before
+promotion. Record false positives and unsupported inputs as first-class tuning
+evidence so maintenance improves precision as well as recall.
+
 ## Required Imports
 
 Every live-target harness must import and use both shared safety modules:
@@ -127,6 +177,12 @@ if __name__ == "__main__":
 
 ## Checklist
 
+- [ ] Heuristic/signature output is labeled as non-exhaustive seed coverage.
+- [ ] Misses cannot be interpreted as absence or completed coverage.
+- [ ] Observed facts and seeds retain pointers to the underlying input.
+- [ ] Unsupported or unparsed input is surfaced as unknown instead of dropped.
+- [ ] Concurrent agent review consumes only atomically finalized, disjoint units.
+- [ ] Agent-discovered rules require evidence, a failing fixture, and review before promotion.
 - [ ] `ScopeValidator` instantiated and used before processing every target.
 - [ ] `RateLimiter` instantiated and `wait()` or `wait_for_host()` called before every request.
 - [ ] `adapt_to_response()` called after each response.

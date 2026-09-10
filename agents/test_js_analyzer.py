@@ -18,6 +18,16 @@ def test_default_inventory_paths_use_mounted_bounty_program_js_root():
     assert summary["program_root"] == "/mnt/bounty/demo"
 
 
+def test_write_text_atomic_publishes_complete_packet_without_temp_file(tmp_path: Path):
+    packet_path = tmp_path / "packets" / "packet.md"
+
+    J.write_text_atomic(packet_path, "complete packet\n")
+
+    assert packet_path.read_text(encoding="utf-8") == "complete packet\n"
+    assert list(packet_path.parent.glob(".*.tmp")) == []
+
+
+
 def test_extract_signals_finds_endpoints_params_and_sinks():
     text = """
     const url = "/api/v1/login?return_to=/home";

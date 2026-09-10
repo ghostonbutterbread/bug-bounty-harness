@@ -21,6 +21,9 @@ Remove the stale `agents/js_team.py` planning layer from `/js deep`. Deep JavaSc
 - Offline workers do not make live target requests; live validation remains a separate policy-governed handoff.
 - The analyzer labels hardcoded regex/keyword output as deterministic, non-exhaustive seed coverage. Hits are starting points; misses cannot establish completion or absence.
 - Ambiguous framework behavior, computed routes, semantic dataflow, and unfamiliar technology interpretation stay with source-reading agents rather than scripts.
+- Future BBH helpers inherit the same observed-fact/seed/unknown contract from the executable and RAG templates.
+- Concurrent agent review is allowed only after a producer atomically publishes a complete independent packet; shared indexes and outputs are not concurrently mutated by workers.
+- Agent-discovered deterministic rules require preserved evidence, a failing fixture, implementation, and review before promotion into a script.
 - Remove `js_team.py`, its tests, and all live documentation references.
 
 ## Evidence
@@ -29,6 +32,8 @@ Remove the stale `agents/js_team.py` planning layer from `/js deep`. Deep JavaSc
 - Focused suite: `python3 -m pytest agents/test_js*.py -q` → 26 passed after removal.
 - RED: `python3 -m pytest agents/test_js_analyzer.py::test_inventory_writes_metadata_and_packets -q` failed with missing `signal_coverage` before implementation.
 - GREEN: the same focused test passed after adding machine-readable coverage metadata and packet caveats.
+- RED: `python3 -m pytest agents/test_js_analyzer.py::test_write_text_atomic_publishes_complete_packet_without_temp_file -q` failed because no atomic publisher existed.
+- GREEN: the atomic publisher and inventory packet test passed together (`2 passed`).
 - Static checks: `git diff --check` and `python3 -m compileall -q agents` → passed.
 - Reference audit: bounded repository search found no live `js_team.py`, `JavaScript Team`, `staged wrapper`, `js_team_plan`, or old MapStore candidate-path references outside this branch-local dossier.
 - Independent review: pending.
@@ -39,4 +44,4 @@ Repository change only. Merging to `beta` does not change the active synchronize
 
 ## Next action
 
-Commit the analyzer coverage correction, then request independent re-review of the full branch.
+Run the focused suite and request independent re-review of the full branch, including the cross-cutting script contract.

@@ -16,6 +16,7 @@ import os
 import re
 import sqlite3
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -634,7 +635,7 @@ def write_source_map_modules(
                 packet_dir.mkdir(parents=True, exist_ok=True)
                 for chunk_index, (start, end, chunk) in enumerate(chunks):
                     packet_path = packet_dir / f"{module['source_index']:05d}-{chunk_index + 1:03d}.md"
-                    packet_path.write_text(build_source_map_packet(record=record, source_map_sha256=source_map_sha256, module=module, chunk_index=chunk_index, chunk_count=len(chunks), start=start, end=end, chunk=chunk), encoding="utf-8")
+                    write_text_atomic(packet_path, build_source_map_packet(record=record, source_map_sha256=source_map_sha256, module=module, chunk_index=chunk_index, chunk_count=len(chunks), start=start, end=end, chunk=chunk))
                     row["packet_paths"].append(str(packet_path))
                     packets.append({"url": record.url, "sha256": record.sha256, "artifact_kind": "source_map_module", "source_map_sha256": source_map_sha256, "source_index": module["source_index"], "source_label": module["source_label"], "chunk_index": chunk_index, "chunk_count": len(chunks), "chunk_path": str(module_path), "packet_path": str(packet_path), "byte_start": start, "byte_end": end})
                 packeted_modules += 1
@@ -665,6 +666,29 @@ def write_jsonl(path: Path, rows: Iterable[dict]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def write_text_atomic(path: Path, text: str) -> None:
+    """Publish one complete text artifact for concurrent readers."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temporary_path = Path(handle.name)
+        temporary_path.replace(path)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
 
 
 def append_jsonl(path: Path, rows: Iterable[dict]) -> None:
@@ -1780,7 +1804,7 @@ def command_inventory(args: argparse.Namespace) -> int:
             chunk_path = Path(str(chunk_row["chunk_path"]))
             chunk = chunk_path.read_text(encoding="utf-8", errors="ignore")
             packet_path = packets_dir / f"{digest[:16]}-{chunk_index + 1:03d}.md"
-            packet_path.write_text(build_packet(record, chunk_index, start, end, chunk), encoding="utf-8")
+            write_text_atomic(packet_path, build_packet(record, chunk_index, start, end, chunk))
             packet_rows.append({
                 "url": url,
                 "sha256": digest,

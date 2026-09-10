@@ -119,9 +119,13 @@ That agent should look for surprising code, odd trust assumptions, hidden
 flows, rare modules, dead routes, debug/admin hints, custom parsers, strange
 state machines, and other weirdness the lens matrix may miss.
 
-## Script-First Layer
+## Deterministic Inventory With Concurrent Agent Review
 
-Use deterministic scripts before asking agents to reason over code.
+Use the helper for deterministic inventory, but do not make its completion or
+seed vocabulary a prerequisite for agent reasoning. Once the helper has emitted
+a finalized independent packet, an agent may review that packet while remaining
+inventory work continues. Consume only complete packet files or explicit ready
+records; never reason from a partially written artifact.
 
 Primary helper:
 

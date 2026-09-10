@@ -29,7 +29,7 @@ Remove the stale `agents/js_team.py` planning layer from `/js deep`. Deep JavaSc
 ## Evidence
 
 - Baseline: `python3 -m pytest agents/test_js_team.py -q` → 4 passed; confirms the current wrapper exists and intentionally refuses execution rather than spawning workers.
-- Focused suite: `python3 -m pytest agents/test_js*.py -q` → 26 passed after removal.
+- Focused suite: `python3 -m pytest agents/test_js*.py -q` → 27 passed after the native-fanout, coverage, and atomic-publication changes.
 - RED: `python3 -m pytest agents/test_js_analyzer.py::test_inventory_writes_metadata_and_packets -q` failed with missing `signal_coverage` before implementation.
 - GREEN: the same focused test passed after adding machine-readable coverage metadata and packet caveats.
 - RED: `python3 -m pytest agents/test_js_analyzer.py::test_write_text_atomic_publishes_complete_packet_without_temp_file -q` failed because no atomic publisher existed.
@@ -44,4 +44,4 @@ Repository change only. Merging to `beta` does not change the active synchronize
 
 ## Next action
 
-Run the focused suite and request independent re-review of the full branch, including the cross-cutting script contract.
+Implementation checkpoint: `02d41ad` on `fix/js-native-fast-fanout` (current branch tip will include a later dossier-only handoff commit). Request independent re-review of the full branch, including the cross-cutting script contract.

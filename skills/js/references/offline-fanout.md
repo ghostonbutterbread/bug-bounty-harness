@@ -15,11 +15,11 @@ tasks through its native delegation capability.
 - Script outputs are deterministic seed sets, not exhaustive coverage. Hits are
   starting places; misses are not evidence that a technology, bundle, or class
   was fully searched. Agents own unfamiliar and semantic interpretation.
-- Use the active CLI's native subagents and prefer the current fast sibling of
-  the parent model's generation for high-volume packet review. Do not encode
-  provider or model names in BBH. If that CLI cannot select a fast sibling, use
-  its configured worker model or inherit the parent without claiming a cheaper
-  route.
+- Use the active CLI's native subagents and ask its native model selector or
+  advertised model list for the fast option in the parent's family/generation.
+  Do not encode provider or model names in BBH. If that CLI cannot make the
+  selection, use its configured worker model or inherit the parent without
+  claiming a cheaper route.
 - Offline agents should fan out by broad attack-surface category by default.
   Use the old narrow lens matrix only when Ryushe intentionally chooses that
   spend.
@@ -39,20 +39,25 @@ tasks through its native delegation capability.
 ## Flow
 
 1. Run `agents/js_analyzer.py inventory` to collect, hash, dedupe, chunk, and
-   packet JavaScript.
-2. Read the run's `manifest.json`, `metadata.jsonl`, `packets.jsonl`, and any
-   `source_map_modules.jsonl`. Group related packet paths by page, bundle family,
-   route cluster, or source-map boundary. Keep each worker's input bounded and
-   independent; do not paste full bundles into prompts.
+   packet JavaScript. During a long run, newly visible `packets/*.md` and
+   `source_map_packets/**/*.md` files are complete atomic publications and may
+   be reviewed immediately; final JSON/JSONL indexes are available only after
+   inventory finishes.
+2. After completion, read the run's `manifest.json`, `metadata.jsonl`,
+   `packets.jsonl`, and any `source_map_modules.jsonl`. Group related packet
+   paths by page, bundle family, route cluster, or source-map boundary. Keep each
+   worker's input bounded and independent; do not paste full bundles into
+   prompts.
 3. Call the active agent's native delegation tool with a first-wave batch:
    one or more general-map workers plus a classless anomaly worker. Each task
    packet includes exact local paths, relevant provenance rows, the offline-only
    boundary, and a structured output contract requiring cited evidence,
    confidence, missing proof, and suggested follow-up category.
-4. Let the active CLI apply its native model routing. Prefer the current fast
-   sibling of the parent model's generation for this volume pass, but never
-   hardcode names or claim that routing occurred when the configured worker or
-   inherited parent was used instead.
+4. Let the active CLI apply its native model routing. Ask its model selector or
+   advertised model list for the current fast sibling of the parent model's
+   family/generation. Never guess or hardcode the name; when selection is not
+   available, use the configured worker or inherited parent and report that
+   fallback honestly.
 5. The parent model reads the returned reports, checks cited packet/function
    evidence, merges duplicates, and rejects unsupported regex-only claims.
 6. Dispatch a second native batch only for categories supported by stage-one

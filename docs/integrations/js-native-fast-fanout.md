@@ -29,18 +29,26 @@ Remove the stale `agents/js_team.py` planning layer from `/js deep`. Deep JavaSc
 ## Evidence
 
 - Baseline: `python3 -m pytest agents/test_js_team.py -q` → 4 passed; confirms the current wrapper exists and intentionally refuses execution rather than spawning workers.
-- Focused suite: `python3 -m pytest agents/test_js*.py -q` → 27 passed after the native-fanout, coverage, and atomic-publication changes.
+- Focused suite: `python3 -m pytest agents/test_js*.py -q` → 28 passed after the native-fanout, coverage, and atomic-publication changes.
 - RED: `python3 -m pytest agents/test_js_analyzer.py::test_inventory_writes_metadata_and_packets -q` failed with missing `signal_coverage` before implementation.
 - GREEN: the same focused test passed after adding machine-readable coverage metadata and packet caveats.
 - RED: `python3 -m pytest agents/test_js_analyzer.py::test_write_text_atomic_publishes_complete_packet_without_temp_file -q` failed because no atomic publisher existed.
 - GREEN: the atomic publisher and inventory packet test passed together (`2 passed`).
+- Review RED: packet mode remained `0600` and a failed write leaked its hidden
+  temporary file; both focused regressions failed before correction.
+- Review GREEN: atomic packets now publish as `0644`, failure cleanup removes
+  the temporary file, and both focused regressions pass.
 - Static checks: `git diff --check` and `python3 -m compileall -q agents` → passed.
 - Reference audit: bounded repository search found no live `js_team.py`, `JavaScript Team`, `staged wrapper`, `js_team_plan`, or old MapStore candidate-path references outside this branch-local dossier.
-- Independent review: pending.
+- Independent review: blocked the first release candidate on two stale skill
+  sentences, atomic packet permissions/cleanup, and ambiguous concurrent/model
+  discovery wording; the branch includes focused corrections for re-review.
 
 ## Activation boundary
 
-Repository change only. Merging to `beta` does not change the active synchronized skill lane or runtime configuration. Fast-worker selection depends on the active Hermes profile's delegation configuration.
+Repository change only. Merging to `beta` does not change an active synchronized
+skill lane or runtime configuration. Fast-worker selection depends on whichever
+CLI loads the skill and its native advertised model-routing capabilities.
 
 ## Next action
 

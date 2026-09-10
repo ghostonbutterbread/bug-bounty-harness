@@ -42,9 +42,11 @@ Use `/js` for deterministic JavaScript inventory and agent-led deep review.
    recreate a fixed team matrix in another script. Use the active CLI's native
    subagent mechanism and prefer the current fast sibling of the parent model's
    generation for these high-volume workers. Model selection belongs to the
-   active CLI/runtime: do not hardcode model family names in BBH. If the CLI
-   cannot select a fast sibling per task, use its configured worker model or
-   inherit the parent, and do not claim cheaper routing unless it occurred.
+   active CLI/runtime: ask its native model selector or advertised model list
+   for the fast option in the parent's family/generation rather than guessing
+   or hardcoding model names in BBH. If the CLI cannot select one per task, use
+   its configured worker model or inherit the parent, and do not claim cheaper
+   routing unless it occurred.
    The parent model must read the workers' cited evidence and synthesize their
    reports before dispatching only the specialist follow-ups justified by the
    first wave.
@@ -126,15 +128,19 @@ modules, dead routes, debug/admin hints, custom parsers, strange state
 machines, and other weirdness that does not fit the known categories.
 
 The offline fanout path must stay offline. It reads local JS packets and
-provenance, writes brainstorm specs, and emits findings,
+provenance, and emits findings,
 MapStore gadget candidates, or live-validation hypotheses. Live validation is a
 separate handoff through the normal live-testing policy.
+
+`agents/js_offline_campaign.py` is a legacy explicit planning adapter, not the
+runner for `/js deep`; do not invoke it unless the operator specifically asks
+for that legacy campaign artifact.
 
 For offline fanout, treat MapStore as lazy retrieval instead of prompt baggage:
 agents should query it only when current packet evidence gives a concrete URL,
 surface, field, or tag set. Missing MapStore context means a lead is
-unlinked/new-to-current-index, not automatically globally novel. Offline agents
-Workers return proposed durable observations in their individual reports. The
+unlinked/new-to-current-index, not automatically globally novel. Workers return
+proposed durable observations in their individual reports. The
 parent verifies and serializes accepted rows to
 `native_fanout/mapstore_candidates.jsonl`; a later synthesis/promoter pass
 dedupes and promotes selected entries into durable MapStore.

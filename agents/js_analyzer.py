@@ -681,10 +681,11 @@ def write_text_atomic(path: Path, text: str) -> None:
             suffix=".tmp",
             delete=False,
         ) as handle:
+            temporary_path = Path(handle.name)
+            os.fchmod(handle.fileno(), 0o644)
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
-            temporary_path = Path(handle.name)
         temporary_path.replace(path)
     finally:
         if temporary_path is not None and temporary_path.exists():

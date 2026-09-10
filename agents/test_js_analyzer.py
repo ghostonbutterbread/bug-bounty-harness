@@ -3,8 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 import json
+import os
 import sqlite3
 from argparse import Namespace
+
+import pytest
 
 from agents import js_analyzer as J
 
@@ -24,8 +27,18 @@ def test_write_text_atomic_publishes_complete_packet_without_temp_file(tmp_path:
     J.write_text_atomic(packet_path, "complete packet\n")
 
     assert packet_path.read_text(encoding="utf-8") == "complete packet\n"
+    assert os.stat(packet_path).st_mode & 0o777 == 0o644
     assert list(packet_path.parent.glob(".*.tmp")) == []
 
+
+def test_write_text_atomic_removes_temp_file_when_write_fails(tmp_path: Path):
+    packet_path = tmp_path / "packets" / "packet.md"
+
+    with pytest.raises(TypeError):
+        J.write_text_atomic(packet_path, object())  # type: ignore[arg-type]
+
+    assert not packet_path.exists()
+    assert list(packet_path.parent.glob(".*.tmp")) == []
 
 
 def test_extract_signals_finds_endpoints_params_and_sinks():

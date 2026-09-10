@@ -37,9 +37,9 @@ interpretation and security reasoning.
 - consume an existing `js_analyzer.py inventory` run
 - have the active parent directly spawn bounded native subagents: mapper and
   anomaly workers first, then only evidence-selected follow-up categories
-- use the active CLI's native subagents and prefer the current fast sibling of
-  the parent model's generation for volume work; keep model names out of BBH
-  and fall back to the CLI's configured worker or inherited parent when needed
+- use the active CLI's native subagents and ask its native model selector or
+  advertised model list for the fast option in the parent's family/generation;
+  keep model names out of BBH and fall back to the configured worker or parent
 - require the parent model to check packet citations and synthesize worker
   output before escalating any follow-up
 - synthesize outputs into findings, MapStore gadget candidates, endpoint
@@ -338,11 +338,16 @@ download when the artifact is already present.
 Use offline fanout when the user wants a deep JavaScript vulnerability review
 and the inventory run has enough packets to justify multi-agent review.
 
-The parent agent reads `<js-run-root>/manifest.json`, `metadata.jsonl`,
-`packets.jsonl`, and, when present, `source_map_modules.jsonl`. It groups related
-packets into bounded independent task packets and calls its native delegation
-tool directly. Do not call a repository-specific team wrapper, construct a
-fixed all-lane team, or delegate one worker per raw bundle without deduplication.
+After inventory completes, the parent reads `<js-run-root>/manifest.json`,
+`metadata.jsonl`, `packets.jsonl`, and, when present,
+`source_map_modules.jsonl`. While inventory is still running, it may consume
+newly appearing `<js-run-root>/packets/*.md` and
+`<js-run-root>/source_map_packets/**/*.md`: publication is atomic, so each
+visible packet is complete even though the final indexes are not ready. It
+groups related packets into bounded independent tasks and calls its native
+delegation tool directly. Do not call a repository-specific team wrapper,
+construct a fixed all-lane team, or delegate one worker per raw bundle without
+deduplication.
 
 Use two first-wave task shapes:
 
@@ -356,9 +361,10 @@ Each child receives exact local packet/provenance paths, an offline-only
 boundary, a bounded output contract, and a requirement to cite packet paths and
 line/function evidence. Use the active CLI's native delegation facility and
 prefer its current fast sibling for the parent model's generation during this
-high-volume pass. BBH must not name a specific provider or model. If the CLI
-cannot make that selection, use its configured worker model or inherited parent
-and do not describe the run as lower-cost unless that routing occurred.
+high-volume pass. Resolve that choice through the CLI's native model selector or
+advertised model list; do not guess or encode a provider/model name in BBH. If
+the CLI cannot make that selection, use its configured worker model or inherited
+parent and do not describe the run as lower-cost unless that routing occurred.
 
 The parent model verifies the first-wave citations, merges duplicate signals,
 and only then dispatches useful broad follow-up categories such as client-side

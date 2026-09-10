@@ -43,9 +43,10 @@ Remove the stale `agents/js_team.py` planning layer from `/js deep`. Deep JavaSc
   regression failed before correction and all three atomic-write checks pass.
 - Static checks: `git diff --check` and `python3 -m compileall -q agents` → passed.
 - Reference audit: bounded repository search found no live `js_team.py`, `JavaScript Team`, `staged wrapper`, `js_team_plan`, or old MapStore candidate-path references outside this branch-local dossier.
-- Independent review: blocked the first release candidate on two stale skill
-  sentences, atomic packet permissions/cleanup, and ambiguous concurrent/model
-  discovery wording; the branch includes focused corrections for re-review.
+- Independent review: the first release candidate was blocked on two stale
+  skill sentences, atomic packet permissions/cleanup, and ambiguous
+  concurrent/model discovery wording. Those findings were corrected; final
+  re-review of `beta...a0ce30a` reran 29 focused tests and returned `APPROVE`.
 
 ## Activation boundary
 
@@ -55,4 +56,8 @@ CLI loads the skill and its native advertised model-routing capabilities.
 
 ## Next action
 
-Implementation checkpoint: `d9b399f` on `fix/js-native-fast-fanout` (current branch tip will include a later dossier-only handoff commit). Request independent re-review of the full branch, including the cross-cutting script contract and CLI-portable model routing.
+Implementation checkpoint: `a0ce30a` on `fix/js-native-fast-fanout` (current
+branch tip includes this later dossier-only handoff commit). Merge the reviewed
+branch into `beta`, remove this temporary dossier from the integration target,
+then activate the clean Hoster runtime-beta lane without overwriting unrelated
+runtime changes.

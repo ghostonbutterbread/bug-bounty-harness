@@ -6,22 +6,27 @@ This template is for code that performs actions. It is not the template for RAG-
 
 ## Reuse, Placement, and Discovery
 
-Search before writing: check `scripts/README.md`, the selected skill's
-`scripts/` directory and README, and existing `agents/` modules. Repair or
-extend the documented owner when its responsibility matches; do not bypass an
-imperfect maintained helper with an untracked scratch replacement.
+**Guidance:** load the shared `script_manager` skill, then search
+`scripts/README.md`, the selected skill's `SKILL.md` and `scripts/` directory,
+and existing `agents/` modules before writing. Repair or extend the documented
+owner when its responsibility matches instead of bypassing a maintained helper
+with an untracked scratch replacement.
 
-Place a cross-skill BBH CLI under `scripts/`, a one-skill helper under
-`skills/<skill>/scripts/`, and an established harness runtime module under
-`agents/`. Record every promoted helper in the nearest `scripts/README.md` with
-its purpose, inputs, outputs, mutation boundary, invocation, verification, and
-owner. Link skill-owned helpers from the owning `SKILL.md`. Invoke repository
-helpers through `bbh <repository-relative-path> ...` so the selected lane owns
-execution.
+Shared `script_manager` guidance owns the general placement rule. BBH adds one
+repository-specific distinction: cross-skill command-line entrypoints live in
+`scripts/`, one-skill helpers live in `skills/<skill>/scripts/`, and established
+harness runtime modules live in `agents/`. Record a promoted helper in the
+nearest existing `scripts/README.md`; if the owner has helpers but no index,
+create one when first modifying that helper. Link skill-owned helpers from their
+`SKILL.md`.
 
-If repeated script use exposes reusable skill or policy guidance outside the
-acting agent's repository authority, write a skill seed for controlled review;
-do not edit an installed runtime skill copy.
+**Required boundaries:** follow the lane-safe invocation owner in
+`agents/index.md` and `docs/bbh-launcher.md` rather than restating or bypassing
+its resolver rules. If repeated script use exposes reusable skill or policy
+guidance outside the acting agent's repository authority, write a skill seed for
+controlled review; do not edit an installed runtime skill copy. These are hard
+boundaries because cross-lane execution invalidates verification and installed
+runtime copies are not canonical sources.
 
 ## Deterministic Accelerator Contract
 
@@ -54,6 +59,10 @@ universe and the parser covers that universe completely. Deterministic execution
 alone does not establish exhaustive knowledge. Agents consuming script output
 must preserve this distinction even when the script is old, heavily tested, or
 usually accurate.
+
+When output has no coverage declaration, consumers must default to
+`exhaustive: false`. Absence of metadata is not permission to infer that the
+script recognized every relevant case.
 
 ### Live producer/consumer handoff
 

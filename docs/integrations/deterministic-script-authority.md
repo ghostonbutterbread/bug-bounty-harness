@@ -42,12 +42,21 @@ replacement for source/evidence review.
   was not overwritten. A separate `script_manager` seed now carries the
   deterministic-authority contract without colliding with that agent's
   contribution-lane work.
-- All seven root scripts returned a successful `--help` smoke through the BBH
-  beta virtual environment.
-- Index validation found seven root scripts and seven matching documented
+- All eight root helpers (`scripts/*.py` plus the executable `scripts/bbh` shim)
+  returned a successful `--help` smoke through the feature checkout.
+- Index validation found eight root helpers and eight matching documented
   records with no omissions.
-- Focused root-script suites: `56 passed in 8.43s`.
-- Independent review remains pending.
+- First independent review blocked on three verification commands that omitted
+  the checkout's Bounty Core environment, omission of `scripts/bbh`, ambiguous
+  missing-coverage metadata, and duplicated launcher/placement doctrine.
+- Corrections use the canonical lane resolver references, default absent
+  coverage metadata to `exhaustive: false`, index the shim, and run tests with
+  `uv run --python .venv/bin/python --with pytest python -m pytest ...` after
+  `./setup.sh --install-python-deps` creates the feature-local environment.
+- Corrected feature-local verification: eight help smokes passed, the index
+  matched all eight helpers, and the seven focused suites returned
+  `56 passed in 39.26s`.
+- Re-review remains pending.
 
 ## Activation boundary
 

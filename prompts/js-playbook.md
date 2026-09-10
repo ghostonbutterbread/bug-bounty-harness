@@ -37,9 +37,9 @@ interpretation and security reasoning.
 - consume an existing `js_analyzer.py inventory` run
 - have the active parent directly spawn bounded native subagents: mapper and
   anomaly workers first, then only evidence-selected follow-up categories
-- prefer Hermes' configured fast/low-cost delegation model for volume work;
-  keep model names out of BBH and let children inherit the parent when no
-  delegation override is configured
+- use the active CLI's native subagents and prefer the current fast sibling of
+  the parent model's generation for volume work; keep model names out of BBH
+  and fall back to the CLI's configured worker or inherited parent when needed
 - require the parent model to check packet citations and synthesize worker
   output before escalating any follow-up
 - synthesize outputs into findings, MapStore gadget candidates, endpoint
@@ -354,10 +354,11 @@ Use two first-wave task shapes:
 
 Each child receives exact local packet/provenance paths, an offline-only
 boundary, a bounded output contract, and a requirement to cite packet paths and
-line/function evidence. Prefer the active Hermes profile's configured
-fast/low-cost delegation model for this high-volume pass. BBH must not name a
-specific provider or model: if `delegation.model` is unset, children inherit the
-parent model and the run must not be described as lower-cost.
+line/function evidence. Use the active CLI's native delegation facility and
+prefer its current fast sibling for the parent model's generation during this
+high-volume pass. BBH must not name a specific provider or model. If the CLI
+cannot make that selection, use its configured worker model or inherited parent
+and do not describe the run as lower-cost unless that routing occurred.
 
 The parent model verifies the first-wave citations, merges duplicate signals,
 and only then dispatches useful broad follow-up categories such as client-side

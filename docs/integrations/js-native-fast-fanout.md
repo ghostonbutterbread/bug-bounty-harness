@@ -2,7 +2,7 @@
 
 ## Intent
 
-Remove the stale `agents/js_team.py` planning layer from `/js deep`. Deep JavaScript review should fan out directly through the active agent's native delegation capability, use the configured inexpensive/fast worker tier when available, and return to the parent model for synthesis.
+Remove the stale `agents/js_team.py` planning layer from `/js deep`. Deep JavaScript review should fan out directly through the active CLI's native delegation capability, prefer the current fast sibling of the parent model's generation when available, and return to the parent model for synthesis.
 
 ## Ownership
 
@@ -16,7 +16,7 @@ Remove the stale `agents/js_team.py` planning layer from `/js deep`. Deep JavaSc
 
 - `js_analyzer.py inventory` remains the artifact-producing prerequisite.
 - The active parent reads the inventory and directly dispatches bounded mapper/anomaly workers.
-- Workers use Hermes' configured delegation model. The skill prefers a fast/low-cost sibling tier but does not hardcode model names or claim reduced cost when no delegation override exists.
+- Workers use the active CLI's native model routing. The skill prefers the current fast sibling of the parent model's generation but remains portable across CLIs, does not hardcode model names, and does not claim reduced cost when the selection was unavailable.
 - The parent model verifies cited packet evidence, synthesizes stage-one results, and selects any specialist follow-up wave.
 - Offline workers do not make live target requests; live validation remains a separate policy-governed handoff.
 - The analyzer labels hardcoded regex/keyword output as deterministic, non-exhaustive seed coverage. Hits are starting points; misses cannot establish completion or absence.

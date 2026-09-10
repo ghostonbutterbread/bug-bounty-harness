@@ -39,11 +39,12 @@ Use `/js` for deterministic JavaScript inventory and agent-led deep review.
    use the active agent's native delegation tool directly when there are enough
    independent packets to justify fanout. Start with bounded general-map and
    anomaly workers; do not invoke a repository-specific team wrapper or
-   recreate a fixed team matrix in another script. Prefer the runtime's
-   configured fast/low-cost delegation model for these high-volume workers.
-   Model selection is a Hermes
-   runtime concern: do not hardcode model family names, and do not claim cheaper
-   routing when the delegation model is unset and children inherit the parent.
+   recreate a fixed team matrix in another script. Use the active CLI's native
+   subagent mechanism and prefer the current fast sibling of the parent model's
+   generation for these high-volume workers. Model selection belongs to the
+   active CLI/runtime: do not hardcode model family names in BBH. If the CLI
+   cannot select a fast sibling per task, use its configured worker model or
+   inherit the parent, and do not claim cheaper routing unless it occurred.
    The parent model must read the workers' cited evidence and synthesize their
    reports before dispatching only the specialist follow-ups justified by the
    first wave.

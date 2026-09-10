@@ -15,9 +15,11 @@ tasks through its native delegation capability.
 - Script outputs are deterministic seed sets, not exhaustive coverage. Hits are
   starting places; misses are not evidence that a technology, bundle, or class
   was fully searched. Agents own unfamiliar and semantic interpretation.
-- Prefer the active Hermes profile's configured fast/low-cost delegation model
-  for high-volume packet review. Do not encode provider or model names in BBH;
-  when no delegation override is configured, children inherit the parent.
+- Use the active CLI's native subagents and prefer the current fast sibling of
+  the parent model's generation for high-volume packet review. Do not encode
+  provider or model names in BBH. If that CLI cannot select a fast sibling, use
+  its configured worker model or inherit the parent without claiming a cheaper
+  route.
 - Offline agents should fan out by broad attack-surface category by default.
   Use the old narrow lens matrix only when Ryushe intentionally chooses that
   spend.
@@ -47,9 +49,10 @@ tasks through its native delegation capability.
    packet includes exact local paths, relevant provenance rows, the offline-only
    boundary, and a structured output contract requiring cited evidence,
    confidence, missing proof, and suggested follow-up category.
-4. Let Hermes apply the profile's configured delegation model. Prefer a
-   fast/low-cost sibling tier for this volume pass, but never hardcode names or
-   claim that routing occurred when children inherited the parent model.
+4. Let the active CLI apply its native model routing. Prefer the current fast
+   sibling of the parent model's generation for this volume pass, but never
+   hardcode names or claim that routing occurred when the configured worker or
+   inherited parent was used instead.
 5. The parent model reads the returned reports, checks cited packet/function
    evidence, merges duplicates, and rejects unsupported regex-only claims.
 6. Dispatch a second native batch only for categories supported by stage-one

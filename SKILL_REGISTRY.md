@@ -72,7 +72,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **parameter-mining** | `/parameter-mining {program}` | `prompts/parameter-mining-playbook.md` |
 | **create-wordlists** | `/create-wordlists {program}` | `prompts/create-wordlists-playbook.md` |
 | **use-wordlists** | `/use-wordlists {program}` | `prompts/use-wordlists-playbook.md` |
-| **js** | `/js {analyze|generate|deep|offline-fanout} {program-or-url}` | `prompts/js-playbook.md`; staged deep wrapper: `agents/js_team.py` |
+| **js** | `/js {analyze|generate|deep|offline-fanout} {program-or-url}` | `prompts/js-playbook.md`; deep review uses native subagent fanout |
 | **credential-exposure-validation** | `/credential-exposure-validation {program} {panel-or-source}` | `skills/credential-exposure-validation/SKILL.md` |
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
 | **recon-ry** | `/recon-ry {program}` | `prompts/recon-ry-playbook.md` |
@@ -169,8 +169,6 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 /js analyze canva --page https://www.canva.com/login --page-context "login/auth flow"
 /js generate canva --from-run js-canva-20260615T000000Z
 /js deep canva --offline-fanout --from-run js-canva-20260615T000000Z
-bbh agents/js_team.py dry-run --js-run-root ~/Shared/web_bounty/canva/web/recon/js/js-canva-20260615T000000Z --mode deep
-bbh agents/js_team.py run --js-run-root ~/Shared/web_bounty/canva/web/recon/js/js-canva-20260615T000000Z --stage planner --execute
 /recon superdrug
 /recon-ry superdrug --url example.com --profile full
 /focused-recon canva --top 20

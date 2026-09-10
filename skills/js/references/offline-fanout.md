@@ -3,16 +3,23 @@
 Use this reference when Ryushe asks to "dig into the JS", "vuln test the JS",
 "run JS deep", or otherwise spend agent budget on local JavaScript artifacts.
 
-The purpose is broad offline depth: download once, review locally with
-mapper-led category agents, synthesize, and hand only selected hypotheses to
-live testing later. The intended high-level entrypoint is `agents/js_team.py`;
-`agents/js_offline_campaign.py` is the lower-level adapter that builds the
-offline target and brainstorm spec. The active CLI agent uses its own native
-subagents to consume staged local review packets; it never calls zero_day_team.
+The purpose is broad offline depth: download once, review locally with native
+subagents, synthesize in the parent model, and hand only selected hypotheses to
+live testing later. There is no repository-specific JavaScript team runner. The
+active parent reads inventory artifacts and directly dispatches bounded worker
+tasks through its native delegation capability.
 
 ## Principles
 
 - The classifier accelerates routing; it never excludes a class.
+- Script outputs are deterministic seed sets, not exhaustive coverage. Hits are
+  starting places; misses are not evidence that a technology, bundle, or class
+  was fully searched. Agents own unfamiliar and semantic interpretation.
+- Use the active CLI's native subagents and ask its native model selector or
+  advertised model list for the fast option in the parent's family/generation.
+  Do not encode provider or model names in BBH. If that CLI cannot make the
+  selection, use its configured worker model or inherit the parent without
+  claiming a cheaper route.
 - Offline agents should fan out by broad attack-surface category by default.
   Use the old narrow lens matrix only when Ryushe intentionally chooses that
   spend.
@@ -32,90 +39,37 @@ subagents to consume staged local review packets; it never calls zero_day_team.
 ## Flow
 
 1. Run `agents/js_analyzer.py inventory` to collect, hash, dedupe, chunk, and
-   packet JavaScript.
-2. Preview the staged JavaScript Team plan. Deep mode starts with only
-   `js-general-map` and `js-anomaly-hunter`; follow-up categories are selected
-   after reviewing their output. Without `--campaign-root` or `--write-plan`,
-   this uses a temporary campaign and removes it after printing the plan:
+   packet JavaScript. Pass an explicit `--run-id` or `--output-root` when early
+   packet review is intended so the consumer knows the run root. During a long
+   run, newly visible `packets/*.md` and
+   `source_map_packets/**/*.md` files are complete atomic publications and may
+   be reviewed immediately; final JSON/JSONL indexes are available only after
+   inventory finishes.
+2. After completion, read the run's `manifest.json`, `metadata.jsonl`,
+   `packets.jsonl`, and any `source_map_modules.jsonl`. Group related packet
+   paths by page, bundle family, route cluster, or source-map boundary. Keep each
+   worker's input bounded and independent; do not paste full bundles into
+   prompts.
+3. Call the active agent's native delegation tool with a first-wave batch:
+   one or more general-map workers plus a classless anomaly worker. Each task
+   packet includes exact local paths, relevant provenance rows, the offline-only
+   boundary, and a structured output contract requiring cited evidence,
+   confidence, missing proof, and suggested follow-up category.
+4. Let the active CLI apply its native model routing. Ask its model selector or
+   advertised model list for the current fast sibling of the parent model's
+   family/generation. Never guess or hardcode the name; when selection is not
+   available, use the configured worker or inherited parent and report that
+   fallback honestly.
+5. The parent model reads the returned reports, checks cited packet/function
+   evidence, merges duplicates, and rejects unsupported regex-only claims.
+6. Dispatch a second native batch only for categories supported by stage-one
+   evidence. Keep the classless anomaly lane in the first wave so classifier
+   misses do not become exclusions.
+7. The parent synthesizes selected results into findings, MapStore candidates,
+   endpoint/request-shape handoffs, wordlists, or policy-governed
+   live-validation hypotheses. Native workers remain offline throughout.
 
-   ```bash
-   bbh agents/js_team.py dry-run \
-     --js-run-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id> \
-     --mode deep
-   ```
-
-3. Build the planner/anomaly task packets when agent budget is intended. The
-   active CLI agent spawns its own native subagents from the local paths in the
-   returned plan:
-
-   ```bash
-   bbh agents/js_team.py run \
-     --js-run-root /mnt/bounty/<program>/web/recon/js/<run-id> \
-     --mode deep \
-     --stage planner
-   ```
-
-4. After reading mapper/anomaly reports, select follow-up lanes and give only
-   those task packets to native subagents:
-
-   ```bash
-   bbh agents/js_team.py run \
-     --js-run-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id> \
-     --follow-up-lane api-request-contracts \
-     --follow-up-lane auth-account-tenant \
-     --stage follow-up \
-     --execute
-   ```
-
-   Use `--auto-follow-up-from-signals` only when you want deterministic
-   metadata-triggered follow-ups before mapper output has been reviewed.
-
-5. To inspect the lower-level generated campaign directly, build it from the
-   inventory run:
-
-   ```bash
-   bbh agents/js_offline_campaign.py prepare \
-     --js-run-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id> \
-     --mode deep
-   ```
-
-6. For a no-aftermath dry run of the lower-level fanout adapter, preview
-   the generated campaign and team command in a temporary directory. This does
-   not start `zero_day_team`, does not make live requests, and removes the temp
-   campaign by default:
-
-   ```bash
-   bbh agents/js_offline_campaign.py dry-run \
-     --js-run-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id> \
-     --mode deep
-   ```
-
-   Add `--campaign-root <path>` or `--keep-artifacts` only when the generated
-   spec needs to be inspected afterward.
-
-7. Inspect the generated command from a kept campaign without starting agents:
-
-   ```bash
-   bbh agents/js_offline_campaign.py run \
-     --campaign-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id>/offline_campaign
-   ```
-
-8. Start the lower-level offline `zero_day_team` fanout only when one-shot
-   all-lane execution is intentionally desired:
-
-   ```bash
-   bbh agents/js_offline_campaign.py run \
-     --campaign-root ~/Shared/web_bounty/<program>/web/recon/js/<run-id>/offline_campaign \
-     --execute
-   ```
-
-The wrapper hides the raw `zero_day_team` flags. The generated command uses a
-local `offline_target`, `--hunt-type web` for storage routing, `--target-kind
-web-js` for artifact identity, `--brainstorm-only` so only the generated web-JS
-profiles run, and the policy-aware scheduler/category-master flags so the
-runtime keeps using shared ledger/review/coverage primitives.
-
-Default `--granularity category` creates broad agents:
+Default native fanout uses broad task categories:
 
 - `js-general-map`: planner and JavaScript surface map
 - `js-client-side-trust`: DOM, postMessage, storage, workers, browser trust
@@ -129,34 +83,35 @@ Default `--granularity category` creates broad agents:
 - `js-secrets-config-integrations`: usable secrets, config, external pivots
 - `js-anomaly-hunter`: classless weirdness and missed assumptions
 
-Use `--granularity lens` only for deliberate high-budget runs that should
-preserve the old narrow matrix (`js-dom-xss`, `js-idor`, `js-payment`, etc.).
+Use narrow lens workers only for deliberate high-budget follow-up
+(`js-dom-xss`, `js-idor`, `js-payment`, etc.); do not eagerly create the old
+fixed matrix.
 
 ## Modes
 
-- `quick`: planner, client-side trust, API/request contracts, and anomaly.
-- `look`: planner, common web-JS categories, anomaly, plus categories triggered
-  by cheap inventory signals.
-- `deep`: the full broad category set.
-- `full`: same current category set as `deep`; reserved for future heavier
-  modes.
+- `quick`: a small general-map/anomaly batch, then at most the strongest
+  evidence-selected follow-up.
+- `look`: general map, anomaly, and common evidence-selected categories.
+- `deep`: bounded first-wave fanout followed by all justified broad categories.
+- `full`: same staged shape as `deep`, with a larger explicitly approved budget.
 
 ## Expected Outputs
 
-Offline campaign outputs live under:
+Native fanout outputs live under:
 
 ```text
-<js-run-root>/offline_campaign/
-├── manifest.json
+<js-run-root>/native_fanout/
 ├── mapstore_candidates.jsonl
-├── mapstore_candidate_schema.json
-├── offline_target/
-│   ├── index.json
-│   └── packets/*.md
-└── brainstorm/spec.md
+├── synthesis.md
+└── reports/
+    ├── general-map-01.json
+    └── anomaly-01.json
 ```
 
-The offline campaign should produce:
+Give each worker a unique report path. Parallel workers do not append to a
+shared artifact; the parent verifies and combines their candidate objects.
+
+The native fanout should produce:
 
 - reviewed findings when packet evidence is already strong enough
 - MapStore gadget candidates for reusable primitives or app behavior
@@ -168,20 +123,12 @@ The offline campaign should produce:
 ## MapStore Candidate Flow
 
 Offline agents must not write durable `recon/maps/` observations directly.
-When an agent sees reusable app memory, a gadget, a negative result, or
-validation state that future agents may need, it appends one JSON object to:
+When a worker sees reusable app memory, a gadget, a negative result, or
+validation state that future agents may need, it returns a candidate object in
+its report. After evidence review, the parent serializes accepted candidates to:
 
 ```text
-<js-run-root>/offline_campaign/mapstore_candidates.jsonl
-```
-
-The generated brainstorm spec uses the absolute path for this file because
-`zero_day_team` workers run from per-agent working directories.
-
-Use the generated schema:
-
-```text
-<js-run-root>/offline_campaign/mapstore_candidate_schema.json
+<js-run-root>/native_fanout/mapstore_candidates.jsonl
 ```
 
 Required candidate fields:

@@ -35,12 +35,29 @@ interpretation and security reasoning.
 - use when Ryushe says "dig into the JS", "vuln test the JS", "run JS deep",
   or similar language that implies broad local review
 - consume an existing `js_analyzer.py inventory` run
-- use `js_team.py` as the high-level staged wrapper: mapper/anomaly first,
-  then selected follow-up category lanes
-- use `js_offline_campaign.py` only as the lower-level campaign adapter or when
-  one-shot all-lane execution is intentionally desired
+- have the active parent directly spawn bounded native subagents: mapper and
+  anomaly workers first, then only evidence-selected follow-up categories
+- use the active CLI's native subagents and ask its native model selector or
+  advertised model list for the fast option in the parent's family/generation;
+  keep model names out of BBH and fall back to the configured worker or parent
+- require the parent model to check packet citations and synthesize worker
+  output before escalating any follow-up
 - synthesize outputs into findings, MapStore gadget candidates, endpoint
   handoffs, or live-validation hypotheses
+
+## Script versus agent responsibility
+
+Script the deterministic substrate: acquire known inputs, hash and deduplicate
+bodies, parse known syntax, extract bounded regex seeds, chunk artifacts, and
+write stable indexes. Keep ambiguity with agents: unfamiliar frameworks,
+computed routes, semantic dataflow, custom parsers, technology-specific
+behavior, and whether a suspicious construct matters in context.
+
+Every script-produced source, sink, flow, framework, route, parameter, secret,
+or key list is a non-exhaustive set of starting points. A hit is a review
+priority, not a finding. A miss is not negative evidence and must never be used
+to claim that the technology, bundle, surface, or vulnerability class was fully
+searched. Native agents inspect actual packet content beyond those lists.
 
 ## Analysis Lenses
 
@@ -102,9 +119,13 @@ That agent should look for surprising code, odd trust assumptions, hidden
 flows, rare modules, dead routes, debug/admin hints, custom parsers, strange
 state machines, and other weirdness the lens matrix may miss.
 
-## Script-First Layer
+## Deterministic Inventory With Concurrent Agent Review
 
-Use deterministic scripts before asking agents to reason over code.
+Use the helper for deterministic inventory, but do not make its completion or
+seed vocabulary a prerequisite for agent reasoning. Once the helper has emitted
+a finalized independent packet, an agent may review that packet while remaining
+inventory work continues. Consume only complete packet files or explicit ready
+records; never reason from a partially written artifact.
 
 Primary helper:
 
@@ -317,90 +338,55 @@ download when the artifact is already present.
 Use offline fanout when the user wants a deep JavaScript vulnerability review
 and the inventory run has enough packets to justify multi-agent review.
 
-Preview the staged plan without starting agents or leaving a durable campaign:
+After inventory completes, the parent reads `<js-run-root>/manifest.json`,
+`metadata.jsonl`, `packets.jsonl`, and, when present,
+`source_map_modules.jsonl`. While inventory is still running, it may consume
+newly appearing `<js-run-root>/packets/*.md` and
+`<js-run-root>/source_map_packets/**/*.md`: publication is atomic, so each
+visible packet is complete even though the final indexes are not ready. It
+groups related packets into bounded independent tasks and calls its native
+delegation tool directly. Do not call a repository-specific team wrapper,
+construct a fixed all-lane team, or delegate one worker per raw bundle without
+deduplication.
 
-```bash
-bbh agents/js_team.py dry-run \
-  --js-run-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>" \
-  --mode deep
-```
+Use two first-wave task shapes:
 
-Run only the mapper/anomaly first wave:
+- **general map:** inventory routes, request builders, parameters, storage/auth
+  behavior, framework boundaries, and concrete follow-up surfaces;
+- **classless anomaly:** look for rare modules, debug/admin paths, custom
+  parsers, surprising trust assumptions, and state machines missed by named
+  categories.
 
-```bash
-bbh agents/js_team.py run \
-  --js-run-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>" \
-  --mode deep \
-  --stage planner \
-  --execute
-```
+Each child receives exact local packet/provenance paths, an offline-only
+boundary, a bounded output contract, and a requirement to cite packet paths and
+line/function evidence. Use the active CLI's native delegation facility and
+prefer its current fast sibling for the parent model's generation during this
+high-volume pass. Resolve that choice through the CLI's native model selector or
+advertised model list; do not guess or encode a provider/model name in BBH. If
+the CLI cannot make that selection, use its configured worker model or inherited
+parent and do not describe the run as lower-cost unless that routing occurred.
 
-After reviewing mapper/anomaly output, select follow-up category lanes:
+The parent model verifies the first-wave citations, merges duplicate signals,
+and only then dispatches useful broad follow-up categories such as client-side
+trust, auth/account/tenant, API/request contracts, import/export/fetch/media,
+commerce/feature logic, or secrets/config/integrations. The parent owns final
+synthesis and any separate live-validation handoff.
 
-```bash
-bbh agents/js_team.py run \
-  --js-run-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>" \
-  --follow-up-lane api-request-contracts \
-  --follow-up-lane auth-account-tenant \
-  --stage follow-up \
-  --execute
-```
-
-Use `--auto-follow-up-from-signals` only when deterministic cheap metadata
-signals should select the follow-up wave before human review of mapper output.
-
-Lower-level adapter command for direct campaign inspection:
-
-```bash
-bbh agents/js_offline_campaign.py prepare \
-  --js-run-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>" \
-  --mode deep
-```
-
-Inspect the generated one-shot `zero_day_team` command without starting agents:
-
-```bash
-bbh agents/js_offline_campaign.py run \
-  --campaign-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>/offline_campaign"
-```
-
-Start the lower-level one-shot offline fanout only when the task budget is
-intentionally meant to run the generated lane set at once:
-
-```bash
-bbh agents/js_offline_campaign.py run \
-  --campaign-root "$HOME/Shared/web_bounty/canva/web/recon/js/<run-id>/offline_campaign" \
-  --execute
-```
-
-The generated campaign layout is:
+Use a simple run-local handoff layout so worker evidence survives context
+compression without requiring a team runner:
 
 ```text
-<js-run-root>/offline_campaign/
-├── manifest.json
+<js-run-root>/native_fanout/
 ├── mapstore_candidates.jsonl
-├── mapstore_candidate_schema.json
-├── offline_target/
-│   ├── index.json
-│   └── packets/*.md
-└── brainstorm/spec.md
+├── synthesis.md
+└── reports/
+    ├── general-map-01.json
+    └── anomaly-01.json
 ```
 
-The staged wrapper writes `js_team_plan.json` beside the campaign manifest and
-uses the generated `zero_day_team` command with `--brainstorm-hypothesis` so
-only the intended hypothesis/lane runs in each wave. The lower-level adapter
-still hides the raw `zero_day_team` flags. Internally it uses the local
-`offline_target`, stores output in the web lane, identifies the target as
-`web-js`, and uses `--brainstorm-only` so the generated web-JS lanes run
-instead of the default built-in source/Desktop profile set.
-
-Offline fanout modes:
-
-- `quick`: cartography, request-shape, DOM XSS, and anomaly lanes.
-- `look`: cartography, request-shape, common web-JS lanes, anomaly, plus lanes
-  triggered by cheap inventory signals.
-- `deep`: broad web-JS class matrix plus anomaly.
-- `full`: current alias for `deep`, reserved for future heavier behavior.
+Give each worker a unique report path; do not have parallel workers append to a
+shared file. The parent validates reports, writes `synthesis.md`, and serializes
+accepted MapStore proposals into `mapstore_candidates.jsonl`.
 
 Keep this stage offline. Agents may produce:
 
@@ -417,19 +403,10 @@ and continue normal analysis; do not claim global novelty from absence alone.
 
 Agents must not write durable `recon/maps/` entries directly. Reusable app
 memory, gadgets, negative observations, and validation-state notes go to the
-run-local candidate file:
+run-local candidate file written by the parent after worker review:
 
 ```text
-<js-run-root>/offline_campaign/mapstore_candidates.jsonl
-```
-
-The generated brainstorm spec uses the absolute path for this file because
-`zero_day_team` workers run from per-agent working directories.
-
-Use the generated schema:
-
-```text
-<js-run-root>/offline_campaign/mapstore_candidate_schema.json
+<js-run-root>/native_fanout/mapstore_candidates.jsonl
 ```
 
 Candidate rows should include `kind`, `surface`, `scope`, optional `url`,
@@ -623,7 +600,7 @@ bbh agents/url_ingest.py mark canva \
   --status surface_reviewed \
   --skill js \
   --test-family js-inventory \
-  --technique script-first-inventory \
+  --technique deterministic-js-inventory \
   --evidence "/mnt/bounty/canva/web/recon/js/<run-id>/manifest.json"
 ```
 

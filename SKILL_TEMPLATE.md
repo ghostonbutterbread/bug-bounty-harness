@@ -39,6 +39,10 @@ Use `docs/skill-tree-handoff-template.md` in addition to the RAG template when:
 
 ## Maintenance Rules
 
+- Executable helpers own deterministic mechanics, not open-world interpretation.
+  Follow the coverage and agent-handoff contract in
+  `docs/executable-harness-template.md`; heuristic hits are seeds and misses are
+  unknown unless the script can prove closed-world completeness.
 - Keep `SKILL.md` as the trigger and load-order file, not the full textbook.
 - Put verbose method in `prompts/{skill}-playbook.md`.
 - Put branch maps in `prompts/{skill}-context-pack.md` or `skills/{skill}/references/`.

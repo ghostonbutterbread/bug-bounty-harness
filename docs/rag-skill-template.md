@@ -41,6 +41,9 @@ For narrow utility skills, `SKILL.md` plus one small reference file may be enoug
 - Route to the owning skill instead of duplicating another skill's job.
 - Include proof standard and stop conditions.
 - Include evidence path expectations.
+- When consuming script output, distinguish observed facts, non-exhaustive seed
+  signals, and unknowns. Route semantic or unfamiliar behavior to agent review;
+  never treat a heuristic miss as completed coverage.
 - For web vulnerability, workflow, or endpoint-analysis skills, include a
   compact `## JavaScript Lens` section or explicitly state why JavaScript
   evidence is not relevant.

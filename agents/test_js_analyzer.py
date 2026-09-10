@@ -3,8 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 import json
+import os
 import sqlite3
 from argparse import Namespace
+
+import pytest
 
 from agents import js_analyzer as J
 
@@ -16,6 +19,37 @@ def test_default_inventory_paths_use_mounted_bounty_program_js_root():
     assert library == Path("/mnt/bounty/demo/web/recon/js/_library")
     assert integrations == Path("/mnt/bounty/demo/web/intel/integrations")
     assert summary["program_root"] == "/mnt/bounty/demo"
+
+
+def test_write_text_atomic_publishes_complete_packet_without_temp_file(tmp_path: Path):
+    packet_path = tmp_path / "packets" / "packet.md"
+
+    J.write_text_atomic(packet_path, "complete packet\n")
+
+    assert packet_path.read_text(encoding="utf-8") == "complete packet\n"
+    assert os.stat(packet_path).st_mode & 0o777 == 0o644
+    assert list(packet_path.parent.glob(".*.tmp")) == []
+
+
+def test_write_text_atomic_removes_temp_file_when_write_fails(tmp_path: Path):
+    packet_path = tmp_path / "packets" / "packet.md"
+
+    with pytest.raises(TypeError):
+        J.write_text_atomic(packet_path, object())  # type: ignore[arg-type]
+
+    assert not packet_path.exists()
+    assert list(packet_path.parent.glob(".*.tmp")) == []
+
+
+def test_write_text_atomic_respects_restrictive_umask(tmp_path: Path):
+    packet_path = tmp_path / "packets" / "packet.md"
+    previous_umask = os.umask(0o077)
+    try:
+        J.write_text_atomic(packet_path, "sensitive packet\n")
+    finally:
+        os.umask(previous_umask)
+
+    assert os.stat(packet_path).st_mode & 0o777 == 0o600
 
 
 def test_extract_signals_finds_endpoints_params_and_sinks():
@@ -211,6 +245,11 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
     assert metadata_rows[0]["url"] == "https://app.example.com/static/app.js"
     assert "https://app.example.com/api/auth/login?next=/dashboard" in metadata_text
     assert metadata_rows[0]["metadata_schema_version"] == 2
+    assert metadata_rows[0]["signal_coverage"] == {
+        "method": "deterministic_seed_patterns",
+        "exhaustive": False,
+        "interpretation": "starting_points_for_agent_review",
+    }
     assert metadata_rows[0]["provenance"]["page_urls"] == ["https://app.example.com/login"]
     assert metadata_rows[0]["provenance"]["proxy_request_ids"] == ["req-1"]
     assert metadata_rows[0]["artifact_links"]["packets"]
@@ -253,6 +292,8 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
     assert packets
     packet = packets[0].read_text(encoding="utf-8")
     assert "JS Deep Review Packet" in packet
+    assert "Deterministic seed coverage: non-exhaustive starting points for agent review" in packet
+    assert "Zero hits do not mean the bundle or technology was fully searched" in packet
     assert "Nearby In-Scope Extracted Endpoints" in packet
     assert "Trace:" in packet
     assert "Hidden/bootstrap state hints" in packet

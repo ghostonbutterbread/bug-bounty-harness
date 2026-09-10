@@ -44,4 +44,4 @@ Repository change only. Merging to `beta` does not change the active synchronize
 
 ## Next action
 
-Implementation checkpoint: `02d41ad` on `fix/js-native-fast-fanout` (current branch tip will include a later dossier-only handoff commit). Request independent re-review of the full branch, including the cross-cutting script contract.
+Implementation checkpoint: `d9b399f` on `fix/js-native-fast-fanout` (current branch tip will include a later dossier-only handoff commit). Request independent re-review of the full branch, including the cross-cutting script contract and CLI-portable model routing.

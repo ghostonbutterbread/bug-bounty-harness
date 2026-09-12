@@ -76,6 +76,13 @@ Categories section and rejects category-index links anywhere outside it.
 Permanent regressions cover blank, duplicate-section, and outside-section cases.
 The focused suite now reports `16 passed in 2.57s`.
 
+The next review found malformed directory-only and wrong-index links outside the
+Categories section were not covered by the narrower `/README.md` check. The
+catalog now permits no Markdown links outside its single Categories section;
+the root policy pointer is plain code. Permanent regressions cover both malformed
+forms before and after the section. The focused suite now reports
+`20 passed in 0.04s`.
+
 Pending final independent approval of the corrected tip. If accepted, record the
 decision here, remove this dossier from the integration target during merge,
 rerun the focused policy suite, push `beta`, verify the remote/runtime SHAs and

@@ -67,7 +67,9 @@ def category_catalog_links(text: str) -> set[str]:
     )
     section = text[header.end() : section_end]
     outside = text[: header.start()] + text[section_end:]
-    assert "/README.md" not in outside, "Bounty Tools category link outside Categories section"
+    assert not re.search(r"\[[^]]+\]\s*(?:\(|\[)", outside), (
+        "Bounty Tools link outside Categories section"
+    )
 
     lines = [line.strip() for line in section.splitlines() if line.strip()]
     assert lines, "Bounty Tools Categories section must not be blank"
@@ -191,6 +193,22 @@ def test_bounty_tools_catalog_rejects_noncanonical_entries(entry: str) -> None:
         (
             "# Catalog\n\n## Categories\n\n"
             f"{EMPTY_CATEGORY_CATALOG}\n\n## Notes\n\n- [Stale](gone/README.md)\n"
+        ),
+        (
+            "# Catalog\n\n- [Stale](gone/)\n\n## Categories\n\n"
+            f"{EMPTY_CATEGORY_CATALOG}\n"
+        ),
+        (
+            "# Catalog\n\n- [Stale](gone/index.md)\n\n## Categories\n\n"
+            f"{EMPTY_CATEGORY_CATALOG}\n"
+        ),
+        (
+            "# Catalog\n\n## Categories\n\n"
+            f"{EMPTY_CATEGORY_CATALOG}\n\n## Notes\n\n- [Stale](gone/)\n"
+        ),
+        (
+            "# Catalog\n\n## Categories\n\n"
+            f"{EMPTY_CATEGORY_CATALOG}\n\n## Notes\n\n- [Stale](gone/index.md)\n"
         ),
     ],
 )

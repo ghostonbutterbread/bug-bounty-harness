@@ -92,8 +92,15 @@ autolink, empty-label link, reference link, or shortcut-reference definition.
 Permanent positive and negative controls cover the exact format. The focused
 suite now reports `24 passed in 0.04s`.
 
-Pending final independent approval of the simplified fixed-format catalog. If
-accepted, record the decision here, remove this dossier from the integration
-target during merge, rerun the focused policy suite, push `beta`, verify the
-remote/runtime SHAs and a fresh agent interpretation, then close the Kanban
-task.
+## Final decision
+
+Approved for `beta` integration by an independent no-edit review at candidate
+checkpoint `444a182`. The reviewer reran the focused suite (`24 passed`) and an
+additional 100 adversarial fixture checks covering fixed-format catalog inputs,
+category naming, script placement, and complete/nonstale records. No security or
+logic findings remained.
+
+Next: merge the reviewed feature into current `beta` while removing this
+branch-only dossier from the integration target; rerun the focused suite, push,
+verify remote and Hoster runtime receipts plus a fresh-agent interpretation,
+then close the Kanban task.

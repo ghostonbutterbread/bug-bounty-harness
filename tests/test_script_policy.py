@@ -58,9 +58,19 @@ def bounty_tool_category_dirs() -> list[Path]:
 
 
 def category_catalog_links(text: str) -> set[str]:
-    match = re.search(r"(?ms)^## Categories\s*$\n(.*?)(?=^## |\Z)", text)
-    assert match, "Bounty Tools index missing Categories section"
-    lines = [line.strip() for line in match.group(1).splitlines() if line.strip()]
+    headers = list(re.finditer(r"(?m)^## Categories\s*$", text))
+    assert len(headers) == 1, "Bounty Tools index must have exactly one Categories section"
+    header = headers[0]
+    next_heading = re.search(r"(?m)^## ", text[header.end() :])
+    section_end = (
+        header.end() + next_heading.start() if next_heading else len(text)
+    )
+    section = text[header.end() : section_end]
+    outside = text[: header.start()] + text[section_end:]
+    assert "/README.md" not in outside, "Bounty Tools category link outside Categories section"
+
+    lines = [line.strip() for line in section.splitlines() if line.strip()]
+    assert lines, "Bounty Tools Categories section must not be blank"
     if lines == [EMPTY_CATEGORY_CATALOG]:
         return set()
 
@@ -168,6 +178,25 @@ def test_bounty_tools_uses_category_indexes() -> None:
 def test_bounty_tools_catalog_rejects_noncanonical_entries(entry: str) -> None:
     with pytest.raises(AssertionError, match="noncanonical"):
         category_catalog_links(f"# Catalog\n\n## Categories\n\n{entry}\n")
+
+
+@pytest.mark.parametrize(
+    "catalog",
+    [
+        "# Catalog\n\n## Categories\n",
+        (
+            "# Catalog\n\n## Categories\n\n"
+            f"{EMPTY_CATEGORY_CATALOG}\n\n## Categories\n\n{EMPTY_CATEGORY_CATALOG}\n"
+        ),
+        (
+            "# Catalog\n\n## Categories\n\n"
+            f"{EMPTY_CATEGORY_CATALOG}\n\n## Notes\n\n- [Stale](gone/README.md)\n"
+        ),
+    ],
+)
+def test_bounty_tools_catalog_rejects_incomplete_scope(catalog: str) -> None:
+    with pytest.raises(AssertionError):
+        category_catalog_links(catalog)
 
 
 def record(text: str, script_name: str) -> str | None:

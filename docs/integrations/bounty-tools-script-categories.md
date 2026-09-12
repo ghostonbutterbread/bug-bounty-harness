@@ -69,6 +69,13 @@ the scripts-only lane, but normative prose remains protected. Fixture-based
 regressions reject titled, angle-bracket, directory-only, and wrong-index links.
 The focused suite now reports `13 passed in 0.19s`.
 
+A later review found two final scope gaps: a blank Categories section could pass
+without the mandated sentinel, and stale links outside the first Categories
+section could evade validation. The parser now requires exactly one nonblank
+Categories section and rejects category-index links anywhere outside it.
+Permanent regressions cover blank, duplicate-section, and outside-section cases.
+The focused suite now reports `16 passed in 2.57s`.
+
 Pending final independent approval of the corrected tip. If accepted, record the
 decision here, remove this dossier from the integration target during merge,
 rerun the focused policy suite, push `beta`, verify the remote/runtime SHAs and

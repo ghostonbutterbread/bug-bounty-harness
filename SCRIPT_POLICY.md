@@ -28,9 +28,10 @@ unrelated behavior into one giant script merely to reuse a filename.
   `skills/<program-skill>/scripts/`.
 - **Abstract reusable bug bounty tool with no existing class, capability, or
   program owner:** `skills/bounty-tools/scripts/<category>/`. Reuse an existing
-  responsibility category; if none fits, create one narrow category and index
-  rather than using `misc`, `general`, or the top-level Bounty Tools script
-  directory.
+  responsibility category; if none fits, create one narrow lowercase kebab-case
+  category and index rather than using `misc`, `general`, `other`, or the
+  top-level Bounty Tools script directory. Executables live directly in the
+  category directory, not in nested subdirectories.
 - **Importable harness runtime implementation:** the responsibility-owned
   package under `agents/`. New argv-oriented standalone helpers use one of the
   script homes above. Legacy entrypoints and existing cross-skill imports from a
@@ -52,7 +53,11 @@ every skill-owned script index.
 `skills/bounty-tools/scripts/README.md` owns the category catalog for abstract
 bug bounty tools. Category directories contain the actual scripts and their
 complete local records; executable files do not live directly in the Bounty
-Tools script root.
+Tools script root. Each populated category has exactly one canonical catalog
+entry: `- [Category name](category-name/README.md)`. The catalog contains no
+alternate, stale, titled, angle-bracket, or non-index category links. When no
+categories exist, its Categories section contains exactly
+`No categories are currently registered.`
 
 When adding, renaming, moving, or removing a script, update the nearest index in
 the same change. An index is discovery metadata, not proof that the script is
@@ -68,14 +73,17 @@ An explicitly authorized script-maintenance agent may change:
 
 - canonical scripts in the homes above;
 - directly associated tests and fixtures;
-- the nearest script index and the root `scripts/README.md` catalog link;
+- the nearest script index and every required ancestor inventory entry,
+  including the Bounty Tools category catalog and root `scripts/README.md` link;
 - the branch-local integration dossier.
 
 A scripts-only maintenance agent must not edit `SCRIPT_POLICY.md`, any
 `SKILL.md`, `AGENTS.md`, prompts, policy documents, stable/main branches,
 repository settings, or unrelated code. If a script change requires one of
 those edits, stop and hand off the policy or broader implementation decision to
-its owner. Index edits do not grant authority to rewrite this policy.
+its owner. Inventory authority covers only script records and catalog entries;
+it does not grant authority to rewrite surrounding normative prose or this
+policy.
 
 ## Deterministic Authority
 

@@ -61,7 +61,15 @@ normalizes an optional `./` prefix, compares every category-index link exactly,
 and treats extensionless records as stale after removal. The focused suite
 remains `9 passed in 0.03s`.
 
-Pending final independent re-review. If accepted, record the decision here,
-remove this dossier from the integration target during merge, rerun the focused
-policy suite, push `beta`, verify the remote/runtime SHAs and a fresh agent
-interpretation, then close the Kanban task.
+The final review found that general Markdown variants could still be silently
+ignored by the catalog parser. The protected root policy now owns all category
+norms and defines one canonical catalog-entry syntax; the editable Bounty Tools
+README is discovery-only. Required ancestor catalog edits are explicitly within
+the scripts-only lane, but normative prose remains protected. Fixture-based
+regressions reject titled, angle-bracket, directory-only, and wrong-index links.
+The focused suite now reports `13 passed in 0.19s`.
+
+Pending final independent approval of the corrected tip. If accepted, record the
+decision here, remove this dossier from the integration target during merge,
+rerun the focused policy suite, push `beta`, verify the remote/runtime SHAs and
+a fresh agent interpretation, then close the Kanban task.

@@ -2,12 +2,15 @@ import os
 import re
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = ROOT / "SCRIPT_POLICY.md"
 ROOT_INDEX = ROOT / "scripts" / "README.md"
 BOUNTY_TOOLS_SCRIPTS = ROOT / "skills" / "bounty-tools" / "scripts"
 BOUNTY_TOOLS_INDEX = BOUNTY_TOOLS_SCRIPTS / "README.md"
+EMPTY_CATEGORY_CATALOG = "No categories are currently registered."
 SCRIPT_SUFFIXES = {".py", ".sh", ".js", ".ts"}
 REQUIRED_RECORD_FIELDS = (
     "**Purpose:**",
@@ -54,6 +57,26 @@ def bounty_tool_category_dirs() -> list[Path]:
     )
 
 
+def category_catalog_links(text: str) -> set[str]:
+    match = re.search(r"(?ms)^## Categories\s*$\n(.*?)(?=^## |\Z)", text)
+    assert match, "Bounty Tools index missing Categories section"
+    lines = [line.strip() for line in match.group(1).splitlines() if line.strip()]
+    if lines == [EMPTY_CATEGORY_CATALOG]:
+        return set()
+
+    assert EMPTY_CATEGORY_CATALOG not in lines
+    links: list[str] = []
+    for line in lines:
+        entry = re.fullmatch(
+            r"- \[[^]]+\]\(([a-z0-9]+(?:-[a-z0-9]+)*/README\.md)\)",
+            line,
+        )
+        assert entry, f"noncanonical Bounty Tools category entry: {line}"
+        links.append(entry.group(1))
+    assert len(links) == len(set(links)), "duplicate Bounty Tools category entry"
+    return set(links)
+
+
 def test_repository_script_policy_defines_owner_based_placement() -> None:
     text = " ".join(POLICY.read_text(encoding="utf-8").lower().split())
 
@@ -64,6 +87,9 @@ def test_repository_script_policy_defines_owner_based_placement() -> None:
     assert "skills/bounty-tools/scripts/<category>/" in text
     assert "abstract reusable bug bounty tool" in text
     assert "vulnerability-class helper" in text
+    assert "lowercase kebab-case" in text
+    assert "- [category name](category-name/readme.md)" in text
+    assert "every required ancestor inventory entry" in text
     assert "multiple cohesive scripts" in text
     assert "one giant script" in text
     assert "reuse" in text
@@ -123,15 +149,25 @@ def test_bounty_tools_uses_category_indexes() -> None:
         expected_links.add(f"{category.name}/README.md")
         assert_index_covers_scripts(category, index, include_tests=True)
 
-    catalog_links = {
-        target.removeprefix("./")
-        for target in re.findall(r"\[[^]]+\]\(([^)\s]+)\)", parent_text)
-        if target.endswith("/README.md")
-    }
+    catalog_links = category_catalog_links(parent_text)
     assert catalog_links == expected_links, (
         f"Bounty Tools category catalog drift: expected {sorted(expected_links)}, "
         f"found {sorted(catalog_links)}"
     )
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        '- [Stale](./gone/README.md "Old category")',
+        "- [Stale](<./gone/README.md>)",
+        "- [Stale](gone/)",
+        "- [Stale](wrong/index.md)",
+    ],
+)
+def test_bounty_tools_catalog_rejects_noncanonical_entries(entry: str) -> None:
+    with pytest.raises(AssertionError, match="noncanonical"):
+        category_catalog_links(f"# Catalog\n\n## Categories\n\n{entry}\n")
 
 
 def record(text: str, script_name: str) -> str | None:

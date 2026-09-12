@@ -28,6 +28,7 @@ checkout-local interpreter.
 
 - [Account Management](../skills/account-management/scripts/README.md)
 - [Analyze Endpoint](../skills/analyze-endpoint/scripts/README.md)
+- [Bounty Tools categories](../skills/bounty-tools/scripts/README.md)
 - [BountyLens](../skills/bountylens/scripts/README.md)
 - [Chromium Handoff](../skills/chromium-handoff/scripts/README.md)
 - [Chromium Test](../skills/chromium-test/scripts/README.md)

@@ -59,6 +59,12 @@ alternate, stale, titled, angle-bracket, or non-index category links. When no
 categories exist, its Categories section contains exactly
 `No categories are currently registered.`
 
+The Bounty Tools catalog is fixed discovery metadata: it contains only its
+title, plain-code policy pointer, one `## Categories` section, and either the
+empty sentinel or canonical category entries. Extra prose, headings, and links
+are prohibited from that file. This intentionally keeps validation independent
+of general Markdown parsing.
+
 When adding, renaming, moving, or removing a script, update the nearest index in
 the same change. An index is discovery metadata, not proof that the script is
 exhaustive or correct.

@@ -83,7 +83,17 @@ the root policy pointer is plain code. Permanent regressions cover both malforme
 forms before and after the section. The focused suite now reports
 `20 passed in 0.04s`.
 
-Pending final independent approval of the corrected tip. If accepted, record the
-decision here, remove this dossier from the integration target during merge,
-rerun the focused policy suite, push `beta`, verify the remote/runtime SHAs and
-a fresh agent interpretation, then close the Kanban task.
+A further adversarial review showed that trying to partially parse arbitrary
+Markdown creates endless alternate-link and heading variants. The catalog is
+now deliberately a fixed-format inventory instead: an exact discovery preamble
+followed only by the empty sentinel or canonical category rows. This removes
+Markdown interpretation from the contract and rejects any extra prose, heading,
+autolink, empty-label link, reference link, or shortcut-reference definition.
+Permanent positive and negative controls cover the exact format. The focused
+suite now reports `24 passed in 0.04s`.
+
+Pending final independent approval of the simplified fixed-format catalog. If
+accepted, record the decision here, remove this dossier from the integration
+target during merge, rerun the focused policy suite, push `beta`, verify the
+remote/runtime SHAs and a fresh agent interpretation, then close the Kanban
+task.

@@ -11,6 +11,15 @@ ROOT_INDEX = ROOT / "scripts" / "README.md"
 BOUNTY_TOOLS_SCRIPTS = ROOT / "skills" / "bounty-tools" / "scripts"
 BOUNTY_TOOLS_INDEX = BOUNTY_TOOLS_SCRIPTS / "README.md"
 EMPTY_CATEGORY_CATALOG = "No categories are currently registered."
+BOUNTY_TOOLS_CATALOG_PREFIX = """# Bounty Tools Script Categories
+
+This is the discovery catalog for **Bounty Tools** categories. The repository
+root `SCRIPT_POLICY.md` exclusively defines
+ownership, placement, category naming, entry format, and maintenance authority.
+
+## Categories
+
+"""
 SCRIPT_SUFFIXES = {".py", ".sh", ".js", ".ts"}
 REQUIRED_RECORD_FIELDS = (
     "**Purpose:**",
@@ -58,20 +67,12 @@ def bounty_tool_category_dirs() -> list[Path]:
 
 
 def category_catalog_links(text: str) -> set[str]:
-    headers = list(re.finditer(r"(?m)^## Categories\s*$", text))
-    assert len(headers) == 1, "Bounty Tools index must have exactly one Categories section"
-    header = headers[0]
-    next_heading = re.search(r"(?m)^## ", text[header.end() :])
-    section_end = (
-        header.end() + next_heading.start() if next_heading else len(text)
+    assert text.startswith(BOUNTY_TOOLS_CATALOG_PREFIX), (
+        "Bounty Tools catalog preamble must remain canonical"
     )
-    section = text[header.end() : section_end]
-    outside = text[: header.start()] + text[section_end:]
-    assert not re.search(r"\[[^]]+\]\s*(?:\(|\[)", outside), (
-        "Bounty Tools link outside Categories section"
-    )
-
-    lines = [line.strip() for line in section.splitlines() if line.strip()]
+    body = text.removeprefix(BOUNTY_TOOLS_CATALOG_PREFIX)
+    assert body.endswith("\n"), "Bounty Tools catalog must end with a newline"
+    lines = body.splitlines()
     assert lines, "Bounty Tools Categories section must not be blank"
     if lines == [EMPTY_CATEGORY_CATALOG]:
         return set()
@@ -168,6 +169,16 @@ def test_bounty_tools_uses_category_indexes() -> None:
     )
 
 
+def test_bounty_tools_catalog_accepts_exact_controls() -> None:
+    assert category_catalog_links(
+        BOUNTY_TOOLS_CATALOG_PREFIX + EMPTY_CATEGORY_CATALOG + "\n"
+    ) == set()
+    assert category_catalog_links(
+        BOUNTY_TOOLS_CATALOG_PREFIX
+        + "- [Formatting](formatting/README.md)\n"
+    ) == {"formatting/README.md"}
+
+
 @pytest.mark.parametrize(
     "entry",
     [
@@ -179,36 +190,49 @@ def test_bounty_tools_uses_category_indexes() -> None:
 )
 def test_bounty_tools_catalog_rejects_noncanonical_entries(entry: str) -> None:
     with pytest.raises(AssertionError, match="noncanonical"):
-        category_catalog_links(f"# Catalog\n\n## Categories\n\n{entry}\n")
+        category_catalog_links(BOUNTY_TOOLS_CATALOG_PREFIX + entry + "\n")
 
 
 @pytest.mark.parametrize(
     "catalog",
     [
-        "# Catalog\n\n## Categories\n",
+        BOUNTY_TOOLS_CATALOG_PREFIX,
         (
-            "# Catalog\n\n## Categories\n\n"
-            f"{EMPTY_CATEGORY_CATALOG}\n\n## Categories\n\n{EMPTY_CATEGORY_CATALOG}\n"
+            BOUNTY_TOOLS_CATALOG_PREFIX
+            + f"{EMPTY_CATEGORY_CATALOG}\n\n## Categories\n\n{EMPTY_CATEGORY_CATALOG}\n"
         ),
         (
-            "# Catalog\n\n## Categories\n\n"
-            f"{EMPTY_CATEGORY_CATALOG}\n\n## Notes\n\n- [Stale](gone/README.md)\n"
+            BOUNTY_TOOLS_CATALOG_PREFIX
+            + f"{EMPTY_CATEGORY_CATALOG}\n\n## Notes\n\n- [Stale](gone/README.md)\n"
         ),
         (
-            "# Catalog\n\n- [Stale](gone/)\n\n## Categories\n\n"
-            f"{EMPTY_CATEGORY_CATALOG}\n"
+            "- [Stale](gone/)\n\n"
+            + BOUNTY_TOOLS_CATALOG_PREFIX
+            + f"{EMPTY_CATEGORY_CATALOG}\n"
         ),
         (
-            "# Catalog\n\n- [Stale](gone/index.md)\n\n## Categories\n\n"
-            f"{EMPTY_CATEGORY_CATALOG}\n"
+            BOUNTY_TOOLS_CATALOG_PREFIX
+            + f"{EMPTY_CATEGORY_CATALOG}\n\n## Notes\n\n- [Stale](gone/index.md)\n"
         ),
         (
-            "# Catalog\n\n## Categories\n\n"
-            f"{EMPTY_CATEGORY_CATALOG}\n\n## Notes\n\n- [Stale](gone/)\n"
+            BOUNTY_TOOLS_CATALOG_PREFIX
+            + f"{EMPTY_CATEGORY_CATALOG}\n\n[Stale]\n\nDetails.\n\n[Stale]: gone/README.md\n"
         ),
         (
-            "# Catalog\n\n## Categories\n\n"
-            f"{EMPTY_CATEGORY_CATALOG}\n\n## Notes\n\n- [Stale](gone/index.md)\n"
+            BOUNTY_TOOLS_CATALOG_PREFIX
+            + f"{EMPTY_CATEGORY_CATALOG}\n\n<https://example.invalid/gone/README.md>\n"
+        ),
+        (
+            BOUNTY_TOOLS_CATALOG_PREFIX
+            + f"{EMPTY_CATEGORY_CATALOG}\n\n[](gone/README.md)\n"
+        ),
+        (
+            BOUNTY_TOOLS_CATALOG_PREFIX
+            + f"{EMPTY_CATEGORY_CATALOG}\n\n## Categories ##\n"
+        ),
+        (
+            BOUNTY_TOOLS_CATALOG_PREFIX
+            + f"{EMPTY_CATEGORY_CATALOG}\n\n  ## Categories\n"
         ),
     ],
 )

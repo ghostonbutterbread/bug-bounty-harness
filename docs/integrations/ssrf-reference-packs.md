@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-13
 - **Owning feature branch/ref:** `docs/ssrf-reference-packs`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `5239edaf5398e0e9983175b01f34df0e7e8691ec`
+- **Feature implementation commit(s):** `5239edaf5398e0e9983175b01f34df0e7e8691ec`
 - **Inspiration / canonical references:** OWASP SSRF Prevention Cheat Sheet and SSRF Bible; Orange Tsai's URL-parser research; PortSwigger SSRF guidance; cloud-provider and Kubernetes documentation.
 
 ## Intent
@@ -45,10 +45,10 @@ broad scanning procedure is added.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/ssrf-reference-packs`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit the six changed files, update this dossier with the SHA, then request independent review.
-- **Working-tree state at handoff:** intentionally uncommitted; implementation and dossier await initial checkpoint.
+- **Latest immutable recovery checkpoint:** `5239edaf5398e0e9983175b01f34df0e7e8691ec`
+- **Feature implementation commit(s):** `5239edaf5398e0e9983175b01f34df0e7e8691ec`
+- **Exact resume point:** obtain independent review; incorporate and re-review any concrete finding before beta integration.
+- **Working-tree state at handoff:** clean after the implementation checkpoint; this dossier update is pending commit.
 
 ## Decision gates
 

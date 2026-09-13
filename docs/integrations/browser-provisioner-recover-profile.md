@@ -39,14 +39,15 @@ before ordinary reuse. No default lease behavior changes.
 
 - 2026-09-13 — independent review accepted the recovery forwarding behavior and regression coverage but rejected the stale first-commit/handoff statements. The implementation is preserved at `0ff2715bf8ab34a7d64103918c66fdb31fcc2403`.
 - 2026-09-13 — the first dossier-only review checkpoint is `300c9d8f15939d9f38bbc99e00c3480ea276d428`. A follow-up review found its handoff wording stale; this update corrects that wording before a final review.
+- 2026-09-13 — final independent review approved `7f3fd33da80e2e08e0840141dd532d9af9372601`: explicit recovery forwarding preserves eligibility and healthy-release safeguards; focused tests, compile/help checks, and diff validation passed. Next: beta merge and Hoster runtime refresh.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** independent review and clean beta integration validation.
-- **Command / fixture / environment needed:** reviewer diff inspection; beta merge check.
-- **Trigger to run it:** before merge.
-- **Why it blocks integration:** profile-recovery access must preserve lease ownership and healthy-release constraints.
-- **Next completion step / successor reference:** obtain independent review, then merge only if the safety and compatibility checks pass.
+- **Missing test or evidence:** beta integration and Hoster runtime activation validation.
+- **Command / fixture / environment needed:** clean beta merge check; Hoster checkout archive/refresh and Aiskillsync verification.
+- **Trigger to run it:** immediately before and after merge.
+- **Why it blocks integration:** the approved feature must land in current beta before Hoster can safely consume its replacement for the preserved dirty change.
+- **Next completion step / successor reference:** merge and push beta; archive the patch-equivalent Hoster edit, reset the Hoster runtime checkout to the reviewed beta, then synchronize profiles.
 
 ## Interruption / resume handoff
 

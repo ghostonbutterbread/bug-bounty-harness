@@ -7,7 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-13
 - **Owning feature branch/ref:** `fix/browser-provisioner-recover-profile`
-- **Latest immutable recovery checkpoint:** pending first commit
+- **Latest immutable recovery checkpoint:** `0ff2715bf8ab34a7d64103918c66fdb31fcc2403`
+- **Feature implementation commit(s):** `0ff2715bf8ab34a7d64103918c66fdb31fcc2403`
 - **Inspiration / canonical references:** preserved dirty Hoster provisioner change; `browser_profile_lease.py` recovery-lease contract
 
 ## Intent
@@ -34,6 +35,10 @@ before ordinary reuse. No default lease behavior changes.
 - `git diff --check` passed.
 - Live browser/profile actions: none.
 
+## Decision Record
+
+- 2026-09-13 — independent review accepted the recovery forwarding behavior and regression coverage but rejected the stale first-commit/handoff statements. The implementation is preserved at `0ff2715bf8ab34a7d64103918c66fdb31fcc2403`; a fresh review is required after this dossier correction.
+
 ## Blockers and deferred work
 
 - **Missing test or evidence:** independent review and clean beta integration validation.
@@ -45,9 +50,9 @@ before ordinary reuse. No default lease behavior changes.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/browser-provisioner-recover-profile`
-- **Latest immutable recovery checkpoint:** pending first commit.
-- **Exact resume point:** stage the two implementation files and this dossier, commit, then request independent review.
-- **Working-tree state at handoff:** implementation is uncommitted.
+- **Latest immutable recovery checkpoint:** `0ff2715bf8ab34a7d64103918c66fdb31fcc2403` (implementation); this dossier-only correction will be committed separately.
+- **Exact resume point:** correct this dossier-only checkpoint, obtain fresh independent review, then perform a clean beta merge check.
+- **Working-tree state at handoff:** implementation committed and worktree clean; this dossier update records the review outcome.
 
 ## Decision gates
 

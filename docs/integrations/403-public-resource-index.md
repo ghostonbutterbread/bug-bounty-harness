@@ -7,7 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-13
 - **Owning feature branch/ref:** `bug-bounty-harness/t_8554c39a-integrate-curated-public-403-resources`
-- **Latest immutable recovery checkpoint:** pending first commit
+- **Latest immutable recovery checkpoint:** `7bd2f4547e2727518f2f2ee511a5feadacb9b594`
+- **Feature implementation commit(s):** `7bd2f4547e2727518f2f2ee511a5feadacb9b594`
 - **Inspiration / canonical references:** public 403-bypass methodology, tooling, and supporting corpora discovered through `safe-fetch`; dead BApp-store listing excluded after independent revalidation
 
 ## Intent
@@ -32,7 +33,8 @@ pack is insufficient or a vetted additional family is needed.
 
 ## Decision Record
 
-- 2026-09-13 — independent review rejected the first staged revision because the PortSwigger BApp-store URL had become dead and the dossier lacked required recovery/decision details. The dead link was removed; the public source repository remains. A fresh review is required before integration.
+- 2026-09-13 — independent review rejected the first staged revision because the PortSwigger BApp-store URL had become dead and the dossier lacked required recovery/decision details. The dead link was removed; the public source repository remains.
+- 2026-09-13 — corrected implementation committed as `7bd2f4547e2727518f2f2ee511a5feadacb9b594`; fresh review required before integration.
 
 ## Blockers and deferred work
 
@@ -46,8 +48,8 @@ pack is insufficient or a vetted additional family is needed.
 
 - **Owning feature branch/ref:** `bug-bounty-harness/t_8554c39a-integrate-curated-public-403-resources`
 - **Latest immutable recovery checkpoint:** pending first commit.
-- **Exact resume point:** run focused reference checks and independent review against the changed `403` files.
-- **Working-tree state at handoff:** uncommitted implementation and dossier.
+- **Exact resume point:** obtain a fresh independent review of `7bd2f4547e2727518f2f2ee511a5feadacb9b594`, then perform a clean beta merge check.
+- **Working-tree state at handoff:** implementation committed; a later dossier-only checkpoint will record the reviewer outcome.
 
 ## Decision gates
 

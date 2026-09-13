@@ -69,9 +69,8 @@ When adding, renaming, moving, or removing a script, update the nearest index in
 the same change. An index is discovery metadata, not proof that the script is
 exhaustive or correct.
 
-The root catalog link is the scripts-only discovery path. A skill owner may link
-its local script index from `SKILL.md`, but creating or maintaining a script does
-not grant the scripts-only lane authority to edit that policy file.
+A scripts-only maintenance agent may add a pointer to the script map in the
+owning skill's main `SKILL.md`; no unrelated body edits are allowed.
 
 ## Scripts-Only Maintenance Boundary
 
@@ -79,17 +78,21 @@ An explicitly authorized script-maintenance agent may change:
 
 - canonical scripts in the homes above;
 - directly associated tests and fixtures;
-- the nearest script index and every required ancestor inventory entry,
-  including the Bounty Tools category catalog and root `scripts/README.md` link;
+- associated script map/index entries, freely maintained within the existing
+  repository `docs/`, `references/`, or skill-local README layout, including
+  every required ancestor inventory entry, such as the Bounty Tools category catalog
+  and root `scripts/README.md` link;
+- adding the script-map pointer to the owning skill's main `SKILL.md` only;
 - the branch-local integration dossier.
 
-A scripts-only maintenance agent must not edit `SCRIPT_POLICY.md`, any
-`SKILL.md`, `AGENTS.md`, prompts, policy documents, stable/main branches,
-repository settings, or unrelated code. If a script change requires one of
-those edits, stop and hand off the policy or broader implementation decision to
-its owner. Inventory authority covers only script records and catalog entries;
-it does not grant authority to rewrite surrounding normative prose or this
-policy.
+Creating a script MUST update its map in the same change.
+
+Except for that pointer addition, a scripts-only maintenance agent must not edit
+`SKILL.md`. It must not edit `SCRIPT_POLICY.md`, `AGENTS.md`, prompts, other
+policy documents, stable/main branches, repository settings, or unrelated code.
+If a script change requires those edits, hand off the broader decision to its
+owner. Map/index authority covers associated entries, not unrelated normative
+prose. Normal branch, test, independent review, and release guidance still applies.
 
 ## Deterministic Authority
 

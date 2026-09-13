@@ -114,6 +114,14 @@ def test_script_maintenance_lane_cannot_edit_policy() -> None:
     assert "script_policy.md" in text
     assert "skill.md" in text
     assert "must not edit" in text
+    assert "may add a pointer to the script map" in text
+    assert "main `skill.md`; no unrelated body edits are allowed" in text
+    assert "associated script map/index entries, freely maintained" in text
+    assert "`docs/`, `references/`, or skill-local readme layout" in text
+    assert "creating a script must update its map in the same change" in text
+    assert "except for that pointer addition" in text
+    assert "normal branch, test, independent review, and release guidance" in text
+    assert "does not grant the scripts-only lane authority" not in text
 
 
 def test_every_skill_script_home_has_an_index() -> None:

@@ -35,7 +35,8 @@ pack is insufficient or a vetted additional family is needed.
 
 - 2026-09-13 — independent review rejected the first staged revision because the PortSwigger BApp-store URL had become dead and the dossier lacked required recovery/decision details. The dead link was removed; the public source repository remains.
 - 2026-09-13 — corrected implementation committed as `7bd2f4547e2727518f2f2ee511a5feadacb9b594`.
-- 2026-09-13 — fresh review confirmed the dead-link and safety fixes, but found a stale `pending first commit` handoff line. This checkpoint corrects that recovery-record contradiction; one final fresh review is required before integration.
+- 2026-09-13 — fresh review confirmed the dead-link and safety fixes, but found a stale `pending first commit` handoff line. Commit `8cd83b5b184bd5a5e321924ab85044cc10a9c953` corrected that record.
+- 2026-09-13 — final review found that the prior checkpoint was incorrectly called the current branch tip. This update labels it accurately; the implementation checkpoint remains the durable recovery point. One final fresh review is required before integration.
 
 ## Blockers and deferred work
 
@@ -48,7 +49,7 @@ pack is insufficient or a vetted additional family is needed.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `bug-bounty-harness/t_8554c39a-integrate-curated-public-403-resources`
-- **Latest immutable recovery checkpoint:** `7bd2f4547e2727518f2f2ee511a5feadacb9b594` (implementation); current branch tip `85aef236794f8e3af9fbb9d41158a49ea15ba135` is the dossier-only review checkpoint.
+- **Latest immutable recovery checkpoint:** `7bd2f4547e2727518f2f2ee511a5feadacb9b594` (implementation). `85aef236794f8e3af9fbb9d41158a49ea15ba135` is a prior dossier-only review checkpoint, not a claim about the current branch tip.
 - **Exact resume point:** obtain a fresh independent review of the corrected dossier checkpoint after this update, then perform a clean beta merge check.
 - **Working-tree state at handoff:** implementation and first dossier checkpoint committed; this update corrects the remaining recovery-record contradiction.
 

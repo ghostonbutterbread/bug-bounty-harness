@@ -20,8 +20,9 @@ This is a RAG-style child skill. Classify why the 403 exists, load one focused r
    - trusted route/client headers -> `skills/403/references/technique-packs/trusted-headers.md`
    - auth-state or owned-account comparison -> `skills/403/references/technique-packs/auth-state.md`
    - JWT/Bearer/cookie token controls authorization -> load `/jwt-auth`
-6. Read `prompts/403-playbook.md` for deep review, stuck analysis, or report writing.
-7. Route instead of duplicating:
+6. If the lane pack does not explain the behavior or a vetted additional candidate family is needed, read `skills/403/references/public-resources.md`. It is a source index, not an automation instruction; retain the current scope, ownership, rate, and evidence gates.
+7. Read `prompts/403-playbook.md` for deep review, stuck analysis, or report writing.
+8. Route instead of duplicating:
    - JWT algorithm, signature, claim, key-source, or token format behavior -> `/jwt-auth`
    - broader header behavior -> `/headers`
    - WAF or bot enforcement -> `/waf`

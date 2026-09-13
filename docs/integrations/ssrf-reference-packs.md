@@ -29,26 +29,22 @@ broad scanning procedure is added.
 
 ## Evidence and review
 
-- Tests and commands: reference-path validator for five required files; `git diff --check`.
-- Independent review: pending fresh-agent review of changed paths and safety boundaries.
+- Tests and commands: reference-path validator for five required files; `git diff --check`; independent local Markdown-link audit.
+- Independent review: **approved**; no blockers. Reviewer verified changed paths, navigation, cited-source reachability, and safety boundaries.
 - Replay/cohort/fixture evidence: not applicable; documentation-only change.
 - Merge/ancestry evidence: branch created from fetched `origin/beta` at `a023632`.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** independent review.
-- **Command / fixture / environment needed:** reviewer inspects the feature commit and reruns path/diff checks.
-- **Trigger to run it:** after the immutable feature checkpoint exists.
-- **Why it blocks integration, activation, or promotion:** material safety guidance requires independent review before beta merge.
-- **Next completion step / successor reference:** obtain reviewer verdict; fix any concrete finding and re-review.
+None. The reviewer noted and this commit corrects stale dossier handoff metadata.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/ssrf-reference-packs`
-- **Latest immutable recovery checkpoint:** `5239edaf5398e0e9983175b01f34df0e7e8691ec`
+- **Latest immutable recovery checkpoint:** `24221724253f813ff1e54fb45cef10d61e639937` (dossier-only checkpoint; implementation is `5239edaf5398e0e9983175b01f34df0e7e8691ec`)
 - **Feature implementation commit(s):** `5239edaf5398e0e9983175b01f34df0e7e8691ec`
-- **Exact resume point:** obtain independent review; incorporate and re-review any concrete finding before beta integration.
-- **Working-tree state at handoff:** clean after the implementation checkpoint; this dossier update is pending commit.
+- **Exact resume point:** merge the approved feature into a clean, current local `beta` worktree; remove this branch-local dossier during integration.
+- **Working-tree state at handoff:** clean; independent review approved the implementation with one corrected handoff-metadata note.
 
 ## Decision gates
 
@@ -59,3 +55,4 @@ broad scanning procedure is added.
 ## Decision record
 
 - 2026-09-13 — created isolated feature branch and expanded SSRF reference packs.
+- 2026-09-13 — independent review approved; corrected dossier metadata and ready for beta integration.

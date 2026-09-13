@@ -34,7 +34,8 @@ pack is insufficient or a vetted additional family is needed.
 ## Decision Record
 
 - 2026-09-13 — independent review rejected the first staged revision because the PortSwigger BApp-store URL had become dead and the dossier lacked required recovery/decision details. The dead link was removed; the public source repository remains.
-- 2026-09-13 — corrected implementation committed as `7bd2f4547e2727518f2f2ee511a5feadacb9b594`; fresh review required before integration.
+- 2026-09-13 — corrected implementation committed as `7bd2f4547e2727518f2f2ee511a5feadacb9b594`.
+- 2026-09-13 — fresh review confirmed the dead-link and safety fixes, but found a stale `pending first commit` handoff line. This checkpoint corrects that recovery-record contradiction; one final fresh review is required before integration.
 
 ## Blockers and deferred work
 
@@ -47,9 +48,9 @@ pack is insufficient or a vetted additional family is needed.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `bug-bounty-harness/t_8554c39a-integrate-curated-public-403-resources`
-- **Latest immutable recovery checkpoint:** pending first commit.
-- **Exact resume point:** obtain a fresh independent review of `7bd2f4547e2727518f2f2ee511a5feadacb9b594`, then perform a clean beta merge check.
-- **Working-tree state at handoff:** implementation committed; a later dossier-only checkpoint will record the reviewer outcome.
+- **Latest immutable recovery checkpoint:** `7bd2f4547e2727518f2f2ee511a5feadacb9b594` (implementation); current branch tip `85aef236794f8e3af9fbb9d41158a49ea15ba135` is the dossier-only review checkpoint.
+- **Exact resume point:** obtain a fresh independent review of the corrected dossier checkpoint after this update, then perform a clean beta merge check.
+- **Working-tree state at handoff:** implementation and first dossier checkpoint committed; this update corrects the remaining recovery-record contradiction.
 
 ## Decision gates
 

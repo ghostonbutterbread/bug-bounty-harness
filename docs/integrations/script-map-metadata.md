@@ -50,5 +50,7 @@ For other skill or policy changes, write a skill seed instead of editing here.
 Then rerun the focused tests, inspect alignment with the other canonical owners,
 and independently review before integration. No merge, push, stable promotion,
 or runtime activation performed. Retain this blocked branch; remove the dossier
-from the integration target only on acceptance. The initial task commit contains
-these documentation/test changes; a later handoff-only checkpoint can name it.
+from the integration target only on acceptance. Recovery implementation checkpoint:
+`0800efa1f4dce16618d13e08ebda86e9baaa8e89` on `docs/script-map-metadata`.
+It contains the documentation/test changes; the subsequent dossier-only commit
+records this immutable checkpoint. Verify that handoff-only range separately.

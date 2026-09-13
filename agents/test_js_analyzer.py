@@ -594,3 +594,85 @@ def test_observe_appends_observations_jsonl_and_sqlite_rows(tmp_path: Path):
     assert row[1] == "worker-run"
     assert row[2] == "Potential owner id request field"
     assert "owner_id" in row[3]
+
+
+def test_iter_jsonl_streams_without_reading_whole_file(tmp_path: Path):
+    """The library metadata file can reach gigabytes; a whole-file read gets OOM-killed."""
+    path = tmp_path / "rows.jsonl"
+    path.write_text(
+        json.dumps({"sha256": "a"}) + "\n"
+        + "\n"
+        + "{not json}\n"
+        + json.dumps({"sha256": "b"}) + "\n",
+        encoding="utf-8",
+    )
+
+    def explode(*args, **kwargs):
+        raise AssertionError("iter_jsonl must not load the whole file into memory")
+
+    with patch.object(Path, "read_text", explode):
+        rows = list(J.iter_jsonl(path))
+
+    assert [row["sha256"] for row in rows] == ["a", "b"]
+    assert list(J.iter_jsonl(tmp_path / "missing.jsonl")) == []
+
+
+def test_write_metadata_db_accepts_single_pass_iterator(tmp_path: Path):
+    """metadata_rows is a generator over the library file, so it may only be traversed once."""
+    db_path = tmp_path / "js_info.sqlite"
+    rows = [{
+        "sha256": "abc123",
+        "url": "https://app.example.com/static/app.js",
+        "artifact_path": str(tmp_path / "abc123.js"),
+        "byte_count": 12,
+        "content_type": "application/javascript",
+        "generated_at": "2026-01-01T00:00:00Z",
+        "run_id": "unit",
+        "target_host": "example.com",
+        "chunk_count": 1,
+        "status": 200,
+        "chunk_paths": [str(tmp_path / "chunk-001.js")],
+    }]
+
+    J.write_metadata_db(db_path, iter(rows), [])
+
+    with sqlite3.connect(db_path) as db:
+        assert db.execute("SELECT count(*) FROM js_files").fetchone()[0] == 1
+        assert db.execute("SELECT count(*) FROM js_url_aliases").fetchone()[0] == 1
+        assert db.execute(
+            "SELECT count(*) FROM js_artifacts WHERE artifact_type = 'chunk'"
+        ).fetchone()[0] == 1
+
+
+def test_inventory_collects_mjs_and_cjs_modules(tmp_path: Path):
+    """ES/CommonJS modules are real app code; a bare '.js' suffix test drops them silently."""
+    input_file = tmp_path / "jsfiles.txt"
+    input_file.write_text(
+        "https://app.example.com/navigation.mjs\n"
+        "https://app.example.com/legacy.cjs\n"
+        "https://app.example.com/styles.css\n",
+        encoding="utf-8",
+    )
+    output_root = tmp_path / "out"
+    library_root = tmp_path / "library"
+
+    def fake_get(url: str, timeout: int = 20):
+        return (b"export const ping = () => fetch('/api/ping');", 200, "text/javascript")
+
+    with patch.object(J, "http_get", side_effect=fake_get):
+        rc = J.main([
+            "inventory", "demo",
+            "--input", str(input_file),
+            "--target-host", "example.com",
+            "--output-root", str(output_root),
+            "--library-root", str(library_root),
+            "--run-id", "unit-mjs",
+            "--integration-index-root", str(tmp_path / "integrations"),
+        ])
+
+    assert rc == 0
+    urls = {json.loads(line)["url"] for line in
+            (output_root / "metadata.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()}
+    assert "https://app.example.com/navigation.mjs" in urls
+    assert "https://app.example.com/legacy.cjs" in urls
+    assert "https://app.example.com/styles.css" not in urls

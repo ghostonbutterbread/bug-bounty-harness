@@ -24,7 +24,7 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Iterator
 
 
 SHARED_WEB_BASE = Path("/mnt/bounty")
@@ -702,20 +702,36 @@ def append_jsonl(path: Path, rows: Iterable[dict]) -> None:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
-def read_jsonl(path: Path) -> list[dict]:
+# JavaScript URL suffixes worth inventorying. ".mjs"/".cjs" are ES/CommonJS
+# modules that a plain ".js" suffix test silently drops.
+JS_URL_SUFFIXES = (".js", ".mjs", ".cjs")
+
+
+def iter_jsonl(path: Path) -> Iterator[dict]:
+    """Stream JSONL rows without holding the whole file in memory.
+
+    The shared JS library metadata file grows without bound across runs, so any
+    caller that only needs to traverse it once must use this instead of
+    ``read_jsonl``; loading a multi-gigabyte file at once gets the process
+    OOM-killed with no traceback.
+    """
     if not path.exists():
-        return []
-    rows: list[dict] = []
-    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(row, dict):
-            rows.append(row)
-    return rows
+        return
+    with path.open("r", encoding="utf-8", errors="ignore") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                yield row
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    """Materialise JSONL rows. Prefer :func:`iter_jsonl` for large files."""
+    return list(iter_jsonl(path))
 
 
 def load_ledger(path: Path) -> dict:
@@ -964,7 +980,7 @@ def build_metadata_row(
     return row
 
 
-def write_provenance_table(path: Path, rows: list[dict]) -> None:
+def write_provenance_table(path: Path, rows: Iterable[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as db:
         db.execute("""
@@ -1027,7 +1043,7 @@ def write_provenance_table(path: Path, rows: list[dict]) -> None:
         db.commit()
 
 
-def write_metadata_db(path: Path, metadata_rows: list[dict], packet_rows: list[dict]) -> None:
+def write_metadata_db(path: Path, metadata_rows: Iterable[dict], packet_rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as db:
         db.execute("""
@@ -1071,8 +1087,7 @@ def write_metadata_db(path: Path, metadata_rows: list[dict], packet_rows: list[d
                 PRIMARY KEY (sha256, artifact_type, artifact_path)
             )
         """)
-        db.executemany(
-            """
+        js_files_sql = """
             INSERT INTO js_files (
                 sha256, artifact_path, byte_count, content_type, first_seen,
                 last_seen, latest_run_id, target_host, source_map, chunk_count,
@@ -1089,28 +1104,8 @@ def write_metadata_db(path: Path, metadata_rows: list[dict], packet_rows: list[d
                 chunk_count = excluded.chunk_count,
                 signal_counts_json = excluded.signal_counts_json,
                 metadata_json = excluded.metadata_json
-            """,
-            [
-                (
-                    str(row.get("sha256") or ""),
-                    str(row.get("artifact_path") or ""),
-                    int(row.get("byte_count") or 0),
-                    str(row.get("content_type") or ""),
-                    str(row.get("sha256") or ""),
-                    str(row.get("generated_at") or ""),
-                    str(row.get("generated_at") or ""),
-                    str(row.get("run_id") or ""),
-                    str(row.get("target_host") or ""),
-                    str(row.get("source_map") or ""),
-                    int(row.get("chunk_count") or 0),
-                    json.dumps(row.get("signal_counts") or {}, sort_keys=True),
-                    json.dumps(row, sort_keys=True),
-                )
-                for row in metadata_rows
-            ],
-        )
-        db.executemany(
-            """
+        """
+        alias_sql = """
             INSERT INTO js_url_aliases (
                 js_url, sha256, first_seen, last_seen, latest_run_id,
                 status, content_type, source, page_context
@@ -1122,39 +1117,61 @@ def write_metadata_db(path: Path, metadata_rows: list[dict], packet_rows: list[d
                 content_type = excluded.content_type,
                 source = excluded.source,
                 page_context = excluded.page_context
-            """,
-            [
-                (
-                    str(row.get("url") or ""),
-                    str(row.get("sha256") or ""),
-                    str(row.get("url") or ""),
-                    str(row.get("sha256") or ""),
-                    str(row.get("generated_at") or ""),
-                    str(row.get("generated_at") or ""),
-                    str(row.get("run_id") or ""),
-                    row.get("status") if isinstance(row.get("status"), int) else None,
-                    str(row.get("content_type") or ""),
-                    str(row.get("source") or ""),
-                    str(row.get("page_context") or ""),
-                )
-                for row in metadata_rows
-            ],
-        )
-        artifact_rows: list[tuple] = []
+        """
+        artifact_sql = """
+            INSERT OR IGNORE INTO js_artifacts (
+                sha256, artifact_type, artifact_path, run_id, chunk_set_key, chunk_index
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        """
+        # Single streaming pass: metadata_rows may be a generator over a very
+        # large library metadata.jsonl, so it must not be materialised or
+        # traversed more than once.
         for row in metadata_rows:
+            db.execute(js_files_sql, (
+                str(row.get("sha256") or ""),
+                str(row.get("artifact_path") or ""),
+                int(row.get("byte_count") or 0),
+                str(row.get("content_type") or ""),
+                str(row.get("sha256") or ""),
+                str(row.get("generated_at") or ""),
+                str(row.get("generated_at") or ""),
+                str(row.get("run_id") or ""),
+                str(row.get("target_host") or ""),
+                str(row.get("source_map") or ""),
+                int(row.get("chunk_count") or 0),
+                json.dumps(row.get("signal_counts") or {}, sort_keys=True),
+                json.dumps(row, sort_keys=True),
+            ))
+            db.execute(alias_sql, (
+                str(row.get("url") or ""),
+                str(row.get("sha256") or ""),
+                str(row.get("url") or ""),
+                str(row.get("sha256") or ""),
+                str(row.get("generated_at") or ""),
+                str(row.get("generated_at") or ""),
+                str(row.get("run_id") or ""),
+                row.get("status") if isinstance(row.get("status"), int) else None,
+                str(row.get("content_type") or ""),
+                str(row.get("source") or ""),
+                str(row.get("page_context") or ""),
+            ))
             sha = str(row.get("sha256") or "")
             run_id = str(row.get("run_id") or "")
+            row_artifacts: list[tuple] = []
             if row.get("artifact_path"):
-                artifact_rows.append((sha, "download", str(row["artifact_path"]), run_id, "", None))
+                row_artifacts.append((sha, "download", str(row["artifact_path"]), run_id, "", None))
             if row.get("source_map_artifact_path"):
-                artifact_rows.append((sha, "source_map", str(row["source_map_artifact_path"]), run_id, "", None))
+                row_artifacts.append((sha, "source_map", str(row["source_map_artifact_path"]), run_id, "", None))
             for packet_path in row.get("packet_paths") or []:
-                artifact_rows.append((sha, "packet", str(packet_path), run_id, "", None))
+                row_artifacts.append((sha, "packet", str(packet_path), run_id, "", None))
             for chunk_path in row.get("chunk_paths") or []:
-                artifact_rows.append((sha, "chunk", str(chunk_path), run_id, "", None))
+                row_artifacts.append((sha, "chunk", str(chunk_path), run_id, "", None))
+            if row_artifacts:
+                db.executemany(artifact_sql, [r for r in row_artifacts if r[0] and r[2]])
+        packet_artifacts: list[tuple] = []
         for packet in packet_rows:
             sha = str(packet.get("sha256") or "")
-            artifact_rows.append((
+            packet_artifacts.append((
                 sha,
                 "packet",
                 str(packet.get("packet_path") or ""),
@@ -1162,7 +1179,7 @@ def write_metadata_db(path: Path, metadata_rows: list[dict], packet_rows: list[d
                 str(packet.get("chunk_set_key") or ""),
                 packet.get("chunk_index") if isinstance(packet.get("chunk_index"), int) else None,
             ))
-            artifact_rows.append((
+            packet_artifacts.append((
                 sha,
                 "chunk",
                 str(packet.get("chunk_path") or ""),
@@ -1170,14 +1187,8 @@ def write_metadata_db(path: Path, metadata_rows: list[dict], packet_rows: list[d
                 str(packet.get("chunk_set_key") or ""),
                 packet.get("chunk_index") if isinstance(packet.get("chunk_index"), int) else None,
             ))
-        db.executemany(
-            """
-            INSERT OR IGNORE INTO js_artifacts (
-                sha256, artifact_type, artifact_path, run_id, chunk_set_key, chunk_index
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            [row for row in artifact_rows if row[0] and row[2]],
-        )
+        if packet_artifacts:
+            db.executemany(artifact_sql, [r for r in packet_artifacts if r[0] and r[2]])
         db.execute("CREATE INDEX IF NOT EXISTS idx_js_files_run ON js_files(latest_run_id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_js_alias_sha ON js_url_aliases(sha256)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_js_alias_url ON js_url_aliases(js_url)")
@@ -1217,7 +1228,7 @@ def normalize_observation_row(row: dict) -> dict:
     return normalized
 
 
-def write_observations_table(path: Path, rows: list[dict]) -> None:
+def write_observations_table(path: Path, rows: Iterable[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as db:
         db.execute("""
@@ -1300,7 +1311,7 @@ def write_observations_table(path: Path, rows: list[dict]) -> None:
 def append_observations(*, observations_path: Path, db_path: Path, rows: list[dict]) -> list[dict]:
     normalized_rows = [normalize_observation_row(row) for row in rows]
     append_jsonl(observations_path, normalized_rows)
-    write_observations_table(db_path, read_jsonl(observations_path))
+    write_observations_table(db_path, iter_jsonl(observations_path))
     return normalized_rows
 
 
@@ -1590,7 +1601,7 @@ def command_inventory(args: argparse.Namespace) -> int:
     normalized_urls = []
     for url in urls:
         normalized = normalize_url(url)
-        if normalized and normalized.lower().split("?", 1)[0].endswith(".js") and in_scope_url(normalized, scope_hosts):
+        if normalized and normalized.lower().split("?", 1)[0].endswith(JS_URL_SUFFIXES) and in_scope_url(normalized, scope_hosts):
             normalized_urls.append(normalized)
     normalized_urls = dedupe(normalized_urls)
     if args.limit:
@@ -1851,10 +1862,10 @@ def command_inventory(args: argparse.Namespace) -> int:
         append_jsonl(library_metadata_path, metadata_rows)
     if provenance_rows:
         append_jsonl(library_provenance_path, (asdict(row) for row in provenance_rows))
-        write_provenance_table(js_info_db_path, read_jsonl(library_provenance_path))
+        write_provenance_table(js_info_db_path, iter_jsonl(library_provenance_path))
     if metadata_rows or packet_rows:
-        write_metadata_db(js_info_db_path, read_jsonl(library_metadata_path), packet_rows)
-        write_observations_table(js_info_db_path, read_jsonl(library_observations_path))
+        write_metadata_db(js_info_db_path, iter_jsonl(library_metadata_path), packet_rows)
+        write_observations_table(js_info_db_path, iter_jsonl(library_observations_path))
     integration_outputs = write_external_integration_index(integration_index_root, external_integration_rows)
     manifest = {
         "program": args.program,

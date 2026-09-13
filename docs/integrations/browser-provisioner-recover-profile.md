@@ -37,7 +37,8 @@ before ordinary reuse. No default lease behavior changes.
 
 ## Decision Record
 
-- 2026-09-13 — independent review accepted the recovery forwarding behavior and regression coverage but rejected the stale first-commit/handoff statements. The implementation is preserved at `0ff2715bf8ab34a7d64103918c66fdb31fcc2403`; a fresh review is required after this dossier correction.
+- 2026-09-13 — independent review accepted the recovery forwarding behavior and regression coverage but rejected the stale first-commit/handoff statements. The implementation is preserved at `0ff2715bf8ab34a7d64103918c66fdb31fcc2403`.
+- 2026-09-13 — the first dossier-only review checkpoint is `300c9d8f15939d9f38bbc99e00c3480ea276d428`. A follow-up review found its handoff wording stale; this update corrects that wording before a final review.
 
 ## Blockers and deferred work
 
@@ -50,9 +51,9 @@ before ordinary reuse. No default lease behavior changes.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/browser-provisioner-recover-profile`
-- **Latest immutable recovery checkpoint:** `0ff2715bf8ab34a7d64103918c66fdb31fcc2403` (implementation); this dossier-only correction will be committed separately.
-- **Exact resume point:** correct this dossier-only checkpoint, obtain fresh independent review, then perform a clean beta merge check.
-- **Working-tree state at handoff:** implementation committed and worktree clean; this dossier update records the review outcome.
+- **Latest immutable recovery checkpoint:** `0ff2715bf8ab34a7d64103918c66fdb31fcc2403` (implementation). `300c9d8f15939d9f38bbc99e00c3480ea276d428` is the committed dossier-only review checkpoint.
+- **Exact resume point:** obtain fresh independent review of the committed review checkpoint, then perform a clean beta merge check.
+- **Working-tree state at handoff:** implementation and dossier-only review checkpoint are committed; worktree is clean.
 
 ## Decision gates
 

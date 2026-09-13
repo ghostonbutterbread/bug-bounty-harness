@@ -61,7 +61,9 @@ rules, not a complete list, and not permission to exceed scope.
 
 - DNS rebinding
 - fast DNS changes
-- public host resolving to private IP
+- owned hostname with stable A/AAAA record resolving to an internal IP
+- hostname-only allowlist versus resolved-address validation gap
+- validation-time DNS versus connection-time resolution behavior (not DNS rebinding)
 - CNAME chains
 - open redirect to internal target
 - same-site redirect chain

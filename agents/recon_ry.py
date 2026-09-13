@@ -308,7 +308,8 @@ def start_remote(args: argparse.Namespace) -> None:
     # that contains only tools with verified header forwarding.
     effective_profile = "exact-urls-header" if auth_seed and args.profile == "exact-urls" else args.profile
     profile_flag = f"--{effective_profile}" if effective_profile in {"full", "subs", "fast", "urls", "params", "dork", "dir", "exact-urls"} else f"--profile {effective_profile}"
-    if auth_seed or args.profile == "exact-urls":
+    credential_material = bool(args.auth or args.auth_seed_file or args.cookie)
+    if credential_material or args.profile == "exact-urls":
         # Exact-host mode must never seed sibling scope entries into its project.
         seed_files = {
             "urls.txt": args.url.strip() + "\n",
@@ -504,13 +505,13 @@ def auth_seed_summary(seed: dict, *, source: str, selector: str | None = None) -
 
 
 def resolve_auth_seed(args: argparse.Namespace) -> tuple[dict | None, dict[str, object]]:
-    sources = [bool(args.auth), bool(args.auth_seed_file), bool(args.auth_header), bool(args.cookie)]
+    sources = [bool(args.auth), bool(args.auth_seed_file), bool(args.header), bool(args.cookie)]
     if sum(1 for enabled in sources if enabled) == 0:
         return None, {"status": "disabled"}
-    if args.auth and (args.auth_seed_file or args.auth_header or args.cookie):
-        raise SystemExit("--auth cannot be combined with --auth-seed-file, --auth-header, or --cookie")
-    if args.auth_seed_file and (args.auth_header or args.cookie):
-        raise SystemExit("--auth-seed-file cannot be combined with --auth-header or --cookie")
+    if args.auth and (args.auth_seed_file or args.header or args.cookie):
+        raise SystemExit("--auth cannot be combined with --auth-seed-file, --header, or --cookie")
+    if args.auth_seed_file and (args.header or args.cookie):
+        raise SystemExit("--auth-seed-file cannot be combined with --header or --cookie")
 
     if args.auth:
         command = [
@@ -551,10 +552,10 @@ def resolve_auth_seed(args: argparse.Namespace) -> tuple[dict | None, dict[str, 
         "headers": {},
         "cookies": [],
     }
-    if args.auth_header:
-        for header in args.auth_header:
+    if args.header:
+        for header in args.header:
             if ":" not in header:
-                raise SystemExit("--auth-header must use 'Name: value' format")
+                raise SystemExit("--header must use 'Name: value' format")
             name, value = header.split(":", 1)
             seed["headers"][name.strip()] = value.strip()
     if args.cookie:
@@ -618,7 +619,7 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--allow-unscoped", action="store_true", help="Bypass saved-scope fail-closed check after explicit approval.")
     start_parser.add_argument("--auth", help="Resolve an owned account alias or PwnFox color through account-management, such as blue.")
     start_parser.add_argument("--auth-seed-file", help="Use an explicit locked-down auth seed JSON file.")
-    start_parser.add_argument("--auth-header", action="append", help="Manual header for supported HTTP tools; repeatable. Redacted from dry-run output.")
+    start_parser.add_argument("--header", "--auth-header", dest="header", action="append", help="Header for supported HTTP tools; repeatable. Redacted from dry-run output. --auth-header is a compatibility alias.")
     start_parser.add_argument("--cookie", action="append", help="Manual Cookie header value for supported HTTP tools; repeatable. Redacted from dry-run output.")
     start_parser.add_argument("--very-verbose", action="store_true")
     start_parser.add_argument("--dry-run", action="store_true")
@@ -636,7 +637,7 @@ def build_parser() -> argparse.ArgumentParser:
     queue_parser.add_argument("--allow-unscoped", action="store_true")
     queue_parser.add_argument("--auth", help="Resolve an owned account alias or PwnFox color through account-management.")
     queue_parser.add_argument("--auth-seed-file", help="Use an explicit locked-down auth seed JSON file.")
-    queue_parser.add_argument("--auth-header", action="append", help="Manual header for supported HTTP tools; repeatable.")
+    queue_parser.add_argument("--header", "--auth-header", dest="header", action="append", help="Header for supported HTTP tools; repeatable. --auth-header is a compatibility alias.")
     queue_parser.add_argument("--cookie", action="append", help="Manual Cookie header value for supported HTTP tools; repeatable.")
     queue_parser.add_argument("--dry-run", action="store_true")
     queue_parser.set_defaults(func=queue_remote)

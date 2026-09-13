@@ -36,15 +36,15 @@ pack is insufficient or a vetted additional family is needed.
 - 2026-09-13 — independent review rejected the first staged revision because the PortSwigger BApp-store URL had become dead and the dossier lacked required recovery/decision details. The dead link was removed; the public source repository remains.
 - 2026-09-13 — corrected implementation committed as `7bd2f4547e2727518f2f2ee511a5feadacb9b594`.
 - 2026-09-13 — fresh review confirmed the dead-link and safety fixes, but found a stale `pending first commit` handoff line. Commit `8cd83b5b184bd5a5e321924ab85044cc10a9c953` corrected that record.
-- 2026-09-13 — final review found that the prior checkpoint was incorrectly called the current branch tip. This update labels it accurately; the implementation checkpoint remains the durable recovery point. One final fresh review is required before integration.
+- 2026-09-13 — final review approved candidate `56bea734f94ba487116c1124151c94a188a98340`: all nine indexed URLs resolved through `safe-fetch`; safety gates, routing, and no-auto-execution language were accepted. Next: clean beta integration check and merge.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** independent review and beta integration validation.
-- **Command / fixture / environment needed:** repository documentation checks and a clean beta merge check.
-- **Trigger to run it:** before merge.
-- **Why it blocks integration:** policy-adjacent skill reference changes require a fresh review and exact routing validation.
-- **Next completion step / successor reference:** validate the feature diff, obtain independent reviewer verdict, then merge only if clean.
+- **Missing test or evidence:** beta integration validation.
+- **Command / fixture / environment needed:** clean beta merge check and post-merge reference validation.
+- **Trigger to run it:** immediately before and after merge.
+- **Why it blocks integration:** the approved feature must be merged into a current clean beta worktree and revalidated there.
+- **Next completion step / successor reference:** merge the approved feature into clean beta, remove this branch-local dossier from beta, then verify the resulting reference files.
 
 ## Interruption / resume handoff
 

@@ -67,9 +67,10 @@ bbh agents/recon_ry.py start <program> \
 `skills/account-management/scripts/auth_resolver.py`, refreshes only when the
 account inventory permits it, stages a `0600` auth seed under the remote
 project's `.auth/` directory, and sets `RECON_RY_AUTH_SEED` for recon-ry.
-Manual `--auth-seed-file`, `--auth-header`, and `--cookie` are for approved
-one-off testing only. Dry-run output must show only redacted metadata such as
-cookie count and header names.
+Manual `--auth-seed-file`, repeatable `--header`, and `--cookie` are for approved
+one-off testing only. `--auth-header` remains a compatibility alias for
+`--header`. Dry-run output must show only redacted metadata such as cookie count
+and header names.
 
 Auth-capable recon-ry stages:
 
@@ -86,10 +87,11 @@ Auth does not apply to passive sources or network/service discovery:
   uro, js file normalization, dorking, and local secret scanning
 - DNS/IP enrichment, naabu, and nmap/service enrichment
 
-When auth is enabled, the wrapper narrows staged seed files to the approved
-`--url` target instead of the whole saved-scope wildcard set. This keeps
-cookies and authorization headers scoped to one host/app area unless Ryushe
-explicitly asks for a broader authenticated run.
+When account-resolved auth, an auth seed, or cookies are enabled, the wrapper
+narrows staged seed files to the approved `--url` target instead of the whole
+saved-scope wildcard set. Repeatable `--header` values—including Authorization
+and program attribution headers—do not alter `urls.txt` or `wild.txt`; they are
+forwarded to supported HTTP tools across the already validated program scope.
 
 The wrapper also exports the common Hoster recon tool paths before starting
 `recon-ry`, including `~/go/bin`, `~/.local/bin`, and `~/bin`. This is required

@@ -196,7 +196,7 @@ def test_start_dry_run_uses_header_safe_exact_profile_for_manual_headers(capsys)
             "https://app.example.com",
             "--profile",
             "exact-urls",
-            "--auth-header",
+            "--header",
             "X-Bugcrowd-Username: ryushe",
             "--dry-run",
             "--allow-unscoped",
@@ -303,7 +303,7 @@ def test_start_dry_run_stages_manual_auth_without_leaking_values(capsys) -> None
     assert "SECRET_COOKIE" not in output
 
 
-def test_start_dry_run_auth_limits_seed_files_to_requested_target(monkeypatch, capsys) -> None:
+def test_start_dry_run_custom_headers_preserve_saved_scope_seeds(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         recon_ry,
         "build_remote_seed_files",
@@ -323,8 +323,10 @@ def test_start_dry_run_auth_limits_seed_files_to_requested_target(monkeypatch, c
             "urls",
             "--dry-run",
             "--allow-unscoped",
-            "--auth-header",
-            "Authorization: Bearer SECRET_TOKEN",
+            "--header",
+            "Authorization: Bearer ***",
+            "--header",
+            "X-Program-Researcher: ryushe",
         ]
     )
 
@@ -332,9 +334,19 @@ def test_start_dry_run_auth_limits_seed_files_to_requested_target(monkeypatch, c
 
     output = capsys.readouterr().out
     assert "https://example.com" in output
-    assert "https://api.example.com" not in output
+    assert "https://api.example.com" in output
     assert "cat > '/home/ryushe/bounties/demo/wild.txt'" in output
-    assert "'RECONRY_WILD_TXT'\nRECONRY_WILD_TXT" in output
+    assert "'RECONRY_WILD_TXT'\nexample.com\nRECONRY_WILD_TXT" in output
+    assert "Authorization" in output
+    assert "X-Program-Researcher" in output
+
+
+def test_legacy_auth_header_alias_remains_supported() -> None:
+    parser = recon_ry.build_parser()
+    args = parser.parse_args(
+        ["start", "demo", "--url", "https://example.com", "--auth-header", "Authorization: Bearer ***"]
+    )
+    assert args.header == ["Authorization: Bearer ***"]
 
 
 def test_start_dry_run_uses_explicit_auth_seed_metadata_only(tmp_path: Path, capsys) -> None:

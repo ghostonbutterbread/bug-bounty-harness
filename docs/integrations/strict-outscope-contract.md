@@ -1,6 +1,6 @@
 # Strict out-of-scope contract integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes
 - **Branch:** `fix/strict-outscope-contract`
 - **Base commit:** `902b1c247ddfc58b234d79c4706ebdf805ee83fb`
@@ -28,11 +28,11 @@ Make generated `out-of-scope.txt` safe for strict line-based scope consumers wit
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** fresh independent review plus beta merge preflight.
+- **Missing test or evidence:** beta merge preflight only; final independent review approved the current handoff.
 - **Command / fixture / environment needed:** reviewer in this worktree; clean beta worktree.
 - **Trigger to run it:** after implementation checkpoint.
 - **Why it blocks integration, activation, or promotion:** shared scope output affects strict downstream filters.
-- **Next completion step / successor reference:** commit, update recovery checkpoint, review, merge beta, then roll the clean selected beta checkout to Hoster.
+- **Next completion step / successor reference:** run the beta merge preflight, merge without this dossier, then roll the clean selected beta checkout to Hoster.
 
 ## Interruption / resume handoff
 
@@ -50,4 +50,4 @@ Make generated `out-of-scope.txt` safe for strict line-based scope consumers wit
 
 ## Decision record
 
-- 2026-09-14 — reviewer found CIDR, uppercase-URL, header, and dossier-state defects; implemented focused corrections and expanded the strict output fixture.
+- 2026-09-14 — reviewer findings were fixed; final independent metadata review approved the clean handoff at `7083b2a`.

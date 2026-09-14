@@ -6,8 +6,10 @@
 - **Worktree:** `/home/ryushe/worktrees/bbh-single-requirements`
 - **Base commit:** `b7e64c312e58b89edd8cf169dbd2b8b58f59a7d3`
 - **Intended integration target:** `beta`
-- **Latest immutable recovery checkpoint:** pending implementation commit; recorded in the following handoff-only commit
-- **Feature implementation commits:** pending implementation commit
+- **Latest immutable recovery checkpoint:** `2f18a903606d6f9439ba031f78b05282a2b4aa15`
+- **Feature implementation commits:** `2f18a903606d6f9439ba031f78b05282a2b4aa15`
+- **Handoff tip:** the following dossier-only commit on this owning feature ref;
+  reviewer must inspect it as well as the immutable implementation checkpoint.
 - **Inspiration:** explicit single-manifest packaging maintenance request; AGENTS.md, SCRIPT_POLICY.md, shared coding and branch lifecycle policies.
 
 ## Intent and implemented contract

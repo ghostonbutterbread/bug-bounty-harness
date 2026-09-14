@@ -56,10 +56,20 @@ push only their own ref for backup/review. Never push `HEAD:beta`, force-push
 beta, or merge directly into `main`. A non-fast-forward beta push is a stop and
 intentional reconciliation condition, never permission to overwrite history.
 
-Hoster is execution-only by default. For an explicitly authorized repository task,
-it may perform an existing-script repair when its current GitHub credential
-passes a non-mutating write check for this repository. Follow
-`coding-agent-operations-policy` and `branch-lifecycle`; those policies own the
-branch, independent release gate, integration, and cleanup. If write access is
-unavailable, use `coding-proposal-packets-policy`. If the needed change is a
-skill or policy, write a skill seed instead of editing it here.
+Hermes is the repository manager and may make authorized code, skill, and policy
+changes through the normal branch, approval, independent review, and release
+workflow. This manager role does not bypass scope or protected-file safeguards.
+
+Other agents, including agents on Hoster, may perform explicitly authorized
+script maintenance when their current GitHub credential passes a non-mutating
+write check for this repository. Their skill-edit permission is limited to
+adding a script-map pointer at the bottom of the main `SKILL.md` and maintaining
+the associated script map/index in the repository's existing documentation,
+references, or skill-local README layout. Creating a script must update that map
+in the same change. Unrelated skill-body and policy changes go to Hermes as a
+proposal or skill seed.
+
+Follow `SCRIPT_POLICY.md`, `coding-agent-operations-policy`, and
+`branch-lifecycle`; those owners define script maintenance, branch handling,
+independent release review, integration, and cleanup. If write access is
+unavailable, use `coding-proposal-packets-policy`.

@@ -70,6 +70,19 @@ def test_intigriti_public_page_parses_rendered_in_and_out_of_scope_cards() -> No
     assert parsed["rules"]["platform"] == "intigriti"
 
 
+def test_intigriti_shorthand_uses_public_program_url_and_saves_scope(monkeypatch) -> None:
+    fetched: list[str] = []
+    saved = {}
+    scope_data = {"domains": {"*.example.com"}, "urls": set(), "out_of_scope": [], "assets": [], "rules": {}}
+    monkeypatch.setattr(scope_puller, "fetch_page", lambda url: fetched.append(url) or "<rendered-page>")
+    monkeypatch.setattr(scope_puller, "parse_intigriti_public_program", lambda program, page: scope_data)
+    monkeypatch.setattr(scope_puller, "save_scope", lambda program, data: saved.update(program=program, data=data))
+
+    assert scope_puller.pull_scope("owner/demo", "intigriti") is scope_data
+    assert fetched == ["https://app.intigriti.com/researcher/programs/owner/demo"]
+    assert saved == {"program": "owner/demo", "data": scope_data}
+
+
 def test_save_scope_writes_out_of_scope_files_for_canonical_and_legacy_locations(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
     scope_puller.save_scope(

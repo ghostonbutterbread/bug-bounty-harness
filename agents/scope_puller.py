@@ -688,6 +688,8 @@ def pull_scope(program: str, platform: str = None, *, use_api: bool = False):
         url = PLATFORMS.get(platform, PLATFORMS["hackerone"]).format(program=program)
     elif platform == "bugcrowd" and not program.startswith("http"):
         url = f"https://bugcrowd.com/engagements/{program}"
+    elif platform == "intigriti" and not program.startswith("http"):
+        url = default_source_url(program, "intigriti")
     else:
         url = program
     print(f"[*] Fetching from: {url}")

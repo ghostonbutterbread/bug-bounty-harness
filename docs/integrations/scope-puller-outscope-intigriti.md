@@ -21,9 +21,9 @@ The puller will write canonical and legacy `out-of-scope.txt` files with metadat
 
 ## Evidence and review
 
-- Tests and commands: `PYTHONPATH=<worktree> python3 -m pytest agents/test_scope_puller_seed_files.py agents/test_scope_validator.py -q` (117 passed); `python3 -m compileall -q agents/scope_puller.py`; `git diff --check`; read-only live parse of the public Intigriti program page found 3 domains, 2 URLs, and 16 exclusions.
-- Independent review: pending.
-- Replay/cohort/fixture evidence: fixture tests cover rendered in/out-of-scope cards and canonical/legacy file persistence.
+- Tests and commands: `PYTHONPATH=<worktree> python3 -m pytest agents/test_scope_puller_seed_files.py agents/test_scope_validator.py agents/test_scope_manager.py agents/test_scope_seed_files.py -q` (122 passed); `python3 -m compileall -q agents/scope_puller.py`; `git diff --check`; read-only live parse of the public Intigriti program page found 3 domains, 2 URLs, and 16 exclusions.
+- Independent review: initial review blocked an Intigriti `owner/program` shorthand URL bug; the focused fix and regression test are verified locally, awaiting a fresh review.
+- Replay/cohort/fixture evidence: fixture tests cover rendered in/out-of-scope cards, shorthand URL resolution/saving, and canonical/legacy file persistence.
 - Merge/ancestry evidence: pending.
 
 ## Blockers and deferred work

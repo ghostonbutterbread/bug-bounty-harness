@@ -102,7 +102,7 @@ def test_request_forwards_task_proxy_settings_to_start(monkeypatch, tmp_path):
         program="demo", account="fixture", auth_domain="api.example.test", agent_id="agent", run_id="run", purpose="intercept",
         ttl_seconds=60, idle_seconds=60, wait_seconds=0, min_ram_available_mib=1,
         min_swap_free_mib=0, memory_high="256M", memory_max="512M", proxy_cert_mode="import",
-        proxy_server="http://127.0.0.1:8081", mitm_ca_cert="/tmp/mitm-ca.pem", url="https://example.test/", display_backend="kasmvnc", kasmvnc_display=20, kasmvnc_web_port=8463,
+        proxy_server="http://127.0.0.1:8081", mitm_ca_cert="/tmp/mitm-ca.pem", url="https://example.test/", display_backend="kasmvnc", kasmvnc_display=20, kasmvnc_web_port=8463, recover_profile=True,
     )
     try:
         m.request(args)
@@ -111,11 +111,34 @@ def test_request_forwards_task_proxy_settings_to_start(monkeypatch, tmp_path):
     assert captured["command"][captured["command"].index("--auth-domain") : captured["command"].index("--agent-id")] == [
         "--auth-domain", "api.example.test",
     ]
-    assert captured["command"][-12:] == [
+    assert captured["command"][-13:] == [
         "--proxy-server", "http://127.0.0.1:8081", "--mitm-ca-cert", "/tmp/mitm-ca.pem",
         "--url", "https://example.test/", "--display-backend", "kasmvnc",
-        "--kasmvnc-display", "20", "--kasmvnc-web-port", "8463",
+        "--kasmvnc-display", "20", "--kasmvnc-web-port", "8463", "--recover-profile",
     ]
+
+
+def test_start_forwards_recover_profile_to_lease_acquire(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    args.recover_profile = True
+    acquire = {}
+
+    monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], []))
+    monkeypatch.setattr(m, "admission", lambda *_: {"status": "admitted"})
+    def fake_lease(_args, action, *rest):
+        assert action == "acquire"
+        acquire["parts"] = rest
+        return {"status": "account-unavailable"}
+
+    monkeypatch.setattr(m, "lease", fake_lease)
+
+    try:
+        m.start(args)
+    except SystemExit as exc:
+        assert exc.code == 2
+
+    assert "--recover-profile" in acquire["parts"]
 
 
 def test_provisioner_marks_its_launcher_invocation_as_internal(monkeypatch, tmp_path):

@@ -1,7 +1,9 @@
 # SSRF Idea Seeds
 
 Use these as "how to look" seeds after a fetch surface exists. They are not
-rules, not a complete list, and not permission to exceed scope.
+rules or permission to exceed scope. For the maintained detailed catalog, load
+`technique-packs/baseline-fetch.md`, `technique-packs/parser-redirect.md`, or
+`technique-packs/metadata-scheme.md` based on the observed boundary.
 
 ## Core Concepts
 
@@ -61,7 +63,9 @@ rules, not a complete list, and not permission to exceed scope.
 
 - DNS rebinding
 - fast DNS changes
-- public host resolving to private IP
+- owned hostname with stable A/AAAA record resolving to an internal IP
+- hostname-only allowlist versus resolved-address validation gap
+- validation-time DNS versus connection-time resolution behavior (not DNS rebinding)
 - CNAME chains
 - open redirect to internal target
 - same-site redirect chain

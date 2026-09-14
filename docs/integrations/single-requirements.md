@@ -95,5 +95,30 @@ Executed from this feature worktree:
 
 ## Decision record
 
-Implementation and local verification complete; publication intentionally held
-for the parent-owned independent release gate.
+**APPROVED by fresh independent release reviewer.** Reviewed candidate
+`09810875d1cad505989acc343a85e9c2c15102f3`, implementation
+`2f18a903606d6f9439ba031f78b05282a2b4aa15`, and the complete base-to-tip diff.
+This decision supersedes the pending-review and parent-only publication entries
+above: the current explicit delegation authorizes this reviewer to integrate and
+push beta, and waives Kanban only. Stable promotion remains unauthorized.
+
+Independent receipts:
+
+- Dependency audit against both base manifests: all seven unique specifications
+  preserved exactly, including the immutable Core pin; no tracked old-path references.
+- Focused packaging and portable launcher suite: 14 passed in 0.31s.
+- Fresh committed-tree archive in a path containing spaces, invoked from another
+  directory: real setup installed 20 packages into its new local `.venv`.
+- `uv pip check`: all 20 compatible. Imports for all seven direct dependencies
+  succeeded; interpreter and Core resolved inside that fresh environment, and
+  installed Core direct-URL metadata matched the unchanged pinned commit exactly.
+- The same focused suite in the fresh archive: 14 passed in 0.30s.
+- Shell syntax and `git diff --check`: passed. Temporary archive removed.
+- Fetched beta equals the stated base; local beta is clean with no unique ahead
+  commits. No findings requiring implementation changes.
+
+No outstanding required release tests. Whole-repository tests and runtime
+activation remain intentionally outside this packaging release scope. Next:
+refetch beta, merge the approved feature into clean beta, remove this dossier in
+that integration operation, rerun focused checks, push beta and verify its exact
+remote SHA, then retire only this contained clean task branch/worktree.

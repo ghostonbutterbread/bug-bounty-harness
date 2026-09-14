@@ -16,10 +16,11 @@ own-community preference, one-artifact reuse, and verified terminal cleanup.
 
 ## Evidence
 
-- **Implementation checkpoint:** `9c6a0e02da208e7c738236a6eaa2c6e975172721`; the current branch tip will add this dossier-only handoff commit.
+- **Implementation checkpoints:** `9c6a0e02da208e7c738236a6eaa2c6e975172721` (initial consumer) and `774e289a08f117eb8bd4bef2c7a913b9078493ef` (review-blocker fixes); the current branch tip will add this dossier-only handoff commit.
+- **Independent review:** requested changes because arbitrary details and share/query URLs could persist private content and cleanup could skip the private/pending sequence. The CLI now accepts only canonical no-query/no-fragment URLs, has no details input, and requires private → cleanup_pending → deleted → cleanup_verified; tests cover all three gates.
 - Installed the pinned provider using `bash setup.sh --install-python-deps`.
 - `uv pip freeze --python .venv/bin/python` confirms the exact provider SHA.
-- `.venv/bin/python -m pytest -q agents/test_public_artifacts.py tests/test_runtime_dependencies.py` — 4 passed.
+- `.venv/bin/python -m pytest -q agents/test_public_artifacts.py tests/test_runtime_dependencies.py` — 5 passed.
 - The full `agents tests` suite ran: 1,400 passed plus 94 subtests, with 8 pre-existing unrelated failures in AppMap/report navigation and stale AGENTS/skill-command expectations. None mention a changed path.
 - `git diff --check` passed before the consumer dossier.
 

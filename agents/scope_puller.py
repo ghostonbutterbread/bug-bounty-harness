@@ -298,8 +298,9 @@ def add_hackerone_target_to_scope(
         else:
             urls.add(value)
         return
-    if re.fullmatch(r"(?:\*\.)?[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+", value):
-        domains.add(value.lower())
+    normalized = routable_scope_entry(value)
+    if normalized and not normalized.startswith(("http://", "https://")):
+        domains.add(normalized.lower())
 
 
 def parse_hackerone_scope(team: dict) -> dict:

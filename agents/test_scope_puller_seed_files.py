@@ -83,6 +83,18 @@ def test_intigriti_shorthand_uses_public_program_url_and_saves_scope(monkeypatch
     assert saved == {"program": "owner/demo", "data": scope_data}
 
 
+def test_hackerone_parser_normalizes_host_like_scope_identifiers() -> None:
+    parsed = scope_puller.parse_hackerone_scope(
+        {"structured_scopes": {"edges": [
+            {"node": {"asset_type": "OTHER", "asset_identifier": "v1. kidswebservices.com", "eligible_for_submission": True}},
+            {"node": {"asset_type": "OTHER", "asset_identifier": "dev.epicgames.com/*", "eligible_for_submission": True}},
+            {"node": {"asset_type": "OTHER", "asset_identifier": "EOS C# SDK", "eligible_for_submission": True}},
+        ]}}
+    )
+    assert parsed["domains"] == {"v1.kidswebservices.com", "dev.epicgames.com"}
+    assert parsed["urls"] == set()
+
+
 def test_routable_scope_entry_normalizes_obvious_host_formatting_without_widening() -> None:
     assert scope_puller.routable_scope_entry("v1. kidswebservices.com") == "v1.kidswebservices.com"
     assert scope_puller.routable_scope_entry("dev.epicgames.com/*") == "dev.epicgames.com"

@@ -1,6 +1,6 @@
 # ScopeValidator annotation parsing integration dossier
 
-- Status: locally verified; blocked on independent parent review/integration
+- Status: independently reviewed and verified; integration blocked by parent Kanban runtime guard
 - Owner: delegated Hermes bugfix agent; parent owns review and integration
 - Branch: `fix/scope-validator-annotations`
 - Worktree: `/home/ryushe/projects/bug_bounty_harness-scope-annotations`
@@ -55,20 +55,26 @@ repository rules and explicit user direction prohibit stable edits. Repair is
 owned by beta's task branch; stable promotion and propagation to other agents'
 active descendants are deferred to the parent. No identifiers or APIs change.
 
-## Blockers and deferred work
+## Parent review and remaining blocker
 
-- Independent review unavailable inside this child (no child spawning). Parent
-  must inspect the actual diff and rerun focused tests before beta integration.
-- Kanban CLI refuses delegated child contexts: `hermes kanban --board
-  bug-bounty-harness list` exited 1, `delegate_task child contexts cannot mutate
-  Kanban tasks or boards`. Parent must own the task/card; no guard bypass.
-- Related ScopeManager exclusion loading defect is a separate task, not fixed.
+Parent independently inspected the production diff, tests, and owning matcher;
+accepted the bounded whitespace-delimited annotation repair and preservation of
+URL path/IPv6 contracts. Independently reran the four-module suite: **119 passed
+in 0.22s**. `git diff --check` passed. Fresh `git fetch origin beta` confirmed
+both beta and origin/beta remain at the recorded base.
+
+Parent also attempted `hermes kanban --board bug-bounty-harness list`; it failed
+with `delegate_task child contexts cannot mutate Kanban tasks or boards` even in
+the parent continuation. This blocks the required tracker/integration workflow;
+no environment-guard bypass attempted. Implementation is reviewed but unmerged.
+Related ScopeManager exclusion loading remains a separate documented defect.
 
 ## Resume and decision gates
 
-Resume in the named feature worktree: parent independently reviews the diff and
-reruns the recorded offline scope suite, then decides beta integration. Working
-tree will be clean at handoff; preserve the feature branch until review finishes.
-Integration blocked until independent parent review and current-beta comparison.
-Activation and stable promotion are not authorized. Retain this dossier on the
-feature branch; remove it from beta during accepted integration cleanup.
+Recover from checkpoint `5dc0de1b7f7ca48b0b64e0177bf7c8d56d4ccb07` plus this
+review-only follow-up commit on the named feature branch. Resume in a working
+parent Kanban context (or obtain an explicit owner handoff decision), create or
+claim the task, then fetch/reconcile beta and integrate the reviewed fix into a
+clean beta worktree. Rerun the four-module suite on the integrated tree. Retain
+the worktree and dossier until then; remove the dossier during accepted
+integration cleanup. No push, activation, or stable promotion was performed.

@@ -55,6 +55,95 @@ def test_bugcrowd_scope_preserves_wildcard_name_when_uri_is_root_url(monkeypatch
     assert "https://xyzbmojn.net/" in parsed["urls"]
 
 
+def test_intigriti_public_page_parses_rendered_in_and_out_of_scope_cards() -> None:
+    html = """
+    <lib-asset-detail><div class="asset-container"><div class="asset-name"><span>*.in.example.com</span></div><div>Wildcard</div><div>Tier 2</div></div></lib-asset-detail>
+    <lib-asset-detail><div class="asset-container"><div class="asset-name"><a>https://api.example.com/v1</a></div><div>URL</div><div>Tier 3</div></div></lib-asset-detail>
+    <lib-asset-detail><div class="asset-container oos-asset"><div class="asset-name"><span>*.out.example.com</span></div><div>Wildcard</div><div>Out of scope</div></div></lib-asset-detail>
+    <lib-asset-detail><div class="asset-container oos-asset"><div class="asset-name"><span>example CTF</span></div><div>Other</div><div>Out of scope</div></div></lib-asset-detail>
+    """
+    parsed = scope_puller.parse_intigriti_public_program("owner/demo", html)
+
+    assert parsed["domains"] == {"*.in.example.com"}
+    assert parsed["urls"] == {"https://api.example.com/v1"}
+    assert [target["uri"] for target in parsed["out_of_scope"]] == ["*.out.example.com", "example CTF"]
+    assert parsed["rules"]["platform"] == "intigriti"
+
+
+def test_intigriti_shorthand_uses_public_program_url_and_saves_scope(monkeypatch) -> None:
+    fetched: list[str] = []
+    saved = {}
+    scope_data = {"domains": {"*.example.com"}, "urls": set(), "out_of_scope": [], "assets": [], "rules": {}}
+    monkeypatch.setattr(scope_puller, "fetch_page", lambda url: fetched.append(url) or "<rendered-page>")
+    monkeypatch.setattr(scope_puller, "parse_intigriti_public_program", lambda program, page: scope_data)
+    monkeypatch.setattr(scope_puller, "save_scope", lambda program, data: saved.update(program=program, data=data))
+
+    assert scope_puller.pull_scope("owner/demo", "intigriti") is scope_data
+    assert fetched == ["https://app.intigriti.com/researcher/programs/owner/demo"]
+    assert saved == {"program": "owner/demo", "data": scope_data}
+
+
+def test_hackerone_parser_normalizes_host_like_scope_identifiers() -> None:
+    parsed = scope_puller.parse_hackerone_scope(
+        {"structured_scopes": {"edges": [
+            {"node": {"asset_type": "OTHER", "asset_identifier": "v1. kidswebservices.com", "eligible_for_submission": True}},
+            {"node": {"asset_type": "OTHER", "asset_identifier": "dev.epicgames.com/*", "eligible_for_submission": True}},
+            {"node": {"asset_type": "OTHER", "asset_identifier": "EOS C# SDK", "eligible_for_submission": True}},
+        ]}}
+    )
+    assert parsed["domains"] == {"v1.kidswebservices.com", "dev.epicgames.com"}
+    assert parsed["urls"] == set()
+
+
+def test_routable_scope_entry_normalizes_obvious_host_formatting_without_widening() -> None:
+    assert scope_puller.routable_scope_entry("v1. kidswebservices.com") == "v1.kidswebservices.com"
+    assert scope_puller.routable_scope_entry("dev.epicgames.com/*") == "dev.epicgames.com"
+    assert scope_puller.routable_scope_entry("Any other Epic games owned asset") is None
+    assert scope_puller.routable_scope_entry("https://api.example.com/v1. release") == "https://api.example.com/v1. release"
+
+
+def test_save_scope_preserves_exact_in_scope_urls(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
+    scope_puller.save_scope(
+        "example",
+        {"domains": ["v1. kidswebservices.com", "dev.epicgames.com/*"], "urls": ["https://api.example.com/v1. release"], "out_of_scope": []},
+    )
+    content = (tmp_path / "Shared/scopes/example/in-scope.txt").read_text()
+    assert "v1.kidswebservices.com" in content
+    assert "dev.epicgames.com\n" in content
+    assert "https://api.example.com/v1. release" in content
+
+
+def test_save_scope_writes_out_of_scope_files_for_canonical_and_legacy_locations(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
+    scope_puller.save_scope(
+        "demo",
+        {
+            "domains": {"*.example.com"},
+            "urls": {"https://api.example.com/v1"},
+            "out_of_scope": [
+                {"uri": "private.example.com", "category": "url", "group": "out-of-scope"},
+                {"uri": "*.excluded.example.com", "category": "wildcard", "group": "out-of-scope"},
+                {"uri": "HTTPS://upper.example.com/private", "category": "url", "group": "out-of-scope"},
+                {"uri": "10.0.0.1/8", "category": "cidr", "group": "out-of-scope"},
+                {"uri": "2001:db8::1/64", "category": "cidr", "group": "out-of-scope"},
+                {"uri": "192.0.2.1", "category": "ip", "group": "out-of-scope"},
+                {"uri": "any example CTF", "category": "other", "group": "out-of-scope", "description": "human-only exclusion"},
+            ],
+            "assets": [],
+            "rules": {},
+        },
+    )
+
+    canonical = tmp_path / "Shared" / "scopes" / "demo" / "out-of-scope.txt"
+    legacy = tmp_path / "Shared" / "bounty_recon" / "demo" / "scope" / "out-of-scope.txt"
+    structured = tmp_path / "Shared" / "scopes" / "demo" / "out-of-scope.json"
+    expected = "*.excluded.example.com\n10.0.0.0/8\n192.0.2.1\n2001:db8::/64\nprivate.example.com\nupper.example.com\n"
+    assert canonical.read_text() == expected
+    assert legacy.read_text() == expected
+    assert json.loads(structured.read_text())[-1]["uri"] == "any example CTF"
+
+
 def test_hackerone_structured_scope_keeps_only_eligible_network_assets() -> None:
     team = {
         "structured_scopes": {"edges": [

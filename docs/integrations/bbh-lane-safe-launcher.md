@@ -37,9 +37,8 @@ source fallbacks. Bounty Tools remains an optional standalone utility rather
 than a lane-bound BBH dependency.
 
 Bounty Core is an ordinary BBH Python dependency. Each BBH checkout installs the
-published Core `beta` revision `fc361eca86f9c86acb357e1b9ce6426bc44aef83`
-(including stale-reclaim repair `2da1e22d381e6c8c4fad1b2bfdb21692ae398d04`) from
-`requirements-bounty-core.txt` into its own `.venv` through
+published Core revision pinned in the canonical `requirements.txt`, alongside
+BBH runtime and test dependencies, into its own `.venv` through
 `./setup.sh --install-python-deps`; the lane dispatcher runs Python tools with
 that checkout-local interpreter. BBH never uses Aiskillsync state,
 `$BOUNTY_CORE_ROOT`, sibling paths, `~/projects`, installed packages, or CWD to

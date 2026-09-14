@@ -49,33 +49,17 @@ two modules rather than keeping duplicate copies.
 
 **Not fixed here** because it is outside the manual_hunter ingest-parser fix scope.
 
-## Runtime dependency test expects a different Bounty Core revision
+## Runtime dependency test expects a different Bounty Core revision — resolved
 
 **Location:** `tests/test_runtime_dependencies.py:18` and
-`requirements-bounty-core.txt:2`.
+the former split runtime manifest (now `requirements.txt`).
 
 **Evidence:** the focused test expects Bounty Core
 `f3d02453f26a4e221632466c26742dfb55368f28`, while the runtime manifest pins
 `1bba64b557aa3b604092b5bad47689fcb40cc0f7`. The failure reproduces on unchanged
 beta `5ef9b5b304fa3ce995e3700d32f3e7d4789539ee`.
 
-**Impact:** the complete `tests/` suite remains red independently of the Hoster
-script-authority guidance. The owning dependency task must decide which reviewed
-revision is canonical and update the test or manifest coherently.
-
-## setup.sh installs only the Bounty Core manifest
-
-**Location:** `setup.sh:202` (`install_python_dependencies`).
-
-**Evidence:** the function pins `requirements="$SCRIPT_DIR/requirements-bounty-core.txt"`
-and never installs `requirements-dev.txt`. A `.venv` built by
-`./setup.sh --install-python-deps` therefore lacks `requests`, `bs4`, `PyYAML`
-and `urllib3`; `grep -rlE '^\s*(import|from) (requests|bs4|yaml)'` matches 10
-files under `agents/` and `skills/` that fail at import. Reproduced on
-`bug_bounty_harness-runtime-beta` and `-runtime-beta-header` (both venvs had 15
-packages and no `requests`).
-
-**Impact:** a fresh checkout or `uv venv --clear` rebuild silently breaks those
-harness scripts. `playwright` is also undeclared, so `chromium_test.py` falls
-back to system Chrome instead of the Playwright binary that the host's AppArmor
-profile already covers. Owner decision pending; live venvs repaired by hand.
+**Resolution:** single-manifest packaging preserves the existing manifest's
+`1bba64b557aa3b604092b5bad47689fcb40cc0f7` pin and updates the regression to assert
+the complete preserved dependency set. No Bounty Core upgrade or downgrade is
+part of this fix.

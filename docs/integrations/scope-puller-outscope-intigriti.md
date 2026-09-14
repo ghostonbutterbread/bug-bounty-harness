@@ -1,6 +1,6 @@
 # Scope puller out-of-scope and Intigriti integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes
 - **Branch:** `feat/scope-puller-outscope-intigriti`
 - **Base commit:** `e0fef5c1fbd90662af53d798d26a1e32e3d00f63`
@@ -22,17 +22,17 @@ The puller will write canonical and legacy `out-of-scope.txt` files with metadat
 ## Evidence and review
 
 - Tests and commands: `PYTHONPATH=<worktree> python3 -m pytest agents/test_scope_puller_seed_files.py agents/test_scope_validator.py agents/test_scope_manager.py agents/test_scope_seed_files.py -q` (122 passed); `python3 -m compileall -q agents/scope_puller.py`; `git diff --check`; read-only live parse of the public Intigriti program page found 3 domains, 2 URLs, and 16 exclusions.
-- Independent review: the first review blocked the shorthand URL issue; a fresh review of `b1849bc49baac3fa0542ee679e15592ee544af4e` found no source-code correctness issue and blocked only this stale dossier. This update is awaiting a final metadata-only re-review.
+- Independent review: the first review blocked the shorthand URL issue; the focused repair was re-reviewed; and final metadata review approved `41a8f9ceee9c51d0b9c4dff645d9ca4819486563` with 122 isolated tests passing.
 - Replay/cohort/fixture evidence: fixture tests cover rendered in/out-of-scope cards, shorthand URL resolution/saving, and canonical/legacy file persistence.
-- Merge/ancestry evidence: feature is descended from `e0fef5c1fbd90662af53d798d26a1e32e3d00f63`; beta merge preflight pending.
+- Merge/ancestry evidence: feature is descended from `e0fef5c1fbd90662af53d798d26a1e32e3d00f63`; beta was refreshed at that same clean tip before integration.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** final independent metadata-only re-review after this corrected handoff.
-- **Command / fixture / environment needed:** fresh reviewer in this feature worktree.
-- **Trigger to run it:** immediately; the branch tip contains this dossier-only handoff commit.
-- **Why it blocks integration, activation, or promotion:** release metadata must accurately identify the reviewed implementation before beta integration.
-- **Next completion step / successor reference:** obtain a fresh verdict, then run the beta merge preflight.
+- **Missing test or evidence:** none before beta merge.
+- **Command / fixture / environment needed:** beta merge preflight in the clean integration worktree.
+- **Trigger to run it:** now.
+- **Why it blocks integration, activation, or promotion:** merge compatibility must be demonstrated against the refreshed beta tip.
+- **Next completion step / successor reference:** perform the beta merge preflight, then intentionally merge and remove this dossier from beta.
 
 ## Interruption / resume handoff
 
@@ -52,4 +52,4 @@ The puller will write canonical and legacy `out-of-scope.txt` files with metadat
 
 - 2026-09-14 — implemented fixture-tested scope persistence and public Intigriti parsing; checkpointed at `b14b47f`.
 - 2026-09-14 — independent review found and the branch fixed the `owner/program` URL resolution defect at `b1849bc`; second review found only stale dossier metadata.
-- 2026-09-14 — corrected the dossier from the second review: implementation recovery remains `b1849bc`, `df9e167` is the prior dossier-only checkpoint, and the branch tip carries this later dossier-only handoff for final review.
+- 2026-09-14 — final independent metadata review approved `41a8f9c`; prepared this dossier-only review-ready handoff for the clean beta merge preflight.

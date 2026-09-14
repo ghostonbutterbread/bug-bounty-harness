@@ -6,6 +6,7 @@
 - Branch: `docs/script-map-metadata`; intended target: `beta` after approval and review.
 - Original base: `7fb840d8493a53d1bccfd02e5407f92d3e0d7104`.
 - Fetched/reconciled base: `0d9231ec748e31541cff8c899ca0efb73cf23f4a` (`origin/beta`).
+- Implementation checkpoint: `0dbd6093f571e68ab6b89e7f13aa003b77b4a18a` on `docs/script-map-metadata`; the following dossier-only commit records this SHA. Verify that final handoff-only diff separately.
 - Prior reachable checkpoint: `aeed2c4822635ce90917b4bf0eecd968557cfb62`; includes reconciliation at `ee0102b5e93c2adfafc9db78ee0da7664fdfa701`.
 
 ## Clarified contract

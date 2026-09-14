@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-14
 - **Owning feature branch/ref:** `fix/strict-outscope-contract`
-- **Latest immutable recovery checkpoint:** `82f23aa21d604036f94b4a0bbdf20f3065f31e62`
-- **Feature implementation commit(s):** `82f23aa21d604036f94b4a0bbdf20f3065f31e62`
+- **Latest immutable recovery checkpoint:** `6109bc60147bf11ef27e319a86f7398d9d6c995b`
+- **Feature implementation commit(s):** `82f23aa21d604036f94b4a0bbdf20f3065f31e62`, `6109bc60147bf11ef27e319a86f7398d9d6c995b`
 - **Inspiration / canonical references:** `~/Shared/change_proposals/2026-09-14-claude-scope-puller-outscope-delimiter.md`
 
 ## Intent
@@ -37,10 +37,10 @@ Make generated `out-of-scope.txt` safe for strict line-based scope consumers wit
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/strict-outscope-contract`
-- **Latest immutable recovery checkpoint:** `82f23aa21d604036f94b4a0bbdf20f3065f31e62`
-- **Feature implementation commit(s):** `82f23aa21d604036f94b4a0bbdf20f3065f31e62`; focused reviewer corrections are intentionally uncommitted.
-- **Exact resume point:** commit corrected normalization and metadata, update this dossier with the new SHA, then obtain fresh review.
-- **Working-tree state at handoff:** intentionally uncommitted (reviewer fixes and updated evidence).
+- **Latest immutable recovery checkpoint:** `6109bc60147bf11ef27e319a86f7398d9d6c995b`
+- **Feature implementation commit(s):** `82f23aa21d604036f94b4a0bbdf20f3065f31e62`, `6109bc60147bf11ef27e319a86f7398d9d6c995b`
+- **Exact resume point:** commit this dossier checkpoint update and obtain fresh review of the corrected range.
+- **Working-tree state at handoff:** intentionally uncommitted (dossier checkpoint update only).
 
 ## Decision gates
 

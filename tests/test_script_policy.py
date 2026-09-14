@@ -108,18 +108,23 @@ def test_repository_script_policy_defines_owner_based_placement() -> None:
     assert "reuse" in text
 
 
-def test_script_maintenance_lane_cannot_edit_policy() -> None:
+def test_other_agent_maintenance_boundary_preserves_manager_authority() -> None:
     text = " ".join(POLICY.read_text(encoding="utf-8").lower().split())
 
     assert "script_policy.md" in text
     assert "skill.md" in text
     assert "must not edit" in text
-    assert "may add a pointer to the script map" in text
-    assert "main `skill.md`; no unrelated body edits are allowed" in text
+    assert "hermes is the repository manager and may edit code, skills, and policies" in text
+    assert "existing scope, protected-file approval, review, and lifecycle requirements still apply" in text
+    assert "other agents may implement scoped scripts" in text
+    assert "add a pointer to the script map at the bottom" in text
+    assert "main `skill.md` only; no unrelated body edits are allowed" in text
     assert "associated script map/index entries, freely maintained" in text
     assert "`docs/`, `references/`, or skill-local readme layout" in text
     assert "creating a script must update its map in the same change" in text
     assert "except for that pointer addition" in text
+    assert "broader code changes as proposals" in text
+    assert "skill seeds to hermes" in text
     assert "normal branch, test, independent review, and release guidance" in text
     assert "does not grant the scripts-only lane authority" not in text
 

@@ -73,6 +73,8 @@ def _validate_cleanup_event(store: PublicArtifactStore, args: argparse.Namespace
         raise ValueError(f"{args.event} requires --visibility private; make the artifact private before cleanup")
     latest = _latest_artifact(store, args.artifact_id)
     if args.event == "cleanup_pending":
+        if latest is None or latest["visibility"] != "private":
+            raise ValueError("cleanup_pending requires the artifact's prior recorded visibility to be private")
         return
     required_prior = "cleanup_pending" if args.event == "deleted" else "deleted"
     if latest is None or latest["event"] != required_prior:

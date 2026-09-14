@@ -87,6 +87,7 @@ def test_cli_rejects_sensitive_urls_and_cleanup_that_skips_private_pending_state
     created = run_cli(tmp_path, *record_args(event="created"))
     for args, message in (
         (record_args(event="created")[:-2] + ["--url", "https://community.example.test/posts/43?share=SHARE_SECRET"], "canonical URL"),
+        (record_args(event="cleanup_pending", artifact_id=created["artifact_id"], visibility="private"), "prior recorded visibility"),
         (record_args(event="deleted", artifact_id=created["artifact_id"], visibility="public"), "visibility private"),
         (record_args(event="deleted", artifact_id=created["artifact_id"], visibility="private"), "prior cleanup_pending"),
     ):

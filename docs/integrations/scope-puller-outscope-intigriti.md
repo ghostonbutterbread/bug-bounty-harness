@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-14
 - **Owning feature branch/ref:** `feat/scope-puller-outscope-intigriti`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `b14b47f58681985bc63969e5f7ac9856aad44c82`
+- **Feature implementation commit(s):** `b14b47f58681985bc63969e5f7ac9856aad44c82`
 - **Inspiration / canonical references:** Discord thread `1549123711834267729`; public Intigriti rendered program page.
 
 ## Intent
@@ -37,10 +37,10 @@ The puller will write canonical and legacy `out-of-scope.txt` files with metadat
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/scope-puller-outscope-intigriti`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit the verified scoped changes, then update this dossier with the commit SHA and request independent review.
-- **Working-tree state at handoff:** intentionally uncommitted (verified implementation awaiting first checkpoint).
+- **Latest immutable recovery checkpoint:** `b14b47f58681985bc63969e5f7ac9856aad44c82`
+- **Feature implementation commit(s):** `b14b47f58681985bc63969e5f7ac9856aad44c82`
+- **Exact resume point:** request independent review of `b14b47f58681985bc63969e5f7ac9856aad44c82`, then merge to beta if accepted.
+- **Working-tree state at handoff:** intentionally uncommitted (dossier checkpoint update only).
 
 ## Decision gates
 

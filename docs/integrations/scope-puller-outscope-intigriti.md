@@ -28,19 +28,19 @@ The puller will write canonical and legacy `out-of-scope.txt` files with metadat
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** final independent metadata-only re-review after this checkpoint correction.
+- **Missing test or evidence:** final independent metadata-only re-review after this corrected handoff.
 - **Command / fixture / environment needed:** fresh reviewer in this feature worktree.
-- **Trigger to run it:** after the dossier checkpoint commit.
+- **Trigger to run it:** immediately; the branch tip contains this dossier-only handoff commit.
 - **Why it blocks integration, activation, or promotion:** release metadata must accurately identify the reviewed implementation before beta integration.
-- **Next completion step / successor reference:** commit this dossier update, obtain a fresh verdict, then run the beta merge preflight.
+- **Next completion step / successor reference:** obtain a fresh verdict, then run the beta merge preflight.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/scope-puller-outscope-intigriti`
-- **Latest immutable recovery checkpoint:** `b1849bc49baac3fa0542ee679e15592ee544af4e` (the current tip will be a dossier-only checkpoint commit)
+- **Latest immutable recovery checkpoint:** `b1849bc49baac3fa0542ee679e15592ee544af4e`; `df9e167703a65325fb8d72554da22958ad2a1600` is the prior dossier-only checkpoint, and the current branch tip contains this later dossier-only handoff commit.
 - **Feature implementation commit(s):** `b14b47f58681985bc63969e5f7ac9856aad44c82`, `b1849bc49baac3fa0542ee679e15592ee544af4e`
-- **Exact resume point:** request independent review of the dossier-only checkpoint plus `b1849bc49baac3fa0542ee679e15592ee544af4e`, then run the beta merge preflight if accepted.
-- **Working-tree state at handoff:** intentionally uncommitted (dossier correction only).
+- **Exact resume point:** obtain independent review of this current dossier-only handoff and the implementation through `b1849bc49baac3fa0542ee679e15592ee544af4e`, then run the beta merge preflight if accepted.
+- **Working-tree state at handoff:** clean after committing this dossier-only handoff.
 
 ## Decision gates
 
@@ -52,4 +52,4 @@ The puller will write canonical and legacy `out-of-scope.txt` files with metadat
 
 - 2026-09-14 — implemented fixture-tested scope persistence and public Intigriti parsing; checkpointed at `b14b47f`.
 - 2026-09-14 — independent review found and the branch fixed the `owner/program` URL resolution defect at `b1849bc`; second review found only stale dossier metadata.
-- 2026-09-14 — correcting metadata before final release review.
+- 2026-09-14 — corrected the dossier from the second review: implementation recovery remains `b1849bc`, `df9e167` is the prior dossier-only checkpoint, and the branch tip carries this later dossier-only handoff for final review.

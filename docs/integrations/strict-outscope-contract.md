@@ -21,8 +21,8 @@ Make generated `out-of-scope.txt` safe for strict line-based scope consumers wit
 
 ## Evidence and review
 
-- Tests and commands: focused scope suite: 122 passed; `compileall`; `git diff --check`; live read-only Intigriti parse emitted 14 strict entries from 16 total exclusions, retained all 16 records in JSON, and blocked `foo.intigriti.io` through `ScopeValidator`.
-- Independent review: pending.
+- Tests and commands: `PYTHONPATH=<worktree> python3 -m pytest -q agents/test_scope_puller_seed_files.py agents/test_scope_seed_files.py agents/test_scope_validator.py agents/test_recon_ry.py` (137 passed); `compileall`; `git diff --check`; corrected direct normalization smoke covers non-canonical IPv4/IPv6 CIDRs, uppercase HTTPS, and prose rejection. Live read-only Intigriti parse emitted 14 strict entries from 16 total exclusions and retained all 16 records in JSON.
+- Independent review: initial review blocked CIDR canonicalization, case-insensitive URL normalization, comment-header compatibility, and stale dossier state; all four focused corrections are implemented and await fresh review.
 - Replay/cohort/fixture evidence: test covers host, wildcard, URL-to-host, CIDR, prose exclusion omission from text, and prose retention in JSON.
 - Merge/ancestry evidence: pending.
 
@@ -37,10 +37,10 @@ Make generated `out-of-scope.txt` safe for strict line-based scope consumers wit
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/strict-outscope-contract`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** checkpoint verified implementation and obtain fresh review.
-- **Working-tree state at handoff:** intentionally uncommitted (verified implementation awaiting checkpoint).
+- **Latest immutable recovery checkpoint:** `82f23aa21d604036f94b4a0bbdf20f3065f31e62`
+- **Feature implementation commit(s):** `82f23aa21d604036f94b4a0bbdf20f3065f31e62`; focused reviewer corrections are intentionally uncommitted.
+- **Exact resume point:** commit corrected normalization and metadata, update this dossier with the new SHA, then obtain fresh review.
+- **Working-tree state at handoff:** intentionally uncommitted (reviewer fixes and updated evidence).
 
 ## Decision gates
 
@@ -50,4 +50,4 @@ Make generated `out-of-scope.txt` safe for strict line-based scope consumers wit
 
 ## Decision record
 
-- 2026-09-14 — promoted the proposal’s strict-consumer concern, narrowed the repair to strict text plus structured preservation, and verified the public Intigriti fixture/live parse behavior.
+- 2026-09-14 — reviewer found CIDR, uppercase-URL, header, and dossier-state defects; implemented focused corrections and expanded the strict output fixture.

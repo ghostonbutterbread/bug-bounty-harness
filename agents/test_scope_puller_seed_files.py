@@ -93,8 +93,10 @@ def test_save_scope_writes_out_of_scope_files_for_canonical_and_legacy_locations
             "out_of_scope": [
                 {"uri": "private.example.com", "category": "url", "group": "out-of-scope"},
                 {"uri": "*.excluded.example.com", "category": "wildcard", "group": "out-of-scope"},
-                {"uri": "https://api.example.com/private/*", "category": "url", "group": "out-of-scope"},
-                {"uri": "10.0.0.0/8", "category": "cidr", "group": "out-of-scope"},
+                {"uri": "HTTPS://upper.example.com/private", "category": "url", "group": "out-of-scope"},
+                {"uri": "10.0.0.1/8", "category": "cidr", "group": "out-of-scope"},
+                {"uri": "2001:db8::1/64", "category": "cidr", "group": "out-of-scope"},
+                {"uri": "192.0.2.1", "category": "ip", "group": "out-of-scope"},
                 {"uri": "any example CTF", "category": "other", "group": "out-of-scope", "description": "human-only exclusion"},
             ],
             "assets": [],
@@ -105,7 +107,7 @@ def test_save_scope_writes_out_of_scope_files_for_canonical_and_legacy_locations
     canonical = tmp_path / "Shared" / "scopes" / "demo" / "out-of-scope.txt"
     legacy = tmp_path / "Shared" / "bounty_recon" / "demo" / "scope" / "out-of-scope.txt"
     structured = tmp_path / "Shared" / "scopes" / "demo" / "out-of-scope.json"
-    expected = "# Explicit out-of-scope targets\n*.excluded.example.com\n10.0.0.0/8\napi.example.com\nprivate.example.com\n"
+    expected = "*.excluded.example.com\n10.0.0.0/8\n192.0.2.1\n2001:db8::/64\nprivate.example.com\nupper.example.com\n"
     assert canonical.read_text() == expected
     assert legacy.read_text() == expected
     assert json.loads(structured.read_text())[-1]["uri"] == "any example CTF"

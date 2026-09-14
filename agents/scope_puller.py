@@ -560,14 +560,18 @@ def routable_scope_entry(value: str) -> str | None:
     candidate = value.strip()
     if not candidate or any(char.isspace() for char in candidate):
         return None
-    if candidate.startswith(("http://", "https://")):
-        parsed = urlparse(candidate)
+    parsed = urlparse(candidate)
+    if parsed.scheme.lower() in {"http", "https"}:
         candidate = parsed.hostname or ""
     if not candidate:
         return None
+    if "/" in candidate:
+        try:
+            return str(ipaddress.ip_network(candidate, strict=False))
+        except ValueError:
+            return None
     try:
-        ipaddress.ip_network(candidate, strict=False)
-        return candidate
+        return str(ipaddress.ip_address(candidate))
     except ValueError:
         pass
     return candidate.lower() if SCOPE_DOMAIN_PATTERN.fullmatch(candidate) else None
@@ -623,7 +627,7 @@ def save_scope(program: str, scope_data: dict, *, legacy: bool = True):
     for url in sorted(scope_data.get("urls", [])):
         in_scope += f"{url}\n"
 
-    out_of_scope = "# Explicit out-of-scope targets\n"
+    out_of_scope = ""
     strict_out_of_scope = {
         entry
         for target in scope_data.get("out_of_scope", [])

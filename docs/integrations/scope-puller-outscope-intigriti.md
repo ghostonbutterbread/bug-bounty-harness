@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-14
 - **Owning feature branch/ref:** `feat/scope-puller-outscope-intigriti`
-- **Latest immutable recovery checkpoint:** `b14b47f58681985bc63969e5f7ac9856aad44c82`
-- **Feature implementation commit(s):** `b14b47f58681985bc63969e5f7ac9856aad44c82`
+- **Latest immutable recovery checkpoint:** `b1849bc49baac3fa0542ee679e15592ee544af4e`
+- **Feature implementation commit(s):** `b14b47f58681985bc63969e5f7ac9856aad44c82`, `b1849bc49baac3fa0542ee679e15592ee544af4e`
 - **Inspiration / canonical references:** Discord thread `1549123711834267729`; public Intigriti rendered program page.
 
 ## Intent
@@ -22,25 +22,25 @@ The puller will write canonical and legacy `out-of-scope.txt` files with metadat
 ## Evidence and review
 
 - Tests and commands: `PYTHONPATH=<worktree> python3 -m pytest agents/test_scope_puller_seed_files.py agents/test_scope_validator.py agents/test_scope_manager.py agents/test_scope_seed_files.py -q` (122 passed); `python3 -m compileall -q agents/scope_puller.py`; `git diff --check`; read-only live parse of the public Intigriti program page found 3 domains, 2 URLs, and 16 exclusions.
-- Independent review: initial review blocked an Intigriti `owner/program` shorthand URL bug; the focused fix and regression test are verified locally, awaiting a fresh review.
+- Independent review: the first review blocked the shorthand URL issue; a fresh review of `b1849bc49baac3fa0542ee679e15592ee544af4e` found no source-code correctness issue and blocked only this stale dossier. This update is awaiting a final metadata-only re-review.
 - Replay/cohort/fixture evidence: fixture tests cover rendered in/out-of-scope cards, shorthand URL resolution/saving, and canonical/legacy file persistence.
-- Merge/ancestry evidence: pending.
+- Merge/ancestry evidence: feature is descended from `e0fef5c1fbd90662af53d798d26a1e32e3d00f63`; beta merge preflight pending.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** independent implementation review.
+- **Missing test or evidence:** final independent metadata-only re-review after this checkpoint correction.
 - **Command / fixture / environment needed:** fresh reviewer in this feature worktree.
-- **Trigger to run it:** after implementation commit.
-- **Why it blocks integration, activation, or promotion:** material shared scope parsing needs an independent release gate.
-- **Next completion step / successor reference:** commit this cohesive change, update this dossier with its SHA, then obtain review.
+- **Trigger to run it:** after the dossier checkpoint commit.
+- **Why it blocks integration, activation, or promotion:** release metadata must accurately identify the reviewed implementation before beta integration.
+- **Next completion step / successor reference:** commit this dossier update, obtain a fresh verdict, then run the beta merge preflight.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/scope-puller-outscope-intigriti`
-- **Latest immutable recovery checkpoint:** `b14b47f58681985bc63969e5f7ac9856aad44c82`
-- **Feature implementation commit(s):** `b14b47f58681985bc63969e5f7ac9856aad44c82`
-- **Exact resume point:** request independent review of `b14b47f58681985bc63969e5f7ac9856aad44c82`, then merge to beta if accepted.
-- **Working-tree state at handoff:** intentionally uncommitted (dossier checkpoint update only).
+- **Latest immutable recovery checkpoint:** `b1849bc49baac3fa0542ee679e15592ee544af4e` (the current tip will be a dossier-only checkpoint commit)
+- **Feature implementation commit(s):** `b14b47f58681985bc63969e5f7ac9856aad44c82`, `b1849bc49baac3fa0542ee679e15592ee544af4e`
+- **Exact resume point:** request independent review of the dossier-only checkpoint plus `b1849bc49baac3fa0542ee679e15592ee544af4e`, then run the beta merge preflight if accepted.
+- **Working-tree state at handoff:** intentionally uncommitted (dossier correction only).
 
 ## Decision gates
 
@@ -50,4 +50,6 @@ The puller will write canonical and legacy `out-of-scope.txt` files with metadat
 
 ## Decision record
 
-- 2026-09-14 — implemented fixture-tested scope persistence and public Intigriti parsing; awaiting checkpoint and review.
+- 2026-09-14 — implemented fixture-tested scope persistence and public Intigriti parsing; checkpointed at `b14b47f`.
+- 2026-09-14 — independent review found and the branch fixed the `owner/program` URL resolution defect at `b1849bc`; second review found only stale dossier metadata.
+- 2026-09-14 — correcting metadata before final release review.

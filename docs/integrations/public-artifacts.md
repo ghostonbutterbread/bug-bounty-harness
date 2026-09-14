@@ -16,6 +16,7 @@ own-community preference, one-artifact reuse, and verified terminal cleanup.
 
 ## Evidence
 
+- **Implementation checkpoint:** `9c6a0e02da208e7c738236a6eaa2c6e975172721`; the current branch tip will add this dossier-only handoff commit.
 - Installed the pinned provider using `bash setup.sh --install-python-deps`.
 - `uv pip freeze --python .venv/bin/python` confirms the exact provider SHA.
 - `.venv/bin/python -m pytest -q agents/test_public_artifacts.py tests/test_runtime_dependencies.py` — 4 passed.

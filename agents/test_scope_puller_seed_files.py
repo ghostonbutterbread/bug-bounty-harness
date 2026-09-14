@@ -83,6 +83,25 @@ def test_intigriti_shorthand_uses_public_program_url_and_saves_scope(monkeypatch
     assert saved == {"program": "owner/demo", "data": scope_data}
 
 
+def test_routable_scope_entry_normalizes_obvious_host_formatting_without_widening() -> None:
+    assert scope_puller.routable_scope_entry("v1. kidswebservices.com") == "v1.kidswebservices.com"
+    assert scope_puller.routable_scope_entry("dev.epicgames.com/*") == "dev.epicgames.com"
+    assert scope_puller.routable_scope_entry("Any other Epic games owned asset") is None
+    assert scope_puller.routable_scope_entry("https://api.example.com/v1. release") == "https://api.example.com/v1. release"
+
+
+def test_save_scope_preserves_exact_in_scope_urls(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
+    scope_puller.save_scope(
+        "example",
+        {"domains": ["v1. kidswebservices.com", "dev.epicgames.com/*"], "urls": ["https://api.example.com/v1. release"], "out_of_scope": []},
+    )
+    content = (tmp_path / "Shared/scopes/example/in-scope.txt").read_text()
+    assert "v1.kidswebservices.com" in content
+    assert "dev.epicgames.com\n" in content
+    assert "https://api.example.com/v1. release" in content
+
+
 def test_save_scope_writes_out_of_scope_files_for_canonical_and_legacy_locations(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
     scope_puller.save_scope(

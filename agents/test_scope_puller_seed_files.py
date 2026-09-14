@@ -83,6 +83,12 @@ def test_intigriti_shorthand_uses_public_program_url_and_saves_scope(monkeypatch
     assert saved == {"program": "owner/demo", "data": scope_data}
 
 
+def test_routable_scope_entry_normalizes_obvious_host_formatting_without_widening() -> None:
+    assert scope_puller.routable_scope_entry("v1. kidswebservices.com") == "v1.kidswebservices.com"
+    assert scope_puller.routable_scope_entry("dev.epicgames.com/*") == "dev.epicgames.com"
+    assert scope_puller.routable_scope_entry("Any other Epic games owned asset") is None
+
+
 def test_save_scope_writes_out_of_scope_files_for_canonical_and_legacy_locations(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(scope_puller.Path, "home", lambda: tmp_path)
     scope_puller.save_scope(

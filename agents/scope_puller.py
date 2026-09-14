@@ -549,22 +549,28 @@ SCOPE_DOMAIN_PATTERN = re.compile(
 )
 
 
-def routable_scope_entry(value: str) -> str | None:
-    """Return a strict plain-text scope entry, or None for metadata/prose.
+def routable_scope_entry(value: str, *, url_to_host: bool = False) -> str | None:
+    """Return a strict scope entry, dropping non-routable platform metadata.
 
-    ``out-of-scope.txt`` is shared with strict consumers, so it may contain
-    only a host, wildcard host, IP, or CIDR. Path-scoped HTTP(S) exclusions are
-    conservatively reduced to their host; complete platform targets remain in
-    ``out-of-scope.json``.
+    Preserve an in-scope HTTP(S) URL exactly so a path-scoped grant never widens.
+    Out-of-scope callers may conservatively reduce a path URL to its host.
     """
     candidate = value.strip()
-    if not candidate or any(char.isspace() for char in candidate):
+    if not candidate:
+        return None
+    candidate = re.sub(r"\.\s+", ".", candidate)
+    if candidate.endswith("/*") and SCOPE_DOMAIN_PATTERN.fullmatch(candidate[:-2]):
+        candidate = candidate[:-2]
+    if any(char.isspace() for char in candidate):
         return None
     parsed = urlparse(candidate)
     if parsed.scheme.lower() in {"http", "https"}:
-        candidate = parsed.hostname or ""
-    if not candidate:
-        return None
+        if not parsed.hostname:
+            return None
+        if url_to_host:
+            candidate = parsed.hostname
+        else:
+            return candidate
     if "/" in candidate:
         try:
             return str(ipaddress.ip_network(candidate, strict=False))
@@ -622,16 +628,19 @@ def save_scope(program: str, scope_data: dict, *, legacy: bool = True):
     raw_base = base / "raw"
 
     in_scope = "# In-scope domains and URLs\n"
-    for domain in sorted(scope_data.get("domains", [])):
-        in_scope += f"{domain}\n"
-    for url in sorted(scope_data.get("urls", [])):
-        in_scope += f"{url}\n"
+    strict_in_scope = {
+        entry
+        for value in [*scope_data.get("domains", []), *scope_data.get("urls", [])]
+        if (entry := routable_scope_entry(str(value)))
+    }
+    for entry in sorted(strict_in_scope):
+        in_scope += f"{entry}\n"
 
     out_of_scope = ""
     strict_out_of_scope = {
         entry
         for target in scope_data.get("out_of_scope", [])
-        if (entry := routable_scope_entry(str(target.get("uri") or target.get("name") or "")))
+        if (entry := routable_scope_entry(str(target.get("uri") or target.get("name") or ""), url_to_host=True))
     }
     for entry in sorted(strict_out_of_scope):
         out_of_scope += f"{entry}\n"

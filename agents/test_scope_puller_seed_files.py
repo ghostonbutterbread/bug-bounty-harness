@@ -90,7 +90,13 @@ def test_save_scope_writes_out_of_scope_files_for_canonical_and_legacy_locations
         {
             "domains": {"*.example.com"},
             "urls": {"https://api.example.com/v1"},
-            "out_of_scope": [{"uri": "private.example.com", "category": "url", "group": "out-of-scope"}],
+            "out_of_scope": [
+                {"uri": "private.example.com", "category": "url", "group": "out-of-scope"},
+                {"uri": "*.excluded.example.com", "category": "wildcard", "group": "out-of-scope"},
+                {"uri": "https://api.example.com/private/*", "category": "url", "group": "out-of-scope"},
+                {"uri": "10.0.0.0/8", "category": "cidr", "group": "out-of-scope"},
+                {"uri": "any example CTF", "category": "other", "group": "out-of-scope", "description": "human-only exclusion"},
+            ],
             "assets": [],
             "rules": {},
         },
@@ -98,8 +104,11 @@ def test_save_scope_writes_out_of_scope_files_for_canonical_and_legacy_locations
 
     canonical = tmp_path / "Shared" / "scopes" / "demo" / "out-of-scope.txt"
     legacy = tmp_path / "Shared" / "bounty_recon" / "demo" / "scope" / "out-of-scope.txt"
-    assert canonical.read_text() == "# Explicit out-of-scope targets\nprivate.example.com :: category=url group=out-of-scope\n"
-    assert legacy.read_text() == canonical.read_text()
+    structured = tmp_path / "Shared" / "scopes" / "demo" / "out-of-scope.json"
+    expected = "# Explicit out-of-scope targets\n*.excluded.example.com\n10.0.0.0/8\napi.example.com\nprivate.example.com\n"
+    assert canonical.read_text() == expected
+    assert legacy.read_text() == expected
+    assert json.loads(structured.read_text())[-1]["uri"] == "any example CTF"
 
 
 def test_hackerone_structured_scope_keeps_only_eligible_network_assets() -> None:

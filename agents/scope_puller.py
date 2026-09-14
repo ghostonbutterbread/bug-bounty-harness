@@ -3,6 +3,7 @@
 
 import argparse
 import html
+import ipaddress
 import json
 import re
 import urllib.request
@@ -543,6 +544,35 @@ def parse_intigriti_public_program(program: str, html_content: str) -> dict:
     }
 
 
+SCOPE_DOMAIN_PATTERN = re.compile(
+    r"(?:\*\.)?[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
+)
+
+
+def routable_scope_entry(value: str) -> str | None:
+    """Return a strict plain-text scope entry, or None for metadata/prose.
+
+    ``out-of-scope.txt`` is shared with strict consumers, so it may contain
+    only a host, wildcard host, IP, or CIDR. Path-scoped HTTP(S) exclusions are
+    conservatively reduced to their host; complete platform targets remain in
+    ``out-of-scope.json``.
+    """
+    candidate = value.strip()
+    if not candidate or any(char.isspace() for char in candidate):
+        return None
+    if candidate.startswith(("http://", "https://")):
+        parsed = urlparse(candidate)
+        candidate = parsed.hostname or ""
+    if not candidate:
+        return None
+    try:
+        ipaddress.ip_network(candidate, strict=False)
+        return candidate
+    except ValueError:
+        pass
+    return candidate.lower() if SCOPE_DOMAIN_PATTERN.fullmatch(candidate) else None
+
+
 def render_program_policy(scope_data: dict) -> str:
     rules = scope_data.get("rules", {})
     lines = [
@@ -594,19 +624,18 @@ def save_scope(program: str, scope_data: dict, *, legacy: bool = True):
         in_scope += f"{url}\n"
 
     out_of_scope = "# Explicit out-of-scope targets\n"
-    for target in scope_data.get("out_of_scope", []):
-        value = str(target.get("uri") or target.get("name") or "").replace("\n", " ").strip()
-        if value:
-            annotation = " ".join(
-                f"{key}={target[key]}"
-                for key in ("category", "group", "asset_type")
-                if target.get(key)
-            )
-            out_of_scope += f"{value}{' :: ' + annotation if annotation else ''}\n"
+    strict_out_of_scope = {
+        entry
+        for target in scope_data.get("out_of_scope", [])
+        if (entry := routable_scope_entry(str(target.get("uri") or target.get("name") or "")))
+    }
+    for entry in sorted(strict_out_of_scope):
+        out_of_scope += f"{entry}\n"
 
     changed = [
         write_if_changed(base / "in-scope.txt", in_scope),
         write_if_changed(base / "out-of-scope.txt", out_of_scope),
+        write_if_changed(base / "out-of-scope.json", json.dumps(scope_data.get("out_of_scope", []), indent=2, sort_keys=True) + "\n"),
         write_if_changed(base / "assets.json", json.dumps(scope_data.get("assets", []), indent=2, sort_keys=True) + "\n"),
         write_if_changed(base / "rules-of-engagement.json", json.dumps(scope_data.get("rules", {}), indent=2, sort_keys=True) + "\n"),
         write_if_changed(base / "program-policy.md", render_program_policy(scope_data)),

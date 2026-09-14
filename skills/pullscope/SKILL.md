@@ -25,7 +25,8 @@ Fetches and parses scope from bug bounty platforms (HackerOne, Bugcrowd, Intigri
 ```
 ~/Shared/scopes/{program}/
 ├── in-scope.txt                 # All in-scope domains/URLs
-├── out-of-scope.txt             # Explicit exclusions, annotated for scope readers
+├── out-of-scope.txt             # Strict host/CIDR exclusions for scope filters
+├── out-of-scope.json            # Complete platform exclusion records, including prose
 ├── assets.json                  # Normalized target groups/assets
 ├── rules-of-engagement.json     # Platform, source URL, rules text, machine tags
 ├── program-policy.md            # Human-readable policy summary

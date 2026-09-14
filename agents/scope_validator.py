@@ -254,6 +254,9 @@ class ScopeValidator:
                     line = line.strip()
                     if not line or line.startswith("#"):
                         continue
+                    # Annotations are whitespace-delimited; bare :: may be IPv6
+                    # compression or part of a URL and must remain intact.
+                    line = re.split(r"\s+::(?:\s+|$)", line, maxsplit=1)[0].strip()
                     entry = _ScopeEntry(line)
                     if entry.entry_type != "comment":
                         if is_out_of_scope:

@@ -1,5 +1,18 @@
 # Known defects awaiting their own task
 
+## ScopeManager does not load explicit exclusions
+
+**Location:** `agents/scope_manager.py:17-27`, `_load_domains`, `_load_urls`,
+and `is_in_scope`.
+
+**Evidence:** initialization loads only allow domains/URLs and policy metadata;
+its candidate scope filenames omit `out-of-scope.txt` and `excluded.txt`.
+`is_in_scope` returns on allow matches without checking any exclusion collection.
+
+**Impact:** an explicitly excluded host can still be accepted by ScopeManager
+when it matches an allow. This is separate from ScopeValidator's annotation
+parsing defect and is intentionally not fixed in that bounded parser task.
+
 ## Resolved integration dossier triggers the documentation lane check
 
 **Location:** `docs/integrations/broad-goal-map-reconciliation.md:24`.

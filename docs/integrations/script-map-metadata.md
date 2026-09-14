@@ -54,3 +54,28 @@ from the integration target only on acceptance. Recovery implementation checkpoi
 `0800efa1f4dce16618d13e08ebda86e9baaa8e89` on `docs/script-map-metadata`.
 It contains the documentation/test changes; the subsequent dossier-only commit
 records this immutable checkpoint. Verify that handoff-only range separately.
+
+## Reconciled cleanup checkpoint
+
+User now treats script discovery and canonical lifecycle migration as cohesive
+work, but explicitly holds all pushes and deployments. Original base above is
+historical, not the current remote. Fetched `origin/beta` advanced to `0d9231e`;
+merged that upstream into this isolated feature without conflicts at immutable
+reconciliation checkpoint `ee0102b5e93c2adfafc9db78ee0da7664fdfa701`.
+This following dossier-only commit records the checkpoint. Relative to fetched
+origin/beta the feature still changes only SCRIPT_POLICY.md, its focused tests,
+and this dossier; upstream implementation work was preserved, not authored here.
+The primary beta checkout was not changed.
+
+Fresh isolated `PYTHONPATH="$PWD" python3 -m pytest tests/test_script_policy.py -q`:
+23 passed. `git diff --check origin/beta..HEAD`: passed. AGENTS.md is unchanged;
+no retry or alternate writer was used after the prior protected-file denial.
+No fresh normal approval is available in this child. Parent must obtain that
+approval and apply the exact fragment above before release.
+
+Fresh combined independent review through Claude CLI failed before doing work
+with HTTP 429/session limit, session `257d9ad2-082e-4d6e-86cd-4dcaa55ff11f`;
+raw receipt `/home/ryushe/script-map-lifecycle-cleanup-review.json`. Parent must
+supply/retry independent review after approved AGENTS alignment and rerun the
+focused suite. Keep this feature/dossier intact until that gate completes.
+No push, beta integration, protected-file write, or runtime sync is claimed.

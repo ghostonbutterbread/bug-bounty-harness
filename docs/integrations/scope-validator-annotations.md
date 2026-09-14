@@ -7,8 +7,10 @@
 - Base beta commit: `300f6f7fb33832c6fcb04c7afdf663c682e0da1c` (fetched origin/beta; local beta identical)
 - Intended integration target: `beta`
 - Inspiration: parent-provided seed `2026-09-14-scope-validator-annotation-parsing-bug.md`
-- Latest immutable recovery checkpoint: `e673f68` (test-only RED checkpoint)
-- Feature implementation commits: next checkpoint contains the verified fix
+- Latest immutable recovery checkpoint: `f15dbbdbc5fdb95bfe754c4a624480f757594dbf`
+- Feature implementation commit: `f15dbbdbc5fdb95bfe754c4a624480f757594dbf`
+- Test-only RED checkpoint: `e673f68`
+- Current tip may include a subsequent dossier-only handoff commit; inspect it too.
 
 ## Intent and contract
 

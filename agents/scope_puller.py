@@ -19,7 +19,7 @@ except ModuleNotFoundError:
 PLATFORMS = {
     "hackerone": "https://hackerone.com/{program}",
     "bugcrowd": "https://bugcrowd.com/{program}",
-    "intigriti": "https://app.intigriti.com/researcher/{program}",
+    "intigriti": "https://app.intigriti.com/researcher/programs/{program}",
 }
 
 RULE_SCHEMA_VERSION = 1
@@ -134,6 +134,8 @@ def default_source_url(program: str, platform: str) -> str:
         return program
     if platform == "bugcrowd":
         return f"https://bugcrowd.com/engagements/{program}"
+    if platform == "intigriti":
+        return f"https://app.intigriti.com/researcher/programs/{program}"
     return PLATFORMS.get(platform, "https://{program}").format(program=program)
 
 
@@ -454,6 +456,93 @@ def parse_bugcrowd_public_engagement(program: str, html_content: str) -> dict:
     }
 
 
+INTIGRITI_ASSET_TYPES = {"URL", "Wildcard", "Other", "Android", "iOS", "Source code"}
+
+
+def parse_intigriti_public_program(program: str, html_content: str) -> dict:
+    """Parse rendered public Intigriti asset cards without an authenticated API."""
+    domains: set[str] = set()
+    urls: set[str] = set()
+    groups: dict[str, list[dict]] = {}
+    out_of_scope: list[dict] = []
+    cards = re.findall(
+        r"<lib-asset-detail\b.*?</lib-asset-detail>", html_content,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not cards:
+        raise RuntimeError("Intigriti public page did not expose rendered asset cards")
+
+    for card in cards:
+        name_match = re.search(
+            r'class="[^"]*asset-name[^"]*"[^>]*>.*?<(?:span|a)\b[^>]*>(.*?)</(?:span|a)>',
+            card,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if not name_match:
+            continue
+        name = html_to_text(name_match.group(1)).strip()
+        if not name:
+            continue
+        card_text = html_to_text(card)
+        asset_type = next(
+            (kind for kind in INTIGRITI_ASSET_TYPES if re.search(rf"\b{re.escape(kind)}\b", card_text, re.IGNORECASE)),
+            "other",
+        )
+        is_out_of_scope = "oos-asset" in card or bool(re.search(r"\bOut of scope\b", card_text, re.IGNORECASE))
+        tier_match = re.search(r"\bTier\s+(\d+)\b", card_text, re.IGNORECASE)
+        group = "out-of-scope" if is_out_of_scope else (f"tier-{tier_match.group(1)}" if tier_match else "in-scope")
+        target = {
+            "name": name,
+            "uri": name,
+            "category": asset_type.lower().replace(" ", "_"),
+            "asset_type": asset_type,
+            "description": "",
+            "group": group,
+            "in_scope": not is_out_of_scope,
+            "ip_address": None,
+        }
+        if is_out_of_scope:
+            out_of_scope.append(target)
+            continue
+        add_bugcrowd_target_to_scope(domains, urls, name=name, uri=name)
+        groups.setdefault(group, []).append(target)
+
+    if not domains and not urls:
+        raise RuntimeError("Intigriti public page contained no in-scope network assets")
+
+    source_url = default_source_url(program, "intigriti")
+    rules_text = html_to_text(html_content)
+    blocked_keywords = {
+        "brute force": "brute force",
+        "denial of service": "denial of service",
+        "dos/ddos": "denial of service",
+        "social engineering": "social engineering",
+        "physical access": "physical attacks",
+        "spam": "spam",
+    }
+    blocked = sorted({label for needle, label in blocked_keywords.items() if needle in rules_text.lower()})
+    return {
+        "program": canonical_program_slug(program),
+        "platform": "intigriti",
+        "domains": domains,
+        "urls": urls,
+        "assets": [{"name": group, "targets": groups[group]} for group in sorted(groups)],
+        "out_of_scope": out_of_scope,
+        "rules": build_rules_profile(
+            program=program,
+            platform="intigriti",
+            source_url=source_url,
+            source_brief_url=source_url,
+            status="open" if re.search(r"\bOpen\b", rules_text) else None,
+            participation="public" if re.search(r"\bPublic\b", rules_text) else None,
+            rules_text=rules_text,
+            blocked_or_sensitive_classes=blocked,
+            needs_review=["Public rendered Intigriti asset cards are authoritative for assets; review the program rules before live testing."],
+        ),
+        "raw": html_content,
+    }
+
+
 def render_program_policy(scope_data: dict) -> str:
     rules = scope_data.get("rules", {})
     lines = [
@@ -504,19 +593,36 @@ def save_scope(program: str, scope_data: dict, *, legacy: bool = True):
     for url in sorted(scope_data.get("urls", [])):
         in_scope += f"{url}\n"
 
+    out_of_scope = "# Explicit out-of-scope targets\n"
+    for target in scope_data.get("out_of_scope", []):
+        value = str(target.get("uri") or target.get("name") or "").replace("\n", " ").strip()
+        if value:
+            annotation = " ".join(
+                f"{key}={target[key]}"
+                for key in ("category", "group", "asset_type")
+                if target.get(key)
+            )
+            out_of_scope += f"{value}{' :: ' + annotation if annotation else ''}\n"
+
     changed = [
         write_if_changed(base / "in-scope.txt", in_scope),
+        write_if_changed(base / "out-of-scope.txt", out_of_scope),
         write_if_changed(base / "assets.json", json.dumps(scope_data.get("assets", []), indent=2, sort_keys=True) + "\n"),
         write_if_changed(base / "rules-of-engagement.json", json.dumps(scope_data.get("rules", {}), indent=2, sort_keys=True) + "\n"),
         write_if_changed(base / "program-policy.md", render_program_policy(scope_data)),
     ]
     if scope_data.get("raw"):
-        changed.append(write_if_changed(raw_base / f"{scope_data.get('platform', 'source')}-brief.json", json.dumps(scope_data["raw"], indent=2, sort_keys=True) + "\n"))
+        raw = scope_data["raw"]
+        if isinstance(raw, str):
+            changed.append(write_if_changed(raw_base / f"{scope_data.get('platform', 'source')}-page.html", raw))
+        else:
+            changed.append(write_if_changed(raw_base / f"{scope_data.get('platform', 'source')}-brief.json", json.dumps(raw, indent=2, sort_keys=True) + "\n"))
 
     if legacy:
         legacy_program_base = Path.home() / "Shared" / "bounty_recon" / slug
         legacy_base = legacy_program_base / "scope"
         write_if_changed(legacy_base / "in-scope.txt", in_scope)
+        write_if_changed(legacy_base / "out-of-scope.txt", out_of_scope)
         seed_counts = write_recon_seed_files(
             legacy_program_base,
             scope_data.get("domains", set()),
@@ -595,6 +701,8 @@ def pull_scope(program: str, platform: str = None, *, use_api: bool = False):
     # Parse
     if platform == "bugcrowd":
         scope_data = parse_bugcrowd_public_engagement(program, content)
+    elif platform == "intigriti":
+        scope_data = parse_intigriti_public_program(program, content)
     else:
         domains = set()
         domain_pattern = r'(?:[*]?\.)?([a-z0-9][-a-z0-9]*\.[a-z]{2,})'

@@ -7,7 +7,7 @@
 # Options:
 #   --init          Initialize directories and install BBH dependencies
 #   --install-tools Install checkout-local Python dependencies and helper commands
-#   --install-python-deps Install Bounty Core into this checkout's .venv
+#   --install-python-deps Install runtime and test dependencies into this checkout's .venv
 #   --install-dispatchers Install only lane-safe local command launchers
 
 #   --prompt        Display agent prompt (use --prompt --program NAME for custom)
@@ -199,7 +199,7 @@ install_python_venv_dependency() {
 
 install_python_dependencies() {
     local venv_python="$SCRIPT_DIR/.venv/bin/python"
-    local requirements="$SCRIPT_DIR/requirements-bounty-core.txt"
+    local requirements="$SCRIPT_DIR/requirements.txt"
 
     if ! command -v uv >/dev/null 2>&1; then
         echo "  Error: uv is required to install BBH Python dependencies"
@@ -207,7 +207,7 @@ install_python_dependencies() {
         return 1
     fi
     if [ ! -f "$requirements" ]; then
-        echo "  Error: Bounty Core dependency manifest is missing: $requirements"
+        echo "  Error: BBH dependency manifest is missing: $requirements"
         return 1
     fi
 

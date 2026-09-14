@@ -1,6 +1,6 @@
 # Hermes-manager and script-maintenance boundary
 
-- Status: verified partial checkpoint; **blocked for release** by protected AGENTS edit.
+- Status: accepted for beta integration; protected AGENTS alignment approved and applied.
 - Owner/task: bugfix-profile delegated maintenance-boundary clarification; parent owns independent review and integration.
 - Worktree: `/home/ryushe/projects/.worktrees/bbh-script-map-metadata`
 - Branch: `docs/script-map-metadata`; intended target: `beta` after approval and review.
@@ -57,30 +57,32 @@ Commands executed from the respective owning checkouts:
 - AI Policies: `python3 scripts/policy_lint.py` — passed; `python3 -m pytest -q` — 27 passed. An intermediate obsolete text assertion failed and was updated to the clarified owner/router contract; existing independent-release assertions remain.
 - Both repositories: `git diff --check` passed.
 
-These checks validate the changed policy text and existing contracts, not a
-complete cross-document alignment: BBH AGENTS.md still contradicts the intended
-manager/other-agent boundary.
+## Accepted review and exact handoff
 
-## Blockers and exact handoff
+The parent successfully applied the renewed user-authorized protected AGENTS.md
+alignment. The earlier denial is superseded; no protection bypass was used.
+Fresh independent reviewer `sa-0-a6f70c6f` approved BBH checkpoint
+`3d790d3887b2e7a419342921aab44ea84e3a4fcb` plus the intentional AGENTS diff
+(SHA256 `afa4886c1aa9e3fe3567d959109a1f3c873b92d038e48649373d1ca3c6a141b5`)
+against `0d9231ec748e31541cff8c899ca0efb73cf23f4a`, and AI Policies
+`6b5db3361694fbc045398813818a351c47eef189` against its published base above.
+Reviewer independently reproduced BBH 23 focused passes and AI Policies 27
+passes plus lint/diff checks. No release blocker; extra AGENTS assertions were
+optional, not a gate. Root guidance now agrees with the manager and scoped
+other-agent metadata boundary, without new security authority or a new
+implementation-subagent requirement.
 
-User renewed approval for AGENTS.md, but the normal protected patch tool again
-returned a denied-by-user result. No retry, alternative writer, or guard bypass
-was attempted. AGENTS.md is unchanged. Its final paragraph still limits Hoster
-to existing-script repair and sends all skill/policy edits to seeds without the
-manager distinction or pointer exception. Parent must resolve the normal
-protected approval path and align that paragraph to the contract above, with a
-narrow SCRIPT_POLICY.md owner link rather than duplicate metadata doctrine.
-Then add/check root-route alignment assertions and rerun the focused suite.
+Release successor: commit the approved AGENTS alignment with this final handoff,
+merge into clean current BBH beta, remove this dossier during integration,
+rerun focused checks, push only named integration refs, and read back exact
+remote revisions. AI Policies uses its clean reviewed direct-beta checkout.
+Verify focused authorized local/Hoster source updates and projections separately;
+do not infer runtime activation from publication. Stable remains untouched.
 
-Parent must independently review both exact candidate tips and the eventual
-approved AGENTS diff before BBH integration or any push. Recheck upstream refs
-and rerun AI Policies lint/full tests plus BBH focused tests. Full BBH verification
-remains deferred until the missing bac_checks dependency/layout and the two
-unchanged baseline failures are resolved by their owners; rerun the commands
-above when those prerequisites change.
-
-The inherited Kanban child-context guard failure remains a tracker blocker;
-no bypass or tracker success is claimed. Use this committed dossier for recovery.
-No push, BBH beta integration, stable promotion, runtime activation, or sync.
-Retain this blocked branch; remove this dossier from the integration target only
-on acceptance. General Skills' dirty unrelated source checkout was left alone.
+Full BBH verification remains deferred until the missing bac_checks
+dependency/layout and the two unchanged baseline failures are resolved by their
+owners; rerun the full commands above when those prerequisites change.
+The inherited Kanban child-context guard failure remains a tracker limitation;
+no bypass or tracker success is claimed. This committed dossier is the recovery
+receipt until accepted integration retires it. Preserve unrelated General Skills
+work and previously approval-blocked temporary-config cleanup remnants.

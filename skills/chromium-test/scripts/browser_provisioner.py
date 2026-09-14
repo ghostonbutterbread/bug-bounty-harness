@@ -14,6 +14,10 @@ LEASE = ROOT / "browser_profile_lease.py"
 CHROMIUM = ROOT / "chromium_test.py"
 STATE = Path(os.environ.get("BROWSER_PROVISIONER_STATE", "~/.local/state/ghost/browser-profile-leases/browser_provisioner.sqlite")).expanduser()
 DEFAULT_RAM_MIB, DEFAULT_SWAP_MIB, DEFAULT_IDLE = 2048, 512, 900
+# Seconds to wait for the launcher to write its private record. Chromium must
+# stand up a display and reach CDP first, which exceeds a few seconds on a
+# loaded host; too small a value kills the unit before it can ever report.
+LAUNCH_WAIT_SECONDS = float(os.environ.get("BROWSER_LAUNCH_WAIT_SECONDS", "45"))
 MAX_TABS = 5
 
 def emit(o, code=0): print(json.dumps(o, sort_keys=True)); raise SystemExit(code)
@@ -77,11 +81,11 @@ def start(args):
  run=['systemd-run','--user','--unit='+unit,'--property=MemoryHigh='+args.memory_high,'--property=MemoryMax='+args.memory_max,'--property=CPUWeight=100','--','/bin/bash','-lc',shell]
  p=subprocess.run(run,capture_output=True,text=True,env=sysenv())
  if p.returncode or not unit_active(unit): release_lease(lid,args.agent_id); emit({'status':'launch-failed','detail':(p.stderr or p.stdout).strip()},2)
- deadline=time.time()+8
+ deadline=time.time()+LAUNCH_WAIT_SECONDS
  while time.time()<deadline and (not launch.exists() or launch.stat().st_size == 0): time.sleep(.2)
  try: info=json.loads(launch.read_text())
  except Exception:
-  stop_unit(unit); release_lease(lid,args.agent_id); emit({'status':'launch-failed','detail':'launcher did not produce a valid private record'},2)
+  stop_unit(unit); release_lease(lid,args.agent_id); emit({'status':'launch-failed','detail':f'launcher did not produce a valid private record within {LAUNCH_WAIT_SECONDS:g}s (raise BROWSER_LAUNCH_WAIT_SECONDS if the host is slow)'},2)
  reg=lease(args,'register-browser','--lease-id',lid,'--agent-id',args.agent_id,'--cdp-url',info['cdp_url'],'--service-unit',unit)
  if reg.get('status') not in ('registered','registered-unreachable'):
   stop_unit(unit); release_lease(lid,args.agent_id); emit({'status':'launch-failed','detail':'could not register owned browser'},2)

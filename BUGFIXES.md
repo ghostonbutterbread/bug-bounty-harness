@@ -62,3 +62,20 @@ beta `5ef9b5b304fa3ce995e3700d32f3e7d4789539ee`.
 **Impact:** the complete `tests/` suite remains red independently of the Hoster
 script-authority guidance. The owning dependency task must decide which reviewed
 revision is canonical and update the test or manifest coherently.
+
+## setup.sh installs only the Bounty Core manifest
+
+**Location:** `setup.sh:202` (`install_python_dependencies`).
+
+**Evidence:** the function pins `requirements="$SCRIPT_DIR/requirements-bounty-core.txt"`
+and never installs `requirements-dev.txt`. A `.venv` built by
+`./setup.sh --install-python-deps` therefore lacks `requests`, `bs4`, `PyYAML`
+and `urllib3`; `grep -rlE '^\s*(import|from) (requests|bs4|yaml)'` matches 10
+files under `agents/` and `skills/` that fail at import. Reproduced on
+`bug_bounty_harness-runtime-beta` and `-runtime-beta-header` (both venvs had 15
+packages and no `requests`).
+
+**Impact:** a fresh checkout or `uv venv --clear` rebuild silently breaks those
+harness scripts. `playwright` is also undeclared, so `chromium_test.py` falls
+back to system Chrome instead of the Playwright binary that the host's AppArmor
+profile already covers. Owner decision pending; live venvs repaired by hand.

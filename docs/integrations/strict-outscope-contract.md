@@ -39,8 +39,8 @@ Make generated `out-of-scope.txt` safe for strict line-based scope consumers wit
 - **Owning feature branch/ref:** `fix/strict-outscope-contract`
 - **Latest immutable recovery checkpoint:** `6109bc60147bf11ef27e319a86f7398d9d6c995b`
 - **Feature implementation commit(s):** `82f23aa21d604036f94b4a0bbdf20f3065f31e62`, `6109bc60147bf11ef27e319a86f7398d9d6c995b`
-- **Exact resume point:** commit this dossier checkpoint update and obtain fresh review of the corrected range.
-- **Working-tree state at handoff:** intentionally uncommitted (dossier checkpoint update only).
+- **Exact resume point:** obtain independent review of this current dossier-only handoff and the implementation through `6109bc60147bf11ef27e319a86f7398d9d6c995b`, then run the beta merge preflight if accepted.
+- **Working-tree state at handoff:** clean after committing this dossier-only handoff.
 
 ## Decision gates
 

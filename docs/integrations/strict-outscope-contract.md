@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-14
 - **Owning feature branch/ref:** `fix/strict-outscope-contract`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `82f23aa21d604036f94b4a0bbdf20f3065f31e62`
+- **Feature implementation commit(s):** `82f23aa21d604036f94b4a0bbdf20f3065f31e62`
 - **Inspiration / canonical references:** `~/Shared/change_proposals/2026-09-14-claude-scope-puller-outscope-delimiter.md`
 
 ## Intent

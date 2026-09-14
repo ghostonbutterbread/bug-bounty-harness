@@ -8,6 +8,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -36,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--purpose")
     record.add_argument("--cleanup-method")
     record.add_argument("--cleanup-verified", action="store_true")
-    record.add_argument("--details-json", default="{}")
+
 
     current = subparsers.add_parser("current", help="List currently reusable owned artifacts")
     current.add_argument("--program", required=True)
@@ -45,23 +46,44 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _details(value: str) -> dict[str, Any]:
-    try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError as error:
-        raise ValueError(f"--details-json must be a JSON object: {error.msg}") from error
-    if not isinstance(parsed, dict):
-        raise ValueError("--details-json must be a JSON object")
-    return parsed
-
-
 def _store(args: argparse.Namespace) -> PublicArtifactStore:
     return PublicArtifactStore(args.program, family=args.family, lane=args.lane, root_override=args.root)
+
+
+def _validate_canonical_url(url: str) -> None:
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("--url must be an absolute http(s) artifact URL")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("--url must be a canonical URL without credentials, query parameters, or a fragment")
+
+
+def _latest_artifact(store: PublicArtifactStore, artifact_id: str | None) -> dict[str, Any] | None:
+    if not artifact_id:
+        return None
+    return next((row for row in store.current(include_cleaned=True, limit=10_000) if row["artifact_id"] == artifact_id), None)
+
+
+def _validate_cleanup_event(store: PublicArtifactStore, args: argparse.Namespace) -> None:
+    if args.event not in {"cleanup_pending", "deleted", "cleanup_verified"}:
+        return
+    if not args.artifact_id:
+        raise ValueError("artifact_id is required for lifecycle events after creation")
+    if args.visibility != "private":
+        raise ValueError(f"{args.event} requires --visibility private; make the artifact private before cleanup")
+    latest = _latest_artifact(store, args.artifact_id)
+    if args.event == "cleanup_pending":
+        return
+    required_prior = "cleanup_pending" if args.event == "deleted" else "deleted"
+    if latest is None or latest["event"] != required_prior:
+        raise ValueError(f"{args.event} requires a prior {required_prior} event for the same artifact")
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     store = _store(args)
     if args.command == "record":
+        _validate_canonical_url(args.url)
+        _validate_cleanup_event(store, args)
         return store.record(
             event=args.event,
             producer=args.producer,
@@ -74,7 +96,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             purpose=args.purpose,
             cleanup_method=args.cleanup_method,
             cleanup_verified=args.cleanup_verified,
-            details=_details(args.details_json),
+            details={},
         )
     if args.command == "current":
         artifacts = store.current(include_cleaned=args.include_cleaned, limit=args.limit)

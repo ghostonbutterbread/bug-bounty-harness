@@ -93,10 +93,10 @@ Bounty Core persists the append-only registry at:
 ```
 
 Each event includes a generated artifact ID, non-secret `account_ref`, artifact
-kind, URL/object ID, visibility, lifecycle state, purpose, cleanup method, and
-optional sanitized details. The store redacts sensitive URL query values. It is
-a durable ownership/cleanup pointer, not an attempt log, a public-content
-archive, or authorization evidence.
+kind, canonical URL/object ID, visibility, lifecycle state, purpose, and cleanup
+method. The CLI rejects URLs with credentials, query parameters, or fragments.
+The registry is a durable ownership/cleanup pointer, not an attempt log, a
+public-content archive, or authorization evidence.
 
 ## Verification
 

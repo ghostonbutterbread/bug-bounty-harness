@@ -75,3 +75,27 @@ def test_cli_rejects_lifecycle_events_without_the_prior_artifact(tmp_path):
 
     assert result.returncode != 0
     assert "artifact_id is required" in result.stderr
+
+
+def test_cli_rejects_sensitive_urls_and_cleanup_that_skips_private_pending_state(tmp_path):
+    env = os.environ.copy()
+    core_source = env.get("BOUNTY_CORE_TEST_SOURCE")
+    if core_source:
+        env["PYTHONPATH"] = core_source
+    else:
+        env.pop("PYTHONPATH", None)
+    created = run_cli(tmp_path, *record_args(event="created"))
+    for args, message in (
+        (record_args(event="created")[:-2] + ["--url", "https://community.example.test/posts/43?share=SHARE_SECRET"], "canonical URL"),
+        (record_args(event="deleted", artifact_id=created["artifact_id"], visibility="public"), "visibility private"),
+        (record_args(event="deleted", artifact_id=created["artifact_id"], visibility="private"), "prior cleanup_pending"),
+    ):
+        result = subprocess.run(
+            [sys.executable, str(CLI), "--root", str(tmp_path), *args],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert result.returncode != 0
+        assert message in result.stderr

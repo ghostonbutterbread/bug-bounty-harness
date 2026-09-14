@@ -16,8 +16,8 @@ own-community preference, one-artifact reuse, and verified terminal cleanup.
 
 ## Evidence
 
-- **Implementation checkpoints:** `9c6a0e02da208e7c738236a6eaa2c6e975172721` (initial consumer) and `774e289a08f117eb8bd4bef2c7a913b9078493ef` (review-blocker fixes); the current branch tip will add this dossier-only handoff commit.
-- **Independent review:** requested changes because arbitrary details and share/query URLs could persist private content and cleanup could skip the private/pending sequence. The CLI now accepts only canonical no-query/no-fragment URLs, has no details input, and requires private → cleanup_pending → deleted → cleanup_verified; tests cover all three gates.
+- **Implementation checkpoints:** `9c6a0e02da208e7c738236a6eaa2c6e975172721` (initial consumer), `774e289a08f117eb8bd4bef2c7a913b9078493ef` (first review-blocker fixes), and `e558b8f44e4b6c1ad9daf66d23308f24f5e55774` (recorded-private-state fix); the current branch tip will add this dossier-only handoff commit.
+- **Independent review:** the first review found arbitrary details/share URLs and cleanup-order bypasses; the second found that cleanup pending did not prove prior private visibility. The CLI now requires the latest recorded state to be private before cleanup pending and retains regression coverage for every gate.
 - Installed the pinned provider using `bash setup.sh --install-python-deps`.
 - `uv pip freeze --python .venv/bin/python` confirms the exact provider SHA.
 - `.venv/bin/python -m pytest -q agents/test_public_artifacts.py tests/test_runtime_dependencies.py` — 5 passed.

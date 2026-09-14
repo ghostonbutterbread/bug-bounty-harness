@@ -558,19 +558,18 @@ def routable_scope_entry(value: str, *, url_to_host: bool = False) -> str | None
     candidate = value.strip()
     if not candidate:
         return None
-    candidate = re.sub(r"\.\s+", ".", candidate)
-    if candidate.endswith("/*") and SCOPE_DOMAIN_PATTERN.fullmatch(candidate[:-2]):
-        candidate = candidate[:-2]
-    if any(char.isspace() for char in candidate):
-        return None
     parsed = urlparse(candidate)
     if parsed.scheme.lower() in {"http", "https"}:
         if not parsed.hostname:
             return None
         if url_to_host:
-            candidate = parsed.hostname
-        else:
-            return candidate
+            return parsed.hostname
+        return candidate
+    candidate = re.sub(r"\.\s+", ".", candidate)
+    if candidate.endswith("/*") and SCOPE_DOMAIN_PATTERN.fullmatch(candidate[:-2]):
+        candidate = candidate[:-2]
+    if any(char.isspace() for char in candidate):
+        return None
     if "/" in candidate:
         try:
             return str(ipaddress.ip_network(candidate, strict=False))

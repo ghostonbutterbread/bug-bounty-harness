@@ -2,10 +2,10 @@
 
 - **Status:** feature
 - **Owner:** Hermes
-- **Branch:** `bug-bounty-harness/t_01b3406c-make-pulled-in-scope-scope-files`
+- **Branch:** `bug-bounty-harness/t_01b3406c-make-pulled-in-scope-files-strict-recon`
 - **Base commit:** `951b7426a885bcf17dc2f72218d791d7f0653da3`
 - **Intended integration target:** `beta`
-- **Latest immutable recovery checkpoint:** none yet
+- **Latest immutable recovery checkpoint:** `2a095b017a77f833e3e971885923b3c337a102af` (follow-up correction pending commit)
 
 ## Intent
 

@@ -63,3 +63,18 @@ beta `5ef9b5b304fa3ce995e3700d32f3e7d4789539ee`.
 `1bba64b557aa3b604092b5bad47689fcb40cc0f7` pin and updates the regression to assert
 the complete preserved dependency set. No Bounty Core upgrade or downgrade is
 part of this fix.
+
+## `master` recon-ry wrapper does not pass `--scope-file`
+
+**Location:** `agents/recon_ry.py`, `start_remote`, on the `master` branch.
+
+**Evidence:** `origin/master` and `origin/beta` have diverged (master is not an
+ancestor of beta; beta is 323 commits ahead), and both carried the same gap:
+the wrapper derived `urls.txt`/`wild.txt` seeds from saved scope but never
+passed `--scope-file`/`--out-scope-file` to recon-ry. The beta copy is fixed;
+master is untouched because the branches are not in an ancestor relationship
+and beta is the active lane.
+
+**Impact:** a `master`-lane recon-ry launch runs without scope containment, so
+tool input, crawler reach and promoted artifacts are unfiltered. Backport the
+beta fix if the master lane is used for recon.

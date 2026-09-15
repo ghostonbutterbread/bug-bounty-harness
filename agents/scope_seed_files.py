@@ -71,5 +71,54 @@ def write_recon_seed_files(base: Path, domains: set[str] | list[str], urls: set[
     return {"urls": len(url_lines), "wildcards": len(wild_lines)}
 
 
+def recon_scope_file_lines(values: set[str] | list[str]) -> tuple[list[str], list[str]]:
+    """Return ``(scope_lines, deferred)`` for a recon-ry ``--scope-file``.
+
+    recon-ry scope entries are hostnames, wildcard hosts, IPs or CIDRs; it
+    rejects anything carrying a path. A URL scoped to a specific path is
+    therefore returned as ``deferred`` rather than widened to its whole host,
+    which would claim more authorization than the program granted.
+    """
+    scope_lines: list[str] = []
+    deferred: list[str] = []
+
+    for raw in values:
+        value = clean_scope_value(raw)
+        if not value:
+            continue
+        if value.startswith(("http://", "https://")):
+            parsed = urlparse(value)
+            if parsed.path.strip("/"):
+                deferred.append(value)
+                continue
+            host = (parsed.hostname or "").lower()
+            if host:
+                scope_lines.append(host)
+            continue
+        # Bare hosts, wildcards, IPs and CIDRs pass through as written.
+        scope_lines.append(value.lower())
+
+    return _dedupe(scope_lines), _dedupe(deferred)
+
+
+def write_recon_scope_files(
+    base: Path,
+    in_scope: set[str] | list[str],
+    out_of_scope: set[str] | list[str],
+) -> dict[str, object]:
+    """Write recon-ry ``--scope-file``/``--out-scope-file`` bodies."""
+    allow_lines, deferred = recon_scope_file_lines(in_scope)
+    deny_lines, _ = recon_scope_file_lines(out_of_scope)
+    base.mkdir(parents=True, exist_ok=True)
+    header = "# Generated from saved program scope; edit the program scope, not this file.\n"
+    (base / "in-scope-hosts.txt").write_text(
+        header + "\n".join(sorted(allow_lines)) + ("\n" if allow_lines else ""), encoding="utf-8"
+    )
+    (base / "out-of-scope-hosts.txt").write_text(
+        header + "\n".join(sorted(deny_lines)) + ("\n" if deny_lines else ""), encoding="utf-8"
+    )
+    return {"in_scope": len(allow_lines), "out_of_scope": len(deny_lines), "deferred": deferred}
+
+
 def _dedupe(values: list[str]) -> list[str]:
     return list(dict.fromkeys(v for v in values if v))

@@ -103,7 +103,9 @@ flow into `jsfiles.txt`.
 The wrapper also stages scope seed files into the remote project before launch:
 
 - `<remote-project>/urls.txt` — exact URLs and exact host/domain entries
-- `<remote-project>/wild.txt` — wildcard base domains with leading `*.` removed
+- `<remote-project>/wild.txt` — wildcard base domains with leading `*.` removed.
+  Roots only, and read-only for the duration of a run: recon-ry writes tool
+  output to a run-local copy, never to the project seed files.
 
 For example, `https://app.example.com` stays in `urls.txt`; `*.example.com` becomes `example.com` in `wild.txt`.
 
@@ -135,7 +137,9 @@ Recon-ry writes and dedupes its current state into root line files:
 ```text
 {project}/
 ├── urls.txt          # all known URLs and exact host/domain entries
-├── wild.txt          # subdomains and wildcard bases
+├── wild.txt          # READ-ONLY roots input: wildcard bases, `*.` stripped
+├── hosts.txt         # host inventory: roots + discovered subdomains (pending
+│                     #   recon-ry fix/subdomain-enum-all-roots)
 ├── alive.txt         # live HTTP(S) targets after probing
 ├── params_raw.txt    # raw URLs with parameters from discovery tools
 ├── params.txt        # normalized/deduped parameterized endpoints
@@ -189,7 +193,11 @@ When an agent needs recon data:
 - use `params.txt` for endpoint-heavy testing such as XSS, SQLi, SSRF, redirect, request-shape, and IDOR review
 - use `jsfiles.txt` for JavaScript analysis, secrets review, source-map checks, and DOM sink review. `/js` should consume this file and the canonical aggregate, not re-enable crawlers that recon-ry already owns.
 - use `urls.txt` for broad URL discovery, route grouping, and API/path clustering
-- use `wild.txt` for subdomain or host-level follow-up
+- use `wild.txt` only to read the program's wildcard roots. For subdomain or
+  host-level follow-up use the host inventory (`hosts.txt` once
+  fix/subdomain-enum-all-roots lands; until then the aggregate `hosts.txt`
+  maintained by Recon Bus). Never treat `wild.txt` as a discovered-host list,
+  and never write to it.
 - if an authenticated run was used, read `.auth/auth_metadata.json` for safe
   account/color/session labels. Do not read or copy the raw `.auth/recon-ry-auth.json`
   seed into prompts, reports, or chat.

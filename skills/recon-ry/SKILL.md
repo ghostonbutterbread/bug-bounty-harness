@@ -52,6 +52,12 @@ Before launch, the wrapper stages recon seed files into the remote project:
 `urls.txt` receives exact URLs and exact host/domain entries. `wild.txt`
 receives wildcard base domains with `*.` removed.
 
+Both seed files are **read-only inputs** during a run (enforced since recon-ry
+`65189ed`): recon-ry routes tool output to a run-local temp copy and never
+writes the project `urls.txt` or `wild.txt`. If either file contains deep
+discovered subdomains, that came from outside recon-ry and should be treated as
+contamination, not as normal state — `wild.txt` holds roots only.
+
 Check remote status/log names:
 
 ```bash
@@ -88,7 +94,10 @@ Use the newest `history/` snapshot when the question is about a specific run. Us
 ```text
 {project}/
 ├── urls.txt          # all known URLs and exact host/domain seed entries; deduped current state
-├── wild.txt          # discovered/input subdomains or wildcard bases; deduped current state
+├── wild.txt          # READ-ONLY roots input: scope wildcard bases, `*.` stripped. Never a tool output.
+├── hosts.txt         # host inventory: scope roots + discovered subdomains. Input for URL discovery.
+│                     #   (pending: lands with recon-ry `fix/subdomain-enum-all-roots`; before that
+│                     #    merges, enum output reaches `urls.txt` via the run-local aggregate)
 ├── alive.txt         # live HTTP(S) hosts/URLs after probing; primary list for browser/live-map/nuclei follow-up
 ├── params_raw.txt    # raw parameterized endpoint candidates from discovery tools
 ├── params.txt        # normalized/deduped URLs with parameters; primary list for XSS, SQLi, SSRF, redirect, IDOR-style endpoint review
@@ -158,6 +167,21 @@ task-scoped agent-proxy observations, new JavaScript hashes, request shapes, and
 route/parameter discoveries enrich their owning stores incrementally. Run a
 Recon-Ry delta only for a material deployment/scope change, a concrete coverage
 gap, or freshness uncertainty—not for every later application discovery.
+
+## File Contracts
+
+Keep these distinct. Collapsing them is what silently zeroed out subdomain
+enumeration on epicgames (a deep leaf sorted to line 1 of `wild.txt`, and the
+enum stage used `head -n 1` as its only domain).
+
+| File | Direction | Holds |
+|---|---|---|
+| `wild.txt` | read-only input | scope wildcard base domains, `*.` stripped. Roots only. |
+| `hosts.txt` | tool output + input | scope roots plus every discovered subdomain. What URL discovery crawls. |
+| `alive.txt` | tool output | hosts/URLs that answered the most recent probe. Never write unprobed discoveries here. |
+
+Do not add a tool whose `outputs:` is `wild.txt`, and do not point a tool's
+`required_files:` at `wild.txt` when it wants the full host list.
 
 ## Rules
 

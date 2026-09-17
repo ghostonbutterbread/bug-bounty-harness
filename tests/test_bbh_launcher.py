@@ -193,6 +193,61 @@ class BbhLauncherTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "--install-python-deps"):
                 M.command_for(Path("tool.py"), [])
 
+    def _drift_warning_checkout(self, manifest_newer: bool) -> Path:
+        root = Path(tempfile.mkdtemp())
+        venv_lib = root / ".venv" / "lib" / "python3.11" / "site-packages"
+        venv_lib.mkdir(parents=True)
+        venv_python = root / ".venv" / "bin" / "python"
+        venv_python.parent.mkdir(parents=True)
+        venv_python.write_text("#!/bin/sh\necho '{\"ok\": true}'\nexit 7\n")
+        venv_python.chmod(0o755)
+        (root / "scripts").mkdir()
+        shutil.copy2(ROOT / "scripts" / "bbh.py", root / "scripts" / "bbh.py")
+        (root / "tools").mkdir()
+        (root / "tools" / "dummy.py").write_text("# dummy dispatched tool\n")
+        old = venv_lib.stat().st_mtime - 3600
+        new = venv_lib.stat().st_mtime + 3600
+        manifest = root / "requirements.txt"
+        manifest.write_text("bounty-core @ git+https://example.invalid/bounty-core\n")
+        os.utime(manifest, (new, new) if manifest_newer else (old, old))
+        return root
+
+    def _dispatch_dummy(self, root: Path, extra_env: dict[str, str] | None = None):
+        return subprocess.run(
+            [sys.executable, str(root / "scripts" / "bbh.py"), "tools/dummy.py"],
+            text=True,
+            capture_output=True,
+            check=False,
+            env={**os.environ, **(extra_env or {})},
+        )
+
+    def test_stale_venv_warns_on_stderr_and_preserves_stdout_and_exit(self) -> None:
+        completed = self._dispatch_dummy(self._drift_warning_checkout(manifest_newer=True))
+        self.assertEqual(completed.returncode, 7, completed.stderr)
+        self.assertEqual(completed.stdout, '{"ok": true}\n')
+        self.assertIn("requirements.txt is newer", completed.stderr)
+        self.assertIn("BBH_SKIP_DEP_CHECK=1", completed.stderr)
+
+    def test_fresh_venv_stays_silent(self) -> None:
+        completed = self._dispatch_dummy(self._drift_warning_checkout(manifest_newer=False))
+        self.assertEqual(completed.returncode, 7, completed.stderr)
+        self.assertEqual(completed.stdout, '{"ok": true}\n')
+        self.assertEqual(completed.stderr, "")
+
+    def test_dep_check_suppression_silences_the_warning(self) -> None:
+        completed = self._dispatch_dummy(
+            self._drift_warning_checkout(manifest_newer=True), extra_env={"BBH_SKIP_DEP_CHECK": "1"}
+        )
+        self.assertEqual(completed.returncode, 7, completed.stderr)
+        self.assertEqual(completed.stderr, "")
+
+    def test_missing_site_packages_does_not_warn(self) -> None:
+        root = self._drift_warning_checkout(manifest_newer=True)
+        shutil.rmtree(root / ".venv" / "lib" / "python3.11" / "site-packages")
+        completed = self._dispatch_dummy(root)
+        self.assertEqual(completed.returncode, 7, completed.stderr)
+        self.assertEqual(completed.stderr, "")
+
 
 if __name__ == "__main__":
     unittest.main()

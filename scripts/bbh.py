@@ -28,6 +28,36 @@ def script_path(value: str) -> Path:
     return path
 
 
+def dependency_drift_warning() -> str | None:
+    """Return a warning when the manifest is newer than the installed environment.
+
+    A manifest change does not reach an already-provisioned environment: the
+    checkout moves with git, the .venv only moves when someone reinstalls. That
+    gap is invisible in normal use, because the package still imports and every
+    entry point that predates the change keeps working.
+
+    This is a cheap screen, not proof. Git rewrites a file only when its content
+    differs, so the manifest mtime tracks the last real dependency edit rather
+    than tree movement; a fresh clone or a restored .venv can still mislead.
+    """
+    if os.environ.get("BBH_SKIP_DEP_CHECK"):
+        return None
+    try:
+        manifest = REPO_ROOT / "requirements.txt"
+        site_packages = next((REPO_ROOT / ".venv" / "lib").glob("python*/site-packages"), None)
+        if site_packages is None or not manifest.is_file():
+            return None
+        if manifest.stat().st_mtime <= site_packages.stat().st_mtime:
+            return None
+    except OSError:
+        return None
+    return (
+        "bbh: warning: requirements.txt is newer than this checkout's .venv; "
+        "dependencies may be stale. Run ./setup.sh --install-python-deps "
+        "(silence with BBH_SKIP_DEP_CHECK=1)"
+    )
+
+
 def runtime_python() -> Path:
     """Return this checkout's dependency interpreter or explain how to create it."""
     interpreter = REPO_ROOT / ".venv" / "bin" / "python"
@@ -35,6 +65,10 @@ def runtime_python() -> Path:
         raise RuntimeError(
             "BBH virtual environment is missing; run ./setup.sh --install-python-deps from this checkout"
         )
+    warning = dependency_drift_warning()
+    if warning:
+        # stderr only: these tools emit machine-readable JSON on stdout.
+        print(warning, file=sys.stderr)
     return interpreter
 
 

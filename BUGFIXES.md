@@ -78,3 +78,32 @@ and beta is the active lane.
 **Impact:** a `master`-lane recon-ry launch runs without scope containment, so
 tool input, crawler reach and promoted artifacts are unfiltered. Backport the
 beta fix if the master lane is used for recon.
+
+## recon-ry writes discovered subdomains into wild.txt
+
+**Location:** recon-ry `config/general.yaml` `crt_sh` tool (`outputs: [wild.txt]`).
+
+**Evidence:** `wild.txt` is documented (fc8f394) as a READ-ONLY roots input
+holding scope wildcard bases only, yet crt_sh appends discovered subdomains to
+it. On epicgames it grew to 1797 entries, of which only 26 are roots.
+
+**Impact:** two visible failures. `subdomain_enum` infers its domain from
+`wild.txt` line 1 and picked the deep leaf
+`2021-1.ap-northeast-2.devtools.epicgames.com`, so enumeration ran against one
+leaf instead of the 26 roots and added 0 new subdomains. Promotion also refuses
+the file, since discovered subdomains are not wildcard scope. Discovered hosts
+belong in the host inventory, not `wild.txt`. Fix belongs in recon-ry.
+
+## urlparse accepts a backslash-userinfo host that Go tooling rejects
+
+**Location:** `agents/scope_validator.py` `_extract_host`, via `urlparse`.
+
+**Evidence:** `https://login.epicgames.com\@api.epicgames.com` parses with
+hostname `api.epicgames.com`, so scope says in-scope, while the visually
+leading host is the explicitly excluded `login.epicgames.com`. Go-based tools
+reject the backslash; browsers treat `\` as `/`. Pre-existing: reproduces
+identically before the scope normalization change.
+
+**Impact:** a parser differential between the scope gate and the tools it
+gates. Not exploitable through the current corpus, but the gate should agree
+with whatever actually issues the request. Needs its own task.

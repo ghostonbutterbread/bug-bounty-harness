@@ -30,7 +30,7 @@ for _path in (_AGENT_DIR, _RECON_DIR):
         sys.path.insert(0, _path_str)
 
 import url_ingest
-from scope_validator import ScopeValidator
+from scope_validator import ScopeValidator, strip_tool_annotation
 
 
 # The portable shared-root contract for Recon Bus reads and writes. A caller can
@@ -176,7 +176,11 @@ def normalize_line(value: str) -> str:
     text = str(value or "").strip()
     if not text or text.startswith("#"):
         return ""
-    return text
+    # Store exactly what the scope gate checks. Tool output such as
+    # "https://host [1.2.3.4]" is unwrapped to its target; any other embedded
+    # whitespace is preserved so the value stays refusable rather than being
+    # admitted on the strength of its first token alone.
+    return strip_tool_annotation(text)
 
 
 def dedupe_preserve_order(lines: Iterable[str]) -> list[str]:
@@ -207,7 +211,11 @@ def read_file_lines(path: Path) -> list[str]:
 
 def is_parameter_url(value: str) -> bool:
     """Return whether a value is a full HTTP(S) URL with a query string."""
-    parsed = urlparse(value)
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        # Unparseable authority is not a usable parameter URL.
+        return False
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc and parsed.query)
 
 
@@ -357,8 +365,11 @@ def scope_violations(program: str, kind: str, values: Iterable[str]) -> list[str
     invalid: list[str] = []
     for value in values:
         if kind == "wild":
+            # wild.txt holds wildcard bases with the leading "*." stripped, so
+            # accept either spelling and let is_wildcard_scope decide: it is
+            # true only when the program actually declares "*.<base>".
             base = value[2:] if value.startswith("*.") else value
-            permitted = value.startswith("*.") and validator.is_wildcard_scope(base)
+            permitted = validator.is_wildcard_scope(base)
         else:
             permitted = validator.is_in_scope(value)
         if not permitted:

@@ -131,7 +131,12 @@ class _ScopeEntry:
 
         # Path check: only applies if target is a full URL
         if target.startswith("http://") or target.startswith("https://"):
-            target_path = urlparse(target).path
+            try:
+                target_path = urlparse(strip_tool_annotation(target)).path
+            except ValueError:
+                # Unparseable authority: no path to compare, so no pattern
+                # match. Refuse rather than raising through the caller.
+                return False
             if pattern_path and not target_path.startswith(pattern_path):
                 return False
 
@@ -433,6 +438,27 @@ class ScopeValidator:
 # Helpers
 # ---------------------------------------------------------------------------
 
+# httpx-style output: a target followed only by bracketed annotations, e.g.
+# "https://api.example.com [192.168.1.1]" or "... [200] [nginx]".
+_TOOL_ANNOTATION = re.compile(r"^(\S+)(?:[ \t]+\[[^\]]*\])+$")
+
+
+def strip_tool_annotation(value: str) -> str:
+    """Drop trailing bracketed tool annotations from a single target line.
+
+    Only the exact annotated shape is unwrapped. Any other whitespace is left
+    in place so the value still fails to resolve to a host and is refused:
+    a line carrying a second target must never be vouched for by checking only
+    its first token. Callers that persist the value must normalize with this
+    same function, so what is stored is what was scope-checked.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    match = _TOOL_ANNOTATION.match(text)
+    return match.group(1) if match else text
+
+
 def _extract_host(target: str) -> str:
     """
     Extract the hostname or IP from a target string.
@@ -442,14 +468,24 @@ def _extract_host(target: str) -> str:
     - Full URLs:           https://api.example.com/path?q=1
     - IPs:                 192.168.1.1
     - IPs with ports:      192.168.1.1:8080
+    - Annotated tool output: https://api.example.com [192.168.1.1]
     """
     if not target:
         return ""
-    target = target.strip()
+    target = strip_tool_annotation(target)
+    if not target:
+        return ""
 
     if target.startswith("http://") or target.startswith("https://"):
-        parsed = urlparse(target)
-        return (parsed.hostname or "").lower()
+        try:
+            parsed = urlparse(target)
+        except ValueError:
+            # Unparseable authority: report no host so callers fail closed and
+            # quarantine the value instead of aborting the whole run.
+            return ""
+        # Drop the DNS root label: "fab.com." is the same host as "fab.com",
+        # and leaving it on matches neither the allow nor the exclusion list.
+        return (parsed.hostname or "").lower().rstrip(".")
 
     # Strip port
     if re.match(r"^\d{1,3}(\.\d{1,3}){3}:\d+$", target):
@@ -459,7 +495,7 @@ def _extract_host(target: str) -> str:
     if "/" in target:
         target = target.split("/")[0]
 
-    return target.lower()
+    return target.lower().rstrip(".")
 
 
 def scope_from_campaign(campaign_state: dict, strict: bool = True) -> ScopeValidator:

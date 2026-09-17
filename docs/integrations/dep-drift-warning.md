@@ -38,12 +38,17 @@ actionable message ("run ./setup.sh --install-python-deps") instead of a late
 
 ## Blockers
 
-None. Pending: independent review subagent, then merge to beta and push.
+None. Independent release-gate review (subagent, 2026-09-17): **approve**, no
+blockers, no scope violations. Reviewer independently reproduced both pre-existing
+beta test failures on an unmodified clone of `ea3d50f`; verified focused tests,
+live warning behavior in a throwaway fake checkout, and stdout/stderr hygiene.
+Accepted known limitations (documented): mtime screen is a heuristic; site-packages
+directory mtime misses in-place same-layout upgrades.
 
 ## Next
 
-Independent release-gate review → merge `fix/dep-drift-warning` into clean local
-beta integration worktree → run focused checks → `git push origin beta` → retire
-feature branch/worktree. Related: skill seed
+Merged into `beta` from the beta integration worktree; dossier removed from the
+integration target in the same integration operation. Related: skill seed
 `~/Shared/skill_seeds/2026-09-17-dependency-environment-sync.md` (ai-policies
-lane) and papercut `PC-20260917-220123-533924d8`.
+lane, promoted as ai-policies `7c64c8f`) and papercut
+`PC-20260917-220123-533924d8`.

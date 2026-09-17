@@ -102,15 +102,15 @@ fingerprints but does not discard individual observations. It is distinct from:
 - Hypothesis Ledger: private security-chain reasoning.
 - Findings: reproducible security impact.
 
-## High-Signal Interpretation
+## Error Tagging
 
-Prioritize repeatable differences; framework/service/version disclosure;
-parser/dependency fingerprints; changed behavior by owned auth, role, or workflow
-state; different error paths for owned objects; unexpected client/server contract
-divergence; exposed correlation IDs; and newly revealed endpoints, consumers, or
-trust boundaries. Generic branded errors, known edge/WAF responses, ordinary
-validation, and one-off transient failures are normally noise unless they add a
-new durable fact.
+Every Error Store event carries structured tags so agents can query by signal quality and class without re-reading raw evidence:
+
+- **signal:** `high` (stack trace, internal path, framework name, SQL/database error, debug disclosure, new consumer/trust boundary) | `medium` (validation differential, parser behavior change, state-dependent error, client/server divergence) | `low` (generic validation, expected auth denial, known edge template, repeated identical response)
+- **class:** `sql_error`, `database_error`, `stack_trace`, `framework_leak`, `path_leak`, `validation_error`, `auth_error`, `internal_service_error`, `debug_disclosure`, `info_disclosure`, `parser_differential`, `state_error`, `upstream_error`
+- **layer:** `client`, `server`, `proxy`, `edge`, `database`, `upstream_service`
+
+High-signal errors are priority routing: relevant specialist skill or Finding Capture. Medium-signal errors inform understanding and may combine into findings. Low-signal errors record boundaries for dedupe but don't drive continuation.
 
 ## Verification
 

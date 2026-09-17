@@ -74,6 +74,16 @@ targeted MapStore facts only after a concrete current surface/question exists,
 then load a relevant specialist skill. Do not launch broad recon or a
 multi-surface campaign unless the evidence requires it.
 
+### Error Mapping
+
+Trigger: the user explicitly asks to hunt for errors, map error behavior, or farm signal from error responses on a target.
+
+Load `error-mapper` for the bounded comparison probe set and default character families. Load `request-exploration` for systematic parameter, type, header, and body mutation beyond the default set. Load `error-intelligence` for signal triage, tagging, and Error Store routing.
+
+Goal: trigger class-appropriate errors across the application — parameter mutations, type mismatches, malformed values, missing fields, parser boundaries, path characters, encoding edge cases — and capture meaningful differentials. Each error response teaches something: framework names, internal paths, stack traces, validation order, parser boundaries, upstream consumers.
+
+Tag every Error Store event by signal and class. Route high-signal errors (stack traces, SQL/database errors, internal path leaks, debug disclosures) to the relevant specialist skill or Finding Capture. Map differentials through `error-intelligence`. Preserve untested continuations in the Hypothesis Ledger; push reusable facts to MapStore.
+
 ### Technology review
 
 Trigger: understanding an implementation, library, framework, parser, sanitizer,

@@ -17,15 +17,12 @@ pointers; it does not authorize publication or replace the public-forums policy.
 2. **Use owned communities.** If publication is necessary, prefer the agent's
    own approved community, workspace, or audience rather than a third-party
    community.
-3. **Publish only when private testing cannot answer the question.** A justified
-   example is a bounded cross-user authorization check when there is no share
-   link or private equivalent.
-4. **Reuse one artifact.** Edit the current owned artifact for additional tests
-   when that preserves the hypothesis. Create another only when the new test
-   needs a distinct artifact; clean up the old one first where possible.
-5. **Private first for cleanup.** Set the artifact private before cleanup when
-   the platform supports it. If it cannot be made private, delete it. Verify the
-   final state before recording cleanup.
+3. **Edit where you can.** Reuse the current owned artifact for additional
+   tests instead of creating variants. Create another only when the new test
+   needs a distinct artifact.
+4. **Clean up as you go.** When done with an artifact, set it private (or
+   delete it) and verify the final state from the listing and direct URL.
+   Do not let finished artifacts accumulate across a run.
 
 ## Prerequisites
 
@@ -66,14 +63,10 @@ pointers; it does not authorize publication or replace the public-forums policy.
    Record `updated` or `visibility_changed` for each retained state. Do not
    batch-create variants or treat public placement as approval for active or
    viewer-affecting content.
-5. **Close the artifact.** If it can be private, record the private visibility
-   change before starting cleanup. Otherwise mark cleanup pending, delete, then
-   verify deletion from the relevant listing and direct URL. A cleanup-pending
-   artifact is terminal and cannot be reused.
+5. **Clean up when done.** Set the artifact private where the platform supports
+   it; otherwise delete it. Verify the final state from the relevant listing
+   and direct URL, then record it:
    ```bash
-   bbh agents/public_artifacts.py record --program {program} --event cleanup_pending \
-     --artifact-id {artifact-id} --account-ref "<owned alias>" \
-     --artifact-kind "<kind>" --url "<artifact URL>" --visibility private
    bbh agents/public_artifacts.py record --program {program} --event deleted \
      --artifact-id {artifact-id} --account-ref "<owned alias>" \
      --artifact-kind "<kind>" --url "<artifact URL>" --visibility private
@@ -81,8 +74,10 @@ pointers; it does not authorize publication or replace the public-forums policy.
      --artifact-id {artifact-id} --account-ref "<owned alias>" \
      --artifact-kind "<kind>" --url "<artifact URL>" --visibility private --cleanup-verified
    ```
-   Completion: the store contains `cleanup_verified` and the public-forums
-   verification record confirms the listing/direct URL result when applicable.
+   A verified artifact is terminal; a later test creates a new one.
+   Exception: keep the artifact active when a later planned test in the same
+   run still needs it — cleanup happens when testing on it is done, and the
+   reuse record names the pending test.
 
 ## Store contract
 
@@ -104,7 +99,7 @@ public-content archive, or authorization evidence.
 - Any new artifact has its account reference and URL/object ID recorded.
 - Public testing used the minimum owned placement and reused an existing artifact
   when viable.
-- Private-first cleanup was attempted; otherwise deletion and the visible
-  absence check were recorded.
+- Finished artifacts were made private or deleted and the visible absence was
+  verified; any artifact kept active for a pending test names that test.
 - No secret, payload body, raw request, or sensitive share link entered the
   store.

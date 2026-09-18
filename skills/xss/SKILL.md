@@ -1,6 +1,6 @@
 ---
 name: xss
-description: Use when testing Cross-Site Scripting or routing XSS work into reflected, stored, or DOM lanes. Load this first for XSS triage, then load reflected-xss, stored-xss, or dom-xss based on where attacker-controlled input lands.
+description: Use when testing Cross-Site Scripting or routing XSS work into reflected, stored, DOM, or blind lanes. Load this first for XSS triage, then load reflected-xss, stored-xss, dom-xss, or blind-xss based on where attacker-controlled input lands.
 ---
 
 # XSS Router
@@ -59,6 +59,7 @@ Load the smallest matching lane:
 | Marker appears in the immediate HTTP response | `reflected-xss` | Immediate render/context breakout and browser proof. |
 | Marker is saved and appears later in another view, notification, admin page, email, export, or feed | `stored-xss` | Persistence, render-point discovery, cleanup, and blast-radius control. |
 | Marker reaches client-side sources/sinks such as URL, hash, storage, `postMessage`, router state, or JS-generated HTML | `dom-xss` | Browser source-to-sink verification and framework behavior. |
+| The plausible consumer of the input is a human or system the agent cannot observe - support/moderation/staff queues, grant or application review, log viewers, or a stored field with unaccountable render points | `blind-xss` | Callback collection, correlation, capture boundary, and Pending-OOB lifecycle for unobservable render points. |
 | More than one is plausible | Load all relevant lanes, but keep notes separated by lane. |
 
 Do not treat these lanes as mutually exclusive. A stored value can become DOM
@@ -197,14 +198,19 @@ only for exact-run forensic review.
 Use this state model:
 
 - `cold`: no reflection, storage, source-to-sink, sanitizer, or browser signal.
+- `pending`: planted, correlated, awaiting an external callback channel
+  (blind lane). `pending` is not `cold` and must not trigger the automatic
+  pivot; move on to other hypotheses without retiring the lane.
 - `warm`: marker reflects, persists, reaches DOM, hits a sanitizer, or changes
   browser/server output but execution is not proven.
 - `hot`: attacker-controlled bytes influence a dangerous context, sanitizer
   decision, URL, script/JSON island, DOM sink, or stored render path.
-- `exhausted`: representative families failed and the render/parser boundary is
-  understood.
+- `exhausted`: representative families failed and the render/parser boundary
+  is understood.
 
-Only pivot automatically from `cold` or `exhausted`. If the lane is `warm` or
+Only pivot automatically from `cold` or `exhausted`. A `pending` lane stays
+open until its callback resolves or the run ends with the payload registered
+as planted-and-pending. If the lane is `warm` or
 `hot`, keep pressure on the same vector with context-matched mutation families
 until the block is understood or policy/safety stops the next probe.
 
@@ -227,6 +233,92 @@ Typical XSS pressure ladder:
 Do not summarize the lane as "blocked" without saying which families were
 tried, what blocked them, what evidence proves the block, and whether any
 source/sink remains unexplored.
+
+## Source Acquisition Over Sink Census
+
+A sink you cannot feed is a fixture request, not a retired lane. Sink census
+is cheap, repeatable, and stops converting on a mature target after the first
+pass; the work that closes findings is obtaining an attacker-controlled
+source that reaches a known sink. A completed census is a starting position,
+and the next move from it is source acquisition - not a wider census. This is
+not "stop doing sink analysis": the census is what surfaces the leads in the
+first place.
+
+### Classify the blocker before pivoting
+
+When a sink is confirmed and no payload can reach it, the lane is blocked on
+one of three things, and they route differently:
+
+| Blocker | Route |
+| --- | --- |
+| The source exists but the agent lacks the artifact - an owned rich-text field, a second account, a dev-portal client, a published object, a session token from an interactive login | `account-testing-policy`. Create the fixture. This is testing work, not a dead end. |
+| The source exists but its value space is server-constrained - allowlist, exact-match enum, format validation | `injection-testing-policy` / `waf-live-policy`. Characterize the constraint; a client-only regex is not a constraint. |
+| No source reaches the sink at all - the value is CMS- or config-supplied with no user write path | Genuinely closed. Record it as a negative with the reason, so the next census does not resurface it. |
+
+Only the third retires the lane. The first two are open work with a named
+next action. Recording "sink confirmed, not exploitable" without saying which
+of the three applies is what causes the same sink to be rediscovered by the
+next census. This is **not** `exhausted` under the Pressure Mode definition
+and must not be recorded as such - a blocked-on-fixture lane carries its
+missing artifact as the reopening condition, consistent with the
+blocker-first deepening location card (see `docs/xss-blocker-deepening`
+promotion; reference resolves once that branch lands on beta).
+
+### Name the missing artifact explicitly
+
+When the blocker is the first row, the lead should state the artifact in one
+line - "needs an owned rich-text field", "needs a csrfToken from an
+interactive login on a 2FA account". A lead that names its missing fixture
+can be picked up and closed by a later agent in one session. A lead that says
+"blocked on exploitability" cannot.
+
+### Rank by reachability and CSP, not by sink count
+
+Sink count is the weakest of the available axes. Better ordering, cheapest
+signal first:
+
+1. **Source reachability** - is there any field, parameter, header or stored
+   object an unprivileged attacker can write that reaches this bundle?
+2. **CSP posture** - no CSP, or `script-src 'unsafe-inline'`, turns a
+   marginal breakout into execution. A strict nonce-based policy demotes a
+   sink that would otherwise rank first.
+3. **Consumer diversity** - how many distinct renderers read the value. Raw
+   storage with correct escaping in the primary renderer is a real lead if an
+   email, export, OG tag or share page also reads it.
+4. **Sink count** - last, and mostly useful as a tiebreak.
+
+### Absent sanitizer is a weak signal; misconfigured sanitizer is the likelier find
+
+Name-based sanitizer detection is unreliable against minified bundles and
+produces both error directions. Useful minified tells include `[SafeHtml]`,
+`allowedTags`, `allowedAttributes`, `allowedSchemes`, `ADD_ATTR`,
+`RETURN_DOM`. Against a mature target, prefer reading the sanitizer's
+**configuration** over searching for bundles that lack one: permitted tags
+and attributes, allowed URL schemes, whether `target`/`href` survive, version
+against known mXSS bypasses, and namespace handling for `<svg>` / `<math>` /
+`<template>`. "No sanitizer present" is weak evidence in both directions -
+server-side sanitization never appears in a client bundle at all. Bypass
+payload families remain owned by `xss-payload-engineering`.
+
+### Check for an amplifier before demoting a low-tier host
+
+Program severity tiers and host importance are not the same as exploit
+value. Before deprioritizing a sink on a low-tier or carve-out host, query
+the ledger for a confirmed primitive on the same origin family that changes
+what an XSS there is worth. A confirmed credentialed-CORS read across an
+apex means an XSS on *any* subdomain - including a forum or help host
+normally worth little - becomes the missing half of an account takeover. The
+sink is unchanged; its value is not. This check costs one ledger query and is
+a severity-reranking input to `impact-fit-policy`, not a substitute for it.
+
+### Census stop condition
+
+A sink census is a ranking instrument with a short half-life. Re-run it when
+the corpus materially changes - new hosts pulled, bundles redeployed - not as
+a default opening move. Re-running it over an unchanged corpus to produce a
+fresh ranked list is motion, not progress, and the ranked list is not a
+deliverable. This is consistent with the coverage decisions owned by
+`class-derivation-policy`.
 
 ## Deep Default For Hybrid And Hunter Loop
 
@@ -281,5 +373,9 @@ Record:
 - `Likely`: source, sink, and context are strong but browser execution is blocked.
 - `Potential`: controllable reflection/storage/source-to-sink exists, but the
   exploit path is not proven.
+- `Pending-OOB`: a correlated blind payload is planted and awaiting an
+  external callback (blind lane). Between `Potential` and `Confirmed`. On
+  fire, the lane becomes `Confirmed` - a callback from a privileged view is
+  browser-executed by definition.
 - `False positive`: the value is inert, safely encoded, unreachable, or blocked
   in the tested context.

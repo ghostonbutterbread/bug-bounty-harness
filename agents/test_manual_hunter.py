@@ -196,6 +196,30 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(parsed.finding["review_tier"], "CONFIRMED")
         self.assertTrue(parsed.finding["sink"])
 
+    def test_scoring_fields_are_parsed_into_the_finding(self) -> None:
+        hunter = ManualHunter(self.program)
+        parsed = hunter.parse_text(
+            "\n".join(
+                [
+                    "# Stored XSS in profile bio enables admin session theft",
+                    "Type: Stored XSS",
+                    "Class: dom-xss",
+                    "Severity: HIGH",
+                    "Scoring Authority: Bugcrowd VRT",
+                    "Severity Rationale: Confirmed admin cookie exfiltration in live session.",
+                    "Program Constraint: Program caps XSS at High without ATO proof.",
+                    "File: assets/config.json",
+                    "Description: Bio field renders unsanitized.",
+                ]
+            ),
+            source_label="unit-test",
+        )
+
+        self.assertEqual(parsed.finding["severity"], "HIGH")
+        self.assertEqual(parsed.finding["scoring_authority"], "Bugcrowd VRT")
+        self.assertEqual(parsed.finding["severity_rationale"], "Confirmed admin cookie exfiltration in live session.")
+        self.assertEqual(parsed.finding["program_constraint"], "Program caps XSS at High without ATO proof.")
+
     def test_hostname_is_not_mistaken_for_a_source_file(self) -> None:
         """Regression: '.c' inside 'www.example.com' used to be read as a C source file,
         silently truncating the finding's identity field to 'www.example.c'."""

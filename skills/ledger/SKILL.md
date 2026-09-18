@@ -58,6 +58,19 @@ Use the resolved root rather than constructing a legacy path. Web/API lanes use
 
 ## Record Findings and Coverage
 
+Score before recording: load the `program-severity-scoring` skill when a
+finding is confirmed and before writing its severity. Derive the rating from
+the target program's controlling authority (brief, VRT/rubric overrides, or
+CVSS when the program requires it), score the demonstrated consequence rather
+than the bug label, and note any program cap. Carry the scoring fields into
+the finding note or command:
+
+- `Scoring Authority`: program rule, platform rubric, or CVSS
+- `Severity Rationale`: one evidence-based line naming the demonstrated impact
+- `Program Constraint`: only when a scope rule or cap changed the rating
+- If a higher consequence is plausible but unproven, keep the rating supported
+  by current evidence and record the missing proof in the rationale.
+
 Use the report pipeline for a real finding:
 
 ```bash
@@ -72,6 +85,13 @@ bbh agents/me_ledger.py check \
   --program {program} --family <web_bounty|binaries> \
   --lane <web|api|apk|exe|mac> --file <relative/path> \
   --class-name <vuln-class>
+
+bbh agents/me_ledger.py add \
+  --program {program} --family <web_bounty|binaries> \
+  --lane <web|api|apk|exe|mac> --file <relative/path> \
+  --class-name <vuln-class> --type "<type>" --severity <SEVERITY> \
+  --scoring-authority "<authority>" --severity-rationale "<demonstrated impact>" \
+  [--program-constraint "<cap or rule>"]
 
 bbh agents/me_ledger.py cover \
   --program {program} --family <web_bounty|binaries> \

@@ -220,6 +220,35 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(parsed.finding["severity_rationale"], "Confirmed admin cookie exfiltration in live session.")
         self.assertEqual(parsed.finding["program_constraint"], "Program caps XSS at High without ATO proof.")
 
+    def test_severity_note_values_normalize_through_bounty_core(self) -> None:
+        """Note severity values go through bounty_core normalization so platform
+        labels (P0, P1, lowercase names) map to the canonical enum instead of
+        being dropped to UNKNOWN by a local membership set."""
+        hunter = ManualHunter(self.program)
+        cases = {
+            "P0": "EXCEPTIONAL",
+            "P1": "CRITICAL",
+            "p2": "HIGH",
+            "critical": "CRITICAL",
+            "bogus": "UNKNOWN",
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                parsed = hunter.parse_text(
+                    "\n".join(
+                        [
+                            "# XSS finding",
+                            "Type: Stored XSS",
+                            "Class: dom-xss",
+                            f"Severity: {raw}",
+                            "File: assets/config.json",
+                            "Description: Bio field renders unsanitized.",
+                        ]
+                    ),
+                    source_label="unit-test",
+                )
+                self.assertEqual(parsed.finding["severity"], expected)
+
     def test_hostname_is_not_mistaken_for_a_source_file(self) -> None:
         """Regression: '.c' inside 'www.example.com' used to be read as a C source file,
         silently truncating the finding's identity field to 'www.example.c'."""

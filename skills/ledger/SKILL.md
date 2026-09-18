@@ -71,9 +71,10 @@ the finding note or command:
 - If a higher consequence is plausible but unproven, keep the rating supported
   by current evidence and record the missing proof in the rationale.
 
-Severity is normalized at write time: pass the platform's own label (`P1`,
-`P2`, `critical`, `high`, ...) and it is stored as the canonical
-`CRITICAL`/`HIGH`/`MEDIUM`/`LOW`/`INFO` value; unrecognized input becomes
+Severity is normalized at write time: pass the platform's own label (`P0`,
+`P1`, `P2`, `critical`, `high`, ...) and it is stored as the canonical
+`EXCEPTIONAL`/`CRITICAL`/`HIGH`/`MEDIUM`/`LOW`/`INFO` value (`P0` is the
+exceptional top tier, above CRITICAL); unrecognized input becomes
 `UNKNOWN`. Do not pre-convert platform ratings by hand.
 
 Use the report pipeline for a real finding:

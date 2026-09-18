@@ -1,14 +1,14 @@
 # Ledger severity normalization integration dossier
 
-- **Status:** review-ready
+- **Status:** reviewed PASS (2026-09-18) → integrated
 - **Owner:** Hermes (Ryushe-directed)
 - **Branch:** `feat/ledger-severity-normalization`
 - **Base commit:** `8ac4be97dd0cd47ab582bf1768f2ce2620794408` (beta, fetched)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-18
 - **Owning feature branch/ref:** `feat/ledger-severity-normalization` (worktree `~/projects/bbh-feat-severity-normalize`)
-- **Latest immutable recovery checkpoint:** none yet (commit pending)
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `d8faade`
+- **Feature implementation commit(s):** `d8faade`
 - **Inspiration / canonical references:** `bounty_core.finding.normalize_severity` (P1–P5 + case-insensitive name aliases → canonical enum, unknown → UNKNOWN); Ryu request: agents can speak their platform's schema (P1, P0…) and the ledger translates it.
 
 ## Intent
@@ -50,7 +50,11 @@ ingest path and is deferred.
     → 41 passed, 4 subtests.
   - Live CLI edge run (`/tmp/edge_ledger_norm.sh`): P1→CRITICAL stored;
     re-add deduped with rationale refresh; `SEVERE!!!`→UNKNOWN; `p0`→UNKNOWN.
-- Independent review: pending (required before beta merge).
+- Independent review: PASS (2026-09-18, independent subagent release-gate
+  review, 6/6 steps). Verified 20/20 normalize cases, dedupe identity
+  unchanged (severity excluded), backward-compat load byte-identical,
+  bounty_core untouched (RECORD hash match). Transcript:
+  `/home/ryushe/.hermes/cache/delegation/live/deleg_095db22b/task-0.log`.
 - Replay/cohort/fixture evidence: ledger_v2 fixtures unchanged and passing.
 - Merge/ancestry evidence: branch from fetched beta tip `8ac4be9`.
 

@@ -22,6 +22,7 @@ from agents.ledger import read_team_findings, update_team_finding
 from agents.reporting.markdown import markdown_link_destinations
 from agents.source_roots import source_root_candidates
 from agents.storage_resolver import resolve_family_lane, resolve_storage
+from bounty_core.finding import normalize_severity  # noqa: E402
 from agents.report_paths import (
     REPORT_NAV_GENERATED_MARKER,
     is_seeded_report_index,
@@ -33,7 +34,15 @@ from agents.verbosity import clamp_verbosity
 
 DEFAULT_CODEX_TIMEOUT = 600
 CONFIDENCE_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
-SEVERITY_ORDER = {"UNKNOWN": 0, "INFO": 1, "LOW": 2, "MEDIUM": 3, "HIGH": 4, "CRITICAL": 5}
+SEVERITY_ORDER = {
+    "UNKNOWN": 0,
+    "INFO": 1,
+    "LOW": 2,
+    "MEDIUM": 3,
+    "HIGH": 4,
+    "CRITICAL": 5,
+    "EXCEPTIONAL": 6,
+}
 PLACEHOLDER_MARKERS = (
     "short vulnerability label",
     "short novel pattern label",
@@ -74,8 +83,7 @@ def _safe_int(value: Any) -> int:
 
 
 def _normalize_severity(value: Any) -> str:
-    text = str(value or "").strip().upper()
-    return text if text in SEVERITY_ORDER else "UNKNOWN"
+    return normalize_severity(value)
 
 
 def _normalize_confidence(value: Any) -> str:

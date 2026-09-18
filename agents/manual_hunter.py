@@ -41,10 +41,11 @@ from agents.storage_resolver import StorageLayout, resolve_family_lane, resolve_
 from agents.verbosity import clamp_verbosity
 
 
+from bounty_core.finding import normalize_severity  # noqa: E402
 from bounty_core.reports import refresh_report_navigation_from_ledger, write_finding_report  # noqa: E402
 
 
-SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "UNKNOWN"}
+SEVERITIES = {"EXCEPTIONAL", "CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "UNKNOWN"}
 KNOWN_CLASSES = {
     "dom-xss",
     "exec-sink-reachability",
@@ -482,8 +483,7 @@ def _normalize_text(value: Any) -> str:
 
 
 def _normalize_severity(value: Any) -> str:
-    text = _normalize_text(value).upper()
-    return text if text in SEVERITIES else "UNKNOWN"
+    return normalize_severity(value)
 
 
 def _normalize_class(value: Any) -> str:
@@ -1153,7 +1153,7 @@ class ManualHunter:
         title = input("Title: ").strip()
         finding_type = input("Type: ").strip()
         class_name = input("Class: ").strip()
-        severity = input("Severity [HIGH/MEDIUM/LOW/INFO]: ").strip()
+        severity = input("Severity [EXCEPTIONAL/CRITICAL/HIGH/MEDIUM/LOW/INFO]: ").strip()
         file_value = input("File: ").strip()
         source = input("Source: ").strip()
         sink = input("Sink: ").strip()

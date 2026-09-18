@@ -10,12 +10,13 @@ from typing import Iterable
 
 
 SEVERITY_ORDER: dict[str, int] = {
-    "CRITICAL": 0,
-    "HIGH": 1,
-    "MEDIUM": 2,
-    "LOW": 3,
-    "INFO": 4,
-    "UNKNOWN": 5,
+    "EXCEPTIONAL": 0,
+    "CRITICAL": 1,
+    "HIGH": 2,
+    "MEDIUM": 3,
+    "LOW": 4,
+    "INFO": 5,
+    "UNKNOWN": 6,
 }
 
 IMPACT_BY_TYPE: dict[str, str] = {

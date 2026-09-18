@@ -261,7 +261,8 @@ of the three applies is what causes the same sink to be rediscovered by the
 next census. This is **not** `exhausted` under the Pressure Mode definition
 and must not be recorded as such - a blocked-on-fixture lane carries its
 missing artifact as the reopening condition, consistent with the
-Blocker-First Deepening location card.
+blocker-first deepening location card (see `docs/xss-blocker-deepening`
+promotion; reference resolves once that branch lands on beta).
 
 ### Name the missing artifact explicitly
 

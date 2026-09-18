@@ -1,14 +1,14 @@
 # Ledger impact-scoring fields integration dossier
 
-- **Status:** review-ready
+- **Status:** review-ready → reviewed PASS (2026-09-17)
 - **Owner:** Hermes (Ryushe-directed)
 - **Branch:** `feat/ledger-impact-scoring`
-- **Base commit:** `b64972ff76ab418c765ff7f44dc46e599fc05540` (beta tip, fetched)
+- **Base commit:** `b64972ff76ab418c765ff7f44dc46e599fc05540` (beta, fetched)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-17
 - **Owning feature branch/ref:** `feat/ledger-impact-scoring` (worktree `~/projects/bbh-feat-ledger-impact`)
-- **Latest immutable recovery checkpoint:** see decision record below
-- **Feature implementation commit(s):** none yet (working tree verified, commit pending)
+- **Latest immutable recovery checkpoint:** `b5c8e97`
+- **Feature implementation commit(s):** `b5c8e97`
 - **Inspiration / canonical references:** `security/program-severity-scoring` skill (severe fields: vulnerability_class, demonstrated_impact, severity, scoring_authority, severity_rationale, program_constraint); Ryu request: "instead of gating findings, use real-world scales".
 
 ## Intent
@@ -56,10 +56,14 @@ UNKNOWN-severity entries; no gating removal in `review_tier` logic.
     `scoring_authority`, `severity_rationale`.
   - Live smoke 2: `manual_hunter.py --from-file` note with the three fields
     → ledger entry D01 carries all three fields; generated `REPORT.md` written.
-- Independent review: pending (required before beta merge per repository policy).
+- Independent review: PASS (2026-09-17, independent subagent release-gate
+  review, 6/6 steps). Verified bounty_core extra-field round-trip through
+  `_normalize_entry`/`migrate_ledger_payload` empirically; backward-compat
+  parse identical for old notes; worktree clean; transcript at
+  `/home/ryushe/.hermes/cache/delegation/live/deleg_dc1e99dc/task-0.log`.
 - Replay/cohort/fixture evidence: covered by existing ledger_v2 fixture tests (unchanged).
 - Merge/ancestry evidence: branch created from fetched `origin/beta`
-  (`b64972f`); no upstream movement expected before review.
+  (`b64972f`); containment re-verified before merge.
 
 ## Blockers and deferred work
 
@@ -74,17 +78,17 @@ None blocking review. Deferred (owner decision):
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/ledger-impact-scoring`
-- **Latest immutable recovery checkpoint:** none yet — commit before any pause.
-- **Feature implementation commit(s):** none yet.
-- **Exact resume point:** commit the staged change, then delegate release-gate
-  review per `coding-agent-operations-policy`.
-- **Working-tree state at handoff:** intentionally uncommitted (all edits
-  verified by tests + two live smoke runs as of 2026-09-17).
+- **Latest immutable recovery checkpoint:** `b5c8e97`
+- **Feature implementation commit(s):** `b5c8e97`
+- **Exact resume point:** merge into current beta integration worktree, push
+  from there, then retire the feature worktree.
+- **Working-tree state at handoff:** clean (dossier review-decision updates
+  committed as the pre-merge checkpoint).
 
 ## Decision gates
 
-- **Integration gate:** independent review of diff + dossier, then merge into
-  clean current `beta` worktree and push from there.
+- **Integration gate:** independent review PASS (2026-09-17); merge into clean
+  current `beta` worktree and push from there.
 - **Activation / cohort gate:** after beta merge, sync-linked skill projection
   (`~/.hermes/synced-skills/ledger`) updates via normal aiskillsync flow; no
   separate activation step for the Python changes.
@@ -92,5 +96,8 @@ None blocking review. Deferred (owner decision):
 
 ## Decision record
 
-- 2026-09-17 — created; implementation verified in worktree (tests + smoke),
-  commit pending.
+- 2026-09-17 — created; implementation verified in worktree (tests + smoke).
+- 2026-09-17 — commit `b5c8e97`; independent release-gate review PASS (no
+  blockers, backward compatibility verified).
+- 2026-09-17 — dossier review-decision updates committed pre-merge; ready for
+  beta integration.

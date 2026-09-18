@@ -326,6 +326,52 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
         self.assertEqual(args.severity_rationale, "Demonstrated admin session theft.")
         self.assertEqual(args.program_constraint, "Program caps XSS at High without account takeover proof.")
 
+    def test_cmd_add_normalizes_severity_aliases(self) -> None:
+        """Severity enters the ledger through bounty_core normalization so agents can
+        say P1/P2/P3 or lowercase names and the stored value lands as the canonical
+        CRITICAL/HIGH/MEDIUM/LOW/INFO/UNKNOWN enum."""
+        cases = {
+            "P1": "CRITICAL",
+            "p2": "HIGH",
+            "P3": "MEDIUM",
+            "P4": "LOW",
+            "critical": "CRITICAL",
+            "HIGH": "HIGH",
+            "bogus-severity": "UNKNOWN",
+            "": "UNKNOWN",
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                with patch("agents.me_ledger.ledger_get") as mock_get, patch(
+                    "agents.me_ledger.ledger_add", return_value=(True, "D09")
+                ) as mock_add, patch(
+                    "agents.me_ledger._default_run_id", return_value="run-1"
+                ), patch(
+                    "agents.me_ledger._resolve_snapshot",
+                    return_value={"snapshot_id": "snap-1", "version_label": ""},
+                ):
+                    mock_get.return_value = {"fid": "D09"}
+                    args = argparse.Namespace(
+                        program="notion",
+                        type="XSS",
+                        class_name="dom-xss",
+                        file="src/x.js",
+                        severity=raw,
+                        scoring_authority="",
+                        severity_rationale="",
+                        program_constraint="",
+                        agent="unit-agent",
+                        fid_prefix="D",
+                        version_label=None,
+                        lane="web",
+                        family="web_bounty",
+                        root_override="/tmp/me-root",
+                    )
+                    stdout = io.StringIO()
+                    with redirect_stdout(stdout):
+                        self.assertEqual(me_ledger.cmd_add(args), 0)
+                self.assertEqual(mock_add.call_args[0][1]["severity"], expected)
+
 
 if __name__ == "__main__":
     unittest.main()

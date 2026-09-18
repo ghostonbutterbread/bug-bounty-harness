@@ -86,3 +86,6 @@ None blocking. Notes:
   (test_report_checker_exceptional.py). Pre-existing test_sync_reports
   failures verified unrelated (fail identically on clean beta). Re-review
   pending.
+- 2026-09-18 — re-review PASS (blocker cleared, 54 passed + 17 subtests,
+  no remaining severity-validation site rejects EXCEPTIONAL). Branch
+  approved for beta integration.

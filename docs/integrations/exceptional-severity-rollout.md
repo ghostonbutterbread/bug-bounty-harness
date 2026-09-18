@@ -78,3 +78,11 @@ None blocking. Notes:
 
 - 2026-09-18 — created; implementation verified (tests + live smoke), commit
   pending.
+- 2026-09-18 — commit `708e699`; independent review FAIL: report_checker.py
+  SEVERITY_ORDER rejected EXCEPTIONAL (view layer degraded to UNKNOWN).
+- 2026-09-18 — blocker fixed: report_checker SEVERITY_ORDER gains EXCEPTIONAL
+  (rank above CRITICAL) and _normalize_severity delegates to bounty_core;
+  report_generator SEVERITY_ORDER gains EXCEPTIONAL; regression test added
+  (test_report_checker_exceptional.py). Pre-existing test_sync_reports
+  failures verified unrelated (fail identically on clean beta). Re-review
+  pending.

@@ -21,6 +21,7 @@ from agents.finding_visibility import visible_for_default_work
 from agents.ledger import ledger_add, ledger_check, ledger_get, ledger_list, ledger_path
 from agents.snapshot_identity import get_snapshot_identity
 from agents.storage_resolver import resolve_storage
+from bounty_core.finding import normalize_severity
 
 DEFAULT_AGENT = os.environ.get("ME_AGENT") or "codex"
 
@@ -351,7 +352,7 @@ def cmd_add(args: argparse.Namespace) -> int:
         "type": args.type,
         "class_name": _normalize_class_name(args.class_name),
         "file": _normalize_relpath(args.file),
-        "severity": str(args.severity).strip().upper(),
+        "severity": normalize_severity(args.severity),
         "review_tier": "PENDING_REVIEW",
         "status": "active",
         "agent": args.agent,

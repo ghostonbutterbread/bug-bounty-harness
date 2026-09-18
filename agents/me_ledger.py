@@ -357,6 +357,14 @@ def cmd_add(args: argparse.Namespace) -> int:
         "agent": args.agent,
         "fid_prefix": args.fid_prefix,
     }
+    for extra_attr, extra_key in (
+        ("scoring_authority", "scoring_authority"),
+        ("severity_rationale", "severity_rationale"),
+        ("program_constraint", "program_constraint"),
+    ):
+        extra_value = str(getattr(args, extra_attr, "") or "").strip()
+        if extra_value:
+            finding[extra_key] = extra_value
     is_new_fid, fid = ledger_add(
         args.program,
         finding,
@@ -567,6 +575,21 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_arguments(add_parser)
     add_parser.add_argument("--type", required=True)
     add_parser.add_argument("--severity", required=True)
+    add_parser.add_argument(
+        "--scoring-authority",
+        default="",
+        help="Severity authority used for this rating (program rule, platform rubric, or CVSS).",
+    )
+    add_parser.add_argument(
+        "--severity-rationale",
+        default="",
+        help="One evidence-based line naming the demonstrated impact behind the rating.",
+    )
+    add_parser.add_argument(
+        "--program-constraint",
+        default="",
+        help="Scope rule or cap that changed or capped the rating, if any.",
+    )
     add_parser.add_argument("--agent", default=DEFAULT_AGENT)
     add_parser.add_argument("--fid-prefix", default="D")
     add_parser.add_argument("--version", dest="version_label")

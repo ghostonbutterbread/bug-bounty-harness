@@ -106,6 +106,9 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             class_name=" Native-Module-Abuse ",
             file="./src\\preload.js",
             severity=" high ",
+            scoring_authority="Bugcrowd VRT",
+            severity_rationale="Confirmed session cookie theft via stored XSS on /settings.",
+            program_constraint="",
             agent="unit-agent",
             fid_prefix="B",
             version_label="v2.2.0",
@@ -130,6 +133,8 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
                 "status": "active",
                 "agent": "unit-agent",
                 "fid_prefix": "B",
+                "scoring_authority": "Bugcrowd VRT",
+                "severity_rationale": "Confirmed session cookie theft via stored XSS on /settings.",
             },
             "snap-1",
             "v2.2.0",
@@ -293,6 +298,33 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
         )
 
         self.assertEqual(args.root_override, "/tmp/me-root")
+
+    def test_build_parser_add_accepts_scoring_fields(self) -> None:
+        args = me_ledger.build_parser().parse_args(
+            [
+                "add",
+                "--program",
+                "notion",
+                "--file",
+                "src/preload.js",
+                "--class-name",
+                "dom-xss",
+                "--type",
+                "DOM XSS",
+                "--severity",
+                "HIGH",
+                "--scoring-authority",
+                "Bugcrowd VRT",
+                "--severity-rationale",
+                "Demonstrated admin session theft.",
+                "--program-constraint",
+                "Program caps XSS at High without account takeover proof.",
+            ]
+        )
+
+        self.assertEqual(args.scoring_authority, "Bugcrowd VRT")
+        self.assertEqual(args.severity_rationale, "Demonstrated admin session theft.")
+        self.assertEqual(args.program_constraint, "Program caps XSS at High without account takeover proof.")
 
 
 if __name__ == "__main__":

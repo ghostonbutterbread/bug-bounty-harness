@@ -34,6 +34,14 @@ Ask before anything that can hit staff, moderation, support, marketplace/app
 review, real users, public feeds, email/SMS/push to non-owned recipients, or
 hard-to-clean state.
 
+**Carve-out - inert blind canaries.** This approval gate is about payloads
+with visible or disruptive effects. An inert, attributed, correlated blind
+canary (silent beacon, disclosure prose in the body, correlation token in
+the record, no cookie/storage/DOM capture) in a staff-read intake is normal
+in-scope testing, not an approval-gated action: load `blind-xss` and follow
+its blast-radius rules. The gate still fully applies to anything visible,
+disruptive, or on a program that prohibits staff-facing testing.
+
 ## Discovery Targets
 
 High-signal stored fields:

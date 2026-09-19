@@ -50,7 +50,8 @@ and hostname allowlisting without post-resolution address checks.
 
 DNS rebinding deliberately races validation to connection and requires explicit
 approval plus controlled infrastructure. Do not use public rebinding services
-against a live target without authorization.
+against a live target without authorization. For the mechanism, rbndr.us
+hostname format, and test flow, see `references/technique-packs/dns-rebinding.md`.
 
 ## Redirect classification
 

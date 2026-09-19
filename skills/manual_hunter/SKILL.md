@@ -16,6 +16,9 @@ load `evidence-first-vulnerability-reporting` and write or finalize the
 Evidence Report first — the ledger entry records the finding, the report
 carries the evidence. If only the ledger entry can be produced now, note
 `report: pending` and write the Evidence Report before any submission step.
+The named capability and observation feed the note's `Impact` and
+`Severity Rationale` fields; a rationale without a demonstrated capability
+behind it does not pass the gate.
 
 ## Required destination lane
 

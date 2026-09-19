@@ -6,6 +6,17 @@ description: Use when adding manual security findings to the Ghost pipeline, imp
 
 Add your own manual security findings to the Ghost pipeline.
 
+## Evidence gate before ingest
+
+Before any ingest, the finding must pass the claim-time classification gate:
+name the protected resource or capability obtained and the observation that
+demonstrates it; a status code or error string alone is a signal, not a
+finding — label it Informational and keep testing. When the finding passes,
+load `evidence-first-vulnerability-reporting` and write or finalize the
+Evidence Report first — the ledger entry records the finding, the report
+carries the evidence. If only the ledger entry can be produced now, note
+`report: pending` and write the Evidence Report before any submission step.
+
 ## Required destination lane
 
 Every invocation must declare the **canonical destination lane**. The tool will refuse to write without `--lane`; it never derives a lane from note contents or the report path.

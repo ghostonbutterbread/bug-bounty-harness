@@ -67,12 +67,69 @@ controls.
    `/dev/dri/renderD128` and that `eglinfo -B` reports `NV134`, rather than
    `llvmpipe`. `nvidia-smi` is not the verification path here: this host uses
    the Nouveau driver and may not provide it.
+
 5. Revisit the blocked URL once in that browser and capture only sanitized
    observations (challenge/app content visible, request shape, screenshots).
    If it remains blocked, record that outcome and stop escalation rather than
    retrying indiscriminately.
 6. Follow the normal Hoster lifecycle contract: stop the recorded browser root,
    confirm CDP is closed, remove the run profile, and release its MITM lane.
+
+### GPU/WebGL in-page verification and re-provisioning on bot blocks
+
+Process-level GPU checks are **not sufficient**: a run can hold
+`/dev/dri/renderD128` with `eglinfo -B` reporting `NV134` while the page itself
+still has **zero WebGL** (`canvas.getContext('webgl')`/`'webgl2'` both `null`,
+`chrome://gpu` empty). Bot-scoring SDKs treat "no WebGL whatsoever" as a
+headless/automation signal, because almost no real desktop browser presents it.
+Observed consequence: a bot-score style rejection — token issued through a
+fully clean flow (`/init`, `/init/execute`, captcha `getcaptcha`, batch all
+2xx) and then silently rejected with `403 Captcha token validation failed`, no
+challenge displayed — purely because the provisioned browser had no WebGL.
+The same flow passed in Ryushe's ordinary browser, and went **403 → 201** in
+the provisioned browser once WebGL was exposed as the only changed variable.
+
+When a scoped run hits a bot blocker, managed challenge, or that silent
+bot-score rejection pattern, and program rules and rate limits allow continued
+work:
+
+1. **Suspect missing GPU/WebGL first.** Verify **in-page**, not at process
+   level, via CDP:
+   ```js
+   const c = document.createElement('canvas');
+   const gl = c.getContext('webgl2') || c.getContext('webgl');
+   const d = gl && gl.getExtension('WEBGL_debug_renderer_info');
+   ({webgl: !!gl, renderer: d && gl.getParameter(d.UNMASKED_RENDERER_WEBGL)})
+   ```
+   If `webgl` is `false`, the environment — not the request shape or payload —
+   is the likely cause.
+2. **Re-provision rather than debug in place.** Return the current browser
+   through its normal lifecycle, then re-request through
+   `browser_provisioner.py` with GPU/WebGL exposure active: set
+   `CHROMIUM_TEST_CHROME` to a GPU-wrapper chrome shim in the Hoster
+   user-manager environment before the request, and unset it afterwards:
+   ```bash
+   systemctl --user set-environment CHROMIUM_TEST_CHROME=<path-to-gpu-wrapper-shim>
+   # ... browser_provisioner.py request ... (launch record command[0] == the shim)
+   systemctl --user unset-environment CHROMIUM_TEST_CHROME
+   ```
+   The shim must resolve a real Chrome binary and prepend GPU-enabling flags
+   (`--use-gl=angle --use-angle=gl --ignore-gpu-blocklist
+   --enable-gpu-rasterization --enable-unsafe-swiftshader`) before the
+   launcher's argv. Do not work around a bad environment by mutating requests:
+   while WebGL is missing, **every** write fails identically — including a
+   no-modification control — so a bot-score rejection is not evidence about
+   your payload and any control run in that state is confounded.
+3. **Re-verify in-page after re-provisioning.** Assert `webgl: true` and a
+   present renderer string before retrying the blocked flow (a truthful
+   `llvmpipe` software renderer is acceptable; it is what KasmVNC GLX
+   provides). If the surface still rejects after WebGL is real, stop
+   escalating: record the outcome and hand the interactive flow to Ryushe via
+   the KasmVNC handoff instead of moving toward evasion.
+4. **Environment repair only.** This exposes the GPU/WebGL capability the
+   machine actually has and reports a truthful renderer string. Do not extend
+   it into fingerprint spoofing, stealth patches, faked renderer strings,
+   CAPTCHA-solving services, or IP rotation — those remain prohibited.
 
 ### Remote CDP Navigation from Ghost
 

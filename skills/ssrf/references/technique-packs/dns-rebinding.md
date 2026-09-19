@@ -30,6 +30,27 @@ Each hex quad is the four octets as two-digit hex, in order
 Common pairs: loopback + private target, loopback + cloud metadata
 (see `metadata-scheme.md`).
 
+## Listener-side address (A or B)
+
+Resolution itself never touches your listener: the rbndr.us nameservers answer
+every query, so DNS lookups of the rebind hostname produce no callback. On the
+target side you see only which address the fetcher connected to — evidence is
+the connection plus whatever response delta it produces. Attribution therefore
+depends entirely on the address you choose:
+
+- **Owned IP** (preferred for attributed proof): point an interactsh-client
+  (or equivalent OOB listener) at your own server and use that IP as A or B.
+  Any connection is attributable to your run, including raw-socket or
+  non-HTTP callbacks that never send an interactsh-style Host header.
+- **Public OAST cluster IP** (boundary proof only): the interactsh default
+  clusters resolve to e.g. `oast.pro` 178.128.212.209, `oast.live`
+  178.128.210.172, `oast.site` 178.128.16.97, `oast.online` 178.128.87.9,
+  `oast.me` 178.128.209.14, `oast.fun` 206.189.156.69. Your DNS query returns
+  this IP, but you receive no interaction from it — these IPs only prove
+  "something connected out" plus a response delta; connections are not
+  attributable to you and the target receives the cluster's default response,
+  not a payload you control.
+
 Typical approved test flow:
 
 1. Repeatedly resolve the rbndr hostname to confirm both addresses appear.

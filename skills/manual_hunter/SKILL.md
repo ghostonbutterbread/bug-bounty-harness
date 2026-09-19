@@ -20,6 +20,13 @@ The named capability and observation feed the note's `Impact` and
 `Severity Rationale` fields; a rationale without a demonstrated capability
 behind it does not pass the gate.
 
+If the item fails the gate, it does not go in the ledger. Route it to its
+proper store instead: reusable app/endpoint/auth/defense facts and
+vulnerability leads to `/map-store`; untested continuations and private
+hypotheses to `/hypothesis-ledger`; a reusable fact plus one bounded
+unresolved question to `/leads`. Nothing fails silently — say which store
+it went to and why.
+
 ## Required destination lane
 
 Every invocation must declare the **canonical destination lane**. The tool will refuse to write without `--lane`; it never derives a lane from note contents or the report path.

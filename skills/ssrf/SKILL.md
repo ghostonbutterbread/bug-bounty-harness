@@ -43,7 +43,8 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    - direct outbound fetch -> `references/technique-packs/baseline-fetch.md`
    - allowlist, hostname, IP, redirect, or URL parser filtering -> `references/technique-packs/parser-redirect.md`
    - cloud metadata or internal protocol reachability -> `references/technique-packs/metadata-scheme.md`
-8. The three technique packs collectively cover blind/async fetchers, parser,
+   - approved DNS rebinding or validation/connection resolution differential -> `references/technique-packs/dns-rebinding.md`
+8. The four technique packs collectively cover blind/async fetchers, parser,
    address, DNS, redirect, scheme, cloud/container, request-shape, and
    protocol-boundary families. Load the pack that matches observed behavior;
    do not repeat the short idea seeds as a ceiling.

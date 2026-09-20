@@ -1,6 +1,8 @@
 # Artifact contract repair — integration dossier
 
-- Status: implemented; independent review and beta integration pending.
+- Status: independently accepted for bounded artifact-integrity publication; beta integration pending.
+- Independent acceptance: reviewer checked full diff at `640b808`, reran the focused offline suite (96 tests and 29 subtests passed), verified worktree import provenance and installed Bounty Core pin, and found no blockers. This supersedes the pending-review instructions below.
+- Integration blocker: shared beta worktree contains unrelated `skills/waf/SKILL.md` edits. Preserve them; publish the reviewed feature branch without claiming beta activation. Resume beta integration when its owning operator supplies a clean integration checkout.
 - Owner/task: parent Hermes agent, `t_3697fb9c`.
 - Worktree: `/home/ryushe/worktrees/bbh-artifact-contract`.
 - Feature branch: `fix/artifact-contract`.

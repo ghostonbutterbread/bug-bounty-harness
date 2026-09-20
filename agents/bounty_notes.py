@@ -197,15 +197,19 @@ def upsert_note_entry(layout, entry: dict) -> None:
 
 def note_entry_from_args(layout, args: argparse.Namespace, note_path: Path, *, bucket: str, title: str) -> dict:
     urls = [normalize_url(url) for url in args.url]
-    return {
-        "path": note_path.relative_to(layout.notes_root).as_posix(),
+    relative_path = note_path.relative_to(layout.notes_root).as_posix()
+    existing = next((entry for entry in read_note_index(layout) if entry.get("path") == relative_path), {})
+    reviewers = merge_ai_reviewers(
+        existing.get(AI_REVIEWED_BY_FIELD), agent_id=args.agent, model_id=args.model_id
+    )
+    entry = {
+        "path": relative_path,
         "title": title,
         "bucket": bucket,
         "status": args.status if bucket == "hypotheses" else "",
         "updated": iso_now(),
         "agent": args.agent,
         "run_id": args.run_id,
-        AI_REVIEWED_BY_FIELD: merge_ai_reviewers(agent_id=args.agent, model_id=args.model_id),
         "urls": urls,
         "tags": sorted({slugify(tag, fallback="tag") for tag in args.tag}),
         "reports": sorted(set(args.report)),
@@ -213,6 +217,9 @@ def note_entry_from_args(layout, args: argparse.Namespace, note_path: Path, *, b
         "links": sorted(set(args.link)),
         "refs": sorted(set(args.refs)),
     }
+    if reviewers:
+        entry[AI_REVIEWED_BY_FIELD] = reviewers
+    return entry
 
 
 def append_index_link(index_path: Path, *, label: str, relative_path: Path) -> None:
@@ -293,9 +300,12 @@ def cmd_note(args: argparse.Namespace) -> int:
             metadata.append("Tags: " + " ".join("#" + slugify(tag, fallback="tag") for tag in args.tag))
         if args.link:
             metadata.append("Links: " + ", ".join(wikilink_for_note(layout.notes_root, link) for link in args.link))
+        reviewers = merge_ai_reviewers(agent_id=args.agent, model_id=args.model_id)
         entry = (
             f"\n## {iso_now()} - {title}\n\n"
-            f"Agent/Run: {args.agent} / {args.run_id}\n\n"
+            f"Agent/Run: {args.agent} / {args.run_id}\n"
+            + (f"AI Reviewed By: {', '.join(reviewer_labels(reviewers))}\n" if reviewers else "")
+            + "\n"
             + ("\n".join(metadata) + "\n\n" if metadata else "")
             + f"{body}"
         )
@@ -400,12 +410,14 @@ def cmd_artifact(args: argparse.Namespace) -> int:
         "lane": layout.lane,
         "agent": args.agent,
         "run_id": run_id,
-        AI_REVIEWED_BY_FIELD: merge_ai_reviewers(agent_id=args.agent, model_id=args.model_id),
         "created": iso_now(),
         "artifact_note": args.note,
         "artifacts": copied,
         "safety": "Do not paste secrets or raw proxy dumps into notes. Keep sensitive material local and referenced only by sanitized summaries.",
     }
+    reviewers = merge_ai_reviewers(agent_id=args.agent, model_id=args.model_id)
+    if reviewers:
+        manifest[AI_REVIEWED_BY_FIELD] = reviewers
     (run_root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     readme = run_root / "README.md"
     if not readme.exists():

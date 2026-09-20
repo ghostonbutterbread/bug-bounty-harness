@@ -779,9 +779,13 @@ class MapStore:
         if not body.strip():
             raise ValueError("Application behavior body is required")
         normalized_tags = sorted({slugify(value) for value in tags or [] if value.strip()})
-        reviewers = merge_ai_reviewers(agent_id=agent, model_id=model_id)
         timestamp = iso_now()
         with self._locked():
+            existing_entries = self._read_behavior_index()
+            existing = next((entry for entry in existing_entries if entry.get("id") == behavior_id), {})
+            reviewers = merge_ai_reviewers(
+                existing.get(AI_REVIEWED_BY_FIELD), agent_id=agent, model_id=model_id
+            )
             path = self._maps_root / BEHAVIORS_DIR / behavior_id / OBSERVATION_FILE
             path.parent.mkdir(parents=True, exist_ok=True)
             header = [f"# {name.strip()}", "", "Record Type: application-behavior",
@@ -794,12 +798,14 @@ class MapStore:
                 header.append(f"AI Reviewed By: {', '.join(reviewer_labels(reviewers))}")
             header.extend([f"Agent: {agent}", f"Run: {run_id or 'manual'}", f"Updated: {timestamp}", ""])
             _atomic_write_text(path, "\n".join(header) + body.rstrip() + "\n")
-            entries = [entry for entry in self._read_behavior_index() if entry.get("id") != behavior_id]
-            entries.append({"record_type": "application_behavior", "id": behavior_id, "name": name.strip(), "kinds": normalized_kinds,
-                            "observation_paths": normalized_paths, "urls": normalized_urls, "tags": normalized_tags,
-                            "path": path.relative_to(self._maps_root).as_posix(),
-                            "timestamp": timestamp, "agent": agent, "run_id": run_id or "",
-                            AI_REVIEWED_BY_FIELD: reviewers})
+            entries = [entry for entry in existing_entries if entry.get("id") != behavior_id]
+            entry = {"record_type": "application_behavior", "id": behavior_id, "name": name.strip(), "kinds": normalized_kinds,
+                     "observation_paths": normalized_paths, "urls": normalized_urls, "tags": normalized_tags,
+                     "path": path.relative_to(self._maps_root).as_posix(),
+                     "timestamp": timestamp, "agent": agent, "run_id": run_id or ""}
+            if reviewers:
+                entry[AI_REVIEWED_BY_FIELD] = reviewers
+            entries.append(entry)
             entries.sort(key=lambda entry: entry["name"].lower())
             self._write_behavior_index(entries)
             lines = [f"# Application Behaviors: {self._program}", "", "Named, evidence-backed capabilities; not vulnerability leads.", "", "## Behaviors"]
@@ -1012,7 +1018,14 @@ class MapStore:
         obs_dir.mkdir(parents=True, exist_ok=True)
         obs_path = obs_dir / OBSERVATION_FILE
         timestamp = iso_now()
-        reviewers = merge_ai_reviewers(agent_id=agent, model_id=model_id)
+        existing = next(
+            (entry for entry in self._read_index()
+             if entry.get("path") == obs_path.relative_to(self._maps_root).as_posix()),
+            {},
+        )
+        reviewers = merge_ai_reviewers(
+            existing.get(AI_REVIEWED_BY_FIELD), agent_id=agent, model_id=model_id
+        )
 
         # Build markdown content
         title_display = title or (f"{surface}/{url_to_dirname(url)}" if url else f"{surface}/{scope}")

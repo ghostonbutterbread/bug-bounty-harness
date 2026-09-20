@@ -29,9 +29,11 @@ without rewriting raw evidence or guessing old model identity.
 
 - Provider beta merge/publish receipt: `65cfe628a69c920637e4c50cb52374869f5d623c`;
   provider beta suite passed `147` tests.
-- BBH focused source tests passed `101` tests through a checkout-local virtual
+- Expanded BBH focused tests passed `107` tests through a checkout-local virtual
   environment after installing `requirements.txt`; distribution metadata and
   `direct_url.json` resolved the exact provider commit above.
+- `python -m compileall -q agents` and `git diff --check` passed after the review
+  corrections.
 - Direct CLI checks wrote temporary MapStore, Hypothesis, Error, and Bounty
   Notes artifacts, each with the expected reviewer tag.
 
@@ -42,9 +44,17 @@ Existing data stays unmodified when the source model is unknown. Raw captures,
 generated indexes, and mechanical transport artifacts are not retroactively
 attributed.
 
+## Review corrections
+
+Independent review found that repeated MapStore and Bounty Notes writes could
+replace prior attribution, model-less Bounty Notes artifacts wrote empty tags,
+and timeline entries did not render their reviewer. The branch now merges prior
+reviewers on replacement writes, omits empty optional fields, and renders a
+reviewer line in every attributed timeline event. Focused regressions cover the
+corrected paths; a fresh review is required after the correction commit.
+
 ## Next action
 
-Install the pinned provider into a checkout-local test environment, prove the
-installed distribution resolves to the exact provider revision, run the BBH
-focused suite through that installed environment, then request independent BBH
-review before beta integration.
+Run the expanded focused BBH tests from the checkout-local installed environment,
+then obtain a fresh independent review of the corrected branch before beta
+integration.

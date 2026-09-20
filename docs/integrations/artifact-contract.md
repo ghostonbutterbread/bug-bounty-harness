@@ -7,7 +7,9 @@
 - Base and fetched target: `origin/beta` at
   `538342259157bd692e5c5ff6a4fe40ae039a4c57`.
 - Intended integration target: `beta`, never main/stable.
-- Implementation checkpoint: pending local commit (recorded in follow-up handoff).
+- Implementation checkpoint: `237fe694861992b806344481f2bdcfa5befbd46e`
+  on `fix/artifact-contract`; the subsequent dossier-only handoff commit records
+  this immutable checkpoint. Review both the checkpoint and branch tip.
 - Publication, independent release review, integration and cleanup: parent-owned;
   this implementation subagent must not push or merge.
 

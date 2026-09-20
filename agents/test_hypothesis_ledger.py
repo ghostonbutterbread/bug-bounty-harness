@@ -79,6 +79,19 @@ def test_cli_captures_private_hypothesis_and_exposes_only_owner_view(tmp_path):
     assert checkpoint == {"private_unresolved_count": 1, "active_count": 0, "surface": "export"}
 
 
+def test_cli_model_less_hypothesis_omits_optional_reviewer_tag(tmp_path):
+    created = run_cli(
+        tmp_path, "create", "demo", "--agent-id", "agent-a", "--run-id", "run-a",
+        "--title", "Model-less export question", "--surface", "export",
+    )
+    owner_view = run_cli(
+        tmp_path, "list", "demo", "--agent-id", "agent-a", "--run-id", "run-a", "--surface", "export",
+    )
+
+    assert "ai_reviewed_by" not in created
+    assert "ai_reviewed_by" not in owner_view["hypotheses"][0]
+
+
 def test_cli_can_transition_an_owned_hypothesis_to_active(tmp_path):
     created = run_cli(
         tmp_path, "create", "demo", "--agent-id", "agent-a", "--run-id", "run-a",

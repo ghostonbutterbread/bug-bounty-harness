@@ -3,7 +3,7 @@
 - **Feature branch:** `feat/ai-review-attribution`
 - **Base / target:** `aa275fde49802c393c5789d6e3387da82c6f1c2a` (`origin/beta`) → `beta`
 - **Worktree:** `/home/ryushe/worktrees/bbh-ai-review-attribution`
-- **Provider:** Bounty Core beta `65cfe628a69c920637e4c50cb52374869f5d623c`
+- **Provider:** Bounty Core beta `7b08495f65a50f733fc18213c38cc3ae8e91bdf5`
 
 ## Intent
 
@@ -27,9 +27,10 @@ without rewriting raw evidence or guessing old model identity.
 
 ## Evidence
 
-- Provider beta merge/publish receipt: `65cfe628a69c920637e4c50cb52374869f5d623c`;
-  provider beta suite passed `147` tests.
-- Expanded BBH focused tests passed `107` tests through a checkout-local virtual
+- Provider beta merge/publish receipts: `65cfe628a69c920637e4c50cb52374869f5d623c`
+  (initial attribution support) and `7b08495f65a50f733fc18213c38cc3ae8e91bdf5`
+  (empty hypothesis reviewer omission); provider beta suite passed `147` tests.
+- Expanded BBH focused tests passed `108` tests through a checkout-local virtual
   environment after installing `requirements.txt`; distribution metadata and
   `direct_url.json` resolved the exact provider commit above.
 - `python -m compileall -q agents` and `git diff --check` passed after the review
@@ -50,8 +51,11 @@ Independent review found that repeated MapStore and Bounty Notes writes could
 replace prior attribution, model-less Bounty Notes artifacts wrote empty tags,
 and timeline entries did not render their reviewer. The branch now merges prior
 reviewers on replacement writes, omits empty optional fields, and renders a
-reviewer line in every attributed timeline event. Focused regressions cover the
-corrected paths; a fresh review is required after the correction commit.
+reviewer line in every attributed timeline event. A final release review also
+found that model-less Hypothesis Ledger payloads exposed an empty optional field;
+Bounty Core beta `7b08495f65a50f733fc18213c38cc3ae8e91bdf5` corrects that
+provider contract and BBH pins it. Focused regressions cover every corrected
+path; a fresh review is required after the pin/test commit.
 
 ## Next action
 

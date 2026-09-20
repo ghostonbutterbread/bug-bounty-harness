@@ -404,6 +404,18 @@ def cmd_artifact(args: argparse.Namespace) -> int:
             shutil.copy2(src, dst)
         copied.append(str(dst))
 
+    manifest_path = run_root / "manifest.json"
+    existing_manifest: dict = {}
+    if manifest_path.exists():
+        try:
+            parsed = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                existing_manifest = parsed
+        except (OSError, json.JSONDecodeError):
+            pass
+    reviewers = merge_ai_reviewers(
+        existing_manifest.get(AI_REVIEWED_BY_FIELD), agent_id=args.agent, model_id=args.model_id
+    )
     manifest = {
         "program": layout.program,
         "family": layout.family,
@@ -415,10 +427,9 @@ def cmd_artifact(args: argparse.Namespace) -> int:
         "artifacts": copied,
         "safety": "Do not paste secrets or raw proxy dumps into notes. Keep sensitive material local and referenced only by sanitized summaries.",
     }
-    reviewers = merge_ai_reviewers(agent_id=args.agent, model_id=args.model_id)
     if reviewers:
         manifest[AI_REVIEWED_BY_FIELD] = reviewers
-    (run_root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     readme = run_root / "README.md"
     if not readme.exists():
         readme.write_text(

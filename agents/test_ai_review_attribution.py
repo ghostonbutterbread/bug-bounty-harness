@@ -82,6 +82,22 @@ def test_model_less_mapstore_and_notes_omit_optional_reviewer_field(tmp_path) ->
     assert "ai_reviewed_by" not in json.loads(manifest.read_text(encoding="utf-8"))
 
 
+def test_scratch_artifact_manifest_merges_reviewer_tags(tmp_path) -> None:
+    base = ["demo", "--family", "web_bounty", "--lane", "web", "--root", str(tmp_path)]
+    first_source = tmp_path / "first.txt"
+    second_source = tmp_path / "second.txt"
+    first_source.write_text("first\n", encoding="utf-8")
+    second_source.write_text("second\n", encoding="utf-8")
+    for source, reviewer in ((first_source, FIRST), (second_source, SECOND)):
+        assert bounty_notes.main([
+            "artifact", *base, "--source", str(source), "--run-id", "run-1",
+            "--agent", reviewer["agent_id"], "--model-id", reviewer["model_id"],
+        ]) == 0
+
+    manifest = tmp_path / "web_bounty" / "demo" / "web" / "working" / "scratch" / "run-1" / "manifest.json"
+    assert json.loads(manifest.read_text(encoding="utf-8"))["ai_reviewed_by"] == [FIRST, SECOND]
+
+
 def test_timeline_notes_render_and_merge_reviewer_tags(tmp_path) -> None:
     base = ["demo", "--family", "web_bounty", "--lane", "web", "--root", str(tmp_path), "--bucket", "timeline"]
     assert bounty_notes.main([

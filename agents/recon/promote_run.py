@@ -14,18 +14,40 @@ from agents.recon import bus
 
 
 DIRECTORY_NAMES = ("normalized", "parsed", "raw")
-PORT_MARKERS = ("naabu", "ports", "port")
 URL_BEARING_KINDS = ("url", "param", "js")
 
-FILENAME_KIND_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
-    (("params_raw", "params"), "param"),
-    (("jsfiles", "js_urls", "javascript"), "js"),
-    (("alive", "httpx", "live"), "alive"),
-    (("wild",), "wild"),
-    (("hosts", "host", "subdomains", "subdomain"), "host"),
-    (("dirs", "directories", "paths"), "dir"),
-    (("urls", "url"), "url"),
-)
+# Exact basenames, including the established plain-text aliases. Metadata,
+# diagnostic subsets and backups are not queue inputs. In particular wild.txt
+# is maintained from verified scope, never promoted from discovery output.
+FILENAME_KINDS = {
+    "params_raw.txt": "param",
+    "params.txt": "param",
+    "jsfiles.txt": "js",
+    "js_urls.txt": "js",
+    "javascript.txt": "js",
+    "alive.txt": "alive",
+    "httpx.txt": "alive",
+    "live.txt": "alive",
+    "hosts.txt": "host",
+    "host.txt": "host",
+    "subdomains.txt": "host",
+    "subdomain.txt": "host",
+    "dirs.txt": "dir",
+    "directories.txt": "dir",
+    "paths.txt": "dir",
+    "urls.txt": "url",
+    "url.txt": "url",
+    "url-output.txt": "url",  # Existing manifest-declared output contract.
+    "live-hosts.txt": "alive",
+    "url_seed.txt": "url",
+    "javascript_urls.txt": "js",
+    "all_urls.txt": "url",
+    "ports.txt": "port",
+    "port.txt": "port",
+    "naabu.txt": "port",
+    "ports.jsonl": "port",
+    "naabu.jsonl": "port",
+}
 
 
 def is_params_view(path: Path) -> bool:
@@ -38,13 +60,7 @@ def is_params_raw(path: Path) -> bool:
 
 def classify_path(path: Path) -> str | None:
     """Return the recon bus aggregate kind implied by a known output filename."""
-    stem = path.stem.lower()
-    if any(marker in stem for marker in PORT_MARKERS):
-        return "port"
-    for markers, kind in FILENAME_KIND_RULES:
-        if any(marker in stem for marker in markers):
-            return kind
-    return None
+    return FILENAME_KINDS.get(path.name.lower())
 
 
 def _dedupe_paths(paths: Iterable[Path]) -> list[Path]:
@@ -135,8 +151,16 @@ def discover_candidate_files(run_root: Path) -> dict[str, list[Path]]:
     # Recon-Ry keeps content-discovery output partitioned by HTTP status under
     # dirs_status/. Preserve those flat result files as the durable dir queue
     # rather than requiring every producer to create a duplicate dirs.txt.
+    # Do not let the status-directory exception admit scope or metadata files.
+    non_queue_names = {
+        "wild.txt", "hosts.jsonl", "httpx.jsonl", "httpx_ip_raw.txt",
+        "waf_hosts.txt", "unprotected_hosts.txt",
+    }
     for status_dir in sorted(path for path in run_root.rglob("dirs_status") if path.is_dir()):
-        grouped["dir"].extend(path for path in sorted(status_dir.rglob("*")) if path.is_file())
+        grouped["dir"].extend(
+            path for path in sorted(status_dir.rglob("*"))
+            if path.is_file() and path.name.lower() not in non_queue_names
+        )
     grouped = {kind: _dedupe_paths(paths) for kind, paths in grouped.items()}
     if any(is_params_raw(path) for path in grouped.get("param", [])):
         grouped["param"] = [path for path in grouped["param"] if not is_params_view(path)]

@@ -464,6 +464,10 @@ the mounted bounty root and point MapStore to that artifact.
 
 Use `docs/mapstore-request-contracts.md` for the canonical schema. Key rules:
 
+- When a model produced or materially updated the observation, pass its exact
+  `--model-id` with `--agent`. The optional `ai_reviewed_by` index/header tag
+  records each supplied agent/model pair without backfilling unknown history.
+
 - Store replay shape and source request provenance, not raw cookies, CSRF
   tokens, bearer values, SDK tokens, or API keys.
 - Put local request artifacts under `recon/requests/<host>/`.

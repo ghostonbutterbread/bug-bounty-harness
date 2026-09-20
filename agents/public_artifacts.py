@@ -28,6 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--program", required=True)
     record.add_argument("--event", required=True, choices=("created", "updated", "visibility_changed", "cleanup_pending", "deleted", "cleanup_verified"))
     record.add_argument("--producer", default="public-artifacts")
+    record.add_argument("--model-id", help="Optional model identifier for AI-review attribution")
     record.add_argument("--account-ref", required=True, help="Owned account alias or approved non-secret email/username")
     record.add_argument("--artifact-kind", required=True)
     record.add_argument("--url", required=True)
@@ -99,6 +100,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             cleanup_method=args.cleanup_method,
             cleanup_verified=args.cleanup_verified,
             details={},
+            model_id=args.model_id,
         )
     if args.command == "current":
         artifacts = store.current(include_cleaned=args.include_cleaned, limit=args.limit)

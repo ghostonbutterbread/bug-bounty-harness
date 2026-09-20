@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agents.storage_resolver import ensure_layout, resolve_storage, write_context_files
+from bounty_core.provenance import AI_REVIEWED_BY_FIELD, merge_ai_reviewers, reviewer_labels
 
 
 VALID_BUCKETS = {"timeline", "hypotheses", "handoffs", "faq"}
@@ -204,6 +205,7 @@ def note_entry_from_args(layout, args: argparse.Namespace, note_path: Path, *, b
         "updated": iso_now(),
         "agent": args.agent,
         "run_id": args.run_id,
+        AI_REVIEWED_BY_FIELD: merge_ai_reviewers(agent_id=args.agent, model_id=args.model_id),
         "urls": urls,
         "tags": sorted({slugify(tag, fallback="tag") for tag in args.tag}),
         "reports": sorted(set(args.report)),
@@ -231,6 +233,7 @@ def note_header(layout, args: argparse.Namespace, *, bucket: str, title: str) ->
         f"Program: {args.program}",
         f"Family/Lane: {args.family or 'auto'}/{args.lane}",
         f"Agent/Run: {args.agent} / {args.run_id}",
+        *([f"AI Reviewed By: {', '.join(reviewer_labels(merge_ai_reviewers(agent_id=args.agent, model_id=args.model_id)))}"] if args.model_id else []),
         f"Updated: {iso_now()}",
     ]
     if args.tag:
@@ -397,6 +400,7 @@ def cmd_artifact(args: argparse.Namespace) -> int:
         "lane": layout.lane,
         "agent": args.agent,
         "run_id": run_id,
+        AI_REVIEWED_BY_FIELD: merge_ai_reviewers(agent_id=args.agent, model_id=args.model_id),
         "created": iso_now(),
         "artifact_note": args.note,
         "artifacts": copied,
@@ -442,6 +446,7 @@ def build_parser() -> argparse.ArgumentParser:
     note.add_argument("--slug")
     note.add_argument("--status", default="untested")
     note.add_argument("--agent", default="ghost")
+    note.add_argument("--model-id", help="Optional model identifier for AI-review attribution")
     note.add_argument("--run-id", default=None)
     note.add_argument("--body")
     note.add_argument("--body-file")
@@ -475,6 +480,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(artifact)
     artifact.add_argument("--source", action="append", required=True)
     artifact.add_argument("--agent", default="ghost")
+    artifact.add_argument("--model-id", help="Optional model identifier for AI-review attribution")
     artifact.add_argument("--run-id", default=None)
     artifact.add_argument("--note", default="")
     artifact.set_defaults(func=cmd_artifact)

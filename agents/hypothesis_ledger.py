@@ -30,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("program")
         command.add_argument("--agent-id", required=True)
         command.add_argument("--run-id", required=True)
+        command.add_argument("--model-id", help="Optional model identifier for AI-review attribution")
         return command
 
     create = program_command("create")
@@ -134,6 +135,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             agent_id=args.agent_id, run_id=args.run_id, title=args.title, surface=args.surface,
             url=args.url, tags=args.tag, parent_id=args.parent_id, lead_id=args.lead_id,
             expected_chain=args.expected_chain, next_discriminator=args.next_discriminator, evidence_refs=args.evidence_ref,
+            model_id=args.model_id,
         )
     if args.command == "heartbeat":
         return ledger.heartbeat(agent_id=args.agent_id, run_id=args.run_id)

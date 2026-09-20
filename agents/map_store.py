@@ -86,6 +86,7 @@ except ImportError:
         return urlunsplit((parsed.scheme.lower() or "https", host, path, query, ""))
 
 from agents.storage_resolver import resolve_storage  # noqa: E402
+from bounty_core.provenance import AI_REVIEWED_BY_FIELD, merge_ai_reviewers, reviewer_labels  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -757,7 +758,7 @@ class MapStore:
 
     def write_behavior(self, *, name: str, kinds: list[str], observation_paths: list[str], body: str,
                        tags: list[str] | None = None, agent: str = "ghost",
-                       run_id: str | None = None) -> Path:
+                       run_id: str | None = None, model_id: str | None = None) -> Path:
         """Create/update a named evidence-backed capability, not a vulnerability lead."""
         behavior_id = slugify(name, fallback="")
         normalized_kinds = list(dict.fromkeys(slugify(value) for value in kinds if value.strip()))
@@ -778,6 +779,7 @@ class MapStore:
         if not body.strip():
             raise ValueError("Application behavior body is required")
         normalized_tags = sorted({slugify(value) for value in tags or [] if value.strip()})
+        reviewers = merge_ai_reviewers(agent_id=agent, model_id=model_id)
         timestamp = iso_now()
         with self._locked():
             path = self._maps_root / BEHAVIORS_DIR / behavior_id / OBSERVATION_FILE
@@ -788,13 +790,16 @@ class MapStore:
                       *[f"- {url}" for url in normalized_urls]]
             if normalized_tags:
                 header.append(f"Tags: {' '.join('#' + tag for tag in normalized_tags)}")
+            if reviewers:
+                header.append(f"AI Reviewed By: {', '.join(reviewer_labels(reviewers))}")
             header.extend([f"Agent: {agent}", f"Run: {run_id or 'manual'}", f"Updated: {timestamp}", ""])
             _atomic_write_text(path, "\n".join(header) + body.rstrip() + "\n")
             entries = [entry for entry in self._read_behavior_index() if entry.get("id") != behavior_id]
             entries.append({"record_type": "application_behavior", "id": behavior_id, "name": name.strip(), "kinds": normalized_kinds,
                             "observation_paths": normalized_paths, "urls": normalized_urls, "tags": normalized_tags,
                             "path": path.relative_to(self._maps_root).as_posix(),
-                            "timestamp": timestamp, "agent": agent, "run_id": run_id or ""})
+                            "timestamp": timestamp, "agent": agent, "run_id": run_id or "",
+                            AI_REVIEWED_BY_FIELD: reviewers})
             entries.sort(key=lambda entry: entry["name"].lower())
             self._write_behavior_index(entries)
             lines = [f"# Application Behaviors: {self._program}", "", "Named, evidence-backed capabilities; not vulnerability leads.", "", "## Behaviors"]
@@ -834,6 +839,7 @@ class MapStore:
         crossfamily: list[str] | None = None,
         agent: str = "ghost",
         run_id: str | None = None,
+        model_id: str | None = None,
         title: str = "",
         status: str = ACTIVE_STATUS,
         behaviors: list[str] | None = None,
@@ -874,6 +880,7 @@ class MapStore:
                 crossfamily=crossfamily,
                 agent=agent,
                 run_id=run_id,
+                model_id=model_id,
                 title=title,
                 status=status,
                 behaviors=behaviors,
@@ -969,6 +976,7 @@ class MapStore:
         crossfamily: list[str],
         agent: str,
         run_id: str | None,
+        model_id: str | None,
         title: str,
         status: str,
         behaviors: list[str],
@@ -1004,6 +1012,7 @@ class MapStore:
         obs_dir.mkdir(parents=True, exist_ok=True)
         obs_path = obs_dir / OBSERVATION_FILE
         timestamp = iso_now()
+        reviewers = merge_ai_reviewers(agent_id=agent, model_id=model_id)
 
         # Build markdown content
         title_display = title or (f"{surface}/{url_to_dirname(url)}" if url else f"{surface}/{scope}")
@@ -1020,6 +1029,8 @@ class MapStore:
             header.append(f"Tags: {' '.join('#' + t for t in tags)}")
         if behaviors:
             header.append(f"Application Behaviors: {', '.join(behaviors)}")
+        if reviewers:
+            header.append(f"AI Reviewed By: {', '.join(reviewer_labels(reviewers))}")
         header.extend([
             f"Agent: {agent}",
             f"Run: {run_id or 'manual'}",
@@ -1047,6 +1058,8 @@ class MapStore:
             "status_reason": "initial write",
             "behaviors": behaviors,
         }
+        if reviewers:
+            entry[AI_REVIEWED_BY_FIELD] = reviewers
         self._upsert_entry(entry)
         self._refresh_pointer_index(
             obs_dir.parent,
@@ -1064,6 +1077,7 @@ class MapStore:
         status: str,
         reason: str,
         agent: str = "ghost",
+        model_id: str | None = None,
     ) -> dict:
         """Update the lifecycle status for an existing observation.
 
@@ -1091,6 +1105,11 @@ class MapStore:
                 raise ValueError(f"Observation file is missing: {path}")
 
             timestamp = iso_now()
+            reviewers = merge_ai_reviewers(
+                match.get(AI_REVIEWED_BY_FIELD), agent_id=agent, model_id=model_id
+            )
+            if reviewers:
+                match[AI_REVIEWED_BY_FIELD] = reviewers
             match["status"] = status
             match["status_updated"] = timestamp
             match["status_agent"] = agent
@@ -1119,6 +1138,14 @@ class MapStore:
             if not replaced:
                 insert_at = 4 if len(lines) >= 4 else len(lines)
                 lines.insert(insert_at, f"Status: {status}")
+            if reviewers:
+                reviewer_line = f"AI Reviewed By: {', '.join(reviewer_labels(reviewers))}"
+                for idx, line in enumerate(lines):
+                    if line.startswith("AI Reviewed By: "):
+                        lines[idx] = reviewer_line
+                        break
+                else:
+                    lines.insert(5 if len(lines) >= 5 else len(lines), reviewer_line)
             content = "\n".join(lines).rstrip() + _format_status_note(
                 timestamp=timestamp,
                 status=status,
@@ -1466,6 +1493,7 @@ def _build_parser() -> argparse.ArgumentParser:
     behavior_body.add_argument("--body-stdin", action="store_true")
     behavior_write_p.add_argument("--tags", default="")
     behavior_write_p.add_argument("--agent", default="ghost")
+    behavior_write_p.add_argument("--model-id", help="Optional model identifier for AI-review attribution")
     behavior_write_p.add_argument("--run-id", default=None)
     behavior_query_p = behavior_sub.add_parser("query", help="Query named application behaviors")
     _add_common(behavior_query_p)
@@ -1493,6 +1521,7 @@ def _build_parser() -> argparse.ArgumentParser:
     write_p.add_argument("--behavior", action="append", default=[], help="Existing application behavior name/ID to link; repeat for multiple")
     write_p.add_argument("--crossfamily", default="", help="Comma-separated family/program/lane refs")
     write_p.add_argument("--agent", default="ghost")
+    write_p.add_argument("--model-id", help="Optional model identifier for AI-review attribution")
     write_p.add_argument("--run-id", default=None)
     write_p.add_argument("--title", default="")
     write_p.add_argument(
@@ -1533,6 +1562,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     status_p.add_argument("--reason", required=True, help="Evidence-backed reason for the status change")
     status_p.add_argument("--agent", default="ghost")
+    status_p.add_argument("--model-id", help="Optional model identifier for AI-review attribution")
     status_p.add_argument("--json", action="store_true", help="Output updated index entry as JSON")
 
     # rebuild-crossref
@@ -1587,6 +1617,7 @@ def _run_write(store: MapStore, args: argparse.Namespace) -> int:
         crossfamily=crossfamily,
         agent=args.agent,
         run_id=args.run_id,
+        model_id=args.model_id,
         title=args.title,
         status=args.status,
         behaviors=args.behavior,
@@ -1605,7 +1636,7 @@ def _run_behavior(store: MapStore, args: argparse.Namespace) -> int:
         path = store.write_behavior(
             name=args.name, kinds=args.kind, observation_paths=args.observation, body=body,
             tags=[tag.strip() for tag in args.tags.split(",") if tag.strip()],
-            agent=args.agent, run_id=args.run_id,
+            agent=args.agent, run_id=args.run_id, model_id=args.model_id,
         )
         print(path)
         return 0
@@ -1721,6 +1752,7 @@ def _run_update_status(store: MapStore, args: argparse.Namespace) -> int:
         status=args.status,
         reason=args.reason,
         agent=args.agent,
+        model_id=args.model_id,
     )
     if args.json:
         print(json.dumps(entry, indent=2, sort_keys=True))

@@ -23,6 +23,7 @@ from bounty_core.evidence import (  # noqa: E402
     redact_event_value,
     utc_timestamp,
 )
+from bounty_core.provenance import AI_REVIEWED_BY_FIELD, merge_ai_reviewers  # noqa: E402
 
 # Legacy names remain stable while BBH consumers migrate to the generic Core API.
 REQUIRED_ATTEMPT_FIELDS = ("timestamp", "tool", "target", "outcome", "stop_reason")
@@ -65,7 +66,13 @@ def resolve_attempts_path(
     return layout.lane_root / "attempts" / "_runs" / normalized_run_id / "attempts.jsonl"
 
 
-def append_attempt(path: str | Path, attempt: Mapping[str, Any]) -> dict[str, Any]:
+def append_attempt(
+    path: str | Path,
+    attempt: Mapping[str, Any],
+    *,
+    agent_id: str | None = None,
+    model_id: str | None = None,
+) -> dict[str, Any]:
     """Append a BBH attempt through Bounty Core's canonical evidence writer.
 
     Preserve the pre-Core BBH required-field contract while Core normalizes the
@@ -75,6 +82,13 @@ def append_attempt(path: str | Path, attempt: Mapping[str, Any]) -> dict[str, An
     if missing:
         raise ValueError(f"attempt missing required fields: {', '.join(missing)}")
     event = dict(attempt)
+    reviewers = merge_ai_reviewers(
+        event.get(AI_REVIEWED_BY_FIELD),
+        agent_id=agent_id or event.get("agent_id") or event.get("tool"),
+        model_id=model_id or event.get("model_id"),
+    )
+    if reviewers:
+        event[AI_REVIEWED_BY_FIELD] = reviewers
     event_path = Path(path)
     if event_path.name == "attempts.jsonl" and event_path.parent.parent.name == "_runs":
         event.setdefault("run_id", event_path.parent.name)

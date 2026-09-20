@@ -57,8 +57,9 @@ Bounty Core beta `7b08495f65a50f733fc18213c38cc3ae8e91bdf5` corrects that
 provider contract and BBH pins it. Focused regressions cover every corrected
 path. The final reviewer also found scratch manifests replaced earlier reviewer
 tags when a run received another attributed artifact; that manifest now merges
-prior reviewers before replacement and is regression-tested. A fresh review is
-required after this final correction.
+prior reviewers before replacement and is regression-tested. Fresh independent review
+approved the correction after installed-provider tests and legacy/model-less
+smokes. The branch is ready for a clean current-beta integration merge.
 
 ## Next action
 

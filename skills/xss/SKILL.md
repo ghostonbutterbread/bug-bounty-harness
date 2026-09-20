@@ -77,6 +77,15 @@ Load only the overlay that answers the next concrete question:
 | Stack, renderer, sanitizer, parser, browser, or defense evidence could alter the next hypothesis | `xss-technology-research` | Bounded research packet and reusable-card promotion. |
 | Filtering, normalization, challenge, or edge/origin differential is the current question | `waf-live-policy` | Defense-boundary characterization. |
 
+### Defense signals deepen the same XSS lane
+
+A sanitizer hit or WAF/filter block on an XSS vector is signal, not an independent failed XSS attempt. When a controllable value has a plausible executable consumer, keep pressure on that same vector:
+
+- Sanitizer behavior: load `xss-technology-research` and `xss-payload-engineering` to map the observed transform and choose sanitizer-/parser-matched candidates.
+- WAF/filter behavior: load `waf-live-policy` to classify the control, then return its evidence to the XSS candidate queue.
+
+Continue with non-equivalent, context-matched families until the relevant defense/parser boundary is understood or an inherited safety or stop boundary applies.
+
 The parent XSS agent owns synthesis, execution choices, and hypothesis closure.
 
 ## Shared Payload Sources

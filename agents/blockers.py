@@ -26,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     record = subparsers.add_parser("record", help="Record an external blocker the agent cannot solve")
     record.add_argument("--program", required=True)
     record.add_argument("--producer", required=True)
+    record.add_argument("--model-id", help="Optional model identifier for AI-review attribution")
     record.add_argument("--run-id", required=True)
     record.add_argument("--subject", required=True, help="Exact route, operation, or flow being gated")
     record.add_argument("--test-scope", required=True)
@@ -98,7 +99,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             blocker_key=args.blocker_key, blocker_type=args.blocker_type, reason=args.reason, state=args.state,
             unblock_condition=args.unblock_condition, account_refs=args.account_ref, capability=args.capability,
             fixture=args.fixture, attempt_ref=args.attempt_ref, artifact_ref=args.artifact_ref,
-            details=details,
+            details=details, model_id=args.model_id,
         )
     if args.command == "check":
         blockers = store.active(subject=args.subject, test_scope=args.test_scope, limit=100)

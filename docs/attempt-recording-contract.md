@@ -107,7 +107,10 @@ Every record must identify:
    question it was intended to distinguish.
 4. **What happened:** outcome, status/error class, observed transform/context,
    and stop or pivot reason.
-5. **Attribution:** tool/agent, timestamp, and run when available.
+5. **Attribution:** tool/agent, timestamp, and run when available. When a model
+   made the interpretation, add the optional `ai_reviewed_by` tag through
+   `append_attempt(..., agent_id=..., model_id=...)` (or equivalent event
+   fields); do not invent a model ID for legacy or unknown work.
 
 Use open-world top-level fields or `details` for class-specific information; a
 new class never needs an adapter before it can record attempts.

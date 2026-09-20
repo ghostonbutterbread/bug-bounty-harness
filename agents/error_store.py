@@ -29,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     record = subparsers.add_parser("record", help="Append one redacted observed error event")
     record.add_argument("--program", required=True)
     record.add_argument("--producer", required=True)
+    record.add_argument("--model-id", help="Optional model identifier for AI-review attribution")
     record.add_argument("--subject", required=True)
     record.add_argument("--reason", required=True)
     record.add_argument("--layer", required=True)
@@ -93,6 +94,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             attempt_ref=args.attempt_ref,
             artifact_ref=args.artifact_ref,
             details=details,
+            model_id=args.model_id,
         )
     if args.command == "query":
         where = {key: value for key, value in {

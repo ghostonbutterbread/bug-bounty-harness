@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agents.storage_resolver import ensure_layout, resolve_storage, write_context_files
+from bounty_core.provenance import AI_REVIEWED_BY_FIELD, merge_ai_reviewers, reviewer_labels
 
 
 VALID_BUCKETS = {"timeline", "hypotheses", "handoffs", "faq"}
@@ -196,8 +197,13 @@ def upsert_note_entry(layout, entry: dict) -> None:
 
 def note_entry_from_args(layout, args: argparse.Namespace, note_path: Path, *, bucket: str, title: str) -> dict:
     urls = [normalize_url(url) for url in args.url]
-    return {
-        "path": note_path.relative_to(layout.notes_root).as_posix(),
+    relative_path = note_path.relative_to(layout.notes_root).as_posix()
+    existing = next((entry for entry in read_note_index(layout) if entry.get("path") == relative_path), {})
+    reviewers = merge_ai_reviewers(
+        existing.get(AI_REVIEWED_BY_FIELD), agent_id=args.agent, model_id=args.model_id
+    )
+    entry = {
+        "path": relative_path,
         "title": title,
         "bucket": bucket,
         "status": args.status if bucket == "hypotheses" else "",
@@ -211,6 +217,9 @@ def note_entry_from_args(layout, args: argparse.Namespace, note_path: Path, *, b
         "links": sorted(set(args.link)),
         "refs": sorted(set(args.refs)),
     }
+    if reviewers:
+        entry[AI_REVIEWED_BY_FIELD] = reviewers
+    return entry
 
 
 def append_index_link(index_path: Path, *, label: str, relative_path: Path) -> None:
@@ -231,6 +240,7 @@ def note_header(layout, args: argparse.Namespace, *, bucket: str, title: str) ->
         f"Program: {args.program}",
         f"Family/Lane: {args.family or 'auto'}/{args.lane}",
         f"Agent/Run: {args.agent} / {args.run_id}",
+        *([f"AI Reviewed By: {', '.join(reviewer_labels(merge_ai_reviewers(agent_id=args.agent, model_id=args.model_id)))}"] if args.model_id else []),
         f"Updated: {iso_now()}",
     ]
     if args.tag:
@@ -290,9 +300,12 @@ def cmd_note(args: argparse.Namespace) -> int:
             metadata.append("Tags: " + " ".join("#" + slugify(tag, fallback="tag") for tag in args.tag))
         if args.link:
             metadata.append("Links: " + ", ".join(wikilink_for_note(layout.notes_root, link) for link in args.link))
+        reviewers = merge_ai_reviewers(agent_id=args.agent, model_id=args.model_id)
         entry = (
             f"\n## {iso_now()} - {title}\n\n"
-            f"Agent/Run: {args.agent} / {args.run_id}\n\n"
+            f"Agent/Run: {args.agent} / {args.run_id}\n"
+            + (f"AI Reviewed By: {', '.join(reviewer_labels(reviewers))}\n" if reviewers else "")
+            + "\n"
             + ("\n".join(metadata) + "\n\n" if metadata else "")
             + f"{body}"
         )
@@ -391,6 +404,18 @@ def cmd_artifact(args: argparse.Namespace) -> int:
             shutil.copy2(src, dst)
         copied.append(str(dst))
 
+    manifest_path = run_root / "manifest.json"
+    existing_manifest: dict = {}
+    if manifest_path.exists():
+        try:
+            parsed = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                existing_manifest = parsed
+        except (OSError, json.JSONDecodeError):
+            pass
+    reviewers = merge_ai_reviewers(
+        existing_manifest.get(AI_REVIEWED_BY_FIELD), agent_id=args.agent, model_id=args.model_id
+    )
     manifest = {
         "program": layout.program,
         "family": layout.family,
@@ -402,7 +427,9 @@ def cmd_artifact(args: argparse.Namespace) -> int:
         "artifacts": copied,
         "safety": "Do not paste secrets or raw proxy dumps into notes. Keep sensitive material local and referenced only by sanitized summaries.",
     }
-    (run_root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    if reviewers:
+        manifest[AI_REVIEWED_BY_FIELD] = reviewers
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     readme = run_root / "README.md"
     if not readme.exists():
         readme.write_text(
@@ -442,6 +469,7 @@ def build_parser() -> argparse.ArgumentParser:
     note.add_argument("--slug")
     note.add_argument("--status", default="untested")
     note.add_argument("--agent", default="ghost")
+    note.add_argument("--model-id", help="Optional model identifier for AI-review attribution")
     note.add_argument("--run-id", default=None)
     note.add_argument("--body")
     note.add_argument("--body-file")
@@ -475,6 +503,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(artifact)
     artifact.add_argument("--source", action="append", required=True)
     artifact.add_argument("--agent", default="ghost")
+    artifact.add_argument("--model-id", help="Optional model identifier for AI-review attribution")
     artifact.add_argument("--run-id", default=None)
     artifact.add_argument("--note", default="")
     artifact.set_defaults(func=cmd_artifact)

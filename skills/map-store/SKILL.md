@@ -68,7 +68,12 @@ Application Behavior record. It is a factual capability map, not a lead.
    duplicate triage, or old-lead review.
 5. Treat MapStore results as constraints and prior observations, not as the
    hypothesis generator. If prior notes are narrow, pivot to adjacent untested
-   classes instead of inheriting their tunnel vision.
+   classes instead of inheriting their tunnel vision. When a targeted result has
+   `ai_reviewed_by` tags and the current agent/model pair is absent, a different
+   model may independently revisit the same surface or re-parse linked evidence
+   when it has a concrete bounded question or alternate interpretation. A
+   missing tag alone is not a reason to duplicate an identical attempt or start
+   broad re-testing; preserve normal scope, rate, lifecycle, and dedupe rules.
 6. Do the work.
 7. Write back important positive and negative observations.
 8. Use `--scope app` for app-wide facts and `--scope surface` for surface-wide

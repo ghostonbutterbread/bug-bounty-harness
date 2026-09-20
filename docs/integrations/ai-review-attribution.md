@@ -22,8 +22,8 @@ without rewriting raw evidence or guessing old model identity.
   Notes, and scratch manifests accept optional model attribution through their
   BBH writer paths.
 - `requirements.txt` pins the reviewed immutable provider merge revision.
-- `docs/ai-review-attribution.md` states coverage, legacy behavior, and the raw
-  evidence boundary.
+- `docs/ai-review-attribution.md` states coverage, legacy behavior, the raw
+  evidence boundary, and the bounded second-model review rule.
 
 ## Evidence
 

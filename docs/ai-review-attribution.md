@@ -23,6 +23,20 @@ same MapStore surface or evidence without treating prior output as universal.
 - Do not add the tag to immutable raw capture merely because a model later read
   it. Attach it to the derived observation/attempt/decision that model created.
 
+## Second-model review
+
+When a targeted record or surface has reviewer tags and the current
+`agent_id`/`model_id` pair is absent, treat that as an invitation—not an
+obligation—to take an independent look. A different model may re-parse the
+linked evidence or revisit the same surface when it has a concrete bounded
+question, a plausible alternate interpretation, or useful untested adjacent
+behavior.
+
+Do not re-run an identical attempt or start broad churn solely because a tag is
+missing. Keep the normal scope, rate, status, and duplicate-avoidance rules; use
+prior observations as constraints rather than truth. Add the current reviewer
+tag only after a material review produces or updates a derived record.
+
 ## Coverage
 
 - **MapStore observations and application behaviors:** `--agent` plus

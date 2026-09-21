@@ -235,7 +235,8 @@ def safe(row):
     )}
     result.update(instance_id=row["browser_id"], pane_id=row["browser_id"],
                   instance_key=info.get("instance_key", ""),
-                  account_color=info.get("account_color"))
+                  account_color=info.get("account_color"),
+                  driving_mode=info.get("driving_mode", "legacy"))
     activity = activity_snapshot(row) if row["state"] == "running" else None
     if activity and not activity.get("unavailable"):
         result["last_activity"] = activity["last_activity"]
@@ -310,7 +311,7 @@ def stop_receipt(row):
     info = record_info(row)
     private_json(
         row["launch_file"],
-        {key: info.get(key) for key in ("process_identity", "unit_invocation", "pid", "instance_key", "instance_id", "pane_id", "account_color")},
+        {key: info.get(key) for key in ("process_identity", "unit_invocation", "pid", "instance_key", "instance_selection", "instance_id", "pane_id", "account_color", "driving_mode")},
     )
 
 
@@ -439,7 +440,8 @@ def select_display(c, args):
 
 def activity_snapshot(row):
     info = record_info(row)
-    if not info.get("activity_tracking"):
+    if (not info.get("activity_tracking")
+            or info.get("driving_mode") not in (None, "agent-driven")):
         return None
     from browser_control import activity_control
     try:
@@ -499,8 +501,8 @@ def lifecycle_state(c, row):
         if owner_state(meta.get("owner")) == "terminal":
             return "terminal"
         return "idle" if activity["idle_seconds"] >= meta.get("idle_claim_seconds", DEFAULT_IDLE) else "active"
-    if meta.get("awaiting_until") and now() >= meta["awaiting_until"]:
-        return "expired-awaiting-input"
+    if meta.get("awaiting_until"):
+        return "expired-awaiting-input" if now() >= meta["awaiting_until"] else "active"
     return owner_state(meta.get("owner"))
 
 
@@ -581,6 +583,7 @@ def maintain(args):
                 if (
                     meta.get("proxy_ownership") != "browser"
                     or info.get("kasmvnc")
+                    or not any(flag.startswith("--headless") for flag in info.get("command", []))
                     or not info.get("activity_tracking")
                     or info.get("control_mode") != "pipe-fenced"
                 ):
@@ -633,9 +636,9 @@ def start(args):
         if not owner:
             emit({"status": "owner-unavailable"}, 2)
     if getattr(args, "task_owned", False):
-        if not owner and not getattr(args, "headless", False):
+        if not owner and getattr(args, "driving_mode", None) == "manual":
             emit({"status": "owner-required", "reason": "native-input-untracked",
-                  "next": "use headless activity control or supply a task supervisor PID"}, 2)
+                  "next": "use agent-driven activity control or supply a task supervisor PID"}, 2)
         if args.program or args.account or args.auth_domain:
             emit({"status": "task-owned-conflicts-with-program"}, 2)
         args.program = "task-owned"
@@ -647,7 +650,6 @@ def start(args):
         )
         args.auth_domain = "task"
     c = db()
-    cleanup_unused(c)
     sweep_rows(c, 14, True)
     import browser_profile_lease as profiles
 
@@ -664,6 +666,13 @@ def start(args):
             and not getattr(args, "task_owned", False)):
         instance = automatic_instance(c, args, alias, auth_domain)
         automatic = bool(instance)
+    row = selected_browser(c, args.program, alias, auth_domain, instance)
+    if (row and row["state"] == "running"
+            and row["agent_id"] == args.agent_id and row["run_id"] == args.run_id
+            and getattr(args, "driving_mode", None) is not None
+            and record_info(row).get("driving_mode") != args.driving_mode):
+        emit({"status": "locked", "reason": "driving-mode-mismatch", **safe(row)}, 2)
+    cleanup_unused(c)
     row = selected_browser(c, args.program, alias, auth_domain, instance)
     reusable = None
     if row and row["state"] == "running":
@@ -716,7 +725,9 @@ def start(args):
             and info.get("proxy_cert_mode") == args.proxy_cert_mode
             and not info.get("kasmvnc")
             and info.get("activity_tracking")
+            and any(flag.startswith("--headless") for flag in info.get("command", []))
             and getattr(args, "headless", False)
+            and getattr(args, "driving_mode", None) != "manual"
         )
         if compatible and info.get("control_mode") == "pipe-fenced" and healthy(row):
             from browser_control import rotate_control
@@ -892,6 +903,8 @@ def start(args):
         args.account,
         "--proxy-cert-mode",
         args.proxy_cert_mode,
+        "--driving-mode",
+        getattr(args, "driving_mode", None) or "agent-driven",
         "--json",
     ]
     if getattr(args, "task_owned", False):
@@ -1323,6 +1336,8 @@ def request(args):
             cmd += ["--task-owned"]
         if getattr(args, "headless", False):
             cmd += ["--headless"]
+        if getattr(args, "driving_mode", None) is not None:
+            cmd += ["--driving-mode", args.driving_mode]
         if getattr(args, "instance_key", None):
             cmd += ["--instance-key", args.instance_key]
         if getattr(args, "legacy_profile", False):
@@ -1475,6 +1490,8 @@ def main():
         required=True,
     )
     for parser in (s, r0):
+        parser.add_argument("--driving-mode", choices=("agent-driven", "manual"),
+                            help="Fresh browsers default to agent-driven; omitted retries preserve existing mode. Explicit mismatches require release/restart.")
         parser.add_argument("--task-owned", action="store_true")
         selection = parser.add_mutually_exclusive_group()
         selection.add_argument("--instance-key", help="Explicit isolated profile slot; omitted automatically selects safe pool instances, preserving existing legacy profiles.")

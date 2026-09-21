@@ -1,0 +1,640 @@
+{
+  "schema": 1,
+  "base": "d54f75be17961c4b0d389ebc992fcfe145793112",
+  "branch": "feat/browser-lease-recovery",
+  "target": "beta",
+  "command": "BBH_LOCAL_BROWSER_SMOKE=1 BBH_BROWSER_SMOKE_RECEIPT=/tmp/bbh-agent-driven-systemd-final.json .venv/bin/python -m pytest agents/test_browser_driving_mode.py agents/test_browser_resources.py agents/test_browser_lifecycle.py agents/test_browser_lifecycle_systemd.py agents/test_browser_lease_recovery.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_chromium_test_launcher.py agents/test_browser_startup_diagnostics.py agents/test_cdp_handoff_receipt.py tests/test_script_policy.py -q",
+  "result": "226 passed in 173.98s (0:02:53)",
+  "previous_runs": [
+    "67 passed in 61.34s (initial focused real producer and resources)",
+    "2 failed, 220 passed, 1 warning in 202.27s: fixture double-close only; retirement assertions passed",
+    "222 passed in 409.80s after fixture close guard; before three added offline hold regressions",
+    "225 passed in 273.46s (0:04:33)"
+  ],
+  "review": {
+    "session_id": "c5d51e46-61f7-452d-b3bb-ab5a4173cbf2",
+    "subtype": "success",
+    "permission_denials": [],
+    "result": "## Final verdict: APPROVE checkpoint\n\nThe correction is minimal, correct, and covered. No open findings. Release, activation, and integration remain parent-owned.\n\n### Test run\n\n```\n.venv/bin/python -m pytest agents/test_browser_resources.py agents/test_browser_lease_recovery.py agents/test_browser_provisioner.py agents/test_chromium_test_launcher.py -q\n```\n\n```\n........................................................................ [ 52%]\n..................................................................       [100%]\n138 passed in 24.53s\n```\n\n138 as you predicted, up from 137. I ran only this command; the strengthened real-producer test is smoke-gated and I did not run it, so its two-released-auto-slot assertion is your report, not my observation.\n\n### Review of the two hunks\n\n**`browser_provisioner.py:310-315`.** The retained-key allowlist gains `instance_selection` and `driving_mode`. The construction is still a closed whitelist comprehension over a literal tuple, not a subtractive filter, so the erasure guarantee is structural rather than enumerated: `cdp_url`, `control_socket`, `proxy_server`, `activity_tracking`, `command`, and everything else still vanish on stop. Both added keys are inert provenance labels \u2014 neither is a live capability, and neither can reanimate a stopped record. This is the right fix for the reported bug: `automatic_instance` reads `instance_selection` to distinguish pool slots from explicitly-keyed ones, so erasing it made a released automatic slot indistinguishable from an explicit one and silently dropped it from the reusable pool.\n\nRetaining `driving_mode` on a stopped receipt is consistent with the rest of the contract rather than a quiet migration path: a restart re-derives mode from argv at `:907`, and `activity_snapshot` at `:443-444` short-circuits on `activity_tracking`, which is erased. So the retained label is provenance only and cannot cause a stopped record to be treated as activity-managed.\n\n**`test_browser_resources.py:132-143`.** Pins both halves in one test: `automatic_instance` finds `auto-fixture` after a stop-receipt round trip (`:141` \u2014 the actual regression), `driving_mode` survives (`:142`), and `cdp_url` is absent (`:143` \u2014 the erasure guarantee, asserted as key-absence rather than falsiness). Setting `state='stopped'` before the assertion exercises the real stopped-pool path rather than a running-row shortcut. The neighboring `test_auto_does_not_select_explicit_or_active_transferred_hash` at `:146-156` already pins the converse, that a retained `instance_selection` of `explicit` is still never auto-selected, so the widened allowlist does not open explicit slots to pool reuse.\n\nNothing here touches the driving-mode contract, transfer gating, or hold semantics approved in the previous checkpoint, and the protected skill body remains untouched. Carry the `SKILL.md:187-189` prose item (headed non-Kasm belongs in the restart-required set) in the parent handoff notes for Hermes."
+  },
+  "systemd_receipt": {
+    "startup_evidence": "/tmp/bbh-startup-evidence-k64trdf6/startup.json",
+    "parallel_instances": "same-account-distinct-profiles-and-panes",
+    "task_proxy_handoff": "verified-restart-same-profile",
+    "live_handoff": "same-pid-and-page-state",
+    "old_channel": "closed",
+    "old_url": "410",
+    "old_lease_mutations": "denied",
+    "automatic_renewal": true,
+    "chromium_control": "pipe-only-no-raw-debugging-port",
+    "persistent_profile_preserved": true,
+    "multi_site_profile": "two-loopback-host-login-cookies-retained",
+    "task_owned": "no-inventory-auth",
+    "terminal_cleanup": "automatic-after-explicit-supervisor-enrollment; two-hour boundary tested with fake clock",
+    "fixture": "loopback/about:blank only",
+    "retention_sweep": "14-day-manifest-dry-run-and-confirmed"
+  },
+  "startup_receipt": {
+    "schema": 1,
+    "fixture_failed": false,
+    "cleanup_verified": true,
+    "snapshots": [
+      {
+        "attempt": 1,
+        "component": "exec",
+        "events": [
+          {
+            "phase": "exec",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 0
+          }
+        ],
+        "started_monotonic_ms": 843891278,
+        "stderr_bytes_observed": 0
+      },
+      {
+        "attempt": 1,
+        "component": "launcher",
+        "events": [
+          {
+            "phase": "launcher-entry",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 0
+          },
+          {
+            "phase": "preparation",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1
+          },
+          {
+            "phase": "preparation",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 9
+          },
+          {
+            "phase": "spawn",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 89
+          },
+          {
+            "phase": "spawn",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 91
+          },
+          {
+            "phase": "adapter-bind",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 91
+          },
+          {
+            "phase": "adapter-bind",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 92
+          },
+          {
+            "phase": "pipe-ready",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 92
+          },
+          {
+            "phase": "pipe-ready",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 392
+          },
+          {
+            "phase": "auth-application",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1394
+          },
+          {
+            "phase": "auth-application",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 1394
+          },
+          {
+            "phase": "record-publication",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1408
+          },
+          {
+            "phase": "record-publication",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 1408
+          }
+        ],
+        "started_monotonic_ms": 843891053,
+        "stderr_bytes_observed": 0
+      },
+      {
+        "attempt": 1,
+        "component": "manager",
+        "events": [
+          {
+            "phase": "dispatch",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 0
+          },
+          {
+            "phase": "dispatch",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 15
+          },
+          {
+            "phase": "publication",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 19
+          },
+          {
+            "phase": "publication",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 1621
+          },
+          {
+            "phase": "registration",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1621
+          },
+          {
+            "phase": "registration",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 1699
+          }
+        ],
+        "started_monotonic_ms": 843890988,
+        "stderr_bytes_observed": 0
+      },
+      {
+        "attempt": 2,
+        "component": "exec",
+        "events": [
+          {
+            "phase": "exec",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 0
+          }
+        ],
+        "started_monotonic_ms": 843851498,
+        "stderr_bytes_observed": 0
+      },
+      {
+        "attempt": 2,
+        "component": "launcher",
+        "events": [
+          {
+            "phase": "launcher-entry",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 0
+          },
+          {
+            "phase": "preparation",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1
+          },
+          {
+            "phase": "preparation",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 9
+          },
+          {
+            "phase": "spawn",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 86
+          },
+          {
+            "phase": "spawn",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 88
+          },
+          {
+            "phase": "adapter-bind",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 88
+          },
+          {
+            "phase": "adapter-bind",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 113
+          },
+          {
+            "phase": "pipe-ready",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 114
+          },
+          {
+            "phase": "pipe-ready",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 560
+          },
+          {
+            "phase": "auth-application",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1574
+          },
+          {
+            "phase": "auth-application",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 1575
+          },
+          {
+            "phase": "record-publication",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1575
+          },
+          {
+            "phase": "record-publication",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 1575
+          }
+        ],
+        "started_monotonic_ms": 843851298,
+        "stderr_bytes_observed": 0
+      },
+      {
+        "attempt": 2,
+        "component": "manager",
+        "events": [
+          {
+            "phase": "dispatch",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 0
+          },
+          {
+            "phase": "dispatch",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 17
+          },
+          {
+            "phase": "publication",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 20
+          },
+          {
+            "phase": "publication",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 1823
+          },
+          {
+            "phase": "registration",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1862
+          },
+          {
+            "phase": "registration",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 2029
+          }
+        ],
+        "started_monotonic_ms": 843851234,
+        "stderr_bytes_observed": 0
+      },
+      {
+        "attempt": 3,
+        "component": "exec",
+        "events": [
+          {
+            "phase": "exec",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 0
+          }
+        ],
+        "started_monotonic_ms": 843893803,
+        "stderr_bytes_observed": 0
+      },
+      {
+        "attempt": 3,
+        "component": "launcher",
+        "events": [
+          {
+            "phase": "launcher-entry",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 0
+          },
+          {
+            "phase": "preparation",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1
+          },
+          {
+            "phase": "preparation",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 9
+          },
+          {
+            "phase": "spawn",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 81
+          },
+          {
+            "phase": "spawn",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 82
+          },
+          {
+            "phase": "adapter-bind",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 83
+          },
+          {
+            "phase": "adapter-bind",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 84
+          },
+          {
+            "phase": "pipe-ready",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 84
+          },
+          {
+            "phase": "pipe-ready",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 551
+          },
+          {
+            "phase": "auth-application",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1553
+          },
+          {
+            "phase": "auth-application",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 1554
+          },
+          {
+            "phase": "record-publication",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1554
+          },
+          {
+            "phase": "record-publication",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 1554
+          }
+        ],
+        "started_monotonic_ms": 843893606,
+        "stderr_bytes_observed": 165
+      },
+      {
+        "attempt": 3,
+        "component": "manager",
+        "events": [
+          {
+            "phase": "dispatch",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 0
+          },
+          {
+            "phase": "dispatch",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 19
+          },
+          {
+            "phase": "publication",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 23
+          },
+          {
+            "phase": "publication",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 1625
+          },
+          {
+            "phase": "registration",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1625
+          },
+          {
+            "phase": "registration",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 1746
+          }
+        ],
+        "started_monotonic_ms": 843893541,
+        "stderr_bytes_observed": 0
+      },
+      {
+        "attempt": 4,
+        "component": "exec",
+        "events": [
+          {
+            "phase": "exec",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 0
+          }
+        ],
+        "started_monotonic_ms": 843855357,
+        "stderr_bytes_observed": 0
+      },
+      {
+        "attempt": 4,
+        "component": "launcher",
+        "events": [
+          {
+            "phase": "launcher-entry",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 0
+          },
+          {
+            "phase": "preparation",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1
+          },
+          {
+            "phase": "preparation",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 10
+          },
+          {
+            "phase": "spawn",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 93
+          },
+          {
+            "phase": "spawn",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 95
+          },
+          {
+            "phase": "adapter-bind",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 95
+          },
+          {
+            "phase": "adapter-bind",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 96
+          },
+          {
+            "phase": "pipe-ready",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 96
+          },
+          {
+            "phase": "pipe-ready",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 678
+          },
+          {
+            "phase": "auth-application",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1679
+          },
+          {
+            "phase": "auth-application",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 1679
+          },
+          {
+            "phase": "record-publication",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1679
+          },
+          {
+            "phase": "record-publication",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 1680
+          }
+        ],
+        "started_monotonic_ms": 843855124,
+        "stderr_bytes_observed": 0
+      },
+      {
+        "attempt": 4,
+        "component": "manager",
+        "events": [
+          {
+            "phase": "dispatch",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 0
+          },
+          {
+            "phase": "dispatch",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 16
+          },
+          {
+            "phase": "publication",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 20
+          },
+          {
+            "phase": "publication",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 1822
+          },
+          {
+            "phase": "registration",
+            "outcome": "begin",
+            "error_category": "none",
+            "elapsed_ms": 1822
+          },
+          {
+            "phase": "registration",
+            "outcome": "ready",
+            "error_category": "none",
+            "elapsed_ms": 2097
+          }
+        ],
+        "started_monotonic_ms": 843855058,
+        "stderr_bytes_observed": 0
+      }
+    ],
+    "stderr_content": "not-collected"
+  },
+  "limits": [
+    "two-hour boundary stages only disposable in-process adapter clock; unit dispatch and canonical release are fixture doubles there",
+    "separate real user-systemd fixtures verify producer, hold/resume/expiry, restart, root/CDP closure and retained profiles",
+    "real headed coverage is private Xvfb, not a new Tailscale/Kasm browser-client smoke",
+    "native telemetry deferred non-core; no native fence assertion",
+    "fallback UI end-to-end smoke separately approval-deferred; existing synthetic tests only",
+    "historical intermittent startup cause still unproven"
+  ],
+  "post_run_checks": [
+    "Ruff --select F passed for changed Python",
+    "git diff --check passed",
+    "0 loaded browser-* units"
+  ],
+  "initial_closed_review": {
+    "session_id": "c5d51e46-61f7-452d-b3bb-ab5a4173cbf2",
+    "subtype": "success",
+    "permission_denials": [],
+    "result": "## Final verdict: APPROVE checkpoint\n\nNo open findings. Release and activation remain parent-owned. Native telemetry is not treated as a gate; protected skill body untouched.\n\n### Tests I ran\n\n```\n.venv/bin/python -m pytest agents/test_browser_resources.py agents/test_browser_lease_recovery.py agents/test_browser_provisioner.py agents/test_chromium_test_launcher.py -q\n```\n\n```\n........................................................................ [ 52%]\n.................................................................        [100%]\n137 passed in 24.39s\n```\n\nSame command as before, now 137 (was 134) \u2014 the three added hold regressions. I did not run the full suite, the smoke fixtures, or ruff; the 222-passed/409.80s run, the `thread.is_alive` fixture fix, and ruff cleanliness are your report, not my observation.\n\n### Finding closures\n\n**Finding 1 \u2014 withdrawn, I was wrong.** `browser_provisioner.py:1073-1074` emits `owner-terminal` before `activity_snapshot` at `:1080`, so an untracked record with an expired hold can never reach the tracked-only `reservation-expired` gate and return a false `touched`. I read the `touch` body from `:1075` and missed the guard immediately above it. The `setdefault` no-op at `:1110` is unreachable for an expired hold. No behavior change needed, and `README.md:308` (\"Late waiting renewals are rejected\") is accurate as written.\n\n**Finding 2 \u2014 closed by coverage.** `test_untracked_hold_blocks_terminal_takeover_and_rejects_expiry` (`agents/test_browser_resources.py:69-97`) now exercises the `else \"active\"` branch at `browser_provisioner.py:505`, parametrized over `None`/`manual`/`unknown`. It pins the three properties I flagged as unverified: a non-expired hold outranking a dead supervisor (`:81-82`, `lifecycle_state == \"active\"` and `cleanup_unused == []` against a deliberately dead identity), the non-sliding bound (`:85-90`, a 3600-second touch at `t=100` leaves `awaiting_until == 130` and still returns `touched`), and post-expiry rejection preserving the bound (`:91-97`, `owner-terminal` with `awaiting_until` unchanged). The clock is driven by monkeypatched `now`, so it is deterministic rather than sleep-dependent.\n\n**Finding 3 \u2014 closed.** `README.md:288-289` now distinguishes reuse of a running browser from a fresh process after verified stop, which matches `:907`.\n\n**Finding 4 \u2014 stands as routed, not as a blocker.** `skills/chromium-test/SKILL.md:187-189` still omits headed non-Kasm from the restart-required set. Correctly left untouched under `SCRIPT_POLICY.md:94-97`; carry it in the parent handoff notes as prose for Hermes. `README.md:325-328` already states the rule correctly, so no script index is stale.\n\n### Contract summary as reviewed\n\n`driving_mode` is a minimal launch-record field, orthogonal to `control_mode`, gated in exactly three predicates (`:443-444`, `:726-730`, `:585-587`) and surfaced non-destructively at `:239`. Fresh defaults are agent-driven at both the launcher (`chromium_test.py:802-803`) and provisioner (`:907`); omitted retries preserve a reused browser's mode; explicit same-owner mismatch rejects at `:669-674` before `cleanup_unused` at `:675`, pinned by a test that fails if cleanup is reached. Legacy records are neither relabeled nor migrated, and unknown modes are not activity-managed. Both transfer paths require a real `--headless` flag in the stored command, so headed sessions \u2014 Kasm or not \u2014 take the verified-restart path and no CDP fence is attempted against a native controller.\n\nYour fixture reconciliation resolves my earlier note: one parametrized test across headless/xvfb, not two functions."
+  }
+}

@@ -799,6 +799,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--account", help="Override account/profile alias.")
     parser.add_argument("--task-owned", action="store_true", help="General-purpose isolated profile; no inventory authentication.")
     parser.add_argument("--control-socket", help="Provisioner-owned Unix socket for fenced pipe control.")
+    parser.add_argument("--driving-mode", choices=("agent-driven", "manual"), default="agent-driven",
+                        help="New managed browsers default to agent-driven CDP activity; reserve awaiting-input before native intervention.")
     parser.add_argument("--url", help="Initial URL to open. Defaults to about:blank.")
     parser.add_argument("--port", type=int, help=f"CDP port in {PORT_MIN}-{PORT_MAX}.")
     parser.add_argument("--profile-dir", help="Override Chrome user-data-dir.")
@@ -1095,10 +1097,12 @@ def main() -> int:
             result['cdp_version_url'] = result['cdp_url'] + '/json/version'
             result['control_socket'] = args.control_socket
             result['control_mode'] = 'pipe-fenced'
-            # Native desktop input is not observable in this CDP adapter.
-            # Keep headed browsers conservative until their UI reports activity.
-            result['activity_tracking'] = bool(args.headless)
-            result['activity_coverage'] = 'CDP-only' if args.headless else 'native-input-untracked'
+            # Display transport is not the driving contract. Native input is
+            # intentionally untracked: agent-driven owners must reserve a bounded
+            # awaiting-input hold before occasional human intervention.
+            result['driving_mode'] = args.driving_mode
+            result['activity_tracking'] = args.driving_mode == 'agent-driven'
+            result['activity_coverage'] = 'CDP-only' if result['activity_tracking'] else 'native-input-untracked'
         except Exception as exc:
             STARTUP.failed(exc, bridge.process.poll())
             bridge.close()

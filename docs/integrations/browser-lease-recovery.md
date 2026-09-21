@@ -1,5 +1,106 @@
 # Browser resource management — integration dossier
 
+## Current acceptance contract — agent-driven release candidate
+
+This section supersedes earlier native-telemetry release requirements below.
+Those sections are chronological receipts, not the current acceptance checklist.
+The user clarified ordinary agent-driven control with occasional bounded human
+intervention, not native co-driving. Native telemetry is explicitly **not** a
+release requirement. No native-input rewrite or fallback-UI substitution is made.
+
+- Task remains parent-owned `bug-bounty-harness/t_6f1fc293`; same worktree and
+  `feat/browser-lease-recovery`, intended target **beta**. Delegated base is
+  `d54f75be17961c4b0d389ebc992fcfe145793112`. No push/merge/deploy/activation.
+- `driving_mode` describes ownership behavior separately from existing
+  `control_mode=pipe-fenced` transport. Fresh producer and ordinary request/start
+  default to `agent-driven`; managed headed displays now track CDP activity and
+  participate in idle claims / fixed 7200-second request cleanup.
+- `manual` explicitly disables activity eviction. Omitted retries preserve stored
+  mode; explicit same-owner mode mismatch is rejected before start cleanup.
+  Legacy/untracked records are not relabeled. Unknown declared modes are not
+  activity-managed. Adoption requires verified release/restart, not touch.
+- Human intervention requires successful `touch --work-state awaiting-input
+  --awaiting-seconds N` (1–3600) **before** native input, and paused agent commands.
+  It blocks automatic cleanup/takeover, not native input or explicit owner release.
+  Repeated holds do not slide the bound. Stop native input before `active` resume;
+  resume itself does not count as work. After expiry normal idle policy resumes,
+  and late hold renewal is rejected. A hold is not indefinite human ownership.
+- Full KasmVNC view and existing Tailscale transport remain unchanged. Native
+  input is untracked. Cross-owner headed sessions, including non-Kasm displays,
+  require verified restart; only compatible known-headless pipe sessions can
+  transfer live. CDP freezing/rotation does **not** fence native controllers.
+- Automatic isolated allocation, same-owner reuse, same-color concurrency,
+  single-policy admission and legacy profile retention remain supported.
+  A stale automatic requester gets a distinct slot when its former slot is now
+  held by a transferee; its stale lease mutations remain `not-owner`.
+
+### Current verification / release disposition
+
+Final source: **226 passed in 173.98s (0:02:53)**, including real disposable
+headless and private-Xvfb headed producer/request runs. Exact command, final
+independent review, and bounded startup receipt are retained in
+`browser-agent-driven-acceptance.json` alongside this dossier. That receipt
+includes 12 startup component snapshots from the existing systemd lifecycle
+fixture, successful cleanup and no fixture failure.
+
+- New real producer tests verify default agent-driven receipts, manual forwarding
+  and untracked behavior, omitted running retries, explicit mismatch, bounded
+  non-sliding hold, blocked takeover, active resume, real expiry rejection,
+  activity updates, auto reuse/restart, stale-controller allocation to a new
+  slot, old lease rejection, root/CDP stop and retained profiles, without PID.
+- New real adapter/manager tests exercise 7199 versus 7201 seconds, hold-blocked
+  cleanup, resume, actual root/CDP closure and retained profiles in both display
+  modes. Only the disposable adapter's clock is staged; unit dispatch and
+  canonical lease release are fixture doubles in this test. Separate real
+  user-systemd fixtures exercise those production boundaries. No two-hour soak
+  or new production clock-control endpoint is claimed.
+- Existing focused coverage verifies single-policy concurrent admission,
+  same-account/color distinct slots, idle versus activity/in-flight races,
+  request cleanup before capacity and compatible live headless transfer.
+- First expanded run: **2 failed, 220 passed in 202.27s**. Both failures were
+  headless/Xvfb parametrizations of the new fixture calling one-shot `close()`
+  twice, after all retirement assertions passed. Fixed fixture teardown, not
+  production behavior. Next run **222 passed in 409.80s**. Final three offline
+  untracked-hold regressions yielded **225 passed in 273.46s**.
+- Final acceptance inspection found stopped receipts erased automatic-pool
+  provenance on explicit release. Retain only inert `instance_selection` and
+  `driving_mode` labels alongside existing safe fields, still erase CDP/control
+  capabilities. Added a round-trip regression and real producer assertion that
+  new requests reuse one of the released automatic slots. This final source
+  yields the 226-pass receipt above.
+- Fresh read-only Claude review session
+  `c5d51e46-61f7-452d-b3bb-ab5a4173cbf2`: **APPROVE checkpoint, no open findings**.
+  Independently ran the specified offline subset: **138 passed in 24.53s** after
+  re-review of the final stopped-pool correction (previous pass 137 in 24.39s).
+  Its initial 16-turn pass exhausted the budget and included denied optional
+  commands; resumed review completed successfully, final pass no denials.
+  Reviewer withdrew a suspected expired-manual-hold issue after reading the
+  earlier `owner-terminal` guard. Added regression coverage for manual/unknown/
+  legacy non-sliding holds outranking terminal PID; no speculative source fix.
+  README now explicitly distinguishes running reuse from fresh process defaults.
+- Ruff `--select F` on changed Python and `git diff --check` passed. Final unit
+  inspection: **0 loaded `browser-*` units**. Dependency metadata resolves the
+  declared Bounty Core `7b08495f65a50f733fc18213c38cc3ae8e91bdf5`; no dependency
+  edit/reinstall. Fetched `origin/beta` remains
+  `69e9a2a01be26ea1e64a0d00fd6cf23a47704e4e`.
+
+**Release-candidate checkpoint, not integration/activation approval.** Parent
+retains the Kanban task (no child guard bypass), independent release decision,
+and activation. Historical startup failure remains undiagnosed, not silently
+called repaired; final runs did not reproduce it. On recurrence use the existing
+bounded diagnostics and unchanged deadlines, not invented causal explanations.
+The original native telemetry blocker is removed by the clarified contract.
+Fallback handoff-UI end-to-end smoke remains separately deferred on its existing
+approval gate; this task did not retry/bypass that operation. Native telemetry,
+continuous native co-driving, actual Tailscale browser-client smoke and fallback
+UI smoke are not implemented or newly verified by passing local CDP fixtures.
+Parent follow-up prose: protected `skills/chromium-test/SKILL.md` restart list
+should include headed non-Kasm agent-driven sessions; the owning script index
+already does. No protected skill body or route was edited.
+
+## Historical implementation and investigation receipts
+
+
 ## Ownership and checkpoint
 
 - Task: ordinary browser resource management, parent-owned Kanban `bug-bounty-harness/t_6f1fc293`.

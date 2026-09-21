@@ -15,6 +15,88 @@ from browser_control import PipeBrowser, meaningful
 from browser_lifecycle import process_identity
 
 
+@pytest.mark.parametrize("mode,tracked", [("agent-driven", True), ("manual", False), ("unknown", False), (None, False)])
+def test_driving_contract_does_not_migrate_native_records(monkeypatch, tmp_path, mode, tracked):
+    m = provisioner(monkeypatch, tmp_path)
+    c, row = record(m, tmp_path, process_identity(os.getpid()))
+    info = {"activity_tracking": mode is not None, "control_socket": "fixture", "kasmvnc": {"display": ":20"}}
+    if mode is not None:
+        info["driving_mode"] = mode
+    Path(row["launch_file"]).write_text(json.dumps(info))
+    monkeypatch.setattr("browser_control.activity_control", lambda *_: dict(idle_seconds=7200, inflight=0, reserved_seconds=0))
+    assert (m.activity_snapshot(row) is not None) == tracked
+    assert m.lifecycle_state(c, row) == ("idle" if tracked else "active")
+
+
+@pytest.mark.parametrize("stored,requested", [(None, "agent-driven"), ("manual", "agent-driven"), ("agent-driven", "manual")])
+def test_explicit_driving_mismatch_precedes_cleanup(monkeypatch, tmp_path, capsys, stored, requested):
+    m = provisioner(monkeypatch, tmp_path)
+    c, row = pooled_record(m, tmp_path)
+    info = m.record_info(row)
+    info["driving_mode"] = stored
+    Path(row["launch_file"]).write_text(json.dumps(info))
+    monkeypatch.setattr(m, "cleanup_unused", lambda *_: pytest.fail("mismatch must not stop owner"))
+    a = args()
+    a.agent_id, a.run_id, a.driving_mode = row["agent_id"], row["run_id"], requested
+    with pytest.raises(SystemExit):
+        m.start(a)
+    assert json.loads(capsys.readouterr().out)["reason"] == "driving-mode-mismatch"
+
+
+@pytest.mark.parametrize("kasm", [False, True])
+def test_tracked_headed_still_requires_cross_owner_restart(monkeypatch, tmp_path, capsys, kasm):
+    m = provisioner(monkeypatch, tmp_path)
+    c, row = record(m, tmp_path, process_identity(os.getpid()))
+    info = {"control_mode": "pipe-fenced", "driving_mode": "agent-driven", "command": ["chromium"],
+            "proxy_server": "http://127.0.0.1:9", "proxy_cert_mode": "none", "activity_tracking": True}
+    if kasm:
+        info["kasmvnc"] = {"display": ":20"}
+    Path(row["launch_file"]).write_text(json.dumps(info))
+    m.save_metadata(c, row["lease_id"], {"proxy_ownership": "browser"})
+    monkeypatch.setattr(m, "cleanup_unused", lambda *_: [])
+    monkeypatch.setattr(m, "lifecycle_state", lambda *_: "idle")
+    monkeypatch.setattr(m, "freeze_idle", lambda *_: True)
+    monkeypatch.setattr("browser_control.rotate_control", lambda *_: pytest.fail("CDP cannot revoke native"))
+    stopped = []
+    monkeypatch.setattr(m, "retire", lambda *_: stopped.append(True) or True)
+    monkeypatch.setattr(m, "admission", lambda *_: {"status": "queued"})
+    a = args()
+    a.headless, a.proxy_ownership = True, "browser"
+    with pytest.raises(SystemExit):
+        m.start(a)
+    assert stopped == [True]
+    assert json.loads(capsys.readouterr().out)["reason"] == "no-capacity"
+
+
+@pytest.mark.parametrize("mode", [None, "manual", "unknown"])
+def test_untracked_hold_blocks_terminal_takeover_and_rejects_expiry(monkeypatch, tmp_path, capsys, mode):
+    m = provisioner(monkeypatch, tmp_path)
+    dead = {**process_identity(os.getpid()), "start": "dead"}
+    c, row = record(m, tmp_path, dead)
+    info = m.record_info(row)
+    info.update(driving_mode=mode, activity_tracking=False)
+    Path(row["launch_file"]).write_text(json.dumps(info))
+    m.save_metadata(c, row["lease_id"], {"owner": dead, "awaiting_until": 130})
+    monkeypatch.setattr(m, "now", lambda: 100)
+    assert m.lifecycle_state(c, row) == "active"
+    assert m.cleanup_unused(c) == []
+    request = args()
+    request.lease_id, request.agent_id = row["lease_id"], row["agent_id"]
+    request.work_state, request.awaiting_seconds = "awaiting-input", 3600
+    monkeypatch.setattr(m, "lease", lambda *_: {"status": "renewed"})
+    with pytest.raises(SystemExit):
+        m.touch(request)
+    assert json.loads(capsys.readouterr().out)["status"] == "touched"
+    assert m.metadata(c, row)["awaiting_until"] == 130
+    monkeypatch.setattr(m, "now", lambda: 130)
+    assert m.lifecycle_state(c, row) == "expired-awaiting-input"
+    with pytest.raises(SystemExit):
+        m.touch(request)
+    # The terminal/expired guard precedes the tracked reservation-specific guard.
+    assert json.loads(capsys.readouterr().out)["status"] == "owner-terminal"
+    assert m.metadata(c, row)["awaiting_until"] == 130
+
+
 def test_automatic_fresh_selection_is_stable_and_owner_isolated(monkeypatch, tmp_path):
     m = provisioner(monkeypatch, tmp_path)
     c, a = m.db(), args()
@@ -45,6 +127,20 @@ def pooled_record(m, tmp_path):
     Path(row["profile_dir"]).rmdir()  # no legacy profile in this fixture
     Path(row["launch_file"]).write_text(json.dumps({"instance_key": "auto-fixture", "instance_selection": "automatic"}))
     return c, row
+
+
+def test_stopped_receipt_preserves_automatic_pool_provenance(monkeypatch, tmp_path):
+    m = provisioner(monkeypatch, tmp_path)
+    c, row = pooled_record(m, tmp_path)
+    info = m.record_info(row)
+    info.update(driving_mode="agent-driven", cdp_url="http://127.0.0.1:9/capability")
+    Path(row["launch_file"]).write_text(json.dumps(info))
+    m.stop_receipt(row)
+    c.execute("update browsers set state='stopped'")
+    c.commit()
+    assert m.automatic_instance(c, args(), "anon", "legacy-global") == "auto-fixture"
+    assert m.record_info(row)["driving_mode"] == "agent-driven"
+    assert "cdp_url" not in m.record_info(row)
 
 
 @pytest.mark.parametrize("selection", ["explicit", "automatic"])

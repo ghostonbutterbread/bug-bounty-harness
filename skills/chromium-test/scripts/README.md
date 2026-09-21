@@ -277,12 +277,20 @@ multi-instance pane registry.
   server launchers. Same-owner incompatible headed/headless or strict-KasmVNC
   retries report `display-mode-mismatch` rather than silently returning a
   non-graphical browser. Existing Tailscale transport is unchanged.
-- **Activity:** New headless pipe browsers track caller CDP work (navigation,
+- **Activity:** New managed pipe browsers default to `--driving-mode agent-driven`
+  in both ordinary request/start and the launcher. Headed/KasmVNC display alone
+  does not disable activity management. These browsers track caller CDP work (navigation,
   input, evaluation and screenshots). Discovery/version checks, domain
   enablement, open sockets, events, live PID and watcher/touch heartbeats do not
   count. Arbitrary evaluation is counted as work, not semantically inspected.
-  **Native headed input is untracked**: headed and older records retain
-  conservative PID/explicit-release behavior pending a native-input integration.
+  **Native input remains untracked**, deliberately outside this release's
+  agent-driven contract. `--driving-mode manual` opts out of activity reclamation.
+  Omitted request/start retries that reuse a running browser preserve its mode;
+  a fresh process after verified stop defaults to agent-driven unless explicit.
+  Explicit same-owner mismatches
+  return `locked/driving-mode-mismatch` before start cleanup, not a silent migration.
+  Legacy untracked records stay conservative; use verified release/restart to
+  adopt agent-driven mode. Manual task-owned starts require a supervisor PID.
   An explicitly supplied supervisor dying still triggers automatic cleanup;
   bounded operations and reservations win the atomic recheck first.
 - **Idle claim:** The existing owner's 1–7199-second window controls claim
@@ -299,16 +307,27 @@ multi-instance pane registry.
 - **Reservations:** `touch --work-state awaiting-input --awaiting-seconds N`
   grants an absolute 1–3600-second reservation; repetition cannot slide it.
   `touch --work-state active` cancels it but does not manufacture activity.
-  Late waiting renewals are rejected.
+  Late waiting renewals are rejected. Before human KasmVNC intervention, obtain
+  a successful hold, pause agent commands, then use the unchanged full Tailscale
+  KasmVNC view. The hold blocks automatic cleanup and takeover, not CDP commands
+  or explicit owner release. Finish native input before resuming `active`.
+  On expiry normal idle policy resumes immediately; native typing does NOT
+  extend the hold. If more time is needed, stop human input and explicitly resume
+  then reserve again while still owner; never assume an expired hold protects
+  the browser. Continuous/co-driving native use must select manual mode.
 - **Retention:** Existing 14-day manifest-only stopped-profile retention also
   handles instance trees. It never discovers arbitrary profile directories.
 - **Verification:** `.venv/bin/python -m pytest agents/test_browser_resources.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_browser_lease_recovery.py agents/test_browser_lifecycle.py -q`.
-  Opt-in real fixtures: `BBH_LOCAL_BROWSER_SMOKE=1 .venv/bin/python -m pytest agents/test_browser_lifecycle_systemd.py agents/test_browser_lifecycle.py -q`.
+  Opt-in real fixtures: `BBH_LOCAL_BROWSER_SMOKE=1 .venv/bin/python -m pytest agents/test_browser_driving_mode.py agents/test_browser_lifecycle_systemd.py agents/test_browser_lifecycle.py -q`.
 - **Owner/scope:** Chromium Test scripts; Linux/user-systemd browser node.
-  Native-input/pane integration remains a parent-owned follow-up. Local headed
+  Native-input telemetry is a deferred non-core follow-up. Local headed
   fixture coverage uses private Xvfb and CDP, not KasmVNC input telemetry. Do not
   infer native idleness or revocation from X event observation, display refresh,
-  socket liveness or these passing tests. Headed idle eviction stays disabled.
+  socket liveness or these passing tests. Agent-driven headed idle eviction is
+  enabled with the bounded intervention contract above. Cross-owner native
+  sessions still require verified restart (including headed non-Kasm displays);
+  a CDP generation fence does not revoke native sockets. No Tailscale routing,
+  full KasmVNC transport, or fallback UI approval gate is changed.
 - **Last verified:** 2026-09-21; loopback/about:blank fixtures only.
 - **Generic example**, no account inventory:
 

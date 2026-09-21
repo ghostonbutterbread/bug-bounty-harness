@@ -7,7 +7,8 @@
 - `chromium_test.py` — isolated Chromium launcher used by the provisioner.
 - `browser_profile_lease.py` — exclusive owned-account/profile lease registry.
 - `browser_control.py` — internal Chromium pipe/CDP adapter and control fencing.
-- `browser_lifecycle.py` — node-local process identity, locking, and atomic private records.
+- `browser_lifecycle.py` — node-local process identity, locking, atomic private records,
+  and bounded opt-in startup metadata (contract below).
 - `kasmvnc_session.py` — task-owned headed display lifecycle.
 - `mitm_lane.py` — local task MITM lane lifecycle.
 - `hoster_mitm_lane.py` — bounded Hoster-backed MITM lane lifecycle.
@@ -20,6 +21,41 @@
 Use the detailed records below for supported invocation and safety boundaries.
 Each helper owns deterministic mechanics only; lane availability, account
 selection, target scope, and browser state still require agent verification.
+
+## Opt-in private startup diagnostics
+
+Set `BROWSER_STARTUP_DIAGNOSTICS=1` on a provisioner request to write metadata
+under `<BROWSER_PROVISIONER_STATE parent>/startup/<browser UUID>/`. The manager
+passes its task-owned directory via internal `BROWSER_STARTUP_RECEIPT_DIR`;
+ordinary stdout/API receipts and the 45-second publication deadline are unchanged.
+The owning `browser_lifecycle.py` helper writes atomic mode-0600 snapshots in
+mode-0700 attempt directories (manager, launcher and exec components, maximum
+32 events each). Events contain fixed phase/outcome/error categories, monotonic
+start/elapsed times and, where available, a numeric process return code.
+
+Chromium stderr is drained in 4-KiB chunks and counted up to 64 KiB. **No stderr
+content is collected**: byte counts prove output occurred, not why it failed.
+There is no regex-redaction claim or persistence of command lines, URLs, tokens,
+cookies, credentials, exception text, or protocol bodies. Missing/failed metadata
+writes do not replace the launch result. An absent launcher receipt can still
+mean failure before launcher entry; metadata is diagnostic evidence, not a root
+cause or a liveness guarantee. Snapshots are bounded per attempt, not an automatic
+retention service; remove task-owned receipts after investigation as appropriate.
+
+The opt-in disposable systemd fixture enables this automatically. It retains a
+schema-projected receipt in a separate private `bbh-startup-evidence-*` directory,
+including on failure, before deleting any profile. It stops only UUID units
+found in its own disposable registry/launch/startup files, including attempts
+that failed before registration. Unit inactivity, recorded root death, recorded
+loopback CDP closure, and absence of processes referencing its disposable root
+are checked before deletion; failed cleanup retains the root and evidence.
+
+Verification: `agents/test_browser_startup_diagnostics.py` covers timeout,
+malformed publication, dispatch/registration failure, real exec failure,
+saturated stderr, private modes, disabled/unwritable diagnostics, failure-evidence
+survival and failed-stop retention. Run the existing disposable fixture with
+`BBH_LOCAL_BROWSER_SMOKE=1`; it never needs a live site or account.
+Last verified: 2026-09-21. Owner/scope: Chromium Test startup/lifecycle plumbing.
 
 ## `kasmvnc_session.py`
 

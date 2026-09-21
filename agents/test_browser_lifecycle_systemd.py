@@ -19,6 +19,119 @@ PROVISIONER = ROOT / "skills/chromium-test/scripts/browser_provisioner.py"
 sys.path.insert(0, str(PROVISIONER.parent))
 
 
+def preserve_startup_evidence(root, destination, *, failed, cleanup_verified):
+    """Project only the closed metadata schema, never copy private launch files."""
+    from browser_lifecycle import StartupDiagnostics, private_json
+    snapshots = []
+    attempts = {}
+    for path in sorted((root / "state/startup").glob("*/*.json"))[:48]:
+        if path.name not in {"manager.json", "launcher.json", "exec.json"}:
+            continue
+        try:
+            with path.open() as stream:
+                data = json.loads(stream.read(16385))
+            events = []
+            for event in data.get("events", [])[:32]:
+                if (event.get("phase") not in StartupDiagnostics.PHASES
+                    or event.get("outcome") not in {"begin", "ready", "failed"}
+                    or event.get("error_category") not in {"none", "timeout", "connection", "os-error", "unexpected"}
+                    or type(event.get("elapsed_ms")) is not int):
+                    continue
+                events.append({key: event[key] for key in
+                               ("phase", "outcome", "error_category", "elapsed_ms")})
+                if type(event.get("returncode")) is int:
+                    events[-1]["returncode"] = event["returncode"]
+            count = data.get("stderr_bytes_observed", 0)
+            started = data.get("started_monotonic_ms", 0)
+            attempt = attempts.setdefault(path.parent.name, len(attempts) + 1)
+            snapshots.append({"attempt": attempt, "component": path.stem, "events": events,
+                              "started_monotonic_ms": started if type(started) is int else 0,
+                              "stderr_bytes_observed": min(65536, max(0, count)) if type(count) is int else 0})
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+    private_json(destination / "startup.json", {
+        "schema": 1, "fixture_failed": failed, "cleanup_verified": cleanup_verified,
+        "snapshots": snapshots, "stderr_content": "not-collected",
+    })
+
+
+def stop_fixture_units(root):
+    """Include launches that failed before registry insertion; never global stop."""
+    import uuid
+    ids = {path.name for path in (root / "state/startup").glob("*")}
+    ids.update(path.name.removesuffix(".launch.json") for path in (root / "state").glob("*.launch.json"))
+    state = root / "state/manager.sqlite"
+    if state.exists():
+        with sqlite3.connect(state) as connection:
+            ids.update(row[0] for row in connection.execute("SELECT browser_id FROM browsers"))
+    from browser_lifecycle import owner_state
+    import socket
+    from urllib.parse import urlsplit
+    identities, ports = [], []
+    for path in (root / "state").glob("*.launch.json"):
+        try:
+            info = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue  # Pre-publication failure still has unit + root checks.
+        if info.get("process_identity"):
+            identities.append(info["process_identity"])
+        endpoint = urlsplit(info.get("cdp_url", ""))
+        if endpoint.hostname:
+            assert endpoint.hostname == "127.0.0.1" and endpoint.port
+            ports.append(endpoint.port)
+    for bid in ids:
+        assert str(uuid.UUID(bid)) == bid
+        for unit in ("browser-" + bid, "browser-owner-" + bid):
+            subprocess.run(["systemctl", "--user", "stop", unit], capture_output=True, timeout=15)
+            result = subprocess.run(
+                ["systemctl", "--user", "show", unit, "--property=ActiveState", "--value"],
+                capture_output=True, text=True, timeout=10,
+            )
+            assert result.returncode == 0 and result.stdout.strip() in {"inactive", "failed"}, "fixture unit stop unverified"
+    assert all(owner_state(identity) == "terminal" for identity in identities), "fixture root stop unverified"
+    for port in ports:
+        try:
+            connection = socket.create_connection(("127.0.0.1", port), timeout=1)
+        except ConnectionRefusedError:
+            continue
+        else:
+            connection.close()
+            raise AssertionError("fixture CDP port remains open; retaining profiles")
+    # Read only to match this disposable root; never persist raw argv or kill by name.
+    for proc in Path("/proc").glob("[0-9]*/cmdline"):
+        try:
+            command = proc.read_bytes()
+        except FileNotFoundError:
+            continue
+        except PermissionError:
+            continue  # Other users are not this fixture's task processes.
+        assert os.fsencode(root) not in command, "fixture process remains; retaining profiles"
+
+
+@contextlib.contextmanager
+def disposable_fixture_root():
+    import shutil
+    root = Path(tempfile.mkdtemp(prefix="bbh-life-"))
+    evidence = Path(tempfile.mkdtemp(prefix="bbh-startup-evidence-"))
+    failed = True
+    try:
+        yield root, evidence
+        failed = False
+    finally:
+        # Preserve before teardown as well as after it; a cleanup failure must
+        # never erase the original startup failure or delete a running profile.
+        preserve_startup_evidence(root, evidence, failed=failed, cleanup_verified=False)
+        try:
+            stop_fixture_units(root)
+        except BaseException:
+            preserve_startup_evidence(root, evidence, failed=True, cleanup_verified=False)
+            print(f"Fixture cleanup unverified; retained root: {root}; evidence: {evidence}")
+            raise
+        preserve_startup_evidence(root, evidence, failed=failed, cleanup_verified=True)
+        shutil.rmtree(root)
+        print(f"Private startup evidence: {evidence}")
+
+
 @pytest.mark.skipif(
     os.environ.get("BBH_LOCAL_BROWSER_SMOKE") != "1",
     reason="explicit local systemd smoke opt-in",
@@ -29,12 +142,13 @@ def test_systemd_lifecycle_fixture():
     import websocket
 
     receipts = {}
-    with tempfile.TemporaryDirectory(prefix="bbh-life-") as directory:
-        root = Path(directory)
+    with disposable_fixture_root() as (root, evidence):
+        receipts["startup_evidence"] = str(evidence / "startup.json")
         state = root / "state/manager.sqlite"
         env = {
             **os.environ,
             "BROWSER_PROVISIONER_STATE": str(state),
+            "BROWSER_STARTUP_DIAGNOSTICS": "1",
             "HARNESS_BOUNTY_ARTIFACT_ROOT": str(root / "artifacts"),
             "HARNESS_SHARED_BASE": str(root / "shared"),
         }
@@ -394,38 +508,6 @@ def test_systemd_lifecycle_fixture():
             receipts["retention_sweep"] = "14-day-manifest-dry-run-and-confirmed"
 
         finally:
-            # Use the exact disposable registry, including transfers whose CLI
-            # may have failed before a new lease receipt reached this fixture.
-            if state.exists():
-                with sqlite3.connect(state) as connection:
-                    leases = [r[0] for r in connection.execute("SELECT lease_id FROM browsers")]
-            for lid in leases:
-                try:
-                    existing = row(lid)
-                    launch_info = (
-                        info(lid) if Path(existing["launch_file"]).exists() else {}
-                    )
-                    for unit in (
-                        existing["unit"],
-                        "browser-owner-" + existing["browser_id"],
-                    ):
-                        subprocess.run(
-                            ["systemctl", "--user", "stop", unit], capture_output=True
-                        )
-                    identity = launch_info.get("process_identity")
-                    if identity:
-                        from browser_lifecycle import owner_state
-
-                        end = time.monotonic() + 5
-                        while (
-                            owner_state(identity) == "active" and time.monotonic() < end
-                        ):
-                            time.sleep(0.1)
-                        assert owner_state(identity) == "terminal", (
-                            "fixture root not stopped"
-                        )
-                except (TypeError, KeyError):
-                    pass
             for owner in owners:
                 if owner.poll() is None:
                     owner.terminate()

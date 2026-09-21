@@ -18,6 +18,10 @@ from pathlib import Path
 from typing import Any, Iterable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from browser_lifecycle import StartupDiagnostics
+
+STARTUP = StartupDiagnostics("launcher")
+STARTUP.mark("launcher-entry")
 ACCOUNT_MANAGEMENT_SCRIPTS = Path(__file__).resolve().parents[2] / "account-management" / "scripts"
 if str(ACCOUNT_MANAGEMENT_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(ACCOUNT_MANAGEMENT_SCRIPTS))
@@ -1071,6 +1075,7 @@ def main() -> int:
         }
         result["kasmvnc"] = kasmvnc_session
 
+    STARTUP.mark("preparation", "ready")
     proc: subprocess.Popen[Any] | None = None
     bridge = None
     def spawn(command, **kwargs):
@@ -1078,7 +1083,8 @@ def main() -> int:
         if not args.control_socket:
             return subprocess.Popen(command, **kwargs)
         from browser_control import PipeBrowser
-        bridge = PipeBrowser(command, **kwargs)
+        with STARTUP.phase("spawn"):
+            bridge = PipeBrowser(command, diagnostics=STARTUP, **kwargs)
         try:
             result['cdp_url'] = bridge.serve(port, args.control_socket)
             result['cdp_version_url'] = result['cdp_url'] + '/json/version'
@@ -1088,7 +1094,8 @@ def main() -> int:
             # Keep headed browsers conservative until their UI reports activity.
             result['activity_tracking'] = bool(args.headless)
             result['activity_coverage'] = 'CDP-only' if args.headless else 'native-input-untracked'
-        except Exception:
+        except Exception as exc:
+            STARTUP.failed(exc, bridge.process.poll())
             bridge.close()
             raise
         return bridge.process
@@ -1182,8 +1189,10 @@ def main() -> int:
             )
         time.sleep(1)
         result["pid"] = proc.pid
-        result["auth_application"] = apply_auth_seed_via_cdp(result['cdp_url'], target_url, auth_seed_data)
+        with STARTUP.phase("auth-application"):
+            result["auth_application"] = apply_auth_seed_via_cdp(result['cdp_url'], target_url, auth_seed_data)
 
+    STARTUP.mark("record-publication")
     if args.json or args.dry_run:
         print(json.dumps(result, indent=2, sort_keys=True), flush=True)
     else:
@@ -1193,6 +1202,7 @@ def main() -> int:
             print(f"Browser proxy: {result['proxy_server']}", flush=True)
             print(f"Proxy cert: {cert_status['status']}", flush=True)
 
+    STARTUP.mark("record-publication", "ready")
     if args.dry_run:
         return 0
     assert proc is not None
@@ -1207,4 +1217,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    STARTUP.mark("preparation")
+    try:
+        code = main()
+    except Exception as exc:
+        STARTUP.failed(exc)
+        raise
+    raise SystemExit(code)

@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from browser_lifecycle import node_lock, owner_state, private_json, process_identity
+from browser_lifecycle import StartupDiagnostics, node_lock, owner_state, private_json, process_identity
 
 LEASE = ROOT / "browser_profile_lease.py"
 CHROMIUM = ROOT / "chromium_test.py"
@@ -762,6 +762,9 @@ def start(args):
     prof = Path(got["lease"]["profile_dir"])
     bid = str(uuid.uuid4())
     unit = "browser-" + bid
+    diagnostics_dir = (STATE.parent / "startup" / bid
+                       if os.environ.get("BROWSER_STARTUP_DIAGNOSTICS") == "1" else None)
+    diagnostics = StartupDiagnostics("manager", diagnostics_dir)
     launch = STATE.parent / (bid + ".launch.json")
     launch.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(launch.parent, 0o700)
@@ -826,10 +829,15 @@ def start(args):
     ):
         if key in os.environ:
             run.insert(2, "--setenv=" + key + "=" + os.environ[key])
-    p = subprocess.run(run, capture_output=True, text=True, env=sysenv())
+    if diagnostics_dir:
+        run.insert(2, "--setenv=BROWSER_STARTUP_RECEIPT_DIR=" + str(diagnostics_dir))
+    with diagnostics.phase("dispatch"):
+        p = subprocess.run(run, capture_output=True, text=True, env=sysenv())
     if p.returncode or not unit_active(unit):
+        diagnostics.mark("dispatch", "failed", RuntimeError(), p.returncode)
         release_lease(lid, args.agent_id)
         emit({"status": "launch-failed", "detail": (p.stderr or p.stdout).strip()}, 2)
+    diagnostics.mark("publication")
     deadline = time.time() + LAUNCH_WAIT_SECONDS
     while time.time() < deadline and (
         not launch.exists() or launch.stat().st_size == 0
@@ -837,7 +845,10 @@ def start(args):
         time.sleep(0.2)
     try:
         info = json.loads(launch.read_text())
-    except Exception:
+    except Exception as exc:
+        diagnostics.mark("publication", "failed",
+                         TimeoutError() if isinstance(exc, FileNotFoundError)
+                         or (isinstance(exc, json.JSONDecodeError) and not exc.doc) else exc)
         stop_unit(unit)
         release_lease(lid, args.agent_id)
         emit(
@@ -847,6 +858,8 @@ def start(args):
             },
             2,
         )
+    diagnostics.mark("publication", "ready")
+    diagnostics.mark("registration")
     reg = lease(
         args,
         "register-browser",
@@ -860,11 +873,13 @@ def start(args):
         unit,
     )
     if reg.get("status") != "registered":
+        diagnostics.mark("registration", "failed", RuntimeError())
         stop_unit(unit)
         release_lease(lid, args.agent_id)
         emit(
             {"status": "launch-failed", "detail": "could not register owned browser"}, 2
         )
+    diagnostics.mark("registration", "ready")
     info["process_identity"] = (
         process_identity(info["pid"]) if info.get("pid") else None
     )

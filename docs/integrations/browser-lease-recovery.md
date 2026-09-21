@@ -130,6 +130,82 @@ was attempted. This dossier/evidence-only checkpoint is based on reachable
 `462569e51b2089ef3df7a5f0cf1a118f9c7e03d4` on `feat/browser-lease-recovery`;
 review the current tip for this investigation record.
 
+## Startup diagnostics follow-up — observability verified, cause still unresolved
+
+This scoped delta starts from reachable checkpoint
+`33532cf5b5dc3b0f2760b2772685d572b977089e` on the same
+`feat/browser-lease-recovery` worktree; intended target remains **beta**.
+The defect/diagnostic owner is this feature's launcher/pipe/publication boundary;
+no ancestor-lane modification or propagation is authorized in this delegation.
+`origin/beta` was fetched without changing this worktree. Installed Bounty Core
+was checked against the declared `7b08495f65a50f733fc18213c38cc3ae8e91bdf5` pin
+and matched; no environment synchronization or dependency edit was necessary.
+
+Implemented:
+
+- Opt-in `BROWSER_STARTUP_DIAGNOSTICS=1` records private manager/launcher/exec
+  snapshots under the task's manager state, independently of the browser profile.
+  Fixed phases distinguish dispatch, launcher entry/preparation, spawn, adapter
+  binding, pipe readiness, auth application, record publication and registration.
+  Monotonic start/elapsed timings and closed error categories preserve boundary
+  evidence without exception messages. Each component is capped at 32 events;
+  files are 0600 and attempt directories 0700. Writes are atomic and best-effort,
+  without fsync on the startup path. Successful exec intentionally leaves an
+  `exec:begin` marker because exec replaces the Python process.
+- Chromium stderr is drained but **only a capped byte count is retained** (64 KiB,
+  4-KiB reads). No raw stderr, command lines, URLs, credentials, cookies, CDP
+  bodies or control tokens are persisted in these diagnostics. This does not
+  claim that stderr causes have been recovered: counting is intentionally safer
+  and less informative than textual logging or heuristic redaction.
+- The real fixture preserves a schema-projected bounded receipt outside its
+  disposable root before and after cleanup. Failed starts absent from the browser
+  registry are included via task-owned UUID launch/diagnostic entries. Only those
+  exact units are stopped; unit inactivity, available recorded root identity/CDP
+  closure and absence of processes referencing the fixture root are verified
+  before deletion. A failed stop retains the profile/root and failure evidence.
+- Normal success/API shapes and production startup deadlines remain unchanged.
+  No test was disabled, no timeout raised, no browser sandbox/resource setting
+  changed, and no native/pane consumer touched.
+
+Actual verification (implementing child, **not independent release approval**):
+
+- Initial offline focused suite: **160 passed, 1 opt-in skip in 24.34 seconds**.
+- Initial instrumented real/full suite: **162 passed in 102.38 seconds**.
+- Pre-final real suite: **163 passed in 303.12 seconds**. Final diff inspection
+  removed an extra filesystem stat from failed-publication diagnostics so an
+  unreadable launch record cannot let diagnostics interrupt existing cleanup.
+  Added a deterministic permission-error regression for this boundary.
+- Final source: **164 passed in 179.22 seconds** using the exact
+  command in `browser-resource-startup-investigation.json:diagnostics_followup`.
+- Deterministic tests cover publication timeout, malformed/unreadable publication,
+  dispatch/registration failure, pipe-readiness timeout, disabled/unwritable
+  diagnostics, stderr saturation and secret non-disclosure, private modes,
+  evidence surviving deleted profiles, failed-stop retention and exact-unit
+  cleanup before registry insertion. A real local exec of a nonexistent binary
+  proves categorized failure, reaping and stderr-content exclusion.
+- Final disposable loopback/about:blank fixture retained **12 component snapshots
+  for 4 launches**, with cleanup verified and no fixture failure. The original
+  intermittent timeout did not recur. The longer final suite duration does not
+  establish a cause for the historical timeout.
+- Final raw private receipt: `/tmp/bbh-startup-evidence-40urrnrf/startup.json`;
+  its sanitized data is also embedded in the tracked investigation JSON so the
+  evidence remains recoverable after temporary-directory expiry. Normal fixture
+  receipt: `/tmp/browser-startup-diagnostics-verified.json`.
+- `git diff --check` and Ruff `--select F` passed. After the final suite,
+  `systemctl --user list-units 'browser-*' --all --no-pager --plain` reported
+  **zero loaded units**. Fixture profile removal ran only after cleanup checks.
+
+**Remaining blocker / exact resume:** the original 45-second startup failure
+still has no causal diagnosis or repair. On a recurrence, run the unchanged
+fixture command with diagnostics enabled and inspect its preserved phase receipt;
+missing launcher metadata points earlier than launcher entry but is not proof of
+where Python/systemd stalled. Stderr byte counts cannot identify a Chromium fatal
+message. Capture additional narrowly sanitized evidence if needed, without
+relaxing readiness/deadlines or blaming host I/O without measurements. The parent
+owns independent diff/test review and release acceptance. Native-input and pane
+consumer blockers below remain unchanged. No Kanban mutations, push, merge,
+external deployment, live sites/accounts or security-testing workflows occurred.
+
 ## Explicit incomplete acceptance criteria / activation blockers
 
 1. **Native headed input is not observable through this adapter.** Headed/KasmVNC and pre-revision records deliberately retain conservative PID/explicit-release behavior. They do not gain PID-free automatic idle reclamation. Enabling idle eviction there would risk closing an actively used native browser. Required successor integration: the actual native display/input owner must report meaningful input and atomically participate in reservations/fencing; then add a disposable headed-input test. This revision does not claim complete all-browser activity coverage.

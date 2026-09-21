@@ -35,7 +35,11 @@ from aiohttp import web
 
 
 class PipeBrowser:
-    def __init__(self, command, **kwargs):
+    def __init__(self, command, diagnostics=None, **kwargs):
+        from browser_lifecycle import StartupDiagnostics
+        self.diagnostics = diagnostics or StartupDiagnostics("launcher")
+        if self.diagnostics.path:
+            kwargs["stderr"] = subprocess.PIPE
         child_read, self.write_fd = os.pipe()
         self.read_fd, child_write = os.pipe()
         # dup in a fresh interpreter, not preexec_fn in a threaded process.
@@ -58,6 +62,8 @@ class PipeBrowser:
         finally:
             os.close(child_read)
             os.close(child_write)
+        if self.diagnostics.path:
+            self.stderr_thread = self.diagnostics.drain_stderr(self.process.stderr)
         os.set_blocking(self.write_fd, False)
         self.loop = asyncio.new_event_loop()
         self.pending = {}
@@ -351,6 +357,7 @@ class PipeBrowser:
             self.mark_activity()
 
     async def _serve(self, port, socket_path):
+        self.diagnostics.mark("adapter-bind")
         self.write_lock = asyncio.Lock()
         app = web.Application()
         app.router.add_route("*", "/{token}/{suffix:.*}", self.route)
@@ -370,7 +377,9 @@ class PipeBrowser:
         await web.UnixSite(self.control_runner, str(socket_path)).start()
         os.chmod(socket_path, 0o600)
         # Browser startup and pipe readiness are verified before publication.
-        await self.call("Browser.getVersion")
+        self.diagnostics.mark("adapter-bind", "ready")
+        with self.diagnostics.phase("pipe-ready"):
+            await self.call("Browser.getVersion")
         return f"http://127.0.0.1:{self.port}/{self.token}"
 
     def serve(self, port, socket_path):
@@ -382,6 +391,8 @@ class PipeBrowser:
         if self.process.poll() is None:
             self.process.terminate()
         self.process.wait(timeout=10)
+        if getattr(self, "stderr_thread", None):
+            self.stderr_thread.join(timeout=1)
         for runner in (
             getattr(self, "runner", None),
             getattr(self, "control_runner", None),
@@ -425,4 +436,6 @@ if __name__ == "__main__":
     os.set_inheritable(4, True)
     for descriptor in {read_fd, write_fd, int(sys.argv[2]), int(sys.argv[3])} - {3, 4}:
         os.close(descriptor)
-    os.execv(sys.argv[4], sys.argv[4:])
+    from browser_lifecycle import StartupDiagnostics
+    with StartupDiagnostics("exec").phase("exec"):
+        os.execv(sys.argv[4], sys.argv[4:])

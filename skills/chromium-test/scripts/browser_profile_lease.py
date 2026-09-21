@@ -125,6 +125,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         "profile_health": "TEXT NOT NULL DEFAULT 'unknown'",
         "release_disposition": "TEXT",
         "auth_domain": "TEXT",
+        "manager_id": "TEXT",
     }.items():
         if name not in columns:
             conn.execute(f"ALTER TABLE browser_profile_leases ADD COLUMN {name} {definition}")
@@ -213,7 +214,7 @@ def expire_leases(conn: sqlite3.Connection, timestamp: float) -> None:
         SET status = 'expired', browser_status = CASE
               WHEN browser_status = 'running' THEN 'unverified-after-expiry'
               ELSE browser_status END
-        WHERE status = 'active' AND expires_at <= ?
+        WHERE status = 'active' AND expires_at <= ? AND manager_id IS NULL AND cdp_url IS NULL
         """,
         (timestamp,),
     )
@@ -223,7 +224,7 @@ def active_lease(conn: sqlite3.Connection, program: str, alias: str, auth_domain
     return conn.execute(
         """
         SELECT * FROM browser_profile_leases
-        WHERE program = ? AND account_alias = ? AND status = 'active' AND expires_at > ?
+        WHERE program = ? AND account_alias = ? AND status = 'active' AND (expires_at > ? OR manager_id IS NOT NULL OR cdp_url IS NOT NULL)
           AND (auth_domain = ? OR auth_domain IS NULL)
         ORDER BY CASE WHEN auth_domain IS NULL THEN 0 ELSE 1 END, created_at DESC LIMIT 1
         """,
@@ -481,9 +482,37 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
         }
 
 
+def transfer_managed_lease(db_path, old_id, manager_id, agent_id, run_id, purpose, ttl, cdp_url):
+    """Atomic ownership rotation, invoked only after the provisioner's pipe fence."""
+    timestamp = now()
+    with connect(db_path) as conn:
+        init_db(conn)
+        conn.execute('BEGIN IMMEDIATE')
+        old = conn.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (old_id,)).fetchone()
+        if old is None or old['manager_id'] != manager_id or old['status'] != 'active':
+            return {'status': 'not-owner-or-expired'}
+        values = dict(old)
+        values.update(lease_id=str(uuid.uuid4()), owner_agent_id=agent_id, owner_run_id=run_id,
+                      purpose=purpose, heartbeat_at=timestamp, created_at=timestamp,
+                      expires_at=timestamp+ttl, cdp_url=cdp_url, work_state='active')
+        conn.execute("UPDATE browser_profile_leases SET status='released', work_state='terminal', release_disposition='handoff', released_at=? WHERE lease_id=?", (timestamp, old_id))
+        columns = ','.join(values)
+        placeholders = ','.join('?' for _ in values)
+        conn.execute(f'INSERT INTO browser_profile_leases ({columns}) VALUES ({placeholders})', tuple(values.values()))
+        conn.commit()
+        row = conn.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (values['lease_id'],)).fetchone()
+        return {'status': 'leased', 'lease': safe_lease(row, include_cdp=True)}
+
+
 def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
     timestamp = now()
-    account, inventory = resolve_account(args.program, args.account)
+    if getattr(args, 'task_owned', False):
+        if args.program != 'task-owned' or getattr(args, 'auth_domain', None) != 'task' or not re.fullmatch(r'task-[0-9a-f]{24}', args.account):
+            return {'status': 'invalid-task-profile'}
+        account = {'alias': args.account, 'profile_kind': 'task', 'lifecycle': 'active', 'browser_lease_enabled': True}
+        inventory = {'accounts': [], 'resources': []}
+    else:
+        account, inventory = resolve_account(args.program, args.account)
     if account is None:
         return {
             "status": "account-not-found",
@@ -521,6 +550,8 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
         existing = active_lease(conn, args.program, alias, auth_domain, timestamp)
         if existing:
             same_owner = existing["owner_agent_id"] == args.agent_id and existing["owner_run_id"] == args.run_id
+            if same_owner and existing['manager_id'] != getattr(args, 'manager_id', None):
+                return {'status': 'managed-by-provisioner'}
             if same_owner:
                 expires_at = timestamp + args.ttl_seconds
                 conn.execute(
@@ -570,6 +601,7 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
                 expires_at,
             ),
         )
+        conn.execute("UPDATE browser_profile_leases SET manager_id=? WHERE lease_id=?", (getattr(args, "manager_id", None), lease_id))
         conn.commit()
         row = conn.execute("SELECT * FROM browser_profile_leases WHERE lease_id=?", (lease_id,)).fetchone()
     return {
@@ -589,12 +621,12 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
 def owned_active_lease(conn: sqlite3.Connection, args: argparse.Namespace, timestamp: float) -> sqlite3.Row | None:
     expire_leases(conn, timestamp)
     row = conn.execute(
-        "SELECT * FROM browser_profile_leases WHERE lease_id=? AND status='active' AND expires_at > ?",
+        "SELECT * FROM browser_profile_leases WHERE lease_id=? AND status='active' AND (expires_at > ? OR manager_id IS NOT NULL)",
         (args.lease_id, timestamp),
     ).fetchone()
     if row is None:
         return None
-    if row["owner_agent_id"] != args.agent_id:
+    if row["owner_agent_id"] != args.agent_id or row["manager_id"] != getattr(args, "manager_id", None):
         return None
     return row
 
@@ -622,7 +654,7 @@ def local_cdp_version(cdp_url: str) -> dict[str, Any]:
     parsed = urlparse(cdp_url)
     if parsed.scheme != "http" or parsed.hostname not in LOOPBACK_HOSTS or not parsed.port:
         raise SystemExit("CDP URL must be an http:// loopback endpoint with an explicit port")
-    endpoint = f"http://{parsed.hostname}:{parsed.port}/json/version"
+    endpoint = cdp_url.rstrip("/") + "/json/version"
     try:
         with urlopen(endpoint, timeout=2) as response:  # nosec B310: loopback validated above
             data = json.loads(response.read().decode("utf-8"))
@@ -674,7 +706,7 @@ def cmd_release(args: argparse.Namespace) -> dict[str, Any]:
         init_db(conn)
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT * FROM browser_profile_leases WHERE lease_id=?", (args.lease_id,)).fetchone()
-        if row is None or row["owner_agent_id"] != args.agent_id:
+        if row is None or row["owner_agent_id"] != args.agent_id or row["status"] != "active" or row["manager_id"] != getattr(args, "manager_id", None):
             conn.commit()
             return {"status": "not-owner-or-missing", "lease_id": args.lease_id}
         conn.execute(
@@ -738,6 +770,9 @@ def build_parser() -> argparse.ArgumentParser:
     release.add_argument("--disposition", required=True, choices=("completed", "handoff", "cancelled"), help="Terminal outcome; use renew --work-state awaiting-input instead while work is pending.")
     release.add_argument("--profile-health", required=True, choices=("healthy", "needs-refresh", "needs-cleanup", "unknown"), help="Non-secret handoff status of the persistent account profile.")
     release.set_defaults(func=cmd_release)
+    acquire.add_argument("--task-owned", action="store_true")
+    for command in (acquire, renew, register, release):
+        command.add_argument("--manager-id", help=argparse.SUPPRESS)
     return parser
 
 

@@ -236,6 +236,7 @@ def test_same_owner_running_browser_is_reused(monkeypatch, tmp_path):
     c.execute("insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", ("l","b","demo","fixture","legacy-global","agent","run","test","u",str(tmp_path/"artifacts/p"),"/tmp/x","running",0,t,t,t)); c.commit()
     monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], []))
     monkeypatch.setattr(m, "unit_active", lambda _: True)
+    monkeypatch.setattr(m, "healthy", lambda _: True)
     try: m.start(start_args())
     except SystemExit as e: assert e.code == 0
 
@@ -247,6 +248,7 @@ def test_same_owner_reuses_inventory_resolved_auth_domain_without_cli_override(m
     monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], []))
     monkeypatch.setattr(m, "admission", lambda *_: {"status": "admitted"})
     monkeypatch.setattr(m, "unit_active", lambda _: True)
+    monkeypatch.setattr(m, "healthy", lambda _: True)
     monkeypatch.setattr(
         m,
         "lease",

@@ -63,7 +63,7 @@ def test_node_mutations_are_serialized(tmp_path):
 )
 def test_live_pipe_handoff_preserves_process_tabs_and_state(tmp_path):
     import websocket
-    from browser_control import PipeBrowser, rotate_control
+    from browser_control import PipeBrowser, rotate_control, activity_control
 
     chrome = shutil.which("google-chrome") or shutil.which("chromium")
     assert chrome, "local Chromium required"
@@ -129,6 +129,43 @@ def test_live_pipe_handoff_preserves_process_tabs_and_state(tmp_path):
                 replies.append(message["id"])
         assert replies == [802, 801]
         call(ws, "Runtime.evaluate", {"expression": 'window.fixture = "survived"'})
+        malformed = websocket.create_connection(page["webSocketDebuggerUrl"], timeout=5)
+        malformed.send(json.dumps({"id": 800}))
+        assert malformed.recv() == ""
+        malformed.close()
+        assert activity_control(tmp_path / "control.sock")["inflight"] == 0
+        activity = activity_control(tmp_path / "control.sock")
+        get(url + "/json/version")
+        get(url + "/json/list")
+        assert activity_control(tmp_path / "control.sock")["last_activity"] == activity["last_activity"]
+        # Deterministic in-flight race: the promise remains pending until this
+        # fixture explicitly resolves it through a second multiplexed command.
+        ws.send(json.dumps({"id": 901, "method": "Runtime.evaluate", "params": {
+            "expression": "new Promise(r => window.finishFixture = r)", "awaitPromise": True}}))
+        ws.send(json.dumps({"id": 902, "method": "Runtime.evaluate", "params": {
+            "expression": "typeof window.finishFixture"}}))
+        while json.loads(ws.recv()).get("id") != 902:
+            pass
+        assert activity_control(tmp_path / "control.sock")["inflight"] == 1
+        assert not activity_control(tmp_path / "control.sock", "freeze", idle_seconds=0)["frozen"]
+        ws.send(json.dumps({"id": 903, "method": "Runtime.evaluate", "params": {
+            "expression": "window.finishFixture(1)"}}))
+        received = set()
+        while received != {901, 903}:
+            reply = json.loads(ws.recv())
+            if reply.get("id") in {901, 903}:
+                received.add(reply["id"])
+        activity_control(tmp_path / "control.sock", "reserve", seconds=30)
+        assert not activity_control(tmp_path / "control.sock", "freeze", idle_seconds=0)["frozen"]
+        activity_control(tmp_path / "control.sock", "reserve", seconds=0)
+        # Only this disposable in-process fixture advances the adapter's idle
+        # clock; production has no endpoint to forge activity/age.
+        import asyncio
+        import time
+        async def age_fixture():
+            browser.last_use = time.monotonic() - 7201
+        asyncio.run_coroutine_threadsafe(age_fixture(), browser.loop).result(5)
+        assert activity_control(tmp_path / "control.sock", "freeze", idle_seconds=7200)["frozen"]
         rotation = rotate_control(tmp_path / "control.sock")
         assert rotation["fenced"]
         assert browser.process.pid == pid and browser.process.poll() is None

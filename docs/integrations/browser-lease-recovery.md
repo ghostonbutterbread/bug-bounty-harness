@@ -1,80 +1,98 @@
-# Browser lease recovery — integration dossier
+# Browser resource management — integration dossier
 
-## Ownership and integration boundary
+## Ownership and checkpoint
 
-- Task: benign browser resource lifecycle; Kanban `bug-bounty-harness/t_6f1fc293` (parent owns coordination).
-- Branch: `feat/browser-lease-recovery`.
+- Task: ordinary browser resource management, parent-owned Kanban `bug-bounty-harness/t_6f1fc293`.
 - Worktree: `/home/ryushe/projects/bug_bounty_harness/browser-lease-recovery`.
-- Fetched base: `69e9a2a01be26ea1e64a0d00fd6cf23a47704e4e` (`origin/beta`).
-- Intended target: **beta**, only after fresh independent parent review.
-- No push, merge, deployment, Hoster operation, real account session, or live-site browsing authorized by this implementation handoff.
-- Recoverable implementation checkpoint: `ae309c8cf12f74141662df7a2af57917e58cbad1` on `feat/browser-lease-recovery`, containing implementation, tests, this dossier, and the real smoke receipt. The following handoff-only commit records this SHA; review both it and the current branch tip.
-- Resume point: fresh independent review from this worktree; rerun the exact verification commands below, inspect the documented initial-provisioning/legacy-identity limitations, then return the decision to the parent for beta integration. Upstream `origin/beta` was re-fetched before commit and remained at the recorded base. Final process inspection found no active fixture or feature-runtime processes. Nothing was pushed or merged.
+- Branch: `feat/browser-lease-recovery`; intended integration target **beta**.
+- Fetched beta base: `69e9a2a01be26ea1e64a0d00fd6cf23a47704e4e`.
+- Previous reviewed lifecycle checkpoint: `2f85d1bcbd5ceff82c0b54f94a91b7f8a7cda14f` (older implementation receipt `ae309c8cf12f74141662df7a2af57917e58cbad1`).
+- Current revision extends that checkpoint; final checkpoint SHA belongs in the handoff/following dossier-only commit, not a fabricated self-reference.
+- No push, merge, deployment, Hoster operation, real account access, or external-site browsing. Parent owns independent integration review and acceptance of the coverage gaps below.
 
-## Intent and implemented contract
+## Implemented contract
 
-Separate browser profile lifetime from controller ownership. Do not use memory pressure or idle age as proof that an owner abandoned work. Changes are generic resource management, not vulnerability testing or program authorization.
+### Explicit profile instances, legacy compatibility
 
-### Explicit general-purpose task browser
+`request/start ... --instance-key <slot>` creates an isolated persistent profile at `<artifact-root>/<program>/web/browser-instances/<domain>/<resolved-account>/<slot>`. Distinct slots can use the same account/color concurrently; retries of the same slot remain exclusive. Keys are validated, not silently normalized. Instance directories are separate from legacy profile trees, so legacy retention cannot recursively delete a live instance.
 
-`request --task-owned --agent-id A --run-id R --owner-pid PID --purpose TEXT` omits both program and account. It creates an isolated task namespace keyed by agent/run; conflicting program/account/auth-domain arguments fail. The launcher never reads account inventory, imports seeds, or refreshes authentication in this mode. Multiple normal website authentications can coexist within this profile; this creates **no** combined program authorization scope. Named program/account/auth-domain leasing remains exact and exclusive. Task profiles survive process termination and participate in existing 14-day retention rather than being shared with another task.
+Omitting the key preserves the legacy named single-profile semantics and existing path/configuration. An active legacy lease conservatively blocks parallel instances of the same account/domain, and vice versa. There is no migration, copied cookie store, alternate account selection, or extra authentication retry. Anonymous slots and existing normal launcher session settings remain supported.
 
-### Lifecycle evidence and automatic management
+`--task-owned` still selects a task-specific namespace without account inventory or auth-seed resolution. Headless activity management works without `--owner-pid`; headed task mode still requires it because native input is untracked. Its namespace remains agent/run-specific rather than sharing state with another task.
 
-An explicit **task-specific long-lived supervisor PID on the browser node** is captured with `/proc` start ticks, boot ID, and hostname. Do not supply this short-lived request CLI's PID, a remote PID, a generic daemon PID, or infer task completion from a run label. The task-specific process lifetime is the supported task lifecycle integration; inspection found no generic pre-existing authoritative task lifecycle hook in these scripts. Existing invocations without this identity remain accepted but report `owner_state: unknown`; they require explicit release and are not automatically declared abandoned.
+### Activity and atomic resource reclamation
 
-A small per-browser user-systemd watcher renews managed leases every five seconds, notices terminal owners within its polling interval, fences their control, permits a 30-second recovery grace only for revocable browser-owned proxy sessions, then stops/verifies the recorded browser unit and releases its lease while retaining profile state. It is not a central queue/broker and does not migrate profiles between nodes. Active identified owners remain protected even past the old TTL and regardless of idle age. `reap-idle` is retained as a compatible command but runs evidence-based reconciliation, never idle eviction.
+New **headless** pipe-controlled browsers track caller-issued CDP work. Navigation, input, evaluation and screenshots count; HTTP discovery, Browser.getVersion, target discovery/attachment and domain enable/disable do not. Passive browser events, open sockets, process liveness, watcher renewal, status calls and ordinary touch heartbeats do not reset idle age. Wall time is only reporting metadata; the live adapter uses a monotonic idle clock.
 
-`touch --work-state awaiting-input --awaiting-seconds N` records an absolute deadline (1–3600 seconds, default 1800); repeated awaiting-input touches cannot extend it. An expired deadline cannot be renewed by a late touch. Explicitly returning to active before the deadline clears the bound. TTL minimum for new requests is 30 seconds. Unknown lifecycle evidence is reported honestly, not guessed terminal.
+- `--idle-seconds` is the stored claim window, default 900, permitted 1–7199. It is not the process-stop threshold. A different requester cannot shorten the existing owner's window.
+- Request-time cleanup, before capacity admission, stops browsers unused for **at least 7200 seconds**. It retains the profile and releases ownership only after the existing unit/root/CDP verification succeeds. `reap-idle` also invokes this path; its legacy `--idle-seconds` does not lower the two-hour stop threshold.
+- A shorter idle claim may reuse the same browser process, tabs and profile through the existing CDP generation fence when the fixed browser-owned proxy/certificate route is compatible. Live owner PID does not prevent an idle claim. Task-owned proxies, incompatible routes and non-revocable control retain the existing verified restart fallback.
+- The adapter atomically rechecks inactivity and in-flight commands/reservations, then freezes command admission on its single event loop. Node locking alone was insufficient because CDP commands do not take that lock. A winning command or reservation blocks cleanup/claim; a winning freeze rejects later commands/reservations. Failed stop/fence is not reported as successful reuse. A failed stop thaws control only if the exact original runtime is freshly verified healthy; partial stops, replaced identities and unknown runtime health remain fail-closed with an explicit error.
+- `touch --work-state awaiting-input --awaiting-seconds N` reserves 1–3600 seconds. Repeated waiting does not slide the bound. `touch --work-state active` cancels the reservation but is not fabricated browser activity. A late waiting renewal is rejected.
+- CDP response waits are bounded; pipe writes now have a 60-second backpressure deadline and terminate only their owned browser if a partial frame cannot finish. Dispatch has a 120-second deadline, with at most one bounded write completion during cancellation (up to 180 seconds total).
 
-### Real control fencing and exact live handoff
+PID/start-tick/boot/node identity is retained for diagnostics, conservative legacy lifecycle behavior and an explicitly supplied task supervisor's terminal signal. A live PID never blocks idle reclamation. A terminal supervisor still triggers automatic fencing/cleanup, but in-flight commands and bounded reservations win the adapter recheck first. Same-owner retry can enroll a previously absent PID. Missing lifecycle watcher health is reported rather than hidden.
 
-New provisioned Chromium instances use **remote-debugging-pipe**, with no raw Chromium TCP debugging port. A small per-browser loopback HTTP/WebSocket adapter serves CDP discovery and browser/page sockets behind a random generation path. A private Unix control socket rotates that path, closes old WebSockets, detaches their CDP sessions, and awaits a pipe barrier before acknowledging handoff. Old established sockets and old URLs cease to control the browser; ownership changes are not merely metadata rotation.
+### Passive reports and manual concurrency policy
 
-A healthy exact program/account/auth-domain browser can survive an abandoned owner's handoff with the same process, tabs, and session state. Both requester and recorded browser must explicitly select `--proxy-ownership browser` with the same explicit fixed `--proxy-server` and certificate mode. This asserts that the route belongs to the browser rather than the old task. **Default task-owned proxy routes are never silently relabelled/transferred:** they force verified stop/restart using the new request's route. KasmVNC/manual display control cannot be revoked through this CDP adapter, so those browsers likewise require restart for cross-owner handoff. Legacy direct-CDP browsers are never promoted to live-transferable by rotating metadata.
+The lease helper adds:
 
-The lease rotation is one SQLite transaction. A pending-transfer journal reconciles a crash between the canonical lease transaction and the manager projection before another mutating manager command runs. Old lease renew/release calls are rejected. Node-wide file locking serializes admission, handoff, release, and retention. Root PID identity and user-systemd InvocationID prevent treating PID/unit name reuse as the old resource. A stop is not successful until the unit is inactive, recorded root is gone, and CDP is unreachable. Retention also refuses another active/recent profile record, active profile lease, or an unknown/live Chromium SingletonLock (only an exact recorded dead root with no PID reuse clears a stale lock).
+```
+browser_profile_lease.py --state-dir <state> set-browser-policy <program> <account> --auth-domain <domain> --mode single
+browser_profile_lease.py --state-dir <state> report-logout --lease-id <id> --agent-id <agent> --reason user-observed
+```
 
-## Compatibility and limits
+`multiple` permits explicitly isolated slots (default); `single` constrains new acquisitions for the resolved program/account/domain under the same SQLite admission transaction. Setting policy does not kill already-running browsers. Reports accept only the structured reasons `user-observed`, `signed-out-ui`, or `session-rejected`; they store lease linkage, timestamp and reason, no URLs/content/session material. Reports never trigger inference, policy changes, auth retries or browser creation. Two generic logouts are not treated as evidence of a single-session platform.
 
-- Existing named and anonymous profile request, admission, proxy CA, display forwarding, and launcher authorization paths are retained. `--dry-run` remains available; direct real launcher admission bypass is not added.
-- CDP consumers must retain the full returned URL **including its generation path**, not reconstruct it from the port. `/json/version`, `/json/list`, browser WebSockets, and page WebSockets are supported. This is not a complete implementation of every Chromium HTTP discovery/debug UI endpoint.
-- Operational same-UID isolation, not a hostile same-UID security boundary. A process able to read the owner's files or access the private Unix socket can recover current control; adversarial separation requires separate OS identities. In-flight already-executed browser actions cannot be undone by a handoff; detachment prevents continued control after the fence acknowledgement.
-- No account-concurrency relaxation, logout detection, secret extraction, authentication selection expansion, or scope-policy changes.
-- A crash before the initial successful launch/owner registration can still leave a managed lease without sufficient runtime evidence. Such an entry stays locked for explicit reconciliation; this implementation does not guess that an unregistered browser is dead. Legacy records without verifiable root/unit identity similarly return `recovery-blocked` rather than killing a process by name. The tested crash journal covers **ownership transfer**, not every initial-provisioning interruption.
-- User-systemd and Linux `/proc` are required. Watcher failure/restart and unidentifiable legacy owners remain visible operational concerns; no remote owner identity or cross-node state adoption is supported.
-- Browser restart rather than live handoff is intentional when proxy/display/control revocation cannot be proven. It retains disk profile state but cannot promise preservation of unsaved tabs or in-memory state.
+### Stable identity and stale status
 
-## Verification record
+Safe manager receipts and private launch records expose `instance_id`, `pane_id`, `instance_key` and account color. Instance/pane ID is the browser UUID: stable across live ownership transfer, new on a real replacement process, distinct for concurrent slots. It is **metadata only**, not an implemented pane UI. Top-level activity reporting for running tracked browsers comes from the live adapter. Old canonical leases after transfer report `handed-off`, and manager-verified released leases report `stopped`, with stale CDP/service fields cleared. Self-managed releases with registered CDP report `unverified-after-release`, rather than inventing stop verification. Old manager lease mutations remain rejected.
 
-- No checkout-local environment existed at first use. Installed through `./setup.sh --install-python-deps`; after adding `aiohttp>=3.12,<4` to the sole root manifest, re-ran that installer. Resolved Bounty Core pin: `7b08495f65a50f733fc18213c38cc3ae8e91bdf5`; module resolved within this worktree's `.venv`.
-- Final combined focused suite (including script-index policy and both real browser fixtures): **115 passed in 280.25 seconds**, no skips. Static undefined/unused-name checks and whitespace checks also passed before handoff.
-- Real evidence: `docs/integrations/browser-lease-recovery-smoke.json`, written by the successful disposable fixture, not a synthesized result. The systemd fixture uses only temporary state/profiles, `about:blank`, and a loopback synthetic login server. It verifies automatic renewal, active-owner refusal, same-process/tab handoff, stale channel/URL/lease rejection, mandatory restart for a task-proxy handoff, persistent profile retention, task mode, two-host login-cookie continuity, automatic terminal cleanup, and 14-day manifest-only retention in dry-run and confirmed modes. The independent pipe fixture also verifies concurrent CDP responses and real WebSocket/URL revocation.
-- Recovery/failure fixtures cover PID reuse, unknown/permission-denied owners, absolute awaiting-input expiry, service InvocationID reuse, unverified-stop refusal, atomic concurrent transfer, interrupted transfer projection recovery, stale lease mutation rejection, and unknown/reused-PID SingletonLock protection. These are temporary test registries; no account sessions were used.
-- An early ten-second generic CDP response deadline proved too short for an ordinary local HTTP navigation. A raw-CDP control browser reproduced the local navigation delay; the adapter now allows bounded 60-second command responses. This was not solved by changing authentication, suppressing certificates, or altering site content.
+## Verification
 
-Commands:
+- Checkout `.venv` resolves Bounty Core pin `7b08495f65a50f733fc18213c38cc3ae8e91bdf5`; environment newer than manifest. No dependency change in this revision.
+- Combined deterministic and opt-in disposable real suite: **152 passed in 114.24 seconds**, after review-driven fixes and final fixture updates.
+- Real receipt: `docs/integrations/browser-resource-smoke.json`. Older `browser-lease-recovery-smoke.json` is historical evidence for the prior PID-driven contract, not evidence for this revision.
+- Real fixtures exercised simultaneous isolated same-account profiles, stable live-transfer pane identity, same PID/page state, old socket/URL/lease rejection, task-proxy restart, PID-free generic task mode, two loopback synthetic login contexts, retained profiles and manifest retention.
+- The in-process real pipe fixture deterministically holds an evaluation promise pending while attempting a freeze; the in-flight operation wins. It also checks bounded reservation, discovery not updating activity, stages only its own idle clock, and verifies the 7200-second freeze and generation revocation. Production has no clock-forging endpoint.
+- Deterministic fixtures cover threshold equality, changed-activity recheck, concurrent reservation/freeze orderings, failed-stop retention, same-account/color slots, single-policy concurrent acquisition, malformed keys, passive reporting, stale release fields, PID-independent idle ownership, supervisor enrollment and missing watcher health.
+- Initial real integration run caught instance-key shadowing by the launch environment loop; fixed before the passing receipt. An initial offline run also caught legacy custom-path lookup incompatibility; restored legacy manifest selection without migrating profiles.
+
+Commands (no external sites):
 
 ```sh
-./setup.sh --install-python-deps
-.venv/bin/python -m pytest agents/test_browser_lease_recovery.py agents/test_browser_lifecycle.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_chromium_test_launcher.py -q
-BBH_LOCAL_BROWSER_SMOKE=1 BBH_BROWSER_SMOKE_RECEIPT=docs/integrations/browser-lease-recovery-smoke.json .venv/bin/python -m pytest agents/test_browser_lease_recovery.py agents/test_browser_lifecycle_systemd.py agents/test_browser_lifecycle.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_chromium_test_launcher.py tests/test_script_policy.py -q
-uvx ruff check --select F skills/chromium-test/scripts/browser_provisioner.py skills/chromium-test/scripts/browser_control.py skills/chromium-test/scripts/browser_lifecycle.py agents/test_browser_lease_recovery.py agents/test_browser_lifecycle.py agents/test_browser_lifecycle_systemd.py
+.venv/bin/python -m pytest agents/test_browser_resources.py agents/test_browser_lease_recovery.py agents/test_browser_lifecycle.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_chromium_test_launcher.py -q
+BBH_LOCAL_BROWSER_SMOKE=1 BBH_BROWSER_SMOKE_RECEIPT=docs/integrations/browser-resource-smoke.json .venv/bin/python -m pytest agents/test_browser_resources.py agents/test_browser_lifecycle.py agents/test_browser_lifecycle_systemd.py agents/test_browser_lease_recovery.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_chromium_test_launcher.py tests/test_script_policy.py -q
+uvx ruff check --select F skills/chromium-test/scripts/browser_control.py skills/chromium-test/scripts/browser_profile_lease.py skills/chromium-test/scripts/browser_provisioner.py skills/chromium-test/scripts/chromium_test.py agents/test_browser_resources.py agents/test_browser_lifecycle.py agents/test_browser_lifecycle_systemd.py
 git diff --check
 ```
 
-## Parent-owned documentation corrections (review checkpoint)
+## Explicit incomplete acceptance criteria / activation blockers
 
-The parent updated `skills/chromium-test/SKILL.md` and the Chromium Test playbook to describe explicit task-owned mode, task-supervisor PID evidence, automatic lifecycle renewal/cleanup, bounded awaiting-input, and exact fenced live reuse. Replace instructions requiring agents to remember periodic touch/release as the sole lifecycle mechanism. Retain explicit terminal release for legacy/unknown owners and manual early completion. Explain browser-owned versus task-owned proxy attribution, conservative KasmVNC/legacy restart fallback, full generation-path CDP URLs, same-UID limitations, and local-only deployment gate. Do not merge task authentication with program authorization or relax profile exclusivity.
+1. **Native headed input is not observable through this adapter.** Headed/KasmVNC and pre-revision records deliberately retain conservative PID/explicit-release behavior. They do not gain PID-free automatic idle reclamation. Enabling idle eviction there would risk closing an actively used native browser. Required successor integration: the actual native display/input owner must report meaningful input and atomically participate in reservations/fencing; then add a disposable headed-input test. This revision does not claim complete all-browser activity coverage.
+2. **Pane rendering/integration is not implemented.** The actual browser-provider/desktop pane consumer must use the returned instance/pane IDs rather than account color. No such consumer was changed under this scripts-only task. The concrete BBH receipt/UI consumer is `skills/chromium-handoff/scripts/cdp_handoff_server.js` (Chromium Handoff owner), with `agents/test_cdp_handoff_receipt.py`. Its current `validateLiveBrowser` still requires a raw `--remote-debugging-port`, and its UI controls one page rather than implementing multiple panes. It cannot be claimed integrated with these pipe receipts. Parent must delegate that consumer's pipe-receipt/identity/UI compatibility work separately; no consumer or protected skill body was edited here.
+3. **The two-hour stop boundary uses deterministic clock staging**, not a literal two-hour wall-clock systemd soak. Real unit stop/root/CDP verification and the real adapter recheck are separately exercised. A soak is optional additional activation evidence; no production clock controls were added to make a fixture easier.
+4. **Legacy named parallelism is opt-in**, not automatic migration. Existing live legacy profiles stay exclusive until explicitly stopped/released; normal profile and session configuration is unchanged.
+5. Existing initial-launch crash gap remains: an interruption before complete runtime registration can leave a conservative managed lease requiring explicit reconciliation. The existing pending-transfer journal covers transfers, not every provisioning crash.
+6. Same-UID coordination is not hostile-process isolation. CDP consumers must retain the entire generation URL. Only Linux/user-systemd is tested; no cross-node adoption or remote rollout.
+7. Account summary/status views remain conservative account-level summaries; they are not a new multi-instance pane registry. Exact manager lease status and safe per-instance receipts are the supported new identity surface.
 
-Shared browser-profile coordination guidance is outside this repository; its
-active behavior must not be claimed synchronized by this feature commit. Parent
-review is checking the optional-owner integration gap: existing callers without
-`--owner-pid` do not gain automatic cleanup. The task tracker heartbeat failed
-with a child-context mutation guard after async handoff; no guard bypass attempted.
+## Review and next action
 
-## Next gate and activation boundary
+First fresh read-only Claude review completed (session `0750bfe1-3052-42fd-a59f-661d2b1b9732`, success subtype, no permission denials) and independently ran the offline suite: 122 passed, 1 opt-in skip. It withheld checkpoint approval for three issues. All were addressed before the final 152-test real/deterministic run:
 
-Use a generous fixture timeout (at least 600 seconds on loaded hosts); the last local run took 280 seconds, mostly browser startup/navigation. A killed/failed fixture must stop only its recorded task units and verify recorded roots before removing its temporary profile tree.
+- Validate CDP method before incrementing the in-flight counter; malformed frames no longer leak a permanent reservation. The real pipe fixture sends a method-less frame and verifies zero remaining in-flight operations.
+- Preserve explicit supervisor terminal cleanup, including the atomic operation/reservation recheck. The real systemd fixture now starts PID-free, verifies normal activity, enrolls a supervisor, terminates it and verifies automatic cleanup. Live-supervisor idle takeover remains tested separately.
+- Restore control after a failed stop only for an exact freshly healthy original runtime. Unverifiable or partially stopped runtimes intentionally remain frozen; automatically thawing them would contradict the stop-verification boundary.
 
-Fresh independent reviewer must rerun focused suites and the opt-in disposable local fixture from this branch, inspect failure/ownership paths and dossier against the diff, and decide whether additional generic CDP-client compatibility coverage is needed. Parent owns any beta reconciliation/integration. No stable promotion or runtime activation is implied. Remove this transient dossier from the integration lane when the feature is accepted; preserve it in feature history if blocked.
+Also restored NULL-domain legacy lock priority, marked self-managed release stop status unverified, made unavailable activity probes visible in lifecycle diagnostics, retained the legacy shared_base re-export, and require a supervisor for untracked headed task mode. A repeat real fixture exposed an assertion against the initial task receipt rather than current activity; the fixture now queries exact current status after browser work.
+
+Follow-up review attempt `1ae6a80a-2a95-4d50-a0a8-9382163fdb50` exhausted its 16-turn budget and produced no verdict; optional compound shell commands were denied. It was launched without session persistence, so resuming was unavailable. This is NOT an approval or an independent test receipt.
+
+A final bounded, single-response independent diff review completed successfully: session `2818191a-58aa-4085-955f-4019d9929363`, no tools or permission denials, verdict **APPROVE — recoverable checkpoint (not release, not deployment)**. It confirmed the three corrections and retained the native/pane integration gaps. It did not independently run tests; final 152-test execution is the implementing agent's real receipt. Parent owns the remaining independent release test gate.
+
+Clarifications for the final review's non-blocking questions: `record_info` already catches missing/truncated JSON and returns an empty object; canonical managed leases do not expire merely because their timestamp passes; release rejects mismatched manager IDs; both request/start parsers already define `--idle-seconds`. Those inherited guards are tested. Socket probes can still add bounded status latency.
+
+**Frozen-stop reconciliation:** when exact runtime health is unavailable, leave the lease/profile intact. Restore the local user-systemd/control prerequisite and retry the original owner's `release --lease-id ID --agent-id AGENT --disposition cancelled --profile-health unknown`, or rerun request-time cleanup/`reap-idle` after stop verification becomes possible. Do not remove the lease, force profile reuse, or use `touch` to override a frozen controller. Unidentifiable/replaced root/unit evidence remains a manual operator blocker.
+
+Final undefined/unused-name lint and whitespace checks passed. `origin/beta` was re-fetched and remains the recorded base. Final fixture inspection showed no loaded `browser-*` units. Commit only task-owned scripts/tests/index/dossier/receipt, report the checkpoint and coverage gaps, and do not push, merge or deploy.

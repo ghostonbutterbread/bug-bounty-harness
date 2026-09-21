@@ -1084,6 +1084,10 @@ def main() -> int:
             result['cdp_version_url'] = result['cdp_url'] + '/json/version'
             result['control_socket'] = args.control_socket
             result['control_mode'] = 'pipe-fenced'
+            # Native desktop input is not observable in this CDP adapter.
+            # Keep headed browsers conservative until their UI reports activity.
+            result['activity_tracking'] = bool(args.headless)
+            result['activity_coverage'] = 'CDP-only' if args.headless else 'native-input-untracked'
         except Exception:
             bridge.close()
             raise

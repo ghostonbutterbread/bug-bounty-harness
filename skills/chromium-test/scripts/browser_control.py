@@ -13,9 +13,23 @@ import json
 import os
 from pathlib import Path
 import secrets
+import select
 import subprocess
 import sys
 import threading
+import time
+
+
+# Discovery/transport upkeep is not evidence of user work. Other caller-issued
+# CDP commands (including reads such as screenshots/evaluation) are activity.
+PASSIVE_METHODS = {"Browser.getVersion", "Target.getTargets", "Target.getTargetInfo",
+                   "Target.attachToTarget", "Target.attachToBrowserTarget",
+                   "Target.detachFromTarget", "Target.setDiscoverTargets",
+                   "Target.setAutoAttach"}
+
+
+def meaningful(method):
+    return method not in PASSIVE_METHODS and not method.endswith((".enable", ".disable"))
 
 from aiohttp import web
 
@@ -44,6 +58,7 @@ class PipeBrowser:
         finally:
             os.close(child_read)
             os.close(child_write)
+        os.set_blocking(self.write_fd, False)
         self.loop = asyncio.new_event_loop()
         self.pending = {}
         self.serial = 0
@@ -51,6 +66,11 @@ class PipeBrowser:
         self.roots = {}
         self.token = secrets.token_urlsafe(32)
         self.rotating = False
+        self.frozen = False
+        self.last_activity = time.time()
+        self.last_use = time.monotonic()
+        self.inflight = 0
+        self.reserved_until = 0.0
         self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
         self.thread.start()
         threading.Thread(target=self._read, daemon=True).start()
@@ -103,7 +123,7 @@ class PipeBrowser:
             # outside the event loop and serialize to avoid interleaving.
             async with self.write_lock:
                 if generation is not None and (
-                    generation != self.token or self.rotating
+                    generation != self.token or self.rotating or self.frozen
                 ):
                     raise ConnectionError("Controller generation revoked")
                 writing = asyncio.create_task(asyncio.to_thread(self._write, data))
@@ -119,8 +139,19 @@ class PipeBrowser:
             self.pending.pop(identifier, None)
 
     def _write(self, data):
+        deadline = time.monotonic() + 60
         while data:
-            data = data[os.write(self.write_fd, data) :]
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not select.select([], [self.write_fd], [], remaining)[1]:
+                # A partially written frame cannot safely be followed by another.
+                # Fail the owned browser closed, rather than leave an operation
+                # registered forever behind a blocked OS pipe.
+                self.process.terminate()
+                raise TimeoutError("Chromium pipe write deadline")
+            try:
+                data = data[os.write(self.write_fd, data):]
+            except BlockingIOError:
+                continue
 
     async def route(self, request):
         if self.rotating or request.match_info["token"] != self.token:
@@ -178,6 +209,9 @@ class PipeBrowser:
 
         async def dispatch(command):
             try:
+                if not isinstance(command, dict) or not isinstance(command.get("method"), str):
+                    raise TypeError("CDP method required")
+                activity = meaningful(command["method"])
                 session = command.get("sessionId", root)
                 if session not in self.clients.get(ws, set()):
                     await ws.send_json(
@@ -187,9 +221,21 @@ class PipeBrowser:
                         }
                     )
                     return
-                answer = await self.call(
-                    command["method"], command.get("params"), session, generation
-                )
+                if generation != self.token or self.rotating or self.frozen:
+                    raise ConnectionError("Controller unavailable")
+                # No await between admission and registration: freeze/recheck runs
+                # on this same loop, so a command cannot enter through the gap.
+                self.inflight += 1
+                if activity:
+                    self.mark_activity()
+                try:
+                    answer = await asyncio.wait_for(self.call(
+                        command["method"], command.get("params"), session, generation
+                    ), 120)
+                finally:
+                    self.inflight -= 1
+                    if activity:
+                        self.mark_activity()
                 if generation != self.token or self.rotating or ws.closed:
                     return
                 child = answer.get("result", {}).get("sessionId")
@@ -236,6 +282,49 @@ class PipeBrowser:
         if error and str(error.get("message", "")).lower().rstrip(".") not in missing:
             raise RuntimeError("CDP session detach failed")
 
+    def mark_activity(self):
+        self.last_activity = time.time()
+        self.last_use = time.monotonic()
+
+    def activity_status(self):
+        return {"last_activity": self.last_activity,
+                "idle_seconds": max(0, time.monotonic() - self.last_use),
+                "inflight": self.inflight,
+                "reserved_seconds": max(0, self.reserved_until - time.monotonic()),
+                "frozen": self.frozen}
+
+    async def activity(self, request):
+        return web.json_response(self.activity_status())
+
+    async def freeze(self, request):
+        data = await request.json()
+        idle = float(data["idle_seconds"])
+        if not 0 <= idle <= 7200:
+            raise web.HTTPBadRequest()
+        state = self.activity_status()
+        if state["inflight"] or state["reserved_seconds"] or state["idle_seconds"] < idle:
+            return web.json_response({"frozen": False, "reason": "activity-changed"})
+        self.frozen = True
+        return web.json_response({"frozen": True})
+
+    async def thaw(self, request):
+        # Manager uses this only after a failed stop and fresh exact runtime
+        # health verification. Ownership and generation remain unchanged.
+        self.frozen = False
+        return web.json_response({"frozen": False})
+
+    async def reserve(self, request):
+        data = await request.json()
+        seconds = float(data["seconds"])
+        if not 0 <= seconds <= 3600 or self.frozen:
+            raise web.HTTPConflict()
+        # Repeated requests cannot slide an existing bound forward.
+        if seconds == 0:
+            self.reserved_until = 0
+        elif self.reserved_until <= time.monotonic():
+            self.reserved_until = time.monotonic() + seconds
+        return web.json_response(self.activity_status())
+
     async def rotate(self, request):
         # Only served on a mode-0600 Unix socket, never on the public TCP site.
         self.rotating = True
@@ -257,6 +346,9 @@ class PipeBrowser:
             )
         finally:
             self.rotating = False
+            self.frozen = False
+            self.reserved_until = 0
+            self.mark_activity()
 
     async def _serve(self, port, socket_path):
         self.write_lock = asyncio.Lock()
@@ -269,6 +361,10 @@ class PipeBrowser:
         self.port = site._server.sockets[0].getsockname()[1]
         control = web.Application()
         control.router.add_post("/rotate", self.rotate)
+        control.router.add_get("/activity", self.activity)
+        control.router.add_post("/freeze", self.freeze)
+        control.router.add_post("/thaw", self.thaw)
+        control.router.add_post("/reserve", self.reserve)
         self.control_runner = web.AppRunner(control, access_log=None)
         await self.control_runner.setup()
         await web.UnixSite(self.control_runner, str(socket_path)).start()
@@ -295,6 +391,16 @@ class PipeBrowser:
         os.close(self.write_fd)
         self.loop.call_soon_threadsafe(self.loop.stop)
         self.thread.join(timeout=5)
+
+
+def activity_control(socket_path, action="activity", **data):
+    import httpx
+
+    with httpx.Client(transport=httpx.HTTPTransport(uds=str(socket_path)), timeout=5) as client:
+        response = (client.get("http://localhost/activity") if action == "activity"
+                    else client.post("http://localhost/" + action, json=data))
+        response.raise_for_status()
+        return response.json()
 
 
 def rotate_control(socket_path):

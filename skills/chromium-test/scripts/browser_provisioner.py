@@ -228,21 +228,18 @@ def stop_unit(unit):
 
 
 def safe(row):
-    return {
-        k: row[k]
-        for k in (
-            "browser_id",
-            "lease_id",
-            "program",
-            "account",
-            "auth_domain",
-            "state",
-            "tab_count",
-            "last_activity",
-            "created",
-            "updated",
-        )
-    }
+    info = record_info(row)
+    result = {key: row[key] for key in (
+        "browser_id", "lease_id", "program", "account", "auth_domain", "state",
+        "tab_count", "last_activity", "created", "updated",
+    )}
+    result.update(instance_id=row["browser_id"], pane_id=row["browser_id"],
+                  instance_key=info.get("instance_key", ""),
+                  account_color=info.get("account_color"))
+    activity = activity_snapshot(row) if row["state"] == "running" else None
+    if activity and not activity.get("unavailable"):
+        result["last_activity"] = activity["last_activity"]
+    return result
 
 
 def release_lease(lease_id, agent, disp="cancelled", health="healthy"):
@@ -313,7 +310,7 @@ def stop_receipt(row):
     info = record_info(row)
     private_json(
         row["launch_file"],
-        {key: info.get(key) for key in ("process_identity", "unit_invocation", "pid")},
+        {key: info.get(key) for key in ("process_identity", "unit_invocation", "pid", "instance_key", "instance_id", "pane_id", "account_color")},
     )
 
 
@@ -345,8 +342,78 @@ def retire(c, row, health="healthy"):
     return True
 
 
+def selected_browser(c, program, alias, domain, key):
+    rows = c.execute(
+        "SELECT * FROM browsers WHERE program=? AND account=? AND auth_domain=? ORDER BY created DESC",
+        (slug(program), slug(alias), domain),
+    ).fetchall()
+    # Existing legacy manifests may use pre-domain paths. Do not migrate or
+    # silently abandon them simply because the canonical path has changed.
+    return next((row for row in rows if record_info(row).get("instance_key", "") == key), None)
+
+
+def activity_snapshot(row):
+    info = record_info(row)
+    if not info.get("activity_tracking"):
+        return None
+    from browser_control import activity_control
+    try:
+        return activity_control(info["control_socket"])
+    except Exception:
+        return {"unavailable": True}
+
+
+def freeze_idle(row, seconds):
+    from browser_control import activity_control
+    try:
+        return activity_control(record_info(row)["control_socket"], "freeze",
+                                idle_seconds=seconds).get("frozen", False)
+    except Exception:
+        return False
+
+
+def restore_failed_stop(row):
+    # Do not thaw a half-stopped, replaced, or unidentifiable runtime. A healthy
+    # exact original runtime can resume under its unchanged owner/generation.
+    if not healthy(row):
+        return False
+    from browser_control import activity_control
+    try:
+        return activity_control(record_info(row)["control_socket"], "thaw").get("frozen") is False
+    except Exception:
+        return False
+
+
+def cleanup_unused(c):
+    stopped_ids = []
+    for row in c.execute("SELECT * FROM browsers WHERE state='running'").fetchall():
+        activity = activity_snapshot(row)
+        if (not activity or activity.get("unavailable") or activity["idle_seconds"] < 7200
+                or activity["inflight"] or activity["reserved_seconds"]):
+            continue
+        # Recheck AND freeze in the adapter's event loop, not a stale file snapshot.
+        if freeze_idle(row, 7200):
+            if retire(c, row):
+                stopped_ids.append(row["browser_id"])
+            else:
+                meta = metadata(c, row)
+                meta["control_restored"] = restore_failed_stop(row)
+                meta["lifecycle_error"] = "idle-stop-not-verified"
+                save_metadata(c, row["lease_id"], meta)
+    return stopped_ids
+
+
 def lifecycle_state(c, row):
     meta = metadata(c, row)
+    activity = activity_snapshot(row)
+    if activity is not None:
+        if activity.get("unavailable"):
+            return "activity-unavailable"
+        if activity["inflight"] or activity["reserved_seconds"]:
+            return "active"
+        if owner_state(meta.get("owner")) == "terminal":
+            return "terminal"
+        return "idle" if activity["idle_seconds"] >= meta.get("idle_claim_seconds", DEFAULT_IDLE) else "active"
     if meta.get("awaiting_until") and now() >= meta["awaiting_until"]:
         return "expired-awaiting-input"
     return owner_state(meta.get("owner"))
@@ -399,7 +466,11 @@ def maintain(args):
             if not unit_active(row["unit"]) and stopped(row):
                 retire(c, row)
                 continue
-            if state == "active":
+            if state == "activity-unavailable":
+                meta["lifecycle_error"] = "activity-probe-unavailable"
+                save_metadata(c, row["lease_id"], meta)
+                continue
+            if state in ("active", "idle"):
                 q = lease(
                     None,
                     "renew",
@@ -419,6 +490,8 @@ def maintain(args):
                 if meta.pop("lifecycle_error", None):
                     save_metadata(c, row["lease_id"], meta)
             elif state in ("terminal", "expired-awaiting-input"):
+                if activity_snapshot(row) is not None and not freeze_idle(row, 0):
+                    continue
                 info = record_info(row)
                 if (
                     meta.get("proxy_ownership") != "browser"
@@ -474,14 +547,9 @@ def start(args):
         if not owner:
             emit({"status": "owner-unavailable"}, 2)
     if getattr(args, "task_owned", False):
-        if not owner:
-            emit(
-                {
-                    "status": "owner-required",
-                    "next": "supply the long-lived task supervisor --owner-pid",
-                },
-                2,
-            )
+        if not owner and not getattr(args, "headless", False):
+            emit({"status": "owner-required", "reason": "native-input-untracked",
+                  "next": "use headless activity control or supply a task supervisor PID"}, 2)
         if args.program or args.account or args.auth_domain:
             emit({"status": "task-owned-conflicts-with-program"}, 2)
         args.program = "task-owned"
@@ -493,6 +561,7 @@ def start(args):
         )
         args.auth_domain = "task"
     c = db()
+    cleanup_unused(c)
     sweep_rows(c, 14, True)
     import browser_profile_lease as profiles
 
@@ -503,10 +572,8 @@ def start(args):
     )
     alias = (account or {}).get("alias", args.account)
     auth_domain = profiles.auth_domain_for(args, account)
-    row = c.execute(
-        "select * from browsers where program=? and account=? and auth_domain=? order by created desc limit 1",
-        (slug(args.program), slug(alias), auth_domain),
-    ).fetchone()
+    instance = profiles.instance_key(args)
+    row = selected_browser(c, args.program, alias, auth_domain, instance)
     reusable = None
     if row and row["state"] == "running":
         state = lifecycle_state(c, row)
@@ -523,11 +590,22 @@ def start(args):
             and state not in ("terminal", "expired-awaiting-input")
             and healthy(row)
         ):
-            emit({"status": "already-running", **safe(row), "owner_state": state})
-        if not same and state not in ("terminal", "expired-awaiting-input"):
+            activity = activity_snapshot(row)
+            if activity and activity.get("frozen"):
+                emit({"status": "recovery-blocked", "reason": "control-frozen", **safe(row)}, 2)
+            meta = metadata(c, row)
+            if owner and meta.get("owner") is None:
+                meta["owner"] = owner
+                save_metadata(c, row["lease_id"], meta)
+            emit({"status": "already-running", **safe(row), "owner_state": state,
+                  "watcher_healthy": unit_active(monitor_unit(row["browser_id"]))})
+        if not same and state not in ("terminal", "expired-awaiting-input", "idle"):
             emit({"status": "locked", "reason": "owner-" + state, **safe(row)}, 2)
         info = record_info(row)
         meta = metadata(c, row)
+        threshold = meta.get("idle_claim_seconds", DEFAULT_IDLE) if state == "idle" else 0
+        if (state == "idle" or activity_snapshot(row) is not None) and not freeze_idle(row, threshold):
+            emit({"status": "locked", "reason": "activity-changed", **safe(row)}, 2)
         # A task-scoped MITM lane belongs to its old task. Never relabel it. Only
         # an explicitly browser-owned fixed route can cross task ownership alive.
         compatible = (
@@ -552,7 +630,9 @@ def start(args):
             except Exception:
                 reusable = None
         if not reusable and not retire(c, row):
-            emit({"status": "recovery-blocked", "reason": "stop-not-verified"}, 2)
+            restored = restore_failed_stop(row) if info.get("activity_tracking") else False
+            emit({"status": "recovery-blocked", "reason": "stop-not-verified",
+                  "control_restored": restored}, 2)
     # Capacity is an admission gate, not a lease outcome. Do not acquire a profile
     # until this node can actually start Chromium: a no-capacity retry must leave
     # the next profile user with a healthy, available profile.
@@ -580,6 +660,7 @@ def start(args):
             "metadata": {
                 "owner": owner,
                 "ttl": args.ttl_seconds,
+                "idle_claim_seconds": getattr(args, "idle_seconds", DEFAULT_IDLE),
                 "proxy_ownership": args.proxy_ownership,
             },
         }
@@ -611,6 +692,7 @@ def start(args):
             str(args.ttl_seconds),
             *(["--recover-profile"] if getattr(args, "recover_profile", False) else []),
             *(["--task-owned"] if getattr(args, "task_owned", False) else []),
+            *(["--instance-key", instance] if instance else []),
         )
     if got.get("status") not in ("leased", "already-owned"):
         emit(got, 2)
@@ -637,6 +719,7 @@ def start(args):
             {
                 "owner": owner,
                 "ttl": args.ttl_seconds,
+                "idle_claim_seconds": getattr(args, "idle_seconds", DEFAULT_IDLE),
                 "proxy_ownership": args.proxy_ownership,
             },
         )
@@ -658,6 +741,7 @@ def start(args):
             {
                 "status": "reused",
                 "fenced": True,
+                "watcher_healthy": unit_active(monitor_unit(row["browser_id"])),
                 **safe(
                     c.execute(
                         "select * from browsers where lease_id=?", (lid,)
@@ -666,14 +750,7 @@ def start(args):
             }
         )
     if row is None:
-        row = c.execute(
-            "select * from browsers where program=? and account=? and auth_domain=? order by created desc limit 1",
-            (
-                slug(args.program),
-                slug(got["lease"].get("account_alias", args.account)),
-                resolved_domain,
-            ),
-        ).fetchone()
+        row = selected_browser(c, args.program, got["lease"].get("account_alias", args.account), resolved_domain, instance)
     if (
         row
         and row["agent_id"] == args.agent_id
@@ -792,6 +869,10 @@ def start(args):
         process_identity(info["pid"]) if info.get("pid") else None
     )
     info["unit_invocation"] = unit_identity(unit)
+    info["account_color"] = (account or {}).get("pwnfox_color")
+    info["instance_key"] = instance
+    info["instance_id"] = bid
+    info["pane_id"] = bid
     private_json(launch, info)
     save_metadata(
         c,
@@ -799,6 +880,7 @@ def start(args):
         {
             "owner": owner,
             "ttl": args.ttl_seconds,
+            "idle_claim_seconds": getattr(args, "idle_seconds", DEFAULT_IDLE),
             "proxy_ownership": getattr(args, "proxy_ownership", "task"),
         },
     )
@@ -839,7 +921,8 @@ def start(args):
             "status": "started",
             **safe(out),
             "profile_lifetime": "persistent",
-            "owner_state": "active" if owner else "unknown",
+            "owner_state": lifecycle_state(c, out),
+            "watcher_healthy": unit_active(monitor_unit(bid)),
         }
     )
 
@@ -859,6 +942,19 @@ def touch(args):
         and not 1 <= getattr(args, "awaiting_seconds", 1800) <= 3600
     ):
         emit({"status": "invalid-awaiting-bound"}, 2)
+    activity = activity_snapshot(r)
+    if activity is not None:
+        meta = metadata(c, r)
+        if activity.get("unavailable"):
+            emit({"status": "activity-unavailable"}, 2)
+        if meta.get("awaiting_until") and now() >= meta["awaiting_until"] and args.work_state == "awaiting-input":
+            emit({"status": "reservation-expired"}, 2)
+        from browser_control import activity_control
+        try:
+            activity_control(record_info(r)["control_socket"], "reserve",
+                             seconds=getattr(args, "awaiting_seconds", 1800) if args.work_state == "awaiting-input" else 0)
+        except Exception:
+            emit({"status": "reservation-unavailable"}, 2)
     q = lease(
         args,
         "renew",
@@ -883,7 +979,7 @@ def touch(args):
     save_metadata(c, args.lease_id, meta)
     c.execute(
         "update browsers set last_activity=?,updated=? where lease_id=?",
-        (now(), now(), args.lease_id),
+        ((activity["last_activity"] if activity is not None else now()), now(), args.lease_id),
     )
     c.commit()
     emit(
@@ -914,6 +1010,9 @@ def status(args):
             "browser_healthy": healthy(r) if running else False,
             "owner_state": lifecycle_state(c, r),
             "max_tabs": MAX_TABS,
+            "watcher_healthy": unit_active(monitor_unit(r["browser_id"])),
+            "activity": activity_snapshot(r),
+            "owner_process_state": owner_state(metadata(c, r).get("owner")),
             "lifecycle_error": metadata(c, r).get("lifecycle_error"),
         }
     )
@@ -921,13 +1020,10 @@ def status(args):
 
 def reap(args):
     maintain(args)
-    emit(
-        {
-            "status": "ok",
-            "idle_stopped": [],
-            "policy": "idle-age-does-not-prove-abandonment",
-        }
-    )
+    with node_lock(STATE):
+        stopped_ids = cleanup_unused(db())
+    emit({"status": "ok", "idle_stopped": stopped_ids,
+          "policy": "tracked-CDP-idle-7200s; legacy-conservative"})
 
 
 @serialized
@@ -985,8 +1081,8 @@ def managed_profile(path):
     # Only manager-shaped legacy <program>/web/browser-profiles/<account> and
     # auth-domain-scoped <program>/web/browser-profiles/<domain>/<account> qualify.
     return (
-        len(relative.parts) in (4, 5)
-        and relative.parts[1:3] == ("web", "browser-profiles")
+        ((len(relative.parts) in (4, 5) and relative.parts[1:3] == ("web", "browser-profiles"))
+         or (len(relative.parts) == 6 and relative.parts[1:3] == ("web", "browser-instances")))
         and all(part not in ("", ".", "..") for part in relative.parts)
     )
 
@@ -1105,6 +1201,8 @@ def request(args):
             cmd += ["--task-owned"]
         if getattr(args, "headless", False):
             cmd += ["--headless"]
+        if getattr(args, "instance_key", None):
+            cmd += ["--instance-key", args.instance_key]
         if getattr(args, "owner_pid", None):
             cmd += ["--owner-pid", str(args.owner_pid)]
         if getattr(args, "proxy_ownership", None):
@@ -1254,6 +1352,7 @@ def main():
     )
     for parser in (s, r0):
         parser.add_argument("--task-owned", action="store_true")
+        parser.add_argument("--instance-key", help="Explicit isolated profile slot; omitted preserves legacy exclusivity.")
         parser.add_argument(
             "--owner-pid",
             type=int,
@@ -1269,6 +1368,13 @@ def main():
     watcher.add_argument("--browser-id", required=True)
     args = p.parse_args()
     if args.cmd in ("start", "request"):
+        import browser_profile_lease as profiles
+        try:
+            profiles.instance_key(args)
+        except ValueError as exc:
+            p.error(str(exc))
+        if not 1 <= args.idle_seconds < 7200:
+            p.error("idle claim window must be between 1 and 7199 seconds")
         if args.ttl_seconds < 30:
             p.error("ttl must be at least 30 seconds")
         if not args.task_owned and (not args.program or not args.account):

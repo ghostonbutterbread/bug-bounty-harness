@@ -70,6 +70,25 @@ selection, target scope, and browser state still require agent verification.
 
 ## `browser_profile_lease.py`
 
+Explicit `--instance-key` acquisitions add isolated parallel slots without
+migrating legacy single-profile leases. Manual policy and passive reporting:
+
+```sh
+bbh skills/chromium-test/scripts/browser_profile_lease.py --state-dir <state> \
+  set-browser-policy <program> <account> --auth-domain <domain> --mode single
+bbh skills/chromium-test/scripts/browser_profile_lease.py --state-dir <state> \
+  report-logout --lease-id <lease> --agent-id <agent> --reason user-observed
+```
+
+`single` is enforced transactionally for new acquisitions of the resolved
+program/account/domain; `multiple` allows explicit independent slots. Policy
+writes do not kill existing browsers. Reasons are `user-observed`,
+`signed-out-ui`, or `session-rejected`; reports store no content, secrets or
+URLs and never infer single-session behavior, change policy, retry auth or
+create browsers. Released/handoff leases clear stale CDP/service metadata.
+The older account-level views below remain conservative summaries, not a
+multi-instance pane registry.
+
 - **Purpose:** Coordinates one persistent Chromium profile per `program/auth-domain/account`
   on the machine that hosts that browser. It prevents two agents from driving the
   same account profile concurrently while exposing non-secret account capability
@@ -151,53 +170,77 @@ selection, target scope, and browser state still require agent verification.
 
 ## `browser_provisioner.py`
 
-- **Purpose:** Node-local capacity admission, exact profile leasing, task lifecycle
-  supervision, verified terminal cleanup, and fenced live browser handoff.
-- **Inputs:** Existing program/account selectors, or `--task-owned` without either
-  selector; agent/run IDs, purpose, proxy/display settings, and optional
-  `--owner-pid` naming a long-lived task-specific supervisor **on this node**.
-- **Outputs:** Safe JSON admission, owner-state, and lifecycle receipts. Private
-  launch records carry the full generation-path CDP URL; never strip its path.
-- **Mutates:** Selected local lease/manager databases, registered profiles,
-  task-owned Chromium/display services, and one lifecycle watcher per browser.
-  `BROWSER_PROVISIONER_STATE` isolates the manager **and** its lease database.
-- **Verification:** `.venv/bin/python -m pytest agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_browser_lease_recovery.py agents/test_browser_lifecycle.py -q`.
-  Opt-in real fixture: `BBH_LOCAL_BROWSER_SMOKE=1 .venv/bin/python -m pytest agents/test_browser_lifecycle_systemd.py agents/test_browser_lifecycle.py -q`.
-- **Owner/scope:** Chromium Test; Linux/user-systemd on the browser node only.
-- **Last verified:** 2026-09-20.
-- **Lifecycle:** Identified active owners are automatically renewed. A terminal
-  owner is fenced and cleaned up automatically. Only revocable browser-owned
-  proxy sessions receive a 30-second live-reuse grace; task proxies and
-  non-revocable displays are stopped as soon as terminal ownership is observed.
-  Idle age alone never evicts. Missing/foreign/unreadable lifecycle evidence is
-  `unknown`, not abandonment. Legacy calls without `--owner-pid` remain accepted
-  but need explicit terminal release. The PID must represent this task's whole
-  lifetime—not a short-lived CLI, remote process, or generic long-lived daemon.
-- **Awaiting input:** `touch --work-state awaiting-input --awaiting-seconds N`
-  sets an absolute 1–3600 second bound; repeated waiting does not extend it.
-- **Handoff limits:** Exact healthy named/anonymous profiles can transfer alive
-  only when both owners explicitly declare the same fixed route
-  `--proxy-ownership browser`. Default `task` proxy ownership, KasmVNC viewers,
-  legacy direct CDP, unhealthy browsers, or failed fencing require verified
-  restart. This never merges authorization scopes or changes account selection.
-- **Task-owned example:**
+- **Purpose:** Node-local browser admission, profile/instance leasing,
+  activity-aware ownership, verified cleanup and fenced live handoff.
+- **Inputs:** Existing program/account selectors or `--task-owned`; agent/run,
+  purpose, existing proxy/display settings; optional `--instance-key SLOT`,
+  `--idle-seconds N` (claim window, default 900), `--owner-pid` (diagnostics and
+  legacy lifecycle). Headless task mode does not require a PID; headed task
+  mode does, because native input is untracked.
+- **Outputs:** Safe receipts with `instance_id`, `pane_id`, `instance_key`,
+  `account_color`, activity and watcher-health metadata. IDs remain stable
+  across live handoff, differ for concurrent browsers and change on restart.
+  This is **pane identity metadata, not an implemented pane UI**. Private launch
+  records retain full generation-path CDP URLs.
+- **Mutates:** Selected local lease/manager databases, profile paths, owned
+  browser/display units and watcher. `BROWSER_PROVISIONER_STATE` isolates both
+  databases. No new authentication retry or alternate-account selection.
+- **Instances:** Explicit keys use separate
+  `<program>/web/browser-instances/<domain>/<account>/<slot>` trees. Two slots
+  may use the same account/color. Omit the key for legacy single-profile
+  exclusivity; active legacy profiles conservatively block parallel migration.
+  Existing profile configuration and normal session settings are unchanged.
+- **Activity:** New headless pipe browsers track caller CDP work (navigation,
+  input, evaluation and screenshots). Discovery/version checks, domain
+  enablement, open sockets, events, live PID and watcher/touch heartbeats do not
+  count. Arbitrary evaluation is counted as work, not semantically inspected.
+  **Native headed input is untracked**: headed and older records retain
+  conservative PID/explicit-release behavior pending a native-input integration.
+  An explicitly supplied supervisor dying still triggers automatic cleanup;
+  bounded operations and reservations win the atomic recheck first.
+- **Idle claim:** The existing owner's 1–7199-second window controls claim
+  eligibility. The adapter atomically freezes command admission only if no
+  in-flight command, reservation or newer activity wins the recheck. Compatible
+  fixed browser-owned proxy routes permit same-process generation-fenced reuse;
+  task routes and non-revocable control retain verified restart fallback.
+- **Cleanup:** Request/start checks tracked browsers unused for at least 7200
+  seconds before admission. It verifies unit/root/CDP termination and retains
+  the profile. `reap-idle` uses that same fixed stop threshold; its legacy
+  `--idle-seconds` cannot lower it. Failed stop keeps the lease and reports an
+  error. Control is restored only for a freshly verified healthy exact runtime;
+  partial or unverifiable stops remain frozen pending explicit reconciliation.
+- **Reservations:** `touch --work-state awaiting-input --awaiting-seconds N`
+  grants an absolute 1–3600-second reservation; repetition cannot slide it.
+  `touch --work-state active` cancels it but does not manufacture activity.
+  Late waiting renewals are rejected.
+- **Retention:** Existing 14-day manifest-only stopped-profile retention also
+  handles instance trees. It never discovers arbitrary profile directories.
+- **Verification:** `.venv/bin/python -m pytest agents/test_browser_resources.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_browser_lease_recovery.py agents/test_browser_lifecycle.py -q`.
+  Opt-in real fixtures: `BBH_LOCAL_BROWSER_SMOKE=1 .venv/bin/python -m pytest agents/test_browser_lifecycle_systemd.py agents/test_browser_lifecycle.py -q`.
+- **Owner/scope:** Chromium Test scripts; Linux/user-systemd browser node.
+  Provider/native-input/pane integration remains a parent-owned follow-up.
+- **Last verified:** 2026-09-21; loopback/about:blank fixtures only.
+- **Generic example**, no account inventory:
 
   ```sh
   bbh skills/chromium-test/scripts/browser_provisioner.py request \
-    --task-owned --agent-id <agent> --run-id <run> \
-    --owner-pid <local-task-supervisor-pid> --purpose '<normal browser task>' \
-    --proxy-server <task-proxy> --mitm-ca-cert <task-ca>
+    --task-owned --headless --agent-id <agent> --run-id <run> \
+    --purpose '<normal browser task>' --instance-key research \
+    --proxy-server <existing-task-proxy> --mitm-ca-cert <existing-task-ca>
   ```
 
-  This isolated profile can hold multiple normal site logins, but reads no
-  account inventory, imports no auth seeds, and grants no program authorization.
-  Profile state remains task-specific and is eligible for managed retention.
+  The profile preserves task-specific ordinary site state, grants no program
+  authorization and never silently transfers another task's proxy.
 
 ## `browser_control.py`
 
 - **Purpose:** Per-browser CDP transport over Chromium's private debugging pipe;
   no raw Chromium debugging TCP listener. Generation rotation detaches sessions,
   closes old WebSockets, rejects old URLs, and acknowledges a protocol barrier.
+- **Activity:** Private Unix activity/freeze/reservation operations serialize
+  with command admission. Discovery and passive events do not reset idle time.
+  Pipe backpressure is bounded to 60 seconds; an incomplete frame fails only
+  the owned browser closed. Dispatch bounds include queuing and cancellation.
 - **Inputs:** Internal `PipeBrowser` API from `chromium_test.py`;
   internal `pipe-exec` child adapter. Not an alternate browser launch interface.
 - **Outputs:** Private generation-path CDP URL and a private Unix control socket.

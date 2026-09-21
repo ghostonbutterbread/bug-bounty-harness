@@ -38,7 +38,7 @@ def test_systemd_lifecycle_fixture():
             "HARNESS_BOUNTY_ARTIFACT_ROOT": str(root / "artifacts"),
             "HARNESS_SHARED_BASE": str(root / "shared"),
         }
-        owners = [subprocess.Popen(["sleep", "300"]) for _ in range(3)]
+        owners = [subprocess.Popen(["sleep", "infinity"]) for _ in range(3)]
 
         def command(*parts, expect=0):
             result = subprocess.run(
@@ -63,6 +63,8 @@ def test_systemd_lifecycle_fixture():
             "--min-swap-free-mib",
             "0",
             "--headless",
+            "--idle-seconds",
+            "15",
             "--proxy-cert-mode",
             "none",
             "--proxy-server",
@@ -71,19 +73,18 @@ def test_systemd_lifecycle_fixture():
             "browser",
         ]
 
-        def start(index, task=False, ownership="browser"):
+        def start(index, task=False, ownership="browser", key="primary"):
             selector = (
                 ["--task-owned"]
                 if task
-                else ["fixture", "anon", "--auth-domain", "fixture.invalid"]
+                else ["fixture", "anon", "--auth-domain", "fixture.invalid", "--instance-key", key]
             )
             return command(
                 "request",
                 *selector,
                 "--run-id",
                 "fixture-" + str(index),
-                "--owner-pid",
-                owners[index].pid,
+                *([] if task else ["--owner-pid", owners[index].pid]),
                 "--wait-seconds",
                 "0",
                 *common,
@@ -107,11 +108,28 @@ def test_systemd_lifecycle_fixture():
             with urllib.request.urlopen(url, timeout=5) as response:
                 return json.load(response)
 
+        def wait_idle(lid):
+            deadline = time.monotonic() + 35
+            while time.monotonic() < deadline:
+                out = command("status", "--lease-id", lid, "--agent-id", "fixture-agent")
+                if out["owner_state"] == "idle":
+                    return
+                time.sleep(0.3)
+            pytest.fail("fixture did not reach configured idle claim window")
+
         leases = []
         try:
             first = start(0)
             leases.append(first["lease_id"])
             assert first["status"] == "started"
+            sibling = start(0, key="secondary")
+            leases.append(sibling["lease_id"])
+            assert sibling["status"] == "started"
+            assert info(sibling["lease_id"])["profile_dir"] != info(first["lease_id"])["profile_dir"]
+            assert sibling["pane_id"] != first["pane_id"]
+            command("release", "--lease-id", sibling["lease_id"], "--agent-id", "fixture-agent",
+                    "--disposition", "completed", "--profile-health", "healthy")
+            receipts["parallel_instances"] = "same-account-distinct-profiles-and-panes"
             old = info(first["lease_id"])
             pid = old["pid"]
             assert "--remote-debugging-pipe" in old["command"]
@@ -140,6 +158,8 @@ def test_systemd_lifecycle_fixture():
                 "anon",
                 "--auth-domain",
                 "fixture.invalid",
+                "--instance-key",
+                "primary",
                 "--run-id",
                 "fixture-1",
                 "--owner-pid",
@@ -169,13 +189,14 @@ def test_systemd_lifecycle_fixture():
                     break
                 time.sleep(0.3)
             assert after > before
-            owners[0].terminate()
-            owners[0].wait()
+            wait_idle(first["lease_id"])
+            assert owners[0].poll() is None
             second = start(1)
             leases.append(second["lease_id"])
             assert second["status"] == "reused" and second["fenced"]
             current = info(second["lease_id"])
             assert current["pid"] == pid
+            assert second["pane_id"] == first["pane_id"]
             try:
                 client.send(
                     json.dumps(
@@ -228,8 +249,8 @@ def test_systemd_lifecycle_fixture():
                     expect=2,
                 )
                 assert stale["status"] == "not-owner"
-            owners[1].terminate()
-            owners[1].wait()
+            wait_idle(second["lease_id"])
+            assert owners[1].poll() is None
             replacement = start(2, ownership="task")
             leases.append(replacement["lease_id"])
             assert replacement["status"] == "started"
@@ -340,19 +361,22 @@ def test_systemd_lifecycle_fixture():
                 server.server_close()
                 thread.join(timeout=5)
             receipts["multi_site_profile"] = "two-loopback-host-login-cookies-retained"
+            current_task = command("status", "--lease-id", task["lease_id"], "--agent-id", "fixture-agent")
+            assert current_task["owner_state"] == "active"
+            assert current_task["owner_process_state"] == "unknown"
+            enrolled = command("request", "--task-owned", "--run-id", "fixture-2",
+                               "--owner-pid", owners[2].pid, "--wait-seconds", "0", *common)
+            assert enrolled["status"] == "already-running"
             owners[2].terminate()
             owners[2].wait()
             deadline = time.monotonic() + 50
-            while (
-                time.monotonic() < deadline
-                and row(task["lease_id"])["state"] != "stopped"
-            ):
-                time.sleep(0.5)
+            while time.monotonic() < deadline and row(task["lease_id"])["state"] != "stopped":
+                time.sleep(0.3)
             assert row(task["lease_id"])["state"] == "stopped"
             assert Path(task_info["profile_dir"]).exists()
             receipts.update(
                 task_owned="no-inventory-auth",
-                terminal_cleanup="automatic",
+                terminal_cleanup="automatic-after-explicit-supervisor-enrollment; two-hour boundary tested with fake clock",
                 fixture="loopback/about:blank only",
             )
             with sqlite3.connect(state) as connection:
@@ -370,6 +394,11 @@ def test_systemd_lifecycle_fixture():
             receipts["retention_sweep"] = "14-day-manifest-dry-run-and-confirmed"
 
         finally:
+            # Use the exact disposable registry, including transfers whose CLI
+            # may have failed before a new lease receipt reached this fixture.
+            if state.exists():
+                with sqlite3.connect(state) as connection:
+                    leases = [r[0] for r in connection.execute("SELECT lease_id FROM browsers")]
             for lid in leases:
                 try:
                     existing = row(lid)

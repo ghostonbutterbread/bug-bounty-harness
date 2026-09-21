@@ -176,17 +176,26 @@ For a general-purpose browser spanning ordinary website authentications, request
 agent/run; it does not select inventory credentials or combine authorization
 scopes. See [provisioner commands and lifecycle](scripts/README.md#browser_provisionerpy).
 
-Supply `--owner-pid <local-task-supervisor-pid>` for automatic renewal and
-terminal cleanup. The PID must cover the task lifetime on the browser node,
-not this request command, a remote process, or a shared agent daemon. Existing
-calls without a verifiable owner remain `unknown` and require explicit release;
-this is not automatic lifecycle support for unidentified callers.
+Fresh ordinary requests default to agent-driven control, including headed
+browsers. Meaningful managed browser activity protects the control claim;
+health checks, automatic heartbeats and a living agent PID do not reset idle age.
+Ordinary named requests automatically select compatible isolated instances;
+agents need not invent slot names. Account/domain single-browser policy still
+limits concurrency, and legacy profiles are not silently migrated.
 
-A reclaimable healthy matching profile may transfer without restarting Chromium.
-The provisioner fences old controller sockets and URLs before transferring the
-lease. Active owners remain protected regardless of idle age. Live transfer
-requires explicitly browser-owned fixed proxy routing; task-owned proxy routes,
-KasmVNC control, and legacy unfenced browsers require verified restart instead.
+The optional `--owner-pid <local-task-supervisor-pid>` also supplies an explicit
+terminal task signal. It must cover the task lifetime on the browser node,
+not this request command, a remote process, or a shared daemon. Legacy,
+untracked and manual-mode records remain conservative; missing telemetry is
+not evidence of idleness.
+
+A reclaimable healthy matching headless profile may transfer without restarting
+Chromium after its configured inactivity window. The provisioner fences old
+controller sockets and URLs before transferring the lease. In-flight operations
+and bounded intervention holds protect against takeover and cleanup. Live
+transfer requires explicitly browser-owned fixed proxy routing; task-owned
+proxy routes, all headed/native displays (including non-Kasm sessions), and
+legacy unfenced browsers require verified restart instead.
 Do not relabel a task proxy as browser-owned to obtain live reuse. Preserve the
 full generation-path control URL from the private launch record; a bare port is
 not a usable replacement. Fencing is an operational boundary, not isolation

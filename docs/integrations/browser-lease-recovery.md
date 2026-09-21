@@ -2,6 +2,25 @@
 
 ## Current acceptance contract — agent-driven release candidate
 
+## Independent final rerun and release handoff
+
+Parent independently reran the exact 11-file combined suite at
+`95ac81f5baac208efe4684bf9238c45bddf4bbd6`, using
+`BBH_LOCAL_BROWSER_SMOKE=1` and receipt
+`/tmp/browser-agent-driven-independent-final.json`: **226 passed in 172.32s**.
+Fetched `origin/beta` remains `69e9a2a01be26ea1e64a0d00fd6cf23a47704e4e`.
+Updated the Chromium Test skill lifecycle paragraph to match fresh agent-driven
+requests, automatic instances, optional PID identity, and headed restart limits.
+
+Release coordination is blocked in this resumed runtime: an attempted ordinary
+Kanban claim returned `delegate_task child contexts cannot mutate Kanban tasks
+via the CLI`. No guard bypass, integration, push or runtime activation performed.
+Resume final publication in the owning non-child manager session, reconcile the
+card/dossier, verify documentation and beta checks, and keep runtime activation
+separate. Native telemetry remains deferred under the clarified agent-driven
+contract; historical startup uncertainty and the pending fallback-UI smoke are
+not claimed repaired or completed.
+
 Recoverable tested implementation checkpoint:
 `211b5bc06ebd88d26cd4608af4ed232c8c5966b1` on `feat/browser-lease-recovery`.
 This following dossier-only commit records its SHA. Review both checkpoint and

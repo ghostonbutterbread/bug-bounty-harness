@@ -88,6 +88,7 @@
   "remaining_blocker": "Original failed fixture deleted temporary state, Chromium stderr is discarded, and timeout receipt does not identify startup phase. Failure did not reproduce unchanged. Need captured failing-run state/phase evidence before a causal source repair.",
   "diagnostics_followup": {
     "base_checkpoint": "33532cf5b5dc3b0f2760b2772685d572b977089e",
+    "implementation_checkpoint": "e26b3be16768fdbb18519e056f055b1f0456aa58",
     "source_modified": true,
     "disposition": "observability-implemented-original-intermittent-cause-unresolved",
     "command": "BBH_LOCAL_BROWSER_SMOKE=1 BBH_BROWSER_SMOKE_RECEIPT=/tmp/browser-startup-diagnostics-verified.json .venv/bin/python -m pytest agents/test_browser_startup_diagnostics.py agents/test_browser_resources.py agents/test_browser_lifecycle.py agents/test_browser_lifecycle_systemd.py agents/test_browser_lease_recovery.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_chromium_test_launcher.py tests/test_script_policy.py -q",

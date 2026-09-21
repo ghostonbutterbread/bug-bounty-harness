@@ -8,6 +8,7 @@
 - Fetched beta base: `69e9a2a01be26ea1e64a0d00fd6cf23a47704e4e`.
 - Previous reviewed lifecycle checkpoint: `2f85d1bcbd5ceff82c0b54f94a91b7f8a7cda14f` (older implementation receipt `ae309c8cf12f74141662df7a2af57917e58cbad1`).
 - Recoverable reviewed implementation checkpoint: `3164b2f3667c1ac511da5d061e22c7bc5c36de65` on `feat/browser-lease-recovery`. This following dossier-only commit records the actual SHA; review both the checkpoint and current tip.
+- Startup diagnostics implementation checkpoint: `e26b3be16768fdbb18519e056f055b1f0456aa58` on `feat/browser-lease-recovery`; verified final source, 164 tests passed. This following metadata-only commit records the exact SHA. Review both commits; not independent release approval.
 - Resume point: **integration remains blocked by an unresolved intermittent startup failure**, in addition to the native-input and handoff-consumer boundaries below. Parent's independent full run failed; investigation reruns passed unchanged and are not proof of a repair. See the startup investigation section. Nothing is activated by this checkpoint.
 - No push, merge, deployment, Hoster operation, real account access, or external-site browsing. Parent owns independent integration review and acceptance of the coverage gaps below.
 

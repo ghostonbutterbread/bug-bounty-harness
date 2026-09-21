@@ -326,6 +326,11 @@ Outstanding acceptance and exact resume:
 
 ## Headed workflow / ordinary provisioning follow-up — partial, blocked
 
+Recoverable implementation checkpoint: `d4c3a98014c7a47e930980293e0fc4e71765b72f`
+on `feat/browser-lease-recovery`. This subsequent dossier-only commit records
+its SHA; review both checkpoint and current tip. Resume at the native runtime/
+input-owner prerequisite below, not a fallback-UI implementation.
+
 Delegated base: `ee1c54b702443835ded9967e2cb53f435fe094e2`, same worktree and
 `feat/browser-lease-recovery`, intended target **beta**. Fetched `origin/beta`
 remains `69e9a2a01be26ea1e64a0d00fd6cf23a47704e4e`. Parent owns final review;

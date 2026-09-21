@@ -63,9 +63,15 @@ uvx ruff check --select F skills/chromium-test/scripts/browser_provisioner.py sk
 git diff --check
 ```
 
-## Parent-owned documentation corrections (not applied here)
+## Parent-owned documentation corrections (review checkpoint)
 
-Update `skills/chromium-test/SKILL.md`, the Chromium Test playbook, and shared browser-profile coordination guidance to describe explicit task-owned mode, task-supervisor PID evidence, automatic lifecycle renewal/cleanup, bounded awaiting-input, and exact fenced live reuse. Replace instructions requiring agents to remember periodic touch/release as the sole lifecycle mechanism. Retain explicit terminal release for legacy/unknown owners and manual early completion. Explain browser-owned versus task-owned proxy attribution, conservative KasmVNC/legacy restart fallback, full generation-path CDP URLs, same-UID limitations, and local-only deployment gate. Do not merge task authentication with program authorization or relax profile exclusivity.
+The parent updated `skills/chromium-test/SKILL.md` and the Chromium Test playbook to describe explicit task-owned mode, task-supervisor PID evidence, automatic lifecycle renewal/cleanup, bounded awaiting-input, and exact fenced live reuse. Replace instructions requiring agents to remember periodic touch/release as the sole lifecycle mechanism. Retain explicit terminal release for legacy/unknown owners and manual early completion. Explain browser-owned versus task-owned proxy attribution, conservative KasmVNC/legacy restart fallback, full generation-path CDP URLs, same-UID limitations, and local-only deployment gate. Do not merge task authentication with program authorization or relax profile exclusivity.
+
+Shared browser-profile coordination guidance is outside this repository; its
+active behavior must not be claimed synchronized by this feature commit. Parent
+review is checking the optional-owner integration gap: existing callers without
+`--owner-pid` do not gain automatic cleanup. The task tracker heartbeat failed
+with a child-context mutation guard after async handoff; no guard bypass attempted.
 
 ## Next gate and activation boundary
 

@@ -2,6 +2,14 @@
 
 ## Current acceptance contract — agent-driven release candidate
 
+Recoverable tested implementation checkpoint:
+`211b5bc06ebd88d26cd4608af4ed232c8c5966b1` on `feat/browser-lease-recovery`.
+This following dossier-only commit records its SHA. Review both checkpoint and
+current tip. Exact resume: parent evaluates the historical startup risk and
+separately deferred smoke approvals, then owns any beta integration/activation;
+no native telemetry prerequisite remains for the agent-driven contract.
+
+
 This section supersedes earlier native-telemetry release requirements below.
 Those sections are chronological receipts, not the current acceptance checklist.
 The user clarified ordinary agent-driven control with occasional bounded human

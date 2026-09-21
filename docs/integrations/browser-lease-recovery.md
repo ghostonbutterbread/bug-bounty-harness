@@ -8,7 +8,7 @@
 - Fetched beta base: `69e9a2a01be26ea1e64a0d00fd6cf23a47704e4e`.
 - Previous reviewed lifecycle checkpoint: `2f85d1bcbd5ceff82c0b54f94a91b7f8a7cda14f` (older implementation receipt `ae309c8cf12f74141662df7a2af57917e58cbad1`).
 - Recoverable reviewed implementation checkpoint: `3164b2f3667c1ac511da5d061e22c7bc5c36de65` on `feat/browser-lease-recovery`. This following dossier-only commit records the actual SHA; review both the checkpoint and current tip.
-- Resume point: parent independently reruns the documented focused/real commands, reviews the incomplete native-input and handoff-consumer integration boundaries, then decides whether to integrate into beta. Nothing is activated by this checkpoint.
+- Resume point: **integration remains blocked by an unresolved intermittent startup failure**, in addition to the native-input and handoff-consumer boundaries below. Parent's independent full run failed; investigation reruns passed unchanged and are not proof of a repair. See the startup investigation section. Nothing is activated by this checkpoint.
 - No push, merge, deployment, Hoster operation, real account access, or external-site browsing. Parent owns independent integration review and acceptance of the coverage gaps below.
 
 ## Implemented contract
@@ -67,6 +67,68 @@ BBH_LOCAL_BROWSER_SMOKE=1 BBH_BROWSER_SMOKE_RECEIPT=docs/integrations/browser-re
 uvx ruff check --select F skills/chromium-test/scripts/browser_control.py skills/chromium-test/scripts/browser_profile_lease.py skills/chromium-test/scripts/browser_provisioner.py skills/chromium-test/scripts/chromium_test.py agents/test_browser_resources.py agents/test_browser_lifecycle.py agents/test_browser_lifecycle_systemd.py
 git diff --check
 ```
+
+## Independent startup investigation — unresolved
+
+The parent's independent run at `462569e51b2089ef3df7a5f0cf1a118f9c7e03d4`
+returned **1 failed, 151 passed in 276.04 seconds**. The first `start(0)` in
+`test_systemd_lifecycle_fixture` returned `launch-failed`: no valid private
+record within the unchanged 45-second launch deadline. The builder's historical
+152-pass receipt above is not an independent release gate.
+
+This delegated investigation inspected `browser_provisioner.start`, launch-record
+publication in `chromium_test.main`, pipe readiness/cleanup in `PipeBrowser`,
+and fixture teardown. No production or test behavior was changed: the exact
+fixture first passed unchanged (**1 passed in 161.10 seconds**), then the full
+focused command above passed unchanged (**152 passed in 110.11 seconds**).
+`browser-resource-startup-investigation.json` preserves both actual receipts,
+commands, the tested SHA, observations, and their limitations. These runs prove
+current successful execution, not that the original intermittent defect is fixed.
+No test was disabled and no timeout, browser setting, service, or resource policy
+was altered.
+
+Evidence and limitations:
+
+- Broad `journalctl --user` queries timed out, including an exact-unit query.
+  Selecting only the active `user-1000.journal` with `--file` succeeded. Its
+  manager entries identify failed unit
+  `browser-1d87fdf9-9e70-4b5c-87a6-dbc13c1f619c.service`, started at
+  **11:38:51 PDT** and stopped at **11:39:36 PDT**, 2026-09-21. There are no
+  launcher entries for its exact `_SYSTEMD_USER_UNIT` in that active journal.
+  This establishes deadline-triggered stop, not a launcher crash or its cause.
+- The failed fixture's temporary state was already deleted. Chromium stderr is
+  sent to `DEVNULL`; the generic timeout does not distinguish launcher import,
+  browser startup, pipe readiness, or record publication. Retrospective evidence
+  cannot identify the blocked stage. No OOM or I/O-error explanation was found
+  in the bounded active-system-journal window; that is not exhaustive history.
+- Investigation snapshots showed substantial I/O pressure: `io some avg300=34.82`,
+  `full avg300=32.63`, with 6012 MiB available RAM and 2815 MiB free swap.
+  Host contention is a plausible explanation, **not proven causal**: these are
+  later snapshots, not measurements at the original failure. Do not kill or
+  reconfigure unrelated host workloads to make this fixture pass.
+- The first unchanged rerun's initial browser unit reached watcher startup in
+  about 21 seconds; the full-suite rerun's initial unit did so in about 3 seconds.
+  Variable startup latency is observed, but does not identify its source.
+- Post-run `systemctl --user list-units 'browser-*' --all --no-pager --plain`
+  showed **zero loaded units**. `/proc` inspection found no browser/launcher/
+  provisioner processes referencing either disposable fixture root, and both
+  roots had been removed. Only fixture-owned units were stopped by test teardown.
+- Installed Bounty Core still resolves the declared
+  `7b08495f65a50f733fc18213c38cc3ae8e91bdf5` pin. The worktree was clean before
+  this dossier/evidence update. No external fetch was performed under this
+  localhost-only delegation; no upstream freshness claim is added.
+
+**Disposition:** no causal source repair is justified by the available evidence.
+Keep this branch blocked rather than treating two green reruns as resolution.
+Next action is a failing-run capture of the exact task unit's state/process tree,
+resource pressure and launcher phase before teardown, using the same commands
+and existing time bounds. Any diagnostic fixture change must be reviewed and
+regression-tested separately; do not relax the deadline or bypass readiness.
+The parent retains release review and the Kanban task. Its child-context guard
+was not bypassed; no Kanban write, push, merge, deployment or account/site access
+was attempted. This dossier/evidence-only checkpoint is based on reachable
+`462569e51b2089ef3df7a5f0cf1a118f9c7e03d4` on `feat/browser-lease-recovery`;
+review the current tip for this investigation record.
 
 ## Explicit incomplete acceptance criteria / activation blockers
 

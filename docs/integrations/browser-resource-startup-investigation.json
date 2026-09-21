@@ -1,0 +1,89 @@
+{
+  "tested_commit": "462569e51b2089ef3df7a5f0cf1a118f9c7e03d4",
+  "source_modified": false,
+  "disposition": "unresolved-intermittent-startup-failure-not-release-ready",
+  "parent_reported_result": {
+    "passed": 151,
+    "failed": 1,
+    "seconds": 276.04,
+    "failure": "test_systemd_lifecycle_fixture first=start(0): no valid private record within 45s"
+  },
+  "runs": [
+    {
+      "command": "BBH_LOCAL_BROWSER_SMOKE=1 BBH_BROWSER_SMOKE_RECEIPT=/tmp/browser-resource-repair-single.json .venv/bin/python -m pytest agents/test_browser_lifecycle_systemd.py -xq",
+      "exit_code": 0,
+      "passed": 1,
+      "seconds": 161.1,
+      "receipt": {
+        "parallel_instances": "same-account-distinct-profiles-and-panes",
+        "task_proxy_handoff": "verified-restart-same-profile",
+        "live_handoff": "same-pid-and-page-state",
+        "old_channel": "closed",
+        "old_url": "410",
+        "old_lease_mutations": "denied",
+        "automatic_renewal": true,
+        "chromium_control": "pipe-only-no-raw-debugging-port",
+        "persistent_profile_preserved": true,
+        "multi_site_profile": "two-loopback-host-login-cookies-retained",
+        "task_owned": "no-inventory-auth",
+        "terminal_cleanup": "automatic-after-explicit-supervisor-enrollment; two-hour boundary tested with fake clock",
+        "fixture": "loopback/about:blank only",
+        "retention_sweep": "14-day-manifest-dry-run-and-confirmed"
+      }
+    },
+    {
+      "command": "BBH_LOCAL_BROWSER_SMOKE=1 BBH_BROWSER_SMOKE_RECEIPT=/tmp/browser-resource-repair-full.json .venv/bin/python -m pytest agents/test_browser_resources.py agents/test_browser_lifecycle.py agents/test_browser_lifecycle_systemd.py agents/test_browser_lease_recovery.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_chromium_test_launcher.py tests/test_script_policy.py -q",
+      "exit_code": 0,
+      "passed": 152,
+      "seconds": 110.11,
+      "receipt": {
+        "parallel_instances": "same-account-distinct-profiles-and-panes",
+        "task_proxy_handoff": "verified-restart-same-profile",
+        "live_handoff": "same-pid-and-page-state",
+        "old_channel": "closed",
+        "old_url": "410",
+        "old_lease_mutations": "denied",
+        "automatic_renewal": true,
+        "chromium_control": "pipe-only-no-raw-debugging-port",
+        "persistent_profile_preserved": true,
+        "multi_site_profile": "two-loopback-host-login-cookies-retained",
+        "task_owned": "no-inventory-auth",
+        "terminal_cleanup": "automatic-after-explicit-supervisor-enrollment; two-hour boundary tested with fake clock",
+        "fixture": "loopback/about:blank only",
+        "retention_sweep": "14-day-manifest-dry-run-and-confirmed"
+      }
+    }
+  ],
+  "original_failed_unit": "browser-1d87fdf9-9e70-4b5c-87a6-dbc13c1f619c.service",
+  "journal_observation": {
+    "started_local": "2026-09-21 11:38:51 PDT",
+    "stopped_local": "2026-09-21 11:39:36 PDT",
+    "launcher_entries": "none in active user journal for exact _SYSTEMD_USER_UNIT",
+    "lookup": "Direct --file active user-1000.journal succeeded; broad --user journal queries timed out"
+  },
+  "host_observation": {
+    "io_pressure": {
+      "some_avg10": 4.51,
+      "some_avg60": 24.38,
+      "some_avg300": 34.82,
+      "full_avg10": 4.18,
+      "full_avg60": 22.45,
+      "full_avg300": 32.63
+    },
+    "memory_available_mib": 6012,
+    "swap_free_mib": 2815,
+    "load_average": [
+      8.76,
+      4.32,
+      2.87
+    ],
+    "caveat": "Snapshots during investigation, not measurements at original failure; I/O contention is plausible, not proven causal"
+  },
+  "cleanup_verified": {
+    "loaded_browser_units": 0,
+    "remaining_processes_for_two_fixture_roots": [],
+    "two_fixture_roots_exist": false
+  },
+  "changes_to_environment": "none; only tests created and stopped their disposable task units",
+  "remaining_blocker": "Original failed fixture deleted temporary state, Chromium stderr is discarded, and timeout receipt does not identify startup phase. Failure did not reproduce unchanged. Need captured failing-run state/phase evidence before a causal source repair."
+}

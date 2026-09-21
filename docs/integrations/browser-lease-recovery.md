@@ -239,6 +239,12 @@ Final undefined/unused-name lint and whitespace checks passed. `origin/beta` was
 
 ## Bounded handoff consumer follow-up
 
+Recoverable implementation checkpoint:
+`1d50303103539bc1ecd7fa12d64b27ab93cd9938` on `feat/browser-lease-recovery`.
+This subsequent dossier-only commit records its SHA; review both the checkpoint
+and current tip. Resume with the pending real handoff-UI smoke approval/test
+and independent parent review; do not treat this as beta release approval.
+
 Delegated base: `30f075e08547cf3818d056280b83c83483f67630`; same worktree and
 `feat/browser-lease-recovery`, target **beta**. Fetched `origin/beta` remains
 `69e9a2a01be26ea1e64a0d00fd6cf23a47704e4e`. This is the feature-owned consumer

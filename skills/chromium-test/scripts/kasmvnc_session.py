@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import socket
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -96,10 +97,15 @@ def wait_for_web_listener(port: int, timeout: float = 8.0) -> bool:
     return False
 
 
+def server_executable() -> str:
+    """Prefer Kasm's current unambiguous name; retain pre-1.5 installations."""
+    return shutil.which("kasmvncserver") or "vncserver"
+
+
 def build_start_command(display: int, web_port: int) -> list[str]:
     """Build the supported KasmVNC server invocation without exposing its listener."""
     return [
-        "vncserver",
+        server_executable(),
         display_name(display),
         "-geometry",
         DEFAULT_GEOMETRY,
@@ -190,7 +196,7 @@ def start_session(
             stderr=subprocess.DEVNULL,
         )
     except FileNotFoundError as exc:
-        raise KasmVNCSessionError("vncserver executable was not found") from exc
+        raise KasmVNCSessionError("KasmVNC executable was not found (kasmvncserver or vncserver)") from exc
 
     # `-fg` keeps Xvnc in the task-owned cgroup. Fail early and clean up only
     # the display this call created if its local web listener never appears.
@@ -198,7 +204,7 @@ def start_session(
         if proc.poll() is None:
             proc.terminate()
         subprocess.run(
-            ["vncserver", "-kill", display_name(display)],
+            [server_executable(), "-kill", display_name(display)],
             check=False,
             text=True,
             stdout=subprocess.DEVNULL,
@@ -216,7 +222,7 @@ def stop_session(display: int, state_dir: Path = DEFAULT_STATE_DIR) -> dict[str,
     display = validate_display(display)
     record = _read_state(display, state_dir)
     proc = subprocess.run(
-        ["vncserver", "-kill", display_name(display)],
+        [server_executable(), "-kill", display_name(display)],
         check=False,
         text=True,
         stdout=subprocess.DEVNULL,

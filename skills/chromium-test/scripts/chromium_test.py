@@ -1080,6 +1080,11 @@ def main() -> int:
     bridge = None
     def spawn(command, **kwargs):
         nonlocal bridge
+        if kasmvnc_session:
+            # DISPLAY alone does not select X11 on Wayland hosts. Keep this
+            # browser on its owned KasmVNC display, not the ambient desktop.
+            command = [command[0], "--ozone-platform=x11", *command[1:]]
+            result["command"] = command
         if not args.control_socket:
             return subprocess.Popen(command, **kwargs)
         from browser_control import PipeBrowser

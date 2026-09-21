@@ -64,6 +64,34 @@ survival and failed-stop retention. Run the existing disposable fixture with
 `BBH_LOCAL_BROWSER_SMOKE=1`; it never needs a live site or account.
 Last verified: 2026-09-21. Owner/scope: Chromium Test startup/lifecycle plumbing.
 
+## Disposable native KasmVNC boundary probe
+
+`agents/test_kasm_native_boundary.py` owns the opt-in stock-server boundary test.
+Extract a matching official package with `dpkg-deb -x PACKAGE TASK_ROOT`, without
+installing it or running maintainer scripts. Set `BBH_KASMVNC_ROOT=TASK_ROOT` and
+optionally `BBH_KASMVNC_RECEIPT=/private/receipt.json`, then run
+`.venv/bin/python -m pytest agents/test_kasm_native_boundary.py -q`.
+The root must contain `usr/bin/Xkasmvnc` (1.5) or `usr/bin/Xvnc` (older), with
+resolved shared libraries, plus the packaged web assets. The runtime test uses
+loopback-only, unauthenticated **disposable test content**, not production server
+auth configuration. It creates its own display/profile, forces Chromium X11,
+sends Kasm RFB keyboard/mouse input, verifies DOM effects and closes only those
+children/listeners before removing the profile. No Tailscale publication.
+
+This is a **negative capability probe**: native input survives CDP freeze and
+rotation, including a concurrent freeze/input ordering. It is not native cleanup
+authorization. Stock KasmVNC has no integrated input admission/drain hook here;
+headed activity tracking stays disabled and live native cross-owner reuse is
+not enabled. No clipboard or full browser-client/Tailscale acceptance is claimed.
+Runtime setup, failures, teardown and exact source boundary are in
+`docs/integrations/browser-lease-recovery.md` and its Kasm JSON receipt.
+Owner: Chromium Test native display boundary. Last verified: 2026-09-21.
+
+The session helper now prefers `kasmvncserver` when installed, preserving the
+legacy `vncserver` fallback for starts/stops. Normal KasmVNC browser spawns force
+`--ozone-platform=x11`; `DISPLAY` alone can select ambient Wayland instead.
+No host environment, sandbox, installed package or existing route is changed.
+
 ## `kasmvnc_session.py`
 
 - **Purpose:** Starts, checks, and stops one task-owned KasmVNC display for a

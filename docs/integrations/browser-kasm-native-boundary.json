@@ -1,0 +1,51 @@
+{
+  "base_checkpoint": "0b5244f266c2247541e781cb0ce19d1bc6fd220b",
+  "package_url": "https://github.com/kasmtech/KasmVNC/releases/download/v1.5.0/kasmvncserver_noble_1.5.0_amd64.deb",
+  "package_sha256": "f599fe02e2175b9817b6165f74a5d2bebdc73118dde9181ba3410963bed7ae1e",
+  "source_commit": "17265facc40ab50db5740cdf0d12c61173edafc9",
+  "setup": {
+    "host": "Ubuntu 24.04.4 x86_64",
+    "method": "dpkg-deb -x into task-local temporary directory; direct extracted Xkasmvnc",
+    "privileged_install": false,
+    "container_used": false,
+    "docker_discovered_version": "29.1.3",
+    "shared_libraries": "ldd resolved all entries",
+    "global_path_or_host_security_changes": false,
+    "published_routes": false
+  },
+  "native_boundary_probe": {
+    "native_idle_authorized": false,
+    "native_live_transfer_authorized": false,
+    "server_pid": 671365,
+    "display": ":2",
+    "web_port": 59999,
+    "native_key_and_mouse_delivered": true,
+    "native_input_survives_cdp_freeze": true,
+    "native_input_does_not_update_cdp_clock": true,
+    "established_native_controller_survives_cdp_rotation": true,
+    "concurrent_native_input_and_cdp_freeze_both_succeed": true,
+    "chromium_reaped": true,
+    "server_reaped": true,
+    "web_listener_closed": true,
+    "display_socket_removed": true,
+    "profile_removed": true
+  },
+  "verification": {
+    "final_result": "187 passed in 114.91s",
+    "ruff_F": "passed",
+    "git_diff_check": "passed",
+    "loaded_browser_units_after_run": 0
+  },
+  "final_disposal": {
+    "remaining_task_runtime_pids": [],
+    "extraction_source_package_removed": true,
+    "task_native_fixture_directories_removed": true
+  },
+  "limits": [
+    "Native activity/freeze/drain integration is NOT implemented; headed activity_tracking remains false.",
+    "Raw loopback Kasm RFB keyboard/mouse into actual disposable Chromium, not interactive full Kasm browser-client/Tailscale acceptance.",
+    "Clipboard, native permission-change/drain and cross-owner native reuse acceptance remain unverified.",
+    "7200-second threshold is clock-staged in fixture only, not a wall-clock soak.",
+    "Existing startup intermittent failure remains unresolved."
+  ]
+}

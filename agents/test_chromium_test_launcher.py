@@ -850,6 +850,7 @@ def test_kasmvnc_start_uses_dedicated_display_loopback_and_requested_web_port(mo
 
     monkeypatch.setattr(module.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(module, "wait_for_web_listener", lambda _port: True)
+    monkeypatch.setattr(module, "server_executable", lambda: "vncserver")
 
     result = module.start_session(display=20, web_port=8463, state_dir=tmp_path)
 
@@ -904,12 +905,12 @@ def test_kasmvnc_start_reports_a_clean_error_when_vncserver_is_not_installed(mon
     def missing_vncserver(*_args, **_kwargs):
         raise FileNotFoundError("vncserver")
 
-    monkeypatch.setattr(module.subprocess, "run", missing_vncserver)
+    monkeypatch.setattr(module.subprocess, "Popen", missing_vncserver)
 
     try:
         module.start_session(display=20, web_port=8463, state_dir=tmp_path)
     except module.KasmVNCSessionError as exc:
-        assert str(exc) == "vncserver executable was not found"
+        assert str(exc) == "KasmVNC executable was not found (kasmvncserver or vncserver)"
     else:
         raise AssertionError("Expected a clean KasmVNC startup error")
 
@@ -953,6 +954,8 @@ def test_default_backend_starts_kasmvnc_and_passes_display_to_chromium(monkeypat
 
     result = json.loads(capsys.readouterr().out)
     assert launched["env"]["DISPLAY"] == ":20"
+    assert "--ozone-platform=x11" in launched["command"]
+    assert "--ozone-platform=x11" in result["command"]
     assert result["display_backend"] == "kasmvnc"
     assert result["kasmvnc"]["web_url"] == "http://127.0.0.1:8463/"
     assert result["cdp_url"] == "http://127.0.0.1:9444"

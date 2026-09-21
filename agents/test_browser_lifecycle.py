@@ -75,7 +75,7 @@ def local_display(request):
         assert select.select([reader], [], [], 15)[0], "private Xvfb startup deadline"
         display = os.read(reader, 64).decode().strip()
         assert display.isdigit() and server.poll() is None
-        yield [], {**os.environ, "DISPLAY": ":" + display}
+        yield ["--ozone-platform=x11"], {**os.environ, "DISPLAY": ":" + display}
     finally:
         os.close(reader)
         server.terminate()

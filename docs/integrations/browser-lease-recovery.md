@@ -437,3 +437,114 @@ existing Tailscale handoffs survive correctly. No fallback screenshot UI is
 substituted. No real accounts/sites, security workflows, external route changes,
 push, merge or deployment were performed. Parent must review this partial delta
 and resolve the native runtime prerequisite before accepting the full request.
+
+## Disposable KasmVNC discovery — runtime verified, native lifecycle blocked
+
+Follow-up starts at `0b5244f266c2247541e781cb0ce19d1bc6fd220b`, branch/worktree
+unchanged, target **beta**, fetched `origin/beta` still
+`69e9a2a01be26ea1e64a0d00fd6cf23a47704e4e`. Parent retains task/release ownership;
+no Kanban guard bypass, push, merge or live deployment. This checkpoint is
+partial, not completion of native idle cleanup. Ancestor propagation of the
+launcher compatibility fixes is left to the parent's integration review; no
+other branch/worktree was modified.
+
+### Runtime setup and exact native boundary
+
+- Local Ubuntu 24.04.4 amd64 has Docker 29.1.3 available, but no container or
+  privileged install was necessary. Downloaded the official Noble 1.5.0 package
+  and extracted with `dpkg-deb -x` under `/tmp/bbh-kasm-discovery-lease/root`.
+  `ldd` resolved every `Xkasmvnc` library. No maintainer scripts, global PATH,
+  host security/sandbox settings, installed packages or services were changed.
+- Official package URL/hash and the successful runtime/teardown receipt are in
+  `browser-kasm-native-boundary.json`. Source inspected at upstream commit
+  `17265facc40ab50db5740cdf0d12c61173edafc9` (tag `v1.5.0`). This release renamed
+  executables to `Xkasmvnc`/`kasmvncserver`. The helper now resolves the modern
+  server wrapper with legacy fallback for both start and stop; the raw extracted
+  server was exercised, not a relocated Perl wrapper installation.
+- Actual native boundary is `common/rfb/VNCSConnectionST.cxx`: `pointerEvent`
+  (776), `directMouseEvent` (815), `keyEvent` (861), and clipboard handlers.
+  Keyboard/pointer handlers update `VNCServerST::lastUserInputTime` **before**
+  some access/acceptance checks. That timestamp is not an acknowledged,
+  instance/generation-bound admission primitive. `MaxIdleTime` in
+  `common/rfb/VNCServerST.cxx` (441–450) is the server's own timer, not an atomic
+  join with CDP requests, reservations or manager claims.
+- `common/network/websocket.c` exposes user/session and permission APIs;
+  `VNCServerST::checkAPIMessages` (919) processes selected queued actions.
+  These supply no shared accepted-input sequence + freeze/drain acknowledgement
+  with this Python adapter. Runtime toggles/user changes alone therefore cannot
+  establish the required native/CDP race ordering or controller-generation
+  revoke. This investigation does not claim all Kasm permission revocation is
+  impossible; it establishes that no integrated barrier exists in this stack.
+
+### Small justified integration and real evidence
+
+- Kasm browser spawns now force `--ozone-platform=x11`. On this Wayland host,
+  merely setting DISPLAY initially opened our disposable Chromium on ambient
+  Wayland (1280x800 bounds), not the private X display. With X11 forced, its
+  bounds fit the private 1024x768 display and actual Kasm keyboard/mouse input
+  reached its local textarea. Existing sessions were not controlled; only the
+  task-created profile/browser was closed. The existing Xvfb fixture now forces
+  X11 too, so a green headed test actually exercises its owned display.
+- Added opt-in `agents/test_kasm_native_boundary.py`, with a minimal Kasm RFB
+  WebSocket client driving actual native keyboard/mouse into disposable headed
+  Chromium. This is not CDP `Input.dispatch*` pretending to be native input.
+  Read-only internal CDP inspection observes DOM results without fabricating
+  adapter activity. There are no real accounts, external pages, site operations,
+  fallback UI smoke changes, or Tailscale routes.
+- The real probe shows native key/click delivery after a successful CDP
+  7200-second freeze, unchanged CDP activity clock, input from an established
+  native socket after CDP rotation, and simultaneous native input/freeze both
+  succeeding. These are **negative boundary assertions**, not a positive native
+  cleanup implementation. Existing headed `activity_tracking=false` and the
+  conservative restart/release boundaries remain unchanged.
+- Fixture startup is bounded at the unchanged 15 seconds; first attempt missed
+  it, and the exact task server was observed in `D`/`wait_on_buffer`. It later
+  terminated and was verified absent. No causal fix or longer deadline is
+  claimed. Early native attempts exposed the Wayland mismatch above; after X11
+  selection the first full run also exposed mapped-window readiness racing
+  initial input. The fixture now establishes native click readiness within the
+  existing five-second bound before testing the lifecycle boundary. This is
+  fixture readiness, not idle polling. A stale missing-executable test now stubs
+  the actual Popen boundary instead of run and checks the updated error.
+
+Final command (after re-extracting the package at the stated task root):
+
+```sh
+BBH_KASMVNC_ROOT=/tmp/bbh-kasm-discovery-lease/root BBH_KASMVNC_RECEIPT=/tmp/bbh-kasm-discovery-lease/receipt.json BBH_LOCAL_BROWSER_SMOKE=1 .venv/bin/python -m pytest agents/test_kasm_native_boundary.py agents/test_browser_resources.py agents/test_browser_lifecycle.py agents/test_browser_lifecycle_systemd.py agents/test_browser_lease_recovery.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_chromium_test_launcher.py agents/test_browser_startup_diagnostics.py tests/test_script_policy.py -q
+```
+
+**187 passed in 114.91s**. Focused native/launcher rerun: **38 passed in 2.81s**.
+After runtime disposal, made the legacy command-shape test independent of installed
+modern wrappers and reran native/launcher/script-policy checks: **60 passed,
+1 explicit native-runtime skip in 1.02s**. Production source and real fixture
+were unchanged from the 187-pass run.
+Ruff `--select F` on the changed Python files and `git diff --check` passed.
+The fixture verified exact root exit, native web listener closure, X socket
+removal and profile deletion. Final inspection found zero loaded `browser-*`
+units and no Xkasmvnc process. Matching task native fixture directories, extracted
+package, source checkout and downloaded deb were removed after copying evidence;
+no surviving runtime was found. The successful source receipt is retained in Git.
+
+### Remaining acceptance / exact prerequisite
+
+**Native cleanup is not finished.** Installing KasmVNC is now a resolved
+prerequisite, but stock native input cannot participate in the adapter's atomic
+admission/drain transaction. Before enabling headed two-hour eviction or idle
+claim, implement a hook in the actual server input owner (or a demonstrably sole
+input gateway) that serializes accepted keyboard, absolute/relative pointer and
+clipboard work with freeze/reservation/claim; binds exact runtime identity and
+controller generation; acknowledges drain; and fails closed when unavailable.
+Cross-owner reuse additionally requires acknowledged revocation of established
+native channels and prevention of reconnection with old authority. Until then,
+retain verified restart rather than claiming live native reuse. No guessed
+telemetry, log tailer, X-idle poll or connection heartbeat was added.
+
+A maintained server-side extension or complete enforced gateway is an additional
+integration component, not a flag in this repository's launcher. Its owner and
+supported deployment/version contract must be selected before implementation.
+Positive native-versus-cleanup/claim acceptance, clipboard/relative-pointer
+coverage, established native revocation and normal full Kasm browser-client /
+Tailscale experience remain unverified. No transport was changed; no fallback UI
+approval was consumed. The original intermittent startup blocker and pending
+consumer smoke approval remain open. Parent must independently review this
+partial checkpoint, not treat the 187 passing tests as native lifecycle completion.

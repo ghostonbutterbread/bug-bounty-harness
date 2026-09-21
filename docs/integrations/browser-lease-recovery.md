@@ -210,7 +210,7 @@ external deployment, live sites/accounts or security-testing workflows occurred.
 ## Explicit incomplete acceptance criteria / activation blockers
 
 1. **Native headed input is not observable through this adapter.** Headed/KasmVNC and pre-revision records deliberately retain conservative PID/explicit-release behavior. They do not gain PID-free automatic idle reclamation. Enabling idle eviction there would risk closing an actively used native browser. Required successor integration: the actual native display/input owner must report meaningful input and atomically participate in reservations/fencing; then add a disposable headed-input test. This revision does not claim complete all-browser activity coverage.
-2. **Pane rendering/integration is not implemented.** The actual browser-provider/desktop pane consumer must use the returned instance/pane IDs rather than account color. No such consumer was changed under this scripts-only task. The concrete BBH receipt/UI consumer is `skills/chromium-handoff/scripts/cdp_handoff_server.js` (Chromium Handoff owner), with `agents/test_cdp_handoff_receipt.py`. Its current `validateLiveBrowser` still requires a raw `--remote-debugging-port`, and its UI controls one page rather than implementing multiple panes. It cannot be claimed integrated with these pipe receipts. Parent must delegate that consumer's pipe-receipt/identity/UI compatibility work separately; no consumer or protected skill body was edited here.
+2. **Handoff consumer compatibility is implemented but not fully smoke-verified.** The scoped follow-up below adds exact pipe receipt/control validation and one-instance/one-page UI identity in `skills/chromium-handoff/scripts/cdp_handoff_server.js`. It is not a multi-pane desktop registry. Synthetic consumer tests pass; the new end-to-end real handoff UI smoke addition is blocked on tool approval and remains an explicit acceptance gap. No protected skill body was edited.
 3. **The two-hour stop boundary uses deterministic clock staging**, not a literal two-hour wall-clock systemd soak. Real unit stop/root/CDP verification and the real adapter recheck are separately exercised. A soak is optional additional activation evidence; no production clock controls were added to make a fixture easier.
 4. **Legacy named parallelism is opt-in**, not automatic migration. Existing live legacy profiles stay exclusive until explicitly stopped/released; normal profile and session configuration is unchanged.
 5. Existing initial-launch crash gap remains: an interruption before complete runtime registration can leave a conservative managed lease requiring explicit reconciliation. The existing pending-transfer journal covers transfers, not every provisioning crash.
@@ -236,3 +236,84 @@ Clarifications for the final review's non-blocking questions: `record_info` alre
 **Frozen-stop reconciliation:** when exact runtime health is unavailable, leave the lease/profile intact. Restore the local user-systemd/control prerequisite and retry the original owner's `release --lease-id ID --agent-id AGENT --disposition cancelled --profile-health unknown`, or rerun request-time cleanup/`reap-idle` after stop verification becomes possible. Do not remove the lease, force profile reuse, or use `touch` to override a frozen controller. Unidentifiable/replaced root/unit evidence remains a manual operator blocker.
 
 Final undefined/unused-name lint and whitespace checks passed. `origin/beta` was re-fetched and remains the recorded base. Final fixture inspection showed no loaded `browser-*` units. Commit only task-owned scripts/tests/index/dossier/receipt, report the checkpoint and coverage gaps, and do not push, merge or deploy.
+
+## Bounded handoff consumer follow-up
+
+Delegated base: `30f075e08547cf3818d056280b83c83483f67630`; same worktree and
+`feat/browser-lease-recovery`, target **beta**. Fetched `origin/beta` remains
+`69e9a2a01be26ea1e64a0d00fd6cf23a47704e4e`. This is the feature-owned consumer
+compatibility delta, not ancestor repair or release approval. The installed
+Bounty Core revision was checked and still matches `7b08495f65a50f733fc18213c38cc3ae8e91bdf5`.
+
+Implemented in the handoff script, associated test/README, and minimal generic
+bridge plus its index:
+
+- Preserve fallback/certificate/import gates, exact receipt URL equality and
+  raw-port legacy validation. Enforce the documented loopback-only UI listener.
+- For new pipe receipts, verify live owned PID/start/boot/node identity, actual
+  pipe command line/profile, stable instance/pane UUID, and private Unix socket.
+  The adapter's new Unix-only passive `/identity` returns process identity,
+  current generation endpoint and frozen/rotating availability. This minimal
+  bridge addition is necessary: the browser has no raw CDP port and the prior
+  adapter API provided no passive process-to-generation attestation. It does
+  not rotate, reserve, issue CDP, or update activity. Same-UID trust remains.
+- Load one receipt once; never follow owner/record rewrites. Bind to one
+  existing page, with optional `HANDOFF_PAGE_ID` (exact CDP target ID). Missing,
+  ambiguous, or closed pages never create/select a replacement tab. Readiness
+  follows initial binding; there is no account/color-based pane selection.
+- Return safe instance/pane/page identity in readiness and `/identity`, without
+  the generation URL. Revoked control/process/page or operation failure becomes
+  terminal 410 with safe explanation; UI disables controls and clears the image.
+- Remove automatic screenshots rather than exempting real CDP work from idle
+  accounting. UI timers only query passive identity. Explicit refresh/actions
+  request screenshots and count as real activity. Initial Playwright attachment
+  may perform bounded setup; unattended UI polling cannot continuously keep the
+  browser alive. One UI remains one instance/page, not a desktop pane registry.
+
+Verification so far (implementer, not independent release approval):
+
+- Original consumer tests: **6 passed** before new coverage.
+- Expanded suite first exposed an empty-page *test stub* defaulting to a page;
+  changed its `||` default to `??`, preserving the intended zero-page fixture.
+- Expanded consumer and existing real pipe/lifecycle plus deterministic manager,
+  lease, launcher, startup and script-policy suite: **188 passed in 170.06s**.
+  Command: `BBH_LOCAL_BROWSER_SMOKE=1 .venv/bin/python -m pytest agents/test_cdp_handoff_receipt.py agents/test_browser_lifecycle.py agents/test_browser_resources.py agents/test_browser_lease_recovery.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_chromium_test_launcher.py agents/test_browser_startup_diagnostics.py tests/test_script_policy.py -q`.
+- Node syntax, Ruff `--select F` for changed Python, and `git diff --check` passed.
+- An attempted combined run including systemd lost its result at the tool's
+  **420-second outer timeout**. Subsequent process inspection showed no pytest
+  process and zero loaded browser units. This is not a passing test receipt or
+  proof of the historical 45-second startup failure recurring. The isolated
+  systemd rerun returned **1 passed in 130.75s**, recorded in
+  `/tmp/bbh-handoff-systemd-verification.log`; no loaded `browser-*` units remained.
+- After removing an unreachable exit-code assignment, the final consumer source
+  rerun returned **25 passed in 10.85s** and Node syntax passed.
+- Bounded reference audit found no in-repository reader of readiness `cdp_url`;
+  removing the capability from that public metadata does not require a consumer
+  update. Protected skill text and external route publisher remain untouched.
+
+Outstanding acceptance and exact resume:
+
+1. **Real handoff-UI smoke remains unverified.** A tool requested approval for
+   the separate test-addition operation; the operation was not retried or routed
+   through another tool. Parent must resolve approval and add/run
+   `test_real_pipe_ui_identity_idle_and_revocation` in the owning test file:
+   disposable blank Chromium, real pipe bridge and Node/Playwright handoff,
+   exact target ID, identity reads that leave adapter activity unchanged,
+   explicit JPEG request that counts as work, and old UI rejection after control
+   rotation while the same process/page survives. A fixture may explicitly use
+   synthetic fallback/certificate receipt fields, but must label them and never
+   claim an actual KasmVNC fallback or CA import. Production gates are unchanged.
+2. **Native headed telemetry remains intentionally unimplemented.** Inspected
+   `kasmvnc_session.py:build_start_command/start_session`: BBH starts external
+   `vncserver`/Xvnc in foreground with loopback WebSocket transport and records
+   display/port only. It has no native input event callback. `chromium_test.py`
+   correctly labels headed coverage `native-input-untracked`. Required successor:
+   integrate with the actual KasmVNC/Xvnc native-input owner, bind accepted input
+   to the exact display/browser instance and control generation, and coordinate
+   admission with the adapter's atomic freeze/reservation boundary. Prove real
+   disposable headed input blocks idle reclaim, while passive display refresh,
+   transport liveness and stale-generation signals do not. Do not infer activity
+   from screenshots or add a timer heartbeat. Conservative headed policy stays.
+3. Parent still owns independent review, original startup investigation and
+   beta acceptance. No push, merge, deployment, Kanban mutation, external route,
+   live site/account, credential/OTP handling or security workflow was performed.

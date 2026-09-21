@@ -299,6 +299,16 @@ class PipeBrowser:
                 "reserved_seconds": max(0, self.reserved_until - time.monotonic()),
                 "frozen": self.frozen}
 
+    async def identity(self, request):
+        # Private Unix socket only: bind consumers to this exact process and
+        # generation without rotating control or manufacturing browser activity.
+        from browser_lifecycle import process_identity
+        return web.json_response({
+            "process_identity": process_identity(self.process.pid),
+            "cdp_url": f"http://127.0.0.1:{self.port}/{self.token}",
+            "available": not self.rotating and not self.frozen,
+        })
+
     async def activity(self, request):
         return web.json_response(self.activity_status())
 
@@ -367,6 +377,7 @@ class PipeBrowser:
         await site.start()
         self.port = site._server.sockets[0].getsockname()[1]
         control = web.Application()
+        control.router.add_get("/identity", self.identity)
         control.router.add_post("/rotate", self.rotate)
         control.router.add_get("/activity", self.activity)
         control.router.add_post("/freeze", self.freeze)

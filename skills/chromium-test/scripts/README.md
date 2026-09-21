@@ -7,6 +7,13 @@
 - `chromium_test.py` — isolated Chromium launcher used by the provisioner.
 - `browser_profile_lease.py` — exclusive owned-account/profile lease registry.
 - `browser_control.py` — internal Chromium pipe/CDP adapter and control fencing.
+  Its private mode-0600 Unix socket also provides read-only `GET /identity`:
+  exact `process_identity`, current generation `cdp_url`, and `available`
+  (false during freeze/rotation). This is for exact local handoff validation,
+  not a public status endpoint: the URL is a capability and must not be logged
+  or exposed by consumers. It makes no CDP call and does not update activity.
+  The existing same-UID trust boundary is unchanged. Deterministic verification:
+  `agents/test_cdp_handoff_receipt.py::test_private_bridge_identity_is_passive`.
 - `browser_lifecycle.py` — node-local process identity, locking, atomic private records,
   and bounded opt-in startup metadata (contract below).
 - `kasmvnc_session.py` — task-owned headed display lifecycle.

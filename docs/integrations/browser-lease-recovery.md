@@ -440,6 +440,9 @@ and resolve the native runtime prerequisite before accepting the full request.
 
 ## Disposable KasmVNC discovery — runtime verified, native lifecycle blocked
 
+Recoverable implementation checkpoint: `92724cf798d3ee655377fa327efaa007144f5e6b`
+on `feat/browser-lease-recovery`; review this following receipt-only commit too.
+
 Follow-up starts at `0b5244f266c2247541e781cb0ce19d1bc6fd220b`, branch/worktree
 unchanged, target **beta**, fetched `origin/beta` still
 `69e9a2a01be26ea1e64a0d00fd6cf23a47704e4e`. Parent retains task/release ownership;

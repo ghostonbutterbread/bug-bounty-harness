@@ -187,11 +187,11 @@ def test_systemd_lifecycle_fixture():
             "browser",
         ]
 
-        def start(index, task=False, ownership="browser", key="primary"):
+        def start(index, task=False, ownership="browser", key=None):
             selector = (
                 ["--task-owned"]
                 if task
-                else ["fixture", "anon", "--auth-domain", "fixture.invalid", "--instance-key", key]
+                else ["fixture", "anon", "--auth-domain", "fixture.invalid", *(["--instance-key", key] if key else [])]
             )
             return command(
                 "request",
@@ -236,6 +236,9 @@ def test_systemd_lifecycle_fixture():
             first = start(0)
             leases.append(first["lease_id"])
             assert first["status"] == "started"
+            assert first["instance_key"].startswith("auto-")
+            retry = start(0)
+            assert retry["status"] == "already-running" and retry["lease_id"] == first["lease_id"]
             sibling = start(0, key="secondary")
             leases.append(sibling["lease_id"])
             assert sibling["status"] == "started"
@@ -273,7 +276,7 @@ def test_systemd_lifecycle_fixture():
                 "--auth-domain",
                 "fixture.invalid",
                 "--instance-key",
-                "primary",
+                first["instance_key"],
                 "--run-id",
                 "fixture-1",
                 "--owner-pid",

@@ -57,21 +57,48 @@ def test_node_mutations_are_serialized(tmp_path):
     assert order[0][0] == order[2][0] == "enter"
 
 
+@pytest.fixture(params=["headless", "xvfb"])
+def local_display(request):
+    """Private headed X11 fixture, not evidence of KasmVNC native telemetry."""
+    if request.param == "headless":
+        yield ["--headless=new"], None
+        return
+    import select
+    import subprocess
+    if not shutil.which("Xvfb"):
+        pytest.skip("disposable headed Xvfb unavailable")
+    reader, writer = os.pipe()
+    server = subprocess.Popen(["Xvfb", "-displayfd", str(writer), "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
+                              pass_fds=(writer,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    os.close(writer)
+    try:
+        assert select.select([reader], [], [], 15)[0], "private Xvfb startup deadline"
+        display = os.read(reader, 64).decode().strip()
+        assert display.isdigit() and server.poll() is None
+        yield [], {**os.environ, "DISPLAY": ":" + display}
+    finally:
+        os.close(reader)
+        server.terminate()
+        server.wait(timeout=10)
+        assert server.poll() is not None
+
+
 @pytest.mark.skipif(
     os.environ.get("BBH_LOCAL_BROWSER_SMOKE") != "1",
     reason="explicit disposable local Chromium opt-in",
 )
-def test_live_pipe_handoff_preserves_process_tabs_and_state(tmp_path):
+def test_live_pipe_handoff_preserves_process_tabs_and_state(tmp_path, local_display):
     import websocket
     from browser_control import PipeBrowser, rotate_control, activity_control
 
     chrome = shutil.which("google-chrome") or shutil.which("chromium")
     assert chrome, "local Chromium required"
+    display_flags, display_env = local_display
     browser = PipeBrowser(
         [
             chrome,
             "--remote-debugging-pipe",
-            "--headless=new",
+            *display_flags,
             "--no-first-run",
             "--disable-background-networking",
             "--disable-component-update",
@@ -81,6 +108,7 @@ def test_live_pipe_handoff_preserves_process_tabs_and_state(tmp_path):
         ],
         stdout=__import__("subprocess").DEVNULL,
         stderr=__import__("subprocess").DEVNULL,
+        env=display_env,
     )
     ws = new_ws = None
 

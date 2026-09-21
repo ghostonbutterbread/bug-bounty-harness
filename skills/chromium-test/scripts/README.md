@@ -228,11 +228,27 @@ multi-instance pane registry.
 - **Mutates:** Selected local lease/manager databases, profile paths, owned
   browser/display units and watcher. `BROWSER_PROVISIONER_STATE` isolates both
   databases. No new authentication retry or alternate-account selection.
-- **Instances:** Explicit keys use separate
-  `<program>/web/browser-instances/<domain>/<account>/<slot>` trees. Two slots
-  may use the same account/color. Omit the key for legacy single-profile
-  exclusivity; active legacy profiles conservatively block parallel migration.
-  Existing profile configuration and normal session settings are unchanged.
+- **Instances:** Keys use separate
+  `<program>/web/browser-instances/<domain>/<account>/<slot>` trees. Omitted
+  keys on ordinary request/start now select an automatic isolated slot: retry
+  the same agent/run, otherwise claim an observable idle automatic slot through
+  the existing atomic freeze, reuse a stopped automatic slot, or allocate a
+  new slot. Private selection provenance excludes explicitly named slots even
+  with an `auto-` prefix; an active transferee's slot is never selected merely
+  because its key matches the original owner's hash. Canonical account
+  single-browser policy still applies.
+  Existing legacy manager/lease records or known on-disk legacy profile paths
+  preserve legacy exclusivity, without copying or migrating session state.
+  `--legacy-profile` explicitly retains that behavior for fresh selectors.
+  Explicit keys and task-owned namespaces remain supported and are not
+  automatically migrated. Unresolved account selectors do not opt into pooling.
+- **Displays:** Under the same node start lock, auto/KasmVNC launch selects an
+  unused X display and loopback web port, excluding running registered displays/
+  ports, X sockets/locks and bound ports. Explicit occupied choices queue before
+  lease acquisition. This serializes this manager's callers, not unrelated X
+  server launchers. Same-owner incompatible headed/headless or strict-KasmVNC
+  retries report `display-mode-mismatch` rather than silently returning a
+  non-graphical browser. Existing Tailscale transport is unchanged.
 - **Activity:** New headless pipe browsers track caller CDP work (navigation,
   input, evaluation and screenshots). Discovery/version checks, domain
   enablement, open sockets, events, live PID and watcher/touch heartbeats do not
@@ -244,7 +260,7 @@ multi-instance pane registry.
 - **Idle claim:** The existing owner's 1–7199-second window controls claim
   eligibility. The adapter atomically freezes command admission only if no
   in-flight command, reservation or newer activity wins the recheck. Compatible
-  fixed browser-owned proxy routes permit same-process generation-fenced reuse;
+  fixed browser-owned proxy routes permit same-process generation-fenced headless reuse;
   task routes and non-revocable control retain verified restart fallback.
 - **Cleanup:** Request/start checks tracked browsers unused for at least 7200
   seconds before admission. It verifies unit/root/CDP termination and retains
@@ -261,7 +277,10 @@ multi-instance pane registry.
 - **Verification:** `.venv/bin/python -m pytest agents/test_browser_resources.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_browser_lease_recovery.py agents/test_browser_lifecycle.py -q`.
   Opt-in real fixtures: `BBH_LOCAL_BROWSER_SMOKE=1 .venv/bin/python -m pytest agents/test_browser_lifecycle_systemd.py agents/test_browser_lifecycle.py -q`.
 - **Owner/scope:** Chromium Test scripts; Linux/user-systemd browser node.
-  Provider/native-input/pane integration remains a parent-owned follow-up.
+  Native-input/pane integration remains a parent-owned follow-up. Local headed
+  fixture coverage uses private Xvfb and CDP, not KasmVNC input telemetry. Do not
+  infer native idleness or revocation from X event observation, display refresh,
+  socket liveness or these passing tests. Headed idle eviction stays disabled.
 - **Last verified:** 2026-09-21; loopback/about:blank fixtures only.
 - **Generic example**, no account inventory:
 

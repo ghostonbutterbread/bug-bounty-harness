@@ -15,6 +15,160 @@ from browser_control import PipeBrowser, meaningful
 from browser_lifecycle import process_identity
 
 
+def test_automatic_fresh_selection_is_stable_and_owner_isolated(monkeypatch, tmp_path):
+    m = provisioner(monkeypatch, tmp_path)
+    c, a = m.db(), args()
+    first = m.automatic_instance(c, a, "anon", "local.test")
+    assert first.startswith("auto-")
+    assert first == m.automatic_instance(c, a, "anon", "local.test")
+    a.run_id = "another-run"
+    assert first != m.automatic_instance(c, a, "anon", "local.test")
+
+
+@pytest.mark.parametrize("boundary", ["canonical", "old-shared", "pre-domain", "lease"])
+def test_auto_preserves_legacy_disk_and_registry_boundaries(monkeypatch, tmp_path, boundary):
+    m = provisioner(monkeypatch, tmp_path)
+    a = args()
+    if boundary == "canonical":
+        profiles.profile_dir("demo", "local.test", "anon").mkdir(parents=True)
+    elif boundary == "old-shared":
+        (profiles.shared_base() / "demo/ghost/chromium-test/profiles/anon").mkdir(parents=True)
+    elif boundary == "pre-domain":
+        (profiles.artifact_base() / "demo/web/browser-profiles/anon").mkdir(parents=True)
+    else:
+        acquire(m.STATE.parent, "")
+    assert m.automatic_instance(m.db(), a, "anon", "local.test") == ""
+
+
+def pooled_record(m, tmp_path):
+    c, row = record(m, tmp_path, process_identity(os.getpid()))
+    Path(row["profile_dir"]).rmdir()  # no legacy profile in this fixture
+    Path(row["launch_file"]).write_text(json.dumps({"instance_key": "auto-fixture", "instance_selection": "automatic"}))
+    return c, row
+
+
+@pytest.mark.parametrize("selection", ["explicit", "automatic"])
+def test_auto_does_not_select_explicit_or_active_transferred_hash(monkeypatch, tmp_path, selection):
+    m = provisioner(monkeypatch, tmp_path)
+    key = m.automatic_instance(m.db(), args(), "anon", "legacy-global")
+    c, row = pooled_record(m, tmp_path)
+    Path(row["launch_file"]).write_text(json.dumps({"instance_key": key, "instance_selection": selection}))
+    monkeypatch.setattr(m, "lifecycle_state", lambda *_: "active")
+    assert m.automatic_instance(c, args(), "anon", "legacy-global") != key
+    if selection == "explicit":
+        monkeypatch.setattr(m, "lifecycle_state", lambda *_: "idle")
+        assert m.automatic_instance(c, args(), "anon", "legacy-global") != key
+
+
+@pytest.mark.parametrize("state", ["active", "unknown", "activity-unavailable", "idle"])
+def test_auto_only_selects_observable_idle_pool(monkeypatch, tmp_path, state):
+    m = provisioner(monkeypatch, tmp_path)
+    c, row = pooled_record(m, tmp_path)
+    monkeypatch.setattr(m, "lifecycle_state", lambda *_: state)
+    key = m.automatic_instance(c, args(), "anon", "legacy-global")
+    assert (key == "auto-fixture") == (state == "idle")
+    a = args()
+    a.agent_id, a.run_id = row["agent_id"], row["run_id"]
+    assert m.automatic_instance(c, a, "anon", "legacy-global") == "auto-fixture"
+
+
+def test_auto_idle_selection_cannot_bypass_freeze_race(monkeypatch, tmp_path, capsys):
+    m = provisioner(monkeypatch, tmp_path)
+    c, row = pooled_record(m, tmp_path)
+    monkeypatch.setattr(m, "cleanup_unused", lambda *_: [])
+    monkeypatch.setattr(m, "sweep_rows", lambda *_: ([], []))
+    monkeypatch.setattr(m, "lifecycle_state", lambda *_: "idle")
+    monkeypatch.setattr(m, "freeze_idle", lambda *_: False)
+    monkeypatch.setattr(m, "retire", lambda *_: pytest.fail("activity won; no stop"))
+    monkeypatch.setattr(m, "lease", lambda *_: pytest.fail("activity won; no acquisition"))
+    with pytest.raises(SystemExit):
+        m.start(args())
+    assert json.loads(capsys.readouterr().out)["reason"] == "activity-changed"
+
+
+def test_auto_single_policy_still_arbitrates_concurrent_acquisition(monkeypatch, tmp_path):
+    m = provisioner(monkeypatch, tmp_path)
+    profiles.cmd_policy(argparse.Namespace(program="demo", account="anon", auth_domain="local.test",
+                                          state_dir=str(m.STATE.parent), mode="single"))
+    a, b = args(), args()
+    b.run_id = "second"
+    keys = [m.automatic_instance(m.db(), request, "anon", "local.test") for request in (a, b)]
+    barrier = threading.Barrier(2)
+    def run(key):
+        barrier.wait(timeout=5)
+        return acquire(m.STATE.parent, key, key)["status"]
+    with ThreadPoolExecutor(2) as pool:
+        assert sorted(pool.map(run, keys)) == ["leased", "locked"]
+
+
+def test_display_selection_preserves_owned_display_and_port(monkeypatch, tmp_path):
+    m = provisioner(monkeypatch, tmp_path)
+    c, row = pooled_record(m, tmp_path)
+    Path(row["launch_file"]).write_text(json.dumps({"kasmvnc": {"display": ":20", "web_port": 8463}}))
+    monkeypatch.setattr("kasmvnc_session.can_bind_localhost", lambda _: True)
+    a = args()
+    m.select_display(c, a)
+    assert a.kasmvnc_display != 20 and a.kasmvnc_web_port == 8464
+    a.kasmvnc_display = 20
+    from kasmvnc_session import KasmVNCSessionError
+    with pytest.raises(KasmVNCSessionError):
+        m.select_display(c, a)
+
+
+@pytest.mark.parametrize("command,backend", [(["chromium", "--headless=new"], "auto"), (["chromium"], "kasmvnc")])
+def test_same_owner_cannot_silently_reuse_wrong_display(monkeypatch, tmp_path, capsys, command, backend):
+    m = provisioner(monkeypatch, tmp_path)
+    c, row = pooled_record(m, tmp_path)
+    Path(row["launch_file"]).write_text(json.dumps({"instance_key": "auto-fixture", "instance_selection": "automatic", "command": command}))
+    monkeypatch.setattr(m, "sweep_rows", lambda *_: ([], []))
+    monkeypatch.setattr(m, "healthy", lambda *_: True)
+    monkeypatch.setattr(m, "retire", lambda *_: pytest.fail("do not stop active owner"))
+    a = args()
+    a.agent_id, a.run_id = row["agent_id"], row["run_id"]
+    a.display_backend = backend
+    with pytest.raises(SystemExit):
+        m.start(a)
+    assert json.loads(capsys.readouterr().out)["reason"] == "display-mode-mismatch"
+
+
+@pytest.mark.parametrize("kasm", [False, True])
+def test_untracked_native_control_never_transfers_live(monkeypatch, tmp_path, capsys, kasm):
+    m = provisioner(monkeypatch, tmp_path)
+    c, row = record(m, tmp_path, {**process_identity(os.getpid()), "start": "dead"})
+    info = {"control_mode": "pipe-fenced", "proxy_server": "http://127.0.0.1:9",
+            "proxy_cert_mode": "none", "activity_tracking": False}
+    if kasm:
+        info["kasmvnc"] = {"display": ":20"}
+    Path(row["launch_file"]).write_text(json.dumps(info))
+    m.save_metadata(c, row["lease_id"], {"owner": {**process_identity(os.getpid()), "start": "dead"},
+                                       "proxy_ownership": "browser"})
+    monkeypatch.setattr(m, "sweep_rows", lambda *_: ([], []))
+    monkeypatch.setattr(m, "healthy", lambda *_: True)
+    monkeypatch.setattr("browser_control.rotate_control", lambda *_: pytest.fail("native controller is not revocable"))
+    stopped = []
+    monkeypatch.setattr(m, "retire", lambda *_: stopped.append(True) or True)
+    monkeypatch.setattr(m, "admission", lambda *_: {"status": "queued"})
+    a = args()
+    a.proxy_ownership = "browser"
+    with pytest.raises(SystemExit):
+        m.start(a)
+    assert stopped == [True]
+    assert json.loads(capsys.readouterr().out)["reason"] == "no-capacity"
+
+
+def test_display_failure_precedes_lease_mutation(monkeypatch, tmp_path, capsys):
+    m = provisioner(monkeypatch, tmp_path)
+    from kasmvnc_session import KasmVNCSessionError
+    monkeypatch.setattr(m, "admission", lambda *_: {"status": "admitted"})
+    def unavailable(*_):
+        raise KasmVNCSessionError("fixture")
+    monkeypatch.setattr(m, "select_display", unavailable)
+    monkeypatch.setattr(m, "lease", lambda *_: pytest.fail("display queue must not mutate lease"))
+    with pytest.raises(SystemExit):
+        m.start(args())
+    assert json.loads(capsys.readouterr().out)["reason"] == "display-unavailable"
+
+
 def acquire(tmp_path, key, agent="owner"):
     return profiles.cmd_acquire(argparse.Namespace(
         program="demo", account="anon", auth_domain="local.test", agent_id=agent,

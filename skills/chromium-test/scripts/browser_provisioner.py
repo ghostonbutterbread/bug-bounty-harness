@@ -352,6 +352,91 @@ def selected_browser(c, program, alias, domain, key):
     return next((row for row in rows if record_info(row).get("instance_key", "") == key), None)
 
 
+def automatic_instance(c, args, alias, domain):
+    """Select under the node lock; acquisition/freeze still arbitrate ownership.
+
+    Never migrate a legacy profile or treat unobservable native use as idle.
+    Explicit slots remain explicit; only manager-created auto slots are pooled.
+    """
+    import browser_profile_lease as profiles
+
+    rows = c.execute(
+        "SELECT * FROM browsers WHERE program=? AND account=? AND auth_domain=? ORDER BY created DESC",
+        (slug(args.program), slug(alias), domain),
+    ).fetchall()
+    latest = {}
+    for row in rows:
+        latest.setdefault(record_info(row).get("instance_key", ""), row)
+    if "" in latest:
+        return ""
+    # Historical leases and existing disk data are migration boundaries even
+    # when no running browser is registered in this manager.
+    lease_db = STATE.parent / "browser_profile_leases.sqlite"
+    if lease_db.exists():
+        with sqlite3.connect(f"file:{lease_db}?mode=ro", uri=True) as leases:
+            columns = {r[1] for r in leases.execute("PRAGMA table_info(browser_profile_leases)")}
+            if columns:
+                key_filter = "AND COALESCE(instance_key, '')=''" if "instance_key" in columns else ""
+                if leases.execute(
+                    "SELECT 1 FROM browser_profile_leases WHERE program=? AND account_alias=? "
+                    "AND (auth_domain=? OR auth_domain IS NULL) " + key_filter + " LIMIT 1",
+                    (slug(args.program), slug(alias), domain),
+                ).fetchone():
+                    return ""
+    legacy_paths = (
+        profiles.profile_dir(args.program, domain, alias),
+        profiles.profile_dir(args.program, profiles.DEFAULT_LEGACY_AUTH_DOMAIN, alias),
+        profiles.profile_dir(args.program, domain, alias).parent.parent / slug(alias),
+        profiles.shared_base() / profiles.program_key(args.program) / "ghost" / "chromium-test" / "profiles" / slug(alias),
+    )
+    if any(path.exists() for path in legacy_paths):
+        return ""
+    pooled = [(key, row) for key, row in latest.items()
+              if record_info(row).get("instance_selection") == "automatic"]
+    for key, row in pooled:
+        if row["agent_id"] == args.agent_id and row["run_id"] == args.run_id:
+            return key
+    for key, row in pooled:
+        if row["state"] == "running" and lifecycle_state(c, row) == "idle":
+            return key  # start() must win the authoritative adapter freeze.
+    for key, row in pooled:
+        if row["state"] == "stopped":
+            return key  # canonical lease health/policy remains authoritative.
+    key = "auto-" + hashlib.sha256((args.agent_id + "\0" + args.run_id).encode()).hexdigest()[:24]
+    # The original slot may now belong to an active transferee, or an explicit
+    # caller may have used the same key. Never reacquire it by hash coincidence.
+    return key if key not in latest else "auto-" + uuid.uuid4().hex
+
+
+def select_display(c, args):
+    """Reserve an unused display/loopback port while start holds the node lock."""
+    if getattr(args, "headless", False) or getattr(args, "display_backend", None) == "default":
+        return
+    from kasmvnc_session import candidate_web_ports, can_bind_localhost, validate_display, KasmVNCSessionError
+
+    used = set()
+    used_ports = set()
+    for row in c.execute("SELECT * FROM browsers WHERE state='running'").fetchall():
+        session = record_info(row).get("kasmvnc", {})
+        display = session.get("display")
+        if display:
+            used.add(display)
+        if session.get("web_port"):
+            used_ports.add(session["web_port"])
+    requested = getattr(args, "kasmvnc_display", None)
+    candidates = [validate_display(requested)] if requested is not None else range(20, 1000)
+    for display in candidates:
+        if (f":{display}" not in used and not Path(f"/tmp/.X11-unix/X{display}").exists()
+                and not Path(f"/tmp/.X{display}-lock").exists()):
+            for port in candidate_web_ports(getattr(args, "kasmvnc_web_port", None)):
+                if port not in used_ports and can_bind_localhost(port):
+                    args.kasmvnc_display = display
+                    args.kasmvnc_web_port = port
+                    return
+            raise KasmVNCSessionError("no unused requested KasmVNC web port available")
+    raise KasmVNCSessionError("no unused requested KasmVNC display available")
+
+
 def activity_snapshot(row):
     info = record_info(row)
     if not info.get("activity_tracking"):
@@ -496,6 +581,7 @@ def maintain(args):
                 if (
                     meta.get("proxy_ownership") != "browser"
                     or info.get("kasmvnc")
+                    or not info.get("activity_tracking")
                     or info.get("control_mode") != "pipe-fenced"
                 ):
                     # The old task's proxy or non-revocable UI cannot safely
@@ -573,6 +659,11 @@ def start(args):
     alias = (account or {}).get("alias", args.account)
     auth_domain = profiles.auth_domain_for(args, account)
     instance = profiles.instance_key(args)
+    automatic = False
+    if (account is not None and not instance and not getattr(args, "legacy_profile", False)
+            and not getattr(args, "task_owned", False)):
+        instance = automatic_instance(c, args, alias, auth_domain)
+        automatic = bool(instance)
     row = selected_browser(c, args.program, alias, auth_domain, instance)
     reusable = None
     if row and row["state"] == "running":
@@ -590,6 +681,13 @@ def start(args):
             and state not in ("terminal", "expired-awaiting-input")
             and healthy(row)
         ):
+            info = record_info(row)
+            if info.get("command"):
+                was_headless = any(flag.startswith("--headless") for flag in info["command"])
+                strict_kasm = getattr(args, "display_backend", None) == "kasmvnc" and not getattr(args, "headless", False)
+                if (was_headless != bool(getattr(args, "headless", False))
+                        or (strict_kasm and not info.get("kasmvnc"))):
+                    emit({"status": "locked", "reason": "display-mode-mismatch", **safe(row)}, 2)
             activity = activity_snapshot(row)
             if activity and activity.get("frozen"):
                 emit({"status": "recovery-blocked", "reason": "control-frozen", **safe(row)}, 2)
@@ -617,6 +715,8 @@ def start(args):
             and info.get("proxy_server") == args.proxy_server
             and info.get("proxy_cert_mode") == args.proxy_cert_mode
             and not info.get("kasmvnc")
+            and info.get("activity_tracking")
+            and getattr(args, "headless", False)
         )
         if compatible and info.get("control_mode") == "pipe-fenced" and healthy(row):
             from browser_control import rotate_control
@@ -651,6 +751,12 @@ def start(args):
             },
             2,
         )
+    if not reusable:
+        from kasmvnc_session import KasmVNCSessionError
+        try:
+            select_display(c, args)
+        except KasmVNCSessionError:
+            emit({"status": "queued", "reason": "display-unavailable", "retry_after_seconds": 30}, 2)
     if reusable:
         manager = hashlib.sha256(str(STATE.resolve()).encode()).hexdigest()
         meta = metadata(c, row)
@@ -886,6 +992,7 @@ def start(args):
     info["unit_invocation"] = unit_identity(unit)
     info["account_color"] = (account or {}).get("pwnfox_color")
     info["instance_key"] = instance
+    info["instance_selection"] = "automatic" if automatic else "explicit" if instance else "legacy"
     info["instance_id"] = bid
     info["pane_id"] = bid
     private_json(launch, info)
@@ -1218,6 +1325,8 @@ def request(args):
             cmd += ["--headless"]
         if getattr(args, "instance_key", None):
             cmd += ["--instance-key", args.instance_key]
+        if getattr(args, "legacy_profile", False):
+            cmd += ["--legacy-profile"]
         if getattr(args, "owner_pid", None):
             cmd += ["--owner-pid", str(args.owner_pid)]
         if getattr(args, "proxy_ownership", None):
@@ -1367,7 +1476,9 @@ def main():
     )
     for parser in (s, r0):
         parser.add_argument("--task-owned", action="store_true")
-        parser.add_argument("--instance-key", help="Explicit isolated profile slot; omitted preserves legacy exclusivity.")
+        selection = parser.add_mutually_exclusive_group()
+        selection.add_argument("--instance-key", help="Explicit isolated profile slot; omitted automatically selects safe pool instances, preserving existing legacy profiles.")
+        selection.add_argument("--legacy-profile", action="store_true", help="Keep legacy single-profile selection even for a fresh account/domain.")
         parser.add_argument(
             "--owner-pid",
             type=int,

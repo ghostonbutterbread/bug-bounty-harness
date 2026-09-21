@@ -18,7 +18,7 @@
 
 `request/start ... --instance-key <slot>` creates an isolated persistent profile at `<artifact-root>/<program>/web/browser-instances/<domain>/<resolved-account>/<slot>`. Distinct slots can use the same account/color concurrently; retries of the same slot remain exclusive. Keys are validated, not silently normalized. Instance directories are separate from legacy profile trees, so legacy retention cannot recursively delete a live instance.
 
-Omitting the key preserves the legacy named single-profile semantics and existing path/configuration. An active legacy lease conservatively blocks parallel instances of the same account/domain, and vice versa. There is no migration, copied cookie store, alternate account selection, or extra authentication retry. Anonymous slots and existing normal launcher session settings remain supported.
+Omitting the key now automatically selects isolated instances for fresh resolved selectors (see the headed/provisioning follow-up below). Existing legacy manager/lease records and known on-disk legacy profile paths retain named single-profile semantics and existing path/configuration; `--legacy-profile` explicitly selects that behavior for fresh selectors. An active legacy lease conservatively blocks parallel instances of the same account/domain, and vice versa. There is no migration, copied cookie store, alternate account selection, or extra authentication retry. Anonymous slots and existing normal launcher session settings remain supported.
 
 `--task-owned` still selects a task-specific namespace without account inventory or auth-seed resolution. Headless activity management works without `--owner-pid`; headed task mode still requires it because native input is untracked. Its namespace remains agent/run-specific rather than sharing state with another task.
 
@@ -212,7 +212,7 @@ external deployment, live sites/accounts or security-testing workflows occurred.
 1. **Native headed input is not observable through this adapter.** Headed/KasmVNC and pre-revision records deliberately retain conservative PID/explicit-release behavior. They do not gain PID-free automatic idle reclamation. Enabling idle eviction there would risk closing an actively used native browser. Required successor integration: the actual native display/input owner must report meaningful input and atomically participate in reservations/fencing; then add a disposable headed-input test. This revision does not claim complete all-browser activity coverage.
 2. **Handoff consumer compatibility is implemented but not fully smoke-verified.** The scoped follow-up below adds exact pipe receipt/control validation and one-instance/one-page UI identity in `skills/chromium-handoff/scripts/cdp_handoff_server.js`. It is not a multi-pane desktop registry. Synthetic consumer tests pass; the new end-to-end real handoff UI smoke addition is blocked on tool approval and remains an explicit acceptance gap. No protected skill body was edited.
 3. **The two-hour stop boundary uses deterministic clock staging**, not a literal two-hour wall-clock systemd soak. Real unit stop/root/CDP verification and the real adapter recheck are separately exercised. A soak is optional additional activation evidence; no production clock controls were added to make a fixture easier.
-4. **Legacy named parallelism is opt-in**, not automatic migration. Existing live legacy profiles stay exclusive until explicitly stopped/released; normal profile and session configuration is unchanged.
+4. **Fresh resolved selectors support automatic isolated pooling** in the follow-up below. Existing legacy profiles/records remain a migration boundary, including stopped legacy profiles. No automatic migration is performed; normal profile and session configuration is unchanged.
 5. Existing initial-launch crash gap remains: an interruption before complete runtime registration can leave a conservative managed lease requiring explicit reconciliation. The existing pending-transfer journal covers transfers, not every provisioning crash.
 6. Same-UID coordination is not hostile-process isolation. CDP consumers must retain the entire generation URL. Only Linux/user-systemd is tested; no cross-node adoption or remote rollout.
 7. Account summary/status views remain conservative account-level summaries; they are not a new multi-instance pane registry. Exact manager lease status and safe per-instance receipts are the supported new identity surface.
@@ -323,3 +323,112 @@ Outstanding acceptance and exact resume:
 3. Parent still owns independent review, original startup investigation and
    beta acceptance. No push, merge, deployment, Kanban mutation, external route,
    live site/account, credential/OTP handling or security workflow was performed.
+
+## Headed workflow / ordinary provisioning follow-up — partial, blocked
+
+Delegated base: `ee1c54b702443835ded9967e2cb53f435fe094e2`, same worktree and
+`feat/browser-lease-recovery`, intended target **beta**. Fetched `origin/beta`
+remains `69e9a2a01be26ea1e64a0d00fd6cf23a47704e4e`. Parent owns final review;
+this is a recoverable scoped checkpoint, **not completion of native activity**.
+
+### Inspection before edits
+
+- Read the actual `kasmvnc_session.py` foreground `vncserver` invocation and
+  `chromium_test.py` display/pipe integration. Native input is delivered by the
+  external Xvnc server; the Python launcher records display/web port but has no
+  accepted-input callback, input admission barrier, or native generation revoke.
+  CDP has its own atomic event-loop activity/freeze/reservation boundary.
+- Local prerequisite discovery: `command -v Xvnc vncserver Xvfb xinput xdpyinfo`
+  found only `/usr/bin/Xvfb`, `/usr/bin/xinput`, `/usr/bin/xdpyinfo`.
+  `DISPLAY` is unset. Process-name inspection found an existing Xwayland process,
+  not a KasmVNC server; that unrelated desktop was not attached to or modified.
+- Traced ordinary caller examples to `request` -> subprocess `start` -> lease ->
+  launcher, which previously omitted instance selection and defaulted X display
+  to 20. Installed `bbh` resolves to
+  `/home/ryushe/projects/bug_bounty_harness/scripts/bbh`, **not this feature
+  worktree**. No runtime source switch or activation was performed.
+- Inspected `handoff_transport.sh`: it publishes existing loopback UI endpoints
+  through Tailscale Serve. Neither the publisher nor routes were changed. The
+  pending fallback-UI smoke approval and Kanban child guard were not retried.
+
+### Completed changes
+
+- Ordinary `request/start` with no slot now chooses automatic isolated instances
+  for resolved fresh selectors. Same agent/run retries retain their slot;
+  otherwise observable idle automatic slots enter the existing authoritative
+  freeze path, stopped automatic slots may be reused, and fresh slots use
+  agent/run-derived keys (a new unique key when that slot already belongs to
+  another controller). Private `instance_selection` provenance excludes explicit
+  slots even if their name begins with `auto-`. Account single-browser policy remains enforced by the
+  canonical SQLite acquisition transaction. Explicit slots and task namespaces
+  are unchanged. Unresolved selectors remain on the legacy resolution path.
+- Historical legacy leases, manager records and known canonical/pre-domain/
+  Shared disk paths prevent silent migration. `--legacy-profile` is forwarded
+  through request/start and explicitly preserves legacy behavior for fresh data.
+- Headed auto/KasmVNC starts choose unoccupied display and loopback web port
+  under the existing node start lock, before lease acquisition. Registered
+  running displays/ports, X sockets/locks and bound ports are excluded. Explicit
+  occupied choices queue. This coordinates this manager's callers, not external
+  X server launchers. No route is published by selection.
+- Same-owner incompatible display-mode retries fail explicitly without stopping
+  the existing browser. Live transfer now requires tracked control and a
+  headless requester; merely having a pipe adapter without KasmVNC metadata no
+  longer permits an untracked native display to cross owners alive.
+- Added deterministic selection, legacy, single-policy concurrency,
+  selection-versus-freeze race, display/port and mismatch regressions. The real
+  systemd fixture now requests the primary instance **without naming a slot**,
+  retries it, and later claims it idle while its previous owner PID is alive.
+- Real pipe fixture now also runs headed on its own dynamically assigned Xvfb
+  display (`-displayfd`, no TCP), then reaps that exact display process. It
+  exercises actual headed Chromium/CDP, in-flight/reservation protection and
+  generation revocation. **It does not exercise KasmVNC/native input or prove
+  headed manager idle reclamation safe.**
+
+### Verification and limits
+
+Final source command:
+
+```sh
+BBH_LOCAL_BROWSER_SMOKE=1 .venv/bin/python -m pytest agents/test_browser_resources.py agents/test_browser_lifecycle.py agents/test_browser_lifecycle_systemd.py agents/test_browser_lease_recovery.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_chromium_test_launcher.py agents/test_browser_startup_diagnostics.py tests/test_script_policy.py -q
+```
+
+Result: **184 passed in 121.24s**, including actual headless and isolated headed
+Xvfb pipe runs and user-systemd lifecycle execution. Earlier full source passed
+177 tests before added native/mode/legacy guards. Initial focused run had one
+failure: automatic selection was incorrectly applied to an unresolved account
+whose domain was returned later by the lease helper. Fixed by retaining legacy
+resolution for unresolved selectors; the unchanged regression passes now.
+
+`uvx ruff check --select F skills/chromium-test/scripts/browser_provisioner.py agents/test_browser_resources.py agents/test_browser_lifecycle.py agents/test_browser_lifecycle_systemd.py`
+and `git diff --check` passed. Post-run
+`systemctl --user list-units 'browser-*' --all --no-pager --plain` returned
+**0 loaded units**. Post-run process inspection found no Xvfb/Xvnc; the original
+unrelated Xwayland remained. No dependency manifest changed; the checkout's
+environment is newer than the manifest. Original intermittent startup failure
+remains undiagnosed; successful runs are not a causal repair.
+
+### Exact missing acceptance / prerequisite
+
+**Authoritative native activity, native-versus-cleanup atomicity and live
+KasmVNC cross-owner revocation are still missing.** No native tracker was added
+and headed `activity_tracking` remains false. Headed two-hour idle eviction is
+disabled; existing explicit release/supervisor-terminal lifecycle is retained.
+Tracked headless instances retain PID-independent idle behavior.
+
+Resume on an authorized disposable KasmVNC runtime with `vncserver`/`Xvnc`
+available, and integrate at its actual input owner (or a sole enforced input
+gateway): accepted keyboard/pointer/clipboard control must be bound to the
+exact instance/display and generation, participate in the same admission/freeze
+ordering as CDP, and support acknowledged draining/revocation of established
+native controllers. Merely installing KasmVNC is necessary for its real fixture
+but not sufficient to supply this integration. Asynchronous X event observation
+or idle polling alone cannot close the input-versus-freeze race, and raw display
+connections bypassing such a gateway cannot be declared revoked.
+
+Only after that integration may a real disposable native-input fixture assert
+that input wins cleanup, freeze rejects later native input, stale generations
+cannot inject, passive refresh is not work, and distinct displays/ports and
+existing Tailscale handoffs survive correctly. No fallback screenshot UI is
+substituted. No real accounts/sites, security workflows, external route changes,
+push, merge or deployment were performed. Parent must review this partial delta
+and resolve the native runtime prerequisite before accepting the full request.

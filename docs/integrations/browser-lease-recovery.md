@@ -8,7 +8,8 @@
 - Fetched base: `69e9a2a01be26ea1e64a0d00fd6cf23a47704e4e` (`origin/beta`).
 - Intended target: **beta**, only after fresh independent parent review.
 - No push, merge, deployment, Hoster operation, real account session, or live-site browsing authorized by this implementation handoff.
-- Checkpoint: pending implementation commit; subsequent dossier-only commit will record its immutable SHA.
+- Recoverable implementation checkpoint: `ae309c8cf12f74141662df7a2af57917e58cbad1` on `feat/browser-lease-recovery`, containing implementation, tests, this dossier, and the real smoke receipt. The following handoff-only commit records this SHA; review both it and the current branch tip.
+- Resume point: fresh independent review from this worktree; rerun the exact verification commands below, inspect the documented initial-provisioning/legacy-identity limitations, then return the decision to the parent for beta integration. Upstream `origin/beta` was re-fetched before commit and remained at the recorded base. Final process inspection found no active fixture or feature-runtime processes. Nothing was pushed or merged.
 
 ## Intent and implemented contract
 

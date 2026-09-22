@@ -1,6 +1,6 @@
 ---
 name: recon
-description: Use as the default full-platform reconnaissance orchestrator: establish a broad authorized surface baseline, continuously enrich it with scoped runtime evidence, and produce ranked evidence-backed handoffs for deeper lanes.
+description: "Use as the default full-platform reconnaissance orchestrator: establish a broad authorized surface baseline, continuously enrich it with scoped runtime evidence, and produce ranked evidence-backed handoffs for deeper lanes."
 ---
 # Full-Platform Reconnaissance
 

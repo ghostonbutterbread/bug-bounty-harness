@@ -1,8 +1,8 @@
 ---
-name: manual_hunter
+name: manual-hunter
 description: Use when adding manual security findings to the Ghost pipeline, importing findings from files, watching report directories, or running /manual_hunter workflows.
 ---
-# manual_hunter skill
+# manual-hunter skill
 
 Add your own manual security findings to the Ghost pipeline.
 

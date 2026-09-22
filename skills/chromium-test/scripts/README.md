@@ -245,7 +245,7 @@ multi-instance pane registry.
   activity-aware ownership, verified cleanup and fenced live handoff.
 - **Inputs:** Existing program/account selectors or `--task-owned`; agent/run,
   purpose, existing proxy/display settings; optional `--instance-key SLOT`,
-  `--idle-seconds N` (claim window, default 900), `--owner-pid` (diagnostics and
+  `--idle-seconds N` (claim window, default 300), `--owner-pid` (diagnostics and
   legacy lifecycle). Headless task mode does not require a PID; headed task
   mode does, because native input is untracked.
 - **Outputs:** Safe receipts with `instance_id`, `pane_id`, `instance_key`,
@@ -258,10 +258,14 @@ multi-instance pane registry.
   databases. No new authentication retry or alternate-account selection.
 - **Instances:** Keys use separate
   `<program>/web/browser-instances/<domain>/<account>/<slot>` trees. Omitted
-  keys on ordinary request/start now select an automatic isolated slot: retry
-  the same agent/run, otherwise claim an observable idle automatic slot through
-  the existing atomic freeze, reuse a stopped automatic slot, or allocate a
-  new slot. Private selection provenance excludes explicitly named slots even
+  keys on ordinary request/start select an automatic isolated slot **after the
+  caller explicitly selects an account/color**, e.g. Blue. Reuse the exact live
+  agent/run; otherwise, with multiple-browser policy and admission headroom,
+  reuse a stopped automatic slot or allocate a distinct slot. Another owner's
+  idle running slot is considered only when the resolved program/account/domain
+  policy is single-browser or this node rejects a new process. Claim requires
+  canonical lease identity and the existing atomic activity freeze. Private
+  selection provenance excludes explicitly named slots even
   with an `auto-` prefix; an active transferee's slot is never selected merely
   because its key matches the original owner's hash. Canonical account
   single-browser policy still applies.
@@ -293,11 +297,24 @@ multi-instance pane registry.
   adopt agent-driven mode. Manual task-owned starts require a supervisor PID.
   An explicitly supplied supervisor dying still triggers automatic cleanup;
   bounded operations and reservations win the atomic recheck first.
-- **Idle claim:** The existing owner's 1–7199-second window controls claim
+- **Idle claim:** The existing owner's 1–7199-second window (default **300**)
+  controls claim
   eligibility. The adapter atomically freezes command admission only if no
   in-flight command, reservation or newer activity wins the recheck. Compatible
   fixed browser-owned proxy routes permit same-process generation-fenced headless reuse;
   task routes and non-revocable control retain verified restart fallback.
+  The requester cannot shorten the old owner's threshold. Legacy exclusive
+  profiles retain their single-profile behavior. Explicit slots are not pooled;
+  a different owner of an explicit idle slot with ample capacity and multiple
+  policy remains queued, rather than being evicted or silently moved. A request
+  attempts at most one takeover retirement: if capacity/display/canonical
+  acquisition still blocks after verified stop, `queued` carries
+  `retryable=false` and the request loop returns instead of evicting another
+  candidate. This bound does not alter the separate two-hour cleanup sweep.
+  The node lock covers selection through admission and launch, and the shared
+  canonical SQLite transaction arbitrates single-policy acquisitions/transfers.
+  A stale projection or grandfathered conflicting single-policy lease cannot
+  justify revoking control. A rejected admission never acquires a new profile.
 - **Cleanup:** Request/start checks tracked browsers unused for at least 7200
   seconds before admission. It verifies unit/root/CDP termination and retains
   the profile. `reap-idle` uses that same fixed stop threshold; its legacy
@@ -317,7 +334,7 @@ multi-instance pane registry.
   the browser. Continuous/co-driving native use must select manual mode.
 - **Retention:** Existing 14-day manifest-only stopped-profile retention also
   handles instance trees. It never discovers arbitrary profile directories.
-- **Verification:** `.venv/bin/python -m pytest agents/test_browser_resources.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_browser_lease_recovery.py agents/test_browser_lifecycle.py -q`.
+- **Verification:** `.venv/bin/python -m pytest agents/test_browser_selection.py agents/test_browser_resources.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_browser_lease_recovery.py agents/test_browser_lifecycle.py -q`.
   Opt-in real fixtures: `BBH_LOCAL_BROWSER_SMOKE=1 .venv/bin/python -m pytest agents/test_browser_driving_mode.py agents/test_browser_lifecycle_systemd.py agents/test_browser_lifecycle.py -q`.
 - **Owner/scope:** Chromium Test scripts; Linux/user-systemd browser node.
   Native-input telemetry is a deferred non-core follow-up. Local headed

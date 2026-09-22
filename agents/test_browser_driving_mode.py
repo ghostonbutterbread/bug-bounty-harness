@@ -107,6 +107,13 @@ def test_real_ordinary_driving_contract(local_display):  # noqa: F811
             return command("request", "fixture", "anon", "--auth-domain", "fixture.invalid",
                            "--run-id", run, "--wait-seconds", "0", *common, *extra, expect=expect)
 
+        def policy(mode):
+            p = subprocess.run([sys.executable, str(PROVISIONER.with_name("browser_profile_lease.py")),
+                "--state-dir", str(state.parent), "set-browser-policy", "fixture", "anon",
+                "--auth-domain", "fixture.invalid", "--mode", mode],
+                env=env, capture_output=True, text=True, timeout=10)
+            assert p.returncode == 0 and json.loads(p.stdout)["status"] == "policy-set"
+
         def info(lid):
             with sqlite3.connect(state) as c:
                 path = c.execute("select launch_file from browsers where lease_id=?", (lid,)).fetchone()[0]
@@ -165,6 +172,12 @@ def test_real_ordinary_driving_contract(local_display):  # noqa: F811
         finally:
             ws.close()
         wait_idle(lid)
+        parallel = request("parallel")
+        assert parallel["status"] == "started" and parallel["instance_key"] != first["instance_key"]
+        assert owner_state(original["process_identity"]) == "active"
+        command("release", "--lease-id", parallel["lease_id"], "--agent-id", "fixture",
+                "--disposition", "completed", "--profile-health", "healthy")
+        policy("single")
         second = request("second")
         current = info(second["lease_id"])
         # Task-owned route (and all headed native displays) requires restart.
@@ -177,6 +190,9 @@ def test_real_ordinary_driving_contract(local_display):  # noqa: F811
         assert local_cdp_version(original["cdp_url"])["status"] != "ready"
         assert Path(current["profile_dir"]).exists()
         touch(second["lease_id"], "awaiting-input")
+        queued = request("blocked", expect=2)
+        assert queued["status"] == "queued-timeout"
+        policy("multiple")
         stale = request("first")
         assert stale["status"] == "started" and stale["instance_key"] != first["instance_key"]
         assert command("touch", "--lease-id", lid, "--agent-id", "fixture", expect=2)["status"] == "not-owner"

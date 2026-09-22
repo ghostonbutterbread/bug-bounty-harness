@@ -187,7 +187,7 @@ def test_systemd_lifecycle_fixture():
             "browser",
         ]
 
-        def start(index, task=False, ownership="browser", key=None):
+        def start(index, task=False, ownership="browser", key=None, low_memory=False):
             selector = (
                 ["--task-owned"]
                 if task
@@ -204,6 +204,7 @@ def test_systemd_lifecycle_fixture():
                 *common,
                 "--proxy-ownership",
                 ownership,
+                *(["--min-ram-available-mib", "2147483647"] if low_memory else []),
             )
 
         def row(lid):
@@ -308,7 +309,13 @@ def test_systemd_lifecycle_fixture():
             assert after > before
             wait_idle(first["lease_id"])
             assert owners[0].poll() is None
-            second = start(1)
+            parallel = start(2)
+            assert parallel["status"] == "started" and parallel["instance_key"] != first["instance_key"]
+            assert info(first["lease_id"])["pid"] == pid
+            command("release", "--lease-id", parallel["lease_id"], "--agent-id", "fixture-agent",
+                    "--disposition", "completed", "--profile-health", "healthy")
+            receipts["idle_with_headroom"] = "distinct-automatic-instance-no-eviction"
+            second = start(1, low_memory=True)
             leases.append(second["lease_id"])
             assert second["status"] == "reused" and second["fenced"]
             current = info(second["lease_id"])
@@ -368,7 +375,13 @@ def test_systemd_lifecycle_fixture():
                 assert stale["status"] == "not-owner"
             wait_idle(second["lease_id"])
             assert owners[1].poll() is None
-            replacement = start(2, ownership="task")
+            # A normal-capacity task-route restart is justified only by policy.
+            policy = subprocess.run([sys.executable, str(PROVISIONER.with_name("browser_profile_lease.py")),
+                "--state-dir", str(state.parent), "set-browser-policy", "fixture", "anon",
+                "--auth-domain", "fixture.invalid", "--mode", "single"],
+                env=env, capture_output=True, text=True, timeout=10)
+            assert policy.returncode == 0 and json.loads(policy.stdout)["status"] == "policy-set"
+            replacement = start(0, ownership="task")
             leases.append(replacement["lease_id"])
             assert replacement["status"] == "started"
             replacement_info = info(replacement["lease_id"])

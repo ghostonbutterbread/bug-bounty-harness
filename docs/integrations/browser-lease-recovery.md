@@ -1,5 +1,132 @@
 # Browser resource management — integration dossier
 
+## Current correction checkpoint — five-minute claims, capacity first
+
+This section supersedes the older release-candidate selection contract below.
+**Implementation checkpoint, not release-ready:** deterministic checks pass;
+real user-systemd startup acceptance is currently blocked before first browser
+publication. No merge, push, deployment, route change, fallback-UI approval
+bypass, or real account/site use.
+
+- Parent retains `bug-bounty-harness/t_6f1fc293`; feature
+  `feat/browser-lease-recovery` at
+  `/home/ryushe/projects/bug_bounty_harness/browser-lease-recovery`, intended
+  integration target **beta**. This correction starts at reachable checkpoint
+  `499bb5e3778e05ecb5c9db21cd81c6cb8865ed9f` and stays on the feature that owns
+  the unmerged behavior. Fetched `origin/beta` is
+  `0ecb1b61f8381e8f4589c399bb343426b25b2302`; its two unrelated skill fixes
+  have not been merged into this worktree under the explicit no-merge direction.
+  Parent must reconcile beta before release review.
+- Manager authority is explicitly delegated for this feature's script, tests,
+  script README, skill lifecycle paragraph and dossier. This is not a general
+  scripts-only-agent permission expansion. No protected unrelated prose edited.
+- Explicit caller account/color selection remains mandatory (e.g. Blue).
+  Selection resolves that alias/domain before choosing an internal automatic
+  slot. Same live agent/run reuses its instance. With parallel policy and
+  headroom, select a stopped automatic slot or new distinct profile, never
+  evict another idle owner for convenience.
+- Default meaningful idle claim threshold is **300 seconds**. Existing stored
+  thresholds remain the old owner's decision. Idle takeover requires exact
+  single-browser policy, preserved legacy exclusivity, or rejected capacity.
+  Selection, freeze and admission stay under the node lock; canonical identity
+  and transactional policy checks reject stale or conflicting projections.
+  Freeze remains the activity/in-flight/hold race barrier. Headed and task-proxy
+  sessions require verified stop; compatible browser-owned headless routes can
+  rotate live. Explicit named slots remain outside the automatic pool.
+- A capacity/display/canonical queue after successful retirement returns
+  `retryable=false`; request does not move through more victims. Failed stop
+  remains blocked. Rejected admission acquires no new lease or unhealthy release.
+  Rejected canonical transfer re-fences control, drops the uncommitted pending
+  transfer and preserves the canonical owner for recovery.
+- The independent **7200-second** request cleanup/profile-retention behavior
+  and manual hold semantics are unchanged. No five-minute cleanup was added.
+
+### Verification on 2026-09-22
+
+Final deterministic/ordinary suite: **247 passed, 7 skipped in 59.35s**.
+The seven skips are explicit opt-in real browser tests, not silent passes.
+Additional real Chromium/private-Xvfb adapter and cleanup subset:
+**7 passed in 4.84s**, including real two-hour-boundary staged clocks, holds,
+root/CDP closure and profile preservation. This is not a two-hour soak.
+`uvx ruff check --select F` on changed Python and `git diff --check` pass.
+The checkout's `.venv` lacks Ruff; `uvx` was used, without dependency edits.
+Installed Bounty Core revision matches the manifest pin
+`7b08495f65a50f733fc18213c38cc3ae8e91bdf5`.
+
+The suite is the previous eleven files plus `agents/test_browser_selection.py`:
+
+```sh
+.venv/bin/python "$TMPDIR/browser_fixture_runner.py" \
+  agents/test_browser_selection.py agents/test_browser_driving_mode.py \
+  agents/test_browser_resources.py agents/test_browser_lifecycle.py \
+  agents/test_browser_lifecycle_systemd.py agents/test_browser_lease_recovery.py \
+  agents/test_browser_provisioner.py agents/test_browser_profile_lease.py \
+  agents/test_chromium_test_launcher.py agents/test_browser_startup_diagnostics.py \
+  agents/test_cdp_handoff_receipt.py tests/test_script_policy.py -q --tb=short
+BBH_LOCAL_BROWSER_SMOKE=1 .venv/bin/python "$TMPDIR/browser_fixture_runner.py" \
+  agents/test_browser_driving_mode.py::test_real_manager_idle_cleanup_with_bounded_hold \
+  agents/test_browser_lifecycle.py -q --tb=short
+```
+
+The temporary runner is necessary in this session because its long mandated
+scratch path exceeds Linux AF_UNIX limits for existing fixture socket names.
+The first full opt-in run returned **25 failed, 222 passed**, primarily path-length
+failures plus producer publication failures. No production limit or deadline
+was changed. Recreate the runner under the current session's TMPDIR with this
+content (all physical fixture writes still stay in scratch):
+
+```python
+import os
+from pathlib import Path
+import sys
+import tempfile
+import pytest
+root = Path(os.environ['TMPDIR'])
+fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+alias = f'/proc/{os.getpid()}/fd/{fd}'
+os.environ['TMPDIR'] = alias
+tempfile.tempdir = alias
+class ScratchPaths:
+    @pytest.fixture
+    def tmp_path(self):
+        return Path(tempfile.mkdtemp(prefix='t-'))
+try:
+    print('Physical fixture root:', root)
+    raise SystemExit(pytest.main(sys.argv[1:], plugins=[ScratchPaths()]))
+finally:
+    os.close(fd)
+```
+
+### Exact remaining runtime blocker / resume
+
+The short-path runner fixes direct adapter and receipt tests, **not systemd
+producer startup**. The focused real driving run returned **1 failed, 2 passed
+in 71.17s**, stopping on its first production headless request; the standalone
+systemd fixture returned **1 failed in 45.92s**, likewise before its first
+browser. Both report `launch-failed` at the unchanged 45-second publication
+boundary. The retained metadata in
+`browser-selection-startup-blocker.json` records adapter bind success followed
+by `pipe-ready` connection failure; raw stderr/session data was not collected.
+Do not infer the historical intermittent failure's cause from this receipt or
+claim the changed systemd selection assertions passed. A combined short-path
+opt-in rerun exceeded the tool's 420-second call limit; no result from that run
+is claimed. Subsequent bounded runs provided the explicit results above.
+
+Final user-systemd inspection found **zero loaded `browser-*` units**; disposable
+fixture teardown verified exact task process/listener cleanup before profile
+removal. No existing user browser or Tailscale route was controlled.
+
+Resume with the existing startup diagnostic mechanism in an approved disposable
+runtime; do not increase the deadline or bypass fallback-UI approval. Once first
+publication succeeds, run the full command above with
+`BBH_LOCAL_BROWSER_SMOKE=1`, especially the changed
+`test_real_ordinary_driving_contract` headless/Xvfb and
+`test_systemd_lifecycle_fixture` assertions (parallel idle-with-headroom, low-memory
+live reuse, single-policy restart, stale controller and hold queues). Then obtain
+parent-owned independent review and reconcile the updated beta. Until that
+receipt exists, full real systemd acceptance is **unverified**.
+
+
 ## Current acceptance contract — agent-driven release candidate
 
 ## Independent final rerun and release handoff

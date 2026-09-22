@@ -23,7 +23,7 @@ STATE = Path(
         "~/.local/state/ghost/browser-profile-leases/browser_provisioner.sqlite",
     )
 ).expanduser()
-DEFAULT_RAM_MIB, DEFAULT_SWAP_MIB, DEFAULT_IDLE = 2048, 512, 900
+DEFAULT_RAM_MIB, DEFAULT_SWAP_MIB, DEFAULT_IDLE = 2048, 512, 300
 # Seconds to wait for the launcher to write its private record. Chromium must
 # stand up a display and reach CDP first, which exceeds a few seconds on a
 # loaded host; too small a value kills the unit before it can ever report.
@@ -353,7 +353,7 @@ def selected_browser(c, program, alias, domain, key):
     return next((row for row in rows if record_info(row).get("instance_key", "") == key), None)
 
 
-def automatic_instance(c, args, alias, domain):
+def automatic_instance(c, args, alias, domain, *, allow_takeover=False):
     """Select under the node lock; acquisition/freeze still arbitrate ownership.
 
     Never migrate a legacy profile or treat unobservable native use as idle.
@@ -395,11 +395,12 @@ def automatic_instance(c, args, alias, domain):
     pooled = [(key, row) for key, row in latest.items()
               if record_info(row).get("instance_selection") == "automatic"]
     for key, row in pooled:
-        if row["agent_id"] == args.agent_id and row["run_id"] == args.run_id:
+        if row["state"] == "running" and row["agent_id"] == args.agent_id and row["run_id"] == args.run_id:
             return key
-    for key, row in pooled:
-        if row["state"] == "running" and lifecycle_state(c, row) == "idle":
-            return key  # start() must win the authoritative adapter freeze.
+    if allow_takeover:
+        for key, row in pooled:
+            if row["state"] == "running" and lifecycle_state(c, row) == "idle":
+                return key  # start() must win the authoritative adapter freeze.
     for key, row in pooled:
         if row["state"] == "stopped":
             return key  # canonical lease health/policy remains authoritative.
@@ -407,6 +408,45 @@ def automatic_instance(c, args, alias, domain):
     # The original slot may now belong to an active transferee, or an explicit
     # caller may have used the same key. Never reacquire it by hash coincidence.
     return key if key not in latest else "auto-" + uuid.uuid4().hex
+
+
+def account_policy(program, alias, domain):
+    import browser_profile_lease as profiles
+    path = STATE.parent / "browser_profile_leases.sqlite"
+    if not path.exists():
+        return False
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as leases:
+        return profiles.single_browser_policy(leases, program, alias, domain)
+
+
+def canonical_claim(row, instance, single):
+    """Validate the manager projection before revoking any other owner's control.
+
+    The canonical transaction still arbitrates acquisition/transfer. This check
+    prevents evicting a stale projection or one of several grandfathered single
+    policy browsers when doing so cannot admit this request.
+    """
+    import browser_profile_lease as profiles
+    path = STATE.parent / "browser_profile_leases.sqlite"
+    if not path.exists():
+        return False
+    with profiles.connect(path) as leases:
+        active = leases.execute(
+            "SELECT * FROM browser_profile_leases WHERE program=? AND account_alias=? "
+            "AND (auth_domain=? OR auth_domain IS NULL) AND status='active' "
+            "AND (expires_at>? OR manager_id IS NOT NULL OR cdp_url IS NOT NULL)",
+            (row["program"], row["account"], row["auth_domain"], now()),
+        ).fetchall()
+    expected = {
+        "lease_id": row["lease_id"], "owner_agent_id": row["agent_id"],
+        "owner_run_id": row["run_id"], "profile_dir": row["profile_dir"],
+        "instance_key": instance,
+        "manager_id": hashlib.sha256(str(STATE.resolve()).encode()).hexdigest(),
+    }
+    matching = [lease for lease in active if all(lease[key] == value for key, value in expected.items())]
+    conflicts = [lease for lease in active if lease["lease_id"] != row["lease_id"]
+                 and (single or not instance or not lease["instance_key"] or lease["instance_key"] == instance)]
+    return len(matching) == 1 and not conflicts
 
 
 def select_display(c, args):
@@ -659,6 +699,8 @@ def start(args):
         else ({"alias": args.account}, {})
     )
     alias = (account or {}).get("alias", args.account)
+    if account is not None and not getattr(args, "task_owned", False) and not profiles.account_lease_eligible(account):
+        emit({"status": "account-unavailable"}, 2)
     auth_domain = profiles.auth_domain_for(args, account)
     instance = profiles.instance_key(args)
     automatic = False
@@ -673,8 +715,14 @@ def start(args):
             and record_info(row).get("driving_mode") != args.driving_mode):
         emit({"status": "locked", "reason": "driving-mode-mismatch", **safe(row)}, 2)
     cleanup_unused(c)
+    adm = admission(args.min_ram_available_mib, args.min_swap_free_mib)
+    single = account_policy(args.program, alias, auth_domain)
+    if automatic:
+        instance = automatic_instance(c, args, alias, auth_domain,
+                                      allow_takeover=single or adm["status"] != "admitted")
     row = selected_browser(c, args.program, alias, auth_domain, instance)
     reusable = None
+    retired = False
     if row and row["state"] == "running":
         state = lifecycle_state(c, row)
         same = row["agent_id"] == args.agent_id and row["run_id"] == args.run_id
@@ -707,12 +755,17 @@ def start(args):
             emit({"status": "already-running", **safe(row), "owner_state": state,
                   "watcher_healthy": unit_active(monitor_unit(row["browser_id"]))})
         if not same and state not in ("terminal", "expired-awaiting-input", "idle"):
-            emit({"status": "locked", "reason": "owner-" + state, **safe(row)}, 2)
+            emit({"status": "queued" if automatic else "locked", "reason": "owner-" + state, **safe(row)}, 2)
+        if not same and state == "idle":
+            if instance and not single and adm["status"] == "admitted":
+                emit({"status": "queued", "reason": "slot-owned", **safe(row)}, 2)
+            if not canonical_claim(row, instance, single):
+                emit({"status": "queued", "reason": "canonical-claim-conflict"}, 2)
         info = record_info(row)
         meta = metadata(c, row)
         threshold = meta.get("idle_claim_seconds", DEFAULT_IDLE) if state == "idle" else 0
         if (state == "idle" or activity_snapshot(row) is not None) and not freeze_idle(row, threshold):
-            emit({"status": "locked", "reason": "activity-changed", **safe(row)}, 2)
+            emit({"status": "queued" if automatic else "locked", "reason": "activity-changed", **safe(row)}, 2)
         # A task-scoped MITM lane belongs to its old task. Never relabel it. Only
         # an explicitly browser-owned fixed route can cross task ownership alive.
         compatible = (
@@ -744,14 +797,14 @@ def start(args):
             restored = restore_failed_stop(row) if info.get("activity_tracking") else False
             emit({"status": "recovery-blocked", "reason": "stop-not-verified",
                   "control_restored": restored}, 2)
+        retired = not reusable
     # Capacity is an admission gate, not a lease outcome. Do not acquire a profile
     # until this node can actually start Chromium: a no-capacity retry must leave
     # the next profile user with a healthy, available profile.
-    adm = (
-        {"status": "admitted", "reason": "no-new-process"}
-        if reusable
-        else admission(args.min_ram_available_mib, args.min_swap_free_mib)
-    )
+    if reusable:
+        adm = {"status": "admitted", "reason": "no-new-process"}
+    elif retired:
+        adm = admission(args.min_ram_available_mib, args.min_swap_free_mib)
     if adm["status"] != "admitted":
         emit(
             {
@@ -759,6 +812,7 @@ def start(args):
                 "reason": "no-capacity",
                 "retry_after_seconds": 30,
                 "admission": adm,
+                "retryable": not retired,
             },
             2,
         )
@@ -767,7 +821,8 @@ def start(args):
         try:
             select_display(c, args)
         except KasmVNCSessionError:
-            emit({"status": "queued", "reason": "display-unavailable", "retry_after_seconds": 30}, 2)
+            emit({"status": "queued", "reason": "display-unavailable", "retry_after_seconds": 30,
+                  "retryable": not retired}, 2)
     if reusable:
         manager = hashlib.sha256(str(STATE.resolve()).encode()).hexdigest()
         meta = metadata(c, row)
@@ -791,6 +846,10 @@ def start(args):
             args.purpose,
             args.ttl_seconds,
             reusable["cdp_url"],
+            expected={"owner_agent_id": row["agent_id"], "owner_run_id": row["run_id"],
+                      "profile_dir": row["profile_dir"], "instance_key": instance,
+                      "program": slug(args.program), "account_alias": slug(alias),
+                      "auth_domain": auth_domain},
         )
     else:
         got = lease(
@@ -812,6 +871,20 @@ def start(args):
             *(["--instance-key", instance] if instance else []),
         )
     if got.get("status") not in ("leased", "already-owned"):
+        if reusable:
+            # Rotation already revoked the old controller. No canonical transfer
+            # committed: fence the new generation too and retain the old lease
+            # for explicit recovery, without trying a second browser.
+            meta = metadata(c, row)
+            meta.pop("pending_transfer", None)
+            meta["lifecycle_error"] = "canonical-transfer-rejected"
+            save_metadata(c, row["lease_id"], meta)
+            frozen = freeze_idle(row, 0)
+            emit({"status": "recovery-blocked", "reason": "canonical-transfer-rejected",
+                  "control_frozen": frozen}, 2)
+        if automatic and got.get("status") == "locked":
+            got = {**got, "status": "queued", "reason": "account-policy-locked", "retry_after_seconds": 30,
+                   "retryable": not retired}
         emit(got, 2)
     lid = got["lease"]["lease_id"]
     resolved_domain = got["lease"].get("auth_domain", auth_domain)
@@ -1372,7 +1445,7 @@ def request(args):
                 2,
             )
         attempts += 1
-        if result.get("status") != "queued":
+        if result.get("status") != "queued" or result.get("retryable") is False:
             result.update(
                 {
                     "attempts": attempts,

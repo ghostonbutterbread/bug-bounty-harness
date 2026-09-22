@@ -156,6 +156,16 @@ def init_resource_policy(conn):
     """)
 
 
+def single_browser_policy(conn, program, alias, domain):
+    """One exact resolved account/domain policy, shared by selection and acquire."""
+    table = conn.execute("SELECT 1 FROM sqlite_master WHERE name='browser_concurrency_policy'").fetchone()
+    policy = conn.execute(
+        "SELECT mode FROM browser_concurrency_policy WHERE program=? AND account_alias=? AND auth_domain=?",
+        (slug(program), slug(alias), domain),
+    ).fetchone() if table else None
+    return bool(policy and policy[0] == "single")
+
+
 def cmd_policy(args):
     account, _ = resolve_account(args.program, args.account)
     if account is None:
@@ -537,7 +547,7 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
         }
 
 
-def transfer_managed_lease(db_path, old_id, manager_id, agent_id, run_id, purpose, ttl, cdp_url):
+def transfer_managed_lease(db_path, old_id, manager_id, agent_id, run_id, purpose, ttl, cdp_url, *, expected=None):
     """Atomic ownership rotation, invoked only after the provisioner's pipe fence."""
     timestamp = now()
     with connect(db_path) as conn:
@@ -546,6 +556,19 @@ def transfer_managed_lease(db_path, old_id, manager_id, agent_id, run_id, purpos
         old = conn.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (old_id,)).fetchone()
         if old is None or old['manager_id'] != manager_id or old['status'] != 'active':
             return {'status': 'not-owner-or-expired'}
+        if expected and any(old[key] != value for key, value in expected.items()):
+            return {'status': 'canonical-identity-mismatch'}
+        single = single_browser_policy(conn, old['program'], old['account_alias'], old['auth_domain'])
+        conflict = conn.execute(
+            "SELECT 1 FROM browser_profile_leases WHERE program=? AND account_alias=? "
+            "AND (auth_domain=? OR auth_domain IS NULL) AND status='active' AND lease_id!=? "
+            "AND (expires_at>? OR manager_id IS NOT NULL OR cdp_url IS NOT NULL) "
+            "AND (? OR instance_key='' OR ?='' OR instance_key=?) LIMIT 1",
+            (old['program'], old['account_alias'], old['auth_domain'], old_id, timestamp,
+             single, old['instance_key'], old['instance_key']),
+        ).fetchone()
+        if conflict:
+            return {'status': 'locked'}
         values = dict(old)
         values.update(lease_id=str(uuid.uuid4()), owner_agent_id=agent_id, owner_run_id=run_id,
                       purpose=purpose, heartbeat_at=timestamp, created_at=timestamp,
@@ -608,17 +631,17 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
             }
         # All admission paths share this SQLite transaction. Legacy profiles
         # remain an account-wide lock; explicit instance keys opt into isolation.
-        policy_table = conn.execute("SELECT 1 FROM sqlite_master WHERE name='browser_concurrency_policy'").fetchone()
-        policy = conn.execute("SELECT mode FROM browser_concurrency_policy WHERE program=? AND account_alias=? AND auth_domain=?",
-                              (slug(args.program), slug(alias), auth_domain)).fetchone() if policy_table else None
-        single = bool(policy and policy[0] == "single")
+        single = single_browser_policy(conn, args.program, alias, auth_domain)
         existing = conn.execute(
             """SELECT * FROM browser_profile_leases WHERE program=? AND account_alias=?
             AND status='active' AND (expires_at>? OR manager_id IS NOT NULL OR cdp_url IS NOT NULL)
             AND (auth_domain=? OR auth_domain IS NULL)
             AND (?='' OR instance_key='' OR instance_key=? OR ?)
-            ORDER BY CASE WHEN auth_domain IS NULL THEN 0 ELSE 1 END, created_at DESC LIMIT 1""",
-            (slug(args.program), slug(alias), timestamp, auth_domain, key, key, single),
+            ORDER BY CASE WHEN auth_domain IS NULL THEN 0 ELSE 1 END,
+              CASE WHEN owner_agent_id=? AND owner_run_id=? AND instance_key=? THEN 1 ELSE 0 END,
+              created_at DESC LIMIT 1""",
+            (slug(args.program), slug(alias), timestamp, auth_domain, key, key, single,
+             args.agent_id, args.run_id, key),
         ).fetchone()
         if existing:
             same_owner = existing["owner_agent_id"] == args.agent_id and existing["owner_run_id"] == args.run_id and existing["instance_key"] == key

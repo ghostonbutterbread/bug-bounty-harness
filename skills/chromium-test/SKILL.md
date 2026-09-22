@@ -179,9 +179,17 @@ scopes. See [provisioner commands and lifecycle](scripts/README.md#browser_provi
 Fresh ordinary requests default to agent-driven control, including headed
 browsers. Meaningful managed browser activity protects the control claim;
 health checks, automatic heartbeats and a living agent PID do not reset idle age.
-Ordinary named requests automatically select compatible isolated instances;
-agents need not invent slot names. Account/domain single-browser policy still
-limits concurrency, and legacy profiles are not silently migrated.
+Agents still request the explicit account/color (for example Blue); only the
+browser instance slot is automatic. Reuse the matching agent/run's browser or
+allocate a distinct instance when policy permits and node admission has room.
+Do not take another agent's idle browser merely to reuse it. Idle takeover is
+eligible after five minutes (300 seconds by default), only under the resolved
+program/account/domain single-browser policy, legacy exclusive-profile contract,
+or insufficient node headroom. The old owner's configured threshold cannot be
+shortened by the requester. Active, in-flight, held or unobservable browsers
+remain protected; unavailable capacity/ownership queues rather than changing
+account. Explicit slots and legacy profiles are not silently migrated.
+The separate two-hour request-triggered cleanup still retains profile state.
 
 The optional `--owner-pid <local-task-supervisor-pid>` also supplies an explicit
 terminal task signal. It must cover the task lifetime on the browser node,

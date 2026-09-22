@@ -47,6 +47,7 @@ def test_explicit_driving_mismatch_precedes_cleanup(monkeypatch, tmp_path, capsy
 def test_tracked_headed_still_requires_cross_owner_restart(monkeypatch, tmp_path, capsys, kasm):
     m = provisioner(monkeypatch, tmp_path)
     c, row = record(m, tmp_path, process_identity(os.getpid()))
+    canonical_record(m, row)
     info = {"control_mode": "pipe-fenced", "driving_mode": "agent-driven", "command": ["chromium"],
             "proxy_server": "http://127.0.0.1:9", "proxy_cert_mode": "none", "activity_tracking": True}
     if kasm:
@@ -129,6 +130,21 @@ def pooled_record(m, tmp_path):
     return c, row
 
 
+def canonical_record(m, row, key=""):
+    """Bind fixture projection to the real canonical acquisition transaction."""
+    import hashlib
+    request = argparse.Namespace(
+        program=row["program"], account=row["account"], auth_domain=row["auth_domain"],
+        agent_id=row["agent_id"], run_id=row["run_id"], purpose="fixture",
+        ttl_seconds=60, state_dir=str(m.STATE.parent), recover_profile=False,
+        instance_key=key, manager_id=hashlib.sha256(str(m.STATE.resolve()).encode()).hexdigest())
+    got = profiles.cmd_acquire(request)
+    assert got["status"] == "leased"
+    with profiles.connect(m.STATE.parent / "browser_profile_leases.sqlite") as leases:
+        leases.execute("UPDATE browser_profile_leases SET lease_id=?,profile_dir=? WHERE lease_id=?",
+                       (row["lease_id"], row["profile_dir"], got["lease"]["lease_id"]))
+
+
 def test_stopped_receipt_preserves_automatic_pool_provenance(monkeypatch, tmp_path):
     m = provisioner(monkeypatch, tmp_path)
     c, row = pooled_record(m, tmp_path)
@@ -161,7 +177,7 @@ def test_auto_only_selects_observable_idle_pool(monkeypatch, tmp_path, state):
     m = provisioner(monkeypatch, tmp_path)
     c, row = pooled_record(m, tmp_path)
     monkeypatch.setattr(m, "lifecycle_state", lambda *_: state)
-    key = m.automatic_instance(c, args(), "anon", "legacy-global")
+    key = m.automatic_instance(c, args(), "anon", "legacy-global", allow_takeover=True)
     assert (key == "auto-fixture") == (state == "idle")
     a = args()
     a.agent_id, a.run_id = row["agent_id"], row["run_id"]
@@ -171,6 +187,8 @@ def test_auto_only_selects_observable_idle_pool(monkeypatch, tmp_path, state):
 def test_auto_idle_selection_cannot_bypass_freeze_race(monkeypatch, tmp_path, capsys):
     m = provisioner(monkeypatch, tmp_path)
     c, row = pooled_record(m, tmp_path)
+    canonical_record(m, row, "auto-fixture")
+    monkeypatch.setattr(m, "admission", lambda *_: {"status": "rejected"})
     monkeypatch.setattr(m, "cleanup_unused", lambda *_: [])
     monkeypatch.setattr(m, "sweep_rows", lambda *_: ([], []))
     monkeypatch.setattr(m, "lifecycle_state", lambda *_: "idle")
@@ -511,7 +529,8 @@ def test_request_performs_idle_cleanup_before_capacity(monkeypatch, tmp_path, ca
 
 def test_idle_claim_rechecks_before_any_stop_or_transfer(monkeypatch, tmp_path, capsys):
     m = provisioner(monkeypatch, tmp_path)
-    record(m, tmp_path, process_identity(os.getpid()))
+    _, row = record(m, tmp_path, process_identity(os.getpid()))
+    canonical_record(m, row)
     monkeypatch.setattr(m, "cleanup_unused", lambda *_: [])
     monkeypatch.setattr(m, "sweep_rows", lambda *_: ([], []))
     monkeypatch.setattr(m, "lifecycle_state", lambda *_: "idle")

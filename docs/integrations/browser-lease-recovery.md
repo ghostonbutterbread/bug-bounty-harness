@@ -3,6 +3,9 @@
 ## Current correction checkpoint — five-minute claims, capacity first
 
 This section supersedes the older release-candidate selection contract below.
+Recoverable correction implementation: `d376ec51f0029143b61b3c283fadde6d82356a21`
+on `feat/browser-lease-recovery`. Review that checkpoint and this following
+receipt-only commit; the parent owns independent review and beta reconciliation.
 **Implementation checkpoint, not release-ready:** deterministic checks pass;
 real user-systemd startup acceptance is currently blocked before first browser
 publication. No merge, push, deployment, route change, fallback-UI approval

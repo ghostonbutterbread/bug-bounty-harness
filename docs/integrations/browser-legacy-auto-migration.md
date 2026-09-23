@@ -34,8 +34,8 @@ The marker changes concurrency metadata, not files or credentials. Historical au
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/browser-legacy-auto-migration`
-- **Latest immutable recovery checkpoint:** `b679f2b` (prior checkpoint; this turn's repair commit follows below).
-- **Feature implementation commit(s):** `83433f3`, `0b77bd5` and this turn's repair checkpoint.
+- **Latest immutable recovery checkpoint:** `d1de5c28327398e3605eccf9f8e029c95ac654da` (implementation and test checkpoint).
+- **Feature implementation commit(s):** `83433f3`, `0b77bd5`, `d1de5c28327398e3605eccf9f8e029c95ac654da`.
 - **Exact resume point:** Parent independent review against refreshed `beta`, then read-only Hoster preflight; do not mutate live accounts.
 - **Working-tree state at handoff:** clean after checkpoint commit.
 

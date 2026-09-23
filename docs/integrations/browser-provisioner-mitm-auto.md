@@ -6,8 +6,8 @@
 - **Base commit:** `af9dae9` (fetched `origin/beta`)
 - **Intended target:** `beta`; no merge or push authorized for this handoff
 - **Last updated:** 2026-09-23
-- **Latest immutable recovery checkpoint:** `59a525e` (per-browser D-Bus repair; orphan-start repair follows in the next commit)
-- **Implementation commits:** `421742ab90972ab7f454aa993941004dfbe4af17`, `d72d9675d2c8935a1a7081c7b32a8b7ba2110939`, `59a525e`; orphan-start repair in this handoff's next commit
+- **Latest immutable recovery checkpoint:** `b21630dd384afc9fcf9a670ea33a48206a708f6c` (orphan-start repair)
+- **Implementation commits:** `421742ab90972ab7f454aa993941004dfbe4af17`, `d72d9675d2c8935a1a7081c7b32a8b7ba2110939`, `59a525e`, `b21630dd384afc9fcf9a670ea33a48206a708f6c`
 - **Inspiration:** older feature branch `feat/browser-provisioner-mitm-auto`, commits `7e28a7a`, `d2b28a3`; reference only, not transplanted wholesale.
 
 ## Intent and implemented contract
@@ -52,7 +52,7 @@ Preserve current beta's multi-instance account selection, lease/admission orderi
 ## Interruption / resume handoff
 
 - **Branch/ref:** `feat/browser-provisioner-mitm-auto-v2`
-- **Checkpoint:** `59a525e` before orphan-start repair; the resulting repair commit is the next recoverable checkpoint.
+- **Checkpoint:** `b21630dd384afc9fcf9a670ea33a48206a708f6c` with implementation and tests; this dossier-only follow-up is the feature tip.
 - **Exact resume point:** independent diff review of interrupted-start safety, then disposable headed KasmVNC/native manual-input smoke when the headed stack is installed on the intended node. Headless proxy, CA, cgroup, release/replay/finish gates are green. Parent decides integration only after review; this subagent does not merge/push.
 - **Working tree:** commit task-owned repair and dossier, then verify clean status.
 

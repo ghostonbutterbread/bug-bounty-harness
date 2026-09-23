@@ -541,9 +541,12 @@ def lifecycle_state(c, row):
         if owner_state(meta.get("owner")) == "terminal":
             return "terminal"
         return "idle" if activity["idle_seconds"] >= meta.get("idle_claim_seconds", DEFAULT_IDLE) else "active"
+    owner = owner_state(meta.get("owner"))
     if meta.get("awaiting_until"):
+        if owner == "active" and record_info(row).get("driving_mode") == "manual":
+            return "active"
         return "expired-awaiting-input" if now() >= meta["awaiting_until"] else "active"
-    return owner_state(meta.get("owner"))
+    return owner
 
 
 def monitor_unit(bid):

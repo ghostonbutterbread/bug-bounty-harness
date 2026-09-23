@@ -98,6 +98,29 @@ def test_untracked_hold_blocks_terminal_takeover_and_rejects_expiry(monkeypatch,
     assert m.metadata(c, row)["awaiting_until"] == 130
 
 
+def test_live_manual_owner_survives_expired_hold(monkeypatch, tmp_path, capsys):
+    m = provisioner(monkeypatch, tmp_path)
+    owner = process_identity(os.getpid())
+    c, row = record(m, tmp_path, owner)
+    info = m.record_info(row)
+    info.update(driving_mode="manual", activity_tracking=False)
+    Path(row["launch_file"]).write_text(json.dumps(info))
+    m.save_metadata(c, row["lease_id"], {"owner": owner, "awaiting_until": 130})
+    monkeypatch.setattr(m, "now", lambda: 131)
+    assert m.lifecycle_state(c, row) == "active"
+    monkeypatch.setattr(m, "unit_active", lambda *_: True)
+    monkeypatch.setattr(m, "retire", lambda *_: pytest.fail("live manual owner must not be retired"))
+    monkeypatch.setattr(m, "lease", lambda *_: {"status": "renewed"})
+    m.maintain(argparse.Namespace(browser_id=row["browser_id"]))
+    request = args()
+    request.lease_id, request.agent_id = row["lease_id"], row["agent_id"]
+    request.work_state = "active"
+    with pytest.raises(SystemExit):
+        m.touch(request)
+    assert json.loads(capsys.readouterr().out)["status"] == "touched"
+    assert "awaiting_until" not in m.metadata(c, row)
+
+
 def test_automatic_fresh_selection_is_stable_and_owner_isolated(monkeypatch, tmp_path):
     m = provisioner(monkeypatch, tmp_path)
     c, a = m.db(), args()

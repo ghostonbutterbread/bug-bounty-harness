@@ -1,5 +1,28 @@
 # Browser resource management — integration dossier
 
+## Release-review correction — live manual owner after expired hold
+
+Independent read-only review of `02d4802` blocked beta release: an untracked
+manual browser with a verified live owner PID was classified as
+`expired-awaiting-input` once its intervention hold expired, so the watcher
+could retire it and the owner could not resume with `touch active`. For untracked
+records, verified active *manual-mode* ownership now takes precedence over the
+expired hold; legacy/unknown-mode records retain their existing absolute expiry,
+and terminal/unknown owners still expire. Tracked agent-driven
+browsers retain adapter activity as their authority. A regression covers a live
+manual-mode owner through `maintain` and `touch`, alongside the existing
+legacy absolute-expiry and terminal-owner tests. This change does not extend the
+hold or make PID liveness override agent-driven idle claims or the two-hour
+sweep. After the repair, the two disjoint opt-in fixture batches passed **144**
+(`resources`, selection, driving, lifecycle, recovery, lease) and **112**
+(systemd producer, provisioner, launcher, diagnostics, handoff, script policy)
+tests respectively; `git diff --check` passed. The first combined rerun before
+narrowing manual mode failed the pre-existing legacy absolute-expiry test; the
+narrowed manual-only correction passed both batches. A separate interrupted
+combined invocation left one fixture-owned browser unit, which was stopped by
+its exact ID and verified absent before those successful reruns. Final
+independent review remains a release gate.
+
 ## Disposable user-systemd fixture startup correction
 
 Feature `feat/browser-lease-recovery` at

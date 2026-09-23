@@ -1,10 +1,12 @@
 import argparse
 import importlib.util
+import json
 import os
 import sqlite3
 import sys
 import time
 from pathlib import Path
+import pytest
 
 SCRIPT = Path(__file__).parents[1] / "skills/chromium-test/scripts/browser_provisioner.py"
 
@@ -87,7 +89,7 @@ def test_sweep_refuses_active_recorded_unit(monkeypatch, tmp_path):
 
 
 def start_args():
-    return argparse.Namespace(program="demo", account="fixture", auth_domain=None, agent_id="agent", run_id="run", purpose="test", ttl_seconds=60, idle_seconds=60, min_ram_available_mib=1, min_swap_free_mib=0, memory_high="256M", memory_max="512M", proxy_cert_mode="none", proxy_server=None, mitm_ca_cert=None, url=None, display_backend=None, kasmvnc_display=None, kasmvnc_web_port=None)
+    return argparse.Namespace(program="demo", account="fixture", auth_domain=None, agent_id="agent", run_id="run", purpose="test", ttl_seconds=60, idle_seconds=60, min_ram_available_mib=1, min_swap_free_mib=0, memory_high="256M", memory_max="512M", proxy="none", proxy_ownership="task", proxy_cert_mode="none", proxy_server=None, mitm_ca_cert=None, url=None, display_backend=None, kasmvnc_display=None, kasmvnc_web_port=None)
 
 
 def test_request_forwards_task_proxy_settings_to_start(monkeypatch, tmp_path):
@@ -101,7 +103,7 @@ def test_request_forwards_task_proxy_settings_to_start(monkeypatch, tmp_path):
     args = argparse.Namespace(
         program="demo", account="fixture", auth_domain="api.example.test", agent_id="agent", run_id="run", purpose="intercept",
         ttl_seconds=60, idle_seconds=60, wait_seconds=0, min_ram_available_mib=1,
-        min_swap_free_mib=0, memory_high="256M", memory_max="512M", proxy_cert_mode="import",
+        min_swap_free_mib=0, memory_high="256M", memory_max="512M", proxy="external", proxy_cert_mode="import",
         proxy_server="http://127.0.0.1:8081", mitm_ca_cert="/tmp/mitm-ca.pem", url="https://example.test/", display_backend="kasmvnc", kasmvnc_display=20, kasmvnc_web_port=8463, recover_profile=True,
     )
     try:
@@ -157,8 +159,13 @@ def test_provisioner_marks_its_launcher_invocation_as_internal(monkeypatch, tmp_
             else {"status": "registered"}
         ),
     )
-    monkeypatch.setattr(m, "unit_active", lambda _unit: True)
-    monkeypatch.setattr(m.subprocess, "run", lambda command, **_kwargs: calls.append(command) or argparse.Namespace(returncode=0, stdout="", stderr=""))
+    monkeypatch.setattr(m, "unit_active", lambda _unit: False if _unit == "browser-lease-browser" and not calls else True)
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+        if command[0] == "systemd-run":
+            launch.write_text('{"cdp_url": "http://127.0.0.1:9223"}')
+        return argparse.Namespace(returncode=0, stdout="", stderr="")
+    monkeypatch.setattr(m.subprocess, "run", fake_run)
     launch = tmp_path / "state" / "lease-browser.launch.json"
     monkeypatch.setattr(m.uuid, "uuid4", lambda: "lease-browser")
     monkeypatch.setattr(m.time, "time", lambda: 0)
@@ -232,6 +239,7 @@ def test_provisioner_request_defaults_to_required_proxy_ca_import(monkeypatch, t
 
 def test_same_owner_running_browser_is_reused(monkeypatch, tmp_path):
     m = load(monkeypatch, tmp_path)
+    monkeypatch.setattr(m, "matching_proxy", lambda *_: True)
     c = m.db(); t = time.time()
     c.execute("insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", ("l","b","demo","fixture","legacy-global","agent","run","test","u",str(tmp_path/"artifacts/p"),"/tmp/x","running",0,t,t,t)); c.commit()
     monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], []))
@@ -243,6 +251,7 @@ def test_same_owner_running_browser_is_reused(monkeypatch, tmp_path):
 
 def test_same_owner_reuses_inventory_resolved_auth_domain_without_cli_override(monkeypatch, tmp_path):
     m = load(monkeypatch, tmp_path)
+    monkeypatch.setattr(m, "matching_proxy", lambda *_: True)
     c = m.db(); t = time.time()
     c.execute("insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", ("l","b","demo","fixture","login.example.test","agent","run","test","u",str(tmp_path/"artifacts/p"),"/tmp/x","running",0,t,t,t)); c.commit()
     monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], []))
@@ -297,3 +306,144 @@ def test_failed_systemd_launch_releases_just_acquired_lease_with_healthy_profile
     except SystemExit as e: assert e.code == 2
     assert calls == ["acquire", "release"]
     assert release_args[release_args.index("--profile-health") + 1] == "healthy"
+
+
+def proxy_fixture(m, args, root):
+    c = m.db()
+    directory = root / "task-proxies" / "task-fixture"
+    (directory / "mitmproxy").mkdir(parents=True)
+    c.execute("insert into task_proxies values(?,?,?,?,?,?,?,?,?,?)",
+              (args.agent_id, args.run_id, "demo", "fixture", args.purpose,
+               "task-fixture", 8081, "task-mitm-task-fixture", str(directory), "running"))
+    c.commit()
+    return c
+
+
+def test_finish_rejects_startup_intent_before_cdp_and_allows_replay_after_release(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    c = proxy_fixture(m, args, tmp_path)
+    browser = tmp_path / "artifacts/demo/web/browser-profiles/fixture"
+    add(m, tmp_path, "first", browser, state="starting")
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    with pytest.raises(SystemExit) as exc:
+        m.task_proxy_finish(args)
+    assert exc.value.code == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "browser-active"
+    assert m.proxy_row(c, args)["state"] == "running"
+    c.execute("update browsers set state='stopped'")
+    c.commit()
+    monkeypatch.setattr(m, "stop_unit", lambda _: None)
+    monkeypatch.setattr(m, "port_open", lambda _: False)
+    monkeypatch.setattr(m, "remove_matching_ca", lambda *_a, **_k: None)
+    with pytest.raises(SystemExit) as exc:
+        m.task_proxy_finish(args)
+    assert exc.value.code == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "finished"
+    assert m.proxy_row(c, args) is None
+
+
+def test_finish_stop_failure_keeps_reservation_for_retry(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    c = proxy_fixture(m, args, tmp_path)
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    monkeypatch.setattr(m, "port_open", lambda _: True)
+    monkeypatch.setattr(m, "stop_unit", lambda _: None)
+    with pytest.raises(SystemExit) as exc:
+        m.task_proxy_finish(args)
+    assert exc.value.code == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "proxy-stop-failed"
+    assert m.proxy_row(c, args)["state"] == "stop-failed"
+
+
+def test_matching_proxy_rejects_different_trust_and_explicit_none(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    receipt = tmp_path / "receipt.json"
+    receipt.write_text(json.dumps({"proxy_server": None, "proxy_cert_mode": "none",
+                                   "command": ["--no-proxy-server"]}))
+    row = {"launch_file": str(receipt)}
+    assert m.matching_proxy(m.db(), args, row)
+    receipt.write_text(json.dumps({"proxy_server": None, "proxy_cert_mode": "none", "command": []}))
+    assert not m.matching_proxy(m.db(), args, row)
+    args.proxy = "external"
+    args.proxy_server = "http://127.0.0.1:8090"
+    args.proxy_cert_mode = "import"
+    args.mitm_ca_cert = str(tmp_path / "ca.pem")
+    receipt.write_text(json.dumps({"proxy_server": args.proxy_server, "proxy_cert_mode": "import",
+                                   "proxy_cert_status": {"status": "trusted", "ca_cert": args.mitm_ca_cert}}))
+    assert m.matching_proxy(m.db(), args, row)
+    args.mitm_ca_cert = str(tmp_path / "other.pem")
+    assert not m.matching_proxy(m.db(), args, row)
+
+
+def test_task_mitm_does_not_fallback_to_external_or_ignore(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    args.proxy = "mitm"
+    args.proxy_cert_mode = "auto"
+    with pytest.raises(SystemExit) as exc:
+        m.proxy_mode(args)
+    assert exc.value.code == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "invalid-proxy-options"
+    args.proxy_cert_mode = "import"
+    args.proxy_server = "http://127.0.0.1:8080"
+    with pytest.raises(SystemExit) as exc:
+        m.proxy_mode(args)
+    assert exc.value.code == 2
+
+
+def test_task_proxy_starts_before_browser_and_reuses_private_lane(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    args.proxy, args.proxy_cert_mode = "mitm", "import"
+    c = m.db()
+    commands = []
+    monkeypatch.setattr(m, "port_open", lambda _: False)
+    monkeypatch.setattr(m, "unit_active", lambda _: True)
+    monkeypatch.setattr(m, "mitm_runtime", lambda: ("/bin/mitmdump", "/bin/python"))
+    def run(command, **_):
+        commands.append(command)
+        return argparse.Namespace(returncode=0)
+    monkeypatch.setattr(m.subprocess, "run", run)
+    def ready(row):
+        Path(m.proxy_metadata(row)["ca_cert"]).write_text("fixture-ca")
+        return True
+    monkeypatch.setattr(m, "proxy_ready", ready)
+    row, created = m.start_proxy(c, args)
+    assert created and row["state"] == "running"
+    assert commands[0][0] == "systemd-run" and "--listen-port" in commands[0]
+    assert Path(row["run_dir"]).stat().st_mode & 0o777 == 0o700
+    assert (Path(row["run_dir"]) / "mitmproxy").stat().st_mode & 0o777 == 0o700
+    same, created = m.start_proxy(c, args)
+    assert not created and same["lane"] == row["lane"] and len(commands) == 1
+
+
+def test_missing_mitmdump_rolls_back_reservation_without_shared_fallback(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    monkeypatch.setattr(m, "port_open", lambda _: False)
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    monkeypatch.setattr(m, "mitm_runtime", lambda: (_ for _ in ()).throw(RuntimeError("missing")))
+    monkeypatch.setattr(m, "stop_unit", lambda _: None)
+    with pytest.raises(RuntimeError, match="missing"):
+        m.start_proxy(m.db(), args)
+    assert m.proxy_row(m.db(), args) is None
+
+
+def test_failed_browser_rolls_back_only_new_task_ca_after_verified_stop(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    c = proxy_fixture(m, args, tmp_path)
+    task = m.proxy_row(c, args)
+    ca = Path(m.proxy_metadata(task)["ca_cert"])
+    ca.write_text("fixture-ca")
+    removed = []
+    monkeypatch.setattr(m, "remove_matching_ca", lambda profile, ca, **kw: removed.append((profile, ca)))
+    monkeypatch.setattr(m, "stop_unit", lambda _: None)
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    monkeypatch.setattr(m, "port_open", lambda _: False)
+    profile = tmp_path / "profile"
+    assert m.rollback_failed_browser_proxy(c, task, True, profile)
+    assert removed == [(profile, ca)] and m.proxy_row(c, args) is None

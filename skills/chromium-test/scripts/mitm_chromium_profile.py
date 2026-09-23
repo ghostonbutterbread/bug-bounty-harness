@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import ssl
 import shutil
 import subprocess
 from pathlib import Path
@@ -74,6 +75,35 @@ def import_certificate(profile_dir: Path, ca_cert: Path, certutil: str, cert_nam
     )
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "certutil -A failed")
+
+
+def remove_matching_ca(profile_dir: Path, ca_cert: Path, cert_name: str = DEFAULT_CERT_NAME,
+                       home_dir: Path | None = None) -> None:
+    """Remove this task's CA only; preserve a nickname replaced by another task."""
+    certutil = certutil_path()
+    if not certutil:
+        raise RuntimeError("certutil unavailable for task CA cleanup")
+    expected = ssl.PEM_cert_to_DER_cert(ca_cert.read_text())
+    dbs = [profile_dir]
+    if home_dir and (home_dir / ".pki" / "nssdb").exists():
+        dbs.append(home_dir / ".pki" / "nssdb")
+    for nss_dir in dbs:
+        if not has_nss_db(nss_dir):
+            continue
+        proc = run_certutil([certutil, "-d", f"sql:{nss_dir}", "-L", "-n", cert_name, "-a"])
+        if proc.returncode:
+            if "Could not find cert:" in proc.stderr:
+                continue
+            raise RuntimeError(f"cannot inspect certificate in {nss_dir}: {proc.stderr.strip()}")
+        try:
+            actual = ssl.PEM_cert_to_DER_cert(proc.stdout)
+        except ValueError as exc:
+            raise RuntimeError(f"cannot identify certificate in {nss_dir}") from exc
+        if actual != expected:
+            # A later task can reuse this persistent profile and replace the
+            # nickname. Its trust is not ours to delete (nor a cleanup failure).
+            continue
+        delete_certificate(nss_dir, certutil, cert_name)
 
 
 def prepare_nss_db(

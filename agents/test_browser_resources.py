@@ -566,6 +566,7 @@ def test_idle_claim_rechecks_before_any_stop_or_transfer(monkeypatch, tmp_path, 
 
 def test_same_owner_can_enroll_pid_and_sees_missing_watcher(monkeypatch, tmp_path, capsys):
     m = provisioner(monkeypatch, tmp_path)
+    monkeypatch.setattr(m, "matching_proxy", lambda *_: True)
     c, row = record(m, tmp_path, None)
     request = args()
     request.agent_id, request.run_id = row["agent_id"], row["run_id"]

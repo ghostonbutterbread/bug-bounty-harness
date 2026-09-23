@@ -7,16 +7,19 @@ It never prints CDP URLs, cookies, credentials, or auth-seed locations.
 """
 
 from __future__ import annotations
-import argparse, functools, hashlib, json, os, shutil, sqlite3, subprocess, sys, time, uuid
+import argparse, functools, hashlib, json, os, shutil, socket, sqlite3, subprocess, sys, time, uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from browser_lifecycle import StartupDiagnostics, node_lock, owner_state, private_json, process_identity
+from chromium_test import resolve_mitm_ca_cert
+from mitm_chromium_profile import DEFAULT_CA_CERT, remove_matching_ca
 
 LEASE = ROOT / "browser_profile_lease.py"
 CHROMIUM = ROOT / "chromium_test.py"
+PROXY_STORE = ROOT / "proxy_store.py"
 STATE = Path(
     os.environ.get(
         "BROWSER_PROVISIONER_STATE",
@@ -62,6 +65,11 @@ def db():
     c.execute(
         "CREATE TABLE IF NOT EXISTS lifecycle (lease_id TEXT PRIMARY KEY, metadata TEXT NOT NULL)"
     )
+    c.execute("""CREATE TABLE IF NOT EXISTS task_proxies (
+        agent_id TEXT NOT NULL, run_id TEXT NOT NULL, program TEXT NOT NULL,
+        account TEXT NOT NULL, purpose TEXT NOT NULL, lane TEXT PRIMARY KEY,
+        port INTEGER UNIQUE NOT NULL, unit TEXT NOT NULL, run_dir TEXT NOT NULL,
+        state TEXT NOT NULL, UNIQUE(agent_id, run_id))""")
     return c
 
 
@@ -225,6 +233,160 @@ def stop_unit(unit):
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+
+def port_open(port):
+    with socket.socket() as sock:
+        sock.settimeout(.2)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+def proxy_row(c, args):
+    return c.execute("select * from task_proxies where agent_id=? and run_id=?",
+                     (args.agent_id, args.run_id)).fetchone()
+
+
+def proxy_metadata(row):
+    if not row:
+        return None
+    root = Path(row["run_dir"])
+    return {"lane": row["lane"], "proxy_server": f"http://127.0.0.1:{row['port']}",
+            "ca_cert": str(root / "mitmproxy" / "mitmproxy-ca-cert.pem"),
+            "flow_file": str(root / "flows.mitm"), "unit": row["unit"], "state": row["state"]}
+
+
+def mitm_runtime():
+    executable = shutil.which("mitmdump")
+    if not executable:
+        raise RuntimeError("mitmdump is unavailable")
+    resolved = Path(executable).resolve()
+    shebang = resolved.open("rb").readline().decode("utf-8", errors="replace").strip()
+    if not shebang.startswith("#!/") or not Path(shebang[2:]).is_file():
+        raise RuntimeError("mitmdump Python interpreter is unavailable")
+    return str(resolved), shebang[2:]
+
+
+def proxy_ready(row):
+    ca = Path(proxy_metadata(row)["ca_cert"])
+    return unit_active(row["unit"]) and port_open(row["port"]) and ca.is_file() and ca.stat().st_size > 0
+
+
+def start_proxy(c, args):
+    c.execute("BEGIN IMMEDIATE")
+    row = proxy_row(c, args)
+    if row:
+        c.commit()
+        if ((row["program"], row["account"], row["purpose"]) !=
+                (slug(args.program), slug(args.account), args.purpose)
+                or row["state"] != "running" or not proxy_ready(row)):
+            emit({"status": "proxy-conflict", "detail": "task listener unavailable or belongs to another request"}, 2)
+        return row, False
+    port = next((p for p in range(8081, 8091) if not c.execute(
+        "select 1 from task_proxies where port=?", (p,)).fetchone() and not port_open(p)), None)
+    if port is None:
+        c.rollback()
+        emit({"status": "proxy-unavailable", "detail": "no task MITM port available"}, 2)
+    lane = "task-" + uuid.uuid4().hex
+    root = STATE.parent / "task-proxies" / lane
+    c.execute("insert into task_proxies values(?,?,?,?,?,?,?,?,?,?)",
+              (args.agent_id, args.run_id, slug(args.program), slug(args.account), args.purpose,
+               lane, port, "task-mitm-" + lane, str(root), "starting"))
+    c.commit()
+    row = proxy_row(c, args)
+    try:
+        root.mkdir(parents=True, mode=0o700)
+        os.chmod(root, 0o700)
+        conf = root / "mitmproxy"
+        conf.mkdir(mode=0o700)
+        os.chmod(conf, 0o700)
+        cmd = [mitm_runtime()[0], "--listen-host", "127.0.0.1", "--listen-port", str(port),
+               "--set", f"confdir={conf}", "--set", "flow_detail=0", "-w", str(root / "flows.mitm")]
+        result = subprocess.run(["systemd-run", "--user", "--unit=" + row["unit"],
+                                 "--property=UMask=0077", "--property=MemoryMax=512M", "--", *cmd],
+                                capture_output=True, text=True, env=sysenv())
+        if result.returncode:
+            raise RuntimeError("task MITM service failed to start")
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if proxy_ready(row):
+                break
+            if not unit_active(row["unit"]):
+                break
+            time.sleep(.1)
+        if not proxy_ready(row):
+            raise RuntimeError("task MITM listener or CA not ready")
+        c.execute("update task_proxies set state='running' where lane=?", (lane,))
+        c.commit()
+        return proxy_row(c, args), True
+    except Exception:
+        rollback_proxy(c, row)
+        raise
+
+
+def rollback_proxy(c, row):
+    stop_unit(row["unit"])
+    if unit_active(row["unit"]) or port_open(row["port"]):
+        c.execute("update task_proxies set state='cleanup-failed' where lane=?", (row["lane"],))
+        c.commit()
+        return False
+    c.execute("delete from task_proxies where lane=?", (row["lane"],))
+    c.commit()
+    return True
+
+
+def proxy_mode(args):
+    if args.proxy == "mitm" and (args.proxy_server or args.mitm_ca_cert or args.proxy_cert_mode != "import" or args.proxy_ownership != "task"):
+        emit({"status": "invalid-proxy-options", "detail": "task MITM requires task ownership and CA import"}, 2)
+    if args.proxy == "none" and (args.proxy_server or args.mitm_ca_cert):
+        emit({"status": "invalid-proxy-options"}, 2)
+    if args.proxy == "external" and not args.proxy_server:
+        emit({"status": "invalid-proxy-options", "detail": "external requires --proxy-server"}, 2)
+
+
+def matching_proxy(c, args, row):
+    task = proxy_row(c, args)
+    info = record_info(row)
+    if args.proxy == "mitm":
+        if not task or task["state"] != "running" or not proxy_ready(task):
+            return False
+        expected = proxy_metadata(task)
+        return (info.get("proxy_server") == expected["proxy_server"]
+                and info.get("proxy_cert_mode") == "import"
+                and info.get("proxy_cert_status", {}).get("status") == "trusted"
+                and info.get("proxy_cert_status", {}).get("ca_cert") == expected["ca_cert"])
+    if task or info.get("proxy_server") != (args.proxy_server if args.proxy == "external" else None):
+        return False
+    if args.proxy == "none":
+        return info.get("proxy_cert_mode") == "none" and "--no-proxy-server" in info.get("command", [])
+    if info.get("proxy_cert_mode") != args.proxy_cert_mode:
+        return False
+    if args.proxy_cert_mode in ("auto", "import"):
+        cert = info.get("proxy_cert_status", {})
+        requested = str(resolve_mitm_ca_cert(args.mitm_ca_cert or str(DEFAULT_CA_CERT), args.proxy_server))
+        if cert.get("ca_cert") != requested or (args.proxy_cert_mode == "import" and cert.get("status") != "trusted"):
+            return False
+    return True
+
+
+def failed_launch(c, lid, unit):
+    stop_unit(unit)
+    if unit_active(unit):
+        return False
+    c.execute("update browsers set state='stopped',updated=? where lease_id=?", (now(), lid))
+    c.commit()
+    return True
+
+
+def rollback_failed_browser_proxy(c, task, created, profile):
+    if not created:
+        return True
+    ca = Path(proxy_metadata(task)["ca_cert"])
+    try:
+        if ca.is_file():
+            remove_matching_ca(profile, ca, home_dir=profile / "home")
+    except (OSError, RuntimeError, ValueError):
+        return False  # Keep reservation and CA pending explicit recovery.
+    return rollback_proxy(c, task)
 
 
 def safe(row):
@@ -673,6 +835,7 @@ def watch(args):
 
 @serialized
 def start(args):
+    proxy_mode(args)
     owner = None
     if getattr(args, "owner_pid", None):
         owner = process_identity(args.owner_pid)
@@ -748,6 +911,8 @@ def start(args):
                 if (was_headless != bool(getattr(args, "headless", False))
                         or (strict_kasm and not info.get("kasmvnc"))):
                     emit({"status": "locked", "reason": "display-mode-mismatch", **safe(row)}, 2)
+            if not matching_proxy(c, args, row):
+                emit({"status": "proxy-conflict", "detail": "running browser cannot be hot-reconfigured; release it first"}, 2)
             activity = activity_snapshot(row)
             if activity and activity.get("frozen"):
                 emit({"status": "recovery-blocked", "reason": "control-frozen", **safe(row)}, 2)
@@ -755,7 +920,7 @@ def start(args):
             if owner and meta.get("owner") is None:
                 meta["owner"] = owner
                 save_metadata(c, row["lease_id"], meta)
-            emit({"status": "already-running", **safe(row), "owner_state": state,
+            emit({"status": "already-running", **safe(row), "task_proxy": proxy_metadata(proxy_row(c, args)), "owner_state": state,
                   "watcher_healthy": unit_active(monitor_unit(row["browser_id"]))})
         if not same and state not in ("terminal", "expired-awaiting-input", "idle"):
             emit({"status": "queued" if automatic else "locked", "reason": "owner-" + state, **safe(row)}, 2)
@@ -777,6 +942,8 @@ def start(args):
             and meta.get("proxy_ownership") == "browser"
             and getattr(args, "proxy_ownership", "task") == "browser"
             and bool(args.proxy_server)
+            and args.proxy == "external"
+            and matching_proxy(c, args, row)
             and info.get("proxy_server") == args.proxy_server
             and info.get("proxy_cert_mode") == args.proxy_cert_mode
             and not info.get("kasmvnc")
@@ -933,6 +1100,7 @@ def start(args):
         emit(
             {
                 "status": "reused",
+                "task_proxy": None,
                 "fenced": True,
                 "watcher_healthy": unit_active(monitor_unit(row["browser_id"])),
                 **safe(
@@ -951,7 +1119,20 @@ def start(args):
         and row["state"] == "running"
         and healthy(row)
     ):
-        emit({"status": "already-running", **safe(row)})
+        if not matching_proxy(c, args, row):
+            emit({"status": "proxy-conflict", "detail": "running browser cannot be hot-reconfigured"}, 2)
+        emit({"status": "already-running", **safe(row), "task_proxy": proxy_metadata(proxy_row(c, args))})
+    task = None
+    created = False
+    if args.proxy == "mitm":
+        try:
+            task, created = start_proxy(c, args)
+        except Exception as exc:
+            release_lease(lid, args.agent_id)
+            emit({"status": "proxy-failed", "detail": str(exc)}, 2)
+    elif proxy_row(c, args):
+        release_lease(lid, args.agent_id)
+        emit({"status": "proxy-conflict", "detail": "finish the task proxy before changing mode"}, 2)
     prof = Path(got["lease"]["profile_dir"])
     bid = str(uuid.uuid4())
     unit = "browser-" + bid
@@ -961,6 +1142,20 @@ def start(args):
     launch = STATE.parent / (bid + ".launch.json")
     launch.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(launch.parent, 0o700)
+    if unit_active(unit):
+        if created:
+            rollback_proxy(c, task)
+        release_lease(lid, args.agent_id)
+        emit({"status": "browser-unit-conflict"}, 2)
+    # Startup intent is visible to finish before browser dispatch/CDP readiness.
+    t = now()
+    c.execute("delete from browsers where lease_id=?", (lid,))
+    c.execute("insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+              (lid, bid, slug(args.program), slug(got["lease"].get("account_alias", args.account)),
+               resolved_domain, args.agent_id, args.run_id, args.purpose, unit,
+               str(prof), str(launch), "starting", 0, t, t, t))
+    c.commit()
+    launch.unlink(missing_ok=True)
     # The unit stays foreground via sleep; Chromium remains inside its cgroup.
     cmd = [
         sys.executable,
@@ -978,7 +1173,7 @@ def start(args):
         "--account-label",
         args.account,
         "--proxy-cert-mode",
-        args.proxy_cert_mode,
+        args.proxy_cert_mode if args.proxy != "none" else "none",
         "--driving-mode",
         getattr(args, "driving_mode", None) or "agent-driven",
         "--json",
@@ -987,9 +1182,14 @@ def start(args):
         cmd += ["--task-owned"]
     if getattr(args, "headless", False):
         cmd += ["--headless"]
-    if args.proxy_server:
+    if task:
+        cmd += ["--proxy-server", proxy_metadata(task)["proxy_server"],
+                "--mitm-ca-cert", proxy_metadata(task)["ca_cert"]]
+    elif args.proxy == "none":
+        cmd += ["--no-proxy"]
+    elif args.proxy_server:
         cmd += ["--proxy-server", args.proxy_server]
-    if args.mitm_ca_cert:
+    if args.proxy == "external" and args.mitm_ca_cert:
         cmd += ["--mitm-ca-cert", args.mitm_ca_cert]
     if args.url:
         cmd += ["--url", args.url]
@@ -1030,6 +1230,10 @@ def start(args):
         p = subprocess.run(run, capture_output=True, text=True, env=sysenv())
     if p.returncode or not unit_active(unit):
         diagnostics.mark("dispatch", "failed", RuntimeError(), p.returncode)
+        if not failed_launch(c, lid, unit):
+            emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
+        if not rollback_failed_browser_proxy(c, task, created, prof):
+            emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
         release_lease(lid, args.agent_id)
         emit({"status": "launch-failed", "detail": (p.stderr or p.stdout).strip()}, 2)
     diagnostics.mark("publication")
@@ -1044,7 +1248,10 @@ def start(args):
         diagnostics.mark("publication", "failed",
                          TimeoutError() if isinstance(exc, FileNotFoundError)
                          or (isinstance(exc, json.JSONDecodeError) and not exc.doc) else exc)
-        stop_unit(unit)
+        if not failed_launch(c, lid, unit):
+            emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
+        if not rollback_failed_browser_proxy(c, task, created, prof):
+            emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
         release_lease(lid, args.agent_id)
         emit(
             {
@@ -1054,6 +1261,14 @@ def start(args):
             2,
         )
     diagnostics.mark("publication", "ready")
+    if task and not matching_proxy(c, args, c.execute(
+            "select * from browsers where lease_id=?", (lid,)).fetchone()):
+        if not failed_launch(c, lid, unit):
+            emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
+        if not rollback_failed_browser_proxy(c, task, created, prof):
+            emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
+        release_lease(lid, args.agent_id)
+        emit({"status": "launch-failed", "detail": "task proxy or imported CA not verified by launcher"}, 2)
     diagnostics.mark("registration")
     reg = lease(
         args,
@@ -1069,7 +1284,10 @@ def start(args):
     )
     if reg.get("status") != "registered":
         diagnostics.mark("registration", "failed", RuntimeError())
-        stop_unit(unit)
+        if not failed_launch(c, lid, unit):
+            emit({"status": "cleanup-incomplete", "reason": "browser-stop-not-verified"}, 2)
+        if not rollback_failed_browser_proxy(c, task, created, prof):
+            emit({"status": "cleanup-incomplete", "reason": "task-proxy-cleanup-not-verified"}, 2)
         release_lease(lid, args.agent_id)
         emit(
             {"status": "launch-failed", "detail": "could not register owned browser"}, 2
@@ -1130,6 +1348,7 @@ def start(args):
     emit(
         {
             "status": "started",
+            "task_proxy": proxy_metadata(task),
             **safe(out),
             "profile_lifetime": "persistent",
             "owner_state": lifecycle_state(c, out),
@@ -1271,6 +1490,9 @@ def release(args):
     emit(
         {
             "status": "released",
+            "task_proxy": proxy_metadata(c.execute(
+                "select * from task_proxies where agent_id=? and run_id=?",
+                (r["agent_id"], r["run_id"])).fetchone()),
             **safe(
                 c.execute(
                     "select * from browsers where lease_id=?", (args.lease_id,)
@@ -1278,6 +1500,76 @@ def release(args):
             ),
         }
     )
+
+
+def task_proxy_status(args):
+    row = proxy_row(db(), args)
+    if not row:
+        emit({"status": "not-found"}, 2)
+    emit({"status": "ok", "task_proxy": proxy_metadata(row), "ready": proxy_ready(row)})
+
+
+@serialized
+def task_proxy_finish(args):
+    c = db()
+    c.execute("BEGIN IMMEDIATE")
+    row = proxy_row(c, args)
+    if not row:
+        c.rollback()
+        emit({"status": "not-found"}, 2)
+    if row["state"] in ("starting", "finishing", "cleanup-failed"):
+        c.rollback()
+        emit({"status": "proxy-conflict", "detail": "task proxy starting or requires recovery"}, 2)
+    browsers = c.execute("select * from browsers where agent_id=? and run_id=?",
+                         (args.agent_id, args.run_id)).fetchall()
+    if any(browser["state"] not in ("stopped", "deleted") or unit_active(browser["unit"])
+           for browser in browsers):
+        c.rollback()
+        emit({"status": "browser-active", "detail": "release the browser first"}, 2)
+    c.execute("update task_proxies set state='finishing' where lane=?", (row["lane"],))
+    c.commit()
+    stop_unit(row["unit"])
+    if unit_active(row["unit"]) or port_open(row["port"]):
+        c.execute("update task_proxies set state='stop-failed' where lane=?", (row["lane"],))
+        c.commit()
+        emit({"status": "proxy-stop-failed", "reservation": "retained"}, 2)
+    c.execute("update task_proxies set state='stopped' where lane=?", (row["lane"],))
+    c.commit()
+    ca = Path(proxy_metadata(row)["ca_cert"])
+    try:
+        for browser in browsers:
+            if browser["state"] == "deleted":
+                continue
+            profile = Path(browser["profile_dir"])
+            remove_matching_ca(profile, ca, home_dir=profile / "home")
+    except (OSError, RuntimeError, ValueError) as exc:
+        emit({"status": "proxy-ca-cleanup-failed", "lane": row["lane"],
+              "detail": str(exc), "reservation": "retained"}, 2)
+    flow = Path(proxy_metadata(row)["flow_file"])
+    if flow.exists() and flow.stat().st_size:
+        try:
+            python = mitm_runtime()[1]
+        except (RuntimeError, OSError):
+            emit({"status": "proxy-index-failed", "lane": row["lane"],
+                  "detail": "mitmdump Python unavailable; reservation retained"}, 2)
+        cmd = [python, str(PROXY_STORE), "--json", "index-lane", "--lane", row["lane"],
+               "--lane-root", str(Path(row["run_dir"]).parent), "--flow-file", str(flow),
+               "--program", row["program"], "--task", row["purpose"],
+               "--agent-id", row["agent_id"], "--run-id", row["run_id"],
+               "--account-label", row["account"], "--proxy-host", "127.0.0.1",
+               "--proxy-port", str(row["port"]),
+               "--proxy-server", proxy_metadata(row)["proxy_server"], "--transport", "mixed"]
+        indexed = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            result = json.loads(indexed.stdout)
+        except ValueError:
+            result = {}
+        if indexed.returncode or result.get("status") != "indexed":
+            emit({"status": "proxy-index-failed", "lane": row["lane"], "reservation": "retained"}, 2)
+    c.execute("delete from task_proxies where lane=?", (row["lane"],))
+    c.commit()
+    emit({"status": "finished", "lane": row["lane"], "flow_file": str(flow),
+          "indexed": flow.exists() and bool(flow.stat().st_size)})
 
 
 def managed_root():
@@ -1407,6 +1699,8 @@ def request(args):
             args.memory_max,
             "--proxy-cert-mode",
             args.proxy_cert_mode,
+            "--proxy",
+            args.proxy,
         ]
         if getattr(args, "task_owned", False):
             cmd += ["--task-owned"]
@@ -1565,7 +1859,13 @@ def main():
         choices=("healthy", "needs-refresh", "needs-cleanup", "unknown"),
         required=True,
     )
+    for name in ("task-proxy-status", "task-proxy-finish"):
+        parser = sub.add_parser(name)
+        parser.add_argument("--agent-id", required=True)
+        parser.add_argument("--run-id", required=True)
     for parser in (s, r0):
+        parser.add_argument("--proxy", choices=("mitm", "external", "none"), default="mitm",
+                            help="Task-owned MITM by default; external requires an explicit listener; none forces direct routing.")
         parser.add_argument("--driving-mode", choices=("agent-driven", "manual"),
                             help="Fresh browsers default to agent-driven; omitted retries preserve existing mode. Explicit mismatches require release/restart.")
         parser.add_argument("--task-owned", action="store_true")
@@ -1618,6 +1918,10 @@ def main():
         sweep(args)
     if args.cmd == "release":
         release(args)
+    if args.cmd == "task-proxy-status":
+        task_proxy_status(args)
+    if args.cmd == "task-proxy-finish":
+        task_proxy_finish(args)
 
 
 if __name__ == "__main__":

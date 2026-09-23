@@ -46,7 +46,9 @@ def args():
         owner_pid=os.getpid(),
         task_owned=False,
         proxy_ownership="task",
+        proxy="external",
         proxy_server="http://127.0.0.1:9",
+        mitm_ca_cert=None,
         proxy_cert_mode="none",
         recover_profile=False,
     )

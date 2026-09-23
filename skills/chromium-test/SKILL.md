@@ -291,6 +291,31 @@ handoff alongside the browser and profile cleanup.
 
 ## MITM Proxy Certificate Handling
 
+The provisioner defaults to `--proxy mitm`: it reserves a task/run-specific
+loopback listener in 8081–8090, waits for its private CA, and passes both to
+the launcher before Chromium spawns. The launcher imports that CA into the
+isolated profile; readiness requires a trusted import receipt. Browser release
+does **not** stop the task proxy: direct replay may continue through the
+returned `task_proxy.proxy_server` using `task_proxy.ca_cert` as the origin CA
+(`curl --cacert`, not `--proxy-cacert`). At task completion:
+
+```bash
+bbh skills/chromium-test/scripts/browser_provisioner.py task-proxy-status --agent-id <agent-id> --run-id <run-id>
+bbh skills/chromium-test/scripts/browser_provisioner.py task-proxy-finish --agent-id <agent-id> --run-id <run-id>
+```
+
+Finish rejects an active/starting browser, verifies listener stop, removes only
+matching task CA trust from stopped persistent profiles, then indexes the
+private flow. Stop/index/CA errors retain the reservation for recovery. If a
+later task replaced the NSS nickname with its different CA, finishing the older
+task skips that nickname without deleting later trust. Use
+`--proxy external --proxy-server <listener> [--mitm-ca-cert <CA>]` only for explicitly managed
+external routing; use `--proxy none` for explicit direct traffic (Chromium
+receives `--no-proxy-server`). Neither mode consumes a task listener. A running
+browser cannot be hot-rerouted. No shared Caido/default proxy fallback is
+permitted for a failed task listener. Verify browser-origin HTTPS flow capture
+and the root/renderer cgroup before declaring a host runtime active.
+
 The launcher should trust the proxy CA inside each isolated Chromium profile.
 Do not use blanket certificate-ignore mode as the normal path.
 
@@ -311,7 +336,7 @@ bbh skills/chromium-test/scripts/mitm_chromium_profile.py \
   --ca-cert ~/.mitmproxy/mitmproxy-ca-cert.pem
 ```
 
-Hoster/default proxy model:
+Legacy standalone Hoster/default proxy model (not the provisioner's task fallback):
 
 - `http://hoster:8080` is the default always-on capture proxy for generic
   `curl`, `httpx`, and script traffic when no task-specific browser lane is

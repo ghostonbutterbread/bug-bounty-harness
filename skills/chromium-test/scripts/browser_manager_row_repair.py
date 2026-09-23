@@ -122,7 +122,7 @@ def runtime_quiescent(row, receipt, lease, metadata):
 
 def inspect(conn, program, account, *, probe=None):
     layout(conn)
-    candidates, blocked = [], {}
+    candidates, blocked, evidence = [], {}, {}
     manager_dir = Path(next(r['file'] for r in conn.execute('PRAGMA database_list') if r['name'] == 'main')).parent
     for r in conn.execute('SELECT * FROM browsers WHERE program=? AND account=? ORDER BY lease_id', (program, account)):
         row = dict(r)
@@ -176,11 +176,14 @@ def inspect(conn, program, account, *, probe=None):
                 metadata = json.loads(meta_row['metadata']) if meta_row else {}
                 probe(row, receipt, lease, metadata)
             candidates.append((row, repaired))
+            evidence[digest(lid)[:16]] = ('missing' if not path.is_file() else
+                                           'complete' if all(k in receipt for k in fields) and receipt.get('process_identity') else
+                                           'sparse')
         except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
             blocked[digest(lid)[:16]] = 'invalid-evidence'
         except Refused as exc:
             blocked[digest(lid)[:16]] = str(exc)
-    return candidates, blocked
+    return candidates, blocked, evidence
 
 
 def snapshot(path, destination):
@@ -234,11 +237,11 @@ def run(manager, program, account, *, apply=False, plan_hash=None, confirmed=Fal
                 backup_pair(manager, canonical, Path(backup_dir))
                 conn.execute('BEGIN IMMEDIATE')
             try:
-                candidates, blocked = inspect(conn, program, account, probe=probe or (runtime_quiescent if apply else None))
-                plan = digest([(r['lease_id'], digest(r), digest(v)) for r, v in candidates])
+                candidates, blocked, evidence = inspect(conn, program, account, probe=probe or (runtime_quiescent if apply else None))
+                plan = digest([(r['lease_id'], digest(r), digest(v), evidence[digest(r['lease_id'])[:16]]) for r, v in candidates])
                 receipt = {'status': 'planned' if not apply else 'refused', 'program': program,
                            'account': account, 'candidate_count': len(candidates), 'blocked_count': len(blocked),
-                           'blocked': blocked, 'plan_hash': plan}
+                           'blocked': blocked, 'evidence': evidence, 'plan_hash': plan}
                 if apply:
                     if plan != plan_hash or not candidates:
                         raise Refused('plan-changed-or-no-eligible-rows')

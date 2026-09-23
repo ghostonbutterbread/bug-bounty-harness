@@ -35,8 +35,9 @@ selection, target scope, and browser state still require agent verification.
 
 `browser_manager_row_repair.py --manager-db /private/browser_provisioner.sqlite --program neon --account blue`
 reads the exact old appended-column layout and canonical lease database in the
-same directory. It emits counts, opaque lease-ID hashes for blocked rows, and a
-plan hash; never raw launch records, paths, CDP URLs or account credentials.
+same directory. It emits counts, `complete`/`sparse`/`missing` classifications
+for eligible opaque lease-ID hashes, blocked reasons and a plan hash; never raw
+launch records, paths, CDP URLs or account credentials.
 The exact program/account pair selects rows; other neon accounts are excluded.
 Only released canonical leases with exact ID, ownership, unit and launch path
 can be candidates. Historical sparse or missing receipts are not invented: any

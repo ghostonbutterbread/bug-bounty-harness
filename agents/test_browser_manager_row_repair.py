@@ -70,6 +70,7 @@ def test_exact_selector_and_partial_quarantine(tmp_path, runtime):
     (tmp_path / 'bid-0.launch.json').unlink()  # no receipt; independent evidence
     plan = repair.run(state, 'neon', 'blue')
     assert plan['candidate_count'] == 1 and plan['blocked_count'] == 2
+    assert list(plan['evidence'].values()) == ['missing']
     assert repair.run(state, 'neon', 'green')['candidate_count'] == 1
     assert repair.run(state, 'other', 'blue')['candidate_count'] == 1
     result = apply(state, backup, plan)
@@ -94,6 +95,7 @@ def test_sparse_receipt_conflict_and_owner_ambiguity(tmp_path, runtime, monkeypa
     (tmp_path / 'bid-2.launch.json').unlink()
     plan = repair.run(state, 'neon', 'blue')
     assert plan['candidate_count'] == 2 and list(plan['blocked'].values()) == ['receipt-conflict']
+    assert list(plan['evidence'].values()) == ['sparse', 'missing']
     with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite') as c:
         c.execute("UPDATE browser_profile_leases SET status='active' WHERE lease_id='lid-1'")
     with pytest.raises(repair.Refused, match='plan-changed'):
@@ -179,5 +181,5 @@ def test_active_unit_blocks(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: subprocess.CompletedProcess(a, 0, 'active\n', ''))
     with repair.open_db(state) as c:
         c.execute('ATTACH DATABASE ? AS lease', (str(tmp_path / 'browser_profile_leases.sqlite'),))
-        candidates, blocked = repair.inspect(c, 'neon', 'blue', probe=repair.runtime_quiescent)
+        candidates, blocked, evidence = repair.inspect(c, 'neon', 'blue', probe=repair.runtime_quiescent)
     assert not candidates and list(blocked.values()) == ['unit-active-or-unknown']

@@ -32,15 +32,18 @@ visible to that board automatically, and two independent "find a vulnerability"
 goals can otherwise choose the same flow at the same time.
 
 Use the program's short-lived `agent_shared/active-runs/` presence directory as
-the only shared concurrency signal. It is an expiring surface lease, not a
-universal to-do list or run log. Before starting or pivoting a long task:
+the peer-visible resource reservation signal, not a universal to-do list or run
+log. Load `pi-cordinator` before communicating with another agent about a shared
+resource. Before starting or pivoting a long task:
 
-1. Read active presence records and select a distinct flow, surface, or offline
-   artifact slice.
-2. Write one presence record using `templates/active-run-presence.md`.
+1. Read neutral resource reservations; do not use peer records to learn another
+   agent's vulnerability, target route, or hypothesis.
+2. Write one resource-only presence record using
+   `templates/active-run-presence.md`.
 3. Refresh it at meaningful checkpoints; remove or mark it finished on exit.
-4. If another worker owns the same exact live flow/question, ask the
-   coordinator to split complementary work or choose a different surface.
+4. If resource contention cannot be resolved without investigation details,
+   ask the operator to assign distinct work privately. Keep detailed surface
+   leases and evidence in the operator's private run record.
 
 MapStore's local write lock protects its files from concurrent writers on the
 same mounted filesystem. It is not a distributed scheduler and does not prevent

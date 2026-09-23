@@ -56,5 +56,9 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
 9. Include the selected policy chain, one BBH lane, evidence pointers, exact
    stop condition, and account/browser lane only when required in every child
    packet.
+10. When coordinating shared resources with another BBH agent, load
+    `pi-cordinator` before sending the peer resource message. Keep that channel
+    resource-only; investigation details belong in their designated private
+    channels, not peer logistics.
 
 See the selected skill for commands, evidence requirements, and runner details.

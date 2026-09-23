@@ -559,7 +559,7 @@ def test_systemd_lifecycle_fixture():
 
 @pytest.mark.skipif(os.environ.get('BBH_LOCAL_BROWSER_SMOKE') != '1', reason='explicit local systemd smoke opt-in')
 def test_real_stopped_legacy_to_two_auto_requests():
-    """Disposable stopped legacy history, then two real isolated browsers."""
+    """Disposable pre-domain stopped history, then two real isolated browsers."""
     import argparse
     import uuid
     import browser_profile_lease as profiles
@@ -579,11 +579,11 @@ def test_real_stopped_legacy_to_two_auto_requests():
             import hashlib
             prior.manager_id = hashlib.sha256(str(state.resolve()).encode()).hexdigest()
             lease = profiles.cmd_acquire(prior)['lease']
-            profile = Path(lease['profile_dir'])
+            profile = Path(lease['profile_dir']).parent.parent / 'anon'
             profile.mkdir(parents=True)
             (profile / 'fixture-auth-sentinel').write_text('legacy-only')
             with profiles.connect(state.parent / 'browser_profile_leases.sqlite') as db:
-                db.execute("UPDATE browser_profile_leases SET status='released',released_at=1,profile_health='healthy' WHERE lease_id=?", (lease['lease_id'],))
+                db.execute("UPDATE browser_profile_leases SET profile_dir=?,status='released',released_at=1,profile_health='healthy' WHERE lease_id=?", (str(profile), lease['lease_id']))
             old_bid = str(uuid.uuid4())
             with sqlite3.connect(state) as db:
                 db.execute('''CREATE TABLE browsers (lease_id TEXT PRIMARY KEY,browser_id TEXT UNIQUE NOT NULL,program TEXT NOT NULL,account TEXT NOT NULL,auth_domain TEXT NOT NULL,agent_id TEXT NOT NULL,run_id TEXT NOT NULL,purpose TEXT NOT NULL,unit TEXT NOT NULL,profile_dir TEXT NOT NULL,launch_file TEXT NOT NULL,state TEXT NOT NULL,tab_count INTEGER NOT NULL DEFAULT 0,last_activity REAL NOT NULL,created REAL NOT NULL,updated REAL NOT NULL)''')
@@ -603,6 +603,9 @@ def test_real_stopped_legacy_to_two_auto_requests():
                 return json.loads(result.stdout)
             first = request('first')
             assert first['status'] == 'started' and first['instance_key'] == ''
+            with sqlite3.connect(state) as db:
+                assert db.execute('SELECT profile_dir FROM browsers WHERE lease_id=?',
+                                  (first['lease_id'],)).fetchone()[0] == str(profile)
             assert Path(profile / 'fixture-auth-sentinel').read_text() == 'legacy-only'
             second = request('second')
             assert second['status'] == 'started' and second['instance_key'].startswith('auto-')

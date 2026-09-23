@@ -40,6 +40,57 @@ def take(owner, key, agent, manager=None, *, automatic=None):
     return profiles.cmd_acquire(request)
 
 
+@pytest.mark.parametrize('conflict', ['none', 'other-path', 'null-domain', 'other-manager',
+                                      'wrong-manager-row', 'arbitrary-path', 'active-peer'])
+def test_stopped_pre_domain_inherits_only_exact_manager_history(monkeypatch, tmp_path, conflict):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    pre_domain = profiles.profile_dir('demo', 'legacy-global', 'anon').parent.parent / 'anon'
+    pre_domain.mkdir(parents=True, exist_ok=True)
+    sentinel = pre_domain / 'fixture-auth-sentinel'
+    sentinel.write_text('authenticated')
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        db.execute("UPDATE browser_profile_leases SET profile_dir=?,status='released',released_at=1,profile_health='healthy' WHERE lease_id=?",
+                   (str(pre_domain), row['lease_id']))
+        if conflict == 'other-path':
+            db.execute("INSERT INTO browser_profile_leases(lease_id,program,account_alias,auth_domain,owner_agent_id,owner_run_id,purpose,profile_dir,status,created_at,heartbeat_at,expires_at,manager_id) SELECT 'conflict',program,account_alias,auth_domain,owner_agent_id,owner_run_id,purpose,?,'released',created_at,heartbeat_at,expires_at,manager_id FROM browser_profile_leases WHERE lease_id=?", (str(profiles.profile_dir('demo', 'legacy-global', 'anon')), row['lease_id']))
+        if conflict == 'null-domain':
+            db.execute('UPDATE browser_profile_leases SET auth_domain=NULL WHERE lease_id=?', (row['lease_id'],))
+        if conflict == 'other-manager':
+            db.execute('UPDATE browser_profile_leases SET manager_id=? WHERE lease_id=?', ('different', row['lease_id']))
+        if conflict == 'active-peer':
+            db.execute("UPDATE browser_profile_leases SET status='active' WHERE lease_id=?", (row['lease_id'],))
+    c.execute("UPDATE browsers SET profile_dir=?,state='stopped' WHERE lease_id=?", (str(pre_domain), row['lease_id']))
+    c.commit()
+    monkeypatch.setattr(m, 'unit_active', lambda _: False)
+    selection = args()
+    assert m.automatic_instance(c, selection, 'anon', 'legacy-global', allow_migration=True) == ''
+    request = argparse.Namespace(**vars(owner))
+    request.agent_id = request.run_id = 'first'
+    request.stopped_legacy_lease_id = row['lease_id']
+    request.stopped_legacy_profile_dir = str(pre_domain)
+    request.stopped_legacy_agent_id = row['agent_id']
+    request.stopped_legacy_run_id = row['run_id']
+    if conflict == 'wrong-manager-row':
+        request.stopped_legacy_agent_id = 'unrelated'
+    if conflict == 'arbitrary-path':
+        request.stopped_legacy_profile_dir = str(tmp_path / 'arbitrary')
+    got = profiles.cmd_acquire(request)
+    if conflict != 'none':
+        assert got['status'] == 'locked'
+        assert sentinel.read_text() == 'authenticated'
+        return
+    assert got['status'] == 'leased' and got['lease']['profile_dir'] == str(pre_domain)
+    assert sentinel.read_text() == 'authenticated'
+    c.execute('UPDATE browsers SET state=?,lease_id=?,agent_id=?,run_id=? WHERE lease_id=?',
+              ('running', got['lease']['lease_id'], 'first', 'first', row['lease_id']))
+    c.commit()
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    key = m.automatic_instance(c, selection, 'anon', 'legacy-global', allow_migration=True)
+    assert key.startswith('auto-')
+    peer = take(owner, key, 'second', manager)
+    assert peer['status'] == 'leased' and peer['lease']['profile_dir'] != str(pre_domain)
+
+
 def test_stopped_missing_receipt_fails_closed_on_unit_or_profile_lock(monkeypatch, tmp_path, capsys):
     m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
     c.execute("UPDATE browsers SET state='stopped'")

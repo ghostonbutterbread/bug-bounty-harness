@@ -146,6 +146,34 @@ def instance_profile(program, domain, alias, key=""):
             / slug(domain) / slug(alias) / key) if key else base
 
 
+def stopped_legacy_profile(conn, args, alias, domain, key):
+    """Resolve a stopped manager record against the entire canonical unkeyed history."""
+    old_id = getattr(args, 'stopped_legacy_lease_id', None)
+    old_path = getattr(args, 'stopped_legacy_profile_dir', None)
+    manager = getattr(args, 'manager_id', None)
+    if not old_id and not old_path:
+        return None, False
+    if not old_id or not old_path or not manager or key or getattr(args, 'automatic_instance', False):
+        return None, True
+    rows = conn.execute(
+        "SELECT * FROM browser_profile_leases WHERE program=? AND account_alias=? "
+        "AND (auth_domain=? OR auth_domain IS NULL) AND instance_key=''",
+        (slug(args.program), slug(alias), domain),
+    ).fetchall()
+    source = next((r for r in rows if r['lease_id'] == old_id), None)
+    pre_domain = artifact_base() / program_key(args.program) / 'web' / 'browser-profiles' / slug(alias)
+    allowed = (str(pre_domain), str(profile_dir(args.program, domain, alias)))
+    if (not source or old_path not in allowed or source['profile_dir'] != old_path
+            or source['auth_domain'] != domain or source['manager_id'] != manager
+            or source['owner_agent_id'] != getattr(args, 'stopped_legacy_agent_id', None)
+            or source['owner_run_id'] != getattr(args, 'stopped_legacy_run_id', None)
+            or source['status'] != 'released' or any(
+                r['profile_dir'] != old_path or r['auth_domain'] != domain
+                or r['manager_id'] != manager for r in rows)):
+        return None, True
+    return source['profile_dir'], True
+
+
 def init_resource_policy(conn):
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS browser_concurrency_policy (
@@ -764,9 +792,12 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
                 "color_availability": color_availability(conn, args.program, inventory, timestamp, auth_domain),
                 "next": "do not attach to or replace this browser; choose an explicitly approved alternative account or wait",
             }
+        inherited_path, requested_inheritance = stopped_legacy_profile(conn, args, alias, auth_domain, key)
+        if requested_inheritance and inherited_path is None:
+            return {'status': 'locked', 'reason': 'legacy-profile-history-mismatch'}
         lease_id = str(uuid.uuid4())
         expires_at = timestamp + args.ttl_seconds
-        persistent_profile = instance_profile(args.program, auth_domain, alias, key)
+        persistent_profile = inherited_path or instance_profile(args.program, auth_domain, alias, key)
         conn.execute(
             """
             INSERT INTO browser_profile_leases(
@@ -963,6 +994,10 @@ def build_parser() -> argparse.ArgumentParser:
     acquire.add_argument("--instance-key")
     acquire.add_argument("--automatic-instance", action="store_true", help=argparse.SUPPRESS)
     acquire.add_argument("--selection-proof-stdin", action="store_true", help=argparse.SUPPRESS)
+    acquire.add_argument("--stopped-legacy-lease-id", help=argparse.SUPPRESS)
+    acquire.add_argument("--stopped-legacy-profile-dir", help=argparse.SUPPRESS)
+    acquire.add_argument("--stopped-legacy-agent-id", help=argparse.SUPPRESS)
+    acquire.add_argument("--stopped-legacy-run-id", help=argparse.SUPPRESS)
     policy = sub.add_parser("set-browser-policy", help="Manual concurrency policy; never retries authentication or stops existing browsers.")
     policy.add_argument("program")
     policy.add_argument("account")

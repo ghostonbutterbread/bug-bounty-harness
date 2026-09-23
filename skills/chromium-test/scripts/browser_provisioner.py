@@ -902,6 +902,12 @@ def start(args):
                       "auth_domain": auth_domain},
         )
     else:
+        stopped_legacy = (row if row and not instance and row['state'] == 'stopped'
+                          and not getattr(args, 'task_owned', False) else None)
+        if stopped_legacy and not quiescent_legacy(c, c.execute(
+                'SELECT * FROM browsers WHERE program=? AND account=? AND auth_domain=?',
+                (slug(args.program), slug(alias), auth_domain)).fetchall(), stopped_legacy):
+            emit({'status': 'recovery-blocked', 'reason': 'legacy-profile-not-quiescent'}, 2)
         proof = (profiles.authorize_auto_slot(
             STATE.parent / "browser_profile_leases.sqlite", slug(args.program), slug(alias),
             auth_domain, instance, hashlib.sha256(str(STATE.resolve()).encode()).hexdigest(),
@@ -924,6 +930,10 @@ def start(args):
             *(["--recover-profile"] if getattr(args, "recover_profile", False) else []),
             *(["--task-owned"] if getattr(args, "task_owned", False) else []),
             *(["--instance-key", instance] if instance else []),
+            *(["--stopped-legacy-lease-id", stopped_legacy['lease_id'],
+               "--stopped-legacy-profile-dir", stopped_legacy['profile_dir'],
+               "--stopped-legacy-agent-id", stopped_legacy['agent_id'],
+               "--stopped-legacy-run-id", stopped_legacy['run_id']] if stopped_legacy else []),
             *(["--automatic-instance", "--selection-proof-stdin"] if automatic else []),
         )
     if got.get("status") not in ("leased", "already-owned"):

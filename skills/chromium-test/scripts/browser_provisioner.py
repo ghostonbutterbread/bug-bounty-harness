@@ -353,10 +353,10 @@ def selected_browser(c, program, alias, domain, key):
     return next((row for row in rows if record_info(row).get("instance_key", "") == key), None)
 
 
-def automatic_instance(c, args, alias, domain, *, allow_takeover=False):
+def automatic_instance(c, args, alias, domain, *, allow_takeover=False, allow_migration=False):
     """Select under the node lock; acquisition/freeze still arbitrate ownership.
 
-    Never migrate a legacy profile or treat unobservable native use as idle.
+    Never copy a legacy profile or treat unobservable native use as idle.
     Explicit slots remain explicit; only manager-created auto slots are pooled.
     """
     import browser_profile_lease as profiles
@@ -368,12 +368,20 @@ def automatic_instance(c, args, alias, domain, *, allow_takeover=False):
     latest = {}
     for row in rows:
         latest.setdefault(record_info(row).get("instance_key", ""), row)
-    if "" in latest:
-        return ""
+    legacy = latest.get("")
+    if legacy:
+        if legacy['agent_id'] == args.agent_id and legacy['run_id'] == args.run_id and legacy['state'] == 'running':
+            return ""  # Preserve the authenticated legacy profile for its owner/next user.
+        pooled_running = any(r['state'] == 'running' and
+                             record_info(r).get('instance_selection') == 'automatic'
+                             for k, r in latest.items() if k)
+        if not allow_migration or (legacy['state'] == 'running' and not healthy(legacy)) or (
+                legacy['state'] != 'running' and (not pooled_running or not stopped(legacy))):
+            return ""
     # Historical leases and existing disk data are migration boundaries even
     # when no running browser is registered in this manager.
     lease_db = STATE.parent / "browser_profile_leases.sqlite"
-    if lease_db.exists():
+    if lease_db.exists() and not legacy:
         with sqlite3.connect(f"file:{lease_db}?mode=ro", uri=True) as leases:
             columns = {r[1] for r in leases.execute("PRAGMA table_info(browser_profile_leases)")}
             if columns:
@@ -390,8 +398,16 @@ def automatic_instance(c, args, alias, domain, *, allow_takeover=False):
         profiles.profile_dir(args.program, domain, alias).parent.parent / slug(alias),
         profiles.shared_base() / profiles.program_key(args.program) / "ghost" / "chromium-test" / "profiles" / slug(alias),
     )
-    if any(path.exists() for path in legacy_paths):
+    if any(path.exists() for path in legacy_paths) and not legacy:
         return ""
+    if legacy:
+        manager = hashlib.sha256(str(STATE.resolve()).encode()).hexdigest()
+        if (Path(legacy['profile_dir']) not in legacy_paths or
+                not profiles.register_legacy_auto(lease_db, slug(args.program), slug(alias), domain,
+                                                  legacy['profile_dir'], manager, legacy['lease_id'],
+                                                  legacy['agent_id'], legacy['run_id'],
+                                                  legacy_running=legacy['state'] == 'running')):
+            return ""
     pooled = [(key, row) for key, row in latest.items()
               if record_info(row).get("instance_selection") == "automatic"]
     for key, row in pooled:
@@ -720,7 +736,12 @@ def start(args):
     cleanup_unused(c)
     adm = admission(args.min_ram_available_mib, args.min_swap_free_mib)
     single = account_policy(args.program, alias, auth_domain)
-    if automatic:
+    if (account is not None and not instance and not getattr(args, 'legacy_profile', False)
+            and not getattr(args, 'task_owned', False)):
+        instance = automatic_instance(c, args, alias, auth_domain,
+                                      allow_migration=not single and adm['status'] == 'admitted')
+        automatic = bool(instance)
+    elif automatic:
         instance = automatic_instance(c, args, alias, auth_domain,
                                       allow_takeover=single or adm["status"] != "admitted")
     row = selected_browser(c, args.program, alias, auth_domain, instance)
@@ -1307,6 +1328,14 @@ def sweep_rows(c, older_than_days, confirm):
         "select * from browsers where state='stopped' and updated<?", (cutoff,)
     ).fetchall():
         p = Path(r["profile_dir"])
+        lease_db = STATE.parent / "browser_profile_leases.sqlite"
+        if lease_db.exists():
+            with sqlite3.connect(lease_db) as leases:
+                if leases.execute("SELECT 1 FROM sqlite_master WHERE name='browser_legacy_auto'").fetchone() and leases.execute(
+                    "SELECT 1 FROM browser_legacy_auto WHERE profile_dir=?", (str(p),)
+                ).fetchone():
+                    skipped.append({"browser_id": r["browser_id"], "reason": "legacy-auth-retained"})
+                    continue
         if not managed_profile(p):
             skipped.append(
                 {"browser_id": r["browser_id"], "reason": "not-managed-profile"}

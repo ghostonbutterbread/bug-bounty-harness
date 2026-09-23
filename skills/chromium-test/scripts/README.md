@@ -269,11 +269,23 @@ multi-instance pane registry.
   with an `auto-` prefix; an active transferee's slot is never selected merely
   because its key matches the original owner's hash. Canonical account
   single-browser policy still applies.
-  Existing legacy manager/lease records or known on-disk legacy profile paths
-  preserve legacy exclusivity, without copying or migrating session state.
-  `--legacy-profile` explicitly retains that behavior for fresh selectors.
-  Explicit keys and task-owned namespaces remain supported and are not
-  automatically migrated. Unresolved account selectors do not opt into pooling.
+  A healthy, manager-owned, running unkeyed legacy browser may authorize an
+  exact-path migration marker in the canonical lease DB under the node lock and
+  only after admission. Its current owner keeps the same live browser/profile;
+  a different agent receives a fresh isolated auto slot when multiple-browser
+  policy and capacity permit. No profile or authentication data is copied:
+  existing login remains only in the legacy profile; the new slot needs its own
+  login/auth seed. Historical unkeyed leases must all have the exact same domain
+  and profile path, with no foreign active manager; unknown disk-only, old
+  NULL-domain, unhealthy, or unregistered live profiles remain exclusive and
+  queue rather than being inferred safe. Once all auto peers stop, the next
+  request prefers the original legacy profile. A registered legacy profile is
+  retained by the age sweep. Canonical acquisition/transfer still serialize
+  conflicts: unkeyed and explicit callers cannot bypass the marker, and the
+  account/domain single-browser policy overrides it. `--legacy-profile`
+  explicitly retains exclusive selection. Explicit keys and task-owned
+  namespaces are not automatically migrated. Unresolved account selectors do
+  not opt into pooling.
 - **Displays:** Under the same node start lock, auto/KasmVNC launch selects an
   unused X display and loopback web port, excluding running registered displays/
   ports, X sockets/locks and bound ports. Explicit occupied choices queue before

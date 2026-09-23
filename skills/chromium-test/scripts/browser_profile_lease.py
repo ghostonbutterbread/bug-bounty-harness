@@ -156,6 +156,52 @@ def init_resource_policy(conn):
     """)
 
 
+def register_legacy_auto(db_path, program, alias, domain, profile, manager_id,
+                         lease_id, agent_id, run_id, legacy_running=True):
+    """Authorize auto slots beside one exact manager-proven legacy profile."""
+    with connect(db_path) as conn:
+        init_db(conn)
+        conn.execute('BEGIN IMMEDIATE')
+        conn.execute("""CREATE TABLE IF NOT EXISTS browser_legacy_auto (
+            program TEXT NOT NULL, account_alias TEXT NOT NULL, auth_domain TEXT NOT NULL,
+            profile_dir TEXT NOT NULL, manager_id TEXT NOT NULL,
+            PRIMARY KEY(program,account_alias,auth_domain))""")
+        rows = conn.execute("SELECT * FROM browser_profile_leases WHERE program=? AND account_alias=? "
+                            "AND (auth_domain=? OR auth_domain IS NULL) AND instance_key=''",
+                            (program, alias, domain)).fetchall()
+        if not rows or any(r['profile_dir'] != profile or r['auth_domain'] != domain for r in rows):
+            return False
+        active = [r for r in rows if r['status'] == 'active' and
+                  (r['expires_at'] > now() or r['manager_id'] or r['cdp_url'])]
+        if (len(active) != (1 if legacy_running else 0) or any(
+                r['lease_id'] != lease_id or r['owner_agent_id'] != agent_id or
+                r['owner_run_id'] != run_id or r['manager_id'] != manager_id for r in active)):
+            return False
+        if any(r['status'] == 'active' and
+               (r['expires_at'] > now() or r['manager_id'] or r['cdp_url']) and
+               r['manager_id'] != manager_id for r in rows):
+            return False
+        old = conn.execute("SELECT * FROM browser_legacy_auto WHERE program=? AND account_alias=? AND auth_domain=?",
+                           (program, alias, domain)).fetchone()
+        if not legacy_running and not old:
+            return False
+        if old and (old['profile_dir'] != profile or old['manager_id'] != manager_id):
+            return False
+        conn.execute("INSERT OR IGNORE INTO browser_legacy_auto VALUES(?,?,?,?,?)",
+                     (program, alias, domain, profile, manager_id))
+        conn.commit()
+        return True
+
+def legacy_auto_conflict(conn, row, key, manager_id):
+    """An unkeyed lease remains exclusive except for registered auto peers."""
+    if row['instance_key'] != '' or not key.startswith('auto-') or not manager_id:
+        return True
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='browser_legacy_auto'").fetchone():
+        return True
+    marker = conn.execute("SELECT profile_dir,manager_id FROM browser_legacy_auto WHERE program=? AND account_alias=? AND auth_domain=?",
+                          (row['program'], row['account_alias'], row['auth_domain'])).fetchone()
+    return not marker or row['profile_dir'] != marker['profile_dir'] or row['manager_id'] != marker['manager_id'] or manager_id != marker['manager_id']
+
 def single_browser_policy(conn, program, alias, domain):
     """One exact resolved account/domain policy, shared by selection and acquire."""
     table = conn.execute("SELECT 1 FROM sqlite_master WHERE name='browser_concurrency_policy'").fetchone()
@@ -559,15 +605,15 @@ def transfer_managed_lease(db_path, old_id, manager_id, agent_id, run_id, purpos
         if expected and any(old[key] != value for key, value in expected.items()):
             return {'status': 'canonical-identity-mismatch'}
         single = single_browser_policy(conn, old['program'], old['account_alias'], old['auth_domain'])
-        conflict = conn.execute(
-            "SELECT 1 FROM browser_profile_leases WHERE program=? AND account_alias=? "
+        conflicts = conn.execute(
+            "SELECT * FROM browser_profile_leases WHERE program=? AND account_alias=? "
             "AND (auth_domain=? OR auth_domain IS NULL) AND status='active' AND lease_id!=? "
             "AND (expires_at>? OR manager_id IS NOT NULL OR cdp_url IS NOT NULL) "
-            "AND (? OR instance_key='' OR ?='' OR instance_key=?) LIMIT 1",
+            "AND (? OR instance_key='' OR ?='' OR instance_key=?)",
             (old['program'], old['account_alias'], old['auth_domain'], old_id, timestamp,
              single, old['instance_key'], old['instance_key']),
-        ).fetchone()
-        if conflict:
+        ).fetchall()
+        if any(single or legacy_auto_conflict(conn, r, old['instance_key'], manager_id) for r in conflicts):
             return {'status': 'locked'}
         values = dict(old)
         values.update(lease_id=str(uuid.uuid4()), owner_agent_id=agent_id, owner_run_id=run_id,
@@ -632,17 +678,19 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
         # All admission paths share this SQLite transaction. Legacy profiles
         # remain an account-wide lock; explicit instance keys opt into isolation.
         single = single_browser_policy(conn, args.program, alias, auth_domain)
-        existing = conn.execute(
+        conflicts = conn.execute(
             """SELECT * FROM browser_profile_leases WHERE program=? AND account_alias=?
             AND status='active' AND (expires_at>? OR manager_id IS NOT NULL OR cdp_url IS NOT NULL)
             AND (auth_domain=? OR auth_domain IS NULL)
             AND (?='' OR instance_key='' OR instance_key=? OR ?)
             ORDER BY CASE WHEN auth_domain IS NULL THEN 0 ELSE 1 END,
-              CASE WHEN owner_agent_id=? AND owner_run_id=? AND instance_key=? THEN 1 ELSE 0 END,
-              created_at DESC LIMIT 1""",
+              CASE WHEN ?=0 AND owner_agent_id=? AND owner_run_id=? AND instance_key=? THEN 0 ELSE 1 END,
+              created_at DESC""",
             (slug(args.program), slug(alias), timestamp, auth_domain, key, key, single,
-             args.agent_id, args.run_id, key),
-        ).fetchone()
+             single, args.agent_id, args.run_id, key),
+        ).fetchall()
+        existing = next((r for r in conflicts if single or legacy_auto_conflict(
+            conn, r, key, getattr(args, 'manager_id', None))), None)
         if existing:
             same_owner = existing["owner_agent_id"] == args.agent_id and existing["owner_run_id"] == args.run_id and existing["instance_key"] == key
             if same_owner and existing['manager_id'] != getattr(args, 'manager_id', None):

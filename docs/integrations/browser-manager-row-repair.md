@@ -1,6 +1,6 @@
 # Historical browser manager-row repair
 
-- **Status:** local repair checkpoint; no Hoster run, integration, push, migration activation or live mutation.
+- **Status:** local repair checkpoint `7bf6de3b3039430e95d38907483081babdbcdb33` (implementation, tests and dossier); no Hoster run, integration, push, migration activation or live mutation.
 - **Owner/ref:** `fix/browser-manager-row-repair`, worktree `/home/ryushe/projects/bug_bounty_harness/browser-manager-row-repair`.
 - **Base:** `8316e12` named-column INSERT fix; intended target `beta` (parent fix already integrated there). No merge/push authorized in this task.
 - **Intent:** recover only exact historical positional-order shifts in manager rows, never canonical leases, profiles, active owner or runtime process state.

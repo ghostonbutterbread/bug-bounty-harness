@@ -198,6 +198,35 @@ def test_migration_requires_proven_live_manager_and_exact_history(monkeypatch, t
     assert m.automatic_instance(c, a, 'anon', 'legacy-global', allow_migration=True) == ''
 
 
+@pytest.mark.parametrize('conflict', ['running-other-owner', 'stopped-other-path', 'running-other-run'])
+def test_running_migration_reconciles_historical_unkeyed_manager_rows(monkeypatch, tmp_path, conflict):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    path = str(tmp_path / 'other-profile') if conflict == 'stopped-other-path' else row['profile_dir']
+    agent = 'other-agent' if conflict == 'running-other-owner' else row['agent_id']
+    run = 'other-run' if conflict == 'running-other-run' else row['run_id']
+    state = 'stopped' if conflict == 'stopped-other-path' else 'running'
+    c.execute('INSERT INTO browsers SELECT ?, ?, program, account, auth_domain, ?, ?, purpose, ?, ?, ?, ?, tab_count, last_activity, created-1, updated FROM browsers WHERE lease_id=?',
+              ('older', 'older-browser', agent, run, 'older-unit', path,
+               str(tmp_path / 'older.json'), state, row['lease_id']))
+    c.commit()
+    (tmp_path / 'older.json').write_text(json.dumps({'instance_key': '', 'instance_selection': 'legacy'}))
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    assert m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True) == ''
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='browser_legacy_auto'").fetchone()
+    assert take(owner, 'auto-peer', 'peer', manager)['status'] == 'locked'
+
+def test_running_migration_allows_stopped_former_owner_on_same_profile(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    c.execute("INSERT INTO browsers SELECT 'older', 'older-browser', program, account, auth_domain, 'former-agent', 'former-run', purpose, 'older-unit', profile_dir, ?, 'stopped', tab_count, last_activity, created-1, updated FROM browsers WHERE lease_id=?",
+              (str(tmp_path / 'older.json'), row['lease_id']))
+    c.commit()
+    (tmp_path / 'older.json').write_text(json.dumps({'instance_key': '', 'instance_selection': 'legacy'}))
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    key = m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True)
+    assert key.startswith('auto-')
+    assert take(owner, key, 'peer', manager)['status'] == 'leased'
+
 def test_single_policy_blocks_migrated_parallel_and_is_domain_local(monkeypatch, tmp_path):
     m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
     monkeypatch.setattr(m, 'healthy', lambda _: True)

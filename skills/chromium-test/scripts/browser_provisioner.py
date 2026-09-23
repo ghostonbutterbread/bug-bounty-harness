@@ -428,7 +428,14 @@ def automatic_instance(c, args, alias, domain, *, allow_takeover=False, allow_mi
         return ""
     if legacy:
         manager = hashlib.sha256(str(STATE.resolve()).encode()).hexdigest()
-        if (Path(legacy['profile_dir']) not in legacy_paths or
+        # Canonical history alone cannot attest to older unkeyed manager
+        # projections. Reconcile every such row before opening concurrency;
+        # only the selected lease may still be running.
+        unkeyed = [r for r in rows if record_info(r).get('instance_key', '') == '']
+        if (any(r['profile_dir'] != legacy['profile_dir'] or
+                (r['lease_id'] != legacy['lease_id'] and r['state'] != 'stopped')
+                for r in unkeyed) or
+                Path(legacy['profile_dir']) not in legacy_paths or
                 not profiles.register_legacy_auto(lease_db, slug(args.program), slug(alias), domain,
                                                   legacy['profile_dir'], manager, legacy['lease_id'],
                                                   legacy['agent_id'], legacy['run_id'],

@@ -18,6 +18,10 @@ from pathlib import Path
 from typing import Any, Iterable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from browser_lifecycle import StartupDiagnostics
+
+STARTUP = StartupDiagnostics("launcher")
+STARTUP.mark("launcher-entry")
 ACCOUNT_MANAGEMENT_SCRIPTS = Path(__file__).resolve().parents[2] / "account-management" / "scripts"
 if str(ACCOUNT_MANAGEMENT_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(ACCOUNT_MANAGEMENT_SCRIPTS))
@@ -605,6 +609,10 @@ def maybe_refresh_auth_seed(
 
 
 def resolve_auth_seed_file(args: argparse.Namespace) -> tuple[str | None, dict[str, Any]]:
+    if getattr(args, "task_owned", False):
+        if args.auth_seed_file:
+            raise SystemExit("task-owned browsers do not import inventory or auth seeds")
+        return None, {"status": "task-owned", "profile_kind": "task", "auth_session_mode": "browser-bound"}
     selector = args.account or args.account_label
     if selector and ANONYMOUS_PROFILE_PATTERN.fullmatch(sanitize_slug(selector)):
         return None, {
@@ -684,9 +692,9 @@ def build_command(args: argparse.Namespace, port: int, profile_dir: Path) -> lis
     return command
 
 
-def wait_for_cdp_page(port: int, timeout: float = 8.0) -> dict[str, Any] | None:
+def wait_for_cdp_page(port: int | str, timeout: float = 8.0) -> dict[str, Any] | None:
     deadline = time.time() + timeout
-    url = f"http://127.0.0.1:{port}/json/list"
+    url = (port if isinstance(port, str) else f"http://127.0.0.1:{port}") + "/json/list"
     while time.time() < deadline:
         try:
             with urllib.request.urlopen(url, timeout=1) as response:
@@ -710,7 +718,7 @@ def cdp_call(ws: Any, method: str, params: dict[str, Any] | None = None, call_id
             return message
 
 
-def apply_auth_seed_via_cdp(port: int, target_url: str | None, seed: dict[str, Any] | None) -> dict[str, Any]:
+def apply_auth_seed_via_cdp(port: int | str, target_url: str | None, seed: dict[str, Any] | None) -> dict[str, Any]:
     if not seed:
         return {"status": "none"}
     target = wait_for_cdp_page(port)
@@ -789,6 +797,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("task_arg", nargs="?", help="Requested test task label.")
     parser.add_argument("--task", dest="task_opt", help="Requested test task label.")
     parser.add_argument("--account", help="Override account/profile alias.")
+    parser.add_argument("--task-owned", action="store_true", help="General-purpose isolated profile; no inventory authentication.")
+    parser.add_argument("--control-socket", help="Provisioner-owned Unix socket for fenced pipe control.")
+    parser.add_argument("--driving-mode", choices=("agent-driven", "manual"), default="agent-driven",
+                        help="New managed browsers default to agent-driven CDP activity; reserve awaiting-input before native intervention.")
     parser.add_argument("--url", help="Initial URL to open. Defaults to about:blank.")
     parser.add_argument("--port", type=int, help=f"CDP port in {PORT_MIN}-{PORT_MAX}.")
     parser.add_argument("--profile-dir", help="Override Chrome user-data-dir.")
@@ -1001,6 +1013,9 @@ def main() -> int:
     args.url = target_url
     if args.headless and "--headless=new" not in command:
         command.insert(1, "--headless=new")
+    if args.control_socket:
+        command = [flag for flag in command if not flag.startswith("--remote-debugging-")]
+        command.insert(1, "--remote-debugging-pipe")
     result = {
         "program": args.program,
         "task": task,
@@ -1062,7 +1077,37 @@ def main() -> int:
         }
         result["kasmvnc"] = kasmvnc_session
 
+    STARTUP.mark("preparation", "ready")
     proc: subprocess.Popen[Any] | None = None
+    bridge = None
+    def spawn(command, **kwargs):
+        nonlocal bridge
+        if kasmvnc_session:
+            # DISPLAY alone does not select X11 on Wayland hosts. Keep this
+            # browser on its owned KasmVNC display, not the ambient desktop.
+            command = [command[0], "--ozone-platform=x11", *command[1:]]
+            result["command"] = command
+        if not args.control_socket:
+            return subprocess.Popen(command, **kwargs)
+        from browser_control import PipeBrowser
+        with STARTUP.phase("spawn"):
+            bridge = PipeBrowser(command, diagnostics=STARTUP, **kwargs)
+        try:
+            result['cdp_url'] = bridge.serve(port, args.control_socket)
+            result['cdp_version_url'] = result['cdp_url'] + '/json/version'
+            result['control_socket'] = args.control_socket
+            result['control_mode'] = 'pipe-fenced'
+            # Display transport is not the driving contract. Native input is
+            # intentionally untracked: agent-driven owners must reserve a bounded
+            # awaiting-input hold before occasional human intervention.
+            result['driving_mode'] = args.driving_mode
+            result['activity_tracking'] = args.driving_mode == 'agent-driven'
+            result['activity_coverage'] = 'CDP-only' if result['activity_tracking'] else 'native-input-untracked'
+        except Exception as exc:
+            STARTUP.failed(exc, bridge.process.poll())
+            bridge.close()
+            raise
+        return bridge.process
     if not args.dry_run:
         if auth_seed_error:
             if args.json:
@@ -1103,7 +1148,7 @@ def main() -> int:
                 ]
                 result["kasmvnc"] = kasmvnc_session
         try:
-            proc = subprocess.Popen(
+            proc = spawn(
                 command,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -1124,11 +1169,15 @@ def main() -> int:
             if kasmvnc_session:
                 stop_kasmvnc_session(args.kasmvnc_display, kasmvnc_state_dir)
             raise
-        if kasmvnc_session and requested_display_backend == "auto" and not wait_for_cdp_page(port, timeout=4.0):
+        if kasmvnc_session and requested_display_backend == "auto" and not wait_for_cdp_page(result['cdp_url'], timeout=4.0):
             # A GUI listener alone is not a usable KasmVNC browser session. Tear
             # down only this task's display, then retry the established Xvfb/
             # screenshot lane inherited from the caller.
-            if proc.poll() is None:
+            if bridge:
+                bridge.close()
+                Path(args.control_socket).unlink(missing_ok=True)
+                bridge = None
+            elif proc.poll() is None:
                 proc.terminate()
                 proc.wait(timeout=5)
             stop_kasmvnc_session(args.kasmvnc_display, kasmvnc_state_dir)
@@ -1140,7 +1189,7 @@ def main() -> int:
                 "to": "default",
                 "reason": "Chromium CDP did not become ready on the KasmVNC display",
             }
-            proc = subprocess.Popen(
+            proc = spawn(
                 command,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -1149,8 +1198,10 @@ def main() -> int:
             )
         time.sleep(1)
         result["pid"] = proc.pid
-        result["auth_application"] = apply_auth_seed_via_cdp(port, target_url, auth_seed_data)
+        with STARTUP.phase("auth-application"):
+            result["auth_application"] = apply_auth_seed_via_cdp(result['cdp_url'], target_url, auth_seed_data)
 
+    STARTUP.mark("record-publication")
     if args.json or args.dry_run:
         print(json.dumps(result, indent=2, sort_keys=True), flush=True)
     else:
@@ -1160,11 +1211,25 @@ def main() -> int:
             print(f"Browser proxy: {result['proxy_server']}", flush=True)
             print(f"Proxy cert: {cert_status['status']}", flush=True)
 
+    STARTUP.mark("record-publication", "ready")
     if args.dry_run:
         return 0
     assert proc is not None
+    if bridge:
+        try:
+            while proc.poll() is None:
+                time.sleep(5)
+        finally:
+            bridge.close()
+        return proc.returncode
     return wait_for_browser_if_requested(proc, supervise=args.supervise)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    STARTUP.mark("preparation")
+    try:
+        code = main()
+    except Exception as exc:
+        STARTUP.failed(exc)
+        raise
+    raise SystemExit(code)

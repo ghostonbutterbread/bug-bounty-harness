@@ -26,7 +26,7 @@ ACCOUNT_MANAGEMENT_SCRIPTS = Path(__file__).resolve().parents[2] / "account-mana
 if str(ACCOUNT_MANAGEMENT_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(ACCOUNT_MANAGEMENT_SCRIPTS))
 
-from inventory_paths import inventory_path, program_key, shared_base
+from inventory_paths import inventory_path, program_key, shared_base as shared_base
 
 
 DEFAULT_STATE_DIR = Path("~/.local/state/ghost/browser-profile-leases").expanduser()
@@ -125,9 +125,74 @@ def init_db(conn: sqlite3.Connection) -> None:
         "profile_health": "TEXT NOT NULL DEFAULT 'unknown'",
         "release_disposition": "TEXT",
         "auth_domain": "TEXT",
+        "manager_id": "TEXT",
+        "instance_key": "TEXT NOT NULL DEFAULT ''",
     }.items():
         if name not in columns:
             conn.execute(f"ALTER TABLE browser_profile_leases ADD COLUMN {name} {definition}")
+
+
+def instance_key(args):
+    value = getattr(args, "instance_key", None) or ""
+    if value and not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", value):
+        raise ValueError("instance key must be 1-64 lowercase letters, digits, _ or -")
+    return value
+
+
+def instance_profile(program, domain, alias, key=""):
+    base = profile_dir(program, domain, alias)
+    return (artifact_base() / program_key(program) / "web" / "browser-instances"
+            / slug(domain) / slug(alias) / key) if key else base
+
+
+def init_resource_policy(conn):
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS browser_concurrency_policy (
+            program TEXT, account_alias TEXT, auth_domain TEXT, mode TEXT NOT NULL,
+            PRIMARY KEY(program, account_alias, auth_domain));
+        CREATE TABLE IF NOT EXISTS browser_logout_reports (
+            report_id TEXT PRIMARY KEY, lease_id TEXT NOT NULL, reported_at REAL NOT NULL,
+            reason TEXT NOT NULL);
+    """)
+
+
+def single_browser_policy(conn, program, alias, domain):
+    """One exact resolved account/domain policy, shared by selection and acquire."""
+    table = conn.execute("SELECT 1 FROM sqlite_master WHERE name='browser_concurrency_policy'").fetchone()
+    policy = conn.execute(
+        "SELECT mode FROM browser_concurrency_policy WHERE program=? AND account_alias=? AND auth_domain=?",
+        (slug(program), slug(alias), domain),
+    ).fetchone() if table else None
+    return bool(policy and policy[0] == "single")
+
+
+def cmd_policy(args):
+    account, _ = resolve_account(args.program, args.account)
+    if account is None:
+        return {"status": "account-not-found"}
+    domain = auth_domain_for(args, account)
+    with connect(state_db(args)) as conn:
+        init_db(conn)
+        init_resource_policy(conn)
+        conn.execute("INSERT OR REPLACE INTO browser_concurrency_policy VALUES(?,?,?,?)",
+                     (slug(args.program), slug(account["alias"]), domain, args.mode))
+    return {"status": "policy-set", "mode": args.mode, "auth_domain": domain,
+            "effect": "future-acquisitions-only", "automatic_auth_retry": False}
+
+
+def cmd_report_logout(args):
+    with connect(state_db(args)) as conn:
+        init_db(conn)
+        init_resource_policy(conn)
+        row = conn.execute("SELECT * FROM browser_profile_leases WHERE lease_id=? AND owner_agent_id=?",
+                           (args.lease_id, args.agent_id)).fetchone()
+        if row is None:
+            return {"status": "not-owner-or-missing"}
+        report_id = str(uuid.uuid4())
+        conn.execute("INSERT INTO browser_logout_reports VALUES(?,?,?,?)",
+                     (report_id, args.lease_id, now(), args.reason))
+    return {"status": "logout-reported", "report_id": report_id,
+            "automatic_auth_retry": False, "policy_changed": False}
 
 
 def load_inventory(program: str) -> dict[str, Any]:
@@ -213,7 +278,7 @@ def expire_leases(conn: sqlite3.Connection, timestamp: float) -> None:
         SET status = 'expired', browser_status = CASE
               WHEN browser_status = 'running' THEN 'unverified-after-expiry'
               ELSE browser_status END
-        WHERE status = 'active' AND expires_at <= ?
+        WHERE status = 'active' AND expires_at <= ? AND manager_id IS NULL AND cdp_url IS NULL
         """,
         (timestamp,),
     )
@@ -223,7 +288,7 @@ def active_lease(conn: sqlite3.Connection, program: str, alias: str, auth_domain
     return conn.execute(
         """
         SELECT * FROM browser_profile_leases
-        WHERE program = ? AND account_alias = ? AND status = 'active' AND expires_at > ?
+        WHERE program = ? AND account_alias = ? AND status = 'active' AND (expires_at > ? OR manager_id IS NOT NULL OR cdp_url IS NOT NULL)
           AND (auth_domain = ? OR auth_domain IS NULL)
         ORDER BY CASE WHEN auth_domain IS NULL THEN 0 ELSE 1 END, created_at DESC LIMIT 1
         """,
@@ -235,6 +300,7 @@ def safe_lease(row: sqlite3.Row | None, *, include_cdp: bool = False) -> dict[st
     if row is None:
         return None
     payload = {
+        "instance_key": row["instance_key"],
         "lease_id": row["lease_id"],
         "program": row["program"],
         "account_alias": row["account_alias"],
@@ -481,9 +547,51 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
         }
 
 
+def transfer_managed_lease(db_path, old_id, manager_id, agent_id, run_id, purpose, ttl, cdp_url, *, expected=None):
+    """Atomic ownership rotation, invoked only after the provisioner's pipe fence."""
+    timestamp = now()
+    with connect(db_path) as conn:
+        init_db(conn)
+        conn.execute('BEGIN IMMEDIATE')
+        old = conn.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (old_id,)).fetchone()
+        if old is None or old['manager_id'] != manager_id or old['status'] != 'active':
+            return {'status': 'not-owner-or-expired'}
+        if expected and any(old[key] != value for key, value in expected.items()):
+            return {'status': 'canonical-identity-mismatch'}
+        single = single_browser_policy(conn, old['program'], old['account_alias'], old['auth_domain'])
+        conflict = conn.execute(
+            "SELECT 1 FROM browser_profile_leases WHERE program=? AND account_alias=? "
+            "AND (auth_domain=? OR auth_domain IS NULL) AND status='active' AND lease_id!=? "
+            "AND (expires_at>? OR manager_id IS NOT NULL OR cdp_url IS NOT NULL) "
+            "AND (? OR instance_key='' OR ?='' OR instance_key=?) LIMIT 1",
+            (old['program'], old['account_alias'], old['auth_domain'], old_id, timestamp,
+             single, old['instance_key'], old['instance_key']),
+        ).fetchone()
+        if conflict:
+            return {'status': 'locked'}
+        values = dict(old)
+        values.update(lease_id=str(uuid.uuid4()), owner_agent_id=agent_id, owner_run_id=run_id,
+                      purpose=purpose, heartbeat_at=timestamp, created_at=timestamp,
+                      expires_at=timestamp+ttl, cdp_url=cdp_url, work_state='active')
+        conn.execute("UPDATE browser_profile_leases SET status='released', browser_status='handed-off', cdp_url=NULL, service_unit=NULL, work_state='terminal', release_disposition='handoff', released_at=? WHERE lease_id=?", (timestamp, old_id))
+        columns = ','.join(values)
+        placeholders = ','.join('?' for _ in values)
+        conn.execute(f'INSERT INTO browser_profile_leases ({columns}) VALUES ({placeholders})', tuple(values.values()))
+        conn.commit()
+        row = conn.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (values['lease_id'],)).fetchone()
+        return {'status': 'leased', 'lease': safe_lease(row, include_cdp=True)}
+
+
 def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
     timestamp = now()
-    account, inventory = resolve_account(args.program, args.account)
+    key = instance_key(args)
+    if getattr(args, 'task_owned', False):
+        if args.program != 'task-owned' or getattr(args, 'auth_domain', None) != 'task' or not re.fullmatch(r'task-[0-9a-f]{24}', args.account):
+            return {'status': 'invalid-task-profile'}
+        account = {'alias': args.account, 'profile_kind': 'task', 'lifecycle': 'active', 'browser_lease_enabled': True}
+        inventory = {'accounts': [], 'resources': []}
+    else:
+        account, inventory = resolve_account(args.program, args.account)
     if account is None:
         return {
             "status": "account-not-found",
@@ -507,7 +615,10 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
         init_db(conn)
         conn.execute("BEGIN IMMEDIATE")
         expire_leases(conn, timestamp)
-        release = last_release(conn, args.program, str(account["alias"]), auth_domain)
+        release = conn.execute(
+            "SELECT * FROM browser_profile_leases WHERE program=? AND account_alias=? AND auth_domain=? AND instance_key=? AND status='released' ORDER BY released_at DESC LIMIT 1",
+            (slug(args.program), slug(alias), auth_domain, key),
+        ).fetchone()
         if not profile_available(account, release) and not (args.recover_profile and account_lease_eligible(account)):
             conn.commit()
             return {
@@ -518,9 +629,24 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
                 "available_alternatives": alternatives(conn, args.program, inventory, timestamp, auth_domain),
                 "next": "acquire with --recover-profile only for profile repair, then record a healthy release before leasing it again",
             }
-        existing = active_lease(conn, args.program, alias, auth_domain, timestamp)
+        # All admission paths share this SQLite transaction. Legacy profiles
+        # remain an account-wide lock; explicit instance keys opt into isolation.
+        single = single_browser_policy(conn, args.program, alias, auth_domain)
+        existing = conn.execute(
+            """SELECT * FROM browser_profile_leases WHERE program=? AND account_alias=?
+            AND status='active' AND (expires_at>? OR manager_id IS NOT NULL OR cdp_url IS NOT NULL)
+            AND (auth_domain=? OR auth_domain IS NULL)
+            AND (?='' OR instance_key='' OR instance_key=? OR ?)
+            ORDER BY CASE WHEN auth_domain IS NULL THEN 0 ELSE 1 END,
+              CASE WHEN owner_agent_id=? AND owner_run_id=? AND instance_key=? THEN 1 ELSE 0 END,
+              created_at DESC LIMIT 1""",
+            (slug(args.program), slug(alias), timestamp, auth_domain, key, key, single,
+             args.agent_id, args.run_id, key),
+        ).fetchone()
         if existing:
-            same_owner = existing["owner_agent_id"] == args.agent_id and existing["owner_run_id"] == args.run_id
+            same_owner = existing["owner_agent_id"] == args.agent_id and existing["owner_run_id"] == args.run_id and existing["instance_key"] == key
+            if same_owner and existing['manager_id'] != getattr(args, 'manager_id', None):
+                return {'status': 'managed-by-provisioner'}
             if same_owner:
                 expires_at = timestamp + args.ttl_seconds
                 conn.execute(
@@ -547,7 +673,7 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
             }
         lease_id = str(uuid.uuid4())
         expires_at = timestamp + args.ttl_seconds
-        persistent_profile = profile_dir(args.program, auth_domain, alias)
+        persistent_profile = instance_profile(args.program, auth_domain, alias, key)
         conn.execute(
             """
             INSERT INTO browser_profile_leases(
@@ -570,6 +696,7 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
                 expires_at,
             ),
         )
+        conn.execute("UPDATE browser_profile_leases SET manager_id=?,instance_key=? WHERE lease_id=?", (getattr(args, "manager_id", None), key, lease_id))
         conn.commit()
         row = conn.execute("SELECT * FROM browser_profile_leases WHERE lease_id=?", (lease_id,)).fetchone()
     return {
@@ -589,12 +716,12 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
 def owned_active_lease(conn: sqlite3.Connection, args: argparse.Namespace, timestamp: float) -> sqlite3.Row | None:
     expire_leases(conn, timestamp)
     row = conn.execute(
-        "SELECT * FROM browser_profile_leases WHERE lease_id=? AND status='active' AND expires_at > ?",
+        "SELECT * FROM browser_profile_leases WHERE lease_id=? AND status='active' AND (expires_at > ? OR manager_id IS NOT NULL)",
         (args.lease_id, timestamp),
     ).fetchone()
     if row is None:
         return None
-    if row["owner_agent_id"] != args.agent_id:
+    if row["owner_agent_id"] != args.agent_id or row["manager_id"] != getattr(args, "manager_id", None):
         return None
     return row
 
@@ -622,7 +749,7 @@ def local_cdp_version(cdp_url: str) -> dict[str, Any]:
     parsed = urlparse(cdp_url)
     if parsed.scheme != "http" or parsed.hostname not in LOOPBACK_HOSTS or not parsed.port:
         raise SystemExit("CDP URL must be an http:// loopback endpoint with an explicit port")
-    endpoint = f"http://{parsed.hostname}:{parsed.port}/json/version"
+    endpoint = cdp_url.rstrip("/") + "/json/version"
     try:
         with urlopen(endpoint, timeout=2) as response:  # nosec B310: loopback validated above
             data = json.loads(response.read().decode("utf-8"))
@@ -674,13 +801,13 @@ def cmd_release(args: argparse.Namespace) -> dict[str, Any]:
         init_db(conn)
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT * FROM browser_profile_leases WHERE lease_id=?", (args.lease_id,)).fetchone()
-        if row is None or row["owner_agent_id"] != args.agent_id:
+        if row is None or row["owner_agent_id"] != args.agent_id or row["status"] != "active" or row["manager_id"] != getattr(args, "manager_id", None):
             conn.commit()
             return {"status": "not-owner-or-missing", "lease_id": args.lease_id}
         conn.execute(
             """
             UPDATE browser_profile_leases
-            SET status='released', released_at=?, heartbeat_at=?, work_state='terminal',
+            SET status='released', browser_status=CASE WHEN manager_id IS NOT NULL OR cdp_url IS NULL THEN 'stopped' ELSE 'unverified-after-release' END, cdp_url=NULL, service_unit=NULL, released_at=?, heartbeat_at=?, work_state='terminal',
                 release_disposition=?, profile_health=?
             WHERE lease_id=?
             """,
@@ -738,15 +865,34 @@ def build_parser() -> argparse.ArgumentParser:
     release.add_argument("--disposition", required=True, choices=("completed", "handoff", "cancelled"), help="Terminal outcome; use renew --work-state awaiting-input instead while work is pending.")
     release.add_argument("--profile-health", required=True, choices=("healthy", "needs-refresh", "needs-cleanup", "unknown"), help="Non-secret handoff status of the persistent account profile.")
     release.set_defaults(func=cmd_release)
+    acquire.add_argument("--task-owned", action="store_true")
+    acquire.add_argument("--instance-key")
+    policy = sub.add_parser("set-browser-policy", help="Manual concurrency policy; never retries authentication or stops existing browsers.")
+    policy.add_argument("program")
+    policy.add_argument("account")
+    policy.add_argument("--auth-domain", required=True)
+    policy.add_argument("--mode", choices=("single", "multiple"), required=True)
+    policy.set_defaults(func=cmd_policy)
+    report = sub.add_parser("report-logout", help="Record passive caller evidence only; no inference or recovery.")
+    report.add_argument("--lease-id", required=True)
+    report.add_argument("--agent-id", required=True)
+    report.add_argument("--reason", choices=("user-observed", "signed-out-ui", "session-rejected"), required=True)
+    report.set_defaults(func=cmd_report_logout)
+    for command in (acquire, renew, register, release):
+        command.add_argument("--manager-id", help=argparse.SUPPRESS)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    try:
+        instance_key(args)
+    except ValueError as exc:
+        parser.error(str(exc))
     result = args.func(args)
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if result.get("status") in {"ok", "available", "locked", "anonymous", "leased", "already-owned", "renewed", "registered", "registered-unreachable", "released", "account-not-found", "account-unavailable"} else 2
+    return 0 if result.get("status") in {"policy-set", "logout-reported", "ok", "available", "locked", "anonymous", "leased", "already-owned", "renewed", "registered", "registered-unreachable", "released", "account-not-found", "account-unavailable"} else 2
 
 
 if __name__ == "__main__":

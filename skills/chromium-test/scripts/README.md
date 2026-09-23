@@ -6,6 +6,16 @@
   request path.
 - `chromium_test.py` — isolated Chromium launcher used by the provisioner.
 - `browser_profile_lease.py` — exclusive owned-account/profile lease registry.
+- `browser_control.py` — internal Chromium pipe/CDP adapter and control fencing.
+  Its private mode-0600 Unix socket also provides read-only `GET /identity`:
+  exact `process_identity`, current generation `cdp_url`, and `available`
+  (false during freeze/rotation). This is for exact local handoff validation,
+  not a public status endpoint: the URL is a capability and must not be logged
+  or exposed by consumers. It makes no CDP call and does not update activity.
+  The existing same-UID trust boundary is unchanged. Deterministic verification:
+  `agents/test_cdp_handoff_receipt.py::test_private_bridge_identity_is_passive`.
+- `browser_lifecycle.py` — node-local process identity, locking, atomic private records,
+  and bounded opt-in startup metadata (contract below).
 - `kasmvnc_session.py` — task-owned headed display lifecycle.
 - `mitm_lane.py` — local task MITM lane lifecycle.
 - `hoster_mitm_lane.py` — bounded Hoster-backed MITM lane lifecycle.
@@ -18,6 +28,69 @@
 Use the detailed records below for supported invocation and safety boundaries.
 Each helper owns deterministic mechanics only; lane availability, account
 selection, target scope, and browser state still require agent verification.
+
+## Opt-in private startup diagnostics
+
+Set `BROWSER_STARTUP_DIAGNOSTICS=1` on a provisioner request to write metadata
+under `<BROWSER_PROVISIONER_STATE parent>/startup/<browser UUID>/`. The manager
+passes its task-owned directory via internal `BROWSER_STARTUP_RECEIPT_DIR`;
+ordinary stdout/API receipts and the 45-second publication deadline are unchanged.
+The owning `browser_lifecycle.py` helper writes atomic mode-0600 snapshots in
+mode-0700 attempt directories (manager, launcher and exec components, maximum
+32 events each). Events contain fixed phase/outcome/error categories, monotonic
+start/elapsed times and, where available, a numeric process return code.
+
+Chromium stderr is drained in 4-KiB chunks and counted up to 64 KiB. **No stderr
+content is collected**: byte counts prove output occurred, not why it failed.
+There is no regex-redaction claim or persistence of command lines, URLs, tokens,
+cookies, credentials, exception text, or protocol bodies. Missing/failed metadata
+writes do not replace the launch result. An absent launcher receipt can still
+mean failure before launcher entry; metadata is diagnostic evidence, not a root
+cause or a liveness guarantee. Snapshots are bounded per attempt, not an automatic
+retention service; remove task-owned receipts after investigation as appropriate.
+
+The opt-in disposable systemd fixture enables this automatically. It retains a
+schema-projected receipt in a separate private `bbh-startup-evidence-*` directory,
+including on failure, before deleting any profile. It stops only UUID units
+found in its own disposable registry/launch/startup files, including attempts
+that failed before registration. Unit inactivity, recorded root death, recorded
+loopback CDP closure, and absence of processes referencing its disposable root
+are checked before deletion; failed cleanup retains the root and evidence.
+
+Verification: `agents/test_browser_startup_diagnostics.py` covers timeout,
+malformed publication, dispatch/registration failure, real exec failure,
+saturated stderr, private modes, disabled/unwritable diagnostics, failure-evidence
+survival and failed-stop retention. Run the existing disposable fixture with
+`BBH_LOCAL_BROWSER_SMOKE=1`; it never needs a live site or account.
+Last verified: 2026-09-21. Owner/scope: Chromium Test startup/lifecycle plumbing.
+
+## Disposable native KasmVNC boundary probe
+
+`agents/test_kasm_native_boundary.py` owns the opt-in stock-server boundary test.
+Extract a matching official package with `dpkg-deb -x PACKAGE TASK_ROOT`, without
+installing it or running maintainer scripts. Set `BBH_KASMVNC_ROOT=TASK_ROOT` and
+optionally `BBH_KASMVNC_RECEIPT=/private/receipt.json`, then run
+`.venv/bin/python -m pytest agents/test_kasm_native_boundary.py -q`.
+The root must contain `usr/bin/Xkasmvnc` (1.5) or `usr/bin/Xvnc` (older), with
+resolved shared libraries, plus the packaged web assets. The runtime test uses
+loopback-only, unauthenticated **disposable test content**, not production server
+auth configuration. It creates its own display/profile, forces Chromium X11,
+sends Kasm RFB keyboard/mouse input, verifies DOM effects and closes only those
+children/listeners before removing the profile. No Tailscale publication.
+
+This is a **negative capability probe**: native input survives CDP freeze and
+rotation, including a concurrent freeze/input ordering. It is not native cleanup
+authorization. Stock KasmVNC has no integrated input admission/drain hook here;
+headed activity tracking stays disabled and live native cross-owner reuse is
+not enabled. No clipboard or full browser-client/Tailscale acceptance is claimed.
+Runtime setup, failures, teardown and exact source boundary are in
+`docs/integrations/browser-lease-recovery.md` and its Kasm JSON receipt.
+Owner: Chromium Test native display boundary. Last verified: 2026-09-21.
+
+The session helper now prefers `kasmvncserver` when installed, preserving the
+legacy `vncserver` fallback for starts/stops. Normal KasmVNC browser spawns force
+`--ozone-platform=x11`; `DISPLAY` alone can select ambient Wayland instead.
+No host environment, sandbox, installed package or existing route is changed.
 
 ## `kasmvnc_session.py`
 
@@ -68,6 +141,25 @@ selection, target scope, and browser state still require agent verification.
 
 ## `browser_profile_lease.py`
 
+Explicit `--instance-key` acquisitions add isolated parallel slots without
+migrating legacy single-profile leases. Manual policy and passive reporting:
+
+```sh
+bbh skills/chromium-test/scripts/browser_profile_lease.py --state-dir <state> \
+  set-browser-policy <program> <account> --auth-domain <domain> --mode single
+bbh skills/chromium-test/scripts/browser_profile_lease.py --state-dir <state> \
+  report-logout --lease-id <lease> --agent-id <agent> --reason user-observed
+```
+
+`single` is enforced transactionally for new acquisitions of the resolved
+program/account/domain; `multiple` allows explicit independent slots. Policy
+writes do not kill existing browsers. Reasons are `user-observed`,
+`signed-out-ui`, or `session-rejected`; reports store no content, secrets or
+URLs and never infer single-session behavior, change policy, retry auth or
+create browsers. Released/handoff leases clear stale CDP/service metadata.
+The older account-level views below remain conservative summaries, not a
+multi-instance pane registry.
+
 - **Purpose:** Coordinates one persistent Chromium profile per `program/auth-domain/account`
   on the machine that hosts that browser. It prevents two agents from driving the
   same account profile concurrently while exposing non-secret account capability
@@ -106,18 +198,13 @@ selection, target scope, and browser state still require agent verification.
     <program> green --auth-domain videogp.superdrug.com --agent-id <agent-id> --run-id <run-id> \
     --purpose "owned IDOR comparison"
 
-  # Once the recorded browser is ready on the profile host, bind its loopback CDP.
-  bbh skills/chromium-test/scripts/browser_profile_lease.py register-browser \
-    --lease-id <lease-id> --agent-id <agent-id> \
-    --cdp-url http://127.0.0.1:<port> --service-unit <unit>
+  # The provisioner registers the browser and renews identified task owners.
+  # Declare a bounded manual wait, rather than releasing pending work:
+  bbh skills/chromium-test/scripts/browser_provisioner.py touch --lease-id <lease-id> --agent-id <agent-id> \
+    --work-state awaiting-input --awaiting-seconds 1800
 
-  # A question/blocker is not terminal: retain and renew the lease instead.
-  bbh skills/chromium-test/scripts/browser_profile_lease.py renew --lease-id <lease-id> --agent-id <agent-id> \
-    --work-state awaiting-input
-
-  # Release only after a terminal outcome, recording whether the next agent may
-  # safely reuse the persistent profile.
-  bbh skills/chromium-test/scripts/browser_profile_lease.py release --lease-id <lease-id> --agent-id <agent-id> \
+  # Optional early terminal cleanup (automatic when the task supervisor exits):
+  bbh skills/chromium-test/scripts/browser_provisioner.py release --lease-id <lease-id> --agent-id <agent-id> \
     --disposition completed --profile-health healthy
   ```
 
@@ -154,16 +241,157 @@ selection, target scope, and browser state still require agent verification.
 
 ## `browser_provisioner.py`
 
-- **Purpose:** Provide the canonical admission, exact-profile lease, and
-  launch/reuse path for engagement Chromium sessions.
-- **Inputs:** Program, account/profile, agent/run identifiers, purpose, URL, and
-  approved browser/proxy controls.
-- **Outputs:** JSON admission and browser lifecycle receipts.
-- **Mutates:** Task-owned profile leases and browser/display processes only
-  after admission; dry-run remains non-launching.
-- **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest agents/test_browser_provisioner.py -q`
-- **Owner/scope:** Chromium Test skill.
-- **Last verified:** 2026-09-10.
+- **Purpose:** Node-local browser admission, profile/instance leasing,
+  activity-aware ownership, verified cleanup and fenced live handoff.
+- **Inputs:** Existing program/account selectors or `--task-owned`; agent/run,
+  purpose, existing proxy/display settings; optional `--instance-key SLOT`,
+  `--idle-seconds N` (claim window, default 300), `--owner-pid` (diagnostics and
+  legacy lifecycle). Headless task mode does not require a PID; headed task
+  mode does, because native input is untracked.
+- **Outputs:** Safe receipts with `instance_id`, `pane_id`, `instance_key`,
+  `account_color`, activity and watcher-health metadata. IDs remain stable
+  across live handoff, differ for concurrent browsers and change on restart.
+  This is **pane identity metadata, not an implemented pane UI**. Private launch
+  records retain full generation-path CDP URLs.
+- **Mutates:** Selected local lease/manager databases, profile paths, owned
+  browser/display units and watcher. `BROWSER_PROVISIONER_STATE` isolates both
+  databases. No new authentication retry or alternate-account selection.
+- **Instances:** Keys use separate
+  `<program>/web/browser-instances/<domain>/<account>/<slot>` trees. Omitted
+  keys on ordinary request/start select an automatic isolated slot **after the
+  caller explicitly selects an account/color**, e.g. Blue. Reuse the exact live
+  agent/run; otherwise, with multiple-browser policy and admission headroom,
+  reuse a stopped automatic slot or allocate a distinct slot. Another owner's
+  idle running slot is considered only when the resolved program/account/domain
+  policy is single-browser or this node rejects a new process. Claim requires
+  canonical lease identity and the existing atomic activity freeze. Private
+  selection provenance excludes explicitly named slots even
+  with an `auto-` prefix; an active transferee's slot is never selected merely
+  because its key matches the original owner's hash. Canonical account
+  single-browser policy still applies.
+  Existing legacy manager/lease records or known on-disk legacy profile paths
+  preserve legacy exclusivity, without copying or migrating session state.
+  `--legacy-profile` explicitly retains that behavior for fresh selectors.
+  Explicit keys and task-owned namespaces remain supported and are not
+  automatically migrated. Unresolved account selectors do not opt into pooling.
+- **Displays:** Under the same node start lock, auto/KasmVNC launch selects an
+  unused X display and loopback web port, excluding running registered displays/
+  ports, X sockets/locks and bound ports. Explicit occupied choices queue before
+  lease acquisition. This serializes this manager's callers, not unrelated X
+  server launchers. Same-owner incompatible headed/headless or strict-KasmVNC
+  retries report `display-mode-mismatch` rather than silently returning a
+  non-graphical browser. Existing Tailscale transport is unchanged.
+- **Activity:** New managed pipe browsers default to `--driving-mode agent-driven`
+  in both ordinary request/start and the launcher. Headed/KasmVNC display alone
+  does not disable activity management. These browsers track caller CDP work (navigation,
+  input, evaluation and screenshots). Discovery/version checks, domain
+  enablement, open sockets, events, live PID and watcher/touch heartbeats do not
+  count. Arbitrary evaluation is counted as work, not semantically inspected.
+  **Native input remains untracked**, deliberately outside this release's
+  agent-driven contract. `--driving-mode manual` opts out of activity reclamation.
+  Omitted request/start retries that reuse a running browser preserve its mode;
+  a fresh process after verified stop defaults to agent-driven unless explicit.
+  Explicit same-owner mismatches
+  return `locked/driving-mode-mismatch` before start cleanup, not a silent migration.
+  Legacy untracked records stay conservative; use verified release/restart to
+  adopt agent-driven mode. Manual task-owned starts require a supervisor PID.
+  An explicitly supplied supervisor dying still triggers automatic cleanup;
+  bounded operations and reservations win the atomic recheck first.
+- **Idle claim:** The existing owner's 1–7199-second window (default **300**)
+  controls claim
+  eligibility. The adapter atomically freezes command admission only if no
+  in-flight command, reservation or newer activity wins the recheck. Compatible
+  fixed browser-owned proxy routes permit same-process generation-fenced headless reuse;
+  task routes and non-revocable control retain verified restart fallback.
+  The requester cannot shorten the old owner's threshold. Legacy exclusive
+  profiles retain their single-profile behavior. Explicit slots are not pooled;
+  a different owner of an explicit idle slot with ample capacity and multiple
+  policy remains queued, rather than being evicted or silently moved. A request
+  attempts at most one takeover retirement: if capacity/display/canonical
+  acquisition still blocks after verified stop, `queued` carries
+  `retryable=false` and the request loop returns instead of evicting another
+  candidate. This bound does not alter the separate two-hour cleanup sweep.
+  The node lock covers selection through admission and launch, and the shared
+  canonical SQLite transaction arbitrates single-policy acquisitions/transfers.
+  A stale projection or grandfathered conflicting single-policy lease cannot
+  justify revoking control. A rejected admission never acquires a new profile.
+- **Cleanup:** Request/start checks tracked browsers unused for at least 7200
+  seconds before admission. It verifies unit/root/CDP termination and retains
+  the profile. `reap-idle` uses that same fixed stop threshold; its legacy
+  `--idle-seconds` cannot lower it. Failed stop keeps the lease and reports an
+  error. Control is restored only for a freshly verified healthy exact runtime;
+  partial or unverifiable stops remain frozen pending explicit reconciliation.
+- **Reservations:** `touch --work-state awaiting-input --awaiting-seconds N`
+  grants an absolute 1–3600-second reservation; repetition cannot slide it.
+  `touch --work-state active` cancels it but does not manufacture activity.
+  Late waiting renewals are rejected. Before human KasmVNC intervention, obtain
+  a successful hold, pause agent commands, then use the unchanged full Tailscale
+  KasmVNC view. The hold blocks automatic cleanup and takeover, not CDP commands
+  or explicit owner release. Finish native input before resuming `active`.
+  On expiry normal idle policy resumes immediately; native typing does NOT
+  extend the hold. If more time is needed, stop human input and explicitly resume
+  then reserve again while still owner; never assume an expired hold protects
+  the browser. Continuous/co-driving native use must select manual mode.
+- **Retention:** Existing 14-day manifest-only stopped-profile retention also
+  handles instance trees. It never discovers arbitrary profile directories.
+- **Verification:** `.venv/bin/python -m pytest agents/test_browser_selection.py agents/test_browser_resources.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_browser_lease_recovery.py agents/test_browser_lifecycle.py -q`.
+  Opt-in real fixtures: `BBH_LOCAL_BROWSER_SMOKE=1 .venv/bin/python -m pytest agents/test_browser_driving_mode.py agents/test_browser_lifecycle_systemd.py agents/test_browser_lifecycle.py -q`.
+- **Owner/scope:** Chromium Test scripts; Linux/user-systemd browser node.
+  Native-input telemetry is a deferred non-core follow-up. Local headed
+  fixture coverage uses private Xvfb and CDP, not KasmVNC input telemetry. Do not
+  infer native idleness or revocation from X event observation, display refresh,
+  socket liveness or these passing tests. Agent-driven headed idle eviction is
+  enabled with the bounded intervention contract above. Cross-owner native
+  sessions still require verified restart (including headed non-Kasm displays);
+  a CDP generation fence does not revoke native sockets. No Tailscale routing,
+  full KasmVNC transport, or fallback UI approval gate is changed.
+- **Last verified:** 2026-09-21; loopback/about:blank fixtures only.
+- **Generic example**, no account inventory:
+
+  ```sh
+  bbh skills/chromium-test/scripts/browser_provisioner.py request \
+    --task-owned --headless --agent-id <agent> --run-id <run> \
+    --purpose '<normal browser task>' --instance-key research \
+    --proxy-server <existing-task-proxy> --mitm-ca-cert <existing-task-ca>
+  ```
+
+  The profile preserves task-specific ordinary site state, grants no program
+  authorization and never silently transfers another task's proxy.
+
+## `browser_control.py`
+
+- **Purpose:** Per-browser CDP transport over Chromium's private debugging pipe;
+  no raw Chromium debugging TCP listener. Generation rotation detaches sessions,
+  closes old WebSockets, rejects old URLs, and acknowledges a protocol barrier.
+- **Activity:** Private Unix activity/freeze/reservation operations serialize
+  with command admission. Discovery and passive events do not reset idle time.
+  Pipe backpressure is bounded to 60 seconds; an incomplete frame fails only
+  the owned browser closed. Dispatch bounds include queuing and cancellation.
+- **Inputs:** Internal `PipeBrowser` API from `chromium_test.py`;
+  internal `pipe-exec` child adapter. Not an alternate browser launch interface.
+- **Outputs:** Private generation-path CDP URL and a private Unix control socket.
+  Supports version/list discovery and browser/page WebSockets, not every Chrome
+  debugging UI/HTTP endpoint.
+- **Mutates:** Only the owned process, its CDP sessions, and loopback/Unix sockets.
+- **Verification:** The focused and opt-in fixture commands above.
+- **Owner/scope:** Chromium Test transport, Linux; operational isolation between
+  cooperating same-UID controllers, **not** protection against hostile processes
+  that can read owner files or access the control socket.
+- **Last verified:** 2026-09-20.
+
+## `browser_lifecycle.py`
+
+- **Purpose:** Shared process identity (PID/start ticks/boot/node), conservative
+  liveness classification, serialized node mutations, and atomic private JSON.
+- **Inputs:** Import-only helper for the provisioner; no public CLI.
+- **Outputs:** Active/terminal/unknown identity evidence and local lock contexts.
+- **Mutates:** Explicit state-lock files and selected owner-only JSON records;
+  process discovery itself is read-only.
+- **Verification:** `agents/test_browser_lease_recovery.py` and
+  `agents/test_browser_lifecycle.py` in the commands above.
+- **Owner/scope:** Chromium Test lifecycle; no remote PID inference or profile
+  migration. Missing lifecycle evidence never proves task death.
+- **Last verified:** 2026-09-20.
 
 ## `chromium_test.py`
 

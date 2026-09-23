@@ -70,6 +70,33 @@ Common invocations:
 /chromium-test notion profile-settings --url https://www.notion.so/
 ```
 
+## General-purpose profiles and owner lifecycle
+
+A task-owned browser can retain multiple ordinary site authentications without
+a program selector:
+
+```text
+bbh skills/chromium-test/scripts/browser_provisioner.py request --task-owned \
+  --agent-id <agent-id> --run-id <run-id> \
+  --owner-pid <local-task-supervisor-pid> --purpose "general browsing"
+```
+
+This mode does not resolve inventory accounts or import authentication seeds,
+and does not merge program authorizations. The same `--owner-pid` option on a
+named-profile request enables automatic lease renewal and terminal cleanup.
+Select the actual task-specific supervisor on the browser node—not a short-lived
+request process or an always-running shared daemon. Missing lifecycle identity
+means `unknown` and still requires explicit terminal release.
+
+The provisioner protects active owners, reconciles abandoned ownership, and
+transfers a healthy matching browser only after revoking old control. Browser
+idleness alone is never abandonment. Fixed browser-owned proxy routing permits
+live reuse; task-owned proxies, KasmVNC displays, and legacy unfenced controls
+require verified restart. Do not change proxy ownership labels without changing
+the actual ownership. Supported commands, bounded awaiting-input semantics, and
+recovery limits are owned by
+[`scripts/README.md`](../skills/chromium-test/scripts/README.md#browser_provisionerpy).
+
 ## Port Selection
 
 The launcher owns CDP port selection:
@@ -85,11 +112,13 @@ Manual inspection when debugging:
 ss -ltnp | rg ':(922[3-9]|92[3-9][0-9]|9[3-4][0-9][0-9]|9500)\b'
 ```
 
-Verify the selected CDP endpoint:
+Verify the selected CDP endpoint using the full private launch-record URL
+(including its generation path) as `CDP_URL`; never reconstruct it from the port
+or publish it in chat. Old URLs stop working after ownership transfer:
 
 ```bash
-curl -sS "http://127.0.0.1:<port>/json/version"
-curl -sS "http://127.0.0.1:<port>/json/list"
+curl -sS "${CDP_URL}/json/version"
+curl -sS "${CDP_URL}/json/list"
 ```
 
 ## Account and Credential Resolution

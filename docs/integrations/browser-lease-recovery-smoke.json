@@ -1,0 +1,15 @@
+{
+  "task_proxy_handoff": "verified-restart-same-profile",
+  "live_handoff": "same-pid-and-page-state",
+  "old_channel": "closed",
+  "old_url": "410",
+  "old_lease_mutations": "denied",
+  "automatic_renewal": true,
+  "chromium_control": "pipe-only-no-raw-debugging-port",
+  "persistent_profile_preserved": true,
+  "multi_site_profile": "two-loopback-host-login-cookies-retained",
+  "task_owned": "no-inventory-auth",
+  "terminal_cleanup": "automatic",
+  "fixture": "loopback/about:blank only",
+  "retention_sweep": "14-day-manifest-dry-run-and-confirmed"
+}

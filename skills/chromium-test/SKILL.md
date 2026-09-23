@@ -154,7 +154,7 @@ The remote browser and the agent navigation client are separate processes:
    client) to `http://127.0.0.1:<local-cdp-port>`. For Hermes native CDP tools,
    establish the forward before the new session or use `/browser connect` to
    attach it. Completion: `http://127.0.0.1:<local-cdp-port>/json/version`
-   is reachable from Ghost.
+   is reachable from Ghost, using the recorded generation path in the forwarded URL for fenced browsers.
 4. If the forward drops, the Hoster browser may still run but Ghost can no
    longer navigate it; create a replacement forward to the same recorded CDP
    port, rather than launching a second browser. On completion, close the
@@ -168,6 +168,51 @@ ssh -i /home/ryushe/.ssh/hoster -o BatchMode=yes -o ConnectTimeout=10 \
   -o ControlMaster=no -T ryushe@hoster \
   'eglinfo -B | grep -E "renderer|NV134"; fuser -v /dev/dri/renderD128'
 ```
+
+## Task-owned browsers and lifecycle recovery
+
+For a general-purpose browser spanning ordinary website authentications, request
+`--task-owned` without program/account selectors. This isolates the profile by
+agent/run; it does not select inventory credentials or combine authorization
+scopes. See [provisioner commands and lifecycle](scripts/README.md#browser_provisionerpy).
+
+Fresh ordinary requests default to agent-driven control, including headed
+browsers. Meaningful managed browser activity protects the control claim;
+health checks, automatic heartbeats and a living agent PID do not reset idle age.
+Agents still request the explicit account/color (for example Blue); only the
+browser instance slot is automatic. Reuse the matching agent/run's browser or
+allocate a distinct instance when policy permits and node admission has room.
+Do not take another agent's idle browser merely to reuse it. Idle takeover is
+eligible after five minutes (300 seconds by default), only under the resolved
+program/account/domain single-browser policy, legacy exclusive-profile contract,
+or insufficient node headroom. The old owner's configured threshold cannot be
+shortened by the requester. Active, in-flight, held or unobservable browsers
+remain protected; unavailable capacity/ownership queues rather than changing
+account. Explicit slots and legacy profiles are not silently migrated.
+The separate two-hour request-triggered cleanup still retains profile state.
+
+The optional `--owner-pid <local-task-supervisor-pid>` also supplies an explicit
+terminal task signal. It must cover the task lifetime on the browser node,
+not this request command, a remote process, or a shared daemon. Legacy,
+untracked and manual-mode records remain conservative; missing telemetry is
+not evidence of idleness.
+
+A reclaimable healthy matching headless profile may transfer without restarting
+Chromium after its configured inactivity window. The provisioner fences old
+controller sockets and URLs before transferring the lease. In-flight operations
+and bounded intervention holds protect against takeover and cleanup. Live
+transfer requires explicitly browser-owned fixed proxy routing; task-owned
+proxy routes, all headed/native displays (including non-Kasm sessions), and
+legacy unfenced browsers require verified restart instead.
+Do not relabel a task proxy as browser-owned to obtain live reuse. Preserve the
+full generation-path control URL from the private launch record; a bare port is
+not a usable replacement. Fencing is an operational boundary, not isolation
+against hostile same-UID processes.
+
+Use provisioner `touch --work-state awaiting-input --awaiting-seconds N` for a
+bounded manual wait (default 1800 seconds, maximum 3600). Repeated waiting
+touches do not extend the absolute deadline. Explicit release still supports
+early task completion; persistent profile state survives browser cleanup.
 
 ## Invocation
 
@@ -427,7 +472,7 @@ bbh skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir 
 
 ### Hoster Lifecycle Contract
 
-When the browser runs on Hoster, assign a unique run ID and record the root browser PID, CDP port, profile path, and owning tmux session or service before connecting automation. A browser may not be left behind merely to preserve a reconnect option: a later task must explicitly start a replacement, or Ryushe must explicitly request a named manual-debug session.
+When the browser runs on Hoster, assign a unique run ID and record the root browser PID, CDP port, profile path, and owning tmux session or service before connecting automation. Do not leave browsers unmanaged merely to preserve a reconnect option. The provisioner owns the bounded recovery grace and may hand off a healthy matching browser after fencing the terminal owner; outside that path, terminal cleanup stops it while preserving its persistent profile.
 
 Do not start raw Chrome from a detached shell as the default path. Use the canonical launcher; if a raw launch is necessary, give it a bounded timeout or an explicit teardown command tied to the recorded root PID. A completed, failed, or superseded task must terminate its named tmux session/service after browser cleanup. Never use broad `pkill chrome` or unscoped tmux cleanup.
 

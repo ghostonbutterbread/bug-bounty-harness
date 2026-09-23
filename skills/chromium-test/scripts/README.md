@@ -271,20 +271,32 @@ multi-instance pane registry.
   single-browser policy still applies.
   A healthy, manager-owned, running unkeyed legacy browser may authorize an
   exact-path migration marker in the canonical lease DB under the node lock and
-  only after admission. Its current owner keeps the same live browser/profile;
-  a different agent receives a fresh isolated auto slot when multiple-browser
-  policy and capacity permit. No profile or authentication data is copied:
-  existing login remains only in the legacy profile; the new slot needs its own
-  login/auth seed. Historical unkeyed leases must all have the exact same domain
-  and profile path, with no foreign active manager; unknown disk-only, old
-  NULL-domain, unhealthy, or unregistered live profiles remain exclusive and
-  queue rather than being inferred safe. Once all auto peers stop, the next
-  request prefers the original legacy profile. A registered legacy profile is
-  retained by the age sweep. Canonical acquisition/transfer still serialize
-  conflicts: only manager-marked automatic leases (including transfers) can
-  use the exemption; explicit `auto-`-prefixed keys, unkeyed callers, and
-  pre-schema records cannot bypass the marker, and the account/domain
-  single-browser policy overrides it. `--legacy-profile`
+  only after admission. For a stopped legacy browser, the first request keeps
+  the original profile (and its old authentication), provided every historical
+  manager row for that slot is stopped, its unit inactive, its recorded root/CDP
+  terminal where observable, no SingletonLock exists, and no process command
+  names that profile. Missing launch receipts are permitted only under those
+  independent checks; an observable live root or ambiguous lock fails closed.
+  Once that first browser runs, a second agent receives a fresh isolated auto
+  slot when multiple-browser policy and capacity permit. No profile or
+  authentication data is copied: the new slot needs its own login/auth seed.
+  Historical unkeyed leases must all have the exact same domain and profile
+  path, with no active unkeyed lease for stopped migration or foreign active
+  manager for running migration; unknown disk-only, old NULL-domain, unhealthy,
+  or unregistered live profiles remain exclusive. Once all auto peers stop, the
+  next request prefers the original legacy profile. Historical unkeyed
+  persistent profiles are retained by the age sweep *before* marker selection;
+  task-owned disposable profiles retain their ordinary sweep behavior. Canonical
+  acquisition/transfer still serialize conflicts: only manager-marked automatic
+  leases (including transfers) can use the exemption; the manager issues a
+  short-lived, one-use, per-account/domain/slot/owner proof stored hashed in
+  SQLite and sent to the lease subprocess on stdin. Forging CLI flags and
+  manager ID without this proof does not select automatic provenance. This is a
+  same-UID manager-vs-direct-CLI guard, not isolation from an attacker able to
+  read/write the manager's own SQLite state or execute arbitrary Python as that
+  same user. Explicit `auto-`-prefixed keys, unkeyed callers, and pre-schema
+  records cannot bypass the marker, and the account/domain single-browser
+  policy overrides it. `--legacy-profile`
   explicitly retains exclusive selection. Explicit keys and task-owned
   namespaces are not automatically migrated. Unresolved account selectors do
   not opt into pooling.

@@ -33,7 +33,77 @@ def take(owner, key, agent, manager=None, *, automatic=None):
     request.instance_key, request.agent_id, request.run_id = key, agent, (owner.run_id if agent == owner.agent_id else agent)
     request.manager_id = manager
     request.automatic_instance = key.startswith('auto-') if automatic is None else automatic
+    if request.automatic_instance and manager:
+        request.selection_proof = profiles.authorize_auto_slot(
+            Path(owner.state_dir) / 'browser_profile_leases.sqlite', request.program, request.account,
+            request.auth_domain, key, manager, request.agent_id, request.run_id)
     return profiles.cmd_acquire(request)
+
+
+def test_stopped_missing_receipt_fails_closed_on_unit_or_profile_lock(monkeypatch, tmp_path, capsys):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    c.execute("UPDATE browsers SET state='stopped'")
+    c.commit()
+    Path(row['launch_file']).unlink()
+    monkeypatch.setattr(m, 'unit_active', lambda _: True)
+    with pytest.raises(SystemExit):
+        m.automatic_instance(c, args(), 'anon', 'legacy-global')
+    assert json.loads(capsys.readouterr().out)['reason'] == 'legacy-profile-not-quiescent'
+    monkeypatch.setattr(m, 'unit_active', lambda _: False)
+    (Path(row['profile_dir']) / 'SingletonLock').symlink_to('unknown-1')
+    with pytest.raises(SystemExit):
+        m.automatic_instance(c, args(), 'anon', 'legacy-global')
+    assert json.loads(capsys.readouterr().out)['reason'] == 'legacy-profile-not-quiescent'
+    assert Path(row['profile_dir']).exists()
+
+
+def test_stopped_history_first_request_retains_auth_and_sweep(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    c.execute("UPDATE browsers SET state='stopped',updated=0")
+    c.execute("INSERT INTO browsers SELECT 'older', 'older-browser', program, account, auth_domain, agent_id, run_id, purpose, 'older-unit', profile_dir, ?, state, tab_count, last_activity, created-1, 0 FROM browsers WHERE lease_id=?",
+              (str(tmp_path / 'missing-launch.json'), row['lease_id']))
+    c.commit()
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        db.execute("UPDATE browser_profile_leases SET status='released', released_at=1, profile_health='healthy' WHERE lease_id=?", (row['lease_id'],))
+        for n in range(19):
+            db.execute("INSERT INTO browser_profile_leases(lease_id, program, account_alias, auth_domain, owner_agent_id, owner_run_id, purpose, profile_dir, status, browser_status, created_at, heartbeat_at, expires_at, released_at, manager_id, instance_key) SELECT 'historical-'||?, program, account_alias, auth_domain, owner_agent_id, owner_run_id, purpose, profile_dir, 'released', browser_status, created_at, heartbeat_at, expires_at, 0, manager_id, instance_key FROM browser_profile_leases WHERE lease_id=?", (n, row['lease_id']))
+        db.execute("UPDATE browser_profile_leases SET profile_health='healthy' WHERE lease_id LIKE 'historical-%'")
+    monkeypatch.setattr(m, 'unit_active', lambda _: False)
+    removed, skipped = m.sweep_rows(c, 14, True)
+    assert not removed and len(skipped) == 2 and Path(row['profile_dir']).exists()
+    assert m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True) == ''
+    assert take(owner, '', 'new', manager)['status'] == 'leased'
+    c.execute("UPDATE browsers SET state='running', agent_id='new', run_id='new', lease_id=? WHERE lease_id=?",
+              (profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite').execute(
+                  "SELECT lease_id FROM browser_profile_leases WHERE status='active'").fetchone()[0], row['lease_id']))
+    c.commit()
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    key = m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True)
+    assert key.startswith('auto-')
+    assert take(owner, key, 'second', manager)['status'] == 'leased'
+
+
+def test_forged_automatic_provenance_rejected(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    key = m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True)
+    forged = argparse.Namespace(**vars(owner))
+    forged.instance_key, forged.automatic_instance = key, True
+    forged.agent_id, forged.run_id = 'intruder', 'intruder'
+    assert profiles.cmd_acquire(forged)['reason'] == 'manager-selection-required'
+    import subprocess, sys
+    cli = subprocess.run([sys.executable, str(m.LEASE), '--state-dir', owner.state_dir,
+        'acquire', 'demo', 'anon', '--auth-domain', 'legacy-global', '--agent-id', 'intruder',
+        '--run-id', 'intruder', '--purpose', 'fixture', '--instance-key', key,
+        '--manager-id', manager, '--automatic-instance'], capture_output=True, text=True)
+    assert json.loads(cli.stdout)['reason'] == 'manager-selection-required'
+    proof = profiles.authorize_auto_slot(m.STATE.parent / 'browser_profile_leases.sqlite',
+        'demo', 'anon', 'legacy-global', key, manager, 'legitimate', 'legitimate')
+    forged.selection_proof = proof
+    assert profiles.cmd_acquire(forged)['reason'] == 'manager-selection-required'
+    forged.agent_id = forged.run_id = 'legitimate'
+    assert profiles.cmd_acquire(forged)['status'] == 'leased'
+    assert profiles.cmd_acquire(forged)['reason'] == 'manager-selection-required'
 
 
 def test_manager_proven_migration_preserves_auth_and_owner(monkeypatch, tmp_path):
@@ -129,7 +199,7 @@ def test_start_migration_gate_never_retires_active_legacy(monkeypatch, tmp_path,
             profiles.init_resource_policy(db)
             db.execute('INSERT INTO browser_concurrency_policy VALUES(?,?,?,?)', ('demo', 'anon', 'legacy-global', 'single'))
     calls = []
-    def acquire(_args, operation, *parts):
+    def acquire(_args, operation, *parts, **_kwargs):
         calls.append((operation, parts))
         return {'status': 'locked'}
     monkeypatch.setattr(m, 'lease', acquire)

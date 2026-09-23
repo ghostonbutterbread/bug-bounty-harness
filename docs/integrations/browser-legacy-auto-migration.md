@@ -1,6 +1,6 @@
 # Legacy named-profile auto-slot integration dossier
 
-- **Status:** feature; fixture gate blocked
+- **Status:** feature checkpoint; local gates green, independent review pending
 - **Owner:** Hermes builder subagent
 - **Branch / owning ref:** `feat/browser-legacy-auto-migration`
 - **Worktree:** `/home/ryushe/projects/bug_bounty_harness/browser-legacy-auto-migration`
@@ -13,34 +13,31 @@
 
 ## Intent and contract
 
-On a request for the same resolved account/domain, preserve the healthy running legacy owner's exact unkeyed profile and browser. After capacity admission and only under multiple-browser policy, the node-locked provisioner checks the manager projection against the exact active canonical lease, all historical unkeyed lease domains/paths, and legacy disk path; it registers a durable exact-path marker under SQLite `BEGIN IMMEDIATE`. Canonical acquire and transfer transactions exempt *only* the registered manager's `auto-` keyed slot with automatic provenance from the matching active unkeyed legacy lock. All other keyed conflicts, explicit/unkeyed callers, pre-schema explicit-default rows, a foreign manager, NULL-domain history, changed paths, unknown disk-only profiles, unhealthy/unregistered browsers, and single-browser policy remain conservative. A stopped legacy profile is preferred again when no automatic peer runs. The marker is idempotent; the legacy profile is retained by age sweep. Admission rejection does not register migration or acquire a lease.
+On ordinary Blue-style requests, a stopped legacy browser is selected first, retaining its existing profile/auth without copying data. The manager requires every historical unkeyed row for that profile stopped, its unit inactive, recorded root/CDP terminal where observable, no SingletonLock and no exact profile process argument; missing launch receipts alone do not veto a genuinely quiescent stopped profile. A failed observable check blocks reuse without deleting the profile. After that first browser is running and healthy, the next owner may obtain a distinct auto slot when capacity and multiple-browser policy allow. Running legacy migration requires exact manager ownership and healthy root. All canonical historical unkeyed leases must match the exact domain/path, with no conflicting active lease. The marker is registered under SQLite `BEGIN IMMEDIATE`; the age sweep protects persistent unkeyed historical profile paths *before* selection (not disposable task-owned profiles). A manager-selected auto slot receives a 120-second one-use proof hashed in SQLite and passed to the lease subprocess via stdin. CLI flags plus a forged manager ID alone cannot confer automatic provenance; transfers retain the recorded provenance. This is a same-UID CLI contract, not a security boundary against arbitrary Python/SQLite access by that user. Legacy auth stays in place; the second profile needs its own authorized auth. Admission rejection does not register migration or acquire a lease.
 
 The marker changes concurrency metadata, not files or credentials. Historical auth/session remains in the original legacy profile only. A second auto slot gets a new separate profile and must establish its own auth via ordinary authorized flow or seed; no live profile copying or concurrent on-disk access. This cannot promise website-level simultaneous sessions or an authenticated second browser.
 
 ## Evidence and review
 
-- `python -m pytest -q agents/test_browser_legacy_auto.py agents/test_browser_resources.py agents/test_browser_profile_lease.py agents/test_browser_selection.py agents/test_browser_provisioner.py` → **142 passed** (final source state before dossier).
-- `python -m pytest -rsq agents/test_browser_lifecycle_systemd.py` → one path check passed, real browser fixture skipped (opt-in).
-- `BBH_LOCAL_BROWSER_SMOKE=1 <scratch-venv>/bin/python -m pytest -q agents/test_browser_lifecycle_systemd.py -k test_systemd_lifecycle_fixture` → failed at existing heartbeat assertion after successfully starting two isolated disposable browsers, distinct profiles/panes, and CDP evaluation. First attempt without scratch venv failed on missing `websocket-client`. Fixture teardown initially reported unverified root; exact recorded PIDs later absent, units inactive, CDP port closed, then disposable fixture root removed. Private evidence retained under scratch `bbh-startup-evidence-4dj8gurf`. Do not construe this as a green end-to-end migration test.
-- `git diff --check` → clean.
-- Independent review: pending parent reviewer.
-- Feature/base comparison: worktree started clean at fetched `origin/beta` `af9dae9`.
+- `python -m pytest -q --tb=short agents/test_browser_legacy_auto.py agents/test_browser_resources.py agents/test_browser_profile_lease.py agents/test_browser_selection.py agents/test_browser_provisioner.py` → **145 passed**. Synthetic Hoster-shaped stopped topology: two rows, absent launch receipt, 20 exact released leases, sweep retention, first legacy owner, second isolated auto; negative unit/profile lock and forged CLI proof/replay.
+- `BBH_LOCAL_BROWSER_SMOKE=1 <scratch-venv>/bin/python -m pytest -q --tb=short agents/test_browser_lifecycle_systemd.py` → **3 passed**. Real disposable legacy→auto fixture started two Chromium roots with distinct profiles and legacy-only sentinel, then verified task-owned unit/root/CDP/process cleanup before profile deletion. Existing full lifecycle fixture also passed.
+- Earlier heartbeat failure was fixture environment missing `httpx`: `activity_control` silently reported unavailable, watcher intentionally skipped renewal. Installed `pytest`, `websocket-client`, `aiohttp`, `httpx` in a disposable scratch venv; moved heartbeat observation before idle transition with a CDP activity event, without extending its wait. Earlier startup failure likewise lacked `aiohttp` for the pipe bridge. No project dependency declaration changed.
+- `git diff --check` → clean. Independent review remains parent-owned. No Hoster mutation, merge, push or live account access.
 
 ## Blockers and deferred work
 
-- **Missing evidence:** Disposable real browser *legacy-to-auto* two-request smoke, including canonical marker/path, exact retained legacy profile and auth sentinel, second isolated profile, release and endpoint/root verification. Existing opt-in fixture does not seed a legacy browser and currently fails its unrelated heartbeat assertion.
-- **Command / fixture:** Extend the existing `agents/test_browser_lifecycle_systemd.py` disposable fixture (short physical scratch directory, task-owned systemd units, loopback-only content, exact cleanup); run with `BBH_LOCAL_BROWSER_SMOKE=1` in an environment with its test dependencies. Do not target live accounts or copy real profiles.
-- **Trigger:** Parent review before integration/Hoster activation, after heartbeat fixture condition is diagnosed or isolated.
-- **Why it blocks:** Deterministic SQLite/manager tests prove routing and policy; not actual Chromium startup and account-preserving two-browser lifecycle on intended host.
-- **Next:** Independent diff review, disposable fixture fix/extension, then parent-owned integration/deployment decision. No push, merge, or Hoster activation here.
+- **Remaining gate:** Parent independent review and Hoster read-only preflight of exact manager/lease/path data before any activation. Local disposable tests cannot establish actual Hoster unit/root/CDP state or last-release health.
+- **Safe alternative if Hoster evidence disagrees:** Leave the old profile and exclusivity untouched; require manual inspection or authorized `--recover-profile` for an unhealthy canonical release. Do not synthesize missing launch receipts, reset lease metadata, copy the profile, or use direct CLI `--automatic-instance` to force migration.
+- **Trigger:** Review this checkpoint against fetched `beta`, then inspect Hoster read-only. No live rollout in this task.
+- **Next:** Parent-owned review/integration and separately authorized Hoster activation. No push, merge or Hoster mutation here.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/browser-legacy-auto-migration`
-- **Latest immutable recovery checkpoint:** `0b77bd5eef9390c7f6cfdc92ca057b9636d0edbf` (plus this dossier-only handoff commit).
-- **Feature implementation commit(s):** `83433f3ec18ea6eed25ef9bfb247617b98a5a890`, `0b77bd5eef9390c7f6cfdc92ca057b9636d0edbf`.
-- **Exact resume point:** Review canonical conflict and manager marker semantics; run a disposable real migration fixture and inspect Hoster readiness without touching live accounts.
-- **Working-tree state at handoff:** expected clean after commit.
+- **Latest immutable recovery checkpoint:** `b679f2b` (prior checkpoint; this turn's repair commit follows below).
+- **Feature implementation commit(s):** `83433f3`, `0b77bd5` and this turn's repair checkpoint.
+- **Exact resume point:** Parent independent review against refreshed `beta`, then read-only Hoster preflight; do not mutate live accounts.
+- **Working-tree state at handoff:** clean after checkpoint commit.
 
 ## Decision gates
 

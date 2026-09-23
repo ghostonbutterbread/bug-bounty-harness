@@ -7,13 +7,13 @@
 - **Base commit:** `af9dae91dfbddc0dae90ae17b3c3ed49a5f4a89d` (fetched `origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-23
-- **Latest immutable recovery checkpoint:** `83433f3ec18ea6eed25ef9bfb247617b98a5a890`
-- **Feature implementation commit(s):** `83433f3ec18ea6eed25ef9bfb247617b98a5a890`
+- **Latest immutable recovery checkpoint:** `0b77bd5eef9390c7f6cfdc92ca057b9636d0edbf`
+- **Feature implementation commit(s):** `83433f3ec18ea6eed25ef9bfb247617b98a5a890`, `0b77bd5eef9390c7f6cfdc92ca057b9636d0edbf`
 - **Inspiration:** Ordinary Blue same-account/different-browser request; canonical SQLite lease conflict and legacy auth preservation.
 
 ## Intent and contract
 
-On a request for the same resolved account/domain, preserve the healthy running legacy owner's exact unkeyed profile and browser. After capacity admission and only under multiple-browser policy, the node-locked provisioner checks the manager projection against the exact active canonical lease, all historical unkeyed lease domains/paths, and legacy disk path; it registers a durable exact-path marker under SQLite `BEGIN IMMEDIATE`. Canonical acquire and transfer transactions exempt *only* the registered manager's `auto-` keyed slot from the matching active unkeyed legacy lock. All other keyed conflicts, explicit/unkeyed callers, a foreign manager, NULL-domain history, changed paths, unknown disk-only profiles, unhealthy/unregistered browsers, and single-browser policy remain conservative. A stopped legacy profile is preferred again when no automatic peer runs. The marker is idempotent; the legacy profile is retained by age sweep. Admission rejection does not register migration or acquire a lease.
+On a request for the same resolved account/domain, preserve the healthy running legacy owner's exact unkeyed profile and browser. After capacity admission and only under multiple-browser policy, the node-locked provisioner checks the manager projection against the exact active canonical lease, all historical unkeyed lease domains/paths, and legacy disk path; it registers a durable exact-path marker under SQLite `BEGIN IMMEDIATE`. Canonical acquire and transfer transactions exempt *only* the registered manager's `auto-` keyed slot with automatic provenance from the matching active unkeyed legacy lock. All other keyed conflicts, explicit/unkeyed callers, pre-schema explicit-default rows, a foreign manager, NULL-domain history, changed paths, unknown disk-only profiles, unhealthy/unregistered browsers, and single-browser policy remain conservative. A stopped legacy profile is preferred again when no automatic peer runs. The marker is idempotent; the legacy profile is retained by age sweep. Admission rejection does not register migration or acquire a lease.
 
 The marker changes concurrency metadata, not files or credentials. Historical auth/session remains in the original legacy profile only. A second auto slot gets a new separate profile and must establish its own auth via ordinary authorized flow or seed; no live profile copying or concurrent on-disk access. This cannot promise website-level simultaneous sessions or an authenticated second browser.
 
@@ -37,8 +37,8 @@ The marker changes concurrency metadata, not files or credentials. Historical au
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/browser-legacy-auto-migration`
-- **Latest immutable recovery checkpoint:** `83433f3ec18ea6eed25ef9bfb247617b98a5a890` (plus this dossier-only handoff commit).
-- **Feature implementation commit(s):** `83433f3ec18ea6eed25ef9bfb247617b98a5a890`.
+- **Latest immutable recovery checkpoint:** `0b77bd5eef9390c7f6cfdc92ca057b9636d0edbf` (plus this dossier-only handoff commit).
+- **Feature implementation commit(s):** `83433f3ec18ea6eed25ef9bfb247617b98a5a890`, `0b77bd5eef9390c7f6cfdc92ca057b9636d0edbf`.
 - **Exact resume point:** Review canonical conflict and manager marker semantics; run a disposable real migration fixture and inspect Hoster readiness without touching live accounts.
 - **Working-tree state at handoff:** expected clean after commit.
 

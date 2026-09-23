@@ -2,6 +2,8 @@
 
 ## Inventory
 
+- `browser_manager_row_repair.py` — offline-first, read-only plan and explicitly
+  gated Blue-only repair for historical positional manager rows; see below.
 - `browser_provisioner.py` — canonical admission, profile-lease, and Chromium
   request path.
 - `chromium_test.py` — isolated Chromium launcher used by the provisioner.
@@ -28,6 +30,29 @@
 Use the detailed records below for supported invocation and safety boundaries.
 Each helper owns deterministic mechanics only; lane availability, account
 selection, target scope, and browser state still require agent verification.
+
+## Historical manager-row repair (offline first)
+
+`browser_manager_row_repair.py --manager-db /private/browser_provisioner.sqlite --program blue`
+reads the exact old appended-column layout and canonical lease database in the
+same directory. It emits counts, opaque lease-ID hashes for blocked rows, and a
+plan hash; never raw launch records, paths, CDP URLs or account credentials.
+Active canonical leases and incomplete/conflicting evidence are blocked. A
+non-Blue plan is read-only. Do not run the repair as a launcher or on a live owner.
+
+Only after independently verifying the Blue owner is terminal and manager/watchers
+are quiescent on the actual browser node, create a **new empty mode-0700 backup
+directory**, rerun the plan, and supply its hash to `--apply --program blue
+--owner-terminal-confirmed --plan-hash HASH --backup-dir DIR`. Apply acquires the
+manager node lock, copies both DBs via SQLite backup before mutation, takes a
+cross-database `BEGIN IMMEDIATE`, re-evaluates the rows and live evidence, and
+updates manager fields only; no canonical lease or profile contents are changed.
+Any active/unknown unit, watcher, task owner, browser root, profile SingletonLock
+or reachable loopback CDP blocks apply. Missing owner metadata also blocks apply.
+A changed plan or any Blue ambiguity blocks the whole cohort. A backup may
+remain after a refused apply; use a fresh private directory on retry. Live
+quiescence is an operational prerequisite: SQLite locking does not stop an
+external process or systemd from starting after the final liveness probe.
 
 ## Opt-in private startup diagnostics
 

@@ -73,6 +73,20 @@ is vulnerable or replace browser source-to-sink verification. Keep any newly
 noticed but untested path in the Hypothesis Ledger; promote reusable external
 knowledge only through reviewed ResearchMap-card promotion.
 
+## Live Source-to-Sink Analysis
+
+When static JS review leaves a controlled value's path unclear, exercise the
+normal UI with an inert canary and trace it at runtime. DevTools breakpoints on
+suspected sinks or DOM mutations, call stacks, and optional sink tracers (such
+as DOM Invader or Untrusted Types) can reveal the actual source, intermediate
+decodes/sanitizers, and final browser context. Instrument before triggering the
+source again; SPA navigation, event handlers, and asynchronous renders may not
+run on initial load. Correlate a runtime hit with the relevant JS and observed
+transformations; compare raw and browser responses when that distinction helps.
+A breakpoint hit is reachability evidence, not XSS proof; absence of a hit is
+not evidence of safety when the trigger or sink coverage is uncertain. Preserve
+browser execution proof as the confirmation boundary.
+
 ## Testing Loop
 
 1. Identify the source and sink.

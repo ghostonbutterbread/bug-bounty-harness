@@ -1245,7 +1245,11 @@ def start(args):
     # Startup intent is visible to finish before browser dispatch/CDP readiness.
     t = now()
     c.execute("delete from browsers where lease_id=?", (lid,))
-    c.execute("insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    c.execute("""INSERT INTO browsers (
+                  lease_id, browser_id, program, account, auth_domain, agent_id, run_id,
+                  purpose, unit, profile_dir, launch_file, state, tab_count,
+                  last_activity, created, updated
+              ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
               (lid, bid, slug(args.program), slug(got["lease"].get("account_alias", args.account)),
                resolved_domain, args.agent_id, args.run_id, args.purpose, unit,
                str(prof), str(launch), "starting", 0, t, t, t))
@@ -1415,7 +1419,11 @@ def start(args):
     t = now()
     c.execute("delete from browsers where lease_id=?", (lid,))
     c.execute(
-        "insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        """INSERT INTO browsers (
+            lease_id, browser_id, program, account, auth_domain, agent_id, run_id,
+            purpose, unit, profile_dir, launch_file, state, tab_count,
+            last_activity, created, updated
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             lid,
             bid,

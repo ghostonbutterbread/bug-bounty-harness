@@ -6,6 +6,7 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
+
 import pytest
 
 SCRIPT = Path(__file__).parents[1] / "skills/chromium-test/scripts/browser_provisioner.py"
@@ -192,6 +193,83 @@ def test_provisioner_marks_its_launcher_invocation_as_internal(monkeypatch, tmp_
     assert "--display-backend kasmvnc" in shell
     assert "BROWSER_PROVISIONER_LAUNCH" not in shell
     assert "--provisioner-internal" not in shell
+
+
+@pytest.mark.parametrize("appended_domain", [False, True])
+def test_start_records_named_fields_across_browser_schema_orders(monkeypatch, tmp_path, capsys, appended_domain):
+    m = load(monkeypatch, tmp_path)
+    if appended_domain:
+        m.STATE.parent.mkdir(parents=True)
+        with sqlite3.connect(m.STATE) as c:
+            c.execute("""CREATE TABLE browsers (
+                lease_id TEXT PRIMARY KEY, browser_id TEXT UNIQUE NOT NULL,
+                program TEXT NOT NULL, account TEXT NOT NULL, agent_id TEXT NOT NULL,
+                run_id TEXT NOT NULL, purpose TEXT NOT NULL, unit TEXT NOT NULL,
+                profile_dir TEXT NOT NULL, launch_file TEXT NOT NULL, state TEXT NOT NULL,
+                tab_count INTEGER NOT NULL DEFAULT 0, last_activity REAL NOT NULL,
+                created REAL NOT NULL, updated REAL NOT NULL)""")
+        # Exercise the real db() migration rather than manufacturing its final shape.
+        with m.db() as c:
+            assert [r[1] for r in c.execute("pragma table_info(browsers)")][-1] == "auth_domain"
+            # A previously shifted record is retained verbatim, not repaired or deleted.
+            c.execute("""INSERT INTO browsers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                "old", "old-browser", "demo", "fixture", "login.example.test",
+                "agent", "run", "test", "browser-old", str(tmp_path / "old-profile"),
+                str(tmp_path / "old.json"), "running", 0, 1.0, 1.0, 1.0,
+            ))
+    args = start_args()
+    args.auth_domain = "login.example.test"
+    profile = tmp_path / "artifacts/demo/web/browser-profiles/login.example.test/fixture"
+    monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], []))
+    monkeypatch.setattr(m, "cleanup_unused", lambda *a: [])
+    monkeypatch.setattr(m, "admission", lambda *_: {"status": "admitted"})
+    monkeypatch.setattr(m, "automatic_instance", lambda *_a, **_k: "")
+    monkeypatch.setattr(m, "lease", lambda _args, action, *_rest: (
+        {"status": "leased", "lease": {"lease_id": "new", "account_alias": "fixture",
+                                      "auth_domain": args.auth_domain, "profile_dir": str(profile)}}
+        if action == "acquire" else {"status": "registered"}
+    ))
+    dispatched = []
+    monkeypatch.setattr(m, "unit_active", lambda _unit: bool(dispatched))
+    monkeypatch.setattr(m, "start_watcher", lambda _bid: None)
+    monkeypatch.setattr(m, "unit_identity", lambda _unit: "invocation")
+    launch = m.STATE.parent / "new-browser.launch.json"
+    def fake_dispatch(*_args, **_kwargs):
+        # The startup reservation must be legible before CDP publication.
+        with m.db() as c:
+            starting = c.execute("select * from browsers where lease_id='new'").fetchone()
+            assert starting["state"] == "starting"
+            assert starting["auth_domain"] == args.auth_domain
+            assert starting["agent_id"] == args.agent_id
+            assert starting["unit"] == "browser-new-browser"
+        dispatched.append(True)
+        launch.write_text('{"cdp_url": "http://127.0.0.1:9223"}')
+        return argparse.Namespace(returncode=0, stdout="", stderr="")
+    monkeypatch.setattr(m.subprocess, "run", fake_dispatch)
+    monkeypatch.setattr(m.uuid, "uuid4", lambda: "new-browser")
+    launch.parent.mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(SystemExit) as exit_info:
+        m.start(args)
+    assert exit_info.value.code == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "started"
+    with m.db() as c:
+        c.row_factory = sqlite3.Row
+        row = c.execute("select * from browsers where lease_id='new'").fetchone()
+        assert {key: row[key] for key in ("lease_id", "browser_id", "program", "account",
+                                           "auth_domain", "agent_id", "run_id", "purpose", "unit",
+                                           "profile_dir", "launch_file", "state", "tab_count")} == {
+            "lease_id": "new", "browser_id": "new-browser", "program": "demo",
+            "account": "fixture", "auth_domain": args.auth_domain, "agent_id": "agent",
+            "run_id": "run", "purpose": "test", "unit": "browser-new-browser",
+            "profile_dir": str(profile), "launch_file": str(launch), "state": "running", "tab_count": 0,
+        }
+        assert all(isinstance(row[k], (float, int)) for k in ("last_activity", "created", "updated"))
+        assert m.selected_browser(c, "demo", "fixture", args.auth_domain, "")["lease_id"] == "new"
+        if appended_domain:
+            old = c.execute("select * from browsers where lease_id='old'").fetchone()
+            assert old["auth_domain"] == "1.0" and old["state"] == str(tmp_path / "old.json")
+            assert old["agent_id"] == args.auth_domain
 
 
 def test_provisioner_start_defaults_to_required_proxy_ca_import(monkeypatch, tmp_path):

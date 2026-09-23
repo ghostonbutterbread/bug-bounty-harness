@@ -166,35 +166,20 @@ into another as app facts.
 
 ## Cross-Orchestrator Concurrency
 
-Multiple independent agents may hunt the same program, but they do not
-automatically know what each other is doing. Before a long-lived goal run or a
-local Kanban team starts, consult the program's small active-run presence
-directory when it exists:
+Independent agents do not coordinate with peers by default. Use the owning
+provisioner/admission path for shared resources, including browser allocation;
+do not consult peer presence, list peers, or publish run details merely because
+another agent might be active. The program's scope and rate budget still apply
+across workers; a coordinator must account for assigned workers collectively.
 
-```text
-agent_shared/active-runs/<run-id>.md
-```
-
-This is intentionally not a shared to-do list, worker transcript, or historical
-ledger. It is a short-lived, **peer-visible resource reservation**: opaque run
-and resource aliases, owner, runner type, access window, constraints, and expiry.
-Load `pi-cordinator` for peer resource coordination and use
-`templates/active-run-presence.md` as the record shape. Never publish the
-investigation, vulnerability, route/flow, mode, or revealing artifact pointer
-in this peer-visible record; keep them in the operator's private run record.
-
-- A local Kanban team writes one aggregate presence record for its shared
-  resource reservations; it does not mirror every internal card.
-- An external CLI goal run writes its own presence record and retains its own
-  detailed private session/run log.
-- Agents may work concurrently on distinct resources. When an opaque resource
-  alias cannot convey safe scheduling without revealing a target or hypothesis,
-  ask the operator to resolve overlap privately instead of requesting details
-  from the peer.
-- Presence records expire or are removed when a run ends. They are not promoted
-  into MapStore.
-- A coordinator resolves overlap through private assignment or a neutral
-  resource reservation, not by creating a second universal queue.
+Only when the operator explicitly directs peer resource coordination may you
+use `agent_shared/active-runs/` as a short-lived resource reservation signal.
+Load `pi-cordinator` before that exchange and use
+`templates/active-run-presence.md` for neutral resource state. Keep all
+investigation details in the operator's private run record. Do not use the
+presence directory as a discovery queue or route to initiate contact on your
+own. If the resource is occupied or missing, try its normal provisioner for an
+independent equivalent; otherwise ask the operator for allocation.
 
 MapStore serializes its own writes with a local lock and atomic write path when
 agents share the same mounted store. That prevents file corruption, not

@@ -1,9 +1,9 @@
 # Browser provisioner task MITM integration dossier
 
-- **Status:** approved for beta integration; headed/manual activation deferred; integration checkout blocked by unrelated changes
+- **Status:** reconciled with fetched `origin/beta` `9818340`; headed/manual activation deferred; integration checkout blocked by unrelated changes
 - **Owner:** Hermes
 - **Branch / worktree:** `feat/browser-provisioner-mitm-auto-v2` / `/home/ryushe/worktrees/bbh-browser-provisioner-mitm-auto-v2`
-- **Base commit:** `af9dae9` (fetched `origin/beta`)
+- **Base commit:** `af9dae9`; reconciliation parent `9818340e6b84284d738bc85145011813d548b769` (fetched `origin/beta`)
 - **Intended target:** `beta`; no merge or push completed
 - **Last updated:** 2026-09-23
 - **Latest immutable recovery checkpoint:** `b21630dd384afc9fcf9a670ea33a48206a708f6c` (orphan-start repair)
@@ -38,6 +38,7 @@ Preserve current beta's multi-instance account selection, lease/admission orderi
 - Interrupted-start repair: `task-proxy-recover` and `reap-idle` reconcile only same-agent/run `starting` browser intent after the **exact** browser unit reports `inactive`/`failed` twice, any launch-receipt PID is absent, any recorded process identity is terminal, and recorded loopback CDP is unreachable. This updates only the browser manager row to `stopped` under the node lock; it neither stops that browser unit by name nor releases/marks the profile lease healthy. The proxy still follows invocation verification, quiet-flow/client checks (for live startup), CA cleanup and indexing. Active/unknown units and live/unknown processes or ready CDP retain the reservation. Ordinary `task-proxy-finish` continues to reject a `starting` browser.
 - Regression receipt: new cases cover interrupted start with both units inactive (with and without a launch receipt), unrelated active unit untouched, active or unverifiable browser unit refused, live/unknown PID or live CDP refused, and reaper's terminal-owner/quiet-flow gate plus active-unit refusal. `env -u HARNESS_BOUNTY_ARTIFACT_ROOT python -m pytest -q agents/test_browser_provisioner.py agents/test_chromium_test_launcher.py agents/test_browser_selection.py --basetemp=/home/ryushe/.hermes/profiles/bugfix/cache/scratch/o7` — **102 passed**; `env -u HARNESS_BOUNTY_ARTIFACT_ROOT python -m pytest -q agents/test_browser_resources.py agents/test_browser_lease_recovery.py agents/test_browser_startup_diagnostics.py --basetemp=/home/ryushe/.hermes/profiles/bugfix/cache/scratch/o2` — **101 passed** (203 total). The first latter run with a longer basetemp yielded `AF_UNIX path too long` in an unchanged fixture; the short physical scratch path passed.
 - Merge/ancestry: branch based on `af9dae9` beta; no merge performed.
+- Reconciliation with `9818340`: retained beta's named-column `browsers` INSERT fix in the final browser record and applied the same named-column mapping to the task-MITM branch's early `starting` row, which otherwise mis-mapped columns after `auth_domain` was appended by migration. Retained beta's explicit-operator-only remote-pi rule while keeping the task-MITM browser routing in `agents/index.md`. The single textual conflict was `agents/index.md`; auto-merges in the provisioner, test, registry, and Pi/hunter guidance were inspected, and the duplicate pytest import was removed. `env -u HARNESS_BOUNTY_ARTIFACT_ROOT python -m pytest -q agents/test_browser_provisioner.py agents/test_chromium_test_launcher.py agents/test_browser_selection.py agents/test_browser_resources.py agents/test_browser_lease_recovery.py agents/test_browser_startup_diagnostics.py agents/test_proxy_store.py --basetemp=/home/ryushe/.hermes/profiles/bugfix/cache/scratch/mm4` — **212 passed**. The new named-field regression covers both initial and appended-`auth_domain` schema layouts through startup and final publication. Earlier reconciliation test runs failed because the imported test fixture falsely reported the unit active before dispatch and pre-wrote a launch receipt that startup removes; corrected fixture now models dispatch ordering. No Hoster or live target test was run during this merge.
 
 ## Blockers and deferred work
 
@@ -54,9 +55,9 @@ Preserve current beta's multi-instance account selection, lease/admission orderi
 ## Interruption / resume handoff
 
 - **Branch/ref:** `feat/browser-provisioner-mitm-auto-v2`
-- **Checkpoint:** `b21630dd384afc9fcf9a670ea33a48206a708f6c` with implementation and tests; this dossier-only follow-up is the feature tip.
-- **Exact resume point:** integrate into a clean beta worktree after resolving its unrelated changes, then run integrated tests. Separately, run disposable headed KasmVNC/native manual-input smoke when installed on the intended node. Headless proxy, CA, cgroup, release/replay/finish gates are green.
-- **Working tree:** feature branch clean after this dossier checkpoint.
+- **Checkpoint:** `dd37437` includes implementation and routing docs; the reconciliation merge commit follows this dossier update.
+- **Exact resume point:** obtain a clean beta integration worktree without disturbing unrelated changes, refresh `origin/beta`, independently review the reconciled feature tip and merge into beta, then run integrated tests. Separately, run disposable headed KasmVNC/native manual-input smoke when installed on the intended node. Headless proxy, CA, cgroup, release/replay/finish gates were previously green.
+- **Working tree:** reconciliation to be committed on this feature branch; beta checkout untouched.
 
 ## Decision gates
 

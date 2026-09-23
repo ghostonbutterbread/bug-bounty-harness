@@ -88,7 +88,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **intelligent-fuzzing** | `/intelligent-fuzzing {program} {endpoint-or-surface}` | `skills/intelligent-fuzzing/SKILL.md` |
 | **pwnfox** | `/pwnfox {color}` | `skills/pwnfox/SKILL.md` |
 | **agent-proxy** | `/agent-proxy` | `skills/agent-proxy/SKILL.md` |
-| **pi-cordinator** | `/pi-cordinator` (required preflight before remote-pi multi-agent mesh actions) | `skills/pi-cordinator/SKILL.md` |
+| **pi-cordinator** | `/pi-cordinator` (only on explicit operator request to contact a peer) | `skills/pi-cordinator/SKILL.md` |
 | **ryushe-proxy** | `/ryushe-proxy` | `skills/ryushe-proxy/SKILL.md` |
 | **intercepted-proxy** | `/intercepted-proxy {program} {target-flow}` | `prompts/intercepted-proxy-playbook.md` |
 | **mullvad** | `/mullvad` | `prompts/mullvad-playbook.md` |

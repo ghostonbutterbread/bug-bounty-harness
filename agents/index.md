@@ -63,10 +63,11 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    proxy after any direct replay. Do not launch `chromium_test.py` directly or
    silently fall back to Caido/shared 8080. Ordinary, non-security web browsing
    uses Hermes's managed browser provider without this provisioner or MITM.
-10. Before any remote-pi multi-agent mesh action, **first** load
-    `pi-cordinator`; only then load upstream `agent-network` for transport.
-    This includes `/remote-pi` joining, `list_peers`, `get_messages`,
-    `agent_send`, replies, and peer resource coordination. Never disclose the
-    vulnerability being investigated to another peer over the mesh.
+10. Do not use remote-pi peer coordination by default. Use the owning
+    provisioner directly (including browser provisioning), without peer lookup
+    or broadcast. Only if the operator explicitly asks you to contact another
+    agent, first load `pi-cordinator`; then load upstream `agent-network` for
+    transport before `/remote-pi`, `list_peers`, inbox/replies, or `agent_send`.
+    Keep that exchange resource-only and never disclose the vulnerability.
 
 See the selected skill for commands, evidence requirements, and runner details.

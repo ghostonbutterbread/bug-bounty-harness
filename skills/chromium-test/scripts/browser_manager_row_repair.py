@@ -144,7 +144,8 @@ def inspect(conn, program, account, *, probe=None):
             lease = conn.execute('SELECT * FROM lease.browser_profile_leases WHERE lease_id=?', (lid,)).fetchone()
             if lease is None:
                 raise Refused('lease-missing')
-            if any(repaired[k] != lease[v] for k, v in LEASE_FIELDS.items()):
+            if any(repaired[k] != lease[v] for k, v in LEASE_FIELDS.items()
+                   if k != 'unit' or lease[v] is not None):
                 raise Refused('lease-conflict')
             if not repaired['unit'] == 'browser-' + repaired['browser_id']:
                 raise Refused('unit-identity')
@@ -153,7 +154,7 @@ def inspect(conn, program, account, *, probe=None):
             if not Path(repaired['profile_dir']).is_absolute() or not Path(repaired['profile_dir']).is_dir() or Path(repaired['profile_dir']).is_symlink():
                 raise Refused('profile-path-unknown')
             # A released row cannot be repaired while another owner holds its profile.
-            if conn.execute("SELECT 1 FROM lease.browser_profile_leases WHERE profile_dir=? AND status!='released' LIMIT 1", (repaired['profile_dir'],)).fetchone():
+            if conn.execute("SELECT 1 FROM lease.browser_profile_leases WHERE profile_dir=? AND lease_id!=? AND status='active' LIMIT 1", (repaired['profile_dir'], lid)).fetchone():
                 raise Refused('profile-other-owner')
             path = Path(repaired['launch_file'])
             if path.is_symlink() or (path.exists() and not path.is_file()):
@@ -165,6 +166,8 @@ def inspect(conn, program, account, *, probe=None):
                       'agent_id': 'agent_id', 'run_id': 'run_id', 'program': 'program',
                       'task': 'purpose', 'account_label': 'account'}
             if any(receipt[k] != repaired[v] for k, v in fields.items() if k in receipt):
+                raise Refused('receipt-conflict')
+            if any(receipt[k] != repaired['unit'] for k in ('unit', 'service_unit') if k in receipt):
                 raise Refused('receipt-conflict')
             # Sparse/missing historical receipts are never evidence of identity.
             # Canonical lease and exact launch path attest identity; live checks
@@ -233,10 +236,13 @@ def run(manager, program, account, *, apply=False, plan_hash=None, confirmed=Fal
             lease_uri = str(canonical) if apply else f'file:{canonical}?mode=ro'
             conn.execute('ATTACH DATABASE ? AS lease', (lease_uri,))
             if apply:
-                # Backup before mutation, while the manager node lock is held.
-                backup_pair(manager, canonical, Path(backup_dir))
+                # Reserve both attached databases before copying either. A
+                # canonical writer does not share the node lock; BEGIN IMMEDIATE
+                # excludes it until the snapshots and update are complete.
                 conn.execute('BEGIN IMMEDIATE')
             try:
+                if apply:
+                    backup_pair(manager, canonical, Path(backup_dir))
                 candidates, blocked, evidence = inspect(conn, program, account, probe=probe or (runtime_quiescent if apply else None))
                 plan = digest([(r['lease_id'], digest(r), digest(v), evidence[digest(r['lease_id'])[:16]]) for r, v in candidates])
                 receipt = {'status': 'planned' if not apply else 'refused', 'program': program,

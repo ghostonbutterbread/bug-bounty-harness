@@ -2,6 +2,7 @@
 import json
 import sqlite3
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -134,6 +135,8 @@ def test_second_snapshot_failure_cleanup_and_retry(tmp_path, runtime, monkeypatc
     with pytest.raises(OSError, match='second snapshot'):
         apply(state, backup, plan)
     assert not list(backup.iterdir())
+    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite', timeout=0.2) as c:
+        c.execute("UPDATE browser_profile_leases SET status='released' WHERE lease_id='lid-0'")
     monkeypatch.setattr(repair, 'snapshot', original)
     assert apply(state, backup, plan)['applied_count'] == 1
 
@@ -183,3 +186,89 @@ def test_active_unit_blocks(tmp_path, monkeypatch):
         c.execute('ATTACH DATABASE ? AS lease', (str(tmp_path / 'browser_profile_leases.sqlite'),))
         candidates, blocked, evidence = repair.inspect(c, 'neon', 'blue', probe=repair.runtime_quiescent)
     assert not candidates and list(blocked.values()) == ['unit-active-or-unknown']
+
+def test_shared_profile_expired_history_does_not_hide_released_candidate(tmp_path, runtime):
+    state, backup = fixture(tmp_path, 3)
+    leases = tmp_path / 'browser_profile_leases.sqlite'
+    with sqlite3.connect(state) as c, sqlite3.connect(leases) as l:
+        profile = str(tmp_path / 'profile-bid-0')
+        c.execute("UPDATE browsers SET launch_file=? WHERE lease_id='lid-1'", (profile,))
+        c.execute("UPDATE browsers SET launch_file=? WHERE lease_id='lid-2'", (profile,))
+        l.execute("UPDATE browser_profile_leases SET profile_dir=?, status='expired', purpose='different' WHERE lease_id='lid-1'", (profile,))
+        l.execute("UPDATE browser_profile_leases SET profile_dir=?, status='active' WHERE lease_id='lid-2'", (profile,))
+    (tmp_path / 'bid-1.launch.json').unlink()
+    (tmp_path / 'bid-2.launch.json').unlink()
+    # Active owner is untouched; expired row is separately quarantined for identity mismatch.
+    plan = repair.run(state, 'neon', 'blue')
+    assert plan['candidate_count'] == 0
+    assert sorted(plan['blocked'].values()) == ['lease-conflict', 'lease-not-released', 'profile-other-owner']
+    with sqlite3.connect(leases) as l, sqlite3.connect(state) as c:
+        l.execute("UPDATE browser_profile_leases SET profile_dir=? WHERE lease_id='lid-2'", (str(tmp_path / 'profile-bid-2'),))
+        c.execute("UPDATE browsers SET launch_file=? WHERE lease_id='lid-2'", (str(tmp_path / 'profile-bid-2'),))
+    plan = repair.run(state, 'neon', 'blue')
+    assert plan['candidate_count'] == 1
+    assert sorted(plan['blocked'].values()) == ['lease-conflict', 'lease-not-released']
+    assert apply(state, backup, plan)['applied_count'] == 1
+
+def test_released_null_service_unit_requires_manager_and_receipt_identity(tmp_path, runtime):
+    state, backup = fixture(tmp_path, 2)
+    leases = tmp_path / 'browser_profile_leases.sqlite'
+    with sqlite3.connect(leases) as c:
+        c.execute('UPDATE browser_profile_leases SET service_unit=NULL')
+    receipt = tmp_path / 'bid-1.launch.json'
+    data = json.loads(receipt.read_text())
+    data['unit'] = 'browser-wrong'
+    receipt.write_text(json.dumps(data))
+    plan = repair.run(state, 'neon', 'blue')
+    assert plan['candidate_count'] == 1
+    assert list(plan['blocked'].values()) == ['receipt-conflict']
+    assert apply(state, backup, plan)['applied_count'] == 1
+
+def test_backup_pair_excludes_concurrent_canonical_writer(tmp_path, runtime, monkeypatch):
+    state, backup = fixture(tmp_path, 1)
+    plan = repair.run(state, 'neon', 'blue')
+    original = repair.snapshot
+    attempted = threading.Event()
+    completed = threading.Event()
+    writer = []
+    def between(source, destination):
+        original(source, destination)
+        if source == state:
+            def write():
+                attempted.set()
+                try:
+                    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite', timeout=0.2) as c:
+                        c.execute("UPDATE browser_profile_leases SET purpose='raced' WHERE lease_id='lid-0'")
+                    writer.append('committed')
+                except sqlite3.OperationalError:
+                    writer.append('locked')
+                completed.set()
+            thread = threading.Thread(target=write)
+            thread.start()
+            assert attempted.wait(2) and completed.wait(2)
+            thread.join()
+    monkeypatch.setattr(repair, 'snapshot', between)
+    assert apply(state, backup, plan)['applied_count'] == 1
+    assert writer == ['locked']
+    with sqlite3.connect(backup.joinpath(next(p.name for p in backup.iterdir() if p.name.endswith('.lease.sqlite')))) as c:
+        assert c.execute("SELECT purpose FROM browser_profile_leases WHERE lease_id='lid-0'").fetchone()[0] == 'purpose'
+
+def test_nonnull_canonical_unit_mismatch_quarantined(tmp_path):
+    state, _ = fixture(tmp_path, 1)
+    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite') as c:
+        c.execute("UPDATE browser_profile_leases SET service_unit='browser-wrong' WHERE lease_id='lid-0'")
+    plan = repair.run(state, 'neon', 'blue')
+    assert plan['candidate_count'] == 0
+    assert list(plan['blocked'].values()) == ['lease-conflict']
+
+def test_expired_shared_profile_is_not_competing_owner_or_candidate(tmp_path):
+    state, _ = fixture(tmp_path, 2)
+    profile = str(tmp_path / 'profile-bid-0')
+    with sqlite3.connect(state) as c:
+        c.execute("UPDATE browsers SET launch_file=? WHERE lease_id='lid-1'", (profile,))
+    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite') as c:
+        c.execute("UPDATE browser_profile_leases SET profile_dir=?, status='expired' WHERE lease_id='lid-1'", (profile,))
+    (tmp_path / 'bid-1.launch.json').unlink()
+    plan = repair.run(state, 'neon', 'blue')
+    assert plan['candidate_count'] == 1
+    assert list(plan['blocked'].values()) == ['lease-not-released']

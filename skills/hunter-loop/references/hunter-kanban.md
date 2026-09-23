@@ -31,15 +31,16 @@ Kanban coordinates its own local workers. A remote Codex/Claude run is not
 visible to that board automatically, and two independent "find a vulnerability"
 goals can otherwise choose the same flow at the same time.
 
-Use the program's short-lived `agent_shared/active-runs/` presence directory as
-the peer-visible resource reservation signal, not a universal to-do list or run
-log. Load `pi-cordinator` before communicating with another agent about a shared
-resource. Before starting or pivoting a long task:
+When the operator explicitly directs a cross-agent resource exchange, the
+program's short-lived `agent_shared/active-runs/` directory can hold neutral
+reservation state, not a universal to-do list or run log. Load `pi-cordinator`
+before using it. Otherwise do not read or write peer presence by default; use
+the owning provisioner directly. In the explicit exchange:
 
-1. Read neutral resource reservations; do not use peer records to learn another
+1. Read only neutral resource reservations; do not mine peer records for another
    agent's vulnerability, target route, or hypothesis.
-2. Write one resource-only presence record using
-   `templates/active-run-presence.md`.
+2. Write a resource-only presence record using
+   `templates/active-run-presence.md` only if the exchange needs a shared record.
 3. Refresh it at meaningful checkpoints; remove or mark it finished on exit.
 4. If resource contention cannot be resolved without investigation details,
    ask the operator to assign distinct work privately. Keep detailed surface

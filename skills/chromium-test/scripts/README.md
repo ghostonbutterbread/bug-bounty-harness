@@ -2,6 +2,8 @@
 
 ## Inventory
 
+- `browser_manager_row_repair.py` — offline-first plan and explicitly gated
+  `neon`/`blue` historical positional manager-row repair; see below.
 - `browser_provisioner.py` — canonical admission, profile-lease, and Chromium
   request path.
 - `chromium_test.py` — isolated Chromium launcher used by the provisioner.
@@ -28,6 +30,36 @@
 Use the detailed records below for supported invocation and safety boundaries.
 Each helper owns deterministic mechanics only; lane availability, account
 selection, target scope, and browser state still require agent verification.
+
+## Historical manager-row repair (offline first)
+
+`browser_manager_row_repair.py --manager-db /private/browser_provisioner.sqlite --program neon --account blue`
+reads the exact old appended-column layout and canonical lease database in the
+same directory. It emits counts, `complete`/`sparse`/`missing` classifications
+for eligible opaque lease-ID hashes, blocked reasons and a plan hash; never raw
+launch records, paths, CDP URLs or account credentials.
+The exact program/account pair selects rows; other neon accounts are excluded.
+Only released canonical leases with exact ID, ownership, unit and launch path
+can be candidates. Historical sparse or missing receipts are not invented: any
+present fields must match, and apply requires independent systemd, profile lock,
+process and CDP evidence. Conflicts, active/expired leases and competing active
+profile owners remain quarantined.
+
+Only after independently verifying the owner is terminal and manager/watchers
+are quiescent on the actual browser node, create a private mode-0700 backup
+directory, rerun the plan, and supply its hash to `--apply --program neon
+--account blue --owner-terminal-confirmed --plan-hash HASH --backup-dir DIR`.
+Apply acquires the manager node lock and an attached-DB `BEGIN IMMEDIATE`,
+snapshots both DBs while writers are excluded, then re-evaluates candidate rows and live evidence,
+and updates manager fields only; no canonical lease, profile or owner is changed.
+Each attempt uses new backup filenames. If either snapshot fails, neither file
+is retained; after a later refused apply, successful backup pairs remain for
+recovery and a retry creates another pair. Uncertain or active unit/watcher,
+owner/root where recorded, profile process/PID, SingletonLock or CDP port blocks
+that row. Apply only proceeds if the independently verified eligible set matches
+the offline plan. Quarantined rows remain untouched; a partial success does **not**
+open migration. Reconcile all necessary history separately. SQLite locking does
+not stop external processes or systemd from starting after the liveness probe.
 
 ## Opt-in private startup diagnostics
 
@@ -244,7 +276,8 @@ multi-instance pane registry.
 - **Purpose:** Node-local browser admission, profile/instance leasing,
   activity-aware ownership, verified cleanup and fenced live handoff.
 - **Inputs:** Existing program/account selectors or `--task-owned`; agent/run,
-  purpose, existing proxy/display settings; optional `--instance-key SLOT`,
+  purpose, explicit `--proxy mitm|external|none` (default task MITM),
+  display settings; optional `--instance-key SLOT`,
   `--idle-seconds N` (claim window, default 300), `--owner-pid` (diagnostics and
   legacy lifecycle). Headless task mode does not require a PID; headed task
   mode does, because native input is untracked.
@@ -254,7 +287,8 @@ multi-instance pane registry.
   This is **pane identity metadata, not an implemented pane UI**. Private launch
   records retain full generation-path CDP URLs.
 - **Mutates:** Selected local lease/manager databases, profile paths, owned
-  browser/display units and watcher. `BROWSER_PROVISIONER_STATE` isolates both
+  browser/display units, watcher, and task-scoped MITM listener/CA/flow.
+  `BROWSER_PROVISIONER_STATE` isolates both
   databases. No new authentication retry or alternate-account selection.
 - **Instances:** Keys use separate
   `<program>/web/browser-instances/<domain>/<account>/<slot>` trees. Omitted
@@ -347,6 +381,21 @@ multi-instance pane registry.
   `--idle-seconds` cannot lower it. Failed stop keeps the lease and reports an
   error. Control is restored only for a freshly verified healthy exact runtime;
   partial or unverifiable stops remain frozen pending explicit reconciliation.
+  Browser `release` leaves the task MITM running for replay. Run
+  `task-proxy-status --agent-id <agent> --run-id <run>` to inspect its lease and
+  `task-proxy-finish --agent-id <agent> --run-id <run>` after browser release and
+  replay completion. Finish verifies stop, removes only the matching task CA
+  from stopped profiles (skipping a nickname replaced by a different CA), and
+  indexes private flows; incomplete cleanup retains the reservation.
+  `task-proxy-recover --agent-id <agent> --run-id <run>` retries interrupted
+  startup/cleanup after the browser stops; stopping a still-live unit requires
+  matching invocation, 7200 seconds of quiet flow and no replay clients. Finish retries
+  stop/CA/index phases and is idempotent for completed runs (14-day receipt).
+  `reap-idle` additionally closes task listeners after 7200 seconds only with
+  terminal recorded owner, quiet flow, no live browser, and no connected replay
+  client. Ownerless reservations remain for explicit cleanup; no timer is added.
+  Browser reuse requires a reachable external proxy and the same imported CA
+  fingerprint; changed CA bytes at the same path reject reuse.
 - **Reservations:** `touch --work-state awaiting-input --awaiting-seconds N`
   grants an absolute 1–3600-second reservation; repetition cannot slide it.
   `touch --work-state active` cancels it but does not manufacture activity.
@@ -377,8 +426,7 @@ multi-instance pane registry.
   ```sh
   bbh skills/chromium-test/scripts/browser_provisioner.py request \
     --task-owned --headless --agent-id <agent> --run-id <run> \
-    --purpose '<normal browser task>' --instance-key research \
-    --proxy-server <existing-task-proxy> --mitm-ca-cert <existing-task-ca>
+    --purpose '<authorized security task>' --instance-key research
   ```
 
   The profile preserves task-specific ordinary site state, grants no program

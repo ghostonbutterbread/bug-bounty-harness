@@ -5,6 +5,7 @@ import builtins
 import importlib.util
 import json
 import os
+import ssl
 import sys
 from pathlib import Path
 
@@ -88,6 +89,41 @@ def test_build_command_includes_remote_allow_origins(monkeypatch):
     assert "--remote-debugging-address=127.0.0.1" in command
     assert "--remote-allow-origins=*" in command
     assert command[-1] == "https://target.example/"
+
+
+def test_explicit_no_proxy_overrides_ambient_route(monkeypatch):
+    module = load_launcher_module()
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/usr/bin/chromium")
+    monkeypatch.setenv("CHROMIUM_TEST_PROXY_SERVER", "http://127.0.0.1:8080")
+    args = argparse.Namespace(chrome_binary=None, no_proxy=True, proxy_server=None,
+                              remote_allow_origins="*", url=None)
+    command = module.build_command(args, 9223, Path("/profile"))
+    assert "--no-proxy-server" in command
+    assert not any(flag.startswith("--proxy-server=") for flag in command)
+
+
+def test_matching_ca_removal_skips_replaced_nickname(monkeypatch, tmp_path):
+    root = Path(__file__).resolve().parents[1] / "skills/chromium-test/scripts/mitm_chromium_profile.py"
+    spec = importlib.util.spec_from_file_location("mitm_profile_cleanup", root)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    ca = tmp_path / "ca.pem"
+    ca.write_text(ssl.DER_cert_to_PEM_cert(b"task-a"))
+    monkeypatch.setattr(module, "certutil_path", lambda: "/bin/certutil")
+    monkeypatch.setattr(module, "has_nss_db", lambda _: True)
+    monkeypatch.setattr(module, "run_certutil", lambda *_: argparse.Namespace(
+        returncode=0, stdout=ssl.DER_cert_to_PEM_cert(b"task-b"), stderr=""))
+    deleted = []
+    monkeypatch.setattr(module, "delete_certificate", lambda *_: deleted.append(True))
+    module.remove_matching_ca(profile, ca)
+    assert not deleted
+    monkeypatch.setattr(module, "run_certutil", lambda *_: argparse.Namespace(
+        returncode=0, stdout=ca.read_text(), stderr=""))
+    module.remove_matching_ca(profile, ca)
+    assert deleted == [True]
 
 
 def test_build_command_allows_custom_remote_allow_origins(monkeypatch):

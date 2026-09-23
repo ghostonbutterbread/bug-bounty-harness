@@ -7,19 +7,31 @@ description: "Capture one live owned-session request through proxy or browser, t
 
 Use when a test needs the exact live request shape, token, cookie state, or browser-generated headers for one action or one short action flow.
 
-This is a RAG-style live-request skill. Its primary job is operational: capture one request or one short flow through the proxy/MCP or browser, forward non-target requests until the target request appears, optionally pause it while fresh, make one approved mutation, forward or replay it, finish the flow, disable intercept, and write an action/error trail.
+This is a live-request capture/replay skill. Capture one owned request or short
+flow through the browser's task MITM, make one approved bounded mutation by
+replay, and write an action/error trail. Pause/modify/forward applies only when
+an explicitly supported temporary interception mechanism is available; the
+default provisioner listener is capture-only, not a hot-edit control API.
 
 Routing is secondary. Do not route away before capturing the request if the current task specifically needs the live token/request shape.
 
-This skill decides that a fresh request is needed and routes the agent into the right capture/replay path. `intercepted-proxy` owns the live intercept mechanics: launch or verify the proxied browser, enable intercept/Tamper, forward unrelated requests, pause the target request, mutate if approved, forward once, and clean up.
+This skill decides when fresh request context is needed. `intercepted-proxy`
+owns any supported live interception mechanics; otherwise capture through the
+task MITM and use approved replay. Do not assume Caido MCP is an HTTP proxy or
+that a capture-only task listener supports pause/Tamper.
 
-Use `intercepted-proxy` from this skill when the target request is single-use, nonce-bound, CSRF-bearing, signed, browser-generated, or part of a short state-changing flow where modifying the live request is stronger than replaying a stale copy.
+For single-use, nonce-bound, CSRF-bearing, signed, or browser-generated actions,
+load `intercepted-proxy` to assess whether a supported exact-match live rule is
+available. If not, capture and replay safely with fresh owned state or stop at
+the missing primitive; never claim to have paused the request.
 
-Default source wording: if Ryushe says "look at the request <request>", inspect or pull that request from Ryushe's proxy unless he specifies another source. If an agent then replays the request, prefer direct HTTP replay with agent-owned session state unless the agent is on the same host as Ryushe's proxy and `my proxy` resolves to `localhost` from that runtime.
+Default source wording: if Ryushe says "look at the request <request>", inspect or pull that request from Ryushe's proxy unless he specifies another source. Treat it as source shape only; replay with the agent's owned session through its task MITM, except for the explicit local-Abommie active-Caido permission.
 
 This direct-replay preference applies only to replaying known request shapes. It does not apply to live browser exploration. For live testing, use Chromium/Playwright attached to the agent's local browser proxy and pull the live request from that local agent proxy when needed.
 
-If direct HTTP replay fails in a way that looks caused by a non-browser client, such as Cloudflare/bot challenges, TLS/header fingerprint mismatch, browser-only flow state, or missing JS-generated tokens, the agent may re-plug the sanitized request into its own local proxy/MCP and send it from the agent lane.
+If direct HTTP replay fails from browser/client differences, first confirm the
+same task MITM and owned session were used. Browser-only state may require a
+new browser action; an MCP control endpoint is not a replay proxy.
 
 ## Agent Note
 
@@ -36,8 +48,8 @@ This skill is designed to be used with other skills. Use it to capture or mutate
    - header or request-shape repair -> `skills/single-request-grabber/references/technique-packs/request-shape-repair.md`
 5. Read `prompts/single-request-grabber-playbook.md` for step-by-step operation or report writing.
 6. Use proxy setup helpers only if needed:
-   - agent-lane proxy/MCP -> `/agent-proxy`
-   - Caido MCP inspection/replay -> `/caido`
+   - task-owned MITM listener -> `/agent-proxy`
+   - explicit Ryushe Caido source-history lookup -> `/caido` (read-only outside Abommie)
    - PwnFox colored profile/session filtering -> `/pwnfox`
    - browser-driven capture -> `/chromium-test`
    - live intercept/modify/forward lifecycle -> `/intercepted-proxy`
@@ -51,19 +63,29 @@ This skill is designed to be used with other skills. Use it to capture or mutate
 
 1. Choose one action or short action flow and one owned account/session.
 2. Decide capture mode:
-   - use `intercepted-proxy` for single-use tokens, one-shot actions, CSRF-bearing requests, signed/nonce-bound requests, browser-generated state, or short critical state changes
+   - load `intercepted-proxy` for single-use or nonce-bound flows only when a
+     supported exact-match live intercept is needed; otherwise capture/replay
+     with fresh owned state or record the missing primitive
    - use passive proxy history when the request is repeatable and only needs shape review
    - use direct HTTP replay when the request shape is already known and fresh browser state is not needed
-3. Capture the live request through browser/proxy, proxy MCP history, or proxy intercept.
-4. If intercepting a flow, inspect each paused request, forward requests that are not relevant, and stop only on the target request or request family.
+3. Capture the live request through the provisioned browser's task MITM flow.
+   Label any Caido history as separate source shape, not agent replay evidence.
+4. Only if a supported live intercept is configured, inspect paused requests,
+   forward unrelated setup traffic, and stop on the target request family.
 5. Sanitize notes: never store raw cookies, tokens, auth headers, or secrets.
-6. If the source request came from Ryushe's proxy, use it as a request-shape template only and switch to the agent lane before active replay/testing unless the same-host localhost exception applies.
-7. For replay, try direct HTTP first with `curl`, `httpx`, or a focused script while preserving method, full URL, relevant headers, content type, body encoding, redirect behavior, and agent-owned auth/session material.
-8. If direct replay fails for browser/client-fingerprint reasons, retry through the agent's local proxy/MCP. Keep this fallback agent-local.
+6. If the source request came from Ryushe's proxy, use it only as a request-shape
+   template; active replay uses the agent's task MITM except explicitly permitted
+   local Abommie Caido transport.
+7. Replay with `curl`, `httpx`, or a focused script through that listener,
+   preserving method, URL, headers/body shape and owned session; for HTTPS
+   origins trust the returned task CA.
+8. If replay fails for browser/client-fingerprint reasons, use a fresh browser
+   action through the same task MITM; do not switch to an MCP URL or shared port.
 9. Confirm ownership and destructible status for every account/resource touched.
 10. Modify only the approved field, header, method, body, cookie/session context, or owned-resource identifier.
 11. Send at most the bounded replay/forward test needed to answer the question.
-12. Complete the browser/proxy flow if safe, then turn off intercept.
+12. Complete the browser/proxy flow if safe, then remove any temporary
+    interception rule; release the browser and finish the task proxy after replay.
 13. Record the action/error trail before routing to another skill.
 
 ## Proof Standard

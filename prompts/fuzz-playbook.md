@@ -35,9 +35,11 @@ Required controls:
 - avoid lockout-prone login fuzzing, destructive state-changing requests, and
   out-of-scope hosts
 
-When replay history matters, run fuzzing through the agent MITM proxy, for
-example `-x http://hoster:8080` for default direct traffic or a leased
-`hoster:8081-8090` lane for task-specific work.
+When security-test replay history matters, run bounded fuzzing through the
+task-owned MITM listener on its node. Reuse the browser provisioner's returned
+`task_proxy.proxy_server`, or lease a separate task listener for a no-browser
+run; trust its CA for HTTPS origins. Never default active agent traffic to a
+shared `hoster:8080` listener.
 
 ## 1. Seed The Space
 

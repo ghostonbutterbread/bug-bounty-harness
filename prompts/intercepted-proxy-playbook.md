@@ -1,62 +1,41 @@
 # Intercepted Proxy Playbook
 
-Use this playbook when a live test needs browser-generated traffic to pass through Caido before the agent captures or modifies anything.
+Use this playbook when an authorized live test needs to capture or selectively
+modify browser-generated traffic while its request context is fresh. The
+default agent transport is a task-owned MITM listener, not Caido. Only an agent
+executing locally on Abommie may explicitly select local Caido as active
+transport; elsewhere Caido is read-only source history.
 
 ## Goal
 
 Make intercepted proxy work reproducible:
 
-1. choose the correct proxy route for the runtime
-2. launch the browser with the actual proxy listener
-3. enable intercept or a scoped `INTERCEPT` Tamper rule
+1. provision the task MITM and launch the browser with its trusted CA
+2. confirm one safe browser-generated baseline in its private flow file
+3. choose observation/replay, or a supported exact-match interception mechanism
 4. trigger one browser action
-5. modify and forward only the selected request
-6. turn intercept off and verify cleanup
+5. if interception is supported, modify and forward only the selected request;
+   otherwise replay the captured request through the same task MITM
+6. remove any temporary rule and verify cleanup
 
 ## Route Resolution
 
-Determine where the agent is running:
-
-```bash
-hostname
-echo "$GHOST_AGENT_RUNTIME"
-```
-
-Use the route table first:
-
-```text
-/home/ryushe/projects/ai-policies/skills/proxy-routing-policy/data/proxy_routes.json
-```
-
-Expected defaults:
-
-- `ghostonbread` / OpenClaw: browser proxy `http://hoster:8080`, MCP `http://hoster:3333/mcp`
-- `hoster`: browser proxy `http://localhost:8080`, MCP `http://localhost:3333/mcp`
-- `ryushespc` / Abommie: browser proxy `http://localhost:8080`, MCP `http://localhost:3333/mcp`
-
-The browser proxy is the HTTP/SOCKS listener. The MCP endpoint is the control API. Do not substitute one for the other.
+Run the browser provisioner on the intended browser node. Its default `--proxy
+mitm` starts a private listener, generates the task CA, imports it into the
+isolated profile, and returns `task_proxy.proxy_server`, `ca_cert`, and
+`flow_file` metadata. The agent must use that listener for browser actions and
+later direct replay; `hoster:8080` and a Caido MCP endpoint are not fallback
+HTTP proxies. Outside Abommie, use Caido only as separately labeled read-only
+source evidence. The Abommie-only local Caido exception is explicit, never an
+automatic fallback for MITM startup failure.
 
 ## Preflight
 
-Check MCP reachability:
-
-```bash
-KAIDO_MCP_PROXY_URL="${KAIDO_MCP_PROXY_URL:-http://hoster:3333/mcp}"
-curl -sS --max-time 5 "$KAIDO_MCP_PROXY_URL" \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' \
-  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ghost-intercept","version":"1.0"}}}'
-```
-
-Check that the browser proxy listener is reachable from the runtime:
-
-```bash
-curl -sS --max-time 5 -x "$BROWSER_PROXY" https://example.com/ >/tmp/proxy-check.html
-```
-
-If proxy TLS interception is expected, supply the task proxy and its CA to the
-browser provisioner. `--proxy-cert-mode import` is the normal path; certificate
-ignore is an explicit disposable debugging fallback only.
+Verify the provisioner's task proxy listener, generated CA, owner-restricted
+flow file, and `proxy_cert_mode: import` / `proxy_cert_status.status: trusted`
+receipt. Confirm a safe in-scope browser-generated baseline flow before any
+mutation. If proxy startup or CA import fails, stop and diagnose that task
+transport; do not fall back to shared 8080, Caido, or certificate-ignore.
 
 ## Browser Launch
 
@@ -68,9 +47,7 @@ bypassing node resource admission:
 
 bbh skills/chromium-test/scripts/browser_provisioner.py request \
   <program> <account> --agent-id "$AGENT_ID" --run-id "$RUN_ID" \
-  --purpose "<task>" --url "<target-url>" \
-  --proxy-server "$BROWSER_PROXY" --proxy-cert-mode import \
-  --mitm-ca-cert "<task-mitm-ca-cert>"
+  --purpose "<task>" --url "<target-url>"
 ```
 
 On `queued` or `queued-timeout`, preserve the exact account/task, perform only
@@ -85,9 +62,11 @@ as ordinary interception setup.
 
 ## Intercept Modes
 
-### Manual Caido Intercept
+### Manual Caido Intercept (Abommie-only explicit exception)
 
-Use when a human/operator is driving the UI:
+Use only when the agent is executing locally on Abommie with its own permitted
+Caido transport and a human/operator is driving the UI. Do not route remote
+agent traffic through Ryushe's personal Caido:
 
 1. Enable intercept in Caido.
 2. Trigger one browser action.
@@ -99,9 +78,15 @@ Use when a human/operator is driving the UI:
 
 ### Scoped Tamper Rule
 
-Use when MCP exposes Tamper rule management but not an interactive pause/edit primitive.
+Use only on the explicit Abommie local-Caido lane when MCP exposes Tamper rule
+management but not an interactive pause/edit primitive. For the default task
+MITM lane, use one temporary exact host/path rule in that task's MITM process
+and verify its removal after the selected request. The ordinary provisioner
+starts a capture listener, not a hot-edit control API: if this task has no
+supported way to install and remove such a rule, capture the request and use a
+bounded direct replay instead. Do not silently switch active traffic to Caido.
 
-Create one temporary rule:
+For an explicit Abommie Caido lane, create one temporary rule:
 
 - `sources`: `["INTERCEPT"]`
 - condition: exact host/path/request family
@@ -117,7 +102,7 @@ After the action:
 
 ## Serialized Agent Rule
 
-When only one proxy lane is available, agents must run one at a time:
+When only one interception-capable lane is available, agents must run one at a time:
 
 1. Agent A arms intercept/rule.
 2. Browser action runs.
@@ -125,7 +110,8 @@ When only one proxy lane is available, agents must run one at a time:
 4. Agent A disables/deletes intercept/rule and verifies cleanup.
 5. Only then may Agent B start.
 
-Do not run parallel agents against the same browser proxy unless Ryushe explicitly says there are enough isolated proxy lanes.
+Do not run parallel agents against the same interception rule or browser proxy.
+Independent task-owned capture lanes can run concurrently.
 
 ## Action Trail Template
 
@@ -134,7 +120,7 @@ intercepted-proxy:
 - runtime hostname:
 - lane: agent | ryushe | desktop
 - browser proxy:
-- caido mcp:
+- caido mcp (Abommie-only, when explicitly selected):
 - browser launch: chromium-test | playwright | existing browser
 - proxy flag present: yes|no
 - ignore cert errors present: yes|no
@@ -155,7 +141,8 @@ intercepted-proxy:
 
 Stop if:
 
-- the browser is not visibly sending traffic through Caido
+- the browser is not visibly sending traffic through its selected task MITM
+  (or explicitly permitted local Caido on Abommie)
 - the browser was launched without a proxy when interception is required
 - the target request cannot be distinguished from surrounding traffic
 - intercept cannot be disabled or the temporary rule cannot be deleted

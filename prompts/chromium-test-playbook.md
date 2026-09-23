@@ -26,8 +26,9 @@ lane and continue mapping there unless a real stop condition appears.
 ## Browser Admission Boundary
 
 Codex, Claude, and every other Ghost Home task agent must use the provisioner
-for every real browser run, including normal ephemeral research and generic web
-lookup. The provisioner supplies isolated lifecycle and ownership. A named
+for every security-testing browser run. Ordinary browsing, documentation
+research, and generic web lookup use Hermes's managed browser provider instead,
+without a task MITM. The provisioner supplies isolated lifecycle and ownership. A named
 color/account profile additionally needs the exact profile lease; aliases must
 resolve from inventory and must never be derived by suffixes such as `green2`.
 
@@ -48,12 +49,13 @@ The provisioner is required for bug-bounty engagement browser work. It checks
 node headroom and exact-profile ownership before starting Chromium and returns
 `queued` rather than launching when capacity is unavailable. Preserve the same
 task/account on a queue result and do non-browser preparation before retrying;
-never bypass the queue by calling `chromium_test.py` directly. Browser proxying
-is default behavior. The underlying launcher resolves the runtime route table
-and adds `--proxy-server=<browser-proxy>`. When proxying, it prepares the
-isolated Chromium profile to trust the mitmproxy CA through the profile NSS
-database. Blanket certificate-ignore mode is fallback/debug behavior, not the
-normal path.
+never bypass the queue by calling `chromium_test.py` directly. The default
+`--proxy mitm` reserves and starts a private task/run listener, waits for its
+generated CA, then imports that exact CA into the isolated Chromium profile
+before launching Chrome. The agent receives `task_proxy` metadata to inspect
+its own traffic. A missing proxy or failed CA import aborts provisioning; it
+never silently falls back to shared 8080, Caido, or certificate-ignore. Release
+the browser when done, then run `task-proxy-finish` after any direct replay.
 The launcher includes Chromium's CDP origin compatibility flag by default:
 
 ```text
@@ -78,11 +80,13 @@ a program selector:
 ```text
 bbh skills/chromium-test/scripts/browser_provisioner.py request --task-owned \
   --agent-id <agent-id> --run-id <run-id> \
-  --owner-pid <local-task-supervisor-pid> --purpose "general browsing"
+  --owner-pid <local-task-supervisor-pid> --purpose "general browsing" --proxy none
 ```
 
-This mode does not resolve inventory accounts or import authentication seeds,
-and does not merge program authorizations. The same `--owner-pid` option on a
+This provisioner-only example explicitly disables the security proxy; ordinary
+Hermes browsing should normally use its managed browser provider instead.
+Task-owned mode does not resolve inventory accounts or import authentication
+seeds, and does not merge program authorizations. The same `--owner-pid` option on a
 named-profile request enables automatic lease renewal and terminal cleanup.
 Select the actual task-specific supervisor on the browser node—not a short-lived
 request process or an always-running shared daemon. Missing lifecycle identity
@@ -245,15 +249,19 @@ Never disclose credential values. If login requires a secret that is not already
 Important rules:
 
 - A browser `--proxy-server` value must be an actual HTTP/SOCKS MITM proxy listener.
-- The launcher falls back to the runtime route table when no explicit proxy is supplied.
-- Use `$CHROMIUM_TEST_PROXY_SERVER` or launcher `--proxy-server` only as an explicit override.
+- Security-browser agents request the provisioner with its default `--proxy
+  mitm`; it starts the task listener and passes the exact CA to the launcher.
+  The launcher's direct route-table fallback is not an agent launch path.
+- Use provisioner `--proxy external --proxy-server ...` only when an explicitly
+  owned external proxy and its CA have been arranged. Never silently substitute
+  shared 8080 or Caido if task MITM cannot start.
 - The launcher should import the mitmproxy CA into the isolated Chromium profile whenever it launches through the proxy. Use `--proxy-cert-mode import` to fail closed, `--proxy-cert-mode auto` for import-with-debug-fallback, and `--proxy-cert-mode ignore` only for disposable troubleshooting.
 - For live intercept/modify/forward work, use a leased MITM lane so traffic is isolated and indexed with agent/run/account attribution.
 
-Hoster proxy model:
+Legacy Hoster proxy tools (not the security-browser default):
 
-- `hoster:8080` is the default capture proxy for generic direct HTTP traffic.
-  Ensure it is running before default browser or curl replay work:
+- `hoster:8080` may exist as a shared legacy listener; do not use it for an
+  agent's active security browser or replay. Its maintenance command is:
   ```bash
   bbh skills/chromium-test/scripts/hoster_mitm_lane.py --json ensure-default
   ```
@@ -322,11 +330,10 @@ owner-only permissions such as `0600`. The browser launcher can read safe
 metadata like account label and session source, but must not print or summarize
 secret cookie, bearer, CSRF, token, or private header values.
 
-Runtime defaults for intercepted browser launches:
-
-- OpenClaw/Ghost/`ghostonbread`: browser proxy `http://hoster:8080`
-- Hoster: browser proxy `http://localhost:8080`
-- Ryushe PC / `ryushespc` / Abommie: browser proxy `http://localhost:8080`
+Runtime route for intercepted security-browser launches: the provisioner starts
+and returns the task-owned loopback listener on the browser node. Use that exact
+proxy and CA for the run; `hoster:8080` and `localhost:8080` are not fallback
+agent lanes. Ordinary browsing uses the managed browser without proxy capture.
 
 Do not send target traffic until scope, account, and proxy expectations are clear.
 

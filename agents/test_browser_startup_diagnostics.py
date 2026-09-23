@@ -74,8 +74,8 @@ def test_manager_failure_receipts(monkeypatch, tmp_path, capsys, failure, phase,
     monkeypatch.setattr(m, 'admission', lambda *a: {'status': 'admitted'})
     monkeypatch.setattr(m.uuid, 'uuid4', lambda: '00000000-0000-0000-0000-000000000001')
     monkeypatch.setattr(m, 'LAUNCH_WAIT_SECONDS', 0)  # deterministic timeout, no production deadline change
-    monkeypatch.setattr(m, 'unit_active', lambda unit: True)
     calls, stopped, released = [], [], []
+    monkeypatch.setattr(m, 'unit_active', lambda unit: bool(calls) and not stopped)
     if failure == 'unreadable':
         original_read, original_stat = Path.read_text, Path.stat
         def unreadable(path, *args, **kwargs):

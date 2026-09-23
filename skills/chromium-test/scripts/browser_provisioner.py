@@ -200,6 +200,14 @@ def unit_active(unit):
     return p.returncode == 0
 
 
+def unit_inactive(unit):
+    result = subprocess.run(
+        ["systemctl", "--user", "show", "--property=ActiveState", "--value", unit],
+        capture_output=True, text=True, env=sysenv(),
+    )
+    return result.returncode == 0 and result.stdout.strip() in ("inactive", "failed")
+
+
 def unit_identity(unit):
     result = subprocess.run(
         ["systemctl", "--user", "show", "--property=InvocationID", "--value", unit],
@@ -531,6 +539,29 @@ def stopped(row):
         if profiles.local_cdp_version(info["cdp_url"])["status"] == "ready":
             return False
     return True
+
+
+def browser_blocks_proxy(c, row):
+    if row["state"] in ("stopped", "deleted"):
+        return unit_active(row["unit"])
+    if row["state"] != "starting" or not unit_inactive(row["unit"]):
+        return True
+    # Interrupted dispatch has no registered process identity, but its launch
+    # receipt may contain a PID and CDP endpoint.
+    info = record_info(row)
+    if info.get("pid"):
+        try:
+            if process_identity(info["pid"]) is not None:
+                return True
+        except (OSError, ValueError, TypeError):
+            return True
+    if not stopped(row) or not unit_inactive(row["unit"]):
+        return True
+    # Never stop an inactive unit by name: it may have been reused. Preserve
+    # lease and profile health; only reconcile the manager's startup intent.
+    c.execute("update browsers set state='stopped',updated=? where lease_id=? and state='starting'",
+              (now(), row["lease_id"]))
+    return False
 
 
 def stop_receipt(row):
@@ -1535,11 +1566,12 @@ def reap(args):
             except ValueError:
                 continue
             if (not terminal or not proxy_quiet(row)
-                    or any(browser["state"] not in ("stopped", "deleted") or unit_active(browser["unit"])
+                    or any(browser_blocks_proxy(c, browser)
                            for browser in c.execute("select * from browsers where agent_id=? and run_id=?",
                                                     (row["agent_id"], row["run_id"])).fetchall())):
                 continue
             candidates.append((row["agent_id"], row["run_id"]))
+        c.commit()
     recovered = []
     for agent_id, run_id in candidates:
         # Running rows require the same explicit finish semantics; terminal
@@ -1550,10 +1582,12 @@ def reap(args):
                     or not proxy_quiet(row)):
                 continue
             if any(
-                b["state"] not in ("stopped", "deleted") or unit_active(b["unit"])
+                browser_blocks_proxy(c, b)
                 for b in c.execute("select * from browsers where agent_id=? and run_id=?",
                                    (agent_id, run_id)).fetchall()):
+                c.rollback()
                 continue
+            c.commit()
             try:
                 with contextlib.redirect_stdout(io.StringIO()):
                     finish_proxy(argparse.Namespace(agent_id=agent_id, run_id=run_id),
@@ -1645,7 +1679,8 @@ def finish_proxy(args, recovery=False, orphan_proven=False):
         emit({"status": "proxy-conflict", "detail": "task proxy starting or requires recovery"}, 2)
     browsers = c.execute("select * from browsers where agent_id=? and run_id=?",
                          (args.agent_id, args.run_id)).fetchall()
-    if any(browser["state"] not in ("stopped", "deleted") or unit_active(browser["unit"])
+    if any((browser_blocks_proxy(c, browser) if recovery else
+            browser["state"] not in ("stopped", "deleted") or unit_active(browser["unit"]))
            for browser in browsers):
         c.rollback()
         emit({"status": "browser-active", "detail": "release the browser first"}, 2)

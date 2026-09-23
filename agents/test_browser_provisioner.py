@@ -483,6 +483,130 @@ def test_recovery_refuses_live_replay_and_retries_failed_cleanup(monkeypatch, tm
     assert exc.value.code == 0
     assert m.proxy_row(c, args) is None
 
+@pytest.mark.parametrize("receipt", [False, True])
+def test_recover_interrupted_start_with_both_units_inactive(monkeypatch, tmp_path, capsys, receipt):
+    m = load(monkeypatch, tmp_path); args = start_args(); c = proxy_fixture(m, args, tmp_path)
+    c.execute("update task_proxies set state='starting'"); c.commit()
+    add(m, tmp_path, "first", tmp_path / "artifacts/profile", state="starting")
+    if receipt:
+        (tmp_path / "first.json").write_text(json.dumps({"pid": 321, "cdp_url": "http://127.0.0.1:9222"}))
+        monkeypatch.setattr(m, "process_identity", lambda _: None)
+        monkeypatch.setattr(__import__("browser_profile_lease"), "local_cdp_version",
+                            lambda _: {"status": "unreachable"})
+    stopped_units = []
+    monkeypatch.setattr(m, "unit_active", lambda unit: unit == "unrelated-unit")
+    monkeypatch.setattr(m, "unit_inactive", lambda unit: unit == "first-unit")
+    monkeypatch.setattr(m, "stop_unit", lambda unit: stopped_units.append(unit))
+    monkeypatch.setattr(m, "port_open", lambda _: False)
+    monkeypatch.setattr(m, "remove_matching_ca", lambda *_a, **_k: None)
+    monkeypatch.setattr(m, "release_lease", lambda *_a, **_k: pytest.fail("no profile health change"))
+    with pytest.raises(SystemExit) as exc: m.task_proxy_recover(args)
+    assert exc.value.code == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "finished"
+    assert c.execute("select state from browsers where lease_id='first'").fetchone()[0] == "stopped"
+    assert m.proxy_row(c, args) is None
+    assert stopped_units == []
+
+def test_recover_refuses_active_interrupted_browser(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path); args = start_args(); c = proxy_fixture(m, args, tmp_path)
+    c.execute("update task_proxies set state='starting'"); c.commit()
+    add(m, tmp_path, "first", tmp_path / "artifacts/profile", state="starting")
+    stopped_units = []
+    monkeypatch.setattr(m, "unit_active", lambda unit: unit == "first-unit")
+    monkeypatch.setattr(m, "unit_inactive", lambda _: False)
+    monkeypatch.setattr(m, "stop_unit", lambda unit: stopped_units.append(unit))
+    with pytest.raises(SystemExit) as exc: m.task_proxy_recover(args)
+    assert exc.value.code == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "browser-active"
+    assert c.execute("select state from browsers where lease_id='first'").fetchone()[0] == "starting"
+    assert m.proxy_row(c, args)["state"] == "starting"
+    assert stopped_units == []
+
+def test_recover_refuses_unverified_inactive_unit(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path); args = start_args(); c = proxy_fixture(m, args, tmp_path)
+    c.execute("update task_proxies set state='starting'"); c.commit()
+    add(m, tmp_path, "first", tmp_path / "artifacts/profile", state="starting")
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    monkeypatch.setattr(m.subprocess, "run", lambda *_a, **_k: argparse.Namespace(returncode=1, stdout=""))
+    monkeypatch.setattr(m, "stop_unit", lambda _: pytest.fail("must not stop a unit"))
+    with pytest.raises(SystemExit) as exc: m.task_proxy_recover(args)
+    assert exc.value.code == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "browser-active"
+    assert c.execute("select state from browsers where lease_id='first'").fetchone()[0] == "starting"
+
+def test_unit_inactive_requires_explicit_systemd_state(monkeypatch, tmp_path):
+    m = load(monkeypatch, tmp_path)
+    def show(state, code=0):
+        def run(command, **_kwargs):
+            assert command == ["systemctl", "--user", "show", "--property=ActiveState", "--value", "first-unit"]
+            return argparse.Namespace(returncode=code, stdout=state + "\n")
+        monkeypatch.setattr(m.subprocess, "run", run)
+        return m.unit_inactive("first-unit")
+    assert show("inactive")
+    assert show("failed")
+    assert not show("active")
+    assert not show("activating")
+    assert not show("inactive", 1)
+
+@pytest.mark.parametrize("evidence", ["live-pid", "live-cdp", "unknown-process"])
+def test_recover_retains_interrupted_start_when_process_or_cdp_not_proven_stopped(monkeypatch, tmp_path, capsys, evidence):
+    m = load(monkeypatch, tmp_path); args = start_args(); c = proxy_fixture(m, args, tmp_path)
+    c.execute("update task_proxies set state='starting'"); c.commit()
+    add(m, tmp_path, "first", tmp_path / "artifacts/profile", state="starting")
+    (tmp_path / "first.json").write_text(json.dumps({"pid": 321, "cdp_url": "http://127.0.0.1:9222"}))
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    monkeypatch.setattr(m, "port_open", lambda _: False)
+    monkeypatch.setattr(m, "stop_unit", lambda _: pytest.fail("must not stop a unit"))
+    monkeypatch.setattr(m, "unit_inactive", lambda _: True)
+    if evidence == "unknown-process":
+        monkeypatch.setattr(m, "process_identity", lambda _: (_ for _ in ()).throw(PermissionError("unknown")))
+    else:
+        monkeypatch.setattr(m, "process_identity", lambda _: {"pid": 321} if evidence == "live-pid" else None)
+    profiles = __import__("browser_profile_lease")
+    monkeypatch.setattr(profiles, "local_cdp_version", lambda _: {"status": "ready" if evidence == "live-cdp" else "unreachable"})
+    with pytest.raises(SystemExit) as exc: m.task_proxy_recover(args)
+    assert exc.value.code == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "browser-active"
+    assert c.execute("select state from browsers where lease_id='first'").fetchone()[0] == "starting"
+    assert m.proxy_row(c, args)["state"] == "starting"
+
+def test_reap_interrupted_start_only_after_terminal_owner_and_quiet_flow(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path); args = start_args(); c = proxy_fixture(m, args, tmp_path)
+    c.execute("update task_proxies set state='starting',updated=?,owner=?",
+              (time.time() - 9000, json.dumps({"pid": 123}))); c.commit()
+    add(m, tmp_path, "first", tmp_path / "artifacts/profile", state="starting")
+    monkeypatch.setattr(m, "maintain", lambda _: None)
+    monkeypatch.setattr(m, "cleanup_unused", lambda _: [])
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    monkeypatch.setattr(m, "unit_inactive", lambda _: True)
+    monkeypatch.setattr(m, "owner_state", lambda _: "terminal")
+    monkeypatch.setattr(m, "replay_clients_absent", lambda _: True)
+    monkeypatch.setattr(m, "port_open", lambda _: False)
+    monkeypatch.setattr(m, "remove_matching_ca", lambda *_a, **_k: None)
+    with pytest.raises(SystemExit) as exc: m.reap(argparse.Namespace())
+    assert exc.value.code == 0
+    assert json.loads(capsys.readouterr().out)["proxy_recovered"] == [["agent", "run"]]
+    assert c.execute("select state from browsers where lease_id='first'").fetchone()[0] == "stopped"
+    assert m.proxy_row(c, args) is None
+
+def test_reap_does_not_reconcile_active_interrupted_browser(monkeypatch, tmp_path, capsys):
+    m = load(monkeypatch, tmp_path); args = start_args(); c = proxy_fixture(m, args, tmp_path)
+    c.execute("update task_proxies set state='starting',updated=?,owner=?",
+              (time.time() - 9000, json.dumps({"pid": 123}))); c.commit()
+    add(m, tmp_path, "first", tmp_path / "artifacts/profile", state="starting")
+    monkeypatch.setattr(m, "maintain", lambda _: None)
+    monkeypatch.setattr(m, "cleanup_unused", lambda _: [])
+    monkeypatch.setattr(m, "unit_active", lambda unit: unit == "first-unit")
+    monkeypatch.setattr(m, "unit_inactive", lambda _: False)
+    monkeypatch.setattr(m, "owner_state", lambda _: "terminal")
+    monkeypatch.setattr(m, "replay_clients_absent", lambda _: True)
+    monkeypatch.setattr(m, "stop_unit", lambda _: pytest.fail("must not stop a unit"))
+    with pytest.raises(SystemExit) as exc: m.reap(argparse.Namespace())
+    assert exc.value.code == 0
+    assert json.loads(capsys.readouterr().out)["proxy_recovered"] == []
+    assert c.execute("select state from browsers where lease_id='first'").fetchone()[0] == "starting"
+    assert m.proxy_row(c, args)["state"] == "starting"
+
 def test_matching_proxy_requires_live_external_endpoint_and_same_ca_bytes(monkeypatch, tmp_path):
     m = load(monkeypatch, tmp_path); args = start_args()
     args.proxy = "external"; args.proxy_cert_mode = "import"

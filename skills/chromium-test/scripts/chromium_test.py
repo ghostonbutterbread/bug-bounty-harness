@@ -1005,6 +1005,9 @@ def main() -> int:
                     )
                 if not args.dry_run:
                     args.ignore_certificate_errors = True
+            else:
+                import hashlib
+                cert_status["ca_sha256"] = hashlib.sha256(mitm_ca_cert.read_bytes()).hexdigest()
         elif args.proxy_cert_mode == "ignore":
             cert_status = {"status": "ignored-by-flag"}
             args.ignore_certificate_errors = True

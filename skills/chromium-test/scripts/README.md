@@ -329,6 +329,15 @@ multi-instance pane registry.
   replay completion. Finish verifies stop, removes only the matching task CA
   from stopped profiles (skipping a nickname replaced by a different CA), and
   indexes private flows; incomplete cleanup retains the reservation.
+  `task-proxy-recover --agent-id <agent> --run-id <run>` retries interrupted
+  startup/cleanup after the browser stops; stopping a still-live unit requires
+  matching invocation, 7200 seconds of quiet flow and no replay clients. Finish retries
+  stop/CA/index phases and is idempotent for completed runs (14-day receipt).
+  `reap-idle` additionally closes task listeners after 7200 seconds only with
+  terminal recorded owner, quiet flow, no live browser, and no connected replay
+  client. Ownerless reservations remain for explicit cleanup; no timer is added.
+  Browser reuse requires a reachable external proxy and the same imported CA
+  fingerprint; changed CA bytes at the same path reject reuse.
 - **Reservations:** `touch --work-state awaiting-input --awaiting-seconds N`
   grants an absolute 1–3600-second reservation; repetition cannot slide it.
   `touch --work-state active` cancels it but does not manufacture activity.

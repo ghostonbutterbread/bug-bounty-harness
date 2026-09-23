@@ -302,11 +302,22 @@ returned `task_proxy.proxy_server` using `task_proxy.ca_cert` as the origin CA
 ```bash
 bbh skills/chromium-test/scripts/browser_provisioner.py task-proxy-status --agent-id <agent-id> --run-id <run-id>
 bbh skills/chromium-test/scripts/browser_provisioner.py task-proxy-finish --agent-id <agent-id> --run-id <run-id>
+bbh skills/chromium-test/scripts/browser_provisioner.py task-proxy-recover --agent-id <agent-id> --run-id <run-id>
 ```
 
 Finish rejects an active/starting browser, verifies listener stop, removes only
 matching task CA trust from stopped persistent profiles, then indexes the
-private flow. Stop/index/CA errors retain the reservation for recovery. If a
+private flow. Stop/index/CA errors retain the reservation for recovery. If
+startup was interrupted or cleanup failed, `task-proxy-recover` retries after
+the browser stops. A live listener additionally needs its recorded unit
+generation, 7200 seconds of quiet flow and no connected replay clients; an
+unverified live listener is never stopped. Finish is retryable after stop, CA cleanup,
+or indexing failure and returns `already_finished` for a completed run.
+`reap-idle` can close an orphan listener only after 7200 seconds of quiet flow,
+terminal recorded owner identity, no active browser, and no connected replay
+client; ownerless runs require explicit finish/recovery. No timer is installed.
+Reuse probes the live external endpoint and compares imported CA fingerprints,
+not merely the recorded CA path. If a
 later task replaced the NSS nickname with its different CA, finishing the older
 task skips that nickname without deleting later trust. Use
 `--proxy external --proxy-server <listener> [--mitm-ca-cert <CA>]` only for explicitly managed

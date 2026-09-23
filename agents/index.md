@@ -56,10 +56,11 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
 9. Include the selected policy chain, one BBH lane, evidence pointers, exact
    stop condition, and account/browser lane only when required in every child
    packet.
-10. Before any remote-pi multi-agent mesh action, **first** load
-    `pi-cordinator`; only then load upstream `agent-network` for transport.
-    This includes `/remote-pi` joining, `list_peers`, `get_messages`,
-    `agent_send`, replies, and peer resource coordination. Never disclose the
-    vulnerability being investigated to another peer over the mesh.
+10. Do not use remote-pi peer coordination by default. Use the owning
+    provisioner directly (including browser provisioning), without peer lookup
+    or broadcast. Only if the operator explicitly asks you to contact another
+    agent, first load `pi-cordinator`; then load upstream `agent-network` for
+    transport before `/remote-pi`, `list_peers`, inbox/replies, or `agent_send`.
+    Keep that exchange resource-only and never disclose the vulnerability.
 
 See the selected skill for commands, evidence requirements, and runner details.

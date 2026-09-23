@@ -51,7 +51,8 @@ def test_real_manager_idle_cleanup_with_bounded_hold(monkeypatch, tmp_path, loca
         def age_clock(seconds):
             asyncio.run_coroutine_threadsafe(age(seconds), browser.loop).result(5)
 
-        age_clock(7199)
+        # Leave enough margin for the IPC/fixture scheduling before the check.
+        age_clock(7190)
         assert m.cleanup_unused(c) == []
         age_clock(7201)
         activity_control(sock, "reserve", seconds=30)

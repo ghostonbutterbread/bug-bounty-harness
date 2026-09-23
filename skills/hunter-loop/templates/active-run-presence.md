@@ -1,8 +1,10 @@
 # Active Hunt Presence
 
 > Short-lived peer-visible resource signal, not a task queue, transcript,
-> finding, or historical record. Follow `pi-cordinator` when exchanging it.
-> Do not encode an investigation or vulnerability in aliases or free text.
+> finding, or historical record. Use only for an operator-directed peer resource
+> exchange; otherwise use the owning provisioner. Follow `pi-cordinator` when
+> exchanging it. Do not encode an investigation or vulnerability in aliases or
+> free text.
 
 - Opaque run alias:
 - Owner / runner: `hermes-kanban` | `codex` | `claude-code` | `other`

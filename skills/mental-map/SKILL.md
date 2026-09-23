@@ -1,10 +1,12 @@
 ---
 name: mental-map
-description: Use when mapping application architecture, analyzing Caido MCP proxy traffic, grouping requests into auth, cart, checkout, signup, login, forgot-password, or user-profile flows, or documenting sequence diagrams and replication notes.
+description: Use when mapping application architecture from task-MITM captures or separately labeled Caido source history, grouping requests into auth, cart, checkout, signup, login, forgot-password, or user-profile flows, or documenting sequence diagrams and replication notes.
 ---
 # Mental Map Analysis
 
-Build mental maps of application architecture from Caido MCP proxy traffic.
+Build mental maps of application architecture from the agent's task-MITM
+capture. Caido may supply separately labeled read-only source history; it is
+not the agent's active transport outside the explicit Abommie local exception.
 
 ## Required Preflight
 
@@ -17,7 +19,11 @@ Read shared state in this order before mapping flows:
 
 ## Primary Analysis Surface
 
-Use Caido MCP proxy traffic as the source of truth, set the browser or replay client proxy to `KAIDO_MCP_PROXY_URL`, then classify captured requests into application flows.
+For live security mapping, request the browser through the provisioner and use
+its returned task-MITM flow as the agent's source of truth. Replays use its
+`task_proxy.proxy_server` and CA on the browser node. `KAIDO_MCP_PROXY_URL` is
+an MCP control endpoint, **not** an HTTP proxy URL; never configure a browser
+or `curl -x` with it.
 
 When the flow creates reusable routes, object references, auth boundaries, or follow-up hypotheses, also write normalized observations through `/live-map` so future agents can query the universal runtime application map instead of rediscovering the same area.
 
@@ -63,7 +69,8 @@ Each flow file must include:
 
 1. Complete the required preflight reads in shared state order.
 2. Read `prompts/mental-map-playbook.md`.
-3. Connect the browser or replay client to `KAIDO_MCP_PROXY_URL` and capture the real workflow.
+3. Capture the real workflow through the provisioned browser's task MITM; label
+   any Caido source-history comparison separately.
 4. Group requests into a concrete flow with entry points, dependencies, and state-changing operations.
 5. Write the diagram and structured notes to `agent_shared/application-structure/{flow-type}/{flow-name}.md`.
 6. Ingest reusable route/object/action/auth-boundary observations into `/live-map`.

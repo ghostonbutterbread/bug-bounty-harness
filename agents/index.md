@@ -56,6 +56,13 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
 9. Include the selected policy chain, one BBH lane, evidence pointers, exact
    stop condition, and account/browser lane only when required in every child
    packet.
+   When security testing needs a browser, use `/chromium-test` and request it
+   through `browser_provisioner.py` on the browser node. Its default `--proxy
+   mitm` starts a task-owned listener, imports its CA before Chrome starts, and
+   gives the agent its own traffic; release the browser, then finish the task
+   proxy after any direct replay. Do not launch `chromium_test.py` directly or
+   silently fall back to Caido/shared 8080. Ordinary, non-security web browsing
+   uses Hermes's managed browser provider without this provisioner or MITM.
 10. Before any remote-pi multi-agent mesh action, **first** load
     `pi-cordinator`; only then load upstream `agent-network` for transport.
     This includes `/remote-pi` joining, `list_peers`, `get_messages`,

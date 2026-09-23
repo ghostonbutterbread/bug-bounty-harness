@@ -2,13 +2,17 @@
 
 ## Overview
 
-Use this as a decision tree: connect to Caido MCP, capture a real user journey through the proxy, cluster the requests into one business flow, identify the state transitions and dependencies, then write a markdown sequence diagram another agent can replay without rediscovering the workflow.
+Use this as a decision tree: capture an authorized real user journey through
+the provisioned browser's task MITM, cluster its requests into one business
+flow, identify transitions and dependencies, then write a sequence diagram.
+Separately label Caido read-only source history when used for comparison.
 
 When a mapped flow exposes reusable runtime routes, object references, auth-boundary deltas, or state-changing actions, also ingest a normalized slice into `/live-map`. Mental maps are human-readable flow notes; live-map is the universal runtime map queried by child agents.
 
 ## Decision Tree
 
-1. Set the browser or HTTP client proxy to `KAIDO_MCP_PROXY_URL`.
+1. Request the security browser through the provisioner; use its task proxy and
+   imported CA. `KAIDO_MCP_PROXY_URL` is an MCP endpoint, not an HTTP proxy.
 2. Capture one real application journey at a time.
 3. Group requests into a named flow such as `login`, `forgot-password`, `cart`, or `checkout`.
 4. Remove noise, then keep only requests that advance state, fetch prerequisites, or establish session context.
@@ -16,13 +20,17 @@ When a mapped flow exposes reusable runtime routes, object references, auth-boun
 6. Save the flow map under `application-structure/{flow-type}/`.
 7. Save reusable route/object/action/auth-boundary observations under `application-map/` with `agents/live_map.py`.
 
-## 1. Connect To Caido MCP
+## 1. Capture Through Task MITM
 
 Goal: make sure the traffic you analyze reflects a real browser session and complete request chain.
 
 ### Configure
 
-- Set the browser, interceptor, or replay client proxy to `KAIDO_MCP_PROXY_URL`.
+- The provisioner configures the browser to use its task-owned listener. For
+  direct replay on that node, use `-x <task_proxy.proxy_server>` and
+  `--cacert <task_proxy.ca_cert>` for HTTPS origins.
+- Caido MCP may be consulted as read-only source history outside Abommie; never
+  pass its control URL as the browser or curl proxy.
 - Use one scoped target at a time.
 - Capture full headers, cookies, response codes, redirects, and bodies where safe.
 - Preserve request order so redirects, token minting, and state transitions remain visible.

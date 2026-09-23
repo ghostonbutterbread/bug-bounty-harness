@@ -35,9 +35,10 @@ For auth-sensitive apps, the important pieces are often not just cookies. Preser
    - do not reformat JSON before the baseline replay works
    - do not convert multipart boundaries manually unless replaying the exact captured body
 6. Add replay controls:
-   - `-x <agent-mitm-proxy>` for live replay so traffic lands in the agent
-     proxy store, normally `-x http://hoster:8080` from OpenClaw/Ghost or
-     `-x http://localhost:8080` from Hoster/Ryushe's PC
+   - `-x <task_proxy.proxy_server>` for live security replay on the browser
+     node (or the leased task listener for no-browser work), not shared 8080;
+     for an HTTPS origin use `--cacert <task_proxy.ca_cert>` (not
+     `--proxy-cacert`, which is for an HTTPS connection to the proxy itself).
    - `--compressed` when the request advertises compressed response support
    - `--path-as-is` for path normalization, traversal, or encoded path tests
    - `--max-time` for bounded probes

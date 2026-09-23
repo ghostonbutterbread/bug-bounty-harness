@@ -18,7 +18,7 @@ Skills use paths from `config.env` or environment variables.
 | `HARNESS_SHARED_BASE` | Base for bounty recon data | `~/Shared/web_bounty` |
 | `HARNESS_WORDLISTS` | Wordlists directory | `~/wordlists` |
 
-| `KAIDO_MCP_PROXY_URL` | Caido MCP proxy URL for traffic capture and replay | `http://127.0.0.1:3333/mcp` |
+| `KAIDO_MCP_PROXY_URL` | Caido MCP control endpoint for permitted read-only source-history lookup (not a browser/curl HTTP proxy) | `http://127.0.0.1:3333/mcp` |
 
 ### Config File
 

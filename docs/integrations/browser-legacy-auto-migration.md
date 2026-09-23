@@ -1,14 +1,14 @@
 # Legacy named-profile auto-slot integration dossier
 
-- **Status:** historical stopped-row quiescence reviewer blocker repaired and locally tested; independent re-review pending
-- **Owner:** Hermes builder subagent
+- **Status:** source migration independently reviewed at `64bed0a`; reconciled beta integration (including task MITM and manager-row repair) tested locally; final combined review and Hoster data reconciliation pending
+- **Owner:** Hermes integration
 - **Branch / owning ref:** `feat/browser-legacy-auto-migration`
 - **Worktree:** `/home/ryushe/projects/bug_bounty_harness/browser-legacy-auto-migration`
-- **Base commit:** `af9dae91dfbddc0dae90ae17b3c3ed49a5f4a89d` (fetched `origin/beta`)
+- **Base commit:** `af9dae91dfbddc0dae90ae17b3c3ed49a5f4a89d`; refreshed target `4ddddb3` at merge checkpoint `2b74f99`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-23
-- **Previous immutable recovery checkpoint:** `90a39fa` (running-history repair plus `origin/beta` reconciliation); verify current tip with `git rev-parse HEAD`.
-- **Feature implementation commit(s):** `83433f3`, `0b77bd5`, `d1de5c2`, `cad9e5e`, `bf69193`; historical stopped-row quiescence gate at current feature tip.
+- **Previous immutable recovery checkpoint:** `2b74f99` (latest beta reconciliation); verify current tip with `git rev-parse HEAD`.
+- **Feature implementation commit(s):** `83433f3`, `0b77bd5`, `d1de5c2`, `cad9e5e`, `bf69193`, `64bed0a`; task-MITM fixture reconciliation pending checkpoint.
 - **Inspiration:** Ordinary Blue same-account/different-browser request; canonical SQLite lease conflict and legacy auth preservation.
 
 ## Intent and contract
@@ -33,22 +33,22 @@ Before registering a marker, selection reconciles **every** historical unkeyed m
 - Reviewer repros at `cad9e5e`: older running different-owner and older stopped conflicting-path manager rows both incorrectly yielded an auto key and marker despite exact canonical history. New parameterized negatives also cover older running same-agent/different-run identity and assert no marker or auto acquisition; all three failed before the repair and pass afterward. A stopped former owner on the same path remains allowed. Existing canonical two-contender race regression remains in `test_canonical_race_and_legacy_old_api_stay_exclusive`.
 - Final `python -m pytest -q --tb=short agents/test_browser_legacy_auto.py agents/test_browser_resources.py agents/test_browser_profile_lease.py agents/test_browser_selection.py agents/test_browser_provisioner.py` → **156 passed** after the final gate edit; `git diff --check` clean. `BBH_LOCAL_BROWSER_SMOKE=1 /home/ryushe/.hermes/profiles/bugfix/cache/scratch/browser-smoke-venv/bin/python -m pytest -q --tb=short agents/test_browser_lifecycle_systemd.py` → **3 passed** with disposable Chromium/systemd fixtures before the final non-selected-state simplification. A subsequent full rerun was **2 passed, 1 failed**: `test_systemd_lifecycle_fixture` hit `sqlite3.OperationalError: database is locked` while polling task cleanup. No browser units/processes remained in a post-failure check; a targeted rerun of that test after the final edit → **1 passed**. Treat the intermittent fixture lock as review evidence, not a production gate failure or a claimed clean full rerun. Fixture teardown verifies units inactive/failed and process termination before removing test roots. Initial scratch venv lacked pytest; installed pytest/aiohttp/httpx/websocket-client in scratch, no repository dependency change. No Hoster mutation.
 - New stopped-history regressions first reproduced the reviewer gap: active historical unit, active recorded root, ready recorded CDP, and active unit with missing launch receipt each returned an auto key before the fix (**4 failed, 1 passed** in the five-case focused run). The exact same-path inactive historical row without a receipt remained admissible. The repaired gate invokes `stopped(row)` for every non-selected unkeyed stopped row before marker registration; no auto marker/proof is issued on failed observable checks.
-- `python -m pytest -q --tb=short agents/test_browser_legacy_auto.py agents/test_browser_resources.py agents/test_browser_profile_lease.py agents/test_browser_selection.py agents/test_browser_provisioner.py` → **161 passed**. `BBH_LOCAL_BROWSER_SMOKE=1 /home/ryushe/.hermes/profiles/bugfix/cache/scratch/browser-smoke-venv/bin/python -m pytest -q --tb=short agents/test_browser_lifecycle_systemd.py` → **3 passed** in **95.23s**, with disposable real Chromium/systemd fixtures and exact fixture cleanup. The prior scratch venv had been pruned, so the first smoke command failed with missing interpreter (exit 127); recreated it in scratch with pytest, websocket-client, aiohttp, httpx, then reran successfully. No repository dependency or Hoster change. Capacity, policy, and the stopped Blue-style first-path regressions remain covered by the focused run.
+- After merging beta `4ddddb3` at `2b74f99`, the combined focused selection/lease/provisioner/repair suites passed **198 tests**. The task-MITM beta default rejected the old disposable fixture's contradictory proxy arguments; the fixture now uses a fixture-owned loopback HTTP listener in external/browser-owned mode for the live-transfer branch, and explicit `--proxy none` for the stopped-legacy two-browser branch. No production proxy policy was relaxed. The targeted live-transfer fixture passed, followed by **3/3** full disposable user-systemd fixtures in **309.82s**; exact local browser units were absent afterward. A prior integrated attempt with a no-proxy live-transfer fixture correctly queued under impossible no-capacity admission; the dedicated listener preserves the existing fenced-transfer acceptance test.
+- Hoster's clean beta checkout `4ddddb3` carries the reviewed named-column write fix and offline-first repair utility, but **not this migration feature**. Hoster's read-only repair plan reports zero eligible Blue rows while a genuine active Blue lease has a live unit and profile lock. The historical malformed manager cohort includes quarantined expired and conflicting records. Never treat source integration or a partial row repair as Blue migration clearance.
 
 ## Blockers and deferred work
 
-- **Remaining gate:** Parent independent re-review and Hoster read-only preflight of exact manager/lease/path data before any activation. Local disposable tests cannot establish actual Hoster unit/root/CDP state or last-release health. This repair does not mutate Hoster, merge, or push.
-- **Safe alternative if Hoster evidence disagrees:** Leave the old profile and exclusivity untouched; require manual inspection or authorized `--recover-profile` for an unhealthy canonical release. Do not synthesize missing launch receipts, reset lease metadata, copy the profile, or use direct CLI `--automatic-instance` to force migration.
-- **Trigger:** Review this checkpoint against fetched `beta`, then inspect Hoster read-only. No live rollout in this task.
-- **Next:** Parent-owned review/integration and separately authorized Hoster activation. No push, merge or Hoster mutation here.
+- **Remaining gate:** final independent review of the reconciled feature and fixture contract; then beta integration. Hoster activation requires reconciliation of the malformed Blue manager rows, the genuinely active legacy owner, and the quarantined expired/conflicting history. The reviewed offline repair utility is available on Hoster but its read-only plan has zero candidates while the owner remains active. A partial metadata repair is not migration clearance. No live Blue account or profile was changed by this feature.
+- **Safe alternative if Hoster evidence disagrees:** Leave the old profile and exclusivity untouched; require owner terminal release and exact unit/root/CDP/lock checks. Do not synthesize missing launch receipts, reset lease metadata, copy the profile, or use direct CLI `--automatic-instance` to force migration.
+- **Next:** independent combined diff review, integrate source into beta if cleared, then separately evaluate Hoster runtime activation only against a proven safe data state. Do not interrupt the active owner or promise two authenticated browsers; the second isolated profile needs its own authorized login.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/browser-legacy-auto-migration`
-- **Previous immutable recovery checkpoint:** `90a39fa` (before this historical stopped-row repair); review current feature tip for the committed repair.
-- **Feature implementation commit(s):** `83433f3`, `0b77bd5`, `d1de5c2`, `cad9e5e`, `bf69193`, current feature tip (historical stopped-row repair).
-- **Exact resume point:** Parent independent re-review against refreshed `beta`, then read-only Hoster preflight; do not mutate live accounts.
-- **Working-tree state at handoff:** verify `git status --short` after repair commit.
+- **Previous immutable recovery checkpoint:** `2b74f99` (beta reconciliation before fixture update); review current feature tip for the committed fixture repair.
+- **Feature implementation commit(s):** `83433f3`, `0b77bd5`, `d1de5c2`, `cad9e5e`, `bf69193`, `64bed0a`; latest feature tip is fixture-only task-MITM adaptation.
+- **Exact resume point:** fresh independent combined review against beta `4ddddb3`; keep Hoster migration gated on Blue data and live owner quiescence.
+- **Working-tree state at handoff:** verify `git status --short` after the fixture/dossier commit.
 
 ## Decision gates
 

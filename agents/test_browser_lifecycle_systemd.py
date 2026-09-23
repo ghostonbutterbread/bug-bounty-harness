@@ -172,6 +172,20 @@ def test_systemd_lifecycle_fixture():
             "HARNESS_SHARED_BASE": str(root / "shared"),
         }
         owners = [subprocess.Popen(["sleep", "infinity"]) for _ in range(3)]
+        class FixtureProxy(http.server.BaseHTTPRequestHandler):
+            def do_CONNECT(self):
+                self.send_error(502)
+
+            def do_GET(self):
+                self.send_error(502)
+
+            def log_message(self, format, *args):
+                pass
+
+        proxy = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FixtureProxy)
+        proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+        proxy_thread.start()
+        proxy_url = f"http://127.0.0.1:{proxy.server_port}"
 
         def command(*parts, expect=0):
             result = subprocess.run(
@@ -198,10 +212,12 @@ def test_systemd_lifecycle_fixture():
             "--headless",
             "--idle-seconds",
             "15",
+            "--proxy",
+            "external",
+            "--proxy-server",
+            proxy_url,
             "--proxy-cert-mode",
             "none",
-            "--proxy-server",
-            "http://127.0.0.1:9",
             "--proxy-ownership",
             "browser",
         ]
@@ -552,6 +568,9 @@ def test_systemd_lifecycle_fixture():
                 if owner.poll() is None:
                     owner.terminate()
                 owner.wait()
+            proxy.shutdown()
+            proxy.server_close()
+            proxy_thread.join(timeout=5)
         receipt_path = os.environ.get("BBH_BROWSER_SMOKE_RECEIPT")
         if receipt_path:
             Path(receipt_path).write_text(json.dumps(receipts, indent=2) + "\n")
@@ -596,7 +615,7 @@ def test_real_stopped_legacy_to_two_auto_requests():
                     '--auth-domain', 'fixture.invalid', '--agent-id', run, '--run-id', run,
                     '--purpose', 'local fixture', '--ttl-seconds', '120',
                     '--min-ram-available-mib', '1', '--min-swap-free-mib', '0',
-                    '--headless', '--proxy-cert-mode', 'none', '--proxy-server', 'http://127.0.0.1:9',
+                    '--headless', '--proxy', 'none', '--proxy-cert-mode', 'none',
                     '--proxy-ownership', 'browser', '--wait-seconds', '0'],
                     env=env, capture_output=True, text=True, timeout=75)
                 assert result.returncode == 0, (result.stdout, result.stderr)

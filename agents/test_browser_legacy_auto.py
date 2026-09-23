@@ -28,10 +28,11 @@ def fixture(monkeypatch, tmp_path):
     return m, c, row, owner, manager
 
 
-def take(owner, key, agent, manager=None):
+def take(owner, key, agent, manager=None, *, automatic=None):
     request = argparse.Namespace(**vars(owner))
     request.instance_key, request.agent_id, request.run_id = key, agent, (owner.run_id if agent == owner.agent_id else agent)
     request.manager_id = manager
+    request.automatic_instance = key.startswith('auto-') if automatic is None else automatic
     return profiles.cmd_acquire(request)
 
 
@@ -45,6 +46,7 @@ def test_manager_proven_migration_preserves_auth_and_owner(monkeypatch, tmp_path
     assert take(owner, key, 'another', manager)['status'] == 'leased'
     assert take(owner, '', 'old-agent', manager)['status'] == 'already-owned'
     assert take(owner, 'auto-intruder', 'intruder')['status'] == 'locked'
+    assert take(owner, 'auto-explicit', 'intruder', manager, automatic=False)['status'] == 'locked'
     assert Path(row['profile_dir']).exists()
     with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
         assert db.execute('SELECT profile_dir FROM browser_legacy_auto').fetchone()[0] == row['profile_dir']

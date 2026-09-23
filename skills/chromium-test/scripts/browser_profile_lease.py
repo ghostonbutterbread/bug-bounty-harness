@@ -127,6 +127,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         "auth_domain": "TEXT",
         "manager_id": "TEXT",
         "instance_key": "TEXT NOT NULL DEFAULT ''",
+        "instance_selection": "TEXT NOT NULL DEFAULT 'explicit'",
     }.items():
         if name not in columns:
             conn.execute(f"ALTER TABLE browser_profile_leases ADD COLUMN {name} {definition}")
@@ -192,9 +193,9 @@ def register_legacy_auto(db_path, program, alias, domain, profile, manager_id,
         conn.commit()
         return True
 
-def legacy_auto_conflict(conn, row, key, manager_id):
+def legacy_auto_conflict(conn, row, key, manager_id, automatic=False):
     """An unkeyed lease remains exclusive except for registered auto peers."""
-    if row['instance_key'] != '' or not key.startswith('auto-') or not manager_id:
+    if row['instance_key'] != '' or not automatic or not key.startswith('auto-') or not manager_id:
         return True
     if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='browser_legacy_auto'").fetchone():
         return True
@@ -613,7 +614,8 @@ def transfer_managed_lease(db_path, old_id, manager_id, agent_id, run_id, purpos
             (old['program'], old['account_alias'], old['auth_domain'], old_id, timestamp,
              single, old['instance_key'], old['instance_key']),
         ).fetchall()
-        if any(single or legacy_auto_conflict(conn, r, old['instance_key'], manager_id) for r in conflicts):
+        if any(single or legacy_auto_conflict(conn, r, old['instance_key'], manager_id,
+                                               old['instance_selection'] == 'automatic') for r in conflicts):
             return {'status': 'locked'}
         values = dict(old)
         values.update(lease_id=str(uuid.uuid4()), owner_agent_id=agent_id, owner_run_id=run_id,
@@ -689,8 +691,9 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
             (slug(args.program), slug(alias), timestamp, auth_domain, key, key, single,
              single, args.agent_id, args.run_id, key),
         ).fetchall()
+        automatic = bool(getattr(args, 'automatic_instance', False) and getattr(args, 'manager_id', None))
         existing = next((r for r in conflicts if single or legacy_auto_conflict(
-            conn, r, key, getattr(args, 'manager_id', None))), None)
+            conn, r, key, getattr(args, 'manager_id', None), automatic)), None)
         if existing:
             same_owner = existing["owner_agent_id"] == args.agent_id and existing["owner_run_id"] == args.run_id and existing["instance_key"] == key
             if same_owner and existing['manager_id'] != getattr(args, 'manager_id', None):
@@ -744,7 +747,8 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
                 expires_at,
             ),
         )
-        conn.execute("UPDATE browser_profile_leases SET manager_id=?,instance_key=? WHERE lease_id=?", (getattr(args, "manager_id", None), key, lease_id))
+        conn.execute("UPDATE browser_profile_leases SET manager_id=?,instance_key=?,instance_selection=? WHERE lease_id=?",
+                     (getattr(args, "manager_id", None), key, 'automatic' if automatic else 'explicit', lease_id))
         conn.commit()
         row = conn.execute("SELECT * FROM browser_profile_leases WHERE lease_id=?", (lease_id,)).fetchone()
     return {
@@ -915,6 +919,7 @@ def build_parser() -> argparse.ArgumentParser:
     release.set_defaults(func=cmd_release)
     acquire.add_argument("--task-owned", action="store_true")
     acquire.add_argument("--instance-key")
+    acquire.add_argument("--automatic-instance", action="store_true", help=argparse.SUPPRESS)
     policy = sub.add_parser("set-browser-policy", help="Manual concurrency policy; never retries authentication or stops existing browsers.")
     policy.add_argument("program")
     policy.add_argument("account")

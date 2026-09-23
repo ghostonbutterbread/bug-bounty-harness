@@ -893,6 +893,7 @@ def start(args):
             *(["--recover-profile"] if getattr(args, "recover_profile", False) else []),
             *(["--task-owned"] if getattr(args, "task_owned", False) else []),
             *(["--instance-key", instance] if instance else []),
+            *(["--automatic-instance"] if automatic else []),
         )
     if got.get("status") not in ("leased", "already-owned"):
         if reusable:

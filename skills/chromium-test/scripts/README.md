@@ -281,8 +281,10 @@ multi-instance pane registry.
   queue rather than being inferred safe. Once all auto peers stop, the next
   request prefers the original legacy profile. A registered legacy profile is
   retained by the age sweep. Canonical acquisition/transfer still serialize
-  conflicts: unkeyed and explicit callers cannot bypass the marker, and the
-  account/domain single-browser policy overrides it. `--legacy-profile`
+  conflicts: only manager-marked automatic leases (including transfers) can
+  use the exemption; explicit `auto-`-prefixed keys, unkeyed callers, and
+  pre-schema records cannot bypass the marker, and the account/domain
+  single-browser policy overrides it. `--legacy-profile`
   explicitly retains exclusive selection. Explicit keys and task-owned
   namespaces are not automatically migrated. Unresolved account selectors do
   not opt into pooling.

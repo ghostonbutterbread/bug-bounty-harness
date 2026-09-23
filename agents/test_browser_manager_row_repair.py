@@ -1,4 +1,4 @@
-"""Offline fixture coverage for old appended physical order and fail-closed apply."""
+"""Offline historical positional-order repair and fail-closed apply tests."""
 import json
 import sqlite3
 import sys
@@ -11,7 +11,7 @@ sys.path.insert(0, str(SCRIPTS))
 import browser_manager_row_repair as repair
 
 
-def fixture(tmp_path, count=243):
+def fixture(tmp_path, count=5):
     state = tmp_path / 'browser_provisioner.sqlite'
     lease_path = tmp_path / 'browser_profile_leases.sqlite'
     with sqlite3.connect(state) as c:
@@ -22,20 +22,20 @@ def fixture(tmp_path, count=243):
     manager_conn = sqlite3.connect(state)
     lease_conn = sqlite3.connect(lease_path)
     for n in range(count):
-        bid = f'bid-{n}'
-        lid = f'lid-{n}'
-        program = 'blue' if n < 22 else 'other'
-        profile = str(tmp_path / ('profile-' + bid))
+        bid, lid = f'bid-{n}', f'lid-{n}'
+        program = 'neon' if n != 4 else 'other'
+        account = 'blue' if n < 3 or n == 4 else 'green'
+        profile = tmp_path / ('profile-' + bid)
+        profile.mkdir()
         launch = tmp_path / (bid + '.launch.json')
-        launch.write_text(json.dumps({'instance_id': bid, 'profile_dir': profile, 'agent_id': 'agent',
+        launch.write_text(json.dumps({'instance_id': bid, 'profile_dir': str(profile), 'agent_id': 'agent',
                                       'run_id': 'run', 'program': program, 'task': 'purpose',
-                                      'account_label': 'acct', 'process_identity': {'pid': 100, 'node': 'test'},
-                                      'cdp_url': 'http://127.0.0.1:55555'}))
+                                      'account_label': account, 'cdp_url': 'http://127.0.0.1:55555'}))
         manager_conn.execute('INSERT INTO browsers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                             (lid, bid, program, 'acct', 'domain', 'agent', 'run', 'purpose',
-                              'browser-' + bid, profile, str(launch), 'running', 0, 1., 1., 1.))
+                             (lid, bid, program, account, 'domain', 'agent', 'run', 'purpose',
+                              'browser-' + bid, str(profile), str(launch), 'running', 0, 1., 1., 1.))
         lease_conn.execute('INSERT INTO browser_profile_leases VALUES (?,?,?,?,?,?,?,?,?,?)',
-                           (lid, program, 'acct', 'domain', 'agent', 'run', 'purpose', profile, 'released', 'browser-' + bid))
+                           (lid, program, account, 'domain', 'agent', 'run', 'purpose', str(profile), 'released', 'browser-' + bid))
     manager_conn.commit(); manager_conn.close()
     lease_conn.commit(); lease_conn.close()
     backup = tmp_path / 'backup'
@@ -44,92 +44,140 @@ def fixture(tmp_path, count=243):
 
 
 def quiet(row, receipt, lease, metadata):
-    if lease['status'] == 'active':
-        raise repair.Refused('active-lease')
+    repair.runtime_quiescent(row, receipt, lease, metadata)
 
 
-def test_243_old_rows_blue_only_apply_idempotent(tmp_path):
-    state, backup = fixture(tmp_path)
-    plan = repair.run(state, 'blue')
-    assert plan['candidate_count'] == 22 and plan['blocked_count'] == 0
-    result = repair.run(state, 'blue', apply=True, plan_hash=plan['plan_hash'],
-                        confirmed=True, backup_dir=backup, probe=quiet)
-    assert result['applied_count'] == 22
-    with sqlite3.connect(state) as c:
-        assert c.execute("select count(*) from browsers where program='blue' and state='running' and auth_domain='domain'").fetchone()[0] == 22
-        assert c.execute("select count(*) from browsers where program='other' and tab_count='running'").fetchone()[0] == 221
-    assert len(list(backup.iterdir())) == 2
-    assert repair.run(state, 'blue')['candidate_count'] == 0
-    another = tmp_path / 'another'; another.mkdir(mode=0o700)
-    with pytest.raises(repair.Refused, match='plan-changed'):
-        repair.run(state, 'blue', apply=True, plan_hash=plan['plan_hash'], confirmed=True,
-                   backup_dir=another, probe=quiet)
-
-
-def test_active_conflict_missing_receipt_and_no_mutation(tmp_path):
-    state, backup = fixture(tmp_path, 4)
-    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite') as c:
-        c.execute("update browser_profile_leases set status='active' where lease_id='lid-0'")
-        c.execute("update browser_profile_leases set auth_domain='wrong' where lease_id='lid-1'")
-    (tmp_path / 'bid-2.launch.json').unlink()
-    p = tmp_path / 'bid-3.launch.json'
-    data = json.loads(p.read_text()); data['run_id'] = 'wrong'; p.write_text(json.dumps(data))
-    plan = repair.run(state, 'blue')
-    assert plan['candidate_count'] == 0 and plan['blocked_count'] == 4
-    with pytest.raises(repair.Refused, match='plan-changed'):
-        repair.run(state, 'blue', apply=True, plan_hash=plan['plan_hash'], confirmed=True,
-                   backup_dir=backup, probe=quiet)
-    with sqlite3.connect(state) as c:
-        assert c.execute("select count(*) from browsers where tab_count='running'").fetchone()[0] == 4
-
-
-def test_rollback_and_plan_race(tmp_path):
-    state, backup = fixture(tmp_path, 2)
-    plan = repair.run(state, 'blue')
-    def fault(conn, raw):
-        if raw['lease_id'] == 'lid-1':
-            raise RuntimeError('injected failure')
-    with pytest.raises(RuntimeError, match='injected'):
-        repair.run(state, 'blue', apply=True, plan_hash=plan['plan_hash'], confirmed=True,
-                   backup_dir=backup, probe=quiet, before_update=fault)
-    with sqlite3.connect(state) as c:
-        assert c.execute("select count(*) from browsers where tab_count='running'").fetchone()[0] == 2
-    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite') as c:
-        c.execute("update browser_profile_leases set status='active' where lease_id='lid-1'")
-    other = tmp_path / 'other'; other.mkdir(mode=0o700)
-    with pytest.raises(repair.Refused, match='plan-changed'):
-        repair.run(state, 'blue', apply=True, plan_hash=plan['plan_hash'], confirmed=True,
-                   backup_dir=other, probe=quiet)
-
-
-def test_manager_row_race_rolls_back(tmp_path):
-    state, backup = fixture(tmp_path, 2)
-    plan = repair.run(state, 'blue')
-    def race(conn, raw):
-        if raw['lease_id'] == 'lid-1':
-            conn.execute('UPDATE browsers SET updated=? WHERE lease_id=?', (123., raw['lease_id']))
-    with pytest.raises(repair.Refused, match='manager-row-race'):
-        repair.run(state, 'blue', apply=True, plan_hash=plan['plan_hash'], confirmed=True,
-                   backup_dir=backup, probe=quiet, before_update=race)
-    with sqlite3.connect(state) as c:
-        assert c.execute("select count(*) from browsers where tab_count='running'").fetchone()[0] == 2
-
-
-def test_runtime_probe_requires_task_owner_evidence(tmp_path, monkeypatch):
-    state, _ = fixture(tmp_path, 1)
+@pytest.fixture
+def runtime(monkeypatch):
     import subprocess
     monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: subprocess.CompletedProcess(a, 3, 'inactive\n', ''))
-    with repair.open_db(state) as c:
-        c.execute('ATTACH DATABASE ? AS lease', (str(tmp_path / 'browser_profile_leases.sqlite'),))
-        candidates, blocked = repair.inspect(c, 'blue', probe=repair.runtime_quiescent)
-    assert not candidates and list(blocked.values()) == ['task-owner-active-or-unknown']
+    monkeypatch.setattr(repair, 'no_profile_process', lambda *a: None)
+    import socket
+    monkeypatch.setattr(socket, 'create_connection', lambda *a, **kw: (_ for _ in ()).throw(ConnectionRefusedError()))
 
 
-def test_runtime_probe_blocks_active_unit(tmp_path, monkeypatch):
+def apply(state, backup, plan, **kw):
+    return repair.run(state, 'neon', 'blue', apply=True, plan_hash=plan['plan_hash'],
+                      confirmed=True, backup_dir=backup, **kw)
+
+
+def test_exact_selector_and_partial_quarantine(tmp_path, runtime):
+    state, backup = fixture(tmp_path)
+    leases = tmp_path / 'browser_profile_leases.sqlite'
+    with sqlite3.connect(leases) as c:
+        c.execute("UPDATE browser_profile_leases SET status='active' WHERE lease_id='lid-1'")
+        c.execute("UPDATE browser_profile_leases SET status='expired' WHERE lease_id='lid-2'")
+    (tmp_path / 'bid-0.launch.json').unlink()  # no receipt; independent evidence
+    plan = repair.run(state, 'neon', 'blue')
+    assert plan['candidate_count'] == 1 and plan['blocked_count'] == 2
+    assert repair.run(state, 'neon', 'green')['candidate_count'] == 1
+    assert repair.run(state, 'other', 'blue')['candidate_count'] == 1
+    result = apply(state, backup, plan)
+    assert result['applied_count'] == 1 and result['blocked_count'] == 2
+    with sqlite3.connect(state) as c:
+        assert c.execute("SELECT count(*) FROM browsers WHERE program='neon' AND account='blue' AND state='running'").fetchone()[0] == 1
+        assert c.execute("SELECT count(*) FROM browsers WHERE tab_count='running'").fetchone()[0] == 4
+    assert len(list(backup.iterdir())) == 2
+    for p, a in [('blue', 'blue'), ('neon', 'green'), ('other', 'blue')]:
+        with pytest.raises(repair.Refused, match='neon-blue'):
+            repair.run(state, p, a, apply=True, plan_hash=plan['plan_hash'], confirmed=True, backup_dir=backup)
+    with pytest.raises(repair.Refused, match='plan-changed'):
+        apply(state, backup, plan)
+
+
+def test_sparse_receipt_conflict_and_owner_ambiguity(tmp_path, runtime, monkeypatch):
+    state, backup = fixture(tmp_path)
+    receipt = tmp_path / 'bid-0.launch.json'
+    receipt.write_text(json.dumps({'agent_id': 'other'}))
+    sparse = tmp_path / 'bid-1.launch.json'
+    sparse.write_text(json.dumps({'program': 'neon'}))
+    (tmp_path / 'bid-2.launch.json').unlink()
+    plan = repair.run(state, 'neon', 'blue')
+    assert plan['candidate_count'] == 2 and list(plan['blocked'].values()) == ['receipt-conflict']
+    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite') as c:
+        c.execute("UPDATE browser_profile_leases SET status='active' WHERE lease_id='lid-1'")
+    with pytest.raises(repair.Refused, match='plan-changed'):
+        apply(state, backup, plan)
+    assert repair.run(state, 'neon', 'blue')['candidate_count'] == 1
+
+
+def test_runtime_rejects_process_lock_and_unknown_cdp(tmp_path, runtime, monkeypatch):
+    state, backup = fixture(tmp_path)
+    plan = repair.run(state, 'neon', 'blue')
+    monkeypatch.setattr(repair, 'no_profile_process', lambda *a: (_ for _ in ()).throw(repair.Refused('profile-process-present')))
+    with pytest.raises(repair.Refused, match='plan-changed'):
+        apply(state, backup, plan)
+    monkeypatch.setattr(repair, 'no_profile_process', lambda *a: None)
+    (tmp_path / 'profile-bid-0' / 'SingletonLock').touch()
+    with pytest.raises(repair.Refused, match='plan-changed'):
+        apply(state, backup, plan)
+    (tmp_path / 'profile-bid-0' / 'SingletonLock').unlink()
+    import socket
+    monkeypatch.setattr(socket, 'create_connection', lambda *a, **kw: (_ for _ in ()).throw(TimeoutError()))
+    with pytest.raises(repair.Refused, match='plan-changed'):
+        apply(state, backup, plan)
+
+
+def test_second_snapshot_failure_cleanup_and_retry(tmp_path, runtime, monkeypatch):
+    state, backup = fixture(tmp_path, 1)
+    plan = repair.run(state, 'neon', 'blue')
+    original = repair.snapshot
+    calls = []
+    def fail_second(source, destination):
+        calls.append(destination)
+        if len(calls) == 2:
+            raise OSError('injected second snapshot failure')
+        return original(source, destination)
+    monkeypatch.setattr(repair, 'snapshot', fail_second)
+    with pytest.raises(OSError, match='second snapshot'):
+        apply(state, backup, plan)
+    assert not list(backup.iterdir())
+    monkeypatch.setattr(repair, 'snapshot', original)
+    assert apply(state, backup, plan)['applied_count'] == 1
+
+
+def test_rollback_retry_and_row_race(tmp_path, runtime):
+    state, backup = fixture(tmp_path, 2)
+    plan = repair.run(state, 'neon', 'blue')
+    def fault(conn, raw):
+        if raw['lease_id'] == 'lid-1':
+            raise RuntimeError('injected')
+    with pytest.raises(RuntimeError, match='injected'):
+        apply(state, backup, plan, before_update=fault)
+    with sqlite3.connect(state) as c:
+        assert c.execute("SELECT count(*) FROM browsers WHERE tab_count='running'").fetchone()[0] == 2
+    assert apply(state, backup, plan)['applied_count'] == 2
+
+
+def test_process_scan_detects_exact_profile(tmp_path):
+    import subprocess
+    profile = str(tmp_path / 'profile')
+    proc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(10)',
+                             '--user-data-dir=' + profile])
+    try:
+        with pytest.raises(repair.Refused, match='profile-process-present'):
+            repair.no_profile_process(profile, {})
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_other_profile_owner_quarantined(tmp_path):
+    state, _ = fixture(tmp_path, 1)
+    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite') as c:
+        c.execute('INSERT INTO browser_profile_leases VALUES (?,?,?,?,?,?,?,?,?,?)',
+                  ('other-lease', 'neon', 'blue', 'domain', 'other', 'other', 'other',
+                   str(tmp_path / 'profile-bid-0'), 'active', 'other-unit'))
+    plan = repair.run(state, 'neon', 'blue')
+    assert plan['candidate_count'] == 0
+    assert list(plan['blocked'].values()) == ['profile-other-owner']
+
+
+def test_active_unit_blocks(tmp_path, monkeypatch):
     state, _ = fixture(tmp_path, 1)
     import subprocess
     monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: subprocess.CompletedProcess(a, 0, 'active\n', ''))
     with repair.open_db(state) as c:
         c.execute('ATTACH DATABASE ? AS lease', (str(tmp_path / 'browser_profile_leases.sqlite'),))
-        candidates, blocked = repair.inspect(c, 'blue', probe=repair.runtime_quiescent)
+        candidates, blocked = repair.inspect(c, 'neon', 'blue', probe=repair.runtime_quiescent)
     assert not candidates and list(blocked.values()) == ['unit-active-or-unknown']

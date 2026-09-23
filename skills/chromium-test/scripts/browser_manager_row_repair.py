@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Read-only plan for historical positional manager rows; gated local Blue repair.
+"""Plan historical positional manager rows; gated local neon/blue repair.
 
 Never copies/deletes profiles or changes canonical leases. Run on the browser node
-only after stopping the manager/watcher launchers and verifying owner termination.
+only after stopping manager/watcher launchers and verifying owner termination.
 """
 import argparse
 import hashlib
@@ -14,7 +14,6 @@ import sys
 
 from browser_lifecycle import node_lock, owner_state
 from browser_provisioner import unit_identity
-from browser_profile_lease import local_cdp_version
 
 OLD = ('lease_id', 'browser_id', 'program', 'account', 'agent_id', 'run_id',
        'purpose', 'unit', 'profile_dir', 'launch_file', 'state', 'tab_count',
@@ -58,15 +57,32 @@ def layout(conn):
         raise Refused('unsupported-lease-layout')
 
 
+def no_profile_process(profile, receipt):
+    """Independently inspect /proc; unreadable command lines are not absence."""
+    profile_arg = '--user-data-dir=' + profile
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdecimal() or int(entry.name) == os.getpid():
+            continue
+        try:
+            cmd = (entry / 'cmdline').read_bytes().split(b'\0')
+        except FileNotFoundError:
+            continue  # exited while scanning
+        except (OSError, PermissionError):
+            raise Refused('process-scan-unknown')
+        args = [v.decode('utf-8', 'surrogateescape') for v in cmd]
+        if (profile_arg in args or any(v == '--user-data-dir' and args[i + 1:i + 2] == [profile]
+                                        for i, v in enumerate(args)) or
+                (receipt.get('pid') and str(receipt['pid']) == entry.name)):
+            raise Refused('profile-process-present')
+
+
 def runtime_quiescent(row, receipt, lease, metadata):
-    """Fail closed on any uncertain runtime check, including unavailable systemd."""
+    """Fail closed on uncertain live state, including unavailable systemd."""
     if lease['status'] != 'released' or row['state'] == 'running':
         raise Refused('lease-not-released-or-row-active')
     unit = row['profile_dir']
-    if not unit.endswith('.service') and not unit.startswith('browser-'):
-        raise Refused('unit-shape')
-    # systemctl is-active distinguishes inactive from unavailable; do not use
-    # provisioner's boolean helper alone (which treats errors as inactive).
+    if unit != 'browser-' + row['browser_id']:
+        raise Refused('unit-identity')
     import subprocess
     from browser_provisioner import sysenv
     for name in (unit, 'browser-owner-' + row['browser_id']):
@@ -74,25 +90,41 @@ def runtime_quiescent(row, receipt, lease, metadata):
                                 capture_output=True, text=True, env=sysenv())
         if result.returncode != 3 or result.stdout.strip() != 'inactive':
             raise Refused('unit-active-or-unknown')
-    if not metadata.get('owner') or owner_state(metadata['owner']) != 'terminal':
+    if metadata.get('owner') and owner_state(metadata['owner']) != 'terminal':
         raise Refused('task-owner-active-or-unknown')
     identity = receipt.get('process_identity')
-    if not identity or owner_state(identity) != 'terminal':
+    if identity and owner_state(identity) != 'terminal':
         raise Refused('root-active-or-unknown')
-    current_invocation = unit_identity(unit)
-    if not receipt.get('unit_invocation') or current_invocation is None or current_invocation == receipt['unit_invocation']:
-        raise Refused('unit-invocation-present-or-unknown')
-    if os.path.lexists(Path(row['launch_file']) / 'SingletonLock'):
+    if receipt.get('unit_invocation'):
+        current = unit_identity(unit)
+        if current is None or current == receipt['unit_invocation']:
+            raise Refused('unit-invocation-present-or-unknown')
+    profile = row['launch_file']
+    if os.path.lexists(Path(profile) / 'SingletonLock'):
         raise Refused('profile-lock-present')
-    url = receipt.get('cdp_url')
-    if not url or local_cdp_version(url)['status'] != 'unreachable':
-        raise Refused('cdp-active-or-unknown')
+    no_profile_process(profile, receipt)
+    # An unreachable CDP endpoint alone is not proof of absence; a reachable or
+    # unclassifiable endpoint must still block even after the process scan.
+    if receipt.get('cdp_url'):
+        import socket
+        from urllib.parse import urlparse
+        parsed = urlparse(receipt['cdp_url'])
+        if parsed.scheme != 'http' or parsed.hostname not in ('127.0.0.1', 'localhost', '[::1]', '::1') or not parsed.port:
+            raise Refused('cdp-url-unknown')
+        try:
+            with socket.create_connection((parsed.hostname, parsed.port), timeout=2):
+                raise Refused('cdp-active-or-unknown')
+        except ConnectionRefusedError:
+            pass  # only positive refused connection is evidence of closed port
+        except OSError:
+            raise Refused('cdp-active-or-unknown')
 
 
-def inspect(conn, program, *, probe=None):
+def inspect(conn, program, account, *, probe=None):
     layout(conn)
     candidates, blocked = [], {}
-    for r in conn.execute('SELECT * FROM browsers WHERE program=? ORDER BY lease_id', (program,)):
+    manager_dir = Path(next(r['file'] for r in conn.execute('PRAGMA database_list') if r['name'] == 'main')).parent
+    for r in conn.execute('SELECT * FROM browsers WHERE program=? AND account=? ORDER BY lease_id', (program, account)):
         row = dict(r)
         # Exactly the historical shift signature, not an arbitrary malformed row.
         signature = (row['tab_count'] == 'running' and row['last_activity'] == 0 and
@@ -116,30 +148,33 @@ def inspect(conn, program, *, probe=None):
                 raise Refused('lease-conflict')
             if not repaired['unit'] == 'browser-' + repaired['browser_id']:
                 raise Refused('unit-identity')
-            if Path(repaired['launch_file']).name != repaired['browser_id'] + '.launch.json':
+            if Path(repaired['launch_file']) != manager_dir / (repaired['browser_id'] + '.launch.json'):
                 raise Refused('launch-identity')
-            # Strict receipt: missing or conflicting evidence is quarantined, not inferred.
+            if not Path(repaired['profile_dir']).is_absolute() or not Path(repaired['profile_dir']).is_dir() or Path(repaired['profile_dir']).is_symlink():
+                raise Refused('profile-path-unknown')
+            # A released row cannot be repaired while another owner holds its profile.
+            if conn.execute("SELECT 1 FROM lease.browser_profile_leases WHERE profile_dir=? AND status!='released' LIMIT 1", (repaired['profile_dir'],)).fetchone():
+                raise Refused('profile-other-owner')
             path = Path(repaired['launch_file'])
-            if not path.is_file() or path.is_symlink():
-                raise Refused('receipt-missing')
-            receipt = json.loads(path.read_text())
-            if (receipt.get('instance_id') != repaired['browser_id'] or
-                receipt.get('profile_dir') != repaired['profile_dir'] or
-                receipt.get('agent_id') != repaired['agent_id'] or
-                receipt.get('run_id') != repaired['run_id'] or
-                receipt.get('program') != repaired['program'] or
-                receipt.get('task') != repaired['purpose']):
+            if path.is_symlink() or (path.exists() and not path.is_file()):
+                raise Refused('receipt-path-unknown')
+            receipt = json.loads(path.read_text()) if path.is_file() else {}
+            if not isinstance(receipt, dict):
+                raise Refused('receipt-invalid')
+            fields = {'instance_id': 'browser_id', 'profile_dir': 'profile_dir',
+                      'agent_id': 'agent_id', 'run_id': 'run_id', 'program': 'program',
+                      'task': 'purpose', 'account_label': 'account'}
+            if any(receipt[k] != repaired[v] for k, v in fields.items() if k in receipt):
                 raise Refused('receipt-conflict')
-            if receipt.get('account_label') != repaired['account']:
-                raise Refused('receipt-account-conflict')
-            # Domain is attested by the canonical lease; the launcher did not
-            # emit a domain. Never infer it from the profile path.
+            # Sparse/missing historical receipts are never evidence of identity.
+            # Canonical lease and exact launch path attest identity; live checks
+            # are mandatory at apply for every candidate.
+            if lease['status'] != 'released':
+                raise Refused('lease-not-released')
             if probe:
                 meta_row = conn.execute('SELECT metadata FROM lifecycle WHERE lease_id=?', (lid,)).fetchone()
                 metadata = json.loads(meta_row['metadata']) if meta_row else {}
                 probe(row, receipt, lease, metadata)
-            elif lease['status'] == 'active':
-                raise Refused('active-lease')
             candidates.append((row, repaired))
         except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
             blocked[digest(lid)[:16]] = 'invalid-evidence'
@@ -162,11 +197,27 @@ def snapshot(path, destination):
         raise
 
 
-def run(manager, program, *, apply=False, plan_hash=None, confirmed=False, backup_dir=None, probe=None, before_update=None):
+def backup_pair(manager, canonical, directory):
+    """Each attempt owns a fresh pair; discard both if either snapshot fails."""
+    import uuid
+    stem = uuid.uuid4().hex
+    first = directory / (stem + '.manager.sqlite')
+    second = directory / (stem + '.lease.sqlite')
+    try:
+        snapshot(manager, first)
+        snapshot(canonical, second)
+    except BaseException:
+        first.unlink(missing_ok=True)
+        second.unlink(missing_ok=True)
+        raise
+    return first, second
+
+
+def run(manager, program, account, *, apply=False, plan_hash=None, confirmed=False, backup_dir=None, probe=None, before_update=None):
     manager = Path(manager).expanduser().absolute()
     canonical = manager.parent / 'browser_profile_leases.sqlite'
-    if apply and (program != 'blue' or not confirmed or not plan_hash or backup_dir is None):
-        raise Refused('apply-requires-blue-plan-owner-terminal-confirmation-and-backup-dir')
+    if apply and (program != 'neon' or account != 'blue' or not confirmed or not plan_hash or backup_dir is None):
+        raise Refused('apply-requires-neon-blue-plan-owner-terminal-confirmation-and-backup-dir')
     if apply and (Path(backup_dir).is_symlink() or not Path(backup_dir).is_dir() or
                   os.stat(backup_dir).st_mode & 0o077):
         raise Refused('backup-directory-must-be-private')
@@ -180,19 +231,17 @@ def run(manager, program, *, apply=False, plan_hash=None, confirmed=False, backu
             conn.execute('ATTACH DATABASE ? AS lease', (lease_uri,))
             if apply:
                 # Backup before mutation, while the manager node lock is held.
-                stem = digest([str(manager), plan_hash])[:20]
-                snapshot(manager, Path(backup_dir) / (stem + '.manager.sqlite'))
-                snapshot(canonical, Path(backup_dir) / (stem + '.lease.sqlite'))
+                backup_pair(manager, canonical, Path(backup_dir))
                 conn.execute('BEGIN IMMEDIATE')
             try:
-                candidates, blocked = inspect(conn, program, probe=probe or (runtime_quiescent if apply else None))
+                candidates, blocked = inspect(conn, program, account, probe=probe or (runtime_quiescent if apply else None))
                 plan = digest([(r['lease_id'], digest(r), digest(v)) for r, v in candidates])
                 receipt = {'status': 'planned' if not apply else 'refused', 'program': program,
-                           'candidate_count': len(candidates), 'blocked_count': len(blocked),
+                           'account': account, 'candidate_count': len(candidates), 'blocked_count': len(blocked),
                            'blocked': blocked, 'plan_hash': plan}
                 if apply:
-                    if blocked or plan != plan_hash or not candidates:
-                        raise Refused('plan-changed-or-blocked')
+                    if plan != plan_hash or not candidates:
+                        raise Refused('plan-changed-or-no-eligible-rows')
                     for raw, target in candidates:
                         if before_update:
                             before_update(conn, raw)
@@ -215,13 +264,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--manager-db', required=True)
     parser.add_argument('--program', required=True)
+    parser.add_argument('--account', required=True)
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--plan-hash')
     parser.add_argument('--owner-terminal-confirmed', action='store_true')
     parser.add_argument('--backup-dir')
     args = parser.parse_args()
     try:
-        print(json.dumps(run(args.manager_db, args.program, apply=args.apply,
+        print(json.dumps(run(args.manager_db, args.program, args.account, apply=args.apply,
                              plan_hash=args.plan_hash, confirmed=args.owner_terminal_confirmed,
                              backup_dir=args.backup_dir), sort_keys=True))
     except (Refused, sqlite3.Error, OSError) as exc:

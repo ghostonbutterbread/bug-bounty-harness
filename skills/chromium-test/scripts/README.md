@@ -2,8 +2,8 @@
 
 ## Inventory
 
-- `browser_manager_row_repair.py` — offline-first, read-only plan and explicitly
-  gated Blue-only repair for historical positional manager rows; see below.
+- `browser_manager_row_repair.py` — offline-first plan and explicitly gated
+  `neon`/`blue` historical positional manager-row repair; see below.
 - `browser_provisioner.py` — canonical admission, profile-lease, and Chromium
   request path.
 - `chromium_test.py` — isolated Chromium launcher used by the provisioner.
@@ -33,26 +33,32 @@ selection, target scope, and browser state still require agent verification.
 
 ## Historical manager-row repair (offline first)
 
-`browser_manager_row_repair.py --manager-db /private/browser_provisioner.sqlite --program blue`
+`browser_manager_row_repair.py --manager-db /private/browser_provisioner.sqlite --program neon --account blue`
 reads the exact old appended-column layout and canonical lease database in the
 same directory. It emits counts, opaque lease-ID hashes for blocked rows, and a
 plan hash; never raw launch records, paths, CDP URLs or account credentials.
-Active canonical leases and incomplete/conflicting evidence are blocked. A
-non-Blue plan is read-only. Do not run the repair as a launcher or on a live owner.
+The exact program/account pair selects rows; other neon accounts are excluded.
+Only released canonical leases with exact ID, ownership, unit and launch path
+can be candidates. Historical sparse or missing receipts are not invented: any
+present fields must match, and apply requires independent systemd, profile lock,
+process and CDP evidence. Conflicts, active/expired leases and competing active
+profile owners remain quarantined.
 
-Only after independently verifying the Blue owner is terminal and manager/watchers
-are quiescent on the actual browser node, create a **new empty mode-0700 backup
-directory**, rerun the plan, and supply its hash to `--apply --program blue
---owner-terminal-confirmed --plan-hash HASH --backup-dir DIR`. Apply acquires the
-manager node lock, copies both DBs via SQLite backup before mutation, takes a
-cross-database `BEGIN IMMEDIATE`, re-evaluates the rows and live evidence, and
-updates manager fields only; no canonical lease or profile contents are changed.
-Any active/unknown unit, watcher, task owner, browser root, profile SingletonLock
-or reachable loopback CDP blocks apply. Missing owner metadata also blocks apply.
-A changed plan or any Blue ambiguity blocks the whole cohort. A backup may
-remain after a refused apply; use a fresh private directory on retry. Live
-quiescence is an operational prerequisite: SQLite locking does not stop an
-external process or systemd from starting after the final liveness probe.
+Only after independently verifying the owner is terminal and manager/watchers
+are quiescent on the actual browser node, create a private mode-0700 backup
+directory, rerun the plan, and supply its hash to `--apply --program neon
+--account blue --owner-terminal-confirmed --plan-hash HASH --backup-dir DIR`.
+Apply acquires the manager node lock, snapshots both DBs before mutation, takes
+an attached-DB `BEGIN IMMEDIATE`, re-evaluates candidate rows and live evidence,
+and updates manager fields only; no canonical lease, profile or owner is changed.
+Each attempt uses new backup filenames. If either snapshot fails, neither file
+is retained; after a later refused apply, successful backup pairs remain for
+recovery and a retry creates another pair. Uncertain or active unit/watcher,
+owner/root where recorded, profile process/PID, SingletonLock or CDP port blocks
+that row. Apply only proceeds if the independently verified eligible set matches
+the offline plan. Quarantined rows remain untouched; a partial success does **not**
+open migration. Reconcile all necessary history separately. SQLite locking does
+not stop external processes or systemd from starting after the liveness probe.
 
 ## Opt-in private startup diagnostics
 

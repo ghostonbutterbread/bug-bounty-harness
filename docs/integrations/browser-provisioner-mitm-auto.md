@@ -6,8 +6,8 @@
 - **Base commit:** `af9dae9` (fetched `origin/beta`)
 - **Intended target:** `beta`; no merge or push authorized for this handoff
 - **Last updated:** 2026-09-23
-- **Latest immutable recovery checkpoint:** pending commit
-- **Implementation commit:** pending commit
+- **Latest immutable recovery checkpoint:** `421742ab90972ab7f454aa993941004dfbe4af17`
+- **Implementation commit:** `421742ab90972ab7f454aa993941004dfbe4af17`
 - **Inspiration:** older feature branch `feat/browser-provisioner-mitm-auto`, commits `7e28a7a`, `d2b28a3`; reference only, not transplanted wholesale.
 
 ## Intent and implemented contract
@@ -29,9 +29,9 @@ Preserve current beta's multi-instance account selection, lease/admission orderi
 ## Interruption / resume handoff
 
 - **Branch/ref:** `feat/browser-provisioner-mitm-auto-v2`
-- **Checkpoint / implementation commits:** pending commit
-- **Exact resume point:** run broader regression suite, inspect diff and runtime fixture; parent to review/integrate only after required gates.
-- **Working tree:** pending final commit.
+- **Checkpoint / implementation commits:** `421742ab90972ab7f454aa993941004dfbe4af17`
+- **Exact resume point:** independent diff review and disposable host fixture with cgroup and browser-origin proxied HTTPS evidence; parent to integrate only after required gates.
+- **Working tree:** clean after dossier-only handoff commit.
 
 ## Decision gates
 

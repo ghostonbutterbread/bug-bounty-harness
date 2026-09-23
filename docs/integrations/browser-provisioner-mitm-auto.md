@@ -1,13 +1,13 @@
 # Browser provisioner task MITM integration dossier
 
-- **Status:** review P1/P2 repair verified locally, runtime activation blocked
+- **Status:** per-browser D-Bus containment repair verified in disposable headless Chrome; headed/manual activation and independent review deferred
 - **Owner:** Hermes bugfix subagent
 - **Branch / worktree:** `feat/browser-provisioner-mitm-auto-v2` / `/home/ryushe/worktrees/bbh-browser-provisioner-mitm-auto-v2`
 - **Base commit:** `af9dae9` (fetched `origin/beta`)
 - **Intended target:** `beta`; no merge or push authorized for this handoff
 - **Last updated:** 2026-09-23
-- **Latest immutable recovery checkpoint:** `d72d9675d2c8935a1a7081c7b32a8b7ba2110939` (feature ref tip before this handoff-only update)
-- **Implementation commits:** `421742ab90972ab7f454aa993941004dfbe4af17`, `d72d9675d2c8935a1a7081c7b32a8b7ba2110939`
+- **Latest immutable recovery checkpoint:** `ebe4192cd2399679c8adc1274504bfb19fb0a2d4` (feature ref tip before this repair)
+- **Implementation commits:** `421742ab90972ab7f454aa993941004dfbe4af17`, `d72d9675d2c8935a1a7081c7b32a8b7ba2110939`; per-browser D-Bus repair in this handoff's next commit
 - **Inspiration:** older feature branch `feat/browser-provisioner-mitm-auto`, commits `7e28a7a`, `d2b28a3`; reference only, not transplanted wholesale.
 
 ## Intent and implemented contract
@@ -17,6 +17,11 @@ Preserve current beta's multi-instance account selection, lease/admission orderi
 ## Evidence and review
 
 - Regression: `python -m pytest -q agents/test_browser_provisioner.py agents/test_chromium_test_launcher.py agents/test_browser_selection.py agents/test_browser_resources.py agents/test_browser_lease_recovery.py agents/test_browser_startup_diagnostics.py --basetemp=/home/ryushe/.hermes/profiles/bugfix/cache/scratch/s4` — **188 passed**. The short physical scratch basename avoids the existing Unix socket fixture's `AF_UNIX path too long` failure under pytest's default nested scratch prefix.
+- Per-browser-service containment repair: `systemd-run --user --setenv=DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent` is applied only to the Chrome-containing browser unit. The provisioner's `sysenv()` continues using the real `/run/user/<uid>/bus`; task MITM and watcher service dispatch are unchanged. Manual/KasmVNC flags and fallback remain forwarded unmodified. Regression asserts the browser override, real control-plane address, absent proxy override, and manual/KasmVNC forwarding.
+- Focused suite (split because an all-in-one run exceeded the command timeout under host load): **193 passed** = 27 `test_browser_provisioner.py` + 65 `test_chromium_test_launcher.py`/`test_browser_selection.py` + 101 `test_browser_resources.py`/`test_browser_lease_recovery.py`/`test_browser_startup_diagnostics.py`. All used isolated `--basetemp` in profile scratch; `HARNESS_BOUNTY_ARTIFACT_ROOT` unset for the fixture that requires `/mnt/bounty`.
+- Real v2 disposable headless Google Chrome 150 task-MITM smoke on this node: `start fixture anon1 --headless --display-backend default --proxy mitm --memory-high 384M --memory-max 512M` yielded `started`, live fenced CDP, and `proxy_cert_mode=import` / `proxy_cert_status.status=trusted` in both isolated NSS stores, without certificate-ignore. Chrome root PID 858473 and renderer PID 858548 both belonged to `browser-63cf822a-e185-4ba6-b701-6839f35da9fb.service`, with effective `memory.high=402653184`, `memory.max=536870912`. Browser CDP navigated to `https://10.0.0.11:<ephemeral>/dbus-fixture` (non-loopback local interface, not bypassed) and read `fixture-https-ok`. Task flow `task-d2fed8d1d1794c538db6a315af0b310a` contained `GET 10.0.0.11 /dbus-fixture 200`. Self-signed fixture upstream was trusted by the **disposable mitmdump wrapper only** (`ssl_verify_upstream_trusted_ca=<fixture.pem>`); production proxy configuration and source were not relaxed. The proxy remained ready after browser release; a direct proxied, CA-verified `GET /replay-after-release` returned 200 and was indexed. First finish stopped/indexed the listener, second finish returned `already_finished=true`. Browser unit inactive, root absent, CDP closed; state recorded zero active task proxies and zero running browsers. No target navigation or target requests were issued.
+- Fixture teardown removed only the disposable state, profiles, flows, certificates, wrapper, server script and test scratch roots after exact fixture units and PIDs stopped; an unrelated active `browser-18d08d08-16bb-46f5-aa85-6afb9d629613.service` from another checkout was observed and left untouched.
+- The initial self-signed-origin run returned proxy 502 with upstream certificate verification failure; it nevertheless confirmed cgroup containment and was released/finished. The fixture-only upstream CA trust resolved this without weakening browser NSS trust or the production task proxy.
 - Independent review: pending parent/reviewer.
 - Review repair: task reservation records owner process identity, unit invocation,
   and transition timestamp. Explicit recovery of interrupted `starting` or
@@ -33,9 +38,8 @@ Preserve current beta's multi-instance account selection, lease/admission orderi
 
 ## Blockers and deferred work
 
-- **Missing evidence:** current v2 real browser-origin HTTPS flow through its leased proxy, and browser root plus renderer cgroups with effective memory bounds. Earlier old-feature Chrome smoke showed root escaping bounded launcher unit into an unbounded `app-com.google.Chrome` sibling scope, browser loopback bypassing MITM; a separately explicit proxied fixture indexed while 21 Google background flows appeared. That does not prove v2 runtime behavior. Current beta lifecycle preserves pipe-fenced managed control but does not itself prove Chrome cgroup containment. Do not claim runtime activation or send a live worker until this is verified.
-- **Command / fixture:** isolated `about:blank` request through provisioner on browser node with task MITM, CDP-navigate to approved loopback HTTPS fixture, inspect owned flow and `/proc/<root-pid>/cgroup`, `/proc/<renderer-pid>/cgroup`, effective `MemoryHigh`/`MemoryMax`, exact unit, and stop/release/finish receipts. Trigger on available disposable host fixture and reviewer approval. A queued admission result is not a startup smoke.
-- **Missing review:** independent diff review plus full relevant integration suite before merge. Trigger after feature commit.
+- **Headed/manual smoke deferred:** `kasmvncserver`, `Xkasmvnc`, and `vncserver` are absent on this node (Xvfb alone cannot prove the native KasmVNC handoff). The D-Bus override also suppresses browser session-bus/portal integration; preserve existing display/manual arguments, but do **not** activate the headed/manual lane until a disposable KasmVNC manual-input session on the intended node proves readiness, display/input, root+renderer cgroup bounds, and terminal release/finish. Trigger when a usable headed KasmVNC stack is available. A failed headed startup must not be interpreted as successful manual handoff; do not remove the per-browser override to make it start.
+- **Independent review:** review feature diff and intended beta integration suite before merge. No merge/push or runtime activation was performed in this handoff.
 - **Recovery boundary:** active task replay has no authoritative client lease; the
   reaper uses terminal recorded owner, quiescence and socket absence, and is
   invoked only by `reap-idle` (no timer). A live interrupted startup without
@@ -46,14 +50,14 @@ Preserve current beta's multi-instance account selection, lease/admission orderi
 ## Interruption / resume handoff
 
 - **Branch/ref:** `feat/browser-provisioner-mitm-auto-v2`
-- **Checkpoint / implementation commits:** `421742ab90972ab7f454aa993941004dfbe4af17`, `d72d9675d2c8935a1a7081c7b32a8b7ba2110939`
-- **Exact resume point:** independent diff review and disposable host fixture with cgroup and browser-origin proxied HTTPS evidence; parent to integrate only after required gates. This subagent does not merge/push.
-- **Working tree:** task-owned repair committed; verify tip/status at handoff.
+- **Checkpoint:** `ebe4192cd2399679c8adc1274504bfb19fb0a2d4` before per-browser D-Bus repair; current feature tip after the repair commit is the next recoverable checkpoint.
+- **Exact resume point:** independent diff review, then disposable headed KasmVNC/native manual-input smoke when the headed stack is installed on the intended node. Headless proxy, CA, cgroup, release/replay/finish gates are green. Parent decides integration only after review; this subagent does not merge/push.
+- **Working tree:** commit task-owned repair and dossier, then verify clean status.
 
 ## Decision gates
 
-- **Integration:** tests and independent review, no unresolved beta lifecycle regression.
-- **Activation:** actual browser cgroup and browser-origin proxied HTTPS flow proven on intended node.
+- **Integration:** focused suite green; independent review and intended beta integration checks pending.
+- **Activation:** headless disposable browser cgroup and browser-origin proxied HTTPS flow proven; headed/manual KasmVNC unavailable and not verified on this node.
 - **Promotion:** separate stable review, not implied by this feature.
 
 ## Decision record

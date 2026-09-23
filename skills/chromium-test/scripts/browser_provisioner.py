@@ -1272,6 +1272,10 @@ def start(args):
         "--property=MemoryHigh=" + args.memory_high,
         "--property=MemoryMax=" + args.memory_max,
         "--property=CPUWeight=100",
+        # Chrome asks the session systemd manager to move its root into an
+        # unbounded app scope. Isolate only this browser service's session bus;
+        # the provisioner and its systemctl control plane keep the real bus.
+        "--setenv=DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent",
         "--",
         "/bin/bash",
         "-lc",

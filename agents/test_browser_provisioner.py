@@ -146,6 +146,8 @@ def test_start_forwards_recover_profile_to_lease_acquire(monkeypatch, tmp_path):
 def test_provisioner_marks_its_launcher_invocation_as_internal(monkeypatch, tmp_path):
     m = load(monkeypatch, tmp_path)
     args = start_args()
+    args.driving_mode = "manual"
+    args.display_backend = "kasmvnc"
     calls = []
 
     monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], []))
@@ -179,8 +181,15 @@ def test_provisioner_marks_its_launcher_invocation_as_internal(monkeypatch, tmp_
     except SystemExit as exc:
         assert exc.code == 0
 
-    shell = calls[0][-1]
+    browser_dispatch = calls[0]
+    assert "--setenv=DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent" in browser_dispatch
+    assert "--setenv=DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent" not in browser_dispatch[-1]
+    assert m.sysenv()["DBUS_SESSION_BUS_ADDRESS"] == f"unix:path=/run/user/{os.getuid()}/bus"
+    assert browser_dispatch[0] == "systemd-run"
+    shell = browser_dispatch[-1]
     assert "BROWSER_PROVISIONER_UNIT=browser-lease-browser.service" in shell
+    assert "--driving-mode manual" in shell
+    assert "--display-backend kasmvnc" in shell
     assert "BROWSER_PROVISIONER_LAUNCH" not in shell
     assert "--provisioner-internal" not in shell
 
@@ -422,6 +431,7 @@ def test_task_proxy_starts_before_browser_and_reuses_private_lane(monkeypatch, t
     row, created = m.start_proxy(c, args)
     assert created and row["state"] == "running"
     assert commands[0][0] == "systemd-run" and "--listen-port" in commands[0]
+    assert "--setenv=DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent" not in commands[0]
     assert Path(row["run_dir"]).stat().st_mode & 0o777 == 0o700
     assert (Path(row["run_dir"]) / "mitmproxy").stat().st_mode & 0o777 == 0o700
     same, created = m.start_proxy(c, args)

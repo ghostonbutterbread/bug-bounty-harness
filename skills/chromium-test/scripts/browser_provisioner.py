@@ -430,10 +430,12 @@ def automatic_instance(c, args, alias, domain, *, allow_takeover=False, allow_mi
         manager = hashlib.sha256(str(STATE.resolve()).encode()).hexdigest()
         # Canonical history alone cannot attest to older unkeyed manager
         # projections. Reconcile every such row before opening concurrency;
-        # only the selected lease may still be running.
+        # only the selected lease may still be running. A stopped historical
+        # row needs its own inactive unit and terminal recorded root/CDP.
         unkeyed = [r for r in rows if record_info(r).get('instance_key', '') == '']
         if (any(r['profile_dir'] != legacy['profile_dir'] or
-                (r['lease_id'] != legacy['lease_id'] and r['state'] != 'stopped')
+                (r['lease_id'] != legacy['lease_id'] and
+                 (r['state'] != 'stopped' or not stopped(r)))
                 for r in unkeyed) or
                 Path(legacy['profile_dir']) not in legacy_paths or
                 not profiles.register_legacy_auto(lease_db, slug(args.program), slug(alias), domain,

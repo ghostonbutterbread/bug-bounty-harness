@@ -3,6 +3,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import os
 from pathlib import Path
 import threading
 
@@ -10,6 +11,7 @@ import pytest
 
 from agents.test_browser_lease_recovery import provisioner, record, args
 import browser_profile_lease as profiles
+from browser_lifecycle import process_identity
 
 
 def fixture(monkeypatch, tmp_path):
@@ -222,6 +224,41 @@ def test_running_migration_allows_stopped_former_owner_on_same_profile(monkeypat
               (str(tmp_path / 'older.json'), row['lease_id']))
     c.commit()
     (tmp_path / 'older.json').write_text(json.dumps({'instance_key': '', 'instance_selection': 'legacy'}))
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    key = m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True)
+    assert key.startswith('auto-')
+    assert take(owner, key, 'peer', manager)['status'] == 'leased'
+
+@pytest.mark.parametrize('observable', ['active-unit', 'active-root', 'active-cdp',
+                                        'missing-receipt-active-unit'])
+def test_running_migration_blocks_nonquiescent_stopped_history(monkeypatch, tmp_path, observable):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    receipt = tmp_path / 'older.json'
+    c.execute("INSERT INTO browsers SELECT 'older', 'older-browser', program, account, auth_domain, 'former-agent', 'former-run', purpose, 'older-unit', profile_dir, ?, 'stopped', tab_count, last_activity, created-1, updated FROM browsers WHERE lease_id=?",
+              (str(receipt), row['lease_id']))
+    c.commit()
+    if observable != 'missing-receipt-active-unit':
+        info = {'instance_key': '', 'instance_selection': 'legacy'}
+        if observable == 'active-root':
+            info['process_identity'] = process_identity(os.getpid())
+        if observable == 'active-cdp':
+            info['cdp_url'] = 'http://127.0.0.1:9222'
+            monkeypatch.setattr(profiles, 'local_cdp_version', lambda _: {'status': 'ready'})
+        receipt.write_text(json.dumps(info))
+    monkeypatch.setattr(m, 'unit_active', lambda unit: unit == 'older-unit' and
+                        observable in ('active-unit', 'missing-receipt-active-unit'))
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    assert m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True) == ''
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='browser_legacy_auto'").fetchone()
+    assert take(owner, 'auto-peer', 'peer', manager)['status'] == 'locked'
+
+def test_running_migration_allows_inactive_stopped_history_without_receipt(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    c.execute("INSERT INTO browsers SELECT 'older', 'older-browser', program, account, auth_domain, 'former-agent', 'former-run', purpose, 'older-unit', profile_dir, ?, 'stopped', tab_count, last_activity, created-1, updated FROM browsers WHERE lease_id=?",
+              (str(tmp_path / 'missing-older.json'), row['lease_id']))
+    c.commit()
+    monkeypatch.setattr(m, 'unit_active', lambda _: False)
     monkeypatch.setattr(m, 'healthy', lambda _: True)
     key = m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True)
     assert key.startswith('auto-')

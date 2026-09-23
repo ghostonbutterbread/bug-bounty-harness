@@ -1,14 +1,14 @@
 # Legacy named-profile auto-slot integration dossier
 
-- **Status:** running-history reviewer blocker repaired and locally tested; independent re-review pending
+- **Status:** historical stopped-row quiescence reviewer blocker repaired and locally tested; independent re-review pending
 - **Owner:** Hermes builder subagent
 - **Branch / owning ref:** `feat/browser-legacy-auto-migration`
 - **Worktree:** `/home/ryushe/projects/bug_bounty_harness/browser-legacy-auto-migration`
 - **Base commit:** `af9dae91dfbddc0dae90ae17b3c3ed49a5f4a89d` (fetched `origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-23
-- **Previous immutable recovery checkpoint:** `cad9e5e` (stopped-path repair); running-history repair is the next feature checkpoint, verify with `git rev-parse HEAD`.
-- **Feature implementation commit(s):** `83433f3`, `0b77bd5`, `d1de5c2`, `cad9e5e`; running-history gate at current feature tip.
+- **Previous immutable recovery checkpoint:** `90a39fa` (running-history repair plus `origin/beta` reconciliation); verify current tip with `git rev-parse HEAD`.
+- **Feature implementation commit(s):** `83433f3`, `0b77bd5`, `d1de5c2`, `cad9e5e`, `bf69193`; historical stopped-row quiescence gate at current feature tip.
 - **Inspiration:** Ordinary Blue same-account/different-browser request; canonical SQLite lease conflict and legacy auth preservation.
 
 ## Intent and contract
@@ -19,7 +19,7 @@ The stopped first request now passes its manager row's lease ID, profile path, a
 
 The marker changes concurrency metadata, not files or credentials. Historical auth/session remains in the original legacy profile only. A second auto slot gets a new separate profile and must establish its own auth via ordinary authorized flow or seed; no live profile copying or concurrent on-disk access. This cannot promise website-level simultaneous sessions or an authenticated second browser.
 
-Before registering a marker, selection now reconciles **every** historical unkeyed manager row, not only the latest row and canonical leases: all must refer to the selected legacy profile path, and any non-selected row must be stopped. A historical stopped former owner on that same path is valid; an older running different owner/run or stopped conflicting path blocks automatic migration without inserting the marker. Canonical SQLite still checks exact selected lease identity, ownership, manager, and complete canonical unkeyed history transactionally. Node-locked manager commands serialize selection against manager mutations; canonical acquisition remains the arbiter for racing peer claims.
+Before registering a marker, selection reconciles **every** historical unkeyed manager row, not only the latest row and canonical leases: all must refer to the selected legacy profile path, and each non-selected row must be stopped **and** pass the existing `stopped(row)` unit/root/CDP check. A historical stopped former owner on that same path remains valid when its unit is inactive and any recorded root/CDP is terminal; absent receipt alone does not veto it. An older running different owner/run, stopped conflicting path, or stopped same-path row with an active unit, root, or CDP blocks automatic migration without inserting the marker. The selected running browser is verified separately by `healthy(row)` and is not subjected to stopped checks. Canonical SQLite still checks exact selected lease identity, ownership, manager, and complete canonical unkeyed history transactionally. Node-locked manager commands serialize selection against manager mutations; canonical acquisition remains the arbiter for racing peer claims.
 
 ## Evidence and review
 
@@ -32,6 +32,8 @@ Before registering a marker, selection now reconciles **every** historical unkey
 - Bounded reference impact: `browser_profile_lease.py` owns canonical acquired `profile_dir`; `browser_provisioner.py` owns stopped-row selection and CLI handoff. `chromium_test.py` retains direct standalone pre-domain and ephemeral defaults, but managed launches pass the acquired explicit profile path; its defaults are not selected here. Sweep recognizes both shapes. Existing README guidance remains compatible: new managed profiles still use domain directories; only verified historical stopped rows inherit pre-domain paths.
 - Reviewer repros at `cad9e5e`: older running different-owner and older stopped conflicting-path manager rows both incorrectly yielded an auto key and marker despite exact canonical history. New parameterized negatives also cover older running same-agent/different-run identity and assert no marker or auto acquisition; all three failed before the repair and pass afterward. A stopped former owner on the same path remains allowed. Existing canonical two-contender race regression remains in `test_canonical_race_and_legacy_old_api_stay_exclusive`.
 - Final `python -m pytest -q --tb=short agents/test_browser_legacy_auto.py agents/test_browser_resources.py agents/test_browser_profile_lease.py agents/test_browser_selection.py agents/test_browser_provisioner.py` → **156 passed** after the final gate edit; `git diff --check` clean. `BBH_LOCAL_BROWSER_SMOKE=1 /home/ryushe/.hermes/profiles/bugfix/cache/scratch/browser-smoke-venv/bin/python -m pytest -q --tb=short agents/test_browser_lifecycle_systemd.py` → **3 passed** with disposable Chromium/systemd fixtures before the final non-selected-state simplification. A subsequent full rerun was **2 passed, 1 failed**: `test_systemd_lifecycle_fixture` hit `sqlite3.OperationalError: database is locked` while polling task cleanup. No browser units/processes remained in a post-failure check; a targeted rerun of that test after the final edit → **1 passed**. Treat the intermittent fixture lock as review evidence, not a production gate failure or a claimed clean full rerun. Fixture teardown verifies units inactive/failed and process termination before removing test roots. Initial scratch venv lacked pytest; installed pytest/aiohttp/httpx/websocket-client in scratch, no repository dependency change. No Hoster mutation.
+- New stopped-history regressions first reproduced the reviewer gap: active historical unit, active recorded root, ready recorded CDP, and active unit with missing launch receipt each returned an auto key before the fix (**4 failed, 1 passed** in the five-case focused run). The exact same-path inactive historical row without a receipt remained admissible. The repaired gate invokes `stopped(row)` for every non-selected unkeyed stopped row before marker registration; no auto marker/proof is issued on failed observable checks.
+- `python -m pytest -q --tb=short agents/test_browser_legacy_auto.py agents/test_browser_resources.py agents/test_browser_profile_lease.py agents/test_browser_selection.py agents/test_browser_provisioner.py` → **161 passed**. `BBH_LOCAL_BROWSER_SMOKE=1 /home/ryushe/.hermes/profiles/bugfix/cache/scratch/browser-smoke-venv/bin/python -m pytest -q --tb=short agents/test_browser_lifecycle_systemd.py` → **3 passed** in **95.23s**, with disposable real Chromium/systemd fixtures and exact fixture cleanup. The prior scratch venv had been pruned, so the first smoke command failed with missing interpreter (exit 127); recreated it in scratch with pytest, websocket-client, aiohttp, httpx, then reran successfully. No repository dependency or Hoster change. Capacity, policy, and the stopped Blue-style first-path regressions remain covered by the focused run.
 
 ## Blockers and deferred work
 
@@ -43,8 +45,8 @@ Before registering a marker, selection now reconciles **every** historical unkey
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/browser-legacy-auto-migration`
-- **Previous immutable recovery checkpoint:** `cad9e5e` (before running-history repair); review current feature tip for the committed repair.
-- **Feature implementation commit(s):** `83433f3`, `0b77bd5`, `d1de5c2`, `cad9e5e`, current feature tip (running-history repair).
+- **Previous immutable recovery checkpoint:** `90a39fa` (before this historical stopped-row repair); review current feature tip for the committed repair.
+- **Feature implementation commit(s):** `83433f3`, `0b77bd5`, `d1de5c2`, `cad9e5e`, `bf69193`, current feature tip (historical stopped-row repair).
 - **Exact resume point:** Parent independent re-review against refreshed `beta`, then read-only Hoster preflight; do not mutate live accounts.
 - **Working-tree state at handoff:** verify `git status --short` after repair commit.
 

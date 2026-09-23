@@ -471,6 +471,9 @@ bbh skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir 
 - Hoster lane helper: `skills/chromium-test/scripts/hoster_mitm_lane.py`
 - Sanitized proxy store: `skills/chromium-test/scripts/proxy_store.py`
 - Dependency installer: `skills/chromium-test/scripts/install.sh`
+- Historical manager-row repair (offline-first, Blue apply gated):
+  `skills/chromium-test/scripts/browser_manager_row_repair.py`; see
+  [`scripts/README.md`](scripts/README.md#historical-manager-row-repair-offline-first).
 - Notes/evidence: `$HARNESS_SHARED_BASE/{program}/ghost/chromium-test/`
 
 ## Workflow

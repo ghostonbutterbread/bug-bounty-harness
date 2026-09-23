@@ -1,10 +1,10 @@
 # Browser provisioner task MITM integration dossier
 
-- **Status:** per-browser D-Bus containment and interrupted-start reconciliation verified; headed/manual activation and independent review deferred
-- **Owner:** Hermes bugfix subagent
+- **Status:** approved for beta integration; headed/manual activation deferred; integration checkout blocked by unrelated changes
+- **Owner:** Hermes
 - **Branch / worktree:** `feat/browser-provisioner-mitm-auto-v2` / `/home/ryushe/worktrees/bbh-browser-provisioner-mitm-auto-v2`
 - **Base commit:** `af9dae9` (fetched `origin/beta`)
-- **Intended target:** `beta`; no merge or push authorized for this handoff
+- **Intended target:** `beta`; no merge or push completed
 - **Last updated:** 2026-09-23
 - **Latest immutable recovery checkpoint:** `b21630dd384afc9fcf9a670ea33a48206a708f6c` (orphan-start repair)
 - **Implementation commits:** `421742ab90972ab7f454aa993941004dfbe4af17`, `d72d9675d2c8935a1a7081c7b32a8b7ba2110939`, `59a525e`, `b21630dd384afc9fcf9a670ea33a48206a708f6c`
@@ -22,7 +22,7 @@ Preserve current beta's multi-instance account selection, lease/admission orderi
 - Real v2 disposable headless Google Chrome 150 task-MITM smoke on this node: `start fixture anon1 --headless --display-backend default --proxy mitm --memory-high 384M --memory-max 512M` yielded `started`, live fenced CDP, and `proxy_cert_mode=import` / `proxy_cert_status.status=trusted` in both isolated NSS stores, without certificate-ignore. Chrome root PID 858473 and renderer PID 858548 both belonged to `browser-63cf822a-e185-4ba6-b701-6839f35da9fb.service`, with effective `memory.high=402653184`, `memory.max=536870912`. Browser CDP navigated to `https://10.0.0.11:<ephemeral>/dbus-fixture` (non-loopback local interface, not bypassed) and read `fixture-https-ok`. Task flow `task-d2fed8d1d1794c538db6a315af0b310a` contained `GET 10.0.0.11 /dbus-fixture 200`. Self-signed fixture upstream was trusted by the **disposable mitmdump wrapper only** (`ssl_verify_upstream_trusted_ca=<fixture.pem>`); production proxy configuration and source were not relaxed. The proxy remained ready after browser release; a direct proxied, CA-verified `GET /replay-after-release` returned 200 and was indexed. First finish stopped/indexed the listener, second finish returned `already_finished=true`. Browser unit inactive, root absent, CDP closed; state recorded zero active task proxies and zero running browsers. No target navigation or target requests were issued.
 - Fixture teardown removed only the disposable state, profiles, flows, certificates, wrapper, server script and test scratch roots after exact fixture units and PIDs stopped; an unrelated active `browser-18d08d08-16bb-46f5-aa85-6afb9d629613.service` from another checkout was observed and left untouched.
 - The initial self-signed-origin run returned proxy 502 with upstream certificate verification failure; it nevertheless confirmed cgroup containment and was released/finished. The fixture-only upstream CA trust resolved this without weakening browser NSS trust or the production task proxy.
-- Independent review: pending parent/reviewer.
+- Independent release review of feature tip `4eaf2d7` approved beta integration against fetched `origin/beta` `af9dae9`; independently reran 203 focused tests and 7 proxy-store tests; `git diff --check` passed. The disposable headless runtime smoke was recorded separately and was not repeated by the reviewer.
 - Review repair: task reservation records owner process identity, unit invocation,
   and transition timestamp. Explicit recovery of interrupted `starting` or
   `cleanup-failed` requires stopped browser; a live unit additionally requires
@@ -41,7 +41,7 @@ Preserve current beta's multi-instance account selection, lease/admission orderi
 ## Blockers and deferred work
 
 - **Headed/manual smoke deferred:** `kasmvncserver`, `Xkasmvnc`, and `vncserver` are absent on this node (Xvfb alone cannot prove the native KasmVNC handoff). The D-Bus override also suppresses browser session-bus/portal integration; preserve existing display/manual arguments, but do **not** activate the headed/manual lane until a disposable KasmVNC manual-input session on the intended node proves readiness, display/input, root+renderer cgroup bounds, and terminal release/finish. Trigger when a usable headed KasmVNC stack is available. A failed headed startup must not be interpreted as successful manual handoff; do not remove the per-browser override to make it start.
-- **Independent review:** review feature diff and intended beta integration suite before merge. No merge/push or runtime activation was performed in this handoff.
+- **Integration checkout:** existing local `beta` worktree has unrelated modified and untracked paths. Preserve them; do not merge in the dirty checkout or move its branch/contents without owner coordination. User decision prompt timed out. Trigger integration when that checkout is clean or the owner approves a safe branch handoff; then fetch, merge reviewed feature, retire this dossier from the integration target, rerun focused checks and push/read back beta. No merge/push or runtime activation performed.
 - **Recovery boundary:** active task replay has no authoritative client lease; the
   reaper uses terminal recorded owner, quiescence and socket absence, and is
   invoked only by `reap-idle` (no timer). A live interrupted startup without
@@ -53,12 +53,12 @@ Preserve current beta's multi-instance account selection, lease/admission orderi
 
 - **Branch/ref:** `feat/browser-provisioner-mitm-auto-v2`
 - **Checkpoint:** `b21630dd384afc9fcf9a670ea33a48206a708f6c` with implementation and tests; this dossier-only follow-up is the feature tip.
-- **Exact resume point:** independent diff review of interrupted-start safety, then disposable headed KasmVNC/native manual-input smoke when the headed stack is installed on the intended node. Headless proxy, CA, cgroup, release/replay/finish gates are green. Parent decides integration only after review; this subagent does not merge/push.
-- **Working tree:** commit task-owned repair and dossier, then verify clean status.
+- **Exact resume point:** integrate into a clean beta worktree after resolving its unrelated changes, then run integrated tests. Separately, run disposable headed KasmVNC/native manual-input smoke when installed on the intended node. Headless proxy, CA, cgroup, release/replay/finish gates are green.
+- **Working tree:** feature branch clean after this dossier checkpoint.
 
 ## Decision gates
 
-- **Integration:** focused suite green; independent review and intended beta integration checks pending.
+- **Integration:** focused suite and independent review green; clean beta worktree and integrated-tree tests pending.
 - **Activation:** headless disposable browser cgroup and browser-origin proxied HTTPS flow proven; headed/manual KasmVNC unavailable and not verified on this node.
 - **Promotion:** separate stable review, not implied by this feature.
 

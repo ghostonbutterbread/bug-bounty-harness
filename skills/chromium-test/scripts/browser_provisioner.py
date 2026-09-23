@@ -1098,7 +1098,11 @@ def start(args):
     t = now()
     c.execute("delete from browsers where lease_id=?", (lid,))
     c.execute(
-        "insert into browsers values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        """INSERT INTO browsers (
+            lease_id, browser_id, program, account, auth_domain, agent_id, run_id,
+            purpose, unit, profile_dir, launch_file, state, tab_count,
+            last_activity, created, updated
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             lid,
             bid,

@@ -7,8 +7,8 @@
 - **Base commit:** `af9dae91dfbddc0dae90ae17b3c3ed49a5f4a89d` (fetched `origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-23
-- **Latest immutable recovery checkpoint:** pending this branch commit
-- **Feature implementation commit(s):** pending
+- **Latest immutable recovery checkpoint:** `83433f3ec18ea6eed25ef9bfb247617b98a5a890`
+- **Feature implementation commit(s):** `83433f3ec18ea6eed25ef9bfb247617b98a5a890`
 - **Inspiration:** Ordinary Blue same-account/different-browser request; canonical SQLite lease conflict and legacy auth preservation.
 
 ## Intent and contract
@@ -37,8 +37,8 @@ The marker changes concurrency metadata, not files or credentials. Historical au
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/browser-legacy-auto-migration`
-- **Latest immutable recovery checkpoint:** pending commit; parent should read branch HEAD.
-- **Feature implementation commit(s):** pending commit.
+- **Latest immutable recovery checkpoint:** `83433f3ec18ea6eed25ef9bfb247617b98a5a890` (plus this dossier-only handoff commit).
+- **Feature implementation commit(s):** `83433f3ec18ea6eed25ef9bfb247617b98a5a890`.
 - **Exact resume point:** Review canonical conflict and manager marker semantics; run a disposable real migration fixture and inspect Hoster readiness without touching live accounts.
 - **Working-tree state at handoff:** expected clean after commit.
 

@@ -6,8 +6,8 @@
 - **Base commit:** `af9dae9` (fetched `origin/beta`)
 - **Intended target:** `beta`; no merge or push authorized for this handoff
 - **Last updated:** 2026-09-23
-- **Latest immutable recovery checkpoint:** `421742ab90972ab7f454aa993941004dfbe4af17`
-- **Implementation commit:** `421742ab90972ab7f454aa993941004dfbe4af17`
+- **Latest immutable recovery checkpoint:** `d72d9675d2c8935a1a7081c7b32a8b7ba2110939` (feature ref tip before this handoff-only update)
+- **Implementation commits:** `421742ab90972ab7f454aa993941004dfbe4af17`, `d72d9675d2c8935a1a7081c7b32a8b7ba2110939`
 - **Inspiration:** older feature branch `feat/browser-provisioner-mitm-auto`, commits `7e28a7a`, `d2b28a3`; reference only, not transplanted wholesale.
 
 ## Intent and implemented contract
@@ -46,7 +46,7 @@ Preserve current beta's multi-instance account selection, lease/admission orderi
 ## Interruption / resume handoff
 
 - **Branch/ref:** `feat/browser-provisioner-mitm-auto-v2`
-- **Checkpoint / implementation commits:** `421742ab90972ab7f454aa993941004dfbe4af17`
+- **Checkpoint / implementation commits:** `421742ab90972ab7f454aa993941004dfbe4af17`, `d72d9675d2c8935a1a7081c7b32a8b7ba2110939`
 - **Exact resume point:** independent diff review and disposable host fixture with cgroup and browser-origin proxied HTTPS evidence; parent to integrate only after required gates. This subagent does not merge/push.
 - **Working tree:** task-owned repair committed; verify tip/status at handoff.
 

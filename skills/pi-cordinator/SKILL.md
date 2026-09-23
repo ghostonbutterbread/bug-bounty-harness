@@ -11,7 +11,7 @@ Use this skill **only** for resource coordination with another BBH agent: checki
 
 **NEVER tell the other agent which vulnerability you are working on.** This is an explicit user-required confidentiality boundary for peer resource coordination. Do not share or solicit vulnerability classes, hypotheses, affected endpoints/parameters, payloads, reproduction steps, findings, evidence, impact, investigation progress, or links, labels, and artifact paths that reveal them. Do not encode them in aliases, reservation notes, or coordination records.
 
-Share only what the resource decision needs: opaque agent/run and resource aliases; availability, reservation owner, access mode, time window, capacity/isolation constraints, no-reset requirements, acknowledgment, handoff, release, and cleanup status. Never include credentials, cookies, tokens, or raw authentication material.
+Share only what the resource decision needs: neutral, opaque agent/run and resource aliases; availability, reservation owner, access mode, time window, capacity/isolation constraints, no-reset requirements, acknowledgment, handoff, release, and cleanup status. Check the combination of alias, timing, and constraints: if a specialized slot name, run ID, or constraint would identify the investigation indirectly, do not send it; have the operator mediate privately. Never include credentials, cookies, tokens, or raw authentication material.
 
 Ask for an explicit acknowledgment before treating a resource as reserved; respect an existing owner. A message is not an enforced lock unless the actual resource manager confirms it. Release or hand off explicitly. For example: “Run A requests exclusive use of browser slot 2 until 15:00 UTC; please do not reset it. Can you confirm availability?”
 

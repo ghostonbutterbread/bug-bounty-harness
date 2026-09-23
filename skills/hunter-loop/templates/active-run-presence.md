@@ -1,27 +1,25 @@
 # Active Hunt Presence
 
-> Short-lived, sanitized concurrency signal. This is not a task queue, agent
-> transcript, MapStore entry, findings ledger, or historical record.
+> Short-lived peer-visible resource signal, not a task queue, transcript,
+> finding, or historical record. Follow `pi-cordinator` when exchanging it.
+> Do not encode an investigation or vulnerability in aliases or free text.
 
-- Run ID:
-- Program / family / lane:
+- Opaque run alias:
 - Owner / runner: `hermes-kanban` | `codex` | `claude-code` | `other`
 - Started (UTC):
 - Last checkpoint (UTC):
 - Expires (UTC):
 - Status: `starting` | `active` | `blocked` | `finished`
-- Contact / handoff pointer:
+- Operator contact pointer (non-revealing):
 
-## Current surface lease
+## Shared resource reservation
 
-- Flow, route cluster, host, or offline artifact slice:
-- Current question / vulnerability lane:
-- Mode: `cold-map` | `deep-test` | `verification` | `offline-analysis`
-- Explicitly excluded overlapping work:
+- Neutral resource/lease alias (not a route, artifact, or vulnerability label):
+- Access mode and capacity:
+- Reservation window / no-reset constraint:
+- Release condition (resource state only):
 
-## Safety and handoff
-
-- Scope/rate/account context reference:
-- Attempts/artifact root:
-- Targeted MapStore intent, if any: `app-facts` | `dedupe` | `coverage` | `none`
-- Next checkpoint or release condition:
+Keep flow, route, vulnerability lane, testing mode, scope/account detail, attempts,
+and evidence pointers in the run's private record for the operator, not in this
+peer-visible presence. If even the resource alias or constraints identify the
+investigation, ask the operator to mediate instead of publishing the record.

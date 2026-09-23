@@ -176,22 +176,25 @@ agent_shared/active-runs/<run-id>.md
 ```
 
 This is intentionally not a shared to-do list, worker transcript, or historical
-ledger. It is a short-lived air-traffic-control record: owner, runner type,
-current flow/surface lease, testing mode, start/checkpoint/expiry time, and a
-sanitized contact/handoff pointer. Use
-`templates/active-run-presence.md` as the record shape.
+ledger. It is a short-lived, **peer-visible resource reservation**: opaque run
+and resource aliases, owner, runner type, access window, constraints, and expiry.
+Load `pi-cordinator` for peer resource coordination and use
+`templates/active-run-presence.md` as the record shape. Never publish the
+investigation, vulnerability, route/flow, mode, or revealing artifact pointer
+in this peer-visible record; keep them in the operator's private run record.
 
-- A local Kanban team writes one aggregate presence record for its active
-  surface leases; it does not mirror every internal card.
+- A local Kanban team writes one aggregate presence record for its shared
+  resource reservations; it does not mirror every internal card.
 - An external CLI goal run writes its own presence record and retains its own
-  detailed session/run log.
-- Agents may work concurrently on distinct flows or offline artifacts. Do not
-  concurrently own the same live flow or exact specialist question unless the
-  coordinator explicitly assigns complementary work.
+  detailed private session/run log.
+- Agents may work concurrently on distinct resources. When an opaque resource
+  alias cannot convey safe scheduling without revealing a target or hypothesis,
+  ask the operator to resolve overlap privately instead of requesting details
+  from the peer.
 - Presence records expire or are removed when a run ends. They are not promoted
   into MapStore.
-- A coordinator resolves overlap by changing a surface lease, not by creating a
-  second universal queue.
+- A coordinator resolves overlap through private assignment or a neutral
+  resource reservation, not by creating a second universal queue.
 
 MapStore serializes its own writes with a local lock and atomic write path when
 agents share the same mounted store. That prevents file corruption, not

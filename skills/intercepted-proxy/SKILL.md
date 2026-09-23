@@ -14,19 +14,26 @@ Use a task-owned `mitmproxy`/`mitmdump` listener unless the agent itself is exec
 ## Preflight
 
 1. Read scope, account ownership, `live-testing-policy`, and `proxy-routing-policy`.
-2. Lease a dedicated MITM listener and record run ID, host:port, flow-file path, CA/profile path, and stop condition.
+2. Request the security browser through the provisioner (default task MITM),
+   or lease a separate task listener for a no-browser run. Record run ID,
+   listener, flow-file path, CA/profile path, and stop condition.
 3. Verify the listener is task-owned, bound as intended, and its flow file is owner-restricted.
-4. Launch an isolated browser with `--proxy-server=http://<task-mitm-host>:<task-mitm-port>` and a trusted task MITM CA.
+4. Require the provisioner's `proxy_cert_mode: import` and trusted CA receipt;
+   it configures the isolated browser's proxy before launch.
 5. Confirm one safe baseline flow appears in the task flow file before attempting mutation.
 
 ## One-Request Lifecycle
 
 1. Trigger exactly one owned, scoped browser action.
 2. Identify the target request family in the task MITM capture.
-3. If the task requires live modification, enable only a temporary, exact host/path request rule in the task MITM process; otherwise preserve the capture and use a direct agent-MITM replay.
-4. Change one approved variable, forward/send once, and observe the response and owned state.
-5. Disable/remove the temporary rule immediately.
-6. Confirm no interception rule remains and record a sanitized trail.
+3. Default provisioner mitmdump is capture-only. If a supported, verified way
+   to install/remove an exact host/path rule for this task exists, use that
+   temporary mechanism for live modification. Otherwise use a bounded direct
+   replay through the same task MITM, or stop if the action is non-replayable.
+4. Change one approved variable, forward/send once, and observe the response
+   and owned state. Never claim to have paused a capture-only listener.
+5. Remove any temporary rule immediately and verify cleanup. Release the
+   browser; finish the task proxy after replay and record a sanitized trail.
 
 ## Guardrails
 

@@ -28,6 +28,8 @@ def setup_pool(monkeypatch, tmp_path, *, idle=300, capacity=True, single=False):
     monkeypatch.setattr(m, "admission", lambda *_: {"status": "admitted" if capacity else "rejected"})
     monkeypatch.setattr(m, "healthy", lambda *_: True)
     monkeypatch.setattr(m, "unit_active", lambda *_: True)
+    # This pool's fixed external route is a fixture, not a live port 9.
+    monkeypatch.setattr(m, "endpoint_open", lambda _: True)
     monkeypatch.setattr(m, "select_display", lambda *_: None)
     request = args()
     request.headless, request.proxy_ownership = True, "browser"

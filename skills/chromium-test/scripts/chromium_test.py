@@ -682,8 +682,10 @@ def build_command(args: argparse.Namespace, port: int, profile_dir: Path) -> lis
         "--new-window",
     ]
 
-    proxy_server = args.proxy_server or os.environ.get("CHROMIUM_TEST_PROXY_SERVER")
-    if proxy_server:
+    proxy_server = None if getattr(args, "no_proxy", False) else args.proxy_server or os.environ.get("CHROMIUM_TEST_PROXY_SERVER")
+    if getattr(args, "no_proxy", False):
+        command.append("--no-proxy-server")
+    elif proxy_server:
         command.append(f"--proxy-server={proxy_server}")
     if proxy_server and getattr(args, "ignore_certificate_errors", False):
         command.append("--ignore-certificate-errors")
@@ -833,6 +835,7 @@ def parse_args() -> argparse.Namespace:
         "--proxy-server",
         help="Actual browser HTTP/SOCKS proxy listener. Defaults to the runtime route table.",
     )
+    parser.add_argument("--no-proxy", action="store_true", help="Disable ambient and runtime proxy routing.")
     parser.add_argument(
         "--proxy-cert-mode",
         choices=("auto", "import", "ignore", "none"),
@@ -949,7 +952,9 @@ def main() -> int:
         else default_ephemeral_profile_dir(args.program, args.run_id) if args.ephemeral_profile
         else default_profile_dir(args.program, account)
     )
-    if not args.proxy_server:
+    if args.no_proxy and args.proxy_server:
+        raise SystemExit("--no-proxy cannot combine with --proxy-server")
+    if not args.no_proxy and not args.proxy_server:
         args.proxy_server = (
             os.environ.get("CHROMIUM_TEST_PROXY_SERVER")
             or runtime_route.get("browser_proxy")
@@ -1000,6 +1005,9 @@ def main() -> int:
                     )
                 if not args.dry_run:
                     args.ignore_certificate_errors = True
+            else:
+                import hashlib
+                cert_status["ca_sha256"] = hashlib.sha256(mitm_ca_cert.read_bytes()).hexdigest()
         elif args.proxy_cert_mode == "ignore":
             cert_status = {"status": "ignored-by-flag"}
             args.ignore_certificate_errors = True
@@ -1050,7 +1058,7 @@ def main() -> int:
             "proxy_server": args.proxy_server,
             "source": "explicit/env/route",
         },
-        "proxy_server": args.proxy_server or os.environ.get("CHROMIUM_TEST_PROXY_SERVER"),
+        "proxy_server": args.proxy_server,
         "proxy_cert_mode": args.proxy_cert_mode,
         "proxy_cert_status": cert_status,
         "auth_application": {"status": "dry-run" if auth_seed_data and args.dry_run else "none"},

@@ -244,7 +244,8 @@ multi-instance pane registry.
 - **Purpose:** Node-local browser admission, profile/instance leasing,
   activity-aware ownership, verified cleanup and fenced live handoff.
 - **Inputs:** Existing program/account selectors or `--task-owned`; agent/run,
-  purpose, existing proxy/display settings; optional `--instance-key SLOT`,
+  purpose, explicit `--proxy mitm|external|none` (default task MITM),
+  display settings; optional `--instance-key SLOT`,
   `--idle-seconds N` (claim window, default 300), `--owner-pid` (diagnostics and
   legacy lifecycle). Headless task mode does not require a PID; headed task
   mode does, because native input is untracked.
@@ -254,7 +255,8 @@ multi-instance pane registry.
   This is **pane identity metadata, not an implemented pane UI**. Private launch
   records retain full generation-path CDP URLs.
 - **Mutates:** Selected local lease/manager databases, profile paths, owned
-  browser/display units and watcher. `BROWSER_PROVISIONER_STATE` isolates both
+  browser/display units, watcher, and task-scoped MITM listener/CA/flow.
+  `BROWSER_PROVISIONER_STATE` isolates both
   databases. No new authentication retry or alternate-account selection.
 - **Instances:** Keys use separate
   `<program>/web/browser-instances/<domain>/<account>/<slot>` trees. Omitted
@@ -321,6 +323,21 @@ multi-instance pane registry.
   `--idle-seconds` cannot lower it. Failed stop keeps the lease and reports an
   error. Control is restored only for a freshly verified healthy exact runtime;
   partial or unverifiable stops remain frozen pending explicit reconciliation.
+  Browser `release` leaves the task MITM running for replay. Run
+  `task-proxy-status --agent-id <agent> --run-id <run>` to inspect its lease and
+  `task-proxy-finish --agent-id <agent> --run-id <run>` after browser release and
+  replay completion. Finish verifies stop, removes only the matching task CA
+  from stopped profiles (skipping a nickname replaced by a different CA), and
+  indexes private flows; incomplete cleanup retains the reservation.
+  `task-proxy-recover --agent-id <agent> --run-id <run>` retries interrupted
+  startup/cleanup after the browser stops; stopping a still-live unit requires
+  matching invocation, 7200 seconds of quiet flow and no replay clients. Finish retries
+  stop/CA/index phases and is idempotent for completed runs (14-day receipt).
+  `reap-idle` additionally closes task listeners after 7200 seconds only with
+  terminal recorded owner, quiet flow, no live browser, and no connected replay
+  client. Ownerless reservations remain for explicit cleanup; no timer is added.
+  Browser reuse requires a reachable external proxy and the same imported CA
+  fingerprint; changed CA bytes at the same path reject reuse.
 - **Reservations:** `touch --work-state awaiting-input --awaiting-seconds N`
   grants an absolute 1–3600-second reservation; repetition cannot slide it.
   `touch --work-state active` cancels it but does not manufacture activity.
@@ -351,8 +368,7 @@ multi-instance pane registry.
   ```sh
   bbh skills/chromium-test/scripts/browser_provisioner.py request \
     --task-owned --headless --agent-id <agent> --run-id <run> \
-    --purpose '<normal browser task>' --instance-key research \
-    --proxy-server <existing-task-proxy> --mitm-ca-cert <existing-task-ca>
+    --purpose '<authorized security task>' --instance-key research
   ```
 
   The profile preserves task-specific ordinary site state, grants no program

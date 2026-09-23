@@ -2,7 +2,11 @@
 
 Use this when one live request or one short action flow must be captured and safely modified.
 
-This skill is the proxy-intercept primitive. It should help an agent get the request it could not safely synthesize: live CSRF token, browser-generated body, exact cookies, current workspace context, one-use challenge token, payment/action request shape, or one-time action state.
+This skill captures a request the agent cannot safely synthesize: live CSRF
+token, browser-generated body, owned session context, or one-time action state.
+The provisioner's default task MITM captures traffic; it does **not** expose a
+hot pause/edit API. Use live interception only when a supported temporary
+exact-match rule is available; otherwise replay through that task MITM or stop.
 
 ## Safety Boundary
 
@@ -14,23 +18,26 @@ This skill is the proxy-intercept primitive. It should help an agent get the req
 - Approved account/resource set only.
 - No raw secret material in notes.
 - No destructive action unless the target resource is explicitly `destructible: yes`.
-- Intercept must be turned off after the target request is handled and the flow is complete.
+- Any supported temporary intercept must be turned off after the flow.
 
 ## Operating Modes
 
 ### Observe Then Replay
 
-Use when the request can be captured from proxy/MCP history and replayed safely.
+Use when the request can be captured from the agent's task-MITM history and replayed safely. Caido history is separately labeled source shape only outside Abommie.
 
 1. Trigger the action in an owned session.
-2. Locate the request in proxy/MCP history.
+2. Locate the request in the task flow file.
 3. Copy a sanitized request summary.
 4. Modify one approved field.
 5. Replay once or a very small bounded set.
 
 ### Intercept Then Modify
 
-Use when the token is per-action/per-request and a replayed old request would fail.
+Use only when the token is per-action/per-request **and** an actual supported
+live interception mechanism is available. Do not present capture-only mitmdump
+as a pause/modify/forward proxy; without that mechanism, capture and replay
+with fresh owned state or record the blocker.
 
 1. Prepare the browser/proxy.
 2. Trigger the action in the owned session.
@@ -47,7 +54,8 @@ Use when the token is per-action/per-request and a replayed old request would fa
 
 Use when the goal is to see the request shape for a sensitive one-time action without completing it against the main account.
 
-1. Prepare an owned browser session and proxy intercept.
+1. Prepare an owned browser session and a verified live intercept mechanism;
+   a capture-only task MITM cannot safely drop the pending action request.
 2. Trigger the flow only far enough to expose the target outbound request.
 3. Record a sanitized request summary.
 4. If a safe approved target exists, mutate the request to that target and forward once.
@@ -107,13 +115,16 @@ single-request-grabber:
 | same action across approved accounts | `/access-control` or `/idor` |
 | header, content-type, method, or request-shape repair | `/headers` |
 | unexpected error response | `/error-triage` |
-| proxy setup needed | `/agent-proxy`, `/caido`, or `/chromium-test` |
+| proxy setup needed | `/agent-proxy` and `/chromium-test`; `/caido` only for explicit source-history lookup or local Abommie permission |
 
 Routing happens after the single-request operation unless setup is blocked. The skill should not abandon the capture just because the eventual impact belongs to CSRF, IDOR, access control, or headers.
 
 ## Examples
 
-- Fresh CSRF or challenge token: intercept the flow, forward setup requests, pause at the action request, preserve the fresh token, modify one approved field, forward once, turn intercept off, then route the result to `/csrf` or `/access-control`.
+- Fresh CSRF or challenge token: capture an owned browser flow through the task
+  MITM. If a supported exact-match live intercept exists, pause/modify/forward
+  once and remove it; otherwise replay with fresh owned state or stop at the
+  missing primitive before routing to `/csrf` or `/access-control`.
 - Payment processor shape: intercept until the payment handoff request appears, record sanitized shape, do not complete the payment unless using an approved test/sandbox path.
 - Account deletion shape: intercept the main-account deletion request only to understand shape or redirect to a pre-approved destructible account/resource; never complete deletion against the main account by accident.
 

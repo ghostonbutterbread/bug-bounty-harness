@@ -1,5 +1,17 @@
 # Browser resource management — integration dossier
 
+## Integrated-tree acceptance correction — cleanup timing boundary
+
+The first merged-beta real-fixture batch failed only the headless test's
+7199-second pre-cleanup assertion: adapter/fixture scheduling consumed over
+one second before the request-time check, so the actual adapter idle time was
+already at or beyond 7200. The feature test now stages at 7190 seconds and
+still checks both no cleanup before the 7200-second threshold and cleanup at
+7201 seconds, with the reserved hold and verified stop paths unchanged. Both
+headless and headed variants passed in the feature worktree. No production
+cleanup threshold or code changed. Propagate this test correction into beta,
+rerun integrated acceptance, and retain the release review gate.
+
 ## Release-review correction — live manual owner after expired hold
 
 Independent read-only review of `02d4802` blocked beta release: an untracked

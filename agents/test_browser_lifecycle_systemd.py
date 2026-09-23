@@ -111,8 +111,16 @@ def stop_fixture_units(root):
 @contextlib.contextmanager
 def disposable_fixture_root():
     import shutil
-    root = Path(tempfile.mkdtemp(prefix="bbh-life-"))
-    evidence = Path(tempfile.mkdtemp(prefix="bbh-startup-evidence-"))
+    # The /proc fd alias used by short in-process sockets is not a stable
+    # Chromium sandbox path across the user-systemd boundary. Keep the unit,
+    # profile and socket on a real, short directory inside the same scratch root.
+    scratch = Path(tempfile.gettempdir()).resolve()
+    root = Path(tempfile.mkdtemp(prefix="", dir=scratch))
+    evidence = Path(tempfile.mkdtemp(prefix="bbh-startup-evidence-", dir=scratch))
+    if len(os.fsencode(root / "state" / ("0" * 36 + ".sock"))) >= 108:
+        shutil.rmtree(root)
+        shutil.rmtree(evidence)
+        raise RuntimeError("scratch path too long for disposable systemd control socket")
     failed = True
     try:
         yield root, evidence
@@ -130,6 +138,14 @@ def disposable_fixture_root():
         preserve_startup_evidence(root, evidence, failed=failed, cleanup_verified=True)
         shutil.rmtree(root)
         print(f"Private startup evidence: {evidence}")
+
+
+def test_disposable_systemd_fixture_uses_physical_short_socket_path():
+    with disposable_fixture_root() as (root, _evidence):
+        # The user manager and its sandboxed Chromium cannot rely on a
+        # pytest-owned /proc/<pid>/fd path after launch.
+        assert root == root.resolve()
+        assert len(os.fsencode(root / "state" / ("0" * 36 + ".sock"))) < 108
 
 
 @pytest.mark.skipif(

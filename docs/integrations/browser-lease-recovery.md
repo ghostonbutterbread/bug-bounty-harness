@@ -1,5 +1,58 @@
 # Browser resource management — integration dossier
 
+## Disposable user-systemd fixture startup correction
+
+Feature `feat/browser-lease-recovery` at
+`/home/ryushe/projects/bug_bounty_harness/browser-lease-recovery`, starting from
+`158cbc8c79780f30cbe0ce34cc34b8ac16407127`; intended integration target
+**beta**, fetched `origin/beta` `51a9a05c69220d2331e9676078e6b52dbf1a8b07`.
+No merge, push, deployment, Hoster operation, real account/site access or browser
+sandbox relaxation. Parent retains independent release review and beta reconciliation.
+
+The short `/proc/<pytest-pid>/fd/<scratch-fd>` alias made AF_UNIX fixture sockets
+fit, but the user-systemd producer then launched Chrome with a process-owned
+alias in its state/control/profile path. The first adapter bound; Chrome emitted
+`zygote_host_impl_linux.cc:207 ... Permission denied (13)`, pipe readiness failed,
+and the manager reached its unchanged 45-second publication deadline. Moving
+only the profile path to a physical path did **not** repair the failure. A normal
+provisioner-owned, task-owned disposable request with a **short physical scratch
+root** started, and terminal release verified the unit inactive. Thus the
+cross-process `/proc` alias used for the disposable producer fixture, rather than
+a browser lifecycle deadline, was the isolated failure boundary. This does not
+retrospectively identify the cause of older intermittent failures on other roots.
+
+The fixture now uses a physical scratch directory with a bounded short name,
+checks its exact prospective control-socket length against Linux `sun_path`, and
+fails explicitly if the configured scratch root cannot fit it. The in-process
+fixture runner may still use its fd alias for unrelated direct adapter sockets.
+The new regression went red on the old alias (physical-path assertion) and green
+with the corrected fixture. No production source or timeout changed; default
+**300-second idle claim** and independent **7200-second cleanup** remain intact.
+
+Exact verification commands from this worktree (the runner is the existing
+scratch-local `browser_fixture_runner.py` shown below):
+
+```sh
+BBH_LOCAL_BROWSER_SMOKE=1 .venv/bin/python "$TMPDIR/browser_fixture_runner.py" agents/test_browser_lifecycle_systemd.py::test_disposable_systemd_fixture_uses_physical_short_socket_path agents/test_browser_lifecycle_systemd.py::test_systemd_lifecycle_fixture -q --tb=short -s
+BBH_LOCAL_BROWSER_SMOKE=1 .venv/bin/python "$TMPDIR/browser_fixture_runner.py" agents/test_browser_selection.py agents/test_browser_driving_mode.py agents/test_browser_resources.py agents/test_browser_lifecycle.py agents/test_browser_lifecycle_systemd.py agents/test_browser_lease_recovery.py agents/test_browser_provisioner.py agents/test_browser_profile_lease.py agents/test_chromium_test_launcher.py agents/test_browser_startup_diagnostics.py agents/test_cdp_handoff_receipt.py tests/test_script_policy.py -q --tb=short
+uvx ruff check --select F agents/test_browser_lifecycle_systemd.py
+git diff --check
+```
+
+The isolated real systemd/regression run: **2 passed in 85.33s**. Full focused
+opt-in real/disposable suite: **255 passed in 203.64s** (no skips). Before the
+repair the same full command returned **3 failed, 251 passed in 207.69s**, all
+three before first systemd producer publication (headless, Xvfb and systemd
+lifecycle). The successful systemd diagnostic receipt at scratch-local
+`bbh-startup-evidence-0t6a53b4/startup.json` reports `fixture_failed=false`,
+`cleanup_verified=true`, pipe-ready and publication ready. Ruff and whitespace
+checks pass. Final user-systemd inspection: **0 loaded `browser-*` units**.
+Disposable profiles were removed only after fixture-owned unit/root/CDP
+verification; the independent probe's own lease was terminally released.
+No claim is made about the still-deferred fallback handoff-UI/Tailscale smoke.
+Next: parent independent review, reconcile the advanced beta, then determine
+integration/activation separately.
+
 ## Current correction checkpoint — five-minute claims, capacity first
 
 This section supersedes the older release-candidate selection contract below.

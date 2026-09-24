@@ -6,8 +6,8 @@
 - **Base commit:** `313b2e8` (`origin/beta` fetched)
 - **Intended integration target:** `beta`; no merge or push authorized here
 - **Owning feature branch/ref:** `feat/browser-auth-transfer-fence`
-- **Latest immutable recovery checkpoint:** see committed branch tip at handoff
-- **Feature implementation commit(s):** see committed branch tip at handoff
+- **Latest immutable recovery checkpoint:** `8661c9b3f484f01b6c6152af1498e0db2063a927`
+- **Feature implementation commit(s):** `8661c9b3f484f01b6c6152af1498e0db2063a927`
 - **Inspiration:** `browser-auth-transfer-attestation-review/docs/browser-auth-transfer-blocker.md` (`774edea`); `docs/browser-auth-clone-pool-spec.md` in the predecessor branch
 
 ## Intent and implemented contract
@@ -33,9 +33,10 @@ Canonical SQLite lease ownership is the only transaction boundary currently shar
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/browser-auth-transfer-fence`
-- **Latest immutable recovery checkpoint:** committed branch tip; report SHA in handoff
-- **Exact resume point:** independent review and successor manager attestation design; rerun broad suite first.
-- **Working-tree state at handoff:** intended clean committed checkpoint.
+- **Latest immutable recovery checkpoint:** `8661c9b3f484f01b6c6152af1498e0db2063a927` (implementation)
+- **Feature implementation commit(s):** `8661c9b3f484f01b6c6152af1498e0db2063a927`
+- **Exact resume point:** independent review and successor manager attestation design; rerun combined suite if host contention clears.
+- **Working-tree state at handoff:** clean committed checkpoint.
 
 ## Decision gates
 

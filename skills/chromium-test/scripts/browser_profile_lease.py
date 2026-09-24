@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import re
+import stat
 import sqlite3
 import sys
 import time
@@ -145,6 +146,16 @@ def instance_profile(program, domain, alias, key=""):
     return (artifact_base() / program_key(program) / "web" / "browser-instances"
             / slug(domain) / slug(alias) / key) if key else base
 
+def physical_profile(path):
+    """Identify an existing directory, following symlinks; unknown is never equal."""
+    try:
+        info = os.stat(path)
+        if not stat.S_ISDIR(info.st_mode):
+            return None
+        return (info.st_dev, info.st_ino)
+    except (OSError, ValueError, TypeError):
+        return None
+
 
 def stopped_legacy_profile(conn, args, alias, domain, key):
     """Resolve a stopped manager record against the entire canonical unkeyed history."""
@@ -163,12 +174,13 @@ def stopped_legacy_profile(conn, args, alias, domain, key):
     source = next((r for r in rows if r['lease_id'] == old_id), None)
     pre_domain = artifact_base() / program_key(args.program) / 'web' / 'browser-profiles' / slug(alias)
     allowed = (str(pre_domain), str(profile_dir(args.program, domain, alias)))
-    if (not source or old_path not in allowed or source['profile_dir'] != old_path
+    identity = physical_profile(old_path)
+    if (not source or old_path not in allowed or not identity or source['profile_dir'] != old_path
             or source['auth_domain'] != domain or source['manager_id'] != manager
             or source['owner_agent_id'] != getattr(args, 'stopped_legacy_agent_id', None)
             or source['owner_run_id'] != getattr(args, 'stopped_legacy_run_id', None)
             or source['status'] != 'released' or any(
-                r['profile_dir'] != old_path or r['auth_domain'] != domain
+                physical_profile(r['profile_dir']) != identity or r['auth_domain'] != domain
                 or r['manager_id'] != manager for r in rows)):
         return None, True
     return source['profile_dir'], True
@@ -198,15 +210,17 @@ def register_legacy_auto(db_path, program, alias, domain, profile, manager_id,
         rows = conn.execute("SELECT * FROM browser_profile_leases WHERE program=? AND account_alias=? "
                             "AND (auth_domain=? OR auth_domain IS NULL) AND instance_key=''",
                             (program, alias, domain)).fetchall()
-        if not rows or any(r['profile_dir'] != profile or r['auth_domain'] != domain for r in rows):
+        identity = physical_profile(profile)
+        if not rows or not identity or any(physical_profile(r['profile_dir']) != identity or r['auth_domain'] != domain for r in rows):
             return False
         if not any(r['lease_id'] == lease_id and r['owner_agent_id'] == agent_id and
                    r['owner_run_id'] == run_id and r['manager_id'] == manager_id for r in rows):
             return False
         # Under BEGIN IMMEDIATE, no other domain or keyed slot may own this
         # physical profile while we open the legacy parallelism marker.
-        if conn.execute("SELECT 1 FROM browser_profile_leases WHERE profile_dir=? AND status='active' AND lease_id!=? LIMIT 1",
-                        (profile, lease_id)).fetchone():
+        if any(physical_profile(r['profile_dir']) in (None, identity) for r in conn.execute(
+                "SELECT profile_dir FROM browser_profile_leases WHERE status='active' AND lease_id!=?",
+                (lease_id,)).fetchall()):
             return False
         active = [r for r in rows if r['status'] == 'active' and
                   (r['expires_at'] > now() or r['manager_id'] or r['cdp_url'])]
@@ -220,7 +234,7 @@ def register_legacy_auto(db_path, program, alias, domain, profile, manager_id,
             return False
         old = conn.execute("SELECT * FROM browser_legacy_auto WHERE program=? AND account_alias=? AND auth_domain=?",
                            (program, alias, domain)).fetchone()
-        if old and (old['profile_dir'] != profile or old['manager_id'] != manager_id):
+        if old and (physical_profile(old['profile_dir']) != identity or old['manager_id'] != manager_id):
             return False
         conn.execute("INSERT OR IGNORE INTO browser_legacy_auto VALUES(?,?,?,?,?)",
                      (program, alias, domain, profile, manager_id))

@@ -261,6 +261,7 @@ def test_cross_domain_shared_path_blocks_stopped_reuse_and_marker(monkeypatch, t
 def test_cross_domain_distinct_profile_does_not_block_migration(monkeypatch, tmp_path):
     m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
     distinct = profiles.profile_dir('demo', 'other.test', 'anon')
+    distinct.mkdir(parents=True)
     c.execute("INSERT INTO browsers SELECT 'cross', 'cross-browser', program, account, 'other.test', 'cross-owner', 'cross-run', purpose, 'cross-unit', ?, ?, 'running', tab_count, last_activity, created-1, updated FROM browsers WHERE lease_id=?",
               (str(distinct), str(tmp_path / 'cross.json'), row['lease_id']))
     c.commit()
@@ -302,6 +303,107 @@ def test_canonical_active_shared_path_blocks_marker_transaction(monkeypatch, tmp
     assert m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True) == ''
     with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
         assert not db.execute('SELECT 1 FROM browser_legacy_auto').fetchone()
+
+def test_cross_domain_symlink_owner_blocks_stopped_reuse_and_running_marker(monkeypatch, tmp_path, capsys):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    alias = tmp_path / 'cross-alias'
+    alias.symlink_to(row['profile_dir'], target_is_directory=True)
+    c.execute("INSERT INTO browsers SELECT 'cross', 'cross-browser', program, account, 'other.test', 'cross-agent', 'cross-run', purpose, 'cross-unit', ?, ?, 'running', tab_count, last_activity, created-1, updated FROM browsers WHERE lease_id=?",
+              (str(alias), str(tmp_path / 'cross.json'), row['lease_id']))
+    c.commit()
+    c.execute("UPDATE browsers SET state='stopped' WHERE lease_id=?", (row['lease_id'],))
+    c.commit()
+    with pytest.raises(SystemExit):
+        m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True)
+    assert json.loads(capsys.readouterr().out)['reason'] == 'legacy-profile-not-quiescent'
+    c.execute("UPDATE browsers SET state='running' WHERE lease_id=?", (row['lease_id'],))
+    c.commit()
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    assert m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True) == ''
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='browser_legacy_auto'").fetchone()
+
+def test_canonical_active_symlink_alias_blocks_marker(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    alias = tmp_path / 'canonical-alias'
+    alias.symlink_to(row['profile_dir'], target_is_directory=True)
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        db.execute("INSERT INTO browser_profile_leases(lease_id,program,account_alias,auth_domain,owner_agent_id,owner_run_id,purpose,profile_dir,status,created_at,heartbeat_at,expires_at,manager_id,instance_key) SELECT 'cross',program,account_alias,'other.test','cross-agent','cross-run',purpose,?,'active',created_at,heartbeat_at,expires_at,'other-manager','manual' FROM browser_profile_leases WHERE lease_id=?", (str(alias), row['lease_id']))
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    assert m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True) == ''
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        assert not db.execute('SELECT 1 FROM browser_legacy_auto').fetchone()
+
+def test_sweep_does_not_remove_keyed_alias_of_legacy_profile(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    target = Path(row['profile_dir'])
+    sentinel = target / 'auth-sentinel'
+    sentinel.write_text('keep')
+    alias = target.parent.parent / 'other.test' / 'anon'
+    alias.parent.mkdir(parents=True)
+    alias.symlink_to(target, target_is_directory=True)
+    c.execute("UPDATE browsers SET profile_dir=?,state='stopped',updated=0 WHERE lease_id=?",
+              (str(alias), row['lease_id']))
+    c.commit()
+    Path(row['launch_file']).write_text(json.dumps({'instance_key': 'manual'}))
+    monkeypatch.setattr(m, 'unit_active', lambda _: False)
+    removed, skipped = m.sweep_rows(c, 14, True)
+    assert not removed and skipped[0]['reason'] == 'profile-identity-unverified'
+    assert sentinel.read_text() == 'keep'
+
+
+def test_sweep_blocks_canonical_active_symlink_alias(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    target = Path(row['profile_dir'])
+    sentinel = target / 'auth-sentinel'
+    sentinel.write_text('keep')
+    canonical_alias = tmp_path / 'canonical-alias'
+    canonical_alias.symlink_to(target, target_is_directory=True)
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        db.execute("UPDATE browser_profile_leases SET profile_dir=? WHERE lease_id=?",
+                   (str(canonical_alias), row['lease_id']))
+    c.execute("UPDATE browsers SET state='stopped',updated=0 WHERE lease_id=?", (row['lease_id'],))
+    c.commit()
+    Path(row['launch_file']).write_text(json.dumps({'instance_key': 'manual'}))
+    monkeypatch.setattr(m, 'unit_active', lambda _: False)
+    removed, skipped = m.sweep_rows(c, 14, True)
+    assert not removed and skipped[0]['reason'] == 'legacy-auth-retained'
+    assert sentinel.read_text() == 'keep'
+
+
+def test_alias_claim_between_manager_check_and_marker_transaction(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    alias = tmp_path / 'racing-alias'
+    alias.symlink_to(row['profile_dir'], target_is_directory=True)
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    register = profiles.register_legacy_auto
+    def competing_claim(db_path, *args, **kwargs):
+        with profiles.connect(db_path) as db:
+            db.execute("INSERT INTO browser_profile_leases(lease_id,program,account_alias,auth_domain,owner_agent_id,owner_run_id,purpose,profile_dir,status,created_at,heartbeat_at,expires_at,manager_id,instance_key) SELECT 'cross',program,account_alias,'other.test','cross-agent','cross-run',purpose,?,'active',created_at,heartbeat_at,expires_at,'other-manager','manual' FROM browser_profile_leases WHERE lease_id=?", (str(alias), row['lease_id']))
+        return register(db_path, *args, **kwargs)
+    monkeypatch.setattr(profiles, 'register_legacy_auto', competing_claim)
+    assert m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True) == ''
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        assert not db.execute('SELECT 1 FROM browser_legacy_auto').fetchone()
+
+
+@pytest.mark.parametrize('alias_kind', ['broken', 'inaccessible'])
+def test_unobservable_manager_alias_blocks_selection(monkeypatch, tmp_path, alias_kind):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    alias = tmp_path / 'unknown-alias'
+    alias.symlink_to(tmp_path / 'missing', target_is_directory=True)
+    c.execute("INSERT INTO browsers SELECT 'cross', 'cross-browser', program, account, 'other.test', 'cross-agent', 'cross-run', purpose, 'cross-unit', ?, ?, 'running', tab_count, last_activity, created-1, updated FROM browsers WHERE lease_id=?",
+              (str(alias), str(tmp_path / 'cross.json'), row['lease_id']))
+    c.commit()
+    if alias_kind == 'inaccessible':
+        real_stat = profiles.os.stat
+        def deny(path, *a, **kw):
+            if os.fspath(path) == str(alias):
+                raise PermissionError('fixture inaccessible')
+            return real_stat(path, *a, **kw)
+        monkeypatch.setattr(profiles.os, 'stat', deny)
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    assert m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True) == ''
 
 
 def test_preselection_sweep_preserves_manager_legacy_with_malformed_canonical_history(monkeypatch, tmp_path, capsys):
@@ -473,6 +575,7 @@ def test_migration_marker_idempotent_and_stopped_legacy_with_active_auto(monkeyp
     assert m.automatic_instance(c, a, 'anon', 'legacy-global', allow_migration=True) == key
     peer = take(owner, key, 'peer', manager)
     assert peer['status'] == 'leased'
+    Path(peer['lease']['profile_dir']).mkdir(parents=True)
     c.execute('INSERT INTO browsers VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', (
         peer['lease']['lease_id'], 'peer-browser', 'demo', 'anon', 'legacy-global', 'peer', 'peer',
         'fixture', 'peer-unit', peer['lease']['profile_dir'], str(tmp_path / 'peer.json'),

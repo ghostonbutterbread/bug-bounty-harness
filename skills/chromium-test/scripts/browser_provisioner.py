@@ -80,6 +80,60 @@ def db():
     return c
 
 
+def manager_id():
+    """Identity of this node's manager store, not a caller-provided lease label."""
+    return hashlib.sha256(str(STATE.resolve()).encode()).hexdigest()
+
+
+def manager_transfer_attestation_gate(source_lease_id, destination_lease_id):
+    """Private manager-only preflight. Never issue a grant without native auth proof.
+
+    Neither /identity nor a ready CDP endpoint attests authenticated app state,
+    and no app-native browser verification/generation contract exists here yet.
+    Lease IDs are selectors only; no caller-supplied identity is trusted.
+    """
+    unavailable = {'status': 'auth-clone-unavailable', 'reason': 'manager-identity-unverified'}
+    if (not isinstance(source_lease_id, str) or not isinstance(destination_lease_id, str)
+            or not source_lease_id or not destination_lease_id
+            or source_lease_id == destination_lease_id):
+        return unavailable
+    import browser_profile_lease as profiles
+    with node_lock(STATE):
+        with db() as manager_db, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+            profiles.init_db(leases)
+            leases.execute('BEGIN IMMEDIATE')
+            candidates = []
+            for lid in (source_lease_id, destination_lease_id):
+                row = manager_db.execute('SELECT * FROM browsers WHERE lease_id=?', (lid,)).fetchone()
+                canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (lid,)).fetchone()
+                if not row or not canonical or row['state'] != 'running' or canonical['status'] != 'active' or canonical['browser_status'] != 'running' or canonical['expires_at'] <= now():
+                    return unavailable
+                if any(canonical[key] != value for key, value in (
+                    ('program', row['program']), ('auth_domain', row['auth_domain']),
+                    ('account_alias', row['account']), ('owner_agent_id', row['agent_id']),
+                    ('owner_run_id', row['run_id']), ('profile_dir', row['profile_dir']),
+                    ('service_unit', row['unit']), ('manager_id', manager_id()))):
+                    return unavailable
+                info = record_info(row)
+                identity = info.get('process_identity')
+                physical = profiles.physical_profile(row['profile_dir'])
+                if (canonical['cdp_url'] != info.get('cdp_url')
+                        or not physical or not identity or owner_state(identity) != 'active'
+                        or not info.get('unit_invocation')
+                        or info['unit_invocation'] != unit_identity(row['unit'])
+                        or info.get('control_mode') != 'pipe-fenced' or not healthy(row)):
+                    return unavailable
+                candidates.append((row, physical))
+            if (candidates[0][1] == candidates[1][1]
+                    or candidates[0][0]['program'] != candidates[1][0]['program']
+                    or candidates[0][0]['auth_domain'] != candidates[1][0]['auth_domain']
+                    or candidates[0][0]['account'] != candidates[1][0]['account']):
+                return unavailable
+            # Missing: an app-native verification hook bound to each exact pipe
+            # generation. Do not materialize an auth_generation, identity, or grant.
+            return {'status': 'auth-clone-unavailable', 'reason': 'attestation-hook-unavailable'}
+
+
 def metadata(c, row):
     r = c.execute(
         "select metadata from lifecycle where lease_id=?", (row["lease_id"],)

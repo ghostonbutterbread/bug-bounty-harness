@@ -499,9 +499,17 @@ bbh skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir 
      <program> <account> --agent-id <agent-id> --run-id <run-id> \
      --purpose "<task>" --url <url>
    ```
-   On `queued`/`queued-timeout`, preserve the exact task and account, perform
-   only non-browser preparation, and retry with bounded backoff. Never launch
-   `chromium_test.py` directly to evade engagement admission. On `started` or
+   On `queued`/`queued-timeout`, preserve the exact task and account. Only for
+   `reason: no-capacity`, compare the nested `admission` receipt's available and
+   required RAM/free swap and check current memory pressure
+   (`/proc/pressure/memory`). If **only** the minimum-free-swap gate fails, RAM
+   is sufficient for the bounded browser, and memory pressure is healthy, retry
+   the same provisioner request with `--min-swap-free-mib 0`.
+   This lowers the free-swap admission threshold for that request; it does **not**
+   disable swap or bypass RAM admission. Otherwise perform non-browser preparation
+   and retry with bounded backoff; do not relax the RAM threshold to force a
+   launch. Never launch `chromium_test.py` directly to evade engagement admission.
+   On `started` or
    `already-running`, use the browser's owner-recorded control path and returned
    `task_proxy` metadata. The provisioner starts the task MITM and passes its
    exact proxy URL and CA to the launcher before Chrome starts.

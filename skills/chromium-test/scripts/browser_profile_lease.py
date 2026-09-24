@@ -36,6 +36,8 @@ DEFAULT_LEGACY_AUTH_DOMAIN = "legacy-global"
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 ANONYMOUS_PROFILE_ALIASES = ("anon", "anon1", "anon2")
 ANONYMOUS_PROFILE_PATTERN = re.compile(r"anon(?:[1-9][0-9]*)?$")
+PROGRAM_POLICY_SOURCES = ("agent", "operator")
+PROGRAM_POLICY_EVIDENCE = ("program-rules", "observed-session-limit", "observed-parallel-sessions", "operator-direction")
 
 
 def now() -> float:
@@ -194,6 +196,9 @@ def init_resource_policy(conn):
         CREATE TABLE IF NOT EXISTS browser_logout_reports (
             report_id TEXT PRIMARY KEY, lease_id TEXT NOT NULL, reported_at REAL NOT NULL,
             reason TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS browser_program_concurrency_policy (
+            program TEXT PRIMARY KEY, mode TEXT NOT NULL, source TEXT NOT NULL,
+            evidence TEXT NOT NULL, updated_at REAL NOT NULL);
     """)
 
 
@@ -289,13 +294,58 @@ def legacy_auto_conflict(conn, row, key, manager_id, automatic=False):
     return not marker or row['profile_dir'] != marker['profile_dir'] or row['manager_id'] != marker['manager_id'] or manager_id != marker['manager_id']
 
 def single_browser_policy(conn, program, alias, domain):
-    """One exact resolved account/domain policy, shared by selection and acquire."""
+    """Program single or exact account/domain single; multiple never relaxes a single."""
+    if program_policy(conn, program) == "single":
+        return True
     table = conn.execute("SELECT 1 FROM sqlite_master WHERE name='browser_concurrency_policy'").fetchone()
     policy = conn.execute(
         "SELECT mode FROM browser_concurrency_policy WHERE program=? AND account_alias=? AND auth_domain=?",
         (slug(program), slug(alias), domain),
     ).fetchone() if table else None
     return bool(policy and policy[0] == "single")
+
+
+def program_policy(conn, program):
+    """Legacy databases without this table retain exact-policy behavior."""
+    table = conn.execute("SELECT 1 FROM sqlite_master WHERE name='browser_program_concurrency_policy'").fetchone()
+    if not table:
+        return None
+    row = conn.execute("SELECT mode FROM browser_program_concurrency_policy WHERE program=?",
+                       (slug(program),)).fetchone()
+    return row[0] if row and row[0] in ("single", "multiple") else None
+
+
+def policy_metadata(value, allowed, field):
+    """Categorical evidence only: never accept free-form session data or echo it."""
+    if value not in allowed:
+        raise ValueError(f"invalid program policy {field}; use a documented category")
+    return value
+
+
+def cmd_set_program_policy(args):
+    source = policy_metadata(args.source, PROGRAM_POLICY_SOURCES, "source")
+    evidence = policy_metadata(args.evidence, PROGRAM_POLICY_EVIDENCE, "evidence")
+    mode = policy_metadata(args.mode, ("single", "multiple"), "mode")
+    program = slug(args.program)
+    with connect(state_db(args)) as conn:
+        init_resource_policy(conn)
+        conn.execute("INSERT OR REPLACE INTO browser_program_concurrency_policy VALUES(?,?,?,?,?)",
+                     (program, mode, source, evidence, now()))
+    return {"status": "policy-set", "program": program, "mode": mode,
+            "source": source, "evidence": evidence,
+            "effect": "future-acquisitions-only", "automatic_auth_retry": False}
+
+
+def cmd_show_program_policy(args):
+    program = slug(args.program)
+    with connect(state_db(args)) as conn:
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='browser_program_concurrency_policy'").fetchone():
+            row = conn.execute("SELECT mode, source, evidence, updated_at FROM browser_program_concurrency_policy WHERE program=?",
+                               (program,)).fetchone()
+        else:
+            row = None
+    return {"status": "ok", "program": program, "policy": dict(row) if row else None,
+            "effect": "future-acquisitions-only"}
 
 
 def cmd_policy(args):
@@ -1021,6 +1071,15 @@ def build_parser() -> argparse.ArgumentParser:
     policy.add_argument("--auth-domain", required=True)
     policy.add_argument("--mode", choices=("single", "multiple"), required=True)
     policy.set_defaults(func=cmd_policy)
+    program_policy_set = sub.add_parser("set-program-browser-policy", help="Set program concurrency default for future admissions; does not stop browsers or retry auth.")
+    program_policy_set.add_argument("program")
+    program_policy_set.add_argument("--mode", required=True, choices=("single", "multiple"))
+    program_policy_set.add_argument("--source", required=True, help="agent or operator; categorical, never a name or URL")
+    program_policy_set.add_argument("--evidence", required=True, help="program-rules, observed-session-limit, observed-parallel-sessions, or operator-direction; no free text")
+    program_policy_set.set_defaults(func=cmd_set_program_policy)
+    program_policy_show = sub.add_parser("show-program-browser-policy", help="Read back an exact program default (null when absent).")
+    program_policy_show.add_argument("program")
+    program_policy_show.set_defaults(func=cmd_show_program_policy)
     report = sub.add_parser("report-logout", help="Record passive caller evidence only; no inference or recovery.")
     report.add_argument("--lease-id", required=True)
     report.add_argument("--agent-id", required=True)
@@ -1038,6 +1097,9 @@ def main(argv: list[str] | None = None) -> int:
         args.selection_proof = sys.stdin.readline().strip()
     try:
         instance_key(args)
+        if args.command == "set-program-browser-policy":
+            policy_metadata(args.source, PROGRAM_POLICY_SOURCES, "source")
+            policy_metadata(args.evidence, PROGRAM_POLICY_EVIDENCE, "evidence")
     except ValueError as exc:
         parser.error(str(exc))
     result = args.func(args)

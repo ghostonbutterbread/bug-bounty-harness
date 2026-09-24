@@ -91,6 +91,99 @@ def test_build_command_includes_remote_allow_origins(monkeypatch):
     assert command[-1] == "https://target.example/"
 
 
+def test_headed_default_exposes_webgl_flags_without_wrapper(monkeypatch):
+    module = load_launcher_module()
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/usr/bin/chromium")
+    monkeypatch.delenv("CHROMIUM_TEST_CHROME", raising=False)
+    args = argparse.Namespace(chrome_binary=None, headless=False, no_proxy=True,
+                              proxy_server=None, remote_allow_origins="*", url=None)
+    command = module.build_command(args, 9223, Path("/profile"))
+    assert all(flag in command for flag in (
+        "--use-gl=angle", "--use-angle=gl", "--ignore-gpu-blocklist",
+        "--enable-gpu-rasterization", "--enable-unsafe-swiftshader"))
+
+
+def test_headless_command_does_not_force_headed_gl_backend(monkeypatch):
+    module = load_launcher_module()
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/usr/bin/chromium")
+    monkeypatch.delenv("CHROMIUM_TEST_CHROME", raising=False)
+    args = argparse.Namespace(chrome_binary=None, headless=True, no_proxy=True,
+                              proxy_server=None, remote_allow_origins="*", url=None)
+    command = module.build_command(args, 9223, Path("/profile"))
+    assert "--use-angle=gl" not in command
+
+
+def test_explicit_binary_wrapper_overrides_ambient_gl_backend(monkeypatch):
+    module = load_launcher_module()
+    monkeypatch.delenv("CHROMIUM_TEST_CHROME", raising=False)
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: explicit or "/usr/bin/chromium")
+    args = argparse.Namespace(chrome_binary="/custom/vulkan-wrapper", headless=False,
+                              no_proxy=True, proxy_server=None, remote_allow_origins="*", url=None)
+    command = module.build_command(args, 9223, Path("/profile"))
+    assert command[0] == "/custom/vulkan-wrapper"
+    assert "--use-angle=gl" not in command
+
+
+def test_environment_selected_plain_chrome_still_gets_headed_gl_flags(monkeypatch):
+    module = load_launcher_module()
+    monkeypatch.setenv("CHROMIUM_TEST_CHROME", "/usr/bin/chromium")
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/usr/bin/chromium")
+    args = argparse.Namespace(chrome_binary=None, headless=False, no_proxy=True,
+                              proxy_server=None, remote_allow_origins="*", url=None)
+    command = module.build_command(args, 9223, Path("/profile"))
+    assert "--use-angle=gl" in command
+
+
+def test_environment_plain_shell_launcher_gets_headed_gl_flags(monkeypatch, tmp_path):
+    module = load_launcher_module()
+    script = tmp_path / "chrome-entry"
+    script.write_text("#!/bin/sh\nexec /usr/bin/chromium \"$@\"\n")
+    script.chmod(0o755)
+    monkeypatch.setenv("CHROMIUM_TEST_CHROME", str(script))
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: str(script))
+    args = argparse.Namespace(chrome_binary=None, headless=False, no_proxy=True,
+                              proxy_server=None, remote_allow_origins="*", url=None)
+    command = module.build_command(args, 9223, Path("/profile"))
+    assert "--use-gl=angle" in command and "--use-angle=gl" in command
+
+
+def test_extensionless_environment_script_preserves_vulkan_backend(monkeypatch, tmp_path):
+    module = load_launcher_module()
+    script = tmp_path / "chrome-vulkan"
+    script.write_text("#!/bin/sh\nexec /usr/bin/chromium --use-angle=vulkan \"$@\"\n")
+    script.chmod(0o755)
+    monkeypatch.setenv("CHROMIUM_TEST_CHROME", str(script))
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: str(script))
+    args = argparse.Namespace(chrome_binary=None, graphics_backend="external", headless=False,
+                              no_proxy=True, proxy_server=None, remote_allow_origins="*", url=None)
+    command = module.build_command(args, 9223, Path("/profile"))
+    assert "--use-angle=gl" not in command
+
+
+def test_explicit_external_graphics_backend_preserves_custom_executable(monkeypatch):
+    module = load_launcher_module()
+    monkeypatch.delenv("CHROMIUM_TEST_CHROME", raising=False)
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/custom/chrome-vulkan")
+    args = argparse.Namespace(chrome_binary=None, graphics_backend="external", headless=False,
+                              no_proxy=True, proxy_server=None, remote_allow_origins="*", url=None)
+    command = module.build_command(args, 9223, Path("/profile"))
+    assert "--use-angle=gl" not in command
+
+
+def test_explicit_graphics_wrapper_keeps_its_backend(monkeypatch, tmp_path):
+    module = load_launcher_module()
+    script = tmp_path / "vulkan-wrapper"
+    script.write_text("#!/bin/sh\nexec /usr/bin/chromium --use-angle=vulkan \"$@\"\n")
+    script.chmod(0o755)
+    monkeypatch.setenv("CHROMIUM_TEST_CHROME", str(script))
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: str(script))
+    args = argparse.Namespace(chrome_binary=None, graphics_backend="external", headless=False,
+                              no_proxy=True, proxy_server=None, remote_allow_origins="*", url=None)
+    command = module.build_command(args, 9223, Path("/profile"))
+    assert command[0] == str(script)
+    assert "--use-angle=gl" not in command
+
+
 def test_explicit_no_proxy_overrides_ambient_route(monkeypatch):
     module = load_launcher_module()
     monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/usr/bin/chromium")

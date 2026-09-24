@@ -110,24 +110,22 @@ work:
    ```
    If `webgl` is `false`, the environment — not the request shape or payload —
    is the likely cause.
-2. **Re-provision rather than debug in place.** Return the current browser
-   through its normal lifecycle, then re-request through
-   `browser_provisioner.py` with GPU/WebGL exposure active: set
-   `CHROMIUM_TEST_CHROME` to a GPU-wrapper chrome shim in the Hoster
-   user-manager environment before the request, and unset it afterwards:
-   ```bash
-   systemctl --user set-environment CHROMIUM_TEST_CHROME=<path-to-gpu-wrapper-shim>
-   # ... browser_provisioner.py request ... (launch record command[0] == the shim)
-   systemctl --user unset-environment CHROMIUM_TEST_CHROME
-   ```
-   The shim must resolve a real Chrome binary and prepend GPU-enabling flags
-   (`--use-gl=angle --use-angle=gl --ignore-gpu-blocklist
-   --enable-gpu-rasterization --enable-unsafe-swiftshader`) before the
-   launcher's argv. Do not work around a bad environment by mutating requests:
-   while WebGL is missing, **every** write fails identically — including a
-   no-modification control — so a bot-score rejection is not evidence about
-   your payload and any control run in that state is confounded.
-3. **Re-verify in-page after re-provisioning.** Assert `webgl: true` and a
+2. **Use the provisioner's normal headed request first.** The launcher now adds
+   `--use-gl=angle --use-angle=gl --ignore-gpu-blocklist
+   --enable-gpu-rasterization --enable-unsafe-swiftshader` to headed Chrome
+   for the normal browser selection, including a plain shell launcher chosen
+   via `CHROMIUM_TEST_CHROME`. An explicit `--chrome-binary` retains control of
+   its own flags. A custom GL/Vulkan wrapper selected through the environment
+   must use `--graphics-backend external` on the provisioner request; this
+   task-scoped opt-out preserves its backend without guessing from the wrapper
+   filename. An environment wrapper used without that option receives the
+   default ANGLE/GL flags. Do not set a shared user-manager environment variable
+   merely to enable ordinary WebGL. If
+   in-page WebGL is absent, inspect the recorded Chrome command and display,
+   release the exact browser, and treat the environment as blocked rather than
+   mutating identity requests to compensate. A control write in a WebGL-less
+   browser is confounded and says nothing about payload validity.
+3. **Verify in-page before retrying a blocked flow.** Require `webgl: true` and a
    present renderer string before retrying the blocked flow (a truthful
    `llvmpipe` software renderer is acceptable; it is what KasmVNC GLX
    provides). If the surface still rejects after WebGL is real, stop

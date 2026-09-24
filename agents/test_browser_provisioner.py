@@ -107,7 +107,7 @@ def test_request_forwards_task_proxy_settings_to_start(monkeypatch, tmp_path):
         program="demo", account="fixture", auth_domain="api.example.test", agent_id="agent", run_id="run", purpose="intercept",
         ttl_seconds=60, idle_seconds=60, wait_seconds=0, min_ram_available_mib=1,
         min_swap_free_mib=0, memory_high="256M", memory_max="512M", proxy="external", proxy_cert_mode="import",
-        proxy_server="http://127.0.0.1:8081", mitm_ca_cert="/tmp/mitm-ca.pem", url="https://example.test/", display_backend="kasmvnc", kasmvnc_display=20, kasmvnc_web_port=8463, recover_profile=True,
+        proxy_server="http://127.0.0.1:8081", mitm_ca_cert="/tmp/mitm-ca.pem", url="https://example.test/", display_backend="kasmvnc", kasmvnc_display=20, kasmvnc_web_port=8463, recover_profile=True, graphics_backend="external",
     )
     try:
         m.request(args)
@@ -116,6 +116,7 @@ def test_request_forwards_task_proxy_settings_to_start(monkeypatch, tmp_path):
     assert captured["command"][captured["command"].index("--auth-domain") : captured["command"].index("--agent-id")] == [
         "--auth-domain", "api.example.test",
     ]
+    assert captured["command"][captured["command"].index("--graphics-backend") + 1] == "external"
     assert captured["command"][-13:] == [
         "--proxy-server", "http://127.0.0.1:8081", "--mitm-ca-cert", "/tmp/mitm-ca.pem",
         "--url", "https://example.test/", "--display-backend", "kasmvnc",
@@ -151,6 +152,7 @@ def test_provisioner_marks_its_launcher_invocation_as_internal(monkeypatch, tmp_
     args = start_args()
     args.driving_mode = "manual"
     args.display_backend = "kasmvnc"
+    args.graphics_backend = "external"
     calls = []
 
     monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], []))
@@ -192,6 +194,7 @@ def test_provisioner_marks_its_launcher_invocation_as_internal(monkeypatch, tmp_
     shell = browser_dispatch[-1]
     assert "BROWSER_PROVISIONER_UNIT=browser-lease-browser.service" in shell
     assert "--driving-mode manual" in shell
+    assert "--graphics-backend external" in shell
     assert "--display-backend kasmvnc" in shell
     assert "BROWSER_PROVISIONER_LAUNCH" not in shell
     assert "--provisioner-internal" not in shell

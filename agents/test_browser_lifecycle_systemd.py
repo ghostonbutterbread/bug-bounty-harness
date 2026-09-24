@@ -88,6 +88,9 @@ def stop_fixture_units(root):
                 capture_output=True, text=True, timeout=10,
             )
             assert result.returncode == 0 and result.stdout.strip() in {"inactive", "failed"}, "fixture unit stop unverified"
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and not all(owner_state(identity) == "terminal" for identity in identities):
+        time.sleep(0.1)
     assert all(owner_state(identity) == "terminal" for identity in identities), "fixture root stop unverified"
     for port in ports:
         try:
@@ -169,6 +172,20 @@ def test_systemd_lifecycle_fixture():
             "HARNESS_SHARED_BASE": str(root / "shared"),
         }
         owners = [subprocess.Popen(["sleep", "infinity"]) for _ in range(3)]
+        class FixtureProxy(http.server.BaseHTTPRequestHandler):
+            def do_CONNECT(self):
+                self.send_error(502)
+
+            def do_GET(self):
+                self.send_error(502)
+
+            def log_message(self, format, *args):
+                pass
+
+        proxy = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FixtureProxy)
+        proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+        proxy_thread.start()
+        proxy_url = f"http://127.0.0.1:{proxy.server_port}"
 
         def command(*parts, expect=0):
             result = subprocess.run(
@@ -195,10 +212,12 @@ def test_systemd_lifecycle_fixture():
             "--headless",
             "--idle-seconds",
             "15",
+            "--proxy",
+            "external",
+            "--proxy-server",
+            proxy_url,
             "--proxy-cert-mode",
             "none",
-            "--proxy-server",
-            "http://127.0.0.1:9",
             "--proxy-ownership",
             "browser",
         ]
@@ -256,6 +275,31 @@ def test_systemd_lifecycle_fixture():
             assert first["instance_key"].startswith("auto-")
             retry = start(0)
             assert retry["status"] == "already-running" and retry["lease_id"] == first["lease_id"]
+            # Observe renewal while the owner is still active; later CDP work
+            # can cross the idle threshold, where renewal deliberately stops.
+            # Refresh CDP activity before watching a renewal cycle; startup
+            # can already consume the short idle window.
+            early_info = info(first['lease_id'])
+            early_page = next(p for p in get(early_info['cdp_url'] + '/json/list') if p['type'] == 'page')
+            with contextlib.closing(websocket.create_connection(early_page['webSocketDebuggerUrl'], timeout=5)) as early_tab:
+                early_tab.send(json.dumps({'id': 1, 'method': 'Runtime.evaluate', 'params': {'expression': '1'}}))
+                assert 'error' not in json.loads(early_tab.recv())
+            with sqlite3.connect(state.parent / "browser_profile_leases.sqlite") as connection:
+                before = connection.execute(
+                    "select heartbeat_at from browser_profile_leases where lease_id=?",
+                    (first["lease_id"],),
+                ).fetchone()[0]
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                with sqlite3.connect(state.parent / "browser_profile_leases.sqlite") as connection:
+                    after = connection.execute(
+                        "select heartbeat_at from browser_profile_leases where lease_id=?",
+                        (first["lease_id"],),
+                    ).fetchone()[0]
+                if after > before:
+                    break
+                time.sleep(0.3)
+            assert after > before
             sibling = start(0, key="secondary")
             leases.append(sibling["lease_id"])
             assert sibling["status"] == "started"
@@ -302,27 +346,7 @@ def test_systemd_lifecycle_fixture():
                 expect=2,
             )
             assert denied["status"] == "locked"
-            # Verify automatic heartbeat (no agent touch).
-            with sqlite3.connect(
-                state.parent / "browser_profile_leases.sqlite"
-            ) as connection:
-                before = connection.execute(
-                    "select heartbeat_at from browser_profile_leases where lease_id=?",
-                    (first["lease_id"],),
-                ).fetchone()[0]
-            deadline = time.monotonic() + 15
-            while time.monotonic() < deadline:
-                with sqlite3.connect(
-                    state.parent / "browser_profile_leases.sqlite"
-                ) as connection:
-                    after = connection.execute(
-                        "select heartbeat_at from browser_profile_leases where lease_id=?",
-                        (first["lease_id"],),
-                    ).fetchone()[0]
-                if after > before:
-                    break
-                time.sleep(0.3)
-            assert after > before
+            # Automatic heartbeat was checked before the idle window.
             wait_idle(first["lease_id"])
             assert owners[0].poll() is None
             parallel = start(2)
@@ -544,6 +568,75 @@ def test_systemd_lifecycle_fixture():
                 if owner.poll() is None:
                     owner.terminate()
                 owner.wait()
+            proxy.shutdown()
+            proxy.server_close()
+            proxy_thread.join(timeout=5)
         receipt_path = os.environ.get("BBH_BROWSER_SMOKE_RECEIPT")
         if receipt_path:
             Path(receipt_path).write_text(json.dumps(receipts, indent=2) + "\n")
+
+
+@pytest.mark.skipif(os.environ.get('BBH_LOCAL_BROWSER_SMOKE') != '1', reason='explicit local systemd smoke opt-in')
+def test_real_stopped_legacy_to_two_auto_requests():
+    """Disposable pre-domain stopped history, then two real isolated browsers."""
+    import argparse
+    import uuid
+    import browser_profile_lease as profiles
+    with disposable_fixture_root() as (root, _evidence):
+        state = root / 'state/manager.sqlite'
+        env = {**os.environ, 'BROWSER_PROVISIONER_STATE': str(state),
+               'HARNESS_BOUNTY_ARTIFACT_ROOT': str(root / 'artifacts'),
+               'HARNESS_SHARED_BASE': str(root / 'shared'),
+               'BROWSER_STARTUP_DIAGNOSTICS': '1'}
+        old_env = {k: os.environ.get(k) for k in ('HARNESS_BOUNTY_ARTIFACT_ROOT', 'HARNESS_SHARED_BASE')}
+        os.environ.update({k: env[k] for k in old_env})
+        try:
+            prior = argparse.Namespace(program='fixture', account='anon', auth_domain='fixture.invalid',
+                agent_id='old', run_id='old', purpose='fixture', ttl_seconds=30,
+                state_dir=str(state.parent), recover_profile=False, instance_key='', manager_id=None)
+            # Use the provisioner's canonical manager identity even though its old launch receipt is absent.
+            import hashlib
+            prior.manager_id = hashlib.sha256(str(state.resolve()).encode()).hexdigest()
+            lease = profiles.cmd_acquire(prior)['lease']
+            profile = Path(lease['profile_dir']).parent.parent / 'anon'
+            profile.mkdir(parents=True)
+            (profile / 'fixture-auth-sentinel').write_text('legacy-only')
+            with profiles.connect(state.parent / 'browser_profile_leases.sqlite') as db:
+                db.execute("UPDATE browser_profile_leases SET profile_dir=?,status='released',released_at=1,profile_health='healthy' WHERE lease_id=?", (str(profile), lease['lease_id']))
+            old_bid = str(uuid.uuid4())
+            with sqlite3.connect(state) as db:
+                db.execute('''CREATE TABLE browsers (lease_id TEXT PRIMARY KEY,browser_id TEXT UNIQUE NOT NULL,program TEXT NOT NULL,account TEXT NOT NULL,auth_domain TEXT NOT NULL,agent_id TEXT NOT NULL,run_id TEXT NOT NULL,purpose TEXT NOT NULL,unit TEXT NOT NULL,profile_dir TEXT NOT NULL,launch_file TEXT NOT NULL,state TEXT NOT NULL,tab_count INTEGER NOT NULL DEFAULT 0,last_activity REAL NOT NULL,created REAL NOT NULL,updated REAL NOT NULL)''')
+                db.execute('INSERT INTO browsers VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                    (lease['lease_id'], old_bid, 'fixture', 'anon', 'fixture.invalid', 'old', 'old', 'fixture',
+                     'browser-' + old_bid, str(profile), str(state.parent / 'missing-launch.json'),
+                     'stopped', 0, 0, 0, 0))
+            def request(run):
+                result = subprocess.run([sys.executable, str(PROVISIONER), 'request', 'fixture', 'anon',
+                    '--auth-domain', 'fixture.invalid', '--agent-id', run, '--run-id', run,
+                    '--purpose', 'local fixture', '--ttl-seconds', '120',
+                    '--min-ram-available-mib', '1', '--min-swap-free-mib', '0',
+                    '--headless', '--proxy', 'none', '--proxy-cert-mode', 'none',
+                    '--proxy-ownership', 'browser', '--wait-seconds', '0'],
+                    env=env, capture_output=True, text=True, timeout=75)
+                assert result.returncode == 0, (result.stdout, result.stderr)
+                return json.loads(result.stdout)
+            first = request('first')
+            assert first['status'] == 'started' and first['instance_key'] == ''
+            with sqlite3.connect(state) as db:
+                assert db.execute('SELECT profile_dir FROM browsers WHERE lease_id=?',
+                                  (first['lease_id'],)).fetchone()[0] == str(profile)
+            assert Path(profile / 'fixture-auth-sentinel').read_text() == 'legacy-only'
+            second = request('second')
+            assert second['status'] == 'started' and second['instance_key'].startswith('auto-')
+            with sqlite3.connect(state) as db:
+                rows = db.execute("SELECT profile_dir FROM browsers WHERE lease_id IN (?,?)", (first['lease_id'], second['lease_id'])).fetchall()
+            assert len(rows) == 2 and str(profile) in {p for (p,) in rows}
+            peer_profile = Path(next(p for (p,) in rows if p != str(profile)))
+            assert peer_profile.exists() and not (peer_profile / 'fixture-auth-sentinel').exists()
+            assert Path(profile / 'fixture-auth-sentinel').read_text() == 'legacy-only'
+        finally:
+            for key, value in old_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value

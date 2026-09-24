@@ -38,6 +38,7 @@ def test_sweep_deletes_only_registered_old_profile(monkeypatch, tmp_path):
     root = tmp_path / "artifacts"
     profile = root / "demo/web/browser-profiles/fixture"
     add(m, root, "one", profile)
+    (root / 'one.json').write_text(json.dumps({'instance_key': 'explicit'}))
     monkeypatch.setattr(m, "unit_active", lambda _: False)
     removed, skipped = m.sweep_rows(m.db(), 14, True)
     assert removed[0]["browser_id"] == "one-browser"
@@ -83,6 +84,7 @@ def test_sweep_refuses_active_recorded_unit(monkeypatch, tmp_path):
     m = load(monkeypatch, tmp_path)
     profile = tmp_path / "artifacts/demo/web/browser-profiles/fixture"
     add(m, tmp_path / "artifacts", "three", profile)
+    (tmp_path / 'artifacts/three.json').write_text(json.dumps({'instance_key': 'explicit'}))
     monkeypatch.setattr(m, "unit_active", lambda _: True)
     removed, skipped = m.sweep_rows(m.db(), 14, True)
     assert not removed and skipped[0]["reason"] == "unit-active"

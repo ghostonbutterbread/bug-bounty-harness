@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import re
+import stat
 import sqlite3
 import sys
 import time
@@ -127,6 +128,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         "auth_domain": "TEXT",
         "manager_id": "TEXT",
         "instance_key": "TEXT NOT NULL DEFAULT ''",
+        "instance_selection": "TEXT NOT NULL DEFAULT 'explicit'",
     }.items():
         if name not in columns:
             conn.execute(f"ALTER TABLE browser_profile_leases ADD COLUMN {name} {definition}")
@@ -144,6 +146,45 @@ def instance_profile(program, domain, alias, key=""):
     return (artifact_base() / program_key(program) / "web" / "browser-instances"
             / slug(domain) / slug(alias) / key) if key else base
 
+def physical_profile(path):
+    """Identify an existing directory, following symlinks; unknown is never equal."""
+    try:
+        info = os.stat(path)
+        if not stat.S_ISDIR(info.st_mode):
+            return None
+        return (info.st_dev, info.st_ino)
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def stopped_legacy_profile(conn, args, alias, domain, key):
+    """Resolve a stopped manager record against the entire canonical unkeyed history."""
+    old_id = getattr(args, 'stopped_legacy_lease_id', None)
+    old_path = getattr(args, 'stopped_legacy_profile_dir', None)
+    manager = getattr(args, 'manager_id', None)
+    if not old_id and not old_path:
+        return None, False
+    if not old_id or not old_path or not manager or key or getattr(args, 'automatic_instance', False):
+        return None, True
+    rows = conn.execute(
+        "SELECT * FROM browser_profile_leases WHERE program=? AND account_alias=? "
+        "AND (auth_domain=? OR auth_domain IS NULL) AND instance_key=''",
+        (slug(args.program), slug(alias), domain),
+    ).fetchall()
+    source = next((r for r in rows if r['lease_id'] == old_id), None)
+    pre_domain = artifact_base() / program_key(args.program) / 'web' / 'browser-profiles' / slug(alias)
+    allowed = (str(pre_domain), str(profile_dir(args.program, domain, alias)))
+    identity = physical_profile(old_path)
+    if (not source or old_path not in allowed or not identity or source['profile_dir'] != old_path
+            or source['auth_domain'] != domain or source['manager_id'] != manager
+            or source['owner_agent_id'] != getattr(args, 'stopped_legacy_agent_id', None)
+            or source['owner_run_id'] != getattr(args, 'stopped_legacy_run_id', None)
+            or source['status'] != 'released' or any(
+                physical_profile(r['profile_dir']) != identity or r['auth_domain'] != domain
+                or r['manager_id'] != manager for r in rows)):
+        return None, True
+    return source['profile_dir'], True
+
 
 def init_resource_policy(conn):
     conn.executescript("""
@@ -155,6 +196,97 @@ def init_resource_policy(conn):
             reason TEXT NOT NULL);
     """)
 
+
+def register_legacy_auto(db_path, program, alias, domain, profile, manager_id,
+                         lease_id, agent_id, run_id, legacy_running=True):
+    """Authorize auto slots beside one exact manager-proven legacy profile."""
+    with connect(db_path) as conn:
+        init_db(conn)
+        conn.execute('BEGIN IMMEDIATE')
+        conn.execute("""CREATE TABLE IF NOT EXISTS browser_legacy_auto (
+            program TEXT NOT NULL, account_alias TEXT NOT NULL, auth_domain TEXT NOT NULL,
+            profile_dir TEXT NOT NULL, manager_id TEXT NOT NULL,
+            PRIMARY KEY(program,account_alias,auth_domain))""")
+        rows = conn.execute("SELECT * FROM browser_profile_leases WHERE program=? AND account_alias=? "
+                            "AND (auth_domain=? OR auth_domain IS NULL) AND instance_key=''",
+                            (program, alias, domain)).fetchall()
+        identity = physical_profile(profile)
+        if not rows or not identity or any(physical_profile(r['profile_dir']) != identity or r['auth_domain'] != domain for r in rows):
+            return False
+        if not any(r['lease_id'] == lease_id and r['owner_agent_id'] == agent_id and
+                   r['owner_run_id'] == run_id and r['manager_id'] == manager_id for r in rows):
+            return False
+        # Under BEGIN IMMEDIATE, no other domain or keyed slot may own this
+        # physical profile while we open the legacy parallelism marker.
+        if any(physical_profile(r['profile_dir']) in (None, identity) for r in conn.execute(
+                "SELECT profile_dir FROM browser_profile_leases WHERE status='active' AND lease_id!=?",
+                (lease_id,)).fetchall()):
+            return False
+        active = [r for r in rows if r['status'] == 'active' and
+                  (r['expires_at'] > now() or r['manager_id'] or r['cdp_url'])]
+        if (len(active) != (1 if legacy_running else 0) or any(
+                r['lease_id'] != lease_id or r['owner_agent_id'] != agent_id or
+                r['owner_run_id'] != run_id or r['manager_id'] != manager_id for r in active)):
+            return False
+        if any(r['status'] == 'active' and
+               (r['expires_at'] > now() or r['manager_id'] or r['cdp_url']) and
+               r['manager_id'] != manager_id for r in rows):
+            return False
+        old = conn.execute("SELECT * FROM browser_legacy_auto WHERE program=? AND account_alias=? AND auth_domain=?",
+                           (program, alias, domain)).fetchone()
+        if old and (physical_profile(old['profile_dir']) != identity or old['manager_id'] != manager_id):
+            return False
+        conn.execute("INSERT OR IGNORE INTO browser_legacy_auto VALUES(?,?,?,?,?)",
+                     (program, alias, domain, profile, manager_id))
+        conn.commit()
+        return True
+
+def authorize_auto_slot(db_path, program, alias, domain, key, manager_id, agent_id, run_id):
+    """Manager issues an opaque, short-lived one-use selection proof."""
+    import secrets, hashlib
+    token = secrets.token_urlsafe(32)
+    with connect(db_path) as conn:
+        init_db(conn)
+        conn.execute('BEGIN IMMEDIATE')
+        conn.execute("""CREATE TABLE IF NOT EXISTS browser_auto_selections (
+            token_hash TEXT PRIMARY KEY, program TEXT NOT NULL, account_alias TEXT NOT NULL,
+            auth_domain TEXT NOT NULL, instance_key TEXT NOT NULL, manager_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL, run_id TEXT NOT NULL, expires_at REAL NOT NULL)""")
+        conn.execute('DELETE FROM browser_auto_selections WHERE expires_at<?', (now(),))
+        conn.execute('INSERT INTO browser_auto_selections VALUES(?,?,?,?,?,?,?,?,?)',
+                     (hashlib.sha256(token.encode()).hexdigest(), program, alias, domain, key,
+                      manager_id, agent_id, run_id, now() + 120))
+        conn.commit()
+    return token
+
+
+def consume_auto_slot(conn, args, alias, domain, key):
+    token = getattr(args, 'selection_proof', None)
+    if not token or not getattr(args, 'manager_id', None) or not key.startswith('auto-'):
+        return False
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='browser_auto_selections'").fetchone():
+        return False
+    import hashlib
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    row = conn.execute('SELECT * FROM browser_auto_selections WHERE token_hash=?', (digest,)).fetchone()
+    if not row or any((row[field] != value for field, value in (
+            ('program', slug(args.program)), ('account_alias', slug(alias)), ('auth_domain', domain),
+            ('instance_key', key), ('manager_id', args.manager_id),
+            ('agent_id', args.agent_id), ('run_id', args.run_id)))) or row['expires_at'] < now():
+        return False
+    conn.execute('DELETE FROM browser_auto_selections WHERE token_hash=?', (digest,))
+    return True
+
+
+def legacy_auto_conflict(conn, row, key, manager_id, automatic=False):
+    """An unkeyed lease remains exclusive except for registered auto peers."""
+    if row['instance_key'] != '' or not automatic or not key.startswith('auto-') or not manager_id:
+        return True
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='browser_legacy_auto'").fetchone():
+        return True
+    marker = conn.execute("SELECT profile_dir,manager_id FROM browser_legacy_auto WHERE program=? AND account_alias=? AND auth_domain=?",
+                          (row['program'], row['account_alias'], row['auth_domain'])).fetchone()
+    return not marker or row['profile_dir'] != marker['profile_dir'] or row['manager_id'] != marker['manager_id'] or manager_id != marker['manager_id']
 
 def single_browser_policy(conn, program, alias, domain):
     """One exact resolved account/domain policy, shared by selection and acquire."""
@@ -559,15 +691,16 @@ def transfer_managed_lease(db_path, old_id, manager_id, agent_id, run_id, purpos
         if expected and any(old[key] != value for key, value in expected.items()):
             return {'status': 'canonical-identity-mismatch'}
         single = single_browser_policy(conn, old['program'], old['account_alias'], old['auth_domain'])
-        conflict = conn.execute(
-            "SELECT 1 FROM browser_profile_leases WHERE program=? AND account_alias=? "
+        conflicts = conn.execute(
+            "SELECT * FROM browser_profile_leases WHERE program=? AND account_alias=? "
             "AND (auth_domain=? OR auth_domain IS NULL) AND status='active' AND lease_id!=? "
             "AND (expires_at>? OR manager_id IS NOT NULL OR cdp_url IS NOT NULL) "
-            "AND (? OR instance_key='' OR ?='' OR instance_key=?) LIMIT 1",
+            "AND (? OR instance_key='' OR ?='' OR instance_key=?)",
             (old['program'], old['account_alias'], old['auth_domain'], old_id, timestamp,
              single, old['instance_key'], old['instance_key']),
-        ).fetchone()
-        if conflict:
+        ).fetchall()
+        if any(single or legacy_auto_conflict(conn, r, old['instance_key'], manager_id,
+                                               old['instance_selection'] == 'automatic') for r in conflicts):
             return {'status': 'locked'}
         values = dict(old)
         values.update(lease_id=str(uuid.uuid4()), owner_agent_id=agent_id, owner_run_id=run_id,
@@ -632,17 +765,22 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
         # All admission paths share this SQLite transaction. Legacy profiles
         # remain an account-wide lock; explicit instance keys opt into isolation.
         single = single_browser_policy(conn, args.program, alias, auth_domain)
-        existing = conn.execute(
+        conflicts = conn.execute(
             """SELECT * FROM browser_profile_leases WHERE program=? AND account_alias=?
             AND status='active' AND (expires_at>? OR manager_id IS NOT NULL OR cdp_url IS NOT NULL)
             AND (auth_domain=? OR auth_domain IS NULL)
             AND (?='' OR instance_key='' OR instance_key=? OR ?)
             ORDER BY CASE WHEN auth_domain IS NULL THEN 0 ELSE 1 END,
-              CASE WHEN owner_agent_id=? AND owner_run_id=? AND instance_key=? THEN 1 ELSE 0 END,
-              created_at DESC LIMIT 1""",
+              CASE WHEN ?=0 AND owner_agent_id=? AND owner_run_id=? AND instance_key=? THEN 0 ELSE 1 END,
+              created_at DESC""",
             (slug(args.program), slug(alias), timestamp, auth_domain, key, key, single,
-             args.agent_id, args.run_id, key),
-        ).fetchone()
+             single, args.agent_id, args.run_id, key),
+        ).fetchall()
+        if getattr(args, 'automatic_instance', False) and not consume_auto_slot(conn, args, alias, auth_domain, key):
+            return {'status': 'locked', 'reason': 'manager-selection-required'}
+        automatic = bool(getattr(args, 'automatic_instance', False))
+        existing = next((r for r in conflicts if single or legacy_auto_conflict(
+            conn, r, key, getattr(args, 'manager_id', None), automatic)), None)
         if existing:
             same_owner = existing["owner_agent_id"] == args.agent_id and existing["owner_run_id"] == args.run_id and existing["instance_key"] == key
             if same_owner and existing['manager_id'] != getattr(args, 'manager_id', None):
@@ -671,9 +809,12 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
                 "color_availability": color_availability(conn, args.program, inventory, timestamp, auth_domain),
                 "next": "do not attach to or replace this browser; choose an explicitly approved alternative account or wait",
             }
+        inherited_path, requested_inheritance = stopped_legacy_profile(conn, args, alias, auth_domain, key)
+        if requested_inheritance and inherited_path is None:
+            return {'status': 'locked', 'reason': 'legacy-profile-history-mismatch'}
         lease_id = str(uuid.uuid4())
         expires_at = timestamp + args.ttl_seconds
-        persistent_profile = instance_profile(args.program, auth_domain, alias, key)
+        persistent_profile = inherited_path or instance_profile(args.program, auth_domain, alias, key)
         conn.execute(
             """
             INSERT INTO browser_profile_leases(
@@ -696,7 +837,8 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
                 expires_at,
             ),
         )
-        conn.execute("UPDATE browser_profile_leases SET manager_id=?,instance_key=? WHERE lease_id=?", (getattr(args, "manager_id", None), key, lease_id))
+        conn.execute("UPDATE browser_profile_leases SET manager_id=?,instance_key=?,instance_selection=? WHERE lease_id=?",
+                     (getattr(args, "manager_id", None), key, 'automatic' if automatic else 'explicit', lease_id))
         conn.commit()
         row = conn.execute("SELECT * FROM browser_profile_leases WHERE lease_id=?", (lease_id,)).fetchone()
     return {
@@ -867,6 +1009,12 @@ def build_parser() -> argparse.ArgumentParser:
     release.set_defaults(func=cmd_release)
     acquire.add_argument("--task-owned", action="store_true")
     acquire.add_argument("--instance-key")
+    acquire.add_argument("--automatic-instance", action="store_true", help=argparse.SUPPRESS)
+    acquire.add_argument("--selection-proof-stdin", action="store_true", help=argparse.SUPPRESS)
+    acquire.add_argument("--stopped-legacy-lease-id", help=argparse.SUPPRESS)
+    acquire.add_argument("--stopped-legacy-profile-dir", help=argparse.SUPPRESS)
+    acquire.add_argument("--stopped-legacy-agent-id", help=argparse.SUPPRESS)
+    acquire.add_argument("--stopped-legacy-run-id", help=argparse.SUPPRESS)
     policy = sub.add_parser("set-browser-policy", help="Manual concurrency policy; never retries authentication or stops existing browsers.")
     policy.add_argument("program")
     policy.add_argument("account")
@@ -886,6 +1034,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if getattr(args, 'selection_proof_stdin', False):
+        args.selection_proof = sys.stdin.readline().strip()
     try:
         instance_key(args)
     except ValueError as exc:

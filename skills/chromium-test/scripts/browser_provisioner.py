@@ -649,17 +649,25 @@ def legacy_profile_paths(program, alias, domain):
     )
 
 
-def shared_profile_rows(c, profile):
+def shared_profile_rows(c, profile, program):
     import browser_profile_lease as profiles
     identity = profiles.physical_profile(profile)
     if not identity:
         return None
-    rows = c.execute("SELECT * FROM browsers").fetchall()
-    # An unobservable row may alias this profile. Do not certify it as distinct
-    # if its manager still considers it live.
-    return [r for r in rows if profiles.physical_profile(r['profile_dir']) == identity or
-            (profiles.physical_profile(r['profile_dir']) is None and
-             r['state'] not in ('stopped', 'deleted', 'handed-off'))]
+    shared = []
+    for row in c.execute("SELECT * FROM browsers"):
+        path = row['profile_dir']
+        # Old positional inserts into an ALTER TABLE layout shifted the profile
+        # into launch_file. Recognize that shape before testing physical aliases.
+        if (path == 'browser-' + row['browser_id'] and
+                str(row['state']).endswith('.launch.json') and
+                str(row['tab_count']) in ('starting', 'running', 'stopped', 'idle-stopped')):
+            path = row['launch_file']
+        other = profiles.physical_profile(path)
+        if other == identity or (other is None and row['program'] == slug(program) and
+                                 row['state'] not in ('stopped', 'deleted', 'handed-off')):
+            shared.append(row)
+    return shared
 
 
 def automatic_instance(c, args, alias, domain, *, allow_takeover=False, allow_migration=False):
@@ -678,7 +686,7 @@ def automatic_instance(c, args, alias, domain, *, allow_takeover=False, allow_mi
     for row in rows:
         latest.setdefault(record_info(row).get("instance_key", ""), row)
     legacy = latest.get("")
-    shared = shared_profile_rows(c, legacy['profile_dir']) if legacy else []
+    shared = shared_profile_rows(c, legacy['profile_dir'], args.program) if legacy else []
     if legacy:
         if shared is None or any(r['lease_id'] != legacy['lease_id'] and
                (r['state'] != 'stopped' or not stopped(r)) for r in shared):
@@ -1208,7 +1216,7 @@ def start(args):
     else:
         stopped_legacy = (row if row and not instance and row['state'] == 'stopped'
                           and not getattr(args, 'task_owned', False) else None)
-        shared_stopped = shared_profile_rows(c, stopped_legacy['profile_dir']) if stopped_legacy else []
+        shared_stopped = shared_profile_rows(c, stopped_legacy['profile_dir'], args.program) if stopped_legacy else []
         if stopped_legacy and (shared_stopped is None or not quiescent_legacy(c,
                 shared_stopped + [r for r in c.execute(
                     'SELECT * FROM browsers WHERE program=? AND account=? AND auth_domain=?',

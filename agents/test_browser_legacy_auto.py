@@ -271,6 +271,38 @@ def test_cross_domain_distinct_profile_does_not_block_migration(monkeypatch, tmp
     assert take(owner, key, 'peer', manager)['status'] == 'leased'
 
 
+def test_unrelated_program_with_unobservable_history_does_not_block_migration(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    c.execute("INSERT INTO browsers SELECT 'unrelated', 'other-browser', 'other-program', account, auth_domain, agent_id, run_id, purpose, 'other-unit', 'other-unit', ?, 'idle-stopped', tab_count, last_activity, created-1, updated FROM browsers WHERE lease_id=?",
+              (str(tmp_path / 'other-launch.json'), row['lease_id']))
+    c.commit()
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    assert m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True).startswith('auto-')
+
+
+def test_shifted_other_program_row_still_blocks_shared_physical_profile(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    alias = tmp_path / 'other-program-alias'
+    alias.symlink_to(row['profile_dir'], target_is_directory=True)
+    # Recreate the pre-auth-domain physical column order, then run db()'s real
+    # ALTER TABLE migration. Old positional inserts still use this layout.
+    c.execute("CREATE TABLE old_browsers AS SELECT lease_id,browser_id,program,account,agent_id,run_id,purpose,unit,profile_dir,launch_file,state,tab_count,last_activity,created,updated FROM browsers")
+    c.execute('DROP TABLE browsers')
+    c.execute('ALTER TABLE old_browsers RENAME TO browsers')
+    c.commit()
+    c.close()
+    c = m.db()
+    assert [r['name'] for r in c.execute('PRAGMA table_info(browsers)')][-1] == 'auth_domain'
+    c.execute("INSERT INTO browsers SELECT 'shifted', 'shifted-browser', 'other-program', account, agent_id, run_id, purpose, 'browser-shifted-browser', ?, ?, 'running', 0, last_activity, created-1, updated, 'legacy-global' FROM browsers WHERE lease_id=?",
+              (str(alias), str(tmp_path / 'shifted.launch.json'), row['lease_id']))
+    c.commit()
+    assert [r['lease_id'] for r in m.shared_profile_rows(c, row['profile_dir'], 'demo')] == [row['lease_id'], 'shifted']
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    assert m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True) == ''
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='browser_legacy_auto'").fetchone()
+
+
 def test_running_legacy_shared_path_other_domain_owner_cannot_mark(monkeypatch, tmp_path):
     m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
     c.execute("INSERT INTO browsers SELECT 'cross', 'cross-browser', program, account, 'other.test', 'cross-agent', 'cross-run', purpose, 'cross-unit', profile_dir, ?, 'running', tab_count, last_activity, created-1, updated FROM browsers WHERE lease_id=?",

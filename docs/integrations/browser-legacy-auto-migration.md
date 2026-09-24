@@ -1,14 +1,14 @@
 # Legacy named-profile auto-slot integration dossier
 
-- **Status:** physical-profile alias bypass repaired locally; fresh independent review and Hoster data reconciliation pending; no beta integration
+- **Status:** independent review approved beta source integration at `8328b76`; Hoster activation separately blocked on live Blue owner and malformed history. Integration pending.
 - **Owner:** Hermes integration
 - **Branch / owning ref:** `feat/browser-legacy-auto-migration`
 - **Worktree:** `/home/ryushe/projects/bug_bounty_harness/browser-legacy-auto-migration`
 - **Base commit:** `af9dae91dfbddc0dae90ae17b3c3ed49a5f4a89d`; refreshed target `4ddddb3` at merge checkpoint `2b74f99`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-23
-- **Previous immutable recovery checkpoint:** `74d65ff` (cross-domain literal-path/sweep repair); verify current tip with `git rev-parse HEAD`.
-- **Feature implementation commit(s):** `83433f3`, `0b77bd5`, `d1de5c2`, `cad9e5e`, `bf69193`, `64bed0a`, `7e06bec`, `74d65ff`; physical-alias repair checkpoint is the next commit.
+- **Previous immutable recovery checkpoint:** `8328b76` (reviewed physical-profile alias repair); verify current tip with `git rev-parse HEAD`.
+- **Feature implementation commit(s):** `83433f3`, `0b77bd5`, `d1de5c2`, `cad9e5e`, `bf69193`, `64bed0a`, `7e06bec`, `74d65ff`, `8328b76`.
 - **Inspiration:** Ordinary Blue same-account/different-browser request; canonical SQLite lease conflict and legacy auth preservation.
 
 ## Intent and contract
@@ -45,24 +45,24 @@ Before registering a marker, selection reconciles **every** historical unkeyed m
 
 ## Blockers and deferred work
 
-- **Remaining gate:** final independent review of the reconciled feature and fixture contract; then beta integration. Pipe-ready startup intermittency remains unresolved (full disposable fixture rerun above passed, not proof of a fix). Hoster activation requires reconciliation of the malformed Blue manager rows, the genuinely active legacy owner, and the quarantined expired/conflicting history. The reviewed offline repair utility is available on Hoster but its read-only plan has zero candidates while the owner remains active. A partial metadata repair is not migration clearance. No live Blue account or profile was changed by this feature.
-- **Safe alternative if Hoster evidence disagrees:** Leave the old profile and exclusivity untouched; require owner terminal release and exact unit/root/CDP/lock checks. Do not synthesize missing launch receipts, reset lease metadata, copy the profile, or use direct CLI `--automatic-instance` to force migration.
-- **Next:** independent combined diff review, integrate source into beta if cleared, then separately evaluate Hoster runtime activation only against a proven safe data state. Do not interrupt the active owner or promise two authenticated browsers; the second isolated profile needs its own authorized login.
+- **Remaining gate:** beta source integration is approved by independent review at `8328b76`; the intermittent pipe-ready startup cause remains unresolved despite successful reruns. Hoster activation requires reconciliation of malformed Blue manager rows, the genuinely active owner, and quarantined expired/conflicting history. The offline repair utility's Hoster read-only plan still has zero candidates and 22 blocked. A partial metadata repair is not migration clearance. No live Blue account or profile was changed.
+- **Safe alternative if Hoster evidence disagrees:** Leave the old profile and exclusivity untouched; require owner terminal release and exact unit/root/CDP/lock checks. Do not synthesize missing launch receipts, reset lease metadata, copy the profile, or force migration.
+- **Next:** merge reviewed source into beta, test and publish it; leave Hoster runtime on the previous revision while Blue's live/data gates fail. Once safely quiescent and reconciled, separately verify destination disposable producer and activate. The second isolated profile needs its own authorized login.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/browser-legacy-auto-migration`
-- **Previous immutable recovery checkpoint:** `74d65ff` (literal cross-domain/sweep repair); review current feature tip for physical alias repair.
-- **Feature implementation commit(s):** `83433f3`, `0b77bd5`, `d1de5c2`, `cad9e5e`, `bf69193`, `64bed0a`, `7e06bec`, `74d65ff`; this repair checkpoint is the next commit.
-- **Exact resume point:** fresh independent combined review against beta `4ddddb3`, including physical path races/TOCTOU and sweep guards; keep Hoster migration gated on Blue data and live owner quiescence. If pipe-ready failure recurs, capture private sanitized root-cause evidence without extending deadlines.
-- **Working-tree state at handoff:** verify `git status --short` after the fixture/dossier commit.
+- **Previous immutable recovery checkpoint:** `8328b76` (reviewed physical-profile alias repair).
+- **Feature implementation commit(s):** `83433f3`, `0b77bd5`, `d1de5c2`, `cad9e5e`, `bf69193`, `64bed0a`, `7e06bec`, `74d65ff`, `8328b76`.
+- **Exact resume point:** integrate reviewed source at fetched beta `4ddddb3`; keep Hoster runtime unchanged while Blue owner/history are active/blocked. Investigate intermittent pipe-ready separately if it recurs; do not extend deadlines.
+- **Working-tree state at handoff:** clean after dossier decision commit.
 
 ## Decision gates
 
-- **Integration:** Parent independent review and real disposable fixture, reconcile latest fetched `beta`.
-- **Activation:** Separate explicit Hoster rollout under runtime admission safeguards; preserve existing live browsers.
+- **Integration:** Independent review approved source at `8328b76` against fetched `beta` `4ddddb3`; targeted symlink manager/canonical/sweep repros and 218 focused tests passed, real stopped-legacy fixture passed 1/1. Integrate only after current beta check and integrated tests.
+- **Activation:** Hoster Blue blocked: active unit, profile and lock; offline plan 0 candidates / 22 blocked. No migration rollout until independently reconciled; destination real producer smoke then required.
 - **Promotion:** Separate owner decision after beta evidence.
 
 ## Decision record
 
-- 2026-09-23 — branch-local checkpoint prepared; not integrated or activated.
+- 2026-09-23 — Independent review APPROVE beta source integration at `8328b76`; Hoster activation BLOCK. Pipe-ready startup intermittency remains unresolved, not reclassified as a fix. Dossier retained on feature branch and removed from beta merge.

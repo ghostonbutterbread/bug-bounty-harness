@@ -229,6 +229,128 @@ def test_running_migration_allows_stopped_former_owner_on_same_profile(monkeypat
     assert key.startswith('auto-')
     assert take(owner, key, 'peer', manager)['status'] == 'leased'
 
+@pytest.mark.parametrize('state,observable', [
+    ('running', 'owner'), ('stopped', 'unit'), ('stopped', 'root'), ('stopped', 'cdp'),
+])
+def test_cross_domain_shared_path_blocks_stopped_reuse_and_marker(monkeypatch, tmp_path, capsys, state, observable):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    c.execute("UPDATE browsers SET state='stopped' WHERE lease_id=?", (row['lease_id'],))
+    c.execute("INSERT INTO browsers SELECT 'cross', 'cross-browser', program, account, 'other.test', 'cross-owner', 'cross-run', purpose, 'cross-unit', profile_dir, ?, ?, tab_count, last_activity, created-1, updated FROM browsers WHERE lease_id=?",
+              (str(tmp_path / 'cross.json'), state, row['lease_id']))
+    c.commit()
+    info = {'instance_key': '', 'instance_selection': 'legacy'}
+    if observable == 'root':
+        info['process_identity'] = process_identity(os.getpid())
+    if observable == 'cdp':
+        info['cdp_url'] = 'http://127.0.0.1:9222'
+        monkeypatch.setattr(profiles, 'local_cdp_version', lambda _: {'status': 'ready'})
+    (tmp_path / 'cross.json').write_text(json.dumps(info))
+    monkeypatch.setattr(m, 'unit_active', lambda unit: unit == 'cross-unit' and observable == 'unit')
+    with pytest.raises(SystemExit):
+        m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True)
+    assert json.loads(capsys.readouterr().out)['reason'] == 'legacy-profile-not-quiescent'
+    monkeypatch.setattr(m, 'sweep_rows', lambda *_: ([], []))
+    monkeypatch.setattr(m, 'cleanup_unused', lambda *_: [])
+    with pytest.raises(SystemExit):
+        m.start(args())
+    assert json.loads(capsys.readouterr().out)['reason'] == 'legacy-profile-not-quiescent'
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='browser_legacy_auto'").fetchone()
+
+
+def test_cross_domain_distinct_profile_does_not_block_migration(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    distinct = profiles.profile_dir('demo', 'other.test', 'anon')
+    c.execute("INSERT INTO browsers SELECT 'cross', 'cross-browser', program, account, 'other.test', 'cross-owner', 'cross-run', purpose, 'cross-unit', ?, ?, 'running', tab_count, last_activity, created-1, updated FROM browsers WHERE lease_id=?",
+              (str(distinct), str(tmp_path / 'cross.json'), row['lease_id']))
+    c.commit()
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    key = m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True)
+    assert key.startswith('auto-')
+    assert take(owner, key, 'peer', manager)['status'] == 'leased'
+
+
+def test_running_legacy_shared_path_other_domain_owner_cannot_mark(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    c.execute("INSERT INTO browsers SELECT 'cross', 'cross-browser', program, account, 'other.test', 'cross-agent', 'cross-run', purpose, 'cross-unit', profile_dir, ?, 'running', tab_count, last_activity, created-1, updated FROM browsers WHERE lease_id=?",
+              (str(tmp_path / 'cross.json'), row['lease_id']))
+    c.commit()
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    assert m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True) == ''
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='browser_legacy_auto'").fetchone()
+
+
+def test_quiescent_cross_domain_former_row_on_shared_path_allows_migration(monkeypatch, tmp_path):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    c.execute("INSERT INTO browsers SELECT 'cross', 'cross-browser', program, account, 'other.test', 'former', 'former-run', purpose, 'cross-unit', profile_dir, ?, 'stopped', tab_count, last_activity, created-1, updated FROM browsers WHERE lease_id=?",
+              (str(tmp_path / 'cross.json'), row['lease_id']))
+    c.commit()
+    monkeypatch.setattr(m, 'unit_active', lambda _: False)
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    key = m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True)
+    assert key.startswith('auto-')
+
+
+@pytest.mark.parametrize('key', ['', 'explicit'])
+def test_canonical_active_shared_path_blocks_marker_transaction(monkeypatch, tmp_path, key):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        db.execute("INSERT INTO browser_profile_leases(lease_id,program,account_alias,auth_domain,owner_agent_id,owner_run_id,purpose,profile_dir,status,created_at,heartbeat_at,expires_at,manager_id,instance_key) SELECT 'cross',program,account_alias,'other.test','cross-agent','cross-run',purpose,profile_dir,'active',created_at,heartbeat_at,expires_at,'other-manager',? FROM browser_profile_leases WHERE lease_id=?",
+                   (key, row['lease_id']))
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    assert m.automatic_instance(c, args(), 'anon', 'legacy-global', allow_migration=True) == ''
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        assert not db.execute('SELECT 1 FROM browser_legacy_auto').fetchone()
+
+
+def test_preselection_sweep_preserves_manager_legacy_with_malformed_canonical_history(monkeypatch, tmp_path, capsys):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    pre_domain = profiles.profile_dir('demo', 'legacy-global', 'anon').parent.parent / 'anon'
+    pre_domain.mkdir(parents=True)
+    (pre_domain / 'auth-sentinel').write_text('keep')
+    c.execute("UPDATE browsers SET profile_dir=?,state='stopped',updated=0 WHERE lease_id=?",
+              (str(pre_domain), row['lease_id']))
+    c.commit()
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        db.execute("UPDATE browser_profile_leases SET profile_dir=?,status='released' WHERE lease_id=?",
+                   ('/malformed/history', row['lease_id']))
+    monkeypatch.setattr(m, 'unit_active', lambda _: False)
+    removed, skipped = m.sweep_rows(c, 14, True)
+    assert removed == [] and skipped[0]['reason'] == 'legacy-auth-retained'
+    assert (pre_domain / 'auth-sentinel').read_text() == 'keep'
+    assert c.execute('SELECT state FROM browsers WHERE lease_id=?', (row['lease_id'],)).fetchone()[0] == 'stopped'
+    def selection(*_a, **_kw):
+        assert (pre_domain / 'auth-sentinel').read_text() == 'keep'
+        assert c.execute('SELECT state FROM browsers WHERE lease_id=?', (row['lease_id'],)).fetchone()[0] == 'stopped'
+        m.emit({'status': 'fixture-selection-reached'}, 2)
+    monkeypatch.setattr(m, 'automatic_instance', selection)
+    with pytest.raises(SystemExit):
+        m.start(args())
+    assert json.loads(capsys.readouterr().out)['status'] == 'fixture-selection-reached'
+
+
+@pytest.mark.parametrize('kind', ['keyed', 'arbitrary', 'task-owned'])
+def test_preselection_sweep_does_not_blanket_retain_disposable_profiles(monkeypatch, tmp_path, kind):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    path = Path(row['profile_dir'])
+    if kind == 'arbitrary':
+        path = tmp_path / 'artifacts/demo/web/browser-profiles/unrelated'
+        path.mkdir(parents=True)
+    c.execute("UPDATE browsers SET profile_dir=?,program=?,state='stopped',updated=0 WHERE lease_id=?",
+              (str(path), 'task-owned' if kind == 'task-owned' else 'demo', row['lease_id']))
+    c.commit()
+    if kind == 'keyed':
+        Path(row['launch_file']).write_text(json.dumps({'instance_key': 'manual', 'instance_selection': 'explicit'}))
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        db.execute("UPDATE browser_profile_leases SET profile_dir=?,status='released' WHERE lease_id=?",
+                   ('/malformed/history', row['lease_id']))
+    monkeypatch.setattr(m, 'unit_active', lambda _: False)
+    monkeypatch.setattr(m, 'stopped', lambda _: True)
+    removed, skipped = m.sweep_rows(c, 14, True)
+    assert len(removed) == 1 and not skipped
+    assert not path.exists()
+
 @pytest.mark.parametrize('observable', ['active-unit', 'active-root', 'active-cdp',
                                         'missing-receipt-active-unit'])
 def test_running_migration_blocks_nonquiescent_stopped_history(monkeypatch, tmp_path, observable):

@@ -203,7 +203,10 @@ def register_legacy_auto(db_path, program, alias, domain, profile, manager_id,
         if not any(r['lease_id'] == lease_id and r['owner_agent_id'] == agent_id and
                    r['owner_run_id'] == run_id and r['manager_id'] == manager_id for r in rows):
             return False
-        if conn.execute("SELECT 1 FROM browser_profile_leases WHERE profile_dir=? AND status='active' AND instance_key!='' LIMIT 1", (profile,)).fetchone():
+        # Under BEGIN IMMEDIATE, no other domain or keyed slot may own this
+        # physical profile while we open the legacy parallelism marker.
+        if conn.execute("SELECT 1 FROM browser_profile_leases WHERE profile_dir=? AND status='active' AND lease_id!=? LIMIT 1",
+                        (profile, lease_id)).fetchone():
             return False
         active = [r for r in rows if r['status'] == 'active' and
                   (r['expires_at'] > now() or r['manager_id'] or r['cdp_url'])]

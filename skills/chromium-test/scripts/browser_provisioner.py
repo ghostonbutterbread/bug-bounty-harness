@@ -633,6 +633,21 @@ def quiescent_legacy(c, rows, legacy):
     return True
 
 
+def legacy_profile_paths(program, alias, domain):
+    import browser_profile_lease as profiles
+    scoped = profiles.profile_dir(program, domain, alias)
+    return (
+        scoped,
+        profiles.profile_dir(program, profiles.DEFAULT_LEGACY_AUTH_DOMAIN, alias),
+        scoped.parent.parent / slug(alias),
+        profiles.shared_base() / profiles.program_key(program) / "ghost" / "chromium-test" / "profiles" / slug(alias),
+    )
+
+
+def shared_profile_rows(c, profile):
+    return c.execute("SELECT * FROM browsers WHERE profile_dir=?", (profile,)).fetchall()
+
+
 def automatic_instance(c, args, alias, domain, *, allow_takeover=False, allow_migration=False):
     """Select under the node lock; acquisition/freeze still arbitrate ownership.
 
@@ -649,13 +664,19 @@ def automatic_instance(c, args, alias, domain, *, allow_takeover=False, allow_mi
     for row in rows:
         latest.setdefault(record_info(row).get("instance_key", ""), row)
     legacy = latest.get("")
+    shared = shared_profile_rows(c, legacy['profile_dir']) if legacy else []
     if legacy:
+        if any(r['lease_id'] != legacy['lease_id'] and
+               (r['state'] != 'stopped' or not stopped(r)) for r in shared):
+            if legacy['state'] == 'stopped':
+                emit({'status': 'recovery-blocked', 'reason': 'legacy-profile-not-quiescent'}, 2)
+            return ""
         if legacy['agent_id'] == args.agent_id and legacy['run_id'] == args.run_id and legacy['state'] == 'running':
             return ""  # Preserve the authenticated legacy profile for its owner/next user.
         pooled_running = any(r['state'] == 'running' and
                              record_info(r).get('instance_selection') == 'automatic'
                              for k, r in latest.items() if k)
-        if legacy['state'] == 'stopped' and not quiescent_legacy(c, rows, legacy):
+        if legacy['state'] == 'stopped' and not quiescent_legacy(c, shared + [r for r in rows if r['profile_dir'] != legacy['profile_dir']], legacy):
             emit({'status': 'recovery-blocked', 'reason': 'legacy-profile-not-quiescent'}, 2)
         if legacy['state'] == 'stopped' and not pooled_running:
             return ""  # First request inherits the old authenticated profile.
@@ -675,12 +696,7 @@ def automatic_instance(c, args, alias, domain, *, allow_takeover=False, allow_mi
                     (slug(args.program), slug(alias), domain),
                 ).fetchone():
                     return ""
-    legacy_paths = (
-        profiles.profile_dir(args.program, domain, alias),
-        profiles.profile_dir(args.program, profiles.DEFAULT_LEGACY_AUTH_DOMAIN, alias),
-        profiles.profile_dir(args.program, domain, alias).parent.parent / slug(alias),
-        profiles.shared_base() / profiles.program_key(args.program) / "ghost" / "chromium-test" / "profiles" / slug(alias),
-    )
+    legacy_paths = legacy_profile_paths(args.program, alias, domain)
     if any(path.exists() for path in legacy_paths) and not legacy:
         return ""
     if legacy:
@@ -694,6 +710,8 @@ def automatic_instance(c, args, alias, domain, *, allow_takeover=False, allow_mi
                 (r['lease_id'] != legacy['lease_id'] and
                  (r['state'] != 'stopped' or not stopped(r)))
                 for r in unkeyed) or
+                any(r['lease_id'] != legacy['lease_id'] and
+                    (r['state'] != 'stopped' or not stopped(r)) for r in shared) or
                 Path(legacy['profile_dir']) not in legacy_paths or
                 not profiles.register_legacy_auto(lease_db, slug(args.program), slug(alias), domain,
                                                   legacy['profile_dir'], manager, legacy['lease_id'],
@@ -1175,9 +1193,10 @@ def start(args):
     else:
         stopped_legacy = (row if row and not instance and row['state'] == 'stopped'
                           and not getattr(args, 'task_owned', False) else None)
-        if stopped_legacy and not quiescent_legacy(c, c.execute(
-                'SELECT * FROM browsers WHERE program=? AND account=? AND auth_domain=?',
-                (slug(args.program), slug(alias), auth_domain)).fetchall(), stopped_legacy):
+        if stopped_legacy and not quiescent_legacy(c,
+                shared_profile_rows(c, stopped_legacy['profile_dir']) + c.execute(
+                    'SELECT * FROM browsers WHERE program=? AND account=? AND auth_domain=? AND profile_dir!=?',
+                    (slug(args.program), slug(alias), auth_domain, stopped_legacy['profile_dir'])).fetchall(), stopped_legacy):
             emit({'status': 'recovery-blocked', 'reason': 'legacy-profile-not-quiescent'}, 2)
         proof = (profiles.authorize_auto_slot(
             STATE.parent / "browser_profile_leases.sqlite", slug(args.program), slug(alias),
@@ -1846,6 +1865,13 @@ def sweep_rows(c, older_than_days, confirm):
         "select * from browsers where state='stopped' and updated<?", (cutoff,)
     ).fetchall():
         p = Path(r["profile_dir"])
+        # Manager-proven unkeyed persistent profiles predate canonical history.
+        # Protect only exact known account paths, never arbitrary or task-owned rows.
+        if (r['program'] != 'task-owned' and
+                record_info(r).get('instance_key', '') == '' and
+                p in legacy_profile_paths(r['program'], r['account'], r['auth_domain'])):
+            skipped.append({"browser_id": r["browser_id"], "reason": "legacy-auth-retained"})
+            continue
         lease_db = STATE.parent / "browser_profile_leases.sqlite"
         if lease_db.exists():
             with sqlite3.connect(lease_db) as leases:

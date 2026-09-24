@@ -1397,6 +1397,8 @@ def start(args):
         cmd += ["--task-owned"]
     if getattr(args, "headless", False):
         cmd += ["--headless"]
+    if getattr(args, "graphics_backend", "auto") != "auto":
+        cmd += ["--graphics-backend", args.graphics_backend]
     if task:
         cmd += ["--proxy-server", proxy_metadata(task)["proxy_server"],
                 "--mitm-ca-cert", proxy_metadata(task)["ca_cert"]]
@@ -2039,6 +2041,8 @@ def request(args):
             cmd += ["--task-owned"]
         if getattr(args, "headless", False):
             cmd += ["--headless"]
+        if getattr(args, "graphics_backend", "auto") != "auto":
+            cmd += ["--graphics-backend", args.graphics_backend]
         if getattr(args, "driving_mode", None) is not None:
             cmd += ["--driving-mode", args.driving_mode]
         if getattr(args, "instance_key", None):
@@ -2214,6 +2218,8 @@ def main():
             "--proxy-ownership", choices=("task", "browser"), default="task"
         )
         parser.add_argument("--headless", action="store_true")
+        parser.add_argument("--graphics-backend", choices=("auto", "external"), default="auto",
+                            help="auto adds headed ANGLE/GL flags; external leaves graphics flags to the selected executable.")
     t.add_argument("--awaiting-seconds", type=int, default=1800)
     sub.add_parser("maintain")
     watcher = sub.add_parser("watch")

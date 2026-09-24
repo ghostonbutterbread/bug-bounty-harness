@@ -681,6 +681,16 @@ def build_command(args: argparse.Namespace, port: int, profile_dir: Path) -> lis
         "--safebrowsing-disable-auto-update",
         "--new-window",
     ]
+    # A headed X display alone does not enable Chrome WebGL. Apply a consistent
+    # default to plain binaries and shell launchers alike. Custom graphics
+    # wrappers opt out explicitly instead of relying on filename/content guesses.
+    if (not getattr(args, "headless", False) and
+            not getattr(args, "chrome_binary", None) and
+            getattr(args, "graphics_backend", "auto") == "auto"):
+        command[1:1] = [
+            "--use-gl=angle", "--use-angle=gl", "--ignore-gpu-blocklist",
+            "--enable-gpu-rasterization", "--enable-unsafe-swiftshader",
+        ]
 
     proxy_server = None if getattr(args, "no_proxy", False) else args.proxy_server or os.environ.get("CHROMIUM_TEST_PROXY_SERVER")
     if getattr(args, "no_proxy", False):
@@ -863,6 +873,8 @@ def parse_args() -> argparse.Namespace:
         help="Value for Chromium --remote-allow-origins. Defaults to '*'.",
     )
     parser.add_argument("--chrome-binary", help="Override Chromium/Chrome executable.")
+    parser.add_argument("--graphics-backend", choices=("auto", "external"), default="auto",
+                        help="auto adds headed ANGLE/GL flags; external leaves graphics flags to the selected executable.")
     parser.add_argument(
         "--display-backend",
         choices=("auto", "default", "kasmvnc"),

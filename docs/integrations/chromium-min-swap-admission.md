@@ -1,6 +1,6 @@
 # Chromium minimum-free-swap admission guidance
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes bugfix profile
 - **Branch:** `docs/chromium-min-swap-admission`
 - **Base commit:** `3b305878200dda94261a120b59cbda0a5a6826f5`
@@ -22,7 +22,7 @@ The Chromium skill permits a same-task retry with `--min-swap-free-mib 0` when t
 ## Evidence and review
 
 - Tests and commands: `git diff --check` passed; source inspection confirms `--min-swap-free-mib` on request and admission compares `MemAvailable` and `SwapFree` against independent thresholds.
-- Independent review: pending.
+- **Independent review:** read-only fresh reviewer found no concrete flaw in current diff; confirmed request forwards the flag, RAM gate remains independent, `no-capacity` has nested admission, and `queued-timeout` retains reason/receipt. Live admission probes on this host were admitted under both thresholds, so low-swap rejection was not exercised.
 - Replay/cohort/fixture evidence: not applicable to documentation-only change.
 - Merge/ancestry evidence: based on fetched `origin/beta` 3b30587; pending integration.
 
@@ -46,4 +46,4 @@ No known blocker. Hoster runtime activation/projection is distinct from pushing 
 
 ## Decision record
 
-- 2026-09-24 — created scoped skill guidance; review pending.
+- 2026-09-24 — created scoped skill guidance; fresh reviewer accepted with no concrete issues. Integrate into beta; retire this temporary dossier from target.

@@ -993,6 +993,9 @@ def maintain(args):
                         from browser_control import rotate_control
 
                         try:
+                            import browser_profile_lease as profiles
+                            profiles.revoke_transfer_identity(
+                                STATE.parent / 'browser_profile_leases.sqlite', row['lease_id'])
                             info.update(rotate_control(info["control_socket"]))
                             private_json(row["launch_file"], info)
                         except Exception:
@@ -1148,6 +1151,8 @@ def start(args):
             from browser_control import rotate_control
 
             try:
+                profiles.revoke_transfer_identity(
+                    STATE.parent / 'browser_profile_leases.sqlite', row['lease_id'])
                 rotated = rotate_control(info["control_socket"])
                 if rotated.get("fenced"):
                     info.update(rotated)

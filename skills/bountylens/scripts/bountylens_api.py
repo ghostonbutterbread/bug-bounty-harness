@@ -15,6 +15,7 @@ from typing import Any
 
 
 DEFAULT_BASE_URL = "https://bountylens.com"
+USER_AGENT = "bountylens-skill/1.0"
 
 
 def parse_env_file(path: Path) -> dict[str, str]:
@@ -99,6 +100,9 @@ def request(args: argparse.Namespace) -> int:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
             "Accept": "application/json",
+            # urllib's default Python-urllib/x.y UA is rejected by the edge with
+            # Cloudflare error 1010 (browser_signature_banned) before auth runs.
+            "User-Agent": USER_AGENT,
         },
     )
 

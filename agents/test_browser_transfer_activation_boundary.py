@@ -1,6 +1,7 @@
 """Deterministic fixture activation/cancellation terminal-state tests."""
 import importlib.util
 import json
+import traceback
 from pathlib import Path
 
 import httpx
@@ -13,7 +14,8 @@ spec.loader.exec_module(manager)
 import browser_profile_lease as profiles
 
 
-@pytest.mark.parametrize('fault', ['before', 'after', 'lost-ack', None])
+@pytest.mark.parametrize('fault', ['before', 'after', 'lost-ack', None,
+                                   'secondary-stop', 'secondary-readback'])
 @pytest.mark.parametrize('stop_succeeds', [True, False])
 def test_activation_is_irreversible_only_after_verified_application(tmp_path, monkeypatch, fault, stop_succeeds):
     monkeypatch.setattr(manager, 'STATE', tmp_path / 'manager.sqlite')
@@ -46,6 +48,8 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
     stopped = []
     def stop(row):
         stopped.append(row['lease_id'])
+        if fault == 'secondary-stop':
+            raise SystemExit(secret)
         if stop_succeeds:
             state['destination']['available'] = False
         return stop_succeeds
@@ -73,6 +77,8 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
                 s['rotated'] = True
                 return Response({'quarantined': True, 'cdp_url': new})
             if action == 'activate':
+                if fault in ('secondary-stop', 'secondary-readback'):
+                    raise KeyboardInterrupt()
                 if fault == 'before':
                     raise KeyboardInterrupt(secret)
                 s['quarantined'], s['available'] = False, True
@@ -99,6 +105,8 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
             return Response({'result': {'result': {'value': value}}})
         def get(self, url):
             assert url.endswith('/identity')
+            if self.side == 'destination' and fault == 'secondary-readback' and state['destination'].get('rotated'):
+                raise SystemExit(secret)
             s = state[self.side]
             return Response({'available': s['available'], 'quarantined': s['quarantined'],
                              'process_identity': infos[0]['process_identity'],
@@ -110,13 +118,18 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
     def json_load_url(path): return json.loads(Path(path).read_text())['cdp_url']
     monkeypatch.setattr(httpx, 'HTTPTransport', lambda *, uds: type('Transport', (), {'uds': uds})())
     monkeypatch.setattr(httpx, 'Client', Client)
-    if fault == 'before':
+    if fault in ('before', 'secondary-stop', 'secondary-readback'):
         with pytest.raises(KeyboardInterrupt) as interrupted:
             manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
         notes = str(interrupted.value.__notes__)
         assert 'before verified activation' in notes
-        assert 'destination=' + ('disposed' if stop_succeeds else 'cleanup-incomplete') in notes
+        assert 'destination=' + ('disposed' if stop_succeeds and fault != 'secondary-stop' else 'cleanup-incomplete') in notes
         assert secret not in notes
+        if fault.startswith('secondary-'):
+            rendered = ''.join(traceback.format_exception(interrupted.value))
+            assert secret not in rendered
+            assert old not in rendered and new not in rendered
+            assert 'source=owner-preserved' in notes
         assert stopped == ['destination']
     else:
         result = manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
@@ -132,5 +145,6 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
     assert json_load_url(rows[0]['launch_file']) == old
     assert canonical['cdp_url'] == json_load_url(rows[1]['launch_file']) == new
     assert (canonical['owner_agent_id'], canonical['owner_run_id']) == ('agent', 'destination-run')
-    if fault == 'before':
-        assert not state['destination']['available']  # quarantine even when stop fails
+    if fault in ('before', 'secondary-stop', 'secondary-readback'):
+        assert not state['destination']['available']  # old public URL stays fenced
+        assert state['destination']['quarantined']

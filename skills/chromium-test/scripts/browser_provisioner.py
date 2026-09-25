@@ -430,7 +430,10 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                                              canonical['profile_dir'] == candidates[1][0]['profile_dir'] and
                                              canonical['manager_id'] == manager_id() and
                                              canonical['cdp_url'] == committed_url)
-                        except (OSError, ValueError, KeyError, httpx.HTTPError):
+                        except BaseException:
+                            # Readback is only evidence of activation, never a
+                            # new terminal decision or a replacement for the
+                            # original pre-commit interruption.
                             pass
                     # A missing ACK without exact readback is not success. Keep
                     # pre-activation cancellation distinct from post-activation commit.
@@ -442,11 +445,11 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                     # ticket cannot be relied on to fence an imported destination.
                     # Dispose only the exact recorded unit, while still holding the
                     # manager/canonical ownership locks; never leave it serving CDP.
+                    terminal_disposition = True  # One exact stop attempt, even if interrupted.
                     try:
                         disposed = stop_recorded(candidates[1][0])
-                    except (OSError, ValueError):
+                    except BaseException:
                         disposed = False
-                    terminal_disposition = True
                     if interruption is not None:
                         interruption.add_note(
                             'fixture transfer interrupted before verified activation; source='

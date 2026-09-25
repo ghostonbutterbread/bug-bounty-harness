@@ -7,9 +7,9 @@
 - **Intended integration target:** `beta`, only after separate review and decision; no merge/push authorized here
 - **Last updated:** 2026-09-25
 - **Owning feature branch/ref:** `feat/browser-stopped-clone-feasibility`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Inspiration:** prior isolated `feat/browser-offline-snapshot` tip `015ff42`. Its `agents/browser_offline_snapshot.py` and synthetic tests were copied unchanged from that isolated checkout into this beta-derived branch because its Git objects were not available in this checkout. This does **not** imply that earlier branch was merged.
+- **Latest immutable recovery checkpoint:** `9dfa0a4b71d15fc580eca97de6a82492e53b1163`
+- **Feature implementation commit(s):** `9dfa0a4b71d15fc580eca97de6a82492e53b1163`
+- **Inspiration:** prior isolated `feat/browser-offline-snapshot` tip `015ff42`. Its `agents/browser_offline_snapshot.py` was copied unchanged; its synthetic tests were copied except for removing the legacy direct-Chrome localStorage canary and unused imports. The Git objects were not available in this beta-derived checkout. This does **not** imply that earlier branch was merged.
 
 ## Intent and implemented contract
 
@@ -36,10 +36,10 @@ Opt-in disposable loopback HTTP fixture, fixture-only manager database and three
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/browser-stopped-clone-feasibility`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** collect final receipts, review staged diff, commit experiment only; do not merge or push beta.
-- **Working-tree state:** experimental files pending final verification.
+- **Latest immutable recovery checkpoint:** `9dfa0a4b71d15fc580eca97de6a82492e53b1163`
+- **Feature implementation commit(s):** `9dfa0a4b71d15fc580eca97de6a82492e53b1163`
+- **Exact resume point:** independently review experiment and intermittent storage persistence; decide whether to retain this fixture branch. Do not merge or push beta without an explicit integration decision.
+- **Working-tree state at handoff:** clean after dossier-only checkpoint commit.
 
 ## Decision gates
 

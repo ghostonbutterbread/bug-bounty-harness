@@ -216,22 +216,19 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
             evaluate(destination, "localStorage.setItem('fixture-credential', 'approved')")
             assert manager.manager_fixture_apply(leases[1], generation=1,
                 owner_agent_id='fixture-agent', owner_run_id='canary-1', approved_boundary=True) == {
-                    'status': 'auth-clone-unavailable', 'reason': 'destination-not-empty'}
+                    'status': 'auth-clone-unavailable', 'reason': 'recipient-approval-required'}
             assert manager.manager_fixture_pending(leases[1]) == {'status': 'pending', 'generation': 1}
             evaluate(destination, "localStorage.removeItem('fixture-credential')")
             assert manager.manager_fixture_apply(leases[1], generation=1,
                 owner_agent_id='fixture-agent', owner_run_id='canary-1', approved_boundary=True) == {
-                    'status': 'fixture-peer-applied', 'generation': 1}
-            assert manager.manager_fixture_pending(leases[1]) == {'status': 'applied', 'generation': 1}
-            destination = json.loads(Path(rows[1][1]).read_text())['cdp_url']
-            assert destination != urls[1]
-            with pytest.raises(Exception):
-                urllib.request.urlopen(urls[1] + '/json/version', timeout=2)
-            assert evaluate(destination, check) is True
+                    'status': 'auth-clone-unavailable', 'reason': 'recipient-approval-required'}
+            assert manager.manager_fixture_pending(leases[1]) == {'status': 'pending', 'generation': 1}
+            assert json.loads(Path(rows[1][1]).read_text())['cdp_url'] == urls[1]
+            assert evaluate(destination, check) is False
             assert evaluate(source, check) is True
             assert evaluate(source, 'location.href') == source_url
             assert evaluate(source, 'document.cookie') == ''
-            print('manager native canary: two isolated Chromes; app checks passed; source unchanged')
+            print('manager native canary: two isolated Chromes; unapproved peer unchanged')
         finally:
             for lid in reversed(leases):
                 command('release', '--lease-id', lid, '--agent-id', 'fixture-agent',

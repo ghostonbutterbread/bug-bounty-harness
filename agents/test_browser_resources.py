@@ -404,6 +404,8 @@ def bridge(monkeypatch):
     b.inflight = 0
     b.reserved_until = 0
     b.frozen = False
+    b.transfer = None
+    b.quarantined = False
     monkeypatch.setattr("browser_control.time.monotonic", lambda: 7200)
     return b
 

@@ -77,8 +77,816 @@ def db():
         if name not in columns:
             c.execute(f"alter table task_proxies add column {name} {definition}")
     c.execute("CREATE TABLE IF NOT EXISTS finished_proxies (agent_id TEXT NOT NULL, run_id TEXT NOT NULL, lane TEXT NOT NULL, finished REAL NOT NULL, PRIMARY KEY(agent_id, run_id))")
+    # Fixture-only peer metadata. Never persist cookies, storage or a CDP URL here.
+    c.execute("""CREATE TABLE IF NOT EXISTS fixture_generations (
+        program TEXT NOT NULL, auth_domain TEXT NOT NULL, account TEXT NOT NULL,
+        generation INTEGER NOT NULL, source_lease TEXT NOT NULL,
+        source_identity TEXT NOT NULL, contract_revision TEXT NOT NULL,
+        origin TEXT NOT NULL, PRIMARY KEY(program, auth_domain, account))""")
+    c.execute("""CREATE TABLE IF NOT EXISTS fixture_peers (
+        lease_id TEXT PRIMARY KEY, program TEXT NOT NULL, auth_domain TEXT NOT NULL,
+        account TEXT NOT NULL, generation INTEGER NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('pending','applying','applied')))""")
     return c
 
+
+def manager_id():
+    """Identity of this node's manager store, not a caller-provided lease label."""
+    return hashlib.sha256(str(STATE.resolve()).encode()).hexdigest()
+
+
+def manager_transfer_attestation_gate(source_lease_id, destination_lease_id):
+    """Private manager-only preflight. Never issue a grant without native auth proof.
+
+    Neither /identity nor a ready CDP endpoint attests authenticated app state,
+    and no app-native browser verification/generation contract exists here yet.
+    Lease IDs are selectors only; no caller-supplied identity is trusted.
+    """
+    unavailable = {'status': 'auth-clone-unavailable', 'reason': 'manager-identity-unverified'}
+    if (not isinstance(source_lease_id, str) or not isinstance(destination_lease_id, str)
+            or not source_lease_id or not destination_lease_id
+            or source_lease_id == destination_lease_id):
+        return unavailable
+    import browser_profile_lease as profiles
+    with node_lock(STATE):
+        with db() as manager_db, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+            profiles.init_db(leases)
+            leases.execute('BEGIN IMMEDIATE')
+            if not _transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id):
+                return unavailable
+            # Missing: an app-native verification hook bound to each exact pipe
+            # generation. Do not materialize an auth_generation, identity, or grant.
+            return {'status': 'auth-clone-unavailable', 'reason': 'attestation-hook-unavailable'}
+
+def _fixture_policy_pool(manager_db, leases, source_id, destination_id):
+    """Read-only exact fixture pool evidence before any browser health probe.
+
+    A mismatch defers to the full candidate gate; it never grants transfer.
+    Called only under the manager node lock and canonical write transaction.
+    """
+    if not source_id or not destination_id or source_id == destination_id:
+        return None
+    for lid in (source_id, destination_id):
+        row = manager_db.execute('SELECT * FROM browsers WHERE lease_id=?', (lid,)).fetchone()
+        canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (lid,)).fetchone()
+        if (not row or not canonical or row['state'] != 'running'
+                or canonical['status'] != 'active' or canonical['browser_status'] != 'running'
+                or canonical['expires_at'] <= now()
+                or tuple(row[k] for k in ('program', 'auth_domain', 'account')) != FIXTURE_POOL
+                or any(canonical[k] != v for k, v in (
+                    ('program', row['program']), ('auth_domain', row['auth_domain']),
+                    ('account_alias', row['account']), ('owner_agent_id', row['agent_id']),
+                    ('owner_run_id', row['run_id']), ('profile_dir', row['profile_dir']),
+                    ('service_unit', row['unit']), ('manager_id', manager_id())))):
+            return None
+    return FIXTURE_POOL
+
+
+def _transfer_candidates(manager_db, leases, source_id, destination_id, *, ticketed=False):
+    """Derive both owners from canonical and manager state, never caller claims."""
+    import browser_profile_lease as profiles
+    if not source_id or not destination_id or source_id == destination_id:
+        return None
+    candidates = []
+    for lid in (source_id, destination_id):
+        row = manager_db.execute('SELECT * FROM browsers WHERE lease_id=?', (lid,)).fetchone()
+        canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (lid,)).fetchone()
+        if not row or not canonical or row['state'] != 'running' or canonical['status'] != 'active' or canonical['browser_status'] != 'running' or canonical['expires_at'] <= now():
+            return None
+        if any(canonical[key] != value for key, value in (
+            ('program', row['program']), ('auth_domain', row['auth_domain']),
+            ('account_alias', row['account']), ('owner_agent_id', row['agent_id']),
+            ('owner_run_id', row['run_id']), ('profile_dir', row['profile_dir']),
+            ('service_unit', row['unit']), ('manager_id', manager_id()))):
+            return None
+        info = record_info(row)
+        identity = info.get('process_identity')
+        physical = profiles.physical_profile(row['profile_dir'])
+        if (canonical['cdp_url'] != info.get('cdp_url')
+                or not physical or not identity or owner_state(identity) != 'active'
+                or not info.get('unit_invocation')
+                or info['unit_invocation'] != unit_identity(row['unit'])
+                or info.get('control_mode') != 'pipe-fenced' or
+                (not ticketed and not healthy(row)) or
+                (ticketed and (not unit_active(row['unit']) or
+                 process_identity(identity['pid']) != identity))):
+            return None
+        candidates.append((row, info, physical))
+    if (candidates[0][2] == candidates[1][2]
+            or candidates[0][0]['program'] != candidates[1][0]['program']
+            or candidates[0][0]['auth_domain'] != candidates[1][0]['auth_domain']
+            or candidates[0][0]['account'] != candidates[1][0]['account']):
+        return None
+    return candidates
+
+FIXTURE_POOL = ('fixture', 'fixture.invalid', 'anon')
+FIXTURE_CONTRACT_REVISION = 'localhost-me-host-session-storage-v1'
+
+
+def _fixture_origin(origin):
+    try:
+        parsed = urlsplit(origin)
+        return (parsed.scheme == 'http' and parsed.hostname == 'localhost'
+                and bool(parsed.port) and origin == f'http://localhost:{parsed.port}')
+    except (TypeError, ValueError):
+        return False
+
+
+def _fixture_identity(row, info):
+    # Opaque, non-secret binding to one physical browser generation and owner.
+    fields = (row['lease_id'], row['agent_id'], row['run_id'], row['profile_dir'],
+              row['unit'], info['unit_invocation'], info['process_identity'], info['cdp_url'])
+    return hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()
+
+
+def _fixture_owner(row, agent_id, run_id):
+    return row['agent_id'] == agent_id and row['run_id'] == run_id
+
+
+def _fixture_source(db_conn, leases, source_id, agent_id, run_id):
+    """Resolve an exact healthy source using the same manager/canonical gate."""
+    # The two-candidate predicate also requires an empty peer; a source-only
+    # promotion must instead validate against its own canonical row.
+    import browser_profile_lease as profiles
+    row = db_conn.execute('SELECT * FROM browsers WHERE lease_id=?', (source_id,)).fetchone()
+    canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (source_id,)).fetchone()
+    if not row or not canonical or not _fixture_owner(row, agent_id, run_id):
+        return None
+    if (tuple(row[k] for k in ('program', 'auth_domain', 'account')) != FIXTURE_POOL
+            or row['state'] != 'running' or canonical['status'] != 'active'
+            or canonical['browser_status'] != 'running' or canonical['expires_at'] <= now()
+            or any(canonical[k] != v for k, v in (
+                ('program', row['program']), ('auth_domain', row['auth_domain']),
+                ('account_alias', row['account']), ('owner_agent_id', agent_id),
+                ('owner_run_id', run_id), ('profile_dir', row['profile_dir']),
+                ('service_unit', row['unit']), ('manager_id', manager_id())))):
+        return None
+    info = record_info(row)
+    identity = info.get('process_identity')
+    if (not profiles.physical_profile(row['profile_dir']) or not identity
+            or owner_state(identity) != 'active' or not info.get('unit_invocation')
+            or info['unit_invocation'] != unit_identity(row['unit'])
+            or info.get('control_mode') != 'pipe-fenced'
+            or info.get('control_socket') != str(STATE.parent / (row['browser_id'] + '.sock'))
+            or canonical['cdp_url'] != info.get('cdp_url') or not healthy(row)):
+        return None
+    return row, info
+
+
+def _fixture_site_contract(origin):
+    if str(ROOT.parents[2]) not in sys.path:
+        sys.path.insert(0, str(ROOT.parents[2]))
+    from agents.browser_auth_site_contract import load_site_contract, SiteContractError
+    contract = load_site_contract(STATE.parent / 'fixture-site-contract.json',
+        program='fixture', auth_domain='fixture.invalid', account_alias='anon', origin=origin)
+    if (contract.cookie_name != '__Host-session' or contract.cookie_domain != 'localhost'
+            or contract.cookie_path != '/' or contract.local_storage_keys != ('fixture-credential',)):
+        raise SiteContractError('Unsupported fixture state')
+    return contract
+
+
+def _fixture_check_expression(contract):
+    # Fixed manager code: URL and selector are JSON data, not executable caller code.
+    return """(async () => {
+        const response = await fetch(URL, {redirect: 'manual', credentials: 'same-origin'});
+        const redirected = response.type === 'opaqueredirect' || response.status >= 300 && response.status < 400;
+        if (redirected) return {url: response.url, status: response.status, redirected: true, principal: ''};
+        const html = await response.text();
+        const element = new DOMParser().parseFromString(html, 'text/html').querySelector(SELECTOR);
+        return {url: response.url, status: response.status, redirected: false,
+                principal: element ? element.textContent.trim() : ''};
+    })()""".replace('URL', json.dumps(contract.check_url)).replace('SELECTOR', json.dumps(contract.principal_selector))
+
+
+def _fixture_verified_observation(contract, observation):
+    from agents.browser_auth_site_contract import SiteContractError, verify_check_response
+    try:
+        verify_check_response(contract, response_url=observation['url'],
+            status=observation['status'], redirected=observation['redirected'],
+            principal=observation['principal'])
+        return True
+    except (SiteContractError, KeyError, TypeError):
+        return False
+
+
+def _fixture_native_source_check(row, info, origin):
+    """Probe auth under an exact ticket; never infer release from an end ACK."""
+    import httpx
+    from agents.browser_auth_site_contract import SiteContractError, verify_cookie_scope
+    try:
+        contract = _fixture_site_contract(origin)
+    except SiteContractError:
+        return False
+    begin = {'transaction': uuid.uuid4().hex, 'owner': row['lease_id'],
+             'generation': info['cdp_url'], 'destination': False}
+    binding = {k: begin[k] for k in ('transaction', 'owner', 'generation')}
+    ticket = None
+    verified = False
+    interruption = None
+    with httpx.Client(transport=httpx.HTTPTransport(uds=info['control_socket']), timeout=15) as client:
+        # A failed begin may have applied. Replay only the manager-derived attempt.
+        for _ in range(2):
+            try:
+                response = client.post('http://localhost/transfer/begin', json=begin)
+                response.raise_for_status()
+                ticket = response.json()['ticket']
+                break
+            except BaseException as exc:
+                if not isinstance(exc, (OSError, ValueError, KeyError, httpx.HTTPError)):
+                    interruption = exc
+        if ticket and interruption is None:
+            def evaluate(expression):
+                response = client.post('http://localhost/transfer/call', json={
+                    **binding, 'ticket': ticket, 'method': 'Runtime.evaluate',
+                    'params': {'expression': expression, 'returnByValue': True, 'awaitPromise': True}})
+                response.raise_for_status()
+                result = response.json()
+                if 'error' in result or 'exceptionDetails' in result.get('result', {}):
+                    return None
+                return result['result']['result'].get('value')
+            try:
+                if evaluate('location.origin') == origin:
+                    observation = evaluate(_fixture_check_expression(contract))
+                    if (_fixture_verified_observation(contract, observation)
+                            and evaluate("localStorage.getItem('fixture-credential')") == 'approved'):
+                        response = client.post('http://localhost/transfer/call', json={
+                            **binding, 'ticket': ticket, 'method': 'Network.getAllCookies', 'params': {}})
+                        response.raise_for_status()
+                        cookies = response.json()['result']['cookies']
+                        selected = [c for c in cookies if c.get('name') == contract.cookie_name
+                                    and c.get('domain') == contract.cookie_domain
+                                    and c.get('path') == contract.cookie_path]
+                        if len(selected) == 1 and selected[0].get('httpOnly') is True:
+                            try:
+                                verify_cookie_scope(contract, browser_domain=selected[0]['domain'],
+                                    host_only=selected[0].get('hostOnly'), secure=selected[0].get('secure'),
+                                    browser_path=selected[0].get('path'))
+                                verified = True
+                            except SiteContractError:
+                                pass
+            except BaseException as exc:
+                if not isinstance(exc, (OSError, ValueError, KeyError, httpx.HTTPError)):
+                    interruption = exc
+        if ticket:
+            try:
+                response = client.post('http://localhost/transfer/end', json={**binding, 'ticket': ticket})
+                response.raise_for_status()
+            except BaseException as exc:
+                if interruption is None and not isinstance(exc, (OSError, ValueError, KeyError, httpx.HTTPError)):
+                    interruption = exc
+        # Even an applied end with a lost reply needs an independent exact
+        # adapter identity/availability readback. Never release another ticket.
+        released = False
+        try:
+            response = client.get('http://localhost/identity')
+            response.raise_for_status()
+            identity = response.json()
+            released = (identity.get('available') is True and identity.get('quarantined') is False
+                        and identity.get('cdp_url') == info['cdp_url']
+                        and identity.get('process_identity') == info['process_identity'])
+        except BaseException as exc:
+            if interruption is None and not isinstance(exc, (OSError, ValueError, KeyError, httpx.HTTPError)):
+                interruption = exc
+    if interruption is not None:
+        interruption.add_note('fixture promotion interrupted; source='
+                              + ('owner-preserved' if released else 'cleanup-incomplete'))
+        raise interruption.with_traceback(interruption.__traceback__)
+    return (True if verified and released and ticket else
+            'source-cleanup-incomplete' if not released else False)
+
+
+def manager_fixture_promote(source_lease_id, *, origin, owner_agent_id, owner_run_id):
+    """Owner-initiated fixture promotion; records no auth material."""
+    import browser_profile_lease as profiles
+    from agents.browser_auth_site_contract import SiteContractError
+    unavailable = lambda reason: {'status': 'auth-clone-unavailable', 'reason': reason}
+    if not _fixture_origin(origin) or not source_lease_id:
+        return unavailable('site-contract-unavailable')
+    with node_lock(STATE):
+        with db() as store, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+            profiles.init_db(leases)
+            leases.execute('BEGIN IMMEDIATE')
+            source = _fixture_source(store, leases, source_lease_id, owner_agent_id, owner_run_id)
+            if not source:
+                return unavailable('manager-identity-unverified')
+            try:
+                _fixture_site_contract(origin)
+            except SiteContractError:
+                return unavailable('site-contract-unavailable')
+            row, info = source
+            identity = _fixture_identity(row, info)
+            # Keep the ownership lock across the native check and metadata write:
+            # concurrent promotions cannot both publish from the same snapshot.
+            check = _fixture_native_source_check(row, info, origin)
+            if check is not True:
+                return unavailable('source-cleanup-incomplete' if check == 'source-cleanup-incomplete'
+                                   else 'source-app-check-failed')
+            source = _fixture_source(store, leases, source_lease_id, owner_agent_id, owner_run_id)
+            if not source or _fixture_identity(*source) != identity:
+                return unavailable('source-changed')
+            key = FIXTURE_POOL
+            old = store.execute('SELECT generation FROM fixture_generations WHERE program=? AND auth_domain=? AND account=?', key).fetchone()
+            generation = (old['generation'] if old else 0) + 1
+            store.execute('''INSERT INTO fixture_generations VALUES (?,?,?,?,?,?,?,?)
+                ON CONFLICT(program,auth_domain,account) DO UPDATE SET generation=excluded.generation,
+                source_lease=excluded.source_lease, source_identity=excluded.source_identity,
+                contract_revision=excluded.contract_revision, origin=excluded.origin''',
+                (*key, generation, source_lease_id, identity, FIXTURE_CONTRACT_REVISION, origin))
+            # Never overwrite a recipient in flight. An applying reservation is
+            # held only during transfer outside this lock; reject promotions then.
+            if store.execute("SELECT 1 FROM fixture_peers WHERE state='applying'").fetchone():
+                store.rollback()
+                return unavailable('peer-transfer-in-progress')
+            store.execute('''INSERT INTO fixture_peers VALUES (?,?,?,?,?, 'applied')
+                ON CONFLICT(lease_id) DO UPDATE SET program=excluded.program,
+                auth_domain=excluded.auth_domain, account=excluded.account,
+                generation=excluded.generation, state='applied' ''',
+                (source_lease_id, *key, generation))
+            for peer in store.execute("SELECT lease_id FROM browsers WHERE program=? AND auth_domain=? AND account=? AND lease_id<>?", (*key, source_lease_id)):
+                store.execute('''INSERT INTO fixture_peers VALUES (?,?,?,?,?, 'pending')
+                    ON CONFLICT(lease_id) DO UPDATE SET program=excluded.program,
+                    auth_domain=excluded.auth_domain, account=excluded.account,
+                    generation=excluded.generation, state='pending' ''',
+                    (peer['lease_id'], *key, generation))
+            return {'status': 'fixture-generation-promoted', 'generation': generation}
+
+
+def manager_fixture_pending(recipient_lease_id):
+    """Metadata-only readback; never an instruction to navigate a running peer."""
+    with db() as store:
+        peer = store.execute('SELECT * FROM fixture_peers WHERE lease_id=?', (recipient_lease_id,)).fetchone()
+        current = store.execute('SELECT * FROM browsers WHERE lease_id=?', (recipient_lease_id,)).fetchone()
+        if not peer or not current or tuple(current[k] for k in ('program', 'auth_domain', 'account')) != tuple(peer[k] for k in ('program', 'auth_domain', 'account')):
+            return {'status': 'auth-clone-unavailable', 'reason': 'pending-peer-unavailable'}
+        return {'status': peer['state'], 'generation': peer['generation']}
+
+
+def manager_fixture_apply(recipient_lease_id, *, generation, owner_agent_id, owner_run_id,
+                          approved_boundary=False):
+    """Fail closed until a manager-authenticated recipient approval channel exists."""
+    return {'status': 'auth-clone-unavailable', 'reason': 'recipient-approval-required'}
+
+
+def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, origin):
+    """Private fixture-only synchronous transfer; never a CLI or generic site API.
+
+    Only the disposable pool is supported. The manager selects a private
+    fixture contract; the caller cannot supply selectors, scripts or a path.
+    """
+    from urllib.parse import urlsplit
+    import browser_profile_lease as profiles
+    import httpx
+    if str(ROOT.parents[2]) not in sys.path:
+        sys.path.insert(0, str(ROOT.parents[2]))
+    from agents.browser_auth_site_contract import (SiteContractError, load_site_contract,
+        verify_check_response, verify_cookie_scope)
+    unavailable = lambda reason: {'status': 'auth-clone-unavailable', 'reason': reason}
+    parsed = urlsplit(origin) if isinstance(origin, str) else None
+    if (not parsed or parsed.scheme != 'http' or parsed.hostname != 'localhost'
+            or not parsed.port or parsed.path or parsed.query or parsed.fragment
+            or origin != f'http://localhost:{parsed.port}'
+            or not isinstance(source_lease_id, str) or not isinstance(destination_lease_id, str)):
+        return unavailable('site-contract-unavailable')
+
+    class TransferError(Exception):
+        pass
+
+    def require(condition, reason):
+        if not condition:
+            raise TransferError(reason)
+
+    bindings = {}
+
+    def control(client, path, payload=None):
+        payload = dict(payload or {})
+        if path != 'begin':
+            payload.update(bindings[id(client)])
+        response = client.post('http://localhost/transfer/' + path, json=payload)
+        response.raise_for_status()
+        return response.json()
+
+    def call(client, ticket, method, params=None):
+        reply = control(client, 'call', {'ticket': ticket, 'method': method, 'params': params or {}})
+        require('error' not in reply and 'result' in reply, 'browser-command-failed')
+        return reply['result']
+
+    def eval_js(client, ticket, expression):
+        result = call(client, ticket, 'Runtime.evaluate',
+                      {'expression': expression, 'returnByValue': True, 'awaitPromise': True})
+        require('exceptionDetails' not in result, 'app-check-failed')
+        return result.get('result', {}).get('value')
+
+    def app_check(client, ticket):
+        observation = eval_js(client, ticket, check)
+        return _fixture_verified_observation(contract, observation)
+    with node_lock(STATE):
+        with db() as manager_db, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+            profiles.init_db(leases)
+            leases.execute('BEGIN IMMEDIATE')
+            peer = manager_db.execute('SELECT 1 FROM fixture_peers WHERE lease_id=?',
+                                      (destination_lease_id,)).fetchone()
+            if peer:
+                return unavailable('recipient-approval-required')
+            # Policy flips must deny before healthy() probes either CDP endpoint.
+            # This read-only gate verifies both exact owners in manager/canonical
+            # rows; the full process, socket and health gate still follows.
+            pool = _fixture_policy_pool(manager_db, leases, source_lease_id, destination_lease_id)
+            if pool and profiles.single_browser_policy(leases, pool[0], pool[2], pool[1]):
+                return unavailable('single-browser-policy')
+            candidates = _transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id)
+            if not candidates:
+                return unavailable('manager-identity-unverified')
+            if any((row['program'], row['auth_domain'], row['account']) !=
+                   ('fixture', 'fixture.invalid', 'anon') for row, _, _ in candidates):
+                return unavailable('site-contract-unavailable')
+            if any(info.get('control_socket') != str(STATE.parent / (row['browser_id'] + '.sock'))
+                   for row, info, _ in candidates):
+                return unavailable('manager-identity-unverified')
+            # Both running owners may predate a policy flip. Resolve policy from
+            # their verified pool while the manager and canonical locks are held;
+            # never authenticate the second browser under effective single mode.
+            source_row = candidates[0][0]
+            if profiles.single_browser_policy(leases, source_row['program'],
+                                              source_row['account'], source_row['auth_domain']):
+                return unavailable('single-browser-policy')
+            try:
+                contract = _fixture_site_contract(origin)
+            except SiteContractError:
+                return unavailable('site-contract-unavailable')
+            check = _fixture_check_expression(contract)
+
+            # This is deliberately a fixture boundary, not a transport for
+            # authenticated production accounts or arbitrary origins.
+            clients = []
+            tickets = []
+            uncertain_begin = set()
+            imported = False
+            cleaned = True
+            destination_end_unverified = False
+            destination_quarantined = False
+            source_recheck_failed = False
+            committed_url = None
+            activated = False
+            activation_attempted = False
+            activation_fenced = False
+            readback_failure = None
+            terminal_disposition = False
+            reason = None
+            interruption = None
+            cleanup_failure = None
+            def published_receipt(probe, phase):
+                status = control(probe, 'status', {'ticket': tickets[1]})
+                identity = probe.get('http://localhost/identity')
+                identity.raise_for_status()
+                state = identity.json()
+                canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?',
+                                           (destination_lease_id,)).fetchone()
+                launch = record_info(candidates[1][0])
+                row, original, _ = candidates[1]
+                if not (status.get('phase') == phase and status.get('cdp_url') == committed_url and
+                        state.get('quarantined') is False and
+                        state.get('available') is (phase == 'finalized') and
+                        state.get('process_identity') == original['process_identity'] and
+                        state.get('cdp_url') == committed_url and
+                        process_identity(original['process_identity']['pid']) == original['process_identity'] and
+                        unit_active(row['unit']) and unit_identity(row['unit']) == original['unit_invocation'] and
+                        launch.get('cdp_url') == committed_url and
+                        launch.get('process_identity') == original['process_identity'] and
+                        launch.get('unit_invocation') == original['unit_invocation'] and
+                        canonical is not None and canonical['status'] == 'active' and
+                        canonical['browser_status'] == 'running' and
+                        canonical['owner_agent_id'] == row['agent_id'] and
+                        canonical['owner_run_id'] == row['run_id'] and
+                        canonical['service_unit'] == row['unit'] and
+                        canonical['profile_dir'] == row['profile_dir'] and
+                        canonical['manager_id'] == manager_id() and
+                        canonical['cdp_url'] == committed_url):
+                    return False
+                # Exact public endpoint must accept the committed generation.
+                public = httpx.get(committed_url + '/json/version', timeout=5)
+                public.raise_for_status()
+                return public.json().get('webSocketDebuggerUrl') == committed_url.replace('http:', 'ws:') + '/devtools/browser'
+            # A post-import exception must not escape before exact recipient disposal.
+            try:
+                try:
+                    for index, (row, info, _) in enumerate(candidates):
+                        client = httpx.Client(transport=httpx.HTTPTransport(uds=info['control_socket']), timeout=15)
+                        clients.append(client)
+                        begin = {'transaction': uuid.uuid4().hex, 'owner': row['lease_id'],
+                                 'generation': info['cdp_url'], 'destination': index == 1}
+                        bindings[id(client)] = {k: begin[k] for k in ('transaction', 'owner', 'generation')}
+                        try:
+                            ticket = control(client, 'begin', begin)['ticket']
+                        except BaseException as exc:
+                            # The adapter may have applied begin before its reply was
+                            # lost, including on cancellation. Replay only this
+                            # exact manager-derived attempt before releasing it.
+                            try:
+                                ticket = control(client, 'begin', begin)['ticket']
+                            except BaseException:
+                                ticket = None
+                                uncertain_begin.add(index)
+                            tickets.append(ticket)
+                            if isinstance(exc, (OSError, ValueError, httpx.HTTPError)):
+                                raise TransferError('transfer-control-unavailable') from exc
+                            raise
+                        tickets.append(ticket)
+                    source, destination = clients
+                    st, dt = tickets
+                    require(eval_js(source, st, 'location.origin') == origin, 'source-origin-mismatch')
+                    source_url = eval_js(source, st, 'location.href')
+                    require(app_check(source, st), 'source-app-check-failed')
+                    # Destination must already be provisioned and at the exact origin;
+                    # never overwrite an authenticated or populated destination.
+                    require(eval_js(destination, dt, 'location.origin') == origin, 'destination-origin-mismatch')
+                    require(not app_check(destination, dt), 'destination-not-empty')
+                    require(eval_js(destination, dt, "localStorage.getItem('fixture-credential')") is None,
+                            'destination-not-empty')
+                    cookies = call(source, st, 'Network.getAllCookies')['cookies']
+                    selected = [c for c in cookies if c['domain'] == contract.cookie_domain
+                                and c['name'] == contract.cookie_name and c.get('path') == contract.cookie_path]
+                    require(len(selected) == 1 and selected[0].get('httpOnly') is True,
+                            'source-cookie-unverified')
+                    try:
+                        verify_cookie_scope(contract, browser_domain=selected[0]['domain'],
+                            host_only=selected[0].get('hostOnly'), secure=selected[0].get('secure'),
+                            browser_path=selected[0].get('path'))
+                    except SiteContractError:
+                        raise TransferError('source-cookie-unverified') from None
+                    existing = call(destination, dt, 'Network.getAllCookies')['cookies']
+                    require(not any(c['domain'] == contract.cookie_domain for c in existing), 'destination-not-empty')
+                    storage = eval_js(source, st, "localStorage.getItem('fixture-credential')")
+                    require(storage == 'approved', 'source-storage-unverified')
+                    imported = True  # cleanup even if the CDP write succeeds but its reply is lost
+                    call(destination, dt, 'Network.setCookies', {'cookies': selected})
+                    eval_js(destination, dt, 'localStorage.setItem(' + json.dumps('fixture-credential') + ',' + json.dumps(storage) + ')')
+                    require(app_check(destination, dt), 'destination-app-check-failed')
+                    # Any failure in the post-import source recheck must dispose the
+                    # imported recipient, including a lost source command reply.
+                    source_recheck_failed = True
+                    require(app_check(source, st) and eval_js(source, st, 'location.href') == source_url,
+                            'source-changed')
+                    source_recheck_failed = False
+                    require(bool(_transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id,
+                                                      ticketed=True)),
+                            'manager-identity-changed')
+                    # Manager/canonical ownership stays serialized by node lock and
+                    # BEGIN IMMEDIATE; the adapter's exclusive ticket fences CDP.
+                except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError) as exc:
+                    reason = str(exc) if isinstance(exc, TransferError) else 'transfer-control-unavailable'
+                except BaseException as exc:
+                    if imported:
+                        raise  # The outer boundary owns imported-recipient disposal.
+                    interruption = exc
+                    reason = 'transfer-interrupted'
+                finally:
+                    active_failure = sys.exc_info()[1]
+                    if imported:
+                        try:
+                            if reason:
+                                destination, dt = clients[1], tickets[1]
+                                call(destination, dt, 'Network.deleteCookies',
+                                     {'name': contract.cookie_name, 'url': origin + '/'})
+                                eval_js(destination, dt, "localStorage.removeItem('fixture-credential')")
+                                cleaned = (not app_check(destination, dt) and
+                                           eval_js(destination, dt, "localStorage.getItem('fixture-credential')") is None and
+                                           not any(c['domain'] == contract.cookie_domain for c in
+                                                   call(destination, dt, 'Network.getAllCookies')['cookies']))
+                        except BaseException as exc:
+                            cleaned = False
+                            if active_failure is None and interruption is None:
+                                cleanup_failure = exc
+                    for index, (client, ticket) in enumerate(zip(clients, tickets)):
+                        if index in uncertain_begin:
+                            cleaned = False
+                            continue
+                        if index == 1 and imported and (not cleaned or source_recheck_failed or cleanup_failure):
+                            # Keep the recipient private until exact disposal, even
+                            # when rollback appears clean after a source failure.
+                            continue
+                        try:
+                            if index == 1 and reason and cleaned:
+                                control(client, 'abort', {'ticket': ticket})
+                                continue
+                            control(client, 'end', {'ticket': ticket})
+                            if index == 1 and imported and not reason:
+                                destination_quarantined = True
+                        except BaseException as exc:
+                            if (not isinstance(exc, (OSError, ValueError, httpx.HTTPError))
+                                    and active_failure is None and interruption is None and cleanup_failure is None):
+                                cleanup_failure = exc
+                            if index == 1:
+                                cleaned = False
+                                if imported:
+                                    destination_end_unverified = True
+                            else:
+                                uncertain_begin.add(0)
+                    for client in clients:
+                        try:
+                            client.close()
+                        except BaseException as exc:
+                            if active_failure is None and interruption is None and cleanup_failure is None:
+                                cleanup_failure = exc
+                if cleanup_failure is not None:
+                    raise cleanup_failure.with_traceback(cleanup_failure.__traceback__)
+                if uncertain_begin:
+                    # A missing ticket or lost source-end reply is not proof of
+                    # release. Check only this manager-recorded process/generation;
+                    # never end an unrelated ticket or dispose the source.
+                    for index in tuple(uncertain_begin):
+                        try:
+                            with httpx.Client(transport=httpx.HTTPTransport(
+                                    uds=candidates[index][1]['control_socket']), timeout=15) as probe:
+                                reply = probe.get('http://localhost/identity')
+                                reply.raise_for_status()
+                                observed = reply.json()
+                                info = candidates[index][1]
+                                if (observed.get('available') is True and
+                                        observed.get('quarantined') is False and
+                                        observed.get('cdp_url') == info['cdp_url'] and
+                                        observed.get('process_identity') == info['process_identity']):
+                                    uncertain_begin.remove(index)
+                        except BaseException:
+                            pass
+                    if not imported:
+                        cleaned = True
+                source_unproved = 0 in uncertain_begin
+                if interruption is not None:
+                    interruption.add_note(
+                        'fixture transfer interrupted; source='
+                        + ('cleanup-incomplete' if source_unproved else 'owner-preserved')
+                        + '; destination='
+                        + ('cleanup-incomplete' if 1 in uncertain_begin else 'owner-preserved')
+                    )
+                    raise interruption.with_traceback(interruption.__traceback__)
+                # Resolve source uncertainty before any destination commit. Even a
+                # clean rollback cannot authorize release of an imported recipient
+                # when source release or the post-import recheck is unproved.
+                if (not reason and not uncertain_begin and not source_recheck_failed and
+                        cleaned and destination_quarantined and not destination_end_unverified):
+                    try:
+                        with httpx.Client(transport=httpx.HTTPTransport(uds=candidates[1][1]['control_socket']), timeout=15) as check_client:
+                            bindings[id(check_client)] = bindings[id(clients[1])]
+                            identity = check_client.get('http://localhost/identity')
+                            identity.raise_for_status()
+                            observed = identity.json()
+                            require(observed.get('quarantined') is True and
+                                    observed.get('cdp_url') == candidates[1][1]['cdp_url'] and
+                                    observed.get('process_identity') == candidates[1][1]['process_identity'],
+                                    'destination-identity-changed')
+                            # Source retains its owner and usable generation. Destination
+                            # remains private throughout commit; an ACK is not activation.
+                            committed = control(check_client, 'commit', {'ticket': tickets[1]})
+                            require(committed.get('quarantined') is True, 'commit-unverified')
+                            committed_url = committed['cdp_url']
+                            info = record_info(candidates[1][0])
+                            require(info.get('cdp_url') == candidates[1][1]['cdp_url'], 'destination-identity-changed')
+                            info['cdp_url'] = committed_url
+                            private_json(candidates[1][0]['launch_file'], info)
+                            leases.execute('UPDATE browser_profile_leases SET cdp_url=? WHERE lease_id=? AND cdp_url=?',
+                                           (committed_url, destination_lease_id, candidates[1][1]['cdp_url']))
+                            require(leases.execute('SELECT changes()').fetchone()[0] == 1, 'manager-identity-changed')
+                            leases.commit()
+                            activation_attempted = True
+                            require(control(check_client, 'activate', {'ticket': tickets[1]}).get('activated') is True,
+                                    'activation-unverified')
+                            # ACK alone is not an attestation of the published owner.
+                    except BaseException as exc:
+                        # The activate ACK (including a cancellation after application)
+                        # cannot decide ownership. Reconcile all three exact authorities
+                        # before treating the published recipient as committed.
+                        if not isinstance(exc, (TransferError, OSError, ValueError, KeyError, httpx.HTTPError)):
+                            interruption = exc
+                    if committed_url:
+                        try:
+                            with httpx.Client(transport=httpx.HTTPTransport(
+                                    uds=candidates[1][1]['control_socket']), timeout=15) as probe:
+                                bindings[id(probe)] = bindings[id(clients[1])]
+                                activated = published_receipt(probe, 'activated')
+                        except BaseException as exc:
+                            # Readback is only evidence of activation, never a
+                            # new terminal decision or a replacement for the
+                            # original pre-commit interruption.
+                            if interruption is None and not isinstance(exc, (OSError, ValueError, KeyError, httpx.HTTPError, TransferError)):
+                                readback_failure = exc
+                    if activated:
+                        # Retire the exact recovery ticket only after manager
+                        # ownership/commit evidence. A lost finalize reply is
+                        # not permission to leave an unverified public session.
+                        finalized = False
+                        try:
+                            with httpx.Client(transport=httpx.HTTPTransport(
+                                    uds=candidates[1][1]['control_socket']), timeout=15) as final_client:
+                                bindings[id(final_client)] = bindings[id(clients[1])]
+                                require(control(final_client, 'finalize', {'ticket': tickets[1]}).get('finalized') is True,
+                                        'finalize-unverified')
+                                finalized = published_receipt(final_client, 'finalized')
+                        except BaseException:
+                            try:
+                                with httpx.Client(transport=httpx.HTTPTransport(
+                                        uds=candidates[1][1]['control_socket']), timeout=15) as final_probe:
+                                    bindings[id(final_probe)] = bindings[id(clients[1])]
+                                    finalized = published_receipt(final_probe, 'finalized')
+                            except BaseException:
+                                pass
+                        if not finalized:
+                            # Ticket may still be live. Fence before exact disposal;
+                            # never report success with an unverified public recipient.
+                            activated = False
+                            reason = 'finalize-unverified'
+                    if activation_attempted and not activated:
+                        # A failed activate readback does not prove the URL is
+                        # private. Exact adapter recovery revokes admission and
+                        # closes already admitted clients before any stop attempt.
+                        # One retry handles an applied fence whose ACK was lost.
+                        for _ in range(2):
+                            try:
+                                with httpx.Client(transport=httpx.HTTPTransport(
+                                        uds=candidates[1][1]['control_socket']), timeout=15) as fence_client:
+                                    bindings[id(fence_client)] = bindings[id(clients[1])]
+                                    fenced = control(fence_client, 'fence', {'ticket': tickets[1]})
+                                    activation_fenced = (fenced.get('fenced') is True and
+                                                         fenced.get('quarantined') is True and
+                                                         fenced.get('cdp_url') not in (committed_url, candidates[1][1]['cdp_url']))
+                                    if activation_fenced:
+                                        break
+                            except BaseException:
+                                pass  # Never substitute an unsuccessful fence for disposal.
+                    # A missing ACK without exact readback is not success. Keep
+                    # pre-activation cancellation distinct from post-activation commit.
+                    destination_end_unverified = not activated
+                    if activated:
+                        interruption = None
+                if imported and (source_unproved or source_recheck_failed or destination_end_unverified):
+                    # The end may have applied even when its reply was lost. Its
+                    # ticket cannot be relied on to fence an imported destination.
+                    # Dispose only the exact recorded unit, while still holding the
+                    # manager/canonical ownership locks; never leave it serving CDP.
+                    terminal_disposition = True  # One exact stop attempt, even if interrupted.
+                    try:
+                        disposed = stop_recorded(candidates[1][0])
+                        stop_failure = None
+                    except BaseException as exc:
+                        disposed = False
+                        stop_failure = exc
+                    terminal_note = (
+                        'fixture transfer terminal activation uncertain; source='
+                        + ('release-unverified' if source_unproved else 'owner-preserved')
+                        + '; destination=' + ('disposed' if disposed else 'cleanup-incomplete')
+                        + ('; public-exposure=possible' if activation_attempted else '')
+                        + ('; public-fence=' + ('verified' if activation_fenced else 'unverified') if activation_attempted else '')
+                    )
+                    if interruption is not None:
+                        interruption.add_note(
+                            'fixture transfer interrupted before verified activation; source='
+                            + ('release-unverified' if source_unproved else 'owner-preserved')
+                            + '; destination=' + ('disposed' if disposed else 'cleanup-incomplete')
+                            + ('; public-exposure=possible' if activation_attempted else '')
+                            + ('; public-fence=' + ('verified' if activation_fenced else 'unverified') if activation_attempted else '')
+                        )
+                        raise interruption.with_traceback(interruption.__traceback__)
+                    if readback_failure is not None or stop_failure is not None:
+                        failure = readback_failure or stop_failure
+                        assert failure is not None
+                        failure.add_note(terminal_note)
+                        raise failure.with_traceback(failure.__traceback__)
+                    if source_unproved:
+                        return {'status': 'auth-clone-unavailable', 'reason': 'source-cleanup-incomplete',
+                                'source': 'release-unverified',
+                                'destination': 'disposed' if disposed else 'cleanup-incomplete'}
+                    if source_recheck_failed:
+                        return {'status': 'auth-clone-unavailable', 'reason': reason or 'source-changed',
+                                'source': 'owner-preserved',
+                                'destination': 'disposed' if disposed else 'cleanup-incomplete'}
+                    if disposed:
+                        return unavailable('destination-disposed-after-end-uncertainty')
+                    if activation_attempted:
+                        if activation_fenced:
+                            return {'status': 'auth-clone-unavailable',
+                                    'reason': 'destination-fenced-after-activation-uncertainty',
+                                    'source': 'owner-preserved', 'destination': 'fenced'}
+                        return {'status': 'fixture-auth-transfer-terminal-uncertain',
+                                'source': 'owner-preserved', 'destination': 'cleanup-incomplete',
+                                'public_exposure': 'possible'}
+                    return unavailable('destination-cleanup-incomplete')
+                if uncertain_begin:
+                    return unavailable(('source' if source_unproved else 'destination') + '-cleanup-incomplete')
+                if not cleaned:
+                    return unavailable('destination-cleanup-unverified')
+                return unavailable(reason) if reason else {'status': 'fixture-auth-transferred'}
+            finally:
+                failure = sys.exc_info()[1]
+                if failure is not None and imported and not activated and not terminal_disposition:
+                    try:
+                        disposed = stop_recorded(candidates[1][0])
+                    except BaseException:
+                        # Preserve the original cancellation/failure; a second
+                        # interruption cannot prove disposal.
+                        disposed = False
+                    failure.add_note(
+                        "fixture transfer interrupted; source release unverified; destination="
+                        + ("disposed" if disposed else "cleanup-incomplete")
+                    )
 
 def metadata(c, row):
     r = c.execute(
@@ -993,6 +1801,9 @@ def maintain(args):
                         from browser_control import rotate_control
 
                         try:
+                            import browser_profile_lease as profiles
+                            profiles.revoke_transfer_identity(
+                                STATE.parent / 'browser_profile_leases.sqlite', row['lease_id'])
                             info.update(rotate_control(info["control_socket"]))
                             private_json(row["launch_file"], info)
                         except Exception:
@@ -1148,6 +1959,8 @@ def start(args):
             from browser_control import rotate_control
 
             try:
+                profiles.revoke_transfer_identity(
+                    STATE.parent / 'browser_profile_leases.sqlite', row['lease_id'])
                 rotated = rotate_control(info["control_socket"])
                 if rotated.get("fenced"):
                     info.update(rotated)

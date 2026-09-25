@@ -73,6 +73,14 @@ class PipeBrowser:
         self.token = secrets.token_urlsafe(32)
         self.rotating = False
         self.frozen = False
+        self.transfer = None
+        self.transfer_destination = False
+        self.transfer_identity = None
+        self.quarantined = False
+        self.transfer_activated = False
+        self.transfer_fenced = False
+        self.finalized_identity = None
+        self.epoch = 0
         self.last_activity = time.time()
         self.last_use = time.monotonic()
         self.inflight = 0
@@ -115,7 +123,7 @@ class PipeBrowser:
                     event.pop("sessionId", None)
                 asyncio.create_task(ws.send_json(event))
 
-    async def call(self, method, params=None, session=None, generation=None):
+    async def call(self, method, params=None, session=None, generation=None, epoch=None):
         self.serial += 1
         identifier = self.serial
         future = self.loop.create_future()
@@ -129,7 +137,8 @@ class PipeBrowser:
             # outside the event loop and serialize to avoid interleaving.
             async with self.write_lock:
                 if generation is not None and (
-                    generation != self.token or self.rotating or self.frozen
+                    generation != self.token or epoch != self.epoch or self.rotating
+                    or self.frozen or (self.transfer and not self.transfer_activated) or self.quarantined
                 ):
                     raise ConnectionError("Controller generation revoked")
                 writing = asyncio.create_task(asyncio.to_thread(self._write, data))
@@ -160,7 +169,7 @@ class PipeBrowser:
                 continue
 
     async def route(self, request):
-        if self.rotating or request.match_info["token"] != self.token:
+        if self.rotating or (self.transfer and not self.transfer_activated) or self.quarantined or request.match_info["token"] != self.token:
             raise web.HTTPGone()
         suffix = request.match_info["suffix"]
         base = f"http://127.0.0.1:{self.port}/{self.token}"
@@ -193,6 +202,7 @@ class PipeBrowser:
         if not suffix.startswith("devtools/"):
             raise web.HTTPNotFound()
         generation = self.token
+        epoch = self.epoch
         if suffix.startswith("devtools/page/"):
             reply = await self.call(
                 "Target.attachToTarget",
@@ -203,11 +213,17 @@ class PipeBrowser:
         root = reply.get("result", {}).get("sessionId")
         if not root:
             raise web.HTTPServiceUnavailable()
-        if generation != self.token or self.rotating:
+        if generation != self.token or epoch != self.epoch or self.rotating or (self.transfer and not self.transfer_activated) or self.quarantined:
             await self.call("Target.detachFromTarget", {"sessionId": root})
             raise web.HTTPGone()
         ws = web.WebSocketResponse(max_msg_size=4 * 1024 * 1024)
         await ws.prepare(request)
+        # prepare yields to transfer_begin. Admission and registration must be
+        # on the same loop turn as begin's clients/inflight check.
+        if generation != self.token or epoch != self.epoch or self.rotating or (self.transfer and not self.transfer_activated) or self.quarantined:
+            await ws.close()
+            await self.detach(root)
+            return ws
         self.clients[ws] = {root}
         self.roots[ws] = root
         tasks = set()
@@ -227,7 +243,8 @@ class PipeBrowser:
                         }
                     )
                     return
-                if generation != self.token or self.rotating or self.frozen:
+                if (generation != self.token or epoch != self.epoch or self.rotating
+                        or self.frozen or (self.transfer and not self.transfer_activated) or self.quarantined):
                     raise ConnectionError("Controller unavailable")
                 # No await between admission and registration: freeze/recheck runs
                 # on this same loop, so a command cannot enter through the gap.
@@ -236,13 +253,13 @@ class PipeBrowser:
                     self.mark_activity()
                 try:
                     answer = await asyncio.wait_for(self.call(
-                        command["method"], command.get("params"), session, generation
+                        command["method"], command.get("params"), session, generation, epoch
                     ), 120)
                 finally:
                     self.inflight -= 1
                     if activity:
                         self.mark_activity()
-                if generation != self.token or self.rotating or ws.closed:
+                if generation != self.token or epoch != self.epoch or self.rotating or ws.closed:
                     return
                 child = answer.get("result", {}).get("sessionId")
                 if child:
@@ -259,7 +276,7 @@ class PipeBrowser:
 
         try:
             async for event in ws:
-                if generation != self.token or self.rotating:
+                if generation != self.token or epoch != self.epoch or self.rotating:
                     break
                 if event.type != web.WSMsgType.TEXT:
                     break
@@ -306,13 +323,16 @@ class PipeBrowser:
         return web.json_response({
             "process_identity": process_identity(self.process.pid),
             "cdp_url": f"http://127.0.0.1:{self.port}/{self.token}",
-            "available": not self.rotating and not self.frozen,
+            "available": not self.rotating and not self.frozen and not self.transfer and not self.quarantined,
+            "quarantined": self.quarantined,
         })
 
     async def activity(self, request):
         return web.json_response(self.activity_status())
 
     async def freeze(self, request):
+        if self.transfer or self.quarantined:
+            raise web.HTTPConflict()
         data = await request.json()
         idle = float(data["idle_seconds"])
         if not 0 <= idle <= 7200:
@@ -324,12 +344,16 @@ class PipeBrowser:
         return web.json_response({"frozen": True})
 
     async def thaw(self, request):
+        if self.transfer or self.quarantined:
+            raise web.HTTPConflict()
         # Manager uses this only after a failed stop and fresh exact runtime
         # health verification. Ownership and generation remain unchanged.
         self.frozen = False
         return web.json_response({"frozen": False})
 
     async def reserve(self, request):
+        if self.transfer or self.quarantined:
+            raise web.HTTPConflict()
         data = await request.json()
         seconds = float(data["seconds"])
         if not 0 <= seconds <= 3600 or self.frozen:
@@ -343,6 +367,8 @@ class PipeBrowser:
 
     async def rotate(self, request):
         # Only served on a mode-0600 Unix socket, never on the public TCP site.
+        if self.transfer or self.quarantined:
+            raise web.HTTPConflict()
         self.rotating = True
         self.token = secrets.token_urlsafe(32)
         try:
@@ -366,9 +392,180 @@ class PipeBrowser:
             self.reserved_until = 0
             self.mark_activity()
 
+    async def transfer_begin(self, request):
+        """Exclusive adapter generation for a synchronous manager transaction."""
+        data = await request.json()
+        identity = (data.get('transaction'), data.get('owner'), data.get('generation'))
+        if (any(not isinstance(value, str) or not value for value in identity)
+                or type(data.get('destination')) is not bool):
+            raise web.HTTPBadRequest()
+        # The same manager-owned attempt can recover a reply lost after begin
+        # applied. No new attempt or different owner may inherit its ticket.
+        if self.transfer and not self.rotating and self.transfer_identity == identity and self.transfer_destination == data['destination']:
+            return web.json_response({'ticket': self.transfer})
+        if identity[2] != f'http://127.0.0.1:{self.port}/{self.token}':
+            raise web.HTTPConflict()
+        if self.transfer or self.quarantined or self.rotating or self.frozen or self.inflight or self.clients:
+            raise web.HTTPConflict()
+        self.rotating = True
+        self.epoch += 1
+        self.transfer = secrets.token_urlsafe(32)
+        self.transfer_identity = identity
+        self.transfer_destination = data['destination']
+        self.finalized_identity = None
+        try:
+            if "result" not in await self.call("Browser.getVersion"):
+                raise web.HTTPServiceUnavailable()
+            return web.json_response({"ticket": self.transfer})
+        except BaseException:
+            self.transfer = None
+            self.transfer_identity = None
+            self.transfer_destination = False
+            raise
+        finally:
+            self.rotating = False
+
+    async def transfer_call(self, request):
+        data = await request.json()
+        method = data.get("method")
+        if method not in {"Runtime.evaluate", "Network.getAllCookies",
+                          "Network.setCookies", "Network.deleteCookies"}:
+            raise web.HTTPBadRequest()
+        async with self.transfer_lock:
+            if not self.transfer or not self._owns_transfer(data) or self.transfer_activated or self.transfer_fenced:
+                raise web.HTTPForbidden()
+            targets = await self.call("Target.getTargets")
+            pages = [t for t in targets.get("result", {}).get("targetInfos", []) if t.get("type") == "page"]
+            if len(pages) != 1:
+                raise web.HTTPConflict()
+            attachment = await self.call("Target.attachToTarget", {"targetId": pages[0]["targetId"], "flatten": True})
+            session = attachment.get("result", {}).get("sessionId")
+            if not session:
+                raise web.HTTPServiceUnavailable()
+            try:
+                reply = await self.call(method, data.get("params", {}), session)
+            finally:
+                await self.detach(session)
+        return web.json_response(reply)
+
+    async def transfer_end(self, request):
+        data = await request.json()
+        async with self.transfer_lock:
+            if not self.transfer or not self._owns_transfer(data) or self.transfer_activated or self.transfer_fenced:
+                raise web.HTTPForbidden()
+            if self.transfer_destination:
+                self.quarantined = True
+            else:
+                self.transfer = None
+                self.transfer_identity = None
+                self.transfer_destination = False
+            self.mark_activity()
+        return web.json_response({"ended": True})
+
+    async def transfer_commit(self, request):
+        """Rotate public control without yet exposing imported auth."""
+        data = await request.json()
+        async with self.transfer_lock:
+            if not self.quarantined or not self.transfer or not self._owns_transfer(data) or self.transfer_fenced:
+                raise web.HTTPForbidden()
+            self.token = secrets.token_urlsafe(32)
+            self.epoch += 1
+            return web.json_response({'cdp_url': f'http://127.0.0.1:{self.port}/{self.token}',
+                                      'quarantined': True})
+
+    async def transfer_abort(self, request):
+        """Release only a manager-verified empty destination, never an uncertain one."""
+        data = await request.json()
+        async with self.transfer_lock:
+            if (not self.transfer or not self._owns_transfer(data) or not self.transfer_destination
+                    or self.transfer_activated or self.transfer_fenced):
+                raise web.HTTPForbidden()
+            self.transfer = None
+            self.transfer_identity = None
+            self.transfer_destination = False
+            self.quarantined = False
+            self.mark_activity()
+        return web.json_response({'aborted': True})
+
+    async def transfer_activate(self, request):
+        data = await request.json()
+        async with self.transfer_lock:
+            if not self.transfer or not self._owns_transfer(data) or self.transfer_fenced:
+                raise web.HTTPForbidden()
+            if self.transfer_activated:
+                return web.json_response({'activated': True})
+            if not self.quarantined:
+                raise web.HTTPForbidden()
+            self.transfer_activated = True
+            self.quarantined = False
+            self.mark_activity()
+        return web.json_response({'activated': True})
+
+    async def transfer_finalize(self, request):
+        """Manager-confirmed terminal commit; a fenced recipient cannot reopen."""
+        data = await request.json()
+        async with self.transfer_lock:
+            if not self._owns_transfer(data) or not self.transfer_activated or self.transfer_fenced or self.quarantined:
+                raise web.HTTPForbidden()
+            self.finalized_identity = (self.transfer, self.transfer_identity,
+                                       f'http://127.0.0.1:{self.port}/{self.token}')
+            self.transfer = None
+            self.transfer_identity = None
+            self.transfer_destination = False
+            self.transfer_activated = False
+        return web.json_response({'finalized': True})
+
+    async def transfer_status(self, request):
+        """Private exact-ticket receipt, distinct from manager availability."""
+        data = await request.json()
+        async with self.transfer_lock:
+            url = f'http://127.0.0.1:{self.port}/{self.token}'
+            identity = (data.get('transaction'), data.get('owner'), data.get('generation'))
+            if self._owns_transfer(data):
+                phase = ('fenced' if self.transfer_fenced else
+                         'activated' if self.transfer_activated and not self.quarantined else
+                         'quarantined' if self.quarantined else 'pending')
+            elif self.finalized_identity == (data.get('ticket'), identity, url):
+                phase = 'finalized'
+            else:
+                raise web.HTTPForbidden()
+            return web.json_response({'phase': phase, 'cdp_url': url})
+
+    async def transfer_fence(self, request):
+        """Exact-ticket recovery; revoke admission before any awaited detach."""
+        data = await request.json()
+        async with self.transfer_lock:
+            if not self._owns_transfer(data) or not self.transfer_destination:
+                raise web.HTTPForbidden()
+            if not self.transfer_fenced:
+                self.quarantined = True
+                self.token = secrets.token_urlsafe(32)
+                self.epoch += 1
+                # Pending attachments and commands fail on this loop turn.
+                # Keep the ticket on barrier failure for an exact retry.
+                for ws, sessions in list(self.clients.items()):
+                    for session in list(sessions):
+                        await self.detach(session)
+                    await ws.close()
+                    self.clients.pop(ws, None)
+                    self.roots.pop(ws, None)
+                barrier = await self.call('Browser.getVersion')
+                if 'result' not in barrier:
+                    raise web.HTTPServiceUnavailable()
+                self.transfer_fenced = True
+                self.transfer_activated = False
+            return web.json_response({'fenced': True, 'quarantined': True,
+                                      'cdp_url': f'http://127.0.0.1:{self.port}/{self.token}'})
+
+    def _owns_transfer(self, data):
+        return (bool(self.transfer) and data.get('ticket') == self.transfer
+                and (data.get('transaction'), data.get('owner'), data.get('generation'))
+                == self.transfer_identity)
+
     async def _serve(self, port, socket_path):
         self.diagnostics.mark("adapter-bind")
         self.write_lock = asyncio.Lock()
+        self.transfer_lock = asyncio.Lock()
         app = web.Application()
         app.router.add_route("*", "/{token}/{suffix:.*}", self.route)
         self.runner = web.AppRunner(app, access_log=None)
@@ -383,6 +580,15 @@ class PipeBrowser:
         control.router.add_post("/freeze", self.freeze)
         control.router.add_post("/thaw", self.thaw)
         control.router.add_post("/reserve", self.reserve)
+        control.router.add_post("/transfer/begin", self.transfer_begin)
+        control.router.add_post("/transfer/call", self.transfer_call)
+        control.router.add_post("/transfer/end", self.transfer_end)
+        control.router.add_post("/transfer/commit", self.transfer_commit)
+        control.router.add_post("/transfer/abort", self.transfer_abort)
+        control.router.add_post("/transfer/activate", self.transfer_activate)
+        control.router.add_post("/transfer/finalize", self.transfer_finalize)
+        control.router.add_post("/transfer/status", self.transfer_status)
+        control.router.add_post("/transfer/fence", self.transfer_fence)
         self.control_runner = web.AppRunner(control, access_log=None)
         await self.control_runner.setup()
         await web.UnixSite(self.control_runner, str(socket_path)).start()

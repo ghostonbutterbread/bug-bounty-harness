@@ -115,7 +115,14 @@ def stop_fixture_units(root):
             continue
         except PermissionError:
             continue  # Other users are not this fixture's task processes.
-        assert os.fsencode(root) not in command, "fixture process remains; retaining profiles"
+        # Match an owned path argument, not the test runner's command text:
+        # a terminal wrapper may quote this root in its invocation.
+        args = command.split(b'\0')
+        prefix = os.fsencode(root) + b'/'
+        assert not any(arg == os.fsencode(root) or arg.startswith(prefix) or
+                       arg.startswith(b'--user-data-dir=' + prefix) or
+                       arg == b'--user-data-dir=' + os.fsencode(root)
+                       for arg in args), "fixture process remains; retaining profiles"
 
 
 @contextlib.contextmanager

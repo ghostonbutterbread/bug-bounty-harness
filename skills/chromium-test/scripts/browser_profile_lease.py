@@ -36,6 +36,8 @@ DEFAULT_LEGACY_AUTH_DOMAIN = "legacy-global"
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 ANONYMOUS_PROFILE_ALIASES = ("anon", "anon1", "anon2")
 ANONYMOUS_PROFILE_PATTERN = re.compile(r"anon(?:[1-9][0-9]*)?$")
+PROGRAM_POLICY_SOURCES = ("agent", "operator")
+PROGRAM_POLICY_EVIDENCE = ("program-rules", "observed-session-limit", "observed-parallel-sessions", "operator-direction")
 
 
 def now() -> float:
@@ -121,6 +123,20 @@ def init_db(conn: sqlite3.Connection) -> None:
         """
     )
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(browser_profile_leases)")}
+    # Private transfer fence: existing rows have no attestation and remain ineligible.
+    # This table is intentionally not populated by migration or ordinary launch.
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS browser_transfer_identity (
+            lease_id TEXT PRIMARY KEY, service_unit TEXT NOT NULL,
+            process_start TEXT NOT NULL, root TEXT NOT NULL,
+            profile_identity TEXT NOT NULL, control_generation TEXT NOT NULL,
+            auth_generation TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS browser_transfer_grants (
+            grant_id TEXT PRIMARY KEY, source_lease TEXT NOT NULL,
+            destination_lease TEXT NOT NULL, source_identity TEXT NOT NULL,
+            destination_identity TEXT NOT NULL, expires_at REAL NOT NULL,
+            consumed_at REAL);
+    """)
     for name, definition in {
         "work_state": "TEXT NOT NULL DEFAULT 'active'",
         "profile_health": "TEXT NOT NULL DEFAULT 'unknown'",
@@ -194,6 +210,9 @@ def init_resource_policy(conn):
         CREATE TABLE IF NOT EXISTS browser_logout_reports (
             report_id TEXT PRIMARY KEY, lease_id TEXT NOT NULL, reported_at REAL NOT NULL,
             reason TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS browser_program_concurrency_policy (
+            program TEXT PRIMARY KEY, mode TEXT NOT NULL, source TEXT NOT NULL,
+            evidence TEXT NOT NULL, updated_at REAL NOT NULL);
     """)
 
 
@@ -289,13 +308,58 @@ def legacy_auto_conflict(conn, row, key, manager_id, automatic=False):
     return not marker or row['profile_dir'] != marker['profile_dir'] or row['manager_id'] != marker['manager_id'] or manager_id != marker['manager_id']
 
 def single_browser_policy(conn, program, alias, domain):
-    """One exact resolved account/domain policy, shared by selection and acquire."""
+    """Program single or exact account/domain single; multiple never relaxes a single."""
+    if program_policy(conn, program) == "single":
+        return True
     table = conn.execute("SELECT 1 FROM sqlite_master WHERE name='browser_concurrency_policy'").fetchone()
     policy = conn.execute(
         "SELECT mode FROM browser_concurrency_policy WHERE program=? AND account_alias=? AND auth_domain=?",
         (slug(program), slug(alias), domain),
     ).fetchone() if table else None
     return bool(policy and policy[0] == "single")
+
+
+def program_policy(conn, program):
+    """Legacy databases without this table retain exact-policy behavior."""
+    table = conn.execute("SELECT 1 FROM sqlite_master WHERE name='browser_program_concurrency_policy'").fetchone()
+    if not table:
+        return None
+    row = conn.execute("SELECT mode FROM browser_program_concurrency_policy WHERE program=?",
+                       (slug(program),)).fetchone()
+    return row[0] if row and row[0] in ("single", "multiple") else None
+
+
+def policy_metadata(value, allowed, field):
+    """Categorical evidence only: never accept free-form session data or echo it."""
+    if value not in allowed:
+        raise ValueError(f"invalid program policy {field}; use a documented category")
+    return value
+
+
+def cmd_set_program_policy(args):
+    source = policy_metadata(args.source, PROGRAM_POLICY_SOURCES, "source")
+    evidence = policy_metadata(args.evidence, PROGRAM_POLICY_EVIDENCE, "evidence")
+    mode = policy_metadata(args.mode, ("single", "multiple"), "mode")
+    program = slug(args.program)
+    with connect(state_db(args)) as conn:
+        init_resource_policy(conn)
+        conn.execute("INSERT OR REPLACE INTO browser_program_concurrency_policy VALUES(?,?,?,?,?)",
+                     (program, mode, source, evidence, now()))
+    return {"status": "policy-set", "program": program, "mode": mode,
+            "source": source, "evidence": evidence,
+            "effect": "future-acquisitions-only", "automatic_auth_retry": False}
+
+
+def cmd_show_program_policy(args):
+    program = slug(args.program)
+    with connect(state_db(args)) as conn:
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='browser_program_concurrency_policy'").fetchone():
+            row = conn.execute("SELECT mode, source, evidence, updated_at FROM browser_program_concurrency_policy WHERE program=?",
+                               (program,)).fetchone()
+        else:
+            row = None
+    return {"status": "ok", "program": program, "policy": dict(row) if row else None,
+            "effect": "future-acquisitions-only"}
 
 
 def cmd_policy(args):
@@ -679,6 +743,97 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
         }
 
 
+# Internal only: never expose these functions to CLI, HTTP, or the adapter.
+# The passed identities MUST be built by the manager from its own locked rows,
+# live physical/process evidence and independently maintained generations.
+# No production writer exists for browser_transfer_identity yet; migrations do
+# not invent authenticated state. An untrusted snapshot is not an attestation.
+_TRANSFER_FIELDS = ('lease_id', 'program', 'auth_domain', 'account_alias',
+                    'owner_agent_id', 'owner_run_id', 'manager_id', 'profile_dir',
+                    'service_unit', 'process_start', 'root', 'profile_identity',
+                    'control_generation', 'auth_generation')
+_PRIVATE_FIELDS = _TRANSFER_FIELDS[8:]
+_TRANSFER_UNAVAILABLE = {'status': 'auth-clone-unavailable'}
+
+
+def _transfer_snapshot(conn, identity):
+    try:
+        if any(not isinstance(identity[k], str) or not identity[k] for k in _TRANSFER_FIELDS):
+            return None
+    except (KeyError, TypeError):
+        return None
+    row = conn.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?',
+                       (identity['lease_id'],)).fetchone()
+    private = conn.execute('SELECT * FROM browser_transfer_identity WHERE lease_id=?',
+                           (identity['lease_id'],)).fetchone()
+    if (row is None or private is None or row['status'] != 'active'
+            or row['browser_status'] != 'running' or row['expires_at'] <= now()
+            or row['manager_id'] is None):
+        return None
+    if any(row[k] != identity[k] for k in _TRANSFER_FIELDS[:8]):
+        return None
+    if any(private[k] != identity[k] for k in _PRIVATE_FIELDS):
+        return None
+    # Deterministic canonical JSON is compared byte-for-byte at redemption.
+    return json.dumps({k: identity[k] for k in _TRANSFER_FIELDS}, sort_keys=True)
+
+
+def issue_transfer_grant(db_path, source, destination, *, ttl_seconds=30):
+    """One-use private fence; transaction shares the canonical handoff/release lock."""
+    with connect(db_path) as conn:
+        init_db(conn)
+        conn.execute('BEGIN IMMEDIATE')
+        src = _transfer_snapshot(conn, source)
+        dst = _transfer_snapshot(conn, destination)
+        if (not src or not dst or source['lease_id'] == destination['lease_id']
+                or source['profile_identity'] == destination['profile_identity']
+                or source['root'] == destination['root']
+                or any(source[k] != destination[k] for k in
+                       ('program', 'auth_domain', 'account_alias', 'manager_id'))
+                or not 0 < ttl_seconds <= 30):
+            return dict(_TRANSFER_UNAVAILABLE)
+        grant_id = uuid.uuid4().hex
+        conn.execute('INSERT INTO browser_transfer_grants VALUES (?, ?, ?, ?, ?, ?, NULL)',
+                     (grant_id, source['lease_id'], destination['lease_id'], src, dst,
+                      now() + ttl_seconds))
+        conn.commit()
+        return {'status': 'authorized', 'grant_id': grant_id}
+
+
+def consume_transfer_grant(db_path, grant_id, source, destination):
+    """Atomic redemption; mismatch burns the grant instead of allowing retry."""
+    with connect(db_path) as conn:
+        init_db(conn)
+        conn.execute('BEGIN IMMEDIATE')
+        row = conn.execute('SELECT * FROM browser_transfer_grants WHERE grant_id=?',
+                           (grant_id,)).fetchone()
+        if row is None or row['consumed_at'] is not None:
+            return dict(_TRANSFER_UNAVAILABLE)
+        conn.execute('UPDATE browser_transfer_grants SET consumed_at=? WHERE grant_id=?',
+                     (now(), grant_id))
+        valid = (row['expires_at'] > now()
+                 and row['source_identity'] == _transfer_snapshot(conn, source)
+                 and row['destination_identity'] == _transfer_snapshot(conn, destination))
+        conn.commit()
+        return {'status': 'authorized'} if valid else dict(_TRANSFER_UNAVAILABLE)
+
+
+def revoke_transfer_grants(conn, lease_id):
+    """Call inside the same canonical write transaction as handoff/release."""
+    conn.execute('UPDATE browser_transfer_grants SET consumed_at=? WHERE consumed_at IS NULL '
+                 'AND (source_lease=? OR destination_lease=?)', (now(), lease_id, lease_id))
+    conn.execute('DELETE FROM browser_transfer_identity WHERE lease_id=?', (lease_id,))
+
+
+def revoke_transfer_identity(db_path, lease_id):
+    """Manager calls under node_lock before rotating adapter control."""
+    with connect(db_path) as conn:
+        init_db(conn)
+        conn.execute('BEGIN IMMEDIATE')
+        revoke_transfer_grants(conn, lease_id)
+        conn.commit()
+
+
 def transfer_managed_lease(db_path, old_id, manager_id, agent_id, run_id, purpose, ttl, cdp_url, *, expected=None):
     """Atomic ownership rotation, invoked only after the provisioner's pipe fence."""
     timestamp = now()
@@ -706,6 +861,7 @@ def transfer_managed_lease(db_path, old_id, manager_id, agent_id, run_id, purpos
         values.update(lease_id=str(uuid.uuid4()), owner_agent_id=agent_id, owner_run_id=run_id,
                       purpose=purpose, heartbeat_at=timestamp, created_at=timestamp,
                       expires_at=timestamp+ttl, cdp_url=cdp_url, work_state='active')
+        revoke_transfer_grants(conn, old_id)
         conn.execute("UPDATE browser_profile_leases SET status='released', browser_status='handed-off', cdp_url=NULL, service_unit=NULL, work_state='terminal', release_disposition='handoff', released_at=? WHERE lease_id=?", (timestamp, old_id))
         columns = ','.join(values)
         placeholders = ','.join('?' for _ in values)
@@ -946,6 +1102,7 @@ def cmd_release(args: argparse.Namespace) -> dict[str, Any]:
         if row is None or row["owner_agent_id"] != args.agent_id or row["status"] != "active" or row["manager_id"] != getattr(args, "manager_id", None):
             conn.commit()
             return {"status": "not-owner-or-missing", "lease_id": args.lease_id}
+        revoke_transfer_grants(conn, args.lease_id)
         conn.execute(
             """
             UPDATE browser_profile_leases
@@ -1021,6 +1178,15 @@ def build_parser() -> argparse.ArgumentParser:
     policy.add_argument("--auth-domain", required=True)
     policy.add_argument("--mode", choices=("single", "multiple"), required=True)
     policy.set_defaults(func=cmd_policy)
+    program_policy_set = sub.add_parser("set-program-browser-policy", help="Set program concurrency default for future admissions; does not stop browsers or retry auth.")
+    program_policy_set.add_argument("program")
+    program_policy_set.add_argument("--mode", required=True, choices=("single", "multiple"))
+    program_policy_set.add_argument("--source", required=True, help="agent or operator; categorical, never a name or URL")
+    program_policy_set.add_argument("--evidence", required=True, help="program-rules, observed-session-limit, observed-parallel-sessions, or operator-direction; no free text")
+    program_policy_set.set_defaults(func=cmd_set_program_policy)
+    program_policy_show = sub.add_parser("show-program-browser-policy", help="Read back an exact program default (null when absent).")
+    program_policy_show.add_argument("program")
+    program_policy_show.set_defaults(func=cmd_show_program_policy)
     report = sub.add_parser("report-logout", help="Record passive caller evidence only; no inference or recovery.")
     report.add_argument("--lease-id", required=True)
     report.add_argument("--agent-id", required=True)
@@ -1038,6 +1204,9 @@ def main(argv: list[str] | None = None) -> int:
         args.selection_proof = sys.stdin.readline().strip()
     try:
         instance_key(args)
+        if args.command == "set-program-browser-policy":
+            policy_metadata(args.source, PROGRAM_POLICY_SOURCES, "source")
+            policy_metadata(args.evidence, PROGRAM_POLICY_EVIDENCE, "evidence")
     except ValueError as exc:
         parser.error(str(exc))
     result = args.func(args)

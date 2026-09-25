@@ -1,6 +1,6 @@
 # WAF exploration guidance integration dossier
 
-- **Status:** review-ready
+- **Status:** approved for beta integration
 - **Owner:** Hermes; card `t_9f145024`
 - **Branch / owning ref:** `docs/waf-exploration-guidance`
 - **Base commit:** `2d80b03af499a033a0b9a46c87b7e3a4eb61236c`
@@ -18,7 +18,7 @@ Carry the two source paragraphs into the canonical beta WAF skill. Add a narrow 
 
 - Alignment: `agents/index.md` places AI Policies before BBH mechanics; `waf-live-policy` owns filtering/challenge interpretation and low-rate scoped continuation; `blocker-first-analysis` and `hypothesis-expansion-policy` own the blocker and hypothesis decisions; `bypass` owns general bypass routing. `waf` owns runner/mechanics and a compact pointer to those decisions. No parallel testing rule is intended.
 - Tests and commands: `git diff --check`; focused `tests/test_skill_command_lane_safety.py::SkillCommandLaneSafetyTests::test_canonical_skills_do_not_teach_stale_checkout_or_import_routing` passed (1 test) using integration checkout `.venv` while running from feature worktree.
-- Independent review: pending.
+- Independent review: approved at `f5865cb`; exact paragraphs and policy owner/boundary confirmed. Reviewer reran diff check, focused skill-routing and four WAF-interceptor tests. Broader skill-command suite has one unrelated, pre-existing failure in the broad-goal-map integration dossier, reproduced on `origin/beta`; not a blocker for this diff.
 - Merge/ancestry: feature based on fetched `origin/beta` at base above; recheck before integration.
 
 ## Blockers and deferred work
@@ -42,3 +42,4 @@ No known blocker. Runtime activation is separate from publication: Aiskillsync b
 ## Decision record
 
 - 2026-09-25 — created from operator-selected WAF guidance; live-policy boundary added for alignment.
+- 2026-09-25 — independent review approved beta integration at `f5865cb`; runtime activation and stable promotion remain separate.

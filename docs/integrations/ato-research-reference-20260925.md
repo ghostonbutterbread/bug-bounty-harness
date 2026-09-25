@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-25
 - **Owning feature branch/ref:** `docs/ato-research-reference-20260925`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `e7c75356999296a93b7b2f9d6336c0ceecc42931`
+- **Feature implementation commit(s):** `e7c75356999296a93b7b2f9d6336c0ceecc42931`
 - **Inspiration / canonical references:** OWASP WSTG/Cheat Sheets, NIST SP 800-63B-4, OAuth Security BCP, OIDC Core, SAML guidance, WebAuthn, pre-hijacking research; source URLs and claim mapping live in `skills/ato/references/methods.md`.
 
 ## Intent
@@ -33,10 +33,10 @@ None known. Source breadth is necessarily non-exhaustive; future methods should 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/ato-research-reference-20260925`
-- **Latest immutable recovery checkpoint:** none yet (active work; commit before handoff)
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit the source-grounded reference and request independent source/route review, address blockers, then integrate into `beta`.
-- **Working-tree state at handoff:** intentionally uncommitted research draft.
+- **Latest immutable recovery checkpoint:** `e7c75356999296a93b7b2f9d6336c0ceecc42931` (reachable and an ancestor of this branch's tip)
+- **Feature implementation commit(s):** `e7c75356999296a93b7b2f9d6336c0ceecc42931`
+- **Exact resume point:** request independent source/route review of implementation commit and later dossier-only tip, address blockers, then integrate into `beta`.
+- **Working-tree state at handoff:** clean after this dossier update is committed; the branch tip includes a later dossier-only handoff commit.
 
 ## Decision gates
 

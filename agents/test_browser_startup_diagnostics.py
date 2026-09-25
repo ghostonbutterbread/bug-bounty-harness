@@ -1,11 +1,13 @@
 """Local-only deterministic startup failures and sanitized fixture retention."""
 import asyncio
+import builtins
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -42,6 +44,34 @@ def test_bounded_private_metadata_and_stderr(tmp_path):
     assert diag.path.stat().st_mode & 0o777 == 0o600
     assert diag.path.parent.stat().st_mode & 0o777 == 0o700
     assert not list(diag.path.parent.glob('.receipt-*'))
+
+
+def test_launcher_adapter_import_failure_records_safe_dependency_boundary(monkeypatch, tmp_path):
+    from agents.test_chromium_test_launcher import load_launcher_module
+    launcher = load_launcher_module()
+    diag = StartupDiagnostics('launcher', tmp_path / 'private')
+    monkeypatch.setattr(launcher, 'STARTUP', diag)
+    monkeypatch.setattr(launcher, 'is_provisioner_service_child', lambda: True)
+    monkeypatch.setattr(launcher, 'pick_port', lambda requested=None: 9444)
+    monkeypatch.setattr(launcher, 'find_chrome_binary', lambda explicit=None: '/usr/bin/chromium')
+    monkeypatch.setattr(sys, 'argv', ['chromium_test.py', 'fixture', '--profile-dir', str(tmp_path / 'profile'),
+                                   '--headless', '--no-proxy', '--proxy-cert-mode', 'none',
+                                   '--control-socket', str(tmp_path / 'control.sock')])
+    original_import = builtins.__import__
+
+    def missing_adapter(name, *args, **kwargs):
+        if name == 'browser_control':
+            raise ModuleNotFoundError(SECRET, name='private-secret-module')
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, '__import__', missing_adapter)
+    with pytest.raises(ModuleNotFoundError):
+        launcher.main()
+    text = diag.path.read_text()
+    assert diag.events[-1]['phase'] == 'adapter-import'
+    assert diag.events[-1]['outcome'] == 'failed'
+    assert diag.events[-1]['error_category'] == 'dependency'
+    assert SECRET not in text and 'private-secret-module' not in text
 
 
 def test_disabled_and_unwritable_diagnostics_do_not_change_errors(monkeypatch, tmp_path):
@@ -163,7 +193,7 @@ def test_failure_evidence_survives_deleted_profile(monkeypatch):
     monkeypatch.setattr(fixture, 'stop_fixture_units', lambda root: None)
     with pytest.raises(RuntimeError):
         with fixture.disposable_fixture_root() as (root, evidence):
-            diag = StartupDiagnostics('launcher', root / 'state/startup/attempt')
+            diag = StartupDiagnostics('launcher', root / 'state/startup/00000000-0000-0000-0000-000000000001')
             diag.mark('pipe-ready', 'failed', TimeoutError(SECRET))
             (root / 'profile').mkdir()
             (root / 'profile/cookies').write_text(SECRET)
@@ -176,6 +206,28 @@ def test_failure_evidence_survives_deleted_profile(monkeypatch):
     assert SECRET not in text
     assert (evidence / 'startup.json').stat().st_mode & 0o777 == 0o600
     shutil.rmtree(evidence)
+
+
+def test_preserved_startup_evidence_names_exact_unit_and_omits_untrusted_directory(tmp_path):
+    bid = str(uuid.uuid4())
+    startup = tmp_path / 'state/startup'
+    for label in (bid, 'secret-profile-token'):
+        directory = startup / label
+        directory.mkdir(parents=True)
+        (directory / 'launcher.json').write_text(json.dumps({
+            'events': [{'phase': 'adapter-import', 'outcome': 'failed',
+                        'error_category': 'dependency', 'elapsed_ms': 4}],
+            'started_monotonic_ms': 5, 'stderr_bytes_observed': 0,
+        }))
+    evidence = tmp_path / 'evidence'
+    evidence.mkdir()
+    fixture.preserve_startup_evidence(tmp_path, evidence, failed=True, cleanup_verified=True)
+    text = (evidence / 'startup.json').read_text()
+    data = json.loads(text)
+    assert len(data['snapshots']) == 1
+    assert data['snapshots'][0]['unit'] == 'browser-' + bid + '.service'
+    assert data['snapshots'][0]['events'][0]['error_category'] == 'dependency'
+    assert 'secret-profile-token' not in text
 
 
 def test_failed_stop_retains_profile_and_evidence(monkeypatch):

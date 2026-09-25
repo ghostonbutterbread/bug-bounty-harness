@@ -26,11 +26,15 @@ class BunnySkillTests(unittest.TestCase):
     def test_role_visible_agent_names(self):
         text = SKILL.read_text(encoding="utf-8")
         for role in ("hunter", "recon", "verifier", "reporter"):
-            self.assertIn(f"bunny-{role}-", text)
-        self.assertIn("Claude Code's Agent tool", text)
-        self.assertIn("unique, short `name`", text)
-        self.assertIn("role written only inside the prompt does not rename", text)
-        self.assertIn("alongside the ordinary scoped `description` and full task packet", text)
+            name = f"bunny-{role}"
+            self.assertIn(f"`{name}`", text)
+            agent = SKILL.parent / "agents" / f"{name}.md"
+            body = agent.read_text(encoding="utf-8")
+            self.assertTrue(body.startswith(f"---\nname: {name}\n"))
+            self.assertIn("description:", body)
+            self.assertIn("Follow the coordinator's scoped task packet", body)
+        self.assertIn("role written only in the prompt or `description`", text)
+        self.assertIn("instead of silently launching `general-purpose`", text)
 
     def test_registered(self):
         registry = (ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8")

@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 import pytest
 
@@ -28,13 +29,18 @@ def preserve_startup_evidence(root, destination, *, failed, cleanup_verified):
         if path.name not in {"manager.json", "launcher.json", "exec.json"}:
             continue
         try:
+            if str(uuid.UUID(path.parent.name)) != path.parent.name:
+                continue
+        except ValueError:
+            continue
+        try:
             with path.open() as stream:
                 data = json.loads(stream.read(16385))
             events = []
             for event in data.get("events", [])[:32]:
                 if (event.get("phase") not in StartupDiagnostics.PHASES
                     or event.get("outcome") not in {"begin", "ready", "failed"}
-                    or event.get("error_category") not in {"none", "timeout", "connection", "os-error", "unexpected"}
+                    or event.get("error_category") not in {"none", "dependency", "timeout", "connection", "os-error", "unexpected"}
                     or type(event.get("elapsed_ms")) is not int):
                     continue
                 events.append({key: event[key] for key in
@@ -44,7 +50,8 @@ def preserve_startup_evidence(root, destination, *, failed, cleanup_verified):
             count = data.get("stderr_bytes_observed", 0)
             started = data.get("started_monotonic_ms", 0)
             attempt = attempts.setdefault(path.parent.name, len(attempts) + 1)
-            snapshots.append({"attempt": attempt, "component": path.stem, "events": events,
+            snapshots.append({"attempt": attempt, "unit": "browser-" + path.parent.name + ".service",
+                              "component": path.stem, "events": events,
                               "started_monotonic_ms": started if type(started) is int else 0,
                               "stderr_bytes_observed": min(65536, max(0, count)) if type(count) is int else 0})
         except (OSError, ValueError, TypeError, AttributeError):

@@ -70,7 +70,7 @@ class StartupDiagnostics:
     """
 
     PHASES = frozenset({"dispatch", "publication", "registration", "launcher-entry",
-                        "preparation", "spawn", "adapter-bind", "pipe-ready",
+                        "preparation", "adapter-import", "spawn", "adapter-bind", "pipe-ready",
                         "auth-application", "record-publication", "exec"})
     LIMIT = 65536
 
@@ -88,7 +88,8 @@ class StartupDiagnostics:
             return
         assert phase in self.PHASES
         assert outcome in {"begin", "ready", "failed"}
-        category = ("timeout" if isinstance(error, TimeoutError) else
+        category = ("dependency" if isinstance(error, ImportError) else
+                    "timeout" if isinstance(error, TimeoutError) else
                     "connection" if isinstance(error, ConnectionError) else
                     "os-error" if isinstance(error, OSError) else
                     "unexpected" if error is not None else "none")

@@ -1109,7 +1109,8 @@ def main() -> int:
             result["command"] = command
         if not args.control_socket:
             return subprocess.Popen(command, **kwargs)
-        from browser_control import PipeBrowser
+        with STARTUP.phase("adapter-import"):
+            from browser_control import PipeBrowser
         with STARTUP.phase("spawn"):
             bridge = PipeBrowser(command, diagnostics=STARTUP, **kwargs)
         try:

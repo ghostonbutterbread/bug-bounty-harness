@@ -73,6 +73,7 @@ class PipeBrowser:
         self.token = secrets.token_urlsafe(32)
         self.rotating = False
         self.frozen = False
+        self.transfer = None
         self.last_activity = time.time()
         self.last_use = time.monotonic()
         self.inflight = 0
@@ -160,7 +161,7 @@ class PipeBrowser:
                 continue
 
     async def route(self, request):
-        if self.rotating or request.match_info["token"] != self.token:
+        if self.rotating or self.transfer or request.match_info["token"] != self.token:
             raise web.HTTPGone()
         suffix = request.match_info["suffix"]
         base = f"http://127.0.0.1:{self.port}/{self.token}"
@@ -227,7 +228,7 @@ class PipeBrowser:
                         }
                     )
                     return
-                if generation != self.token or self.rotating or self.frozen:
+                if generation != self.token or self.rotating or self.frozen or self.transfer:
                     raise ConnectionError("Controller unavailable")
                 # No await between admission and registration: freeze/recheck runs
                 # on this same loop, so a command cannot enter through the gap.
@@ -313,6 +314,8 @@ class PipeBrowser:
         return web.json_response(self.activity_status())
 
     async def freeze(self, request):
+        if self.transfer:
+            raise web.HTTPConflict()
         data = await request.json()
         idle = float(data["idle_seconds"])
         if not 0 <= idle <= 7200:
@@ -324,12 +327,16 @@ class PipeBrowser:
         return web.json_response({"frozen": True})
 
     async def thaw(self, request):
+        if self.transfer:
+            raise web.HTTPConflict()
         # Manager uses this only after a failed stop and fresh exact runtime
         # health verification. Ownership and generation remain unchanged.
         self.frozen = False
         return web.json_response({"frozen": False})
 
     async def reserve(self, request):
+        if self.transfer:
+            raise web.HTTPConflict()
         data = await request.json()
         seconds = float(data["seconds"])
         if not 0 <= seconds <= 3600 or self.frozen:
@@ -343,6 +350,8 @@ class PipeBrowser:
 
     async def rotate(self, request):
         # Only served on a mode-0600 Unix socket, never on the public TCP site.
+        if self.transfer:
+            raise web.HTTPConflict()
         self.rotating = True
         self.token = secrets.token_urlsafe(32)
         try:
@@ -366,6 +375,52 @@ class PipeBrowser:
             self.reserved_until = 0
             self.mark_activity()
 
+    async def transfer_begin(self, request):
+        """Exclusive adapter generation for a synchronous manager transaction."""
+        if self.transfer or self.rotating or self.frozen or self.inflight or self.clients:
+            raise web.HTTPConflict()
+        self.rotating = True
+        self.transfer = secrets.token_urlsafe(32)
+        try:
+            if "result" not in await self.call("Browser.getVersion"):
+                raise web.HTTPServiceUnavailable()
+            return web.json_response({"ticket": self.transfer})
+        except BaseException:
+            self.transfer = None
+            raise
+        finally:
+            self.rotating = False
+
+    async def transfer_call(self, request):
+        data = await request.json()
+        if not self.transfer or data.get("ticket") != self.transfer:
+            raise web.HTTPForbidden()
+        method = data.get("method")
+        if method not in {"Runtime.evaluate", "Network.getAllCookies",
+                          "Network.setCookies", "Network.deleteCookies"}:
+            raise web.HTTPBadRequest()
+        targets = await self.call("Target.getTargets")
+        pages = [t for t in targets.get("result", {}).get("targetInfos", []) if t.get("type") == "page"]
+        if len(pages) != 1:
+            raise web.HTTPConflict()
+        attachment = await self.call("Target.attachToTarget", {"targetId": pages[0]["targetId"], "flatten": True})
+        session = attachment.get("result", {}).get("sessionId")
+        if not session:
+            raise web.HTTPServiceUnavailable()
+        try:
+            reply = await self.call(method, data.get("params", {}), session)
+        finally:
+            await self.detach(session)
+        return web.json_response(reply)
+
+    async def transfer_end(self, request):
+        data = await request.json()
+        if not self.transfer or data.get("ticket") != self.transfer:
+            raise web.HTTPForbidden()
+        self.transfer = None
+        self.mark_activity()
+        return web.json_response({"ended": True})
+
     async def _serve(self, port, socket_path):
         self.diagnostics.mark("adapter-bind")
         self.write_lock = asyncio.Lock()
@@ -383,6 +438,9 @@ class PipeBrowser:
         control.router.add_post("/freeze", self.freeze)
         control.router.add_post("/thaw", self.thaw)
         control.router.add_post("/reserve", self.reserve)
+        control.router.add_post("/transfer/begin", self.transfer_begin)
+        control.router.add_post("/transfer/call", self.transfer_call)
+        control.router.add_post("/transfer/end", self.transfer_end)
         self.control_runner = web.AppRunner(control, access_log=None)
         await self.control_runner.setup()
         await web.UnixSite(self.control_runner, str(socket_path)).start()

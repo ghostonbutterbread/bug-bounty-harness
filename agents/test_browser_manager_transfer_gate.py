@@ -133,3 +133,30 @@ def test_manager_gate_serializes_with_node_ownership_change(tmp_path, monkeypatc
     worker.join(3)
     assert done.is_set()
     assert manager.manager_transfer_attestation_gate('source', 'destination')['reason'] == 'manager-identity-unverified'
+
+@pytest.mark.parametrize('mutation', ['handoff', 'rotation', 'cross-program'])
+def test_fixture_transfer_rejects_changed_source_or_scope_before_browser_io(tmp_path, monkeypatch, mutation):
+    canonical = candidates(tmp_path, monkeypatch)
+    if mutation == 'handoff':
+        with lease.connect(canonical) as db:
+            db.execute("UPDATE browser_profile_leases SET owner_run_id='next-owner' WHERE lease_id='source'")
+    elif mutation == 'rotation':
+        with manager.db() as db:
+            row = db.execute("SELECT * FROM browsers WHERE lease_id='source'").fetchone()
+            info = manager.record_info(row)
+            info['unit_invocation'] = 'rotated'
+            Path(row['launch_file']).write_text(json.dumps(info))
+    else:
+        with manager.db() as db:
+            db.execute("UPDATE browsers SET program='other-program' WHERE lease_id='destination'")
+        with lease.connect(canonical) as db:
+            db.execute("UPDATE browser_profile_leases SET program='other-program' WHERE lease_id='destination'")
+    assert manager.manager_fixture_auth_transfer('source', 'destination', origin='http://127.0.0.1:31337') == {
+        'status': 'auth-clone-unavailable', 'reason': 'manager-identity-unverified'}
+
+def test_fixture_transfer_has_no_generic_origin_or_production_contract(tmp_path, monkeypatch):
+    candidates(tmp_path, monkeypatch)
+    for origin in ('https://example.com', 'http://localhost:31337',
+                   'http://127.0.0.1:31337/other'):
+        assert manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)['reason'] == 'site-contract-unavailable'
+    assert manager.manager_fixture_auth_transfer('source', 'destination', origin='http://127.0.0.1:31337')['reason'] == 'site-contract-unavailable'

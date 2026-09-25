@@ -1,6 +1,6 @@
 # Chromium automatic NVK backend integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes
 - **Branch:** `fix/chromium-auto-vulkan`
 - **Base commit:** `3a25123` (`origin/beta`)
@@ -8,7 +8,7 @@
 - **Last updated:** 2026-09-25
 - **Owning feature branch/ref:** `fix/chromium-auto-vulkan`
 - **Latest immutable recovery checkpoint:** `aadaefb9bb1589d50315a080da01a33854bbcced`
-- **Feature implementation commit(s):** `aadaefb9bb1589d50315a080da01a33854bbcced`
+- **Feature implementation commit(s):** `aadaefb9bb1589d50315a080da01a33854bbcced`, `670d17e3319e12adeca5804fa681524e49b81a5e`
 - **Inspiration / canonical references:** Hoster Vulkan wrapper and `chromium-test` GPU guidance.
 
 ## Intent
@@ -23,7 +23,7 @@ For ordinary headed browser requests, the provisioner masks inherited `CHROMIUM_
 
 - Tests: `python3 -m pytest -q agents/test_chromium_test_launcher.py agents/test_browser_provisioner.py` — 89 passed locally. Regressions were red before implementation (missing detector and inherited wrapper masking).
 - Hoster evidence: `vulkaninfo --summary` lists NVK discrete `10de:1b82` and llvmpipe CPU; the existing wrapper sets `MESA_VK_DEVICE_SELECT=10de:1b82` plus Vulkan flags; headed GL path uses `--use-angle=gl`. Host `eglinfo -B` also exposes NV134 and llvmpipe, so it is not in-page proof.
-- Independent review: first review of `aab381d` found Hoster's user-manager retained the wrapper, blocking the automatic path; follow-up masks it per ordinary browser unit. Re-review pending.
+- **Independent review:** first review of `aab381d` found Hoster's user-manager retained the wrapper; follow-up `670d17e` masks it per ordinary browser unit. Independent re-review found no blocking code issue and reran 89 passing tests. Runtime in-page acceptance remains pending.
 - Merge/ancestry evidence: pending.
 
 ## Blockers and deferred work
@@ -34,9 +34,9 @@ For ordinary headed browser requests, the provisioner masks inherited `CHROMIUM_
 
 - **Owning feature branch/ref:** `fix/chromium-auto-vulkan`
 - **Latest immutable recovery checkpoint:** `aadaefb9bb1589d50315a080da01a33854bbcced`
-- **Feature implementation commit(s):** `aadaefb9bb1589d50315a080da01a33854bbcced`
-- **Exact resume point:** commit wrapper masking and tests, re-review, integrate beta, deploy Hoster, run disposable ordinary producer with in-page GPU check.
-- **Working-tree state at handoff:** wrapper-masking follow-up pending commit.
+- **Feature implementation commit(s):** `aadaefb9bb1589d50315a080da01a33854bbcced`, `670d17e3319e12adeca5804fa681524e49b81a5e`
+- **Exact resume point:** integrate reviewed branch into beta, deploy Hoster, run disposable ordinary producer with in-page GPU check.
+- **Working-tree state at handoff:** clean after documentation checkpoint.
 
 ## Decision gates
 
@@ -47,3 +47,4 @@ For ordinary headed browser requests, the provisioner masks inherited `CHROMIUM_
 ## Decision record
 
 - 2026-09-25 — created after tracing GLX-versus-Vulkan behavior and ordinary launcher selection.
+- 2026-09-25 — independently reviewed with no blocking code finding; activation awaits real in-page renderer acceptance on Hoster.

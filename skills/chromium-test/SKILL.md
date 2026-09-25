@@ -122,9 +122,10 @@ work:
    its own flags. A custom GL/Vulkan wrapper selected through the environment
    must use `--graphics-backend external` on the provisioner request; this
    task-scoped opt-out preserves its backend without guessing from the wrapper
-   filename. An environment wrapper used without that option receives the
-   default ANGLE/GL flags. Do not set a shared user-manager environment variable
-   merely to enable ordinary WebGL. If
+   filename. An auto-mode provisioner request masks the inherited wrapper;
+   a direct implementation-only launcher call with an environment wrapper but
+   without `external` receives the default ANGLE/GL flags. Do not set a shared
+   user-manager environment variable merely to enable ordinary WebGL. If
    in-page WebGL is absent, inspect the recorded Chrome command and display,
    release the exact browser, and treat the environment as blocked rather than
    mutating identity requests to compensate. A control write in a WebGL-less

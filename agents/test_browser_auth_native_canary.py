@@ -50,7 +50,7 @@ def navigate(url, target, expected=None):
 
 
 @pytest.mark.skipif(os.environ.get('BBH_AUTH_CANARY') != '1', reason='explicit local canary opt-in')
-@pytest.mark.parametrize('lost_reply,bad_check', [(None, None), ('bootstrap', None), ('end', None), ('commit', None),
+@pytest.mark.parametrize('lost_reply,bad_check', [(None, None), ('policy-flip', None), ('bootstrap', None), ('end', None), ('commit', None),
                                         (None, 'principal'), (None, 'redirect'), (None, 'domain-cookie'),
                                         ('begin-source', None), ('begin-destination', None),
                                         ('begin-source-unproved', None), ('begin-destination-unproved', None),
@@ -182,6 +182,49 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
                                         json={**begin, 'ticket': ticket}).status_code == 200
             assert evaluate(source, check) is True
             manager.STATE = Path(env['BROWSER_PROVISIONER_STATE'])
+            if lost_reply == 'policy-flip':
+                import browser_profile_lease as profiles
+                with profiles.connect(state_dir / 'browser_profile_leases.sqlite') as canonical:
+                    profiles.init_resource_policy(canonical)
+                    canonical.execute('INSERT INTO browser_program_concurrency_policy VALUES (?,?,?,?,?)',
+                                      ('fixture', 'single', 'agent', 'fixture-policy', 1))
+                    before = canonical.execute(
+                        'SELECT lease_id,program,account_alias,auth_domain,owner_agent_id,owner_run_id,'
+                        'profile_dir,status,browser_status,service_unit FROM browser_profile_leases '
+                        'ORDER BY lease_id').fetchall()
+                with sqlite3.connect(env['BROWSER_PROVISIONER_STATE']) as db:
+                    before_manager = db.execute(
+                        'SELECT lease_id,program,account,auth_domain,agent_id,run_id,profile_dir,unit,state '
+                        'FROM browsers ORDER BY lease_id').fetchall()
+                cdp_calls = []
+                transport_calls = []
+                original_cdp = profiles.local_cdp_version
+                original_transport = httpx.HTTPTransport
+                with monkeypatch.context() as patcher:
+                    def cdp(url):
+                        cdp_calls.append(url)
+                        return original_cdp(url)
+                    def transport(*args, **kwargs):
+                        transport_calls.append((args, kwargs))
+                        return original_transport(*args, **kwargs)
+                    patcher.setattr(profiles, 'local_cdp_version', cdp)
+                    patcher.setattr(httpx, 'HTTPTransport', transport)
+                    assert manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin) == {
+                        'status': 'auth-clone-unavailable', 'reason': 'single-browser-policy'}
+                assert cdp_calls == [] and transport_calls == []
+                with profiles.connect(state_dir / 'browser_profile_leases.sqlite') as canonical:
+                    assert canonical.execute(
+                        'SELECT lease_id,program,account_alias,auth_domain,owner_agent_id,owner_run_id,'
+                        'profile_dir,status,browser_status,service_unit FROM browser_profile_leases '
+                        'ORDER BY lease_id').fetchall() == before
+                with sqlite3.connect(env['BROWSER_PROVISIONER_STATE']) as db:
+                    assert db.execute(
+                        'SELECT lease_id,program,account,auth_domain,agent_id,run_id,profile_dir,unit,state '
+                        'FROM browsers ORDER BY lease_id').fetchall() == before_manager
+                    assert db.execute('SELECT count(*) FROM fixture_peers').fetchone()[0] == 0
+                assert evaluate(source, check) is True
+                assert evaluate(destination, check) is False
+                return
             if lost_reply is None:
                 evaluate(source, "localStorage.removeItem('fixture-credential')")
                 assert manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin) == {

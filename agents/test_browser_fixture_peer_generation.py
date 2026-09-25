@@ -139,17 +139,75 @@ def test_direct_transfer_policy_flip_on_two_running_browsers(
     class Admitted(Exception):
         pass
     import httpx
+    cdp_calls = []
+    transport_calls = []
+    original_cdp = lease.local_cdp_version
+    original_transport = httpx.HTTPTransport
+    def counted_cdp(url):
+        cdp_calls.append(url)
+        return original_cdp(url)
+    def counted_transport(*args, **kwargs):
+        transport_calls.append((args, kwargs))
+        return original_transport(*args, **kwargs)
+    monkeypatch.setattr(lease, 'local_cdp_version', counted_cdp)
+    monkeypatch.setattr(httpx, 'HTTPTransport', counted_transport)
     monkeypatch.setattr(httpx, 'Client', lambda *args, **kwargs: pytest.fail('browser I/O reached'))
     monkeypatch.setattr(manager, '_fixture_check_expression', lambda contract: (_ for _ in ()).throw(Admitted()))
     if denied:
         assert manager.manager_fixture_auth_transfer('source', 'destination', origin=ORIGIN) == {
             'status': 'auth-clone-unavailable', 'reason': 'single-browser-policy'}
+        assert cdp_calls == []
+        assert transport_calls == []
     else:
         with pytest.raises(Admitted):
             manager.manager_fixture_auth_transfer('source', 'destination', origin=ORIGIN)
+        assert len(cdp_calls) == 2
+        assert transport_calls == []
     with lease.connect(canonical) as store:
         assert [tuple(row) for row in store.execute('SELECT * FROM browser_profile_leases ORDER BY lease_id')] == before_leases
     with manager.db() as store:
         assert [tuple(row) for row in store.execute('SELECT * FROM browsers ORDER BY lease_id')] == before_manager
         assert [tuple(row) for row in store.execute('SELECT * FROM fixture_peers ORDER BY lease_id')] == before_peers
         assert [tuple(row) for row in store.execute('SELECT * FROM fixture_generations')] == before_generations
+
+
+@pytest.mark.parametrize('mutation,expected', [
+    ('other-program-policy', 'site-contract-unavailable'),
+    ('canonical-owner-mismatch', 'manager-identity-unverified'),
+    ('canonical-account-mismatch', 'manager-identity-unverified'),
+])
+def test_early_policy_denial_requires_exact_verified_fixture_pool(tmp_path, monkeypatch, mutation, expected):
+    canonical = setup(tmp_path, monkeypatch)
+    with lease.connect(canonical) as store:
+        lease.init_resource_policy(store)
+        store.execute('INSERT INTO browser_program_concurrency_policy VALUES (?,?,?,?,?)',
+                      ('fixture', 'single', 'agent', 'fixture-policy', 1))
+        if mutation == 'other-program-policy':
+            store.execute("UPDATE browser_program_concurrency_policy SET program='other'")
+            store.execute("UPDATE browser_profile_leases SET program='other'")
+        elif mutation == 'canonical-owner-mismatch':
+            store.execute("UPDATE browser_profile_leases SET owner_agent_id='intruder' WHERE lease_id='source'")
+        else:
+            store.execute("UPDATE browser_profile_leases SET account_alias='other' WHERE lease_id='source'")
+        before = [tuple(row) for row in store.execute('SELECT * FROM browser_profile_leases ORDER BY lease_id')]
+    if mutation == 'other-program-policy':
+        with manager.db() as store:
+            store.execute("UPDATE browsers SET program='other'")
+    with manager.db() as store:
+        before_manager = [tuple(row) for row in store.execute('SELECT * FROM browsers ORDER BY lease_id')]
+    cdp_calls = []
+    def cdp(url):
+        cdp_calls.append(url)
+        return {'status': 'ready'}
+    monkeypatch.setattr(lease, 'local_cdp_version', cdp)
+    import httpx
+    monkeypatch.setattr(httpx, 'Client', lambda *args, **kwargs: pytest.fail('adapter reached'))
+    result = manager.manager_fixture_auth_transfer('source', 'destination', origin=ORIGIN)
+    assert result == {'status': 'auth-clone-unavailable', 'reason': expected}
+    assert len(cdp_calls) == (2 if mutation == 'other-program-policy' else 0)
+    with lease.connect(canonical) as store:
+        assert [tuple(row) for row in store.execute('SELECT * FROM browser_profile_leases ORDER BY lease_id')] == before
+    with manager.db() as store:
+        assert [tuple(row) for row in store.execute('SELECT * FROM browsers ORDER BY lease_id')] == before_manager
+        assert store.execute('SELECT count(*) FROM fixture_peers').fetchone()[0] == 0
+        assert store.execute('SELECT count(*) FROM fixture_generations').fetchone()[0] == 0

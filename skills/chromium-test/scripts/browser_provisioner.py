@@ -118,6 +118,30 @@ def manager_transfer_attestation_gate(source_lease_id, destination_lease_id):
             # generation. Do not materialize an auth_generation, identity, or grant.
             return {'status': 'auth-clone-unavailable', 'reason': 'attestation-hook-unavailable'}
 
+def _fixture_policy_pool(manager_db, leases, source_id, destination_id):
+    """Read-only exact fixture pool evidence before any browser health probe.
+
+    A mismatch defers to the full candidate gate; it never grants transfer.
+    Called only under the manager node lock and canonical write transaction.
+    """
+    if not source_id or not destination_id or source_id == destination_id:
+        return None
+    for lid in (source_id, destination_id):
+        row = manager_db.execute('SELECT * FROM browsers WHERE lease_id=?', (lid,)).fetchone()
+        canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (lid,)).fetchone()
+        if (not row or not canonical or row['state'] != 'running'
+                or canonical['status'] != 'active' or canonical['browser_status'] != 'running'
+                or canonical['expires_at'] <= now()
+                or tuple(row[k] for k in ('program', 'auth_domain', 'account')) != FIXTURE_POOL
+                or any(canonical[k] != v for k, v in (
+                    ('program', row['program']), ('auth_domain', row['auth_domain']),
+                    ('account_alias', row['account']), ('owner_agent_id', row['agent_id']),
+                    ('owner_run_id', row['run_id']), ('profile_dir', row['profile_dir']),
+                    ('service_unit', row['unit']), ('manager_id', manager_id())))):
+            return None
+    return FIXTURE_POOL
+
+
 def _transfer_candidates(manager_db, leases, source_id, destination_id, *, ticketed=False):
     """Derive both owners from canonical and manager state, never caller claims."""
     import browser_profile_lease as profiles
@@ -463,6 +487,12 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                                       (destination_lease_id,)).fetchone()
             if peer:
                 return unavailable('recipient-approval-required')
+            # Policy flips must deny before healthy() probes either CDP endpoint.
+            # This read-only gate verifies both exact owners in manager/canonical
+            # rows; the full process, socket and health gate still follows.
+            pool = _fixture_policy_pool(manager_db, leases, source_lease_id, destination_lease_id)
+            if pool and profiles.single_browser_policy(leases, pool[0], pool[2], pool[1]):
+                return unavailable('single-browser-policy')
             candidates = _transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id)
             if not candidates:
                 return unavailable('manager-identity-unverified')

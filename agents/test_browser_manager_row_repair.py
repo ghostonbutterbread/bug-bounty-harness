@@ -70,18 +70,18 @@ def test_exact_selector_and_partial_quarantine(tmp_path, runtime):
         c.execute("UPDATE browser_profile_leases SET status='expired' WHERE lease_id='lid-2'")
     (tmp_path / 'bid-0.launch.json').unlink()  # no receipt; independent evidence
     plan = repair.run(state, 'neon', 'blue')
-    assert plan['candidate_count'] == 1 and plan['blocked_count'] == 2
-    assert list(plan['evidence'].values()) == ['missing']
+    assert plan['candidate_count'] == 2 and plan['blocked_count'] == 1
+    assert 'missing' in plan['evidence'].values()
     assert repair.run(state, 'neon', 'green')['candidate_count'] == 1
     assert repair.run(state, 'other', 'blue')['candidate_count'] == 1
     result = apply(state, backup, plan)
-    assert result['applied_count'] == 1 and result['blocked_count'] == 2
+    assert result['applied_count'] == 2 and result['blocked_count'] == 1
     with sqlite3.connect(state) as c:
-        assert c.execute("SELECT count(*) FROM browsers WHERE program='neon' AND account='blue' AND state='running'").fetchone()[0] == 1
-        assert c.execute("SELECT count(*) FROM browsers WHERE tab_count='running'").fetchone()[0] == 4
+        assert c.execute("SELECT count(*) FROM browsers WHERE program='neon' AND account='blue' AND state='stopped'").fetchone()[0] == 2
+        assert c.execute("SELECT count(*) FROM browsers WHERE tab_count='running'").fetchone()[0] == 3
     assert len(list(backup.iterdir())) == 2
     for p, a in [('blue', 'blue'), ('neon', 'green'), ('other', 'blue')]:
-        with pytest.raises(repair.Refused, match='neon-blue'):
+        with pytest.raises(repair.Refused, match='plan-changed'):
             repair.run(state, p, a, apply=True, plan_hash=plan['plan_hash'], confirmed=True, backup_dir=backup)
     with pytest.raises(repair.Refused, match='plan-changed'):
         apply(state, backup, plan)
@@ -201,13 +201,13 @@ def test_shared_profile_expired_history_does_not_hide_released_candidate(tmp_pat
     # Active owner is untouched; expired row is separately quarantined for identity mismatch.
     plan = repair.run(state, 'neon', 'blue')
     assert plan['candidate_count'] == 0
-    assert sorted(plan['blocked'].values()) == ['lease-conflict', 'lease-not-released', 'profile-other-owner']
+    assert sorted(plan['blocked'].values()) == ['lease-conflict', 'lease-not-terminal', 'profile-other-owner']
     with sqlite3.connect(leases) as l, sqlite3.connect(state) as c:
         l.execute("UPDATE browser_profile_leases SET profile_dir=? WHERE lease_id='lid-2'", (str(tmp_path / 'profile-bid-2'),))
         c.execute("UPDATE browsers SET launch_file=? WHERE lease_id='lid-2'", (str(tmp_path / 'profile-bid-2'),))
     plan = repair.run(state, 'neon', 'blue')
     assert plan['candidate_count'] == 1
-    assert sorted(plan['blocked'].values()) == ['lease-conflict', 'lease-not-released']
+    assert sorted(plan['blocked'].values()) == ['lease-conflict', 'lease-not-terminal']
     assert apply(state, backup, plan)['applied_count'] == 1
 
 def test_released_null_service_unit_requires_manager_and_receipt_identity(tmp_path, runtime):
@@ -261,7 +261,7 @@ def test_nonnull_canonical_unit_mismatch_quarantined(tmp_path):
     assert plan['candidate_count'] == 0
     assert list(plan['blocked'].values()) == ['lease-conflict']
 
-def test_expired_shared_profile_is_not_competing_owner_or_candidate(tmp_path):
+def test_expired_shared_profile_is_candidate_but_not_competing_owner(tmp_path):
     state, _ = fixture(tmp_path, 2)
     profile = str(tmp_path / 'profile-bid-0')
     with sqlite3.connect(state) as c:
@@ -270,5 +270,69 @@ def test_expired_shared_profile_is_not_competing_owner_or_candidate(tmp_path):
         c.execute("UPDATE browser_profile_leases SET profile_dir=?, status='expired' WHERE lease_id='lid-1'", (profile,))
     (tmp_path / 'bid-1.launch.json').unlink()
     plan = repair.run(state, 'neon', 'blue')
+    assert plan['candidate_count'] == 2
+    assert not plan['blocked']
+
+def test_idle_stopped_is_normalized_only_after_terminal_proof(tmp_path, runtime):
+    state, backup = fixture(tmp_path, 1)
+    with sqlite3.connect(state) as c:
+        c.execute("UPDATE browsers SET state='idle-stopped' WHERE lease_id='lid-0'")
+    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite') as c:
+        c.execute("UPDATE browser_profile_leases SET status='expired' WHERE lease_id='lid-0'")
+    plan = repair.run(state, 'neon', 'blue')
+    assert plan['candidate_count'] == 0 and list(plan['blocked'].values()) == ['unknown-malformed-row']
+    # The legacy idle state has ordinary, non-shifted columns.
+    with sqlite3.connect(state) as c:
+        c.execute('UPDATE browsers SET auth_domain=?,agent_id=?,run_id=?,purpose=?,unit=?,profile_dir=?,launch_file=?,state=?,tab_count=?,last_activity=?,created=?,updated=? WHERE lease_id=?',
+                  ('domain','agent','run','purpose','browser-bid-0',str(tmp_path/'profile-bid-0'),str(tmp_path/'bid-0.launch.json'),'idle-stopped',0,1.,1.,1.,'lid-0'))
+    plan = repair.run(state, 'neon', 'blue')
+    assert plan['candidate_count'] == 1 and not plan['blocked']
+    assert apply(state, backup, plan)['applied_count'] == 1
+    with sqlite3.connect(state) as c:
+        assert c.execute("SELECT state,profile_dir FROM browsers WHERE lease_id='lid-0'").fetchone() == ('stopped',str(tmp_path/'profile-bid-0'))
+
+def test_expired_row_with_active_unit_refuses_apply(tmp_path, monkeypatch):
+    state, backup = fixture(tmp_path, 1)
+    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite') as c:
+        c.execute("UPDATE browser_profile_leases SET status='expired' WHERE lease_id='lid-0'")
+    plan = repair.run(state, 'neon', 'blue')
+    import subprocess
+    monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: subprocess.CompletedProcess(a, 0, 'active\n', ''))
+    with pytest.raises(repair.Refused, match='plan-changed'):
+        apply(state, backup, plan)
+
+def test_active_physical_alias_owner_quarantines_candidate(tmp_path):
+    state, _ = fixture(tmp_path, 1)
+    alias = tmp_path / 'other-program-alias'
+    alias.symlink_to(tmp_path / 'profile-bid-0', target_is_directory=True)
+    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite') as c:
+        c.execute('INSERT INTO browser_profile_leases VALUES (?,?,?,?,?,?,?,?,?,?)',
+                  ('other', 'other-program', 'blue', 'domain', 'agent', 'run', 'purpose', str(alias), 'active', 'browser-other'))
+    plan = repair.run(state, 'neon', 'blue')
+    assert plan['candidate_count'] == 0 and list(plan['blocked'].values()) == ['profile-other-owner']
+
+def test_expired_live_profile_process_via_alias_blocks(tmp_path):
+    import subprocess
+    profile = tmp_path / 'profile'
+    profile.mkdir()
+    alias = tmp_path / 'alias'
+    alias.symlink_to(profile, target_is_directory=True)
+    proc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(10)', '--user-data-dir=' + str(alias)])
+    try:
+        with pytest.raises(repair.Refused, match='profile-process-present'):
+            repair.no_profile_process(str(profile), {})
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+def test_shifted_idle_stopped_projection_is_reconstructed_then_normalized(tmp_path, runtime):
+    state, backup = fixture(tmp_path, 1)
+    # The displaced original state lands in tab_count in the old layout.
+    with sqlite3.connect(state) as c:
+        c.execute("UPDATE browsers SET tab_count='idle-stopped' WHERE lease_id='lid-0'")
+    plan = repair.run(state, 'neon', 'blue')
     assert plan['candidate_count'] == 1
-    assert list(plan['blocked'].values()) == ['lease-not-released']
+    assert apply(state, backup, plan)['applied_count'] == 1
+    with sqlite3.connect(state) as c:
+        row = c.execute("SELECT profile_dir,state,tab_count FROM browsers WHERE lease_id='lid-0'").fetchone()
+        assert row == (str(tmp_path / 'profile-bid-0'), 'stopped', 0)

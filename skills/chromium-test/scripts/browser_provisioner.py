@@ -217,200 +217,214 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
             source_recheck_failed = False
             committed_url = None
             reason = None
+            # A post-import exception must not escape before exact recipient disposal.
             try:
-                for index, (row, info, _) in enumerate(candidates):
-                    client = httpx.Client(transport=httpx.HTTPTransport(uds=info['control_socket']), timeout=15)
-                    clients.append(client)
-                    begin = {'transaction': uuid.uuid4().hex, 'owner': row['lease_id'],
-                             'generation': info['cdp_url'], 'destination': index == 1}
-                    bindings[id(client)] = {k: begin[k] for k in ('transaction', 'owner', 'generation')}
-                    try:
-                        ticket = control(client, 'begin', begin)['ticket']
-                    except (OSError, ValueError, httpx.HTTPError):
-                        # The adapter may have applied begin before its reply was
-                        # lost. Replay only this exact manager-derived attempt.
+                try:
+                    for index, (row, info, _) in enumerate(candidates):
+                        client = httpx.Client(transport=httpx.HTTPTransport(uds=info['control_socket']), timeout=15)
+                        clients.append(client)
+                        begin = {'transaction': uuid.uuid4().hex, 'owner': row['lease_id'],
+                                 'generation': info['cdp_url'], 'destination': index == 1}
+                        bindings[id(client)] = {k: begin[k] for k in ('transaction', 'owner', 'generation')}
                         try:
                             ticket = control(client, 'begin', begin)['ticket']
                         except (OSError, ValueError, httpx.HTTPError):
-                            ticket = None
-                            uncertain_begin.add(index)
+                            # The adapter may have applied begin before its reply was
+                            # lost. Replay only this exact manager-derived attempt.
+                            try:
+                                ticket = control(client, 'begin', begin)['ticket']
+                            except (OSError, ValueError, httpx.HTTPError):
+                                ticket = None
+                                uncertain_begin.add(index)
+                            tickets.append(ticket)
+                            raise TransferError('transfer-control-unavailable')
                         tickets.append(ticket)
-                        raise TransferError('transfer-control-unavailable')
-                    tickets.append(ticket)
-                source, destination = clients
-                st, dt = tickets
-                require(eval_js(source, st, 'location.origin') == origin, 'source-origin-mismatch')
-                source_url = eval_js(source, st, 'location.href')
-                require(eval_js(source, st, check) is True, 'source-app-check-failed')
-                # Destination must already be provisioned and at the exact origin;
-                # never overwrite an authenticated or populated destination.
-                require(eval_js(destination, dt, 'location.origin') == origin, 'destination-origin-mismatch')
-                require(eval_js(destination, dt, check) is False, 'destination-not-empty')
-                require(eval_js(destination, dt, "localStorage.getItem('fixture-credential')") is None,
-                        'destination-not-empty')
-                cookies = call(source, st, 'Network.getAllCookies')['cookies']
-                selected = [c for c in cookies if c['domain'] == '127.0.0.1' and c['name'] == 'session'
-                            and c.get('path') == '/']
-                require(len(selected) == 1 and selected[0].get('httpOnly') is True,
-                        'source-cookie-unverified')
-                existing = call(destination, dt, 'Network.getAllCookies')['cookies']
-                require(not any(c['domain'] == '127.0.0.1' for c in existing), 'destination-not-empty')
-                storage = eval_js(source, st, "localStorage.getItem('fixture-credential')")
-                require(storage == 'approved', 'source-storage-unverified')
-                imported = True  # cleanup even if the CDP write succeeds but its reply is lost
-                call(destination, dt, 'Network.setCookies', {'cookies': selected})
-                eval_js(destination, dt, 'localStorage.setItem(' + json.dumps('fixture-credential') + ',' + json.dumps(storage) + ')')
-                require(eval_js(destination, dt, check) is True, 'destination-app-check-failed')
-                # Any failure in the post-import source recheck must dispose the
-                # imported recipient, including a lost source command reply.
-                source_recheck_failed = True
-                require(eval_js(source, st, check) is True and eval_js(source, st, 'location.href') == source_url,
-                        'source-changed')
-                source_recheck_failed = False
-                require(bool(_transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id,
-                                                  ticketed=True)),
-                        'manager-identity-changed')
-                # Manager/canonical ownership stays serialized by node lock and
-                # BEGIN IMMEDIATE; the adapter's exclusive ticket fences CDP.
-            except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError) as exc:
-                reason = str(exc) if isinstance(exc, TransferError) else 'transfer-control-unavailable'
-            finally:
-                if imported:
-                    try:
-                        if reason:
-                            destination, dt = clients[1], tickets[1]
-                            call(destination, dt, 'Network.deleteCookies',
-                                 {'name': 'session', 'url': origin + '/'})
-                            eval_js(destination, dt, "localStorage.removeItem('fixture-credential')")
-                            cleaned = (eval_js(destination, dt, check) is False and
-                                       eval_js(destination, dt, "localStorage.getItem('fixture-credential')") is None and
-                                       not any(c['domain'] == '127.0.0.1' for c in
-                                               call(destination, dt, 'Network.getAllCookies')['cookies']))
-                    except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError):
-                        cleaned = False
-                for index, (client, ticket) in enumerate(zip(clients, tickets)):
-                    if index in uncertain_begin:
-                        cleaned = False
-                        continue
-                    if index == 1 and imported and (not cleaned or source_recheck_failed):
-                        # Keep the recipient private until exact disposal, even
-                        # when rollback appears clean after a source failure.
-                        continue
-                    try:
-                        if index == 1 and reason and cleaned:
-                            control(client, 'abort', {'ticket': ticket})
-                            continue
-                        control(client, 'end', {'ticket': ticket})
-                        if index == 1 and imported and not reason:
-                            destination_quarantined = True
-                    except (OSError, ValueError, httpx.HTTPError):
-                        if index == 1:
+                    source, destination = clients
+                    st, dt = tickets
+                    require(eval_js(source, st, 'location.origin') == origin, 'source-origin-mismatch')
+                    source_url = eval_js(source, st, 'location.href')
+                    require(eval_js(source, st, check) is True, 'source-app-check-failed')
+                    # Destination must already be provisioned and at the exact origin;
+                    # never overwrite an authenticated or populated destination.
+                    require(eval_js(destination, dt, 'location.origin') == origin, 'destination-origin-mismatch')
+                    require(eval_js(destination, dt, check) is False, 'destination-not-empty')
+                    require(eval_js(destination, dt, "localStorage.getItem('fixture-credential')") is None,
+                            'destination-not-empty')
+                    cookies = call(source, st, 'Network.getAllCookies')['cookies']
+                    selected = [c for c in cookies if c['domain'] == '127.0.0.1' and c['name'] == 'session'
+                                and c.get('path') == '/']
+                    require(len(selected) == 1 and selected[0].get('httpOnly') is True,
+                            'source-cookie-unverified')
+                    existing = call(destination, dt, 'Network.getAllCookies')['cookies']
+                    require(not any(c['domain'] == '127.0.0.1' for c in existing), 'destination-not-empty')
+                    storage = eval_js(source, st, "localStorage.getItem('fixture-credential')")
+                    require(storage == 'approved', 'source-storage-unverified')
+                    imported = True  # cleanup even if the CDP write succeeds but its reply is lost
+                    call(destination, dt, 'Network.setCookies', {'cookies': selected})
+                    eval_js(destination, dt, 'localStorage.setItem(' + json.dumps('fixture-credential') + ',' + json.dumps(storage) + ')')
+                    require(eval_js(destination, dt, check) is True, 'destination-app-check-failed')
+                    # Any failure in the post-import source recheck must dispose the
+                    # imported recipient, including a lost source command reply.
+                    source_recheck_failed = True
+                    require(eval_js(source, st, check) is True and eval_js(source, st, 'location.href') == source_url,
+                            'source-changed')
+                    source_recheck_failed = False
+                    require(bool(_transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id,
+                                                      ticketed=True)),
+                            'manager-identity-changed')
+                    # Manager/canonical ownership stays serialized by node lock and
+                    # BEGIN IMMEDIATE; the adapter's exclusive ticket fences CDP.
+                except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError) as exc:
+                    reason = str(exc) if isinstance(exc, TransferError) else 'transfer-control-unavailable'
+                finally:
+                    if imported:
+                        try:
+                            if reason:
+                                destination, dt = clients[1], tickets[1]
+                                call(destination, dt, 'Network.deleteCookies',
+                                     {'name': 'session', 'url': origin + '/'})
+                                eval_js(destination, dt, "localStorage.removeItem('fixture-credential')")
+                                cleaned = (eval_js(destination, dt, check) is False and
+                                           eval_js(destination, dt, "localStorage.getItem('fixture-credential')") is None and
+                                           not any(c['domain'] == '127.0.0.1' for c in
+                                                   call(destination, dt, 'Network.getAllCookies')['cookies']))
+                        except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError):
                             cleaned = False
-                            if imported:
-                                destination_end_unverified = True
-                        else:
-                            uncertain_begin.add(0)
-                for client in clients:
-                    client.close()
-            if uncertain_begin:
-                # A missing ticket or lost source-end reply is not proof of
-                # release. Check only this manager-recorded process/generation;
-                # never end an unrelated ticket or dispose the source.
-                for index in tuple(uncertain_begin):
-                    try:
-                        with httpx.Client(transport=httpx.HTTPTransport(
-                                uds=candidates[index][1]['control_socket']), timeout=15) as probe:
-                            reply = probe.get('http://localhost/identity')
-                            reply.raise_for_status()
-                            observed = reply.json()
-                            info = candidates[index][1]
-                            if (observed.get('available') is True and
-                                    observed.get('quarantined') is False and
-                                    observed.get('cdp_url') == info['cdp_url'] and
-                                    observed.get('process_identity') == info['process_identity']):
-                                uncertain_begin.remove(index)
-                    except (OSError, ValueError, KeyError, httpx.HTTPError):
-                        pass
-                if not imported:
-                    cleaned = True
-            source_unproved = 0 in uncertain_begin
-            # Resolve source uncertainty before any destination commit. Even a
-            # clean rollback cannot authorize release of an imported recipient
-            # when source release or the post-import recheck is unproved.
-            if (not reason and not uncertain_begin and not source_recheck_failed and
-                    cleaned and destination_quarantined and not destination_end_unverified):
-                try:
-                    with httpx.Client(transport=httpx.HTTPTransport(uds=candidates[1][1]['control_socket']), timeout=15) as check_client:
-                        bindings[id(check_client)] = bindings[id(clients[1])]
-                        identity = check_client.get('http://localhost/identity')
-                        identity.raise_for_status()
-                        observed = identity.json()
-                        require(observed.get('quarantined') is True and
-                                observed.get('cdp_url') == candidates[1][1]['cdp_url'] and
-                                observed.get('process_identity') == candidates[1][1]['process_identity'],
-                                'destination-identity-changed')
-                        # Source retains its owner and usable generation. Destination
-                        # remains private throughout commit; an ACK is not activation.
-                        committed = control(check_client, 'commit', {'ticket': tickets[1]})
-                        require(committed.get('quarantined') is True, 'commit-unverified')
-                        committed_url = committed['cdp_url']
-                        info = record_info(candidates[1][0])
-                        require(info.get('cdp_url') == candidates[1][1]['cdp_url'], 'destination-identity-changed')
-                        info['cdp_url'] = committed_url
-                        private_json(candidates[1][0]['launch_file'], info)
-                        leases.execute('UPDATE browser_profile_leases SET cdp_url=? WHERE lease_id=? AND cdp_url=?',
-                                       (committed_url, destination_lease_id, candidates[1][1]['cdp_url']))
-                        require(leases.execute('SELECT changes()').fetchone()[0] == 1, 'manager-identity-changed')
-                        leases.commit()
-                        control(check_client, 'activate', {'ticket': tickets[1]})
-                except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError):
-                    # A lost activation ACK may mean the fully published owner
-                    # is live. Accept only exact private identity plus canonical
-                    # URL; otherwise it remains quarantined for exact disposal.
-                    activated = False
-                    if committed_url:
+                    for index, (client, ticket) in enumerate(zip(clients, tickets)):
+                        if index in uncertain_begin:
+                            cleaned = False
+                            continue
+                        if index == 1 and imported and (not cleaned or source_recheck_failed):
+                            # Keep the recipient private until exact disposal, even
+                            # when rollback appears clean after a source failure.
+                            continue
+                        try:
+                            if index == 1 and reason and cleaned:
+                                control(client, 'abort', {'ticket': ticket})
+                                continue
+                            control(client, 'end', {'ticket': ticket})
+                            if index == 1 and imported and not reason:
+                                destination_quarantined = True
+                        except (OSError, ValueError, httpx.HTTPError):
+                            if index == 1:
+                                cleaned = False
+                                if imported:
+                                    destination_end_unverified = True
+                            else:
+                                uncertain_begin.add(0)
+                    for client in clients:
+                        client.close()
+                if uncertain_begin:
+                    # A missing ticket or lost source-end reply is not proof of
+                    # release. Check only this manager-recorded process/generation;
+                    # never end an unrelated ticket or dispose the source.
+                    for index in tuple(uncertain_begin):
                         try:
                             with httpx.Client(transport=httpx.HTTPTransport(
-                                    uds=candidates[1][1]['control_socket']), timeout=15) as probe:
+                                    uds=candidates[index][1]['control_socket']), timeout=15) as probe:
                                 reply = probe.get('http://localhost/identity')
                                 reply.raise_for_status()
-                                state = reply.json()
-                                canonical = leases.execute(
-                                    'SELECT cdp_url FROM browser_profile_leases WHERE lease_id=?',
-                                    (destination_lease_id,)).fetchone()
-                                activated = (state.get('available') is True and
-                                             state.get('process_identity') == candidates[1][1]['process_identity'] and
-                                             state.get('cdp_url') == committed_url and canonical and
-                                             canonical['cdp_url'] == committed_url)
+                                observed = reply.json()
+                                info = candidates[index][1]
+                                if (observed.get('available') is True and
+                                        observed.get('quarantined') is False and
+                                        observed.get('cdp_url') == info['cdp_url'] and
+                                        observed.get('process_identity') == info['process_identity']):
+                                    uncertain_begin.remove(index)
                         except (OSError, ValueError, KeyError, httpx.HTTPError):
                             pass
-                    destination_end_unverified = not activated
-            if imported and (source_unproved or source_recheck_failed or destination_end_unverified):
-                # The end may have applied even when its reply was lost. Its
-                # ticket cannot be relied on to fence an imported destination.
-                # Dispose only the exact recorded unit, while still holding the
-                # manager/canonical ownership locks; never leave it serving CDP.
-                try:
-                    disposed = stop_recorded(candidates[1][0])
-                except (OSError, ValueError):
-                    disposed = False
-                if source_unproved:
-                    return {'status': 'auth-clone-unavailable', 'reason': 'source-cleanup-incomplete',
-                            'source': 'release-unverified',
-                            'destination': 'disposed' if disposed else 'cleanup-incomplete'}
-                if source_recheck_failed:
-                    return {'status': 'auth-clone-unavailable', 'reason': reason or 'source-changed',
-                            'source': 'owner-preserved',
-                            'destination': 'disposed' if disposed else 'cleanup-incomplete'}
-                if disposed:
-                    return unavailable('destination-disposed-after-end-uncertainty')
-                return unavailable('destination-cleanup-incomplete')
-            if uncertain_begin:
-                return unavailable(('source' if source_unproved else 'destination') + '-cleanup-incomplete')
-            if not cleaned:
-                return unavailable('destination-cleanup-unverified')
-            return unavailable(reason) if reason else {'status': 'fixture-auth-transferred'}
-
+                    if not imported:
+                        cleaned = True
+                source_unproved = 0 in uncertain_begin
+                # Resolve source uncertainty before any destination commit. Even a
+                # clean rollback cannot authorize release of an imported recipient
+                # when source release or the post-import recheck is unproved.
+                if (not reason and not uncertain_begin and not source_recheck_failed and
+                        cleaned and destination_quarantined and not destination_end_unverified):
+                    try:
+                        with httpx.Client(transport=httpx.HTTPTransport(uds=candidates[1][1]['control_socket']), timeout=15) as check_client:
+                            bindings[id(check_client)] = bindings[id(clients[1])]
+                            identity = check_client.get('http://localhost/identity')
+                            identity.raise_for_status()
+                            observed = identity.json()
+                            require(observed.get('quarantined') is True and
+                                    observed.get('cdp_url') == candidates[1][1]['cdp_url'] and
+                                    observed.get('process_identity') == candidates[1][1]['process_identity'],
+                                    'destination-identity-changed')
+                            # Source retains its owner and usable generation. Destination
+                            # remains private throughout commit; an ACK is not activation.
+                            committed = control(check_client, 'commit', {'ticket': tickets[1]})
+                            require(committed.get('quarantined') is True, 'commit-unverified')
+                            committed_url = committed['cdp_url']
+                            info = record_info(candidates[1][0])
+                            require(info.get('cdp_url') == candidates[1][1]['cdp_url'], 'destination-identity-changed')
+                            info['cdp_url'] = committed_url
+                            private_json(candidates[1][0]['launch_file'], info)
+                            leases.execute('UPDATE browser_profile_leases SET cdp_url=? WHERE lease_id=? AND cdp_url=?',
+                                           (committed_url, destination_lease_id, candidates[1][1]['cdp_url']))
+                            require(leases.execute('SELECT changes()').fetchone()[0] == 1, 'manager-identity-changed')
+                            leases.commit()
+                            control(check_client, 'activate', {'ticket': tickets[1]})
+                    except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError):
+                        # A lost activation ACK may mean the fully published owner
+                        # is live. Accept only exact private identity plus canonical
+                        # URL; otherwise it remains quarantined for exact disposal.
+                        activated = False
+                        if committed_url:
+                            try:
+                                with httpx.Client(transport=httpx.HTTPTransport(
+                                        uds=candidates[1][1]['control_socket']), timeout=15) as probe:
+                                    reply = probe.get('http://localhost/identity')
+                                    reply.raise_for_status()
+                                    state = reply.json()
+                                    canonical = leases.execute(
+                                        'SELECT cdp_url FROM browser_profile_leases WHERE lease_id=?',
+                                        (destination_lease_id,)).fetchone()
+                                    activated = (state.get('available') is True and
+                                                 state.get('process_identity') == candidates[1][1]['process_identity'] and
+                                                 state.get('cdp_url') == committed_url and canonical and
+                                                 canonical['cdp_url'] == committed_url)
+                            except (OSError, ValueError, KeyError, httpx.HTTPError):
+                                pass
+                        destination_end_unverified = not activated
+                if imported and (source_unproved or source_recheck_failed or destination_end_unverified):
+                    # The end may have applied even when its reply was lost. Its
+                    # ticket cannot be relied on to fence an imported destination.
+                    # Dispose only the exact recorded unit, while still holding the
+                    # manager/canonical ownership locks; never leave it serving CDP.
+                    try:
+                        disposed = stop_recorded(candidates[1][0])
+                    except (OSError, ValueError):
+                        disposed = False
+                    if source_unproved:
+                        return {'status': 'auth-clone-unavailable', 'reason': 'source-cleanup-incomplete',
+                                'source': 'release-unverified',
+                                'destination': 'disposed' if disposed else 'cleanup-incomplete'}
+                    if source_recheck_failed:
+                        return {'status': 'auth-clone-unavailable', 'reason': reason or 'source-changed',
+                                'source': 'owner-preserved',
+                                'destination': 'disposed' if disposed else 'cleanup-incomplete'}
+                    if disposed:
+                        return unavailable('destination-disposed-after-end-uncertainty')
+                    return unavailable('destination-cleanup-incomplete')
+                if uncertain_begin:
+                    return unavailable(('source' if source_unproved else 'destination') + '-cleanup-incomplete')
+                if not cleaned:
+                    return unavailable('destination-cleanup-unverified')
+                return unavailable(reason) if reason else {'status': 'fixture-auth-transferred'}
+            finally:
+                failure = sys.exc_info()[1]
+                if failure is not None and imported:
+                    try:
+                        disposed = stop_recorded(candidates[1][0])
+                    except BaseException:
+                        # Preserve the original cancellation/failure; a second
+                        # interruption cannot prove disposal.
+                        disposed = False
+                    failure.add_note(
+                        "fixture transfer interrupted; source release unverified; destination="
+                        + ("disposed" if disposed else "cleanup-incomplete")
+                    )
 
 def metadata(c, row):
     r = c.execute(

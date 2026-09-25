@@ -217,6 +217,8 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
             source_recheck_failed = False
             committed_url = None
             activated = False
+            activation_attempted = False
+            readback_failure = None
             terminal_disposition = False
             reason = None
             interruption = None
@@ -396,6 +398,7 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                                            (committed_url, destination_lease_id, candidates[1][1]['cdp_url']))
                             require(leases.execute('SELECT changes()').fetchone()[0] == 1, 'manager-identity-changed')
                             leases.commit()
+                            activation_attempted = True
                             require(control(check_client, 'activate', {'ticket': tickets[1]}).get('activated') is True,
                                     'activation-unverified')
                             activated = True  # ACK is the irreversible terminal boundary.
@@ -430,11 +433,12 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                                              canonical['profile_dir'] == candidates[1][0]['profile_dir'] and
                                              canonical['manager_id'] == manager_id() and
                                              canonical['cdp_url'] == committed_url)
-                        except BaseException:
+                        except BaseException as exc:
                             # Readback is only evidence of activation, never a
                             # new terminal decision or a replacement for the
                             # original pre-commit interruption.
-                            pass
+                            if interruption is None and not isinstance(exc, (OSError, ValueError, KeyError, httpx.HTTPError, TransferError)):
+                                readback_failure = exc
                     # A missing ACK without exact readback is not success. Keep
                     # pre-activation cancellation distinct from post-activation commit.
                     destination_end_unverified = not activated
@@ -448,15 +452,29 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                     terminal_disposition = True  # One exact stop attempt, even if interrupted.
                     try:
                         disposed = stop_recorded(candidates[1][0])
-                    except BaseException:
+                        stop_failure = None
+                    except BaseException as exc:
                         disposed = False
+                        stop_failure = exc
+                    terminal_note = (
+                        'fixture transfer terminal activation uncertain; source='
+                        + ('release-unverified' if source_unproved else 'owner-preserved')
+                        + '; destination=' + ('disposed' if disposed else 'cleanup-incomplete')
+                        + ('; public-exposure=possible' if activation_attempted else '')
+                    )
                     if interruption is not None:
                         interruption.add_note(
                             'fixture transfer interrupted before verified activation; source='
                             + ('release-unverified' if source_unproved else 'owner-preserved')
                             + '; destination=' + ('disposed' if disposed else 'cleanup-incomplete')
+                            + ('; public-exposure=possible' if activation_attempted else '')
                         )
                         raise interruption.with_traceback(interruption.__traceback__)
+                    if readback_failure is not None or stop_failure is not None:
+                        failure = readback_failure or stop_failure
+                        assert failure is not None
+                        failure.add_note(terminal_note)
+                        raise failure.with_traceback(failure.__traceback__)
                     if source_unproved:
                         return {'status': 'auth-clone-unavailable', 'reason': 'source-cleanup-incomplete',
                                 'source': 'release-unverified',
@@ -467,6 +485,10 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                                 'destination': 'disposed' if disposed else 'cleanup-incomplete'}
                     if disposed:
                         return unavailable('destination-disposed-after-end-uncertainty')
+                    if activation_attempted:
+                        return {'status': 'fixture-auth-transfer-terminal-uncertain',
+                                'source': 'owner-preserved', 'destination': 'cleanup-incomplete',
+                                'public_exposure': 'possible'}
                     return unavailable('destination-cleanup-incomplete')
                 if uncertain_begin:
                     return unavailable(('source' if source_unproved else 'destination') + '-cleanup-incomplete')

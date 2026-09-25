@@ -28,7 +28,7 @@ Isolated scratch venv installed from this worktree's root `requirements.txt`; co
 - Repair canary: `BBH_AUTH_CANARY=1 PYTHONPATH=$PWD $TMPDIR/bbh-browser-begin-venv/bin/python -m pytest -q agents/test_browser_auth_native_canary.py --tb=short` → **3 passed** with disposable two-Chrome fixtures, safe source readback, recipient cleanup and end/commit reply-loss cases. Existing fixture integration is not a production site contract.
 - Source-end repair: `PYTHONPATH=$PWD $TMPDIR/bbh-browser-begin-venv/bin/python -m pytest -q agents/test_browser_transfer_source_end_uncertainty.py agents/test_browser_transfer_begin_uncertainty.py agents/test_browser_transfer_end_uncertainty.py agents/test_browser_transfer_races.py agents/test_browser_transfer_quarantine.py agents/test_browser_auth_fence.py agents/test_browser_manager_transfer_gate.py agents/test_browser_program_policy.py --tb=short` → **77 passed**. Eight new deterministic cases inject lost applied source end with unprovable identity or a failed post-import source recheck, across verified stop and failed unit/root/CDP checks; assert exact destination only, private recipient, source owner intact, and sanitized dual-side status.
 - Source-end repair disposable canary: `BBH_AUTH_CANARY=1 PYTHONPATH=$PWD $TMPDIR/bbh-browser-begin-venv/bin/python -m pytest -q agents/test_browser_auth_native_canary.py --tb=short` → **3 passed**. The existing canary exercises disposable real browsers but not the new source-end fault; that seam is deterministic-only pending an independent review decision.
-- Final staged diff/checkpoint still required.
+- `git diff --check` and staged diff check were clean; source-end repair plus dossier committed at `0da17a8`.
 
 ## Production and peer-promotion gates
 
@@ -38,5 +38,5 @@ Before any beta merge: independent review of the combined diff, program-policy p
 
 ## Handoff
 
-- **Prior combined checkpoints:** `4840f82` (combined predecessor histories) and `3b061ff` (lost-begin repair) on `feat/browser-auth-policy-fixture-integration`; fetched base `origin/beta` remains `d077b89`. This source-end repair is the next feature checkpoint; its SHA is reported in the handoff after commit.
+- **Combined checkpoints:** `4840f82` (combined predecessor histories), `3b061ff` (lost-begin repair), and `0da17a8` (source-end repair) on `feat/browser-auth-policy-fixture-integration`; fetched base `origin/beta` remains `d077b89`. The current dossier-only handoff commit follows that recoverable implementation checkpoint.
 - **Next action:** fresh independent review of actual committed branch tip and source/destination uncertainty dispositions. The separate site-contract descendant branch must incorporate this ancestor fix only through owner-coordinated propagation after its work is ready; it was not edited here. No beta integration, push, production issuance, or snapshot merge in this task. Target remains `beta` only after gates are met; otherwise retain the clean feature branch and dossier.

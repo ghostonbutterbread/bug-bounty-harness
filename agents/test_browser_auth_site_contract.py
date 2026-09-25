@@ -127,6 +127,26 @@ class ContractTests(unittest.TestCase):
                 verify_cookie_scope(contract, browser_domain='localhost', host_only=None,
                                     secure=secure, browser_path=path)
 
+    def test_same_name_domain_attribute_cookie_is_not_host_only(self):
+        # Domain=app.example.org shares the host's spelling and cookie name,
+        # but also reaches subdomains. A name/domain selector cannot prove scope.
+        self.data.update(program='sample', auth_domain='login.example.org',
+                         account_alias='owned', disposable_fixture=False,
+                         allowed_origins=['https://app.example.org'])
+        self.data['check'].update(url='https://app.example.org/me', expected_principal='owned')
+        self.data['cookie_selector'].update(name='session', domain='app.example.org')
+        contract = self.load(program='sample', auth_domain='login.example.org',
+                             account_alias='owned', origin='https://app.example.org')
+        verify_cookie_scope(contract, browser_domain='app.example.org', host_only=True, browser_path='/')
+        with self.assertRaises(SiteContractError):
+            verify_cookie_scope(contract, browser_domain='app.example.org',
+                                host_only=False, browser_path='/')
+        # A Domain=.example.org cookie is broader again, regardless of its
+        # identical name and path; spelling alone is not authoritative metadata.
+        with self.assertRaises(SiteContractError):
+            verify_cookie_scope(contract, browser_domain='.example.org',
+                                host_only=False, browser_path='/')
+
     def test_http_exception_only_for_disposable_fixture(self):
         self.data['disposable_fixture'] = False
         with self.assertRaises(SiteContractError):

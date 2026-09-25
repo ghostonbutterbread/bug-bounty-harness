@@ -89,7 +89,7 @@ Drop markdown notes here. They will be ingested on the next run.
 
 ## Add evidence to an existing finding
 
-Agents may attach a **new, relevant observation** to an existing finding. Before ingest, compare the note's class, file, and sink with the intended ledger finding: dedupe matches those fields, not an explicitly selected FID. If the match could be ambiguous, do not use the flag; resolve the finding identity first. The comment ledger stores the raw note, so omit credentials, tokens, and unrelated sensitive data.
+Agents may attach a **new, relevant observation** to an existing finding. Before ingest, compare the note's file, line, class, and type/title with the intended finding in the selected program and lane: the active ledger dedupes on those normalized fields, not an explicitly selected FID. A matching sink alone does not establish the identity. If the match could be ambiguous, do not use the flag; resolve the finding identity first. The comment ledger stores the raw note, so omit credentials, tokens, and unrelated sensitive data.
 
 ```bash
 bbh agents/manual_hunter.py <program> --lane <lane> \

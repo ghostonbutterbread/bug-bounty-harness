@@ -80,6 +80,269 @@ def db():
     return c
 
 
+def manager_id():
+    """Identity of this node's manager store, not a caller-provided lease label."""
+    return hashlib.sha256(str(STATE.resolve()).encode()).hexdigest()
+
+
+def manager_transfer_attestation_gate(source_lease_id, destination_lease_id):
+    """Private manager-only preflight. Never issue a grant without native auth proof.
+
+    Neither /identity nor a ready CDP endpoint attests authenticated app state,
+    and no app-native browser verification/generation contract exists here yet.
+    Lease IDs are selectors only; no caller-supplied identity is trusted.
+    """
+    unavailable = {'status': 'auth-clone-unavailable', 'reason': 'manager-identity-unverified'}
+    if (not isinstance(source_lease_id, str) or not isinstance(destination_lease_id, str)
+            or not source_lease_id or not destination_lease_id
+            or source_lease_id == destination_lease_id):
+        return unavailable
+    import browser_profile_lease as profiles
+    with node_lock(STATE):
+        with db() as manager_db, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+            profiles.init_db(leases)
+            leases.execute('BEGIN IMMEDIATE')
+            if not _transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id):
+                return unavailable
+            # Missing: an app-native verification hook bound to each exact pipe
+            # generation. Do not materialize an auth_generation, identity, or grant.
+            return {'status': 'auth-clone-unavailable', 'reason': 'attestation-hook-unavailable'}
+
+def _transfer_candidates(manager_db, leases, source_id, destination_id, *, ticketed=False):
+    """Derive both owners from canonical and manager state, never caller claims."""
+    import browser_profile_lease as profiles
+    if not source_id or not destination_id or source_id == destination_id:
+        return None
+    candidates = []
+    for lid in (source_id, destination_id):
+        row = manager_db.execute('SELECT * FROM browsers WHERE lease_id=?', (lid,)).fetchone()
+        canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (lid,)).fetchone()
+        if not row or not canonical or row['state'] != 'running' or canonical['status'] != 'active' or canonical['browser_status'] != 'running' or canonical['expires_at'] <= now():
+            return None
+        if any(canonical[key] != value for key, value in (
+            ('program', row['program']), ('auth_domain', row['auth_domain']),
+            ('account_alias', row['account']), ('owner_agent_id', row['agent_id']),
+            ('owner_run_id', row['run_id']), ('profile_dir', row['profile_dir']),
+            ('service_unit', row['unit']), ('manager_id', manager_id()))):
+            return None
+        info = record_info(row)
+        identity = info.get('process_identity')
+        physical = profiles.physical_profile(row['profile_dir'])
+        if (canonical['cdp_url'] != info.get('cdp_url')
+                or not physical or not identity or owner_state(identity) != 'active'
+                or not info.get('unit_invocation')
+                or info['unit_invocation'] != unit_identity(row['unit'])
+                or info.get('control_mode') != 'pipe-fenced' or
+                (not ticketed and not healthy(row)) or
+                (ticketed and (not unit_active(row['unit']) or
+                 process_identity(identity['pid']) != identity))):
+            return None
+        candidates.append((row, info, physical))
+    if (candidates[0][2] == candidates[1][2]
+            or candidates[0][0]['program'] != candidates[1][0]['program']
+            or candidates[0][0]['auth_domain'] != candidates[1][0]['auth_domain']
+            or candidates[0][0]['account'] != candidates[1][0]['account']):
+        return None
+    return candidates
+
+def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, origin):
+    """Private fixture-only synchronous transfer; never a CLI or generic site API.
+
+    The fixture contract is intentionally hard-coded: program/domain/account,
+    loopback origin, one cookie, one storage key, and its app-native check.
+    No identity, script, cookie or principal is accepted from the caller.
+    """
+    from urllib.parse import urlsplit
+    import browser_profile_lease as profiles
+    import httpx
+    unavailable = lambda reason: {'status': 'auth-clone-unavailable', 'reason': reason}
+    parsed = urlsplit(origin) if isinstance(origin, str) else None
+    if (not parsed or parsed.scheme != 'http' or parsed.hostname != '127.0.0.1'
+            or not parsed.port or parsed.path or parsed.query or parsed.fragment
+            or origin != f'http://127.0.0.1:{parsed.port}'
+            or not isinstance(source_lease_id, str) or not isinstance(destination_lease_id, str)):
+        return unavailable('site-contract-unavailable')
+
+    class TransferError(Exception):
+        pass
+
+    def require(condition, reason):
+        if not condition:
+            raise TransferError(reason)
+
+    def control(client, path, payload=None):
+        response = client.post('http://localhost/transfer/' + path, json=payload or {})
+        response.raise_for_status()
+        return response.json()
+
+    def call(client, ticket, method, params=None):
+        reply = control(client, 'call', {'ticket': ticket, 'method': method, 'params': params or {}})
+        require('error' not in reply and 'result' in reply, 'browser-command-failed')
+        return reply['result']
+
+    def eval_js(client, ticket, expression):
+        result = call(client, ticket, 'Runtime.evaluate',
+                      {'expression': expression, 'returnByValue': True, 'awaitPromise': True})
+        require('exceptionDetails' not in result, 'app-check-failed')
+        return result.get('result', {}).get('value')
+
+    check = "fetch('/whoami').then(r => r.ok && localStorage.getItem('fixture-credential') === 'approved')"
+    with node_lock(STATE):
+        with db() as manager_db, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+            profiles.init_db(leases)
+            leases.execute('BEGIN IMMEDIATE')
+            candidates = _transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id)
+            if not candidates:
+                return unavailable('manager-identity-unverified')
+            if any((row['program'], row['auth_domain'], row['account']) !=
+                   ('fixture', 'fixture.invalid', 'anon') for row, _, _ in candidates):
+                return unavailable('site-contract-unavailable')
+            if any(info.get('control_socket') != str(STATE.parent / (row['browser_id'] + '.sock'))
+                   for row, info, _ in candidates):
+                return unavailable('manager-identity-unverified')
+            # This is deliberately a fixture boundary, not a transport for
+            # authenticated production accounts or arbitrary origins.
+            clients = []
+            tickets = []
+            imported = False
+            cleaned = True
+            destination_end_unverified = False
+            destination_quarantined = False
+            committed_url = None
+            reason = None
+            try:
+                for index, (_, info, _) in enumerate(candidates):
+                    client = httpx.Client(transport=httpx.HTTPTransport(uds=info['control_socket']), timeout=15)
+                    clients.append(client)
+                    tickets.append(control(client, 'begin', {'destination': index == 1})['ticket'])
+                source, destination = clients
+                st, dt = tickets
+                require(eval_js(source, st, 'location.origin') == origin, 'source-origin-mismatch')
+                source_url = eval_js(source, st, 'location.href')
+                require(eval_js(source, st, check) is True, 'source-app-check-failed')
+                # Destination must already be provisioned and at the exact origin;
+                # never overwrite an authenticated or populated destination.
+                require(eval_js(destination, dt, 'location.origin') == origin, 'destination-origin-mismatch')
+                require(eval_js(destination, dt, check) is False, 'destination-not-empty')
+                require(eval_js(destination, dt, "localStorage.getItem('fixture-credential')") is None,
+                        'destination-not-empty')
+                cookies = call(source, st, 'Network.getAllCookies')['cookies']
+                selected = [c for c in cookies if c['domain'] == '127.0.0.1' and c['name'] == 'session'
+                            and c.get('path') == '/']
+                require(len(selected) == 1 and selected[0].get('httpOnly') is True,
+                        'source-cookie-unverified')
+                existing = call(destination, dt, 'Network.getAllCookies')['cookies']
+                require(not any(c['domain'] == '127.0.0.1' for c in existing), 'destination-not-empty')
+                storage = eval_js(source, st, "localStorage.getItem('fixture-credential')")
+                require(storage == 'approved', 'source-storage-unverified')
+                imported = True  # cleanup even if the CDP write succeeds but its reply is lost
+                call(destination, dt, 'Network.setCookies', {'cookies': selected})
+                eval_js(destination, dt, 'localStorage.setItem(' + json.dumps('fixture-credential') + ',' + json.dumps(storage) + ')')
+                require(eval_js(destination, dt, check) is True, 'destination-app-check-failed')
+                require(eval_js(source, st, check) is True and eval_js(source, st, 'location.href') == source_url,
+                        'source-changed')
+                require(bool(_transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id,
+                                                  ticketed=True)),
+                        'manager-identity-changed')
+                # Manager/canonical ownership stays serialized by node lock and
+                # BEGIN IMMEDIATE; the adapter's exclusive ticket fences CDP.
+            except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError) as exc:
+                reason = str(exc) if isinstance(exc, TransferError) else 'transfer-control-unavailable'
+            finally:
+                if imported:
+                    try:
+                        if reason:
+                            destination, dt = clients[1], tickets[1]
+                            call(destination, dt, 'Network.deleteCookies',
+                                 {'name': 'session', 'url': origin + '/'})
+                            eval_js(destination, dt, "localStorage.removeItem('fixture-credential')")
+                            cleaned = (eval_js(destination, dt, check) is False and
+                                       eval_js(destination, dt, "localStorage.getItem('fixture-credential')") is None and
+                                       not any(c['domain'] == '127.0.0.1' for c in
+                                               call(destination, dt, 'Network.getAllCookies')['cookies']))
+                    except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError):
+                        cleaned = False
+                for index, (client, ticket) in enumerate(zip(clients, tickets)):
+                    if index == 1 and imported and not cleaned:
+                        # Keep the destination CDP closed rather than release a
+                        # possibly authenticated, incompletely cleaned browser.
+                        continue
+                    try:
+                        if index == 1 and reason and cleaned:
+                            control(client, 'abort', {'ticket': ticket})
+                            continue
+                        control(client, 'end', {'ticket': ticket})
+                        if index == 1 and imported and not reason:
+                            destination_quarantined = True
+                    except (OSError, ValueError, httpx.HTTPError):
+                        cleaned = False
+                        if index == 1 and imported:
+                            destination_end_unverified = True
+                for client in clients:
+                    client.close()
+            if not reason and cleaned and destination_quarantined and not destination_end_unverified:
+                try:
+                    with httpx.Client(transport=httpx.HTTPTransport(uds=candidates[1][1]['control_socket']), timeout=15) as check_client:
+                        identity = check_client.get('http://localhost/identity')
+                        identity.raise_for_status()
+                        observed = identity.json()
+                        require(observed.get('quarantined') is True and
+                                observed.get('cdp_url') == candidates[1][1]['cdp_url'] and
+                                observed.get('process_identity') == candidates[1][1]['process_identity'],
+                                'destination-identity-changed')
+                        # Source retains its owner and usable generation. Destination
+                        # remains private throughout commit; an ACK is not activation.
+                        committed = control(check_client, 'commit', {'ticket': tickets[1]})
+                        require(committed.get('quarantined') is True, 'commit-unverified')
+                        committed_url = committed['cdp_url']
+                        info = record_info(candidates[1][0])
+                        require(info.get('cdp_url') == candidates[1][1]['cdp_url'], 'destination-identity-changed')
+                        info['cdp_url'] = committed_url
+                        private_json(candidates[1][0]['launch_file'], info)
+                        leases.execute('UPDATE browser_profile_leases SET cdp_url=? WHERE lease_id=? AND cdp_url=?',
+                                       (committed_url, destination_lease_id, candidates[1][1]['cdp_url']))
+                        require(leases.execute('SELECT changes()').fetchone()[0] == 1, 'manager-identity-changed')
+                        leases.commit()
+                        control(check_client, 'activate', {'ticket': tickets[1]})
+                except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError):
+                    # A lost activation ACK may mean the fully published owner
+                    # is live. Accept only exact private identity plus canonical
+                    # URL; otherwise it remains quarantined for exact disposal.
+                    activated = False
+                    if committed_url:
+                        try:
+                            with httpx.Client(transport=httpx.HTTPTransport(
+                                    uds=candidates[1][1]['control_socket']), timeout=15) as probe:
+                                reply = probe.get('http://localhost/identity')
+                                reply.raise_for_status()
+                                state = reply.json()
+                                canonical = leases.execute(
+                                    'SELECT cdp_url FROM browser_profile_leases WHERE lease_id=?',
+                                    (destination_lease_id,)).fetchone()
+                                activated = (state.get('available') is True and
+                                             state.get('process_identity') == candidates[1][1]['process_identity'] and
+                                             state.get('cdp_url') == committed_url and canonical and
+                                             canonical['cdp_url'] == committed_url)
+                        except (OSError, ValueError, KeyError, httpx.HTTPError):
+                            pass
+                    destination_end_unverified = not activated
+            if destination_end_unverified:
+                # The end may have applied even when its reply was lost. Its
+                # ticket cannot be relied on to fence an imported destination.
+                # Dispose only the exact recorded unit, while still holding the
+                # manager/canonical ownership locks; never leave it serving CDP.
+                try:
+                    disposed = stop_recorded(candidates[1][0])
+                except (OSError, ValueError):
+                    disposed = False
+                if disposed:
+                    return unavailable('destination-disposed-after-end-uncertainty')
+                return unavailable('destination-cleanup-incomplete')
+            if not cleaned:
+                return unavailable('destination-cleanup-unverified')
+            return unavailable(reason) if reason else {'status': 'fixture-auth-transferred'}
+
+
 def metadata(c, row):
     r = c.execute(
         "select metadata from lifecycle where lease_id=?", (row["lease_id"],)
@@ -993,6 +1256,9 @@ def maintain(args):
                         from browser_control import rotate_control
 
                         try:
+                            import browser_profile_lease as profiles
+                            profiles.revoke_transfer_identity(
+                                STATE.parent / 'browser_profile_leases.sqlite', row['lease_id'])
                             info.update(rotate_control(info["control_socket"]))
                             private_json(row["launch_file"], info)
                         except Exception:
@@ -1148,6 +1414,8 @@ def start(args):
             from browser_control import rotate_control
 
             try:
+                profiles.revoke_transfer_identity(
+                    STATE.parent / 'browser_profile_leases.sqlite', row['lease_id'])
                 rotated = rotate_control(info["control_socket"])
                 if rotated.get("fenced"):
                     info.update(rotated)

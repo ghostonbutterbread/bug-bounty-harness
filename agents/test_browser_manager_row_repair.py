@@ -51,7 +51,7 @@ def quiet(row, receipt, lease, metadata):
 @pytest.fixture
 def runtime(monkeypatch):
     import subprocess
-    monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: subprocess.CompletedProcess(a, 3, 'inactive\n', ''))
+    monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: subprocess.CompletedProcess(a, 0, 'ActiveState=inactive\nLoadState=not-found\nMainPID=0\nControlGroup=\n', ''))
     monkeypatch.setattr(repair, 'no_profile_process', lambda *a: None)
     import socket
     monkeypatch.setattr(socket, 'create_connection', lambda *a, **kw: (_ for _ in ()).throw(ConnectionRefusedError()))
@@ -336,3 +336,26 @@ def test_shifted_idle_stopped_projection_is_reconstructed_then_normalized(tmp_pa
     with sqlite3.connect(state) as c:
         row = c.execute("SELECT profile_dir,state,tab_count FROM browsers WHERE lease_id='lid-0'").fetchone()
         assert row == (str(tmp_path / 'profile-bid-0'), 'stopped', 0)
+
+def test_legacy_null_domain_idle_row_requires_matching_identity(tmp_path, runtime):
+    state, backup = fixture(tmp_path, 1)
+    with sqlite3.connect(state) as c:
+        c.execute("UPDATE browsers SET auth_domain='legacy-global',state='idle-stopped' WHERE lease_id='lid-0'")
+    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite') as c:
+        c.execute("UPDATE browser_profile_leases SET auth_domain=NULL,status='expired' WHERE lease_id='lid-0'")
+    assert repair.run(state, 'neon', 'blue')['candidate_count'] == 0
+    # Rebuild the ordinary non-shifted legacy row with a canonical null domain.
+    with sqlite3.connect(state) as c:
+        c.execute('UPDATE browsers SET agent_id=?,run_id=?,purpose=?,unit=?,profile_dir=?,launch_file=?,state=?,tab_count=?,last_activity=?,created=?,updated=? WHERE lease_id=?',
+                  ('agent','run','purpose','browser-bid-0',str(tmp_path/'profile-bid-0'),str(tmp_path/'bid-0.launch.json'),'idle-stopped',0,1.,1.,1.,'lid-0'))
+    plan = repair.run(state, 'neon', 'blue')
+    assert plan['candidate_count'] == 1 and not plan['blocked']
+    assert apply(state, backup, plan)['applied_count'] == 1
+
+def test_incomplete_systemd_show_is_unknown(tmp_path, runtime, monkeypatch):
+    state, backup = fixture(tmp_path, 1)
+    plan = repair.run(state, 'neon', 'blue')
+    import subprocess
+    monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: subprocess.CompletedProcess(a, 0, 'ActiveState=inactive\nLoadState=not-found\n', ''))
+    with pytest.raises(repair.Refused, match='plan-changed'):
+        apply(state, backup, plan)

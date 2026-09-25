@@ -6,6 +6,10 @@ description: Use when detecting, fingerprinting, or bypassing WAF blocks, rate l
 
 Auto-detect and bypass WAF blocks in any harness.
 
+A WAF is an attack surface with known weaknesses, not a wall — fingerprint the family, use documented bypass patterns from this skill, and apply creative payloads rather than generic rotation.
+
+Load `blocker-first-analysis` when classifying the blocker type; `hypothesis-expansion-policy` when deepening or deferring the line; `bypass` for generic sanitizer/parser techniques. For observed live filtering, apply `waf-live-policy` and the inherited scope and rate boundaries before choosing probes.
+
 ## Required Preflight
 
 Read the relevant notes for the concrete surface when they exist:

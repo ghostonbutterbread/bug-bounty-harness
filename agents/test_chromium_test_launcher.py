@@ -330,6 +330,7 @@ def test_auto_cert_mode_falls_back_to_explicit_ignore_when_import_unavailable(
     monkeypatch, tmp_path, capsys
 ):
     module = load_launcher_module()
+    monkeypatch.setattr(module, "detect_nvk_device", lambda: None)
     authorize_provisioner_child(monkeypatch, module)
     launched = {}
 
@@ -1016,6 +1017,7 @@ def load_kasmvnc_session_module():
 
 def test_kasmvnc_start_uses_dedicated_display_loopback_and_requested_web_port(monkeypatch, tmp_path):
     module = load_kasmvnc_session_module()
+    monkeypatch.setattr(module, "can_bind_localhost", lambda _port: True)
     launched = {}
 
     def fake_popen(command, **kwargs):
@@ -1080,6 +1082,7 @@ def test_kasmvnc_status_reports_only_a_live_loopback_web_listener(monkeypatch, t
 
 def test_kasmvnc_start_reports_a_clean_error_when_vncserver_is_not_installed(monkeypatch, tmp_path):
     module = load_kasmvnc_session_module()
+    monkeypatch.setattr(module, "can_bind_localhost", lambda _port: True)
 
     def missing_vncserver(*_args, **_kwargs):
         raise FileNotFoundError("vncserver")
@@ -1096,6 +1099,7 @@ def test_kasmvnc_start_reports_a_clean_error_when_vncserver_is_not_installed(mon
 
 def test_default_backend_starts_kasmvnc_and_passes_display_to_chromium(monkeypatch, tmp_path, capsys):
     module = load_launcher_module()
+    monkeypatch.setattr(module, "detect_nvk_device", lambda: None)
     authorize_provisioner_child(monkeypatch, module)
     launched = {}
 
@@ -1142,6 +1146,7 @@ def test_default_backend_starts_kasmvnc_and_passes_display_to_chromium(monkeypat
 
 def test_auto_backend_falls_back_to_legacy_display_when_kasmvnc_is_unavailable(monkeypatch, tmp_path, capsys):
     module = load_launcher_module()
+    monkeypatch.setattr(module, "detect_nvk_device", lambda: None)
     authorize_provisioner_child(monkeypatch, module)
 
     class FakeProcess:

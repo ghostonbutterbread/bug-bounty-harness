@@ -110,11 +110,12 @@ work:
    ```
    If `webgl` is `false`, the environment — not the request shape or payload —
    is the likely cause.
-2. **Use the provisioner's normal headed request first.** The launcher now adds
-   `--use-gl=angle --use-angle=gl --ignore-gpu-blocklist
-   --enable-gpu-rasterization --enable-unsafe-swiftshader` to headed Chrome
-   for the normal browser selection, including a plain shell launcher chosen
-   via `CHROMIUM_TEST_CHROME`. An explicit `--chrome-binary` retains control of
+2. **Use the provisioner's normal headed request first.** On a host with a
+   probed discrete Mesa NVK Vulkan device, the launcher chooses ANGLE/Vulkan
+   and selects that device only for the spawned browser; no user-manager or
+   session `CHROMIUM_TEST_CHROME` setting is needed. Without that device (or if
+   the bounded probe fails), it retains the normal ANGLE/GL flags; verify the
+   actual renderer in-page. An explicit `--chrome-binary` retains control of
    its own flags. A custom GL/Vulkan wrapper selected through the environment
    must use `--graphics-backend external` on the provisioner request; this
    task-scoped opt-out preserves its backend without guessing from the wrapper

@@ -1,14 +1,14 @@
 # Bunny campaign orchestration integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes (bugfix profile)
 - **Branch:** `feat/bunny-campaign-orchestration`
 - **Base commit:** `7690fc04e1a539c50013b119cc4a49f3082032f5`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-25 UTC
 - **Owning feature branch/ref:** `feat/bunny-campaign-orchestration`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `6ecf93a20132fbdf1a63cdb0c4bbc42b17ad3db0`
+- **Feature implementation commit(s):** `6ecf93a20132fbdf1a63cdb0c4bbc42b17ad3db0`
 - **Inspiration / canonical references:** Ryushe's Bunny design discussion; MAPTA coordinator/sandbox/validator pattern; existing `hunter-loop`, `hunt-orchestration`, browser profile and reporting skills.
 
 ## Intent
@@ -22,7 +22,7 @@ Move the local Bunny prototype into canonical BBH as an opt-in, distinct campaig
 ## Evidence and review
 
 - Tests and commands: `python3 -m unittest discover -s tests -p 'test_bunny_skill.py' -v` (3 passed); `git diff --check`; `python3 -m compileall -q tests/test_bunny_skill.py`.
-- Independent review: pending.
+- Independent review: read-only review of `6ecf93a` accepted the skill contract; requested dossier checkpoint correction and removal of a suggested fixed nudge count. Focused tests passed. Broader skill-test run had one pre-existing unchanged failure in `test_skill_command_lane_safety.py`.
 - Replay/cohort/fixture evidence: not applicable; documentation-only skill.
 - Merge/ancestry evidence: feature based on fetched `origin/beta` above; recheck before integration.
 
@@ -37,10 +37,10 @@ Move the local Bunny prototype into canonical BBH as an opt-in, distinct campaig
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/bunny-campaign-orchestration`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** run tests, review, commit, merge into current beta, push, sync local/Hoster.
-- **Working-tree state at handoff:** intentionally uncommitted until initial test pass.
+- **Latest immutable recovery checkpoint:** `6ecf93a20132fbdf1a63cdb0c4bbc42b17ad3db0`
+- **Feature implementation commit(s):** `6ecf93a20132fbdf1a63cdb0c4bbc42b17ad3db0`
+- **Exact resume point:** reconcile review corrections, rerun focused tests, then merge into current beta, push, sync local/Hoster.
+- **Working-tree state at handoff:** review corrections pending a follow-up commit; previous implementation is recoverable at `6ecf93a`.
 
 ## Decision gates
 

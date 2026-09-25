@@ -27,12 +27,12 @@ At the beta-owned Chromium launcher boundary, a failed pipe-adapter import must 
 - `python -m pytest agents/test_browser_startup_diagnostics.py agents/test_chromium_test_launcher.py -q` with scratch-root `/proc/<pid>/fd/<fd>/pt` pytest basetemp: **59 passed**. Initial plain invocation: 58 passed, 1 failed solely because scratch-root pytest `control.sock` path exceeded Linux AF_UNIX limit; rerun with short alias passed without changing production code.
 - `python -m pytest agents/test_browser_provisioner.py agents/test_browser_lifecycle_systemd.py -q -k 'not real_systemd and not live and not smoke'` with same basetemp: **36 passed, 2 skipped, 4 deselected**.
 - `git diff --check`: clean. The separate systemd/real-browser path was not exercised; no browser units or Hoster resources touched.
-- **Independent review:** pending parent/release gate.
-- **Ancestry:** fetched `origin/beta` base above; descendant `feat/browser-auth-fixture-transaction` contains diagnostic commit `3f75875` in its ancestor chain. Propagate via merge after beta integration, retaining fixture-specific work and resolving equivalent diagnostic hunks without duplicate behavior. No rebase of shared descendant.
+- **Independent review:** code and focused tests approved; integration blocked pending this handoff correction. Reviewer independently observed 59 diagnostics/launcher passes and 36 provisioner/lifecycle passes (2 skipped, 4 deselected); real systemd startup untested.
+- **Ancestry:** fetched `origin/beta` base above. The fixture transaction branch does **not** contain `3f75875`; that commit belongs to the separate `fix/browser-preparation-diagnostics` descendant. After beta integration, merge beta into each affected auth branch deliberately, retaining fixture-specific work and resolving equivalent diagnostic hunks without duplicate behavior. No rebase of shared descendants.
 
 ## Blockers and deferred work
 
-- **Missing evidence:** independent review and integrated beta focused tests.
+- **Missing evidence:** integrated beta focused tests and real systemd startup receipt; the independent source review approved code subject to the corrected ancestry record above.
 - **Command / environment:** review this branch diff against `origin/beta`; after authorized merge rerun the two commands above from the selected clean beta integration worktree with a synchronized isolated environment. A real systemd startup exercise requires an authorized disposable browser environment and is not claimed here.
 - **Trigger:** parent approves and integrates into beta, then propagates to fixture descendant.
 - **Why:** no integration or descendant propagation was authorized to this subtask.

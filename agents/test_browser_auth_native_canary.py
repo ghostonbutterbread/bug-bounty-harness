@@ -50,7 +50,7 @@ def navigate(url, target, expected=None):
 
 
 @pytest.mark.skipif(os.environ.get('BBH_AUTH_CANARY') != '1', reason='explicit local canary opt-in')
-@pytest.mark.parametrize('lost_reply,bad_check', [(None, None), ('end', None), ('commit', None),
+@pytest.mark.parametrize('lost_reply,bad_check', [(None, None), ('bootstrap', None), ('end', None), ('commit', None),
                                         (None, 'principal'), (None, 'redirect'), (None, 'domain-cookie'),
                                         ('begin-source', None), ('begin-destination', None),
                                         ('begin-source-unproved', None), ('begin-destination-unproved', None),
@@ -182,6 +182,17 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
                                         json={**begin, 'ticket': ticket}).status_code == 200
             assert evaluate(source, check) is True
             manager.STATE = Path(env['BROWSER_PROVISIONER_STATE'])
+            if lost_reply is None:
+                evaluate(source, "localStorage.removeItem('fixture-credential')")
+                assert manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin) == {
+                    'status': 'auth-clone-unavailable', 'reason': 'source-storage-unverified'}
+                assert manager.manager_fixture_promote(leases[0], origin=origin,
+                    owner_agent_id='fixture-agent', owner_run_id='canary-0') == {
+                    'status': 'auth-clone-unavailable', 'reason': 'source-app-check-failed'}
+                assert evaluate(destination, check) is False
+                assert evaluate(destination, "localStorage.getItem('fixture-credential')") is None
+                evaluate(source, "localStorage.setItem('fixture-credential', 'approved')")
+                assert evaluate(source, check) is True
             # Inject an app-native rejection after the import. The manager must
             # remove both cookie and storage before releasing destination CDP.
             checks['reject_at'] = checks['count'] + 3
@@ -205,6 +216,15 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
                 assert evaluate(destination, "localStorage.getItem('fixture-credential')") is None
                 assert not call_page(destination, 'Network.getAllCookies')['cookies']
                 assert evaluate(source, 'location.href') == source_url
+                return
+            if lost_reply == 'bootstrap':
+                assert manager.manager_fixture_pending(leases[1])['reason'] == 'pending-peer-unavailable'
+                assert manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin) == {
+                    'status': 'fixture-auth-transferred'}
+                published = json.loads(Path(rows[1][1]).read_text())['cdp_url']
+                assert evaluate(published, check) is True
+                assert evaluate(source, check) is True
+                assert manager.manager_fixture_pending(leases[1])['reason'] == 'pending-peer-unavailable'
                 return
             if lost_reply and lost_reply.startswith('begin-'):
                 side = 'source' if 'source' in lost_reply else 'destination'
@@ -398,17 +418,37 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
                     urllib.request.urlopen(destination + '/json/version', timeout=2)
                 assert evaluate(source, check) is True
                 return
+            # Direct clone is allowed only for an empty initial recipient, not
+            # for populated state or a promotion-pending peer.
+            evaluate(destination, "localStorage.setItem('fixture-credential', 'approved')")
             assert manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin) == {
-                'status': 'fixture-auth-transferred'}
-            destination = json.loads(Path(rows[1][1]).read_text())['cdp_url']
-            assert destination != urls[1]
-            with pytest.raises(Exception):
-                urllib.request.urlopen(urls[1] + '/json/version', timeout=2)
-            assert evaluate(destination, check) is True
+                'status': 'auth-clone-unavailable', 'reason': 'destination-not-empty'}
+            assert evaluate(destination, "localStorage.getItem('fixture-credential')") == 'approved'
+            evaluate(destination, "localStorage.removeItem('fixture-credential')")
+            assert manager.manager_fixture_promote(leases[0], origin=origin,
+                owner_agent_id='fixture-agent', owner_run_id='canary-0') == {
+                'status': 'fixture-generation-promoted', 'generation': 1}
+            assert manager.manager_fixture_pending(leases[1]) == {'status': 'pending', 'generation': 1}
+            assert manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin) == {
+                'status': 'auth-clone-unavailable', 'reason': 'recipient-approval-required'}
+            assert manager.manager_fixture_pending(leases[1]) == {'status': 'pending', 'generation': 1}
+            assert evaluate(destination, check) is False  # promotion did not touch peer
+            evaluate(destination, "localStorage.setItem('fixture-credential', 'approved')")
+            assert manager.manager_fixture_apply(leases[1], generation=1,
+                owner_agent_id='fixture-agent', owner_run_id='canary-1', approved_boundary=True) == {
+                    'status': 'auth-clone-unavailable', 'reason': 'recipient-approval-required'}
+            assert manager.manager_fixture_pending(leases[1]) == {'status': 'pending', 'generation': 1}
+            evaluate(destination, "localStorage.removeItem('fixture-credential')")
+            assert manager.manager_fixture_apply(leases[1], generation=1,
+                owner_agent_id='fixture-agent', owner_run_id='canary-1', approved_boundary=True) == {
+                    'status': 'auth-clone-unavailable', 'reason': 'recipient-approval-required'}
+            assert manager.manager_fixture_pending(leases[1]) == {'status': 'pending', 'generation': 1}
+            assert json.loads(Path(rows[1][1]).read_text())['cdp_url'] == urls[1]
+            assert evaluate(destination, check) is False
             assert evaluate(source, check) is True
             assert evaluate(source, 'location.href') == source_url
             assert evaluate(source, 'document.cookie') == ''
-            print('manager native canary: two isolated Chromes; app checks passed; source unchanged')
+            print('manager native canary: two isolated Chromes; unapproved peer unchanged')
         finally:
             for lid in reversed(leases):
                 command('release', '--lease-id', lid, '--agent-id', 'fixture-agent',

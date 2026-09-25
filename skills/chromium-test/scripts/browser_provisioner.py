@@ -77,6 +77,16 @@ def db():
         if name not in columns:
             c.execute(f"alter table task_proxies add column {name} {definition}")
     c.execute("CREATE TABLE IF NOT EXISTS finished_proxies (agent_id TEXT NOT NULL, run_id TEXT NOT NULL, lane TEXT NOT NULL, finished REAL NOT NULL, PRIMARY KEY(agent_id, run_id))")
+    # Fixture-only peer metadata. Never persist cookies, storage or a CDP URL here.
+    c.execute("""CREATE TABLE IF NOT EXISTS fixture_generations (
+        program TEXT NOT NULL, auth_domain TEXT NOT NULL, account TEXT NOT NULL,
+        generation INTEGER NOT NULL, source_lease TEXT NOT NULL,
+        source_identity TEXT NOT NULL, contract_revision TEXT NOT NULL,
+        origin TEXT NOT NULL, PRIMARY KEY(program, auth_domain, account))""")
+    c.execute("""CREATE TABLE IF NOT EXISTS fixture_peers (
+        lease_id TEXT PRIMARY KEY, program TEXT NOT NULL, auth_domain TEXT NOT NULL,
+        account TEXT NOT NULL, generation INTEGER NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('pending','applying','applied')))""")
     return c
 
 
@@ -145,6 +155,254 @@ def _transfer_candidates(manager_db, leases, source_id, destination_id, *, ticke
         return None
     return candidates
 
+FIXTURE_POOL = ('fixture', 'fixture.invalid', 'anon')
+FIXTURE_CONTRACT_REVISION = 'localhost-me-host-session-storage-v1'
+
+
+def _fixture_origin(origin):
+    try:
+        parsed = urlsplit(origin)
+        return (parsed.scheme == 'http' and parsed.hostname == 'localhost'
+                and bool(parsed.port) and origin == f'http://localhost:{parsed.port}')
+    except (TypeError, ValueError):
+        return False
+
+
+def _fixture_identity(row, info):
+    # Opaque, non-secret binding to one physical browser generation and owner.
+    fields = (row['lease_id'], row['agent_id'], row['run_id'], row['profile_dir'],
+              row['unit'], info['unit_invocation'], info['process_identity'], info['cdp_url'])
+    return hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()
+
+
+def _fixture_owner(row, agent_id, run_id):
+    return row['agent_id'] == agent_id and row['run_id'] == run_id
+
+
+def _fixture_source(db_conn, leases, source_id, agent_id, run_id):
+    """Resolve an exact healthy source using the same manager/canonical gate."""
+    # The two-candidate predicate also requires an empty peer; a source-only
+    # promotion must instead validate against its own canonical row.
+    import browser_profile_lease as profiles
+    row = db_conn.execute('SELECT * FROM browsers WHERE lease_id=?', (source_id,)).fetchone()
+    canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (source_id,)).fetchone()
+    if not row or not canonical or not _fixture_owner(row, agent_id, run_id):
+        return None
+    if (tuple(row[k] for k in ('program', 'auth_domain', 'account')) != FIXTURE_POOL
+            or row['state'] != 'running' or canonical['status'] != 'active'
+            or canonical['browser_status'] != 'running' or canonical['expires_at'] <= now()
+            or any(canonical[k] != v for k, v in (
+                ('program', row['program']), ('auth_domain', row['auth_domain']),
+                ('account_alias', row['account']), ('owner_agent_id', agent_id),
+                ('owner_run_id', run_id), ('profile_dir', row['profile_dir']),
+                ('service_unit', row['unit']), ('manager_id', manager_id())))):
+        return None
+    info = record_info(row)
+    identity = info.get('process_identity')
+    if (not profiles.physical_profile(row['profile_dir']) or not identity
+            or owner_state(identity) != 'active' or not info.get('unit_invocation')
+            or info['unit_invocation'] != unit_identity(row['unit'])
+            or info.get('control_mode') != 'pipe-fenced'
+            or info.get('control_socket') != str(STATE.parent / (row['browser_id'] + '.sock'))
+            or canonical['cdp_url'] != info.get('cdp_url') or not healthy(row)):
+        return None
+    return row, info
+
+
+def _fixture_site_contract(origin):
+    if str(ROOT.parents[2]) not in sys.path:
+        sys.path.insert(0, str(ROOT.parents[2]))
+    from agents.browser_auth_site_contract import load_site_contract, SiteContractError
+    contract = load_site_contract(STATE.parent / 'fixture-site-contract.json',
+        program='fixture', auth_domain='fixture.invalid', account_alias='anon', origin=origin)
+    if (contract.cookie_name != '__Host-session' or contract.cookie_domain != 'localhost'
+            or contract.cookie_path != '/' or contract.local_storage_keys != ('fixture-credential',)):
+        raise SiteContractError('Unsupported fixture state')
+    return contract
+
+
+def _fixture_check_expression(contract):
+    # Fixed manager code: URL and selector are JSON data, not executable caller code.
+    return """(async () => {
+        const response = await fetch(URL, {redirect: 'manual', credentials: 'same-origin'});
+        const redirected = response.type === 'opaqueredirect' || response.status >= 300 && response.status < 400;
+        if (redirected) return {url: response.url, status: response.status, redirected: true, principal: ''};
+        const html = await response.text();
+        const element = new DOMParser().parseFromString(html, 'text/html').querySelector(SELECTOR);
+        return {url: response.url, status: response.status, redirected: false,
+                principal: element ? element.textContent.trim() : ''};
+    })()""".replace('URL', json.dumps(contract.check_url)).replace('SELECTOR', json.dumps(contract.principal_selector))
+
+
+def _fixture_verified_observation(contract, observation):
+    from agents.browser_auth_site_contract import SiteContractError, verify_check_response
+    try:
+        verify_check_response(contract, response_url=observation['url'],
+            status=observation['status'], redirected=observation['redirected'],
+            principal=observation['principal'])
+        return True
+    except (SiteContractError, KeyError, TypeError):
+        return False
+
+
+def _fixture_native_source_check(row, info, origin):
+    """Probe auth under an exact ticket; never infer release from an end ACK."""
+    import httpx
+    from agents.browser_auth_site_contract import SiteContractError, verify_cookie_scope
+    try:
+        contract = _fixture_site_contract(origin)
+    except SiteContractError:
+        return False
+    begin = {'transaction': uuid.uuid4().hex, 'owner': row['lease_id'],
+             'generation': info['cdp_url'], 'destination': False}
+    binding = {k: begin[k] for k in ('transaction', 'owner', 'generation')}
+    ticket = None
+    verified = False
+    interruption = None
+    with httpx.Client(transport=httpx.HTTPTransport(uds=info['control_socket']), timeout=15) as client:
+        # A failed begin may have applied. Replay only the manager-derived attempt.
+        for _ in range(2):
+            try:
+                response = client.post('http://localhost/transfer/begin', json=begin)
+                response.raise_for_status()
+                ticket = response.json()['ticket']
+                break
+            except BaseException as exc:
+                if not isinstance(exc, (OSError, ValueError, KeyError, httpx.HTTPError)):
+                    interruption = exc
+        if ticket and interruption is None:
+            def evaluate(expression):
+                response = client.post('http://localhost/transfer/call', json={
+                    **binding, 'ticket': ticket, 'method': 'Runtime.evaluate',
+                    'params': {'expression': expression, 'returnByValue': True, 'awaitPromise': True}})
+                response.raise_for_status()
+                result = response.json()
+                if 'error' in result or 'exceptionDetails' in result.get('result', {}):
+                    return None
+                return result['result']['result'].get('value')
+            try:
+                if evaluate('location.origin') == origin:
+                    observation = evaluate(_fixture_check_expression(contract))
+                    if (_fixture_verified_observation(contract, observation)
+                            and evaluate("localStorage.getItem('fixture-credential')") == 'approved'):
+                        response = client.post('http://localhost/transfer/call', json={
+                            **binding, 'ticket': ticket, 'method': 'Network.getAllCookies', 'params': {}})
+                        response.raise_for_status()
+                        cookies = response.json()['result']['cookies']
+                        selected = [c for c in cookies if c.get('name') == contract.cookie_name
+                                    and c.get('domain') == contract.cookie_domain
+                                    and c.get('path') == contract.cookie_path]
+                        if len(selected) == 1 and selected[0].get('httpOnly') is True:
+                            try:
+                                verify_cookie_scope(contract, browser_domain=selected[0]['domain'],
+                                    host_only=selected[0].get('hostOnly'), secure=selected[0].get('secure'),
+                                    browser_path=selected[0].get('path'))
+                                verified = True
+                            except SiteContractError:
+                                pass
+            except BaseException as exc:
+                if not isinstance(exc, (OSError, ValueError, KeyError, httpx.HTTPError)):
+                    interruption = exc
+        if ticket:
+            try:
+                response = client.post('http://localhost/transfer/end', json={**binding, 'ticket': ticket})
+                response.raise_for_status()
+            except BaseException as exc:
+                if interruption is None and not isinstance(exc, (OSError, ValueError, KeyError, httpx.HTTPError)):
+                    interruption = exc
+        # Even an applied end with a lost reply needs an independent exact
+        # adapter identity/availability readback. Never release another ticket.
+        released = False
+        try:
+            response = client.get('http://localhost/identity')
+            response.raise_for_status()
+            identity = response.json()
+            released = (identity.get('available') is True and identity.get('quarantined') is False
+                        and identity.get('cdp_url') == info['cdp_url']
+                        and identity.get('process_identity') == info['process_identity'])
+        except BaseException as exc:
+            if interruption is None and not isinstance(exc, (OSError, ValueError, KeyError, httpx.HTTPError)):
+                interruption = exc
+    if interruption is not None:
+        interruption.add_note('fixture promotion interrupted; source='
+                              + ('owner-preserved' if released else 'cleanup-incomplete'))
+        raise interruption.with_traceback(interruption.__traceback__)
+    return (True if verified and released and ticket else
+            'source-cleanup-incomplete' if not released else False)
+
+
+def manager_fixture_promote(source_lease_id, *, origin, owner_agent_id, owner_run_id):
+    """Owner-initiated fixture promotion; records no auth material."""
+    import browser_profile_lease as profiles
+    from agents.browser_auth_site_contract import SiteContractError
+    unavailable = lambda reason: {'status': 'auth-clone-unavailable', 'reason': reason}
+    if not _fixture_origin(origin) or not source_lease_id:
+        return unavailable('site-contract-unavailable')
+    with node_lock(STATE):
+        with db() as store, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+            profiles.init_db(leases)
+            leases.execute('BEGIN IMMEDIATE')
+            source = _fixture_source(store, leases, source_lease_id, owner_agent_id, owner_run_id)
+            if not source:
+                return unavailable('manager-identity-unverified')
+            try:
+                _fixture_site_contract(origin)
+            except SiteContractError:
+                return unavailable('site-contract-unavailable')
+            row, info = source
+            identity = _fixture_identity(row, info)
+            # Keep the ownership lock across the native check and metadata write:
+            # concurrent promotions cannot both publish from the same snapshot.
+            check = _fixture_native_source_check(row, info, origin)
+            if check is not True:
+                return unavailable('source-cleanup-incomplete' if check == 'source-cleanup-incomplete'
+                                   else 'source-app-check-failed')
+            source = _fixture_source(store, leases, source_lease_id, owner_agent_id, owner_run_id)
+            if not source or _fixture_identity(*source) != identity:
+                return unavailable('source-changed')
+            key = FIXTURE_POOL
+            old = store.execute('SELECT generation FROM fixture_generations WHERE program=? AND auth_domain=? AND account=?', key).fetchone()
+            generation = (old['generation'] if old else 0) + 1
+            store.execute('''INSERT INTO fixture_generations VALUES (?,?,?,?,?,?,?,?)
+                ON CONFLICT(program,auth_domain,account) DO UPDATE SET generation=excluded.generation,
+                source_lease=excluded.source_lease, source_identity=excluded.source_identity,
+                contract_revision=excluded.contract_revision, origin=excluded.origin''',
+                (*key, generation, source_lease_id, identity, FIXTURE_CONTRACT_REVISION, origin))
+            # Never overwrite a recipient in flight. An applying reservation is
+            # held only during transfer outside this lock; reject promotions then.
+            if store.execute("SELECT 1 FROM fixture_peers WHERE state='applying'").fetchone():
+                store.rollback()
+                return unavailable('peer-transfer-in-progress')
+            store.execute('''INSERT INTO fixture_peers VALUES (?,?,?,?,?, 'applied')
+                ON CONFLICT(lease_id) DO UPDATE SET program=excluded.program,
+                auth_domain=excluded.auth_domain, account=excluded.account,
+                generation=excluded.generation, state='applied' ''',
+                (source_lease_id, *key, generation))
+            for peer in store.execute("SELECT lease_id FROM browsers WHERE program=? AND auth_domain=? AND account=? AND lease_id<>?", (*key, source_lease_id)):
+                store.execute('''INSERT INTO fixture_peers VALUES (?,?,?,?,?, 'pending')
+                    ON CONFLICT(lease_id) DO UPDATE SET program=excluded.program,
+                    auth_domain=excluded.auth_domain, account=excluded.account,
+                    generation=excluded.generation, state='pending' ''',
+                    (peer['lease_id'], *key, generation))
+            return {'status': 'fixture-generation-promoted', 'generation': generation}
+
+
+def manager_fixture_pending(recipient_lease_id):
+    """Metadata-only readback; never an instruction to navigate a running peer."""
+    with db() as store:
+        peer = store.execute('SELECT * FROM fixture_peers WHERE lease_id=?', (recipient_lease_id,)).fetchone()
+        current = store.execute('SELECT * FROM browsers WHERE lease_id=?', (recipient_lease_id,)).fetchone()
+        if not peer or not current or tuple(current[k] for k in ('program', 'auth_domain', 'account')) != tuple(peer[k] for k in ('program', 'auth_domain', 'account')):
+            return {'status': 'auth-clone-unavailable', 'reason': 'pending-peer-unavailable'}
+        return {'status': peer['state'], 'generation': peer['generation']}
+
+
+def manager_fixture_apply(recipient_lease_id, *, generation, owner_agent_id, owner_run_id,
+                          approved_boundary=False):
+    """Fail closed until a manager-authenticated recipient approval channel exists."""
+    return {'status': 'auth-clone-unavailable', 'reason': 'recipient-approval-required'}
+
+
 def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, origin):
     """Private fixture-only synchronous transfer; never a CLI or generic site API.
 
@@ -194,38 +452,17 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
         require('exceptionDetails' not in result, 'app-check-failed')
         return result.get('result', {}).get('value')
 
-    def checked_contract():
-        contract = load_site_contract(STATE.parent / 'fixture-site-contract.json',
-            program='fixture', auth_domain='fixture.invalid', account_alias='anon', origin=origin)
-        if (contract.cookie_name != '__Host-session' or contract.cookie_domain != 'localhost'
-                or contract.cookie_path != '/' or contract.local_storage_keys != ('fixture-credential',)):
-            raise SiteContractError('Unsupported fixture state')
-        return contract
-
-    def check_expression(contract):
-        # Fixed manager code; selector and URL are JSON data, never executable JS.
-        return """(async () => {
-        const response = await fetch(URL, {redirect: 'manual', credentials: 'same-origin'});
-        const redirected = response.type === 'opaqueredirect' || response.status >= 300 && response.status < 400;
-        if (redirected) return {url: response.url, status: response.status, redirected: true, principal: ''};
-        const html = await response.text();
-        const element = new DOMParser().parseFromString(html, 'text/html').querySelector(SELECTOR);
-        return {url: response.url, status: response.status, redirected: false,
-                principal: element ? element.textContent.trim() : ''};
-    })()""".replace('URL', json.dumps(contract.check_url)).replace('SELECTOR', json.dumps(contract.principal_selector))
     def app_check(client, ticket):
         observation = eval_js(client, ticket, check)
-        try:
-            verify_check_response(contract, response_url=observation['url'],
-                status=observation['status'], redirected=observation['redirected'],
-                principal=observation['principal'])
-            return True
-        except (SiteContractError, KeyError, TypeError):
-            return False
+        return _fixture_verified_observation(contract, observation)
     with node_lock(STATE):
         with db() as manager_db, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
             profiles.init_db(leases)
             leases.execute('BEGIN IMMEDIATE')
+            peer = manager_db.execute('SELECT 1 FROM fixture_peers WHERE lease_id=?',
+                                      (destination_lease_id,)).fetchone()
+            if peer:
+                return unavailable('recipient-approval-required')
             candidates = _transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id)
             if not candidates:
                 return unavailable('manager-identity-unverified')
@@ -236,10 +473,11 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                    for row, info, _ in candidates):
                 return unavailable('manager-identity-unverified')
             try:
-                contract = checked_contract()
+                contract = _fixture_site_contract(origin)
             except SiteContractError:
                 return unavailable('site-contract-unavailable')
-            check = check_expression(contract)
+            check = _fixture_check_expression(contract)
+
             # This is deliberately a fixture boundary, not a transport for
             # authenticated production accounts or arbitrary origins.
             clients = []

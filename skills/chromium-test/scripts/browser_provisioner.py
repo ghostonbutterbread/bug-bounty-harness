@@ -214,6 +214,7 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
             cleaned = True
             destination_end_unverified = False
             destination_quarantined = False
+            source_recheck_failed = False
             committed_url = None
             reason = None
             try:
@@ -260,8 +261,12 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                 call(destination, dt, 'Network.setCookies', {'cookies': selected})
                 eval_js(destination, dt, 'localStorage.setItem(' + json.dumps('fixture-credential') + ',' + json.dumps(storage) + ')')
                 require(eval_js(destination, dt, check) is True, 'destination-app-check-failed')
+                # Any failure in the post-import source recheck must dispose the
+                # imported recipient, including a lost source command reply.
+                source_recheck_failed = True
                 require(eval_js(source, st, check) is True and eval_js(source, st, 'location.href') == source_url,
                         'source-changed')
+                source_recheck_failed = False
                 require(bool(_transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id,
                                                   ticketed=True)),
                         'manager-identity-changed')
@@ -287,9 +292,9 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                     if index in uncertain_begin:
                         cleaned = False
                         continue
-                    if index == 1 and imported and not cleaned:
-                        # Keep the destination CDP closed rather than release a
-                        # possibly authenticated, incompletely cleaned browser.
+                    if index == 1 and imported and (not cleaned or source_recheck_failed):
+                        # Keep the recipient private until exact disposal, even
+                        # when rollback appears clean after a source failure.
                         continue
                     try:
                         if index == 1 and reason and cleaned:
@@ -326,11 +331,14 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                                 uncertain_begin.remove(index)
                     except (OSError, ValueError, KeyError, httpx.HTTPError):
                         pass
-                if uncertain_begin:
-                    return unavailable(('source' if 0 in uncertain_begin else 'destination') + '-cleanup-incomplete')
                 if not imported:
                     cleaned = True
-            if not reason and cleaned and destination_quarantined and not destination_end_unverified:
+            source_unproved = 0 in uncertain_begin
+            # Resolve source uncertainty before any destination commit. Even a
+            # clean rollback cannot authorize release of an imported recipient
+            # when source release or the post-import recheck is unproved.
+            if (not reason and not uncertain_begin and not source_recheck_failed and
+                    cleaned and destination_quarantined and not destination_end_unverified):
                 try:
                     with httpx.Client(transport=httpx.HTTPTransport(uds=candidates[1][1]['control_socket']), timeout=15) as check_client:
                         bindings[id(check_client)] = bindings[id(clients[1])]
@@ -377,7 +385,7 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                         except (OSError, ValueError, KeyError, httpx.HTTPError):
                             pass
                     destination_end_unverified = not activated
-            if destination_end_unverified:
+            if imported and (source_unproved or source_recheck_failed or destination_end_unverified):
                 # The end may have applied even when its reply was lost. Its
                 # ticket cannot be relied on to fence an imported destination.
                 # Dispose only the exact recorded unit, while still holding the
@@ -386,9 +394,19 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                     disposed = stop_recorded(candidates[1][0])
                 except (OSError, ValueError):
                     disposed = False
+                if source_unproved:
+                    return {'status': 'auth-clone-unavailable', 'reason': 'source-cleanup-incomplete',
+                            'source': 'release-unverified',
+                            'destination': 'disposed' if disposed else 'cleanup-incomplete'}
+                if source_recheck_failed:
+                    return {'status': 'auth-clone-unavailable', 'reason': reason or 'source-changed',
+                            'source': 'owner-preserved',
+                            'destination': 'disposed' if disposed else 'cleanup-incomplete'}
                 if disposed:
                     return unavailable('destination-disposed-after-end-uncertainty')
                 return unavailable('destination-cleanup-incomplete')
+            if uncertain_begin:
+                return unavailable(('source' if source_unproved else 'destination') + '-cleanup-incomplete')
             if not cleaned:
                 return unavailable('destination-cleanup-unverified')
             return unavailable(reason) if reason else {'status': 'fixture-auth-transferred'}

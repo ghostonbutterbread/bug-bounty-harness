@@ -1,6 +1,6 @@
 # Manual hunter finding-edit integration dossier
 
-- **Status:** review-ready (provider beta `8cc64e68bc93919573c5e3cb2662283889d7858c` published and installed)
+- **Status:** approved for beta integration after reconciliation
 - **Owner:** Hermes
 - **Branch / owning ref:** `feat/manual-hunter-edit-finding`
 - **Base commit:** `3a25123903152994b9b431ac668c47ac3ad14e79`
@@ -21,13 +21,13 @@ Give agents an explicit way to replace false ledger content and add verified fac
 ## Evidence and review
 
 - Tests and commands: checkout-local `.venv/bin/python -m pytest -q agents/test_manual_hunter.py agents/test_ledger_v2.py tests/test_runtime_dependencies.py tests/test_skill_command_lane_safety.py::SkillCommandLaneSafetyTests::test_canonical_skills_do_not_teach_stale_checkout_or_import_routing` — 42 passed, 9 subtests. Real CLI fixture with `--root` added then edited D01: old generated type index removed, new index present, title/vulnerability_name and severity/severity_label aligned. `git diff --check` passed.
-- Independent review: initial review blocked stale generated type indexes and stale title/severity aliases. Bounty Core provider fix passed independent review, merged/pushed as `8cc64e68bc93919573c5e3cb2662283889d7858c`; consumer pin and `direct_url.json` match. Consumer re-review pending.
+- Independent review: initial review blocked stale generated type indexes and stale title/severity aliases. Bounty Core provider fix passed independent review, merged/pushed as `8cc64e68bc93919573c5e3cb2662283889d7858c`; consumer pin and `direct_url.json` match. Final consumer review approved; beta had advanced to `082c027`, merged into feature at `349dd8c`, and focused tests reran: 42 passed, 9 subtests.
 - Replay/cohort/fixture evidence: temporary fixture ledger exercises content correction, wrong FID, protected fields, lane isolation, generated report refresh, preserved hand-edited report.
 - Merge/ancestry evidence: branch from fetched `origin/beta` at base above.
 
 ## Blockers and deferred work
 
-- Consumer independent re-review and beta integration pending; rerun focused tests after merge. No live program finding was mutated in verification.
+- Beta merge, installed beta dependency refresh, and activation check remain. No live program finding was mutated in verification.
 - Full lane-safety suite has a pre-existing unrelated historical-dossier command example failure; focused canonical-skill safety assertion passes.
 
 ## Interruption / resume handoff

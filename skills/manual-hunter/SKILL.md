@@ -98,4 +98,16 @@ bbh agents/manual_hunter.py <program> --lane <lane> \
 
 Verify the output names the intended FID and says `Linked duplicate note to <FID>`. A successfully linked duplicate still exits with status 1; do not retry on exit status alone. The flag cannot force a note onto an FID, and a non-duplicate may create a new finding. If the output names the wrong FID or a new finding, reconcile that result instead of claiming an update.
 
-This attaches evidence; it does **not** rewrite canonical finding fields or the report. For a material report or severity change, update the canonical report through its owner and keep the claim aligned. Do not invent a `manual_hunter` edit mode, or confuse finding dedupe with the platform's `submission.result=duplicate`, which only Ryushe can relay.
+This attaches evidence; it does **not** rewrite canonical finding fields or the report. To correct false ledger facts or add verified information, use `--edit-finding` below instead. Do not confuse finding dedupe with the platform's `submission.result=duplicate`, which only Ryushe can relay.
+
+## Correct an existing finding
+
+Agents may edit an existing finding's **content** when evidence establishes a correction or adds a verified fact. Use the exact FID, program, and lane; make a JSON object containing only the fields to replace (for example `title`, `description`, `impact`, `poc`, `severity`, `file`, `line`, `class_name`, or `type`). An empty string clears a false text field; omitted fields stay unchanged. `line` is a non-negative integer. The command rejects missing FIDs and protected identity, observation, and submission metadata rather than creating another finding.
+
+```bash
+bbh agents/manual_hunter.py <program> --lane <lane> \
+  --edit-finding D01 --patch-file correction.json
+# correction.json: {"description":"Corrected observed behavior","impact":"Verified owned-resource impact"}
+```
+
+The canonical ledger is patched by FID and generated reports/indexes refresh. Hand-edited reports are preserved by the report writer: review the returned report path and update a preserved report separately so its narrative agrees with the corrected ledger. Do not hand-edit `ledger.json`, invent facts, or use this command to set platform submission outcomes (`--set-submission` owns those).

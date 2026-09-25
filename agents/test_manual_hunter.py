@@ -179,6 +179,114 @@ class ManualHunterTests(unittest.TestCase):
             {"state": "dropped", "report": "H1-123", "result": "duplicate"},
         )
 
+    def test_edit_finding_corrects_content_and_refreshes_report_without_new_fid(self) -> None:
+        note = self.tmp / "finding.md"
+        note.write_text(
+            "Title: Incorrect SQL claim\nClass: native-module-abuse\n"
+            "File: .webpack/renderer/preload.js:4\n"
+            "Description: An unverified initial claim.\n",
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note)]), 0)
+        before = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        patch_file = self.tmp / "correction.json"
+        patch_file.write_text(json.dumps({
+            "title": "Verified SQLite IPC injection",
+            "description": "Controlled renderer input reached SQLite execution.",
+            "impact": "Owned database rows were read.",
+            "poc": "Owned fixture query returned the marker.",
+            "severity": "P2",
+            "file": ".webpack/renderer/preload.js",
+            "line": 5,
+        }), encoding="utf-8")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(main([self.program, "--lane", "apk", "--edit-finding", "D01", "--patch-file", str(patch_file)]), 0)
+        self.assertIn("Finding updated: D01", output.getvalue())
+        entries = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"]
+        self.assertEqual(len(entries), 1)
+        after = entries[0]
+        self.assertEqual(after["title"], "Verified SQLite IPC injection")
+        self.assertEqual(after["vulnerability_name"], "Verified SQLite IPC injection")
+        self.assertEqual(after["description"], "Controlled renderer input reached SQLite execution.")
+        self.assertEqual(after["impact"], "Owned database rows were read.")
+        self.assertEqual(after["poc"], "Owned fixture query returned the marker.")
+        self.assertEqual(after["severity"], "HIGH")
+        self.assertEqual(after["severity_label"], "HIGH")
+        self.assertEqual(after["line"], 5)
+        self.assertEqual(after["fid"], before["fid"])
+        self.assertEqual(after["sightings"], before["sightings"])
+        self.assertEqual(after["submission"], before["submission"])
+        self.assertIn("Verified SQLite IPC injection", Path(after["report_path"]).read_text(encoding="utf-8"))
+
+    def test_edit_finding_rejects_unknown_fid_and_protected_patch_without_writing(self) -> None:
+        note = self.tmp / "finding.md"
+        note.write_text(
+            "Title: Initial claim\nClass: native-module-abuse\n"
+            "File: .webpack/renderer/preload.js:4\nDescription: Initial details.\n",
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note)]), 0)
+        before = self._ledger_path().read_bytes()
+        patch_file = self.tmp / "patch.json"
+        patch_file.write_text('{"fid":"D02","description":"Wrong target"}', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "not editable"):
+            main([self.program, "--lane", "apk", "--edit-finding", "D01", "--patch-file", str(patch_file)])
+        self.assertEqual(self._ledger_path().read_bytes(), before)
+        patch_file.write_text('{"description":"Wrong target"}', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "no finding found"):
+            main([self.program, "--lane", "apk", "--edit-finding", "D99", "--patch-file", str(patch_file)])
+        self.assertEqual(self._ledger_path().read_bytes(), before)
+        patch_file.write_text('{"description":null}', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "must be a string"):
+            main([self.program, "--lane", "apk", "--edit-finding", "D01", "--patch-file", str(patch_file)])
+        self.assertEqual(self._ledger_path().read_bytes(), before)
+
+    def test_edit_finding_is_lane_scoped_and_keeps_hand_edited_report(self) -> None:
+        note = self.tmp / "finding.md"
+        note.write_text(
+            "Title: Initial claim\nClass: native-module-abuse\n"
+            "File: .webpack/renderer/preload.js:4\nDescription: Initial details.\n",
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note)]), 0)
+        original = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        report = Path(original["report_path"])
+        report.write_text("# Reviewer-edited report\nManual narrative.\n", encoding="utf-8")
+        patch_file = self.tmp / "patch.json"
+        patch_file.write_text('{"description":"Corrected behavior","impact":"Owned rows read"}', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "no finding found"):
+            main([self.program, "--lane", "web", "--edit-finding", "D01", "--patch-file", str(patch_file)])
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--edit-finding", "D01", "--patch-file", str(patch_file)]), 0)
+        updated = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        self.assertEqual(updated["description"], "Corrected behavior")
+        self.assertEqual(updated["impact"], "Owned rows read")
+        self.assertIn("Manual narrative.", report.read_text(encoding="utf-8"))
+
+    def test_edit_finding_type_retires_false_generated_index(self) -> None:
+        note = self.tmp / "finding.md"
+        note.write_text(
+            "Title: Incorrect type claim\nType: obsolete-unique-type\n"
+            "Class: native-module-abuse\nFile: .webpack/renderer/preload.js:4\n"
+            "Description: Initial details.\n",
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note)]), 0)
+        old_index = self._storage().reports_root / "index" / "obsolete-unique-type.md"
+        self.assertIn("Incorrect type claim", old_index.read_text(encoding="utf-8"))
+        patch_file = self.tmp / "type-correction.json"
+        patch_file.write_text('{"type":"corrected-type","title":"Verified finding"}', encoding="utf-8")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--edit-finding", "D01", "--patch-file", str(patch_file)]), 0)
+        self.assertFalse(old_index.exists())
+        new_index = self._storage().reports_root / "index" / "corrected-type.md"
+        self.assertIn("Verified finding", new_index.read_text(encoding="utf-8"))
+
     def test_minimal_note_is_parsed_tolerantly(self) -> None:
         hunter = ManualHunter(self.program)
         parsed = hunter.parse_text(

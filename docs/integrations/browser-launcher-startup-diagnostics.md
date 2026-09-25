@@ -7,8 +7,8 @@
 - **Base commit:** `3e5d2eb1b46c9989dee99c5dbc7c84e95bd092f6` (`origin/beta`, fetched 2026-09-24)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-24
-- **Latest immutable recovery checkpoint:** none yet; commit this dossier with implementation
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `e836e9ca07e993763c58e0b320ac2b9b7cd69e6d`
+- **Feature implementation commit(s):** `e836e9ca07e993763c58e0b320ac2b9b7cd69e6d`
 - **Inspiration / canonical references:** diagnostic descendant `fix/browser-preparation-diagnostics` commit `3f75875`; its fixture-auth code and dossier are deliberately excluded.
 
 ## Intent
@@ -41,10 +41,10 @@ At the beta-owned Chromium launcher boundary, a failed pipe-adapter import must 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/browser-launcher-startup-diagnostics`
-- **Latest immutable recovery checkpoint:** none yet; branch commit follows
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** review committed isolated fix, then integrate into beta only with separate authorization.
-- **Working-tree state at handoff:** commit pending
+- **Latest immutable recovery checkpoint:** `e836e9ca07e993763c58e0b320ac2b9b7cd69e6d`
+- **Feature implementation commit(s):** `e836e9ca07e993763c58e0b320ac2b9b7cd69e6d`
+- **Exact resume point:** independently review the committed isolated fix, then integrate into beta only with separate authorization.
+- **Working-tree state at handoff:** clean after dossier-only handoff commit
 
 ## Decision gates
 

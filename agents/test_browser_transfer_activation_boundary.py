@@ -17,7 +17,8 @@ import browser_profile_lease as profiles
 @pytest.mark.parametrize('fault', ['before', 'after', 'lost-ack', None,
                                    'secondary-stop', 'secondary-readback',
                                    'readback-exit', 'stop-exit', 'published-readback-exit',
-                                   'published-readback-unavailable', 'published-interrupted-readback-exit'])
+                                   'published-readback-unavailable', 'published-interrupted-readback-exit',
+                                   'published-fence-unavailable'])
 @pytest.mark.parametrize('stop_succeeds', [True, False])
 def test_activation_is_irreversible_only_after_verified_application(tmp_path, monkeypatch, fault, stop_succeeds):
     monkeypatch.setattr(manager, 'STATE', tmp_path / 'manager.sqlite')
@@ -88,9 +89,18 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
                 s['quarantined'], s['available'] = False, True
                 if fault in ('after', 'published-interrupted-readback-exit'):
                     raise KeyboardInterrupt(secret)
-                if fault in ('lost-ack', 'published-readback-exit', 'published-readback-unavailable'):
+                if fault in ('lost-ack', 'published-readback-exit', 'published-readback-unavailable', 'published-fence-unavailable'):
                     raise httpx.ReadError(secret)
                 return Response({'activated': True})
+            if action == 'fence':
+                if fault == 'published-fence-unavailable':
+                    raise httpx.ReadError(secret)
+                s['available'], s['quarantined'] = False, True
+                s['fenced'] = True
+                return Response({'fenced': True, 'quarantined': True, 'cdp_url': new + '-fenced'})
+            if action == 'finalize':
+                assert s['available'] and not s['quarantined']
+                return Response({'finalized': True})
             method = json['method']
             if method == 'Network.getAllCookies':
                 return Response({'result': {'cookies': [{'domain': '127.0.0.1', 'name': 'session',
@@ -112,12 +122,12 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
             if self.side == 'destination' and fault in ('secondary-readback', 'readback-exit',
                                                        'published-readback-exit', 'published-interrupted-readback-exit') and state['destination'].get('rotated'):
                 raise SystemExit(secret if fault == 'secondary-readback' else None)
-            if self.side == 'destination' and fault == 'published-readback-unavailable' and state['destination'].get('rotated'):
+            if self.side == 'destination' and fault in ('published-readback-unavailable', 'published-fence-unavailable') and state['destination'].get('rotated'):
                 raise httpx.ReadError(secret)
             s = state[self.side]
             return Response({'available': s['available'], 'quarantined': s['quarantined'],
                              'process_identity': infos[0]['process_identity'],
-                             'cdp_url': new if self.side == 'destination' and s.get('rotated') else old})
+                             'cdp_url': (new + '-fenced' if s.get('fenced') else new) if self.side == 'destination' and s.get('rotated') else old})
         def __enter__(self): return self
         def __exit__(self, *args): self.close()
         def close(self): pass
@@ -142,14 +152,20 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
         if fault in ('published-readback-exit', 'published-interrupted-readback-exit'):
             assert 'public-exposure=possible' in notes
         assert stopped == ['destination']
-    elif fault == 'published-readback-unavailable' and not stop_succeeds:
+    elif fault == 'published-fence-unavailable' and not stop_succeeds:
         result = manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
         assert result == {'status': 'fixture-auth-transfer-terminal-uncertain',
                           'source': 'owner-preserved', 'destination': 'cleanup-incomplete',
                           'public_exposure': 'possible'}
         assert stopped == ['destination']
+        assert state['destination']['available']
+    elif fault == 'published-readback-unavailable' and not stop_succeeds:
+        result = manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
+        assert result == {'status': 'auth-clone-unavailable', 'reason': 'destination-fenced-after-activation-uncertainty',
+                          'source': 'owner-preserved', 'destination': 'fenced'}
+        assert stopped == ['destination']
         assert secret not in str(result)
-    elif fault == 'published-readback-unavailable':
+    elif fault in ('published-readback-unavailable', 'published-fence-unavailable'):
         result = manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
         assert result == {'status': 'auth-clone-unavailable', 'reason': 'destination-disposed-after-end-uncertainty'}
         assert stopped == ['destination']
@@ -168,9 +184,9 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
     assert canonical['cdp_url'] == json_load_url(rows[1]['launch_file']) == new
     assert (canonical['owner_agent_id'], canonical['owner_run_id']) == ('agent', 'destination-run')
     if fault in ('before', 'secondary-stop', 'secondary-readback', 'readback-exit', 'stop-exit',
-                 'published-readback-exit', 'published-readback-unavailable', 'published-interrupted-readback-exit'):
-        if fault.startswith('published-') and not stop_succeeds:
-            assert state['destination']['available'] and not state['destination']['quarantined']
-        else:
-            assert not state['destination']['available']  # old public URL stays fenced or unit stopped
-            assert state['destination']['quarantined'] or fault.startswith('published-')
+                 'published-readback-exit', 'published-readback-unavailable', 'published-interrupted-readback-exit',
+                 'published-fence-unavailable'):
+        if fault == 'published-fence-unavailable' and not stop_succeeds:
+            return  # Explicitly unproved public fence and failed exact disposal.
+        assert not state['destination']['available']
+        assert state['destination']['quarantined'] or stop_succeeds

@@ -52,7 +52,8 @@ def navigate(url, target, expected=None):
 @pytest.mark.skipif(os.environ.get('BBH_AUTH_CANARY') != '1', reason='explicit local canary opt-in')
 @pytest.mark.parametrize('lost_reply', [None, 'end', 'commit',
                                         'begin-source', 'begin-destination',
-                                        'begin-source-unproved', 'begin-destination-unproved'])
+                                        'begin-source-unproved', 'begin-destination-unproved',
+                                        'activate-fence'])
 def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_reply, monkeypatch):
     import websocket  # noqa: F401 - establish dependency before any browser allocation
     with disposable_fixture_root() as (root, _evidence):
@@ -227,6 +228,55 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
                                           json={**applied[0][1], 'ticket': ticket}).status_code == 200
                 assert evaluate(source, check) is True
                 assert evaluate(destination, check) is False
+                return
+            if lost_reply == 'activate-fence':
+                import httpx
+                import websocket
+                original_client, original_transport = httpx.Client, httpx.HTTPTransport
+                dest_socket = json.loads(Path(rows[1][1]).read_text())['control_socket']
+                sockets, admitted, applied = {}, [], []
+                def tracked_transport(*, uds):
+                    transport = original_transport(uds=uds)
+                    sockets[id(transport)] = uds
+                    return transport
+                class LostActivationClient:
+                    def __init__(self, *, transport, timeout):
+                        self.client = original_client(transport=transport, timeout=timeout)
+                        self.destination = sockets[id(transport)] == dest_socket
+                    def post(self, url, **kwargs):
+                        response = self.client.post(url, **kwargs)
+                        if self.destination and url.endswith('/transfer/activate'):
+                            assert response.status_code == 200
+                            applied.append(True)
+                            published = json.loads(Path(rows[1][1]).read_text())['cdp_url']
+                            page = next(p for p in json.load(urllib.request.urlopen(published + '/json/list', timeout=5))
+                                        if p['type'] == 'page')
+                            admitted.append(websocket.create_connection(page['webSocketDebuggerUrl'], timeout=5))
+                            raise httpx.ReadError('lost activation acknowledgment')
+                        return response
+                    def get(self, url, **kwargs):
+                        if self.destination and applied and url.endswith('/identity'):
+                            raise httpx.ReadError('readback unavailable')
+                        return self.client.get(url, **kwargs)
+                    def __enter__(self): return self
+                    def __exit__(self, *args): self.close()
+                    def close(self): self.client.close()
+                try:
+                    with monkeypatch.context() as patch:
+                        patch.setattr(httpx, 'HTTPTransport', tracked_transport)
+                        patch.setattr(httpx, 'Client', LostActivationClient)
+                        patch.setattr(manager, 'stop_recorded', lambda row: False)
+                        disposition = manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin)
+                    assert disposition.get('destination') == 'fenced' and admitted, disposition
+                    assert admitted[0].recv() == ''
+                    published = json.loads(Path(rows[1][1]).read_text())['cdp_url']
+                    with pytest.raises(Exception):
+                        urllib.request.urlopen(published + '/json/version', timeout=2)
+                    with pytest.raises(Exception):
+                        urllib.request.urlopen(destination + '/json/version', timeout=2)
+                    assert evaluate(source, check) is True
+                finally:
+                    for ws in admitted: ws.close()
                 return
             if lost_reply:
                 with sqlite3.connect(env['BROWSER_PROVISIONER_STATE']) as db:

@@ -218,6 +218,7 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
             committed_url = None
             activated = False
             activation_attempted = False
+            activation_fenced = False
             readback_failure = None
             terminal_disposition = False
             reason = None
@@ -439,6 +440,39 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                             # original pre-commit interruption.
                             if interruption is None and not isinstance(exc, (OSError, ValueError, KeyError, httpx.HTTPError, TransferError)):
                                 readback_failure = exc
+                    if activated:
+                        # Retire the exact recovery ticket only after manager
+                        # ownership/commit evidence. A lost finalize reply is
+                        # not permission to leave an unverified public session.
+                        try:
+                            with httpx.Client(transport=httpx.HTTPTransport(
+                                    uds=candidates[1][1]['control_socket']), timeout=15) as final_client:
+                                bindings[id(final_client)] = bindings[id(clients[1])]
+                                require(control(final_client, 'finalize', {'ticket': tickets[1]}).get('finalized') is True,
+                                        'finalize-unverified')
+                        except BaseException:
+                            # Activation itself is already committed; a lost
+                            # finalize reply may have retired the ticket. Never
+                            # attempt rollback after verified publication.
+                            pass
+                    if activation_attempted and not activated:
+                        # A failed activate readback does not prove the URL is
+                        # private. Exact adapter recovery revokes admission and
+                        # closes already admitted clients before any stop attempt.
+                        # One retry handles an applied fence whose ACK was lost.
+                        for _ in range(2):
+                            try:
+                                with httpx.Client(transport=httpx.HTTPTransport(
+                                        uds=candidates[1][1]['control_socket']), timeout=15) as fence_client:
+                                    bindings[id(fence_client)] = bindings[id(clients[1])]
+                                    fenced = control(fence_client, 'fence', {'ticket': tickets[1]})
+                                    activation_fenced = (fenced.get('fenced') is True and
+                                                         fenced.get('quarantined') is True and
+                                                         fenced.get('cdp_url') not in (committed_url, candidates[1][1]['cdp_url']))
+                                    if activation_fenced:
+                                        break
+                            except BaseException:
+                                pass  # Never substitute an unsuccessful fence for disposal.
                     # A missing ACK without exact readback is not success. Keep
                     # pre-activation cancellation distinct from post-activation commit.
                     destination_end_unverified = not activated
@@ -461,6 +495,7 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                         + ('release-unverified' if source_unproved else 'owner-preserved')
                         + '; destination=' + ('disposed' if disposed else 'cleanup-incomplete')
                         + ('; public-exposure=possible' if activation_attempted else '')
+                        + ('; public-fence=' + ('verified' if activation_fenced else 'unverified') if activation_attempted else '')
                     )
                     if interruption is not None:
                         interruption.add_note(
@@ -468,6 +503,7 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                             + ('release-unverified' if source_unproved else 'owner-preserved')
                             + '; destination=' + ('disposed' if disposed else 'cleanup-incomplete')
                             + ('; public-exposure=possible' if activation_attempted else '')
+                            + ('; public-fence=' + ('verified' if activation_fenced else 'unverified') if activation_attempted else '')
                         )
                         raise interruption.with_traceback(interruption.__traceback__)
                     if readback_failure is not None or stop_failure is not None:
@@ -486,6 +522,10 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                     if disposed:
                         return unavailable('destination-disposed-after-end-uncertainty')
                     if activation_attempted:
+                        if activation_fenced:
+                            return {'status': 'auth-clone-unavailable',
+                                    'reason': 'destination-fenced-after-activation-uncertainty',
+                                    'source': 'owner-preserved', 'destination': 'fenced'}
                         return {'status': 'fixture-auth-transfer-terminal-uncertain',
                                 'source': 'owner-preserved', 'destination': 'cleanup-incomplete',
                                 'public_exposure': 'possible'}

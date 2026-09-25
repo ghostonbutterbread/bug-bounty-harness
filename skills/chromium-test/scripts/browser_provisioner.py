@@ -224,6 +224,13 @@ def cancel_unstarted_reservation(source_lease_id):
                 return {'status': 'reservation-unavailable'}
             if not invocation or invocation != reserved['unit_invocation'] or invocation != info['unit_invocation']:
                 return {'status': 'reservation-unavailable'}
+            # stopped() only interprets is-active's nonzero exit; cancellation
+            # needs affirmative systemd evidence, including a loaded unit.
+            try:
+                if not unit_explicitly_inactive(row['unit']):
+                    return {'status': 'reservation-unavailable'}
+            except Exception:
+                return {'status': 'reservation-unavailable'}
             # An unresolved alias is uncertainty, not evidence of a distinct
             # profile. Recheck both stores before clearing the physical fence.
             for other in manager.execute('SELECT * FROM browsers'):
@@ -1191,6 +1198,19 @@ def unit_inactive(unit):
         capture_output=True, text=True, env=sysenv(),
     )
     return result.returncode == 0 and result.stdout.strip() in ("inactive", "failed")
+
+
+def unit_explicitly_inactive(unit):
+    """Cancellation proof: an existing loaded unit must report inactive."""
+    result = subprocess.run(
+        ["systemctl", "--user", "show", "--property=ActiveState",
+         "--property=LoadState", unit],
+        capture_output=True, text=True, env=sysenv(),
+    )
+    if result.returncode != 0:
+        return False
+    properties = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+    return properties.get("ActiveState") == "inactive" and properties.get("LoadState") == "loaded"
 
 
 def unit_identity(unit):

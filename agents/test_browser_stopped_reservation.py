@@ -38,6 +38,9 @@ class ReservationTest(unittest.TestCase):
         self.identity_patch = patch.object(manager, 'unit_identity', return_value='invocation-one')
         self.identity = self.identity_patch.start()
         self.addCleanup(self.identity_patch.stop)
+        self.unit_state_patch = patch.object(manager, 'unit_explicitly_inactive', return_value=True)
+        self.unit_state_patch.start()
+        self.addCleanup(self.unit_state_patch.stop)
         self.lease_db = self.base / 'browser_profile_leases.sqlite'
         with profiles.connect(self.lease_db) as c:
             profiles.init_db(c)
@@ -155,9 +158,45 @@ class ReservationTest(unittest.TestCase):
 
     def test_cancel_matching_inactive_unit_releases_fence(self):
         self.reserve()
-        self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], 'released')
+        with patch.object(manager, 'unit_explicitly_inactive', return_value=True) as state:
+            self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], 'released')
+            state.assert_called_once_with('unit-one')
         self.identity.assert_called_once_with('unit-one')
-        self.assertFalse(manager.fixture_pool_reserved('fixture', 'fixture.invalid', 'anon'))
+        self.assertFalse(manager.fixture_pool_reserved('fixture','fixture.invalid','anon'))
+
+    def test_cancel_requires_independent_terminal_unit_state(self):
+        self.reserve()
+        # The manager row, root and CDP are terminal, and InvocationID matches.
+        # Neither an is-active nonzero exit nor a show error proves inactivity.
+        self.stop_patch.stop()
+        self.unit_state_patch.stop()
+        with (patch.object(manager, 'unit_active', return_value=False),
+              patch.object(manager, 'owner_state', return_value='terminal'),
+              patch.object(profiles, 'local_cdp_version', return_value={'status':'unavailable'})):
+            for active, load, code in (('unknown', 'loaded', 0), ('failed', 'loaded', 0),
+                                       ('inactive', 'not-found', 0), ('', '', 0),
+                                       ('inactive', 'loaded', 1),
+                                       ('inactive', 'loaded', 0)):
+                with self.subTest(active=active, load=load, code=code):
+                    result = SimpleNamespace(returncode=code,
+                        stdout=f'ActiveState={active}\nLoadState={load}\n')
+                    with patch.object(manager.subprocess, 'run', return_value=result) as run:
+                        expected = 'released' if (active, load, code) == ('inactive', 'loaded', 0) else 'reservation-unavailable'
+                        self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], expected)
+                        run.assert_called_once_with(
+                            ['systemctl', '--user', 'show', '--property=ActiveState',
+                             '--property=LoadState', 'unit-one'],
+                            capture_output=True, text=True, env=manager.sysenv())
+                    with profiles.connect(self.lease_db) as c:
+                        phase = c.execute('SELECT phase FROM browser_stopped_reservations').fetchone()['phase']
+                    self.assertEqual(phase, 'released' if expected == 'released' else 'reserved')
+
+    def test_cancel_systemd_state_probe_exception_keeps_fence(self):
+        self.reserve()
+        self.unit_state_patch.stop()
+        with patch.object(manager.subprocess, 'run', side_effect=OSError('bus unavailable')):
+            self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], 'reservation-unavailable')
+        self.assertTrue(manager.fixture_pool_reserved('fixture','fixture.invalid','anon'))
 
     def test_uncertain_cannot_cancel(self):
         self.reserve()

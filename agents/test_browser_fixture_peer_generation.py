@@ -103,3 +103,53 @@ def test_failed_native_check_does_not_publish(tmp_path, monkeypatch):
     assert promote()['reason'] == 'source-app-check-failed'
     with manager.db() as store:
         assert store.execute('SELECT count(*) FROM fixture_generations').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('program_mode,exact_mode,denied', [
+    ('single', 'multiple', True),
+    ('single', None, True),
+    ('multiple', 'single', True),
+    ('unknown', 'single', True),
+    ('multiple', 'multiple', False),
+    ('multiple', None, False),
+    ('unknown', 'multiple', False),
+    (None, None, False),
+])
+def test_direct_transfer_policy_flip_on_two_running_browsers(
+        tmp_path, monkeypatch, program_mode, exact_mode, denied):
+    """A later policy change cannot authenticate an existing second owner."""
+    canonical = setup(tmp_path, monkeypatch)
+    with lease.connect(canonical) as store:
+        assert store.execute("SELECT count(*) FROM browser_profile_leases WHERE status='active' AND browser_status='running'").fetchone()[0] == 2
+        lease.init_resource_policy(store)
+        if program_mode is not None:
+            store.execute('INSERT INTO browser_program_concurrency_policy VALUES (?,?,?,?,?)',
+                          ('fixture', program_mode, 'agent', 'fixture-policy', 1))
+        if exact_mode is not None:
+            store.execute('INSERT INTO browser_concurrency_policy VALUES (?,?,?,?)',
+                          ('fixture', 'anon', 'fixture.invalid', exact_mode))
+        before_leases = [tuple(row) for row in store.execute('SELECT * FROM browser_profile_leases ORDER BY lease_id')]
+    with manager.db() as store:
+        before_manager = [tuple(row) for row in store.execute('SELECT * FROM browsers ORDER BY lease_id')]
+        before_peers = [tuple(row) for row in store.execute('SELECT * FROM fixture_peers ORDER BY lease_id')]
+        before_generations = [tuple(row) for row in store.execute('SELECT * FROM fixture_generations')]
+
+    # The negative must return before browser control, import, or even contract
+    # evaluation; the permissive cases reach the contract expression seam.
+    class Admitted(Exception):
+        pass
+    import httpx
+    monkeypatch.setattr(httpx, 'Client', lambda *args, **kwargs: pytest.fail('browser I/O reached'))
+    monkeypatch.setattr(manager, '_fixture_check_expression', lambda contract: (_ for _ in ()).throw(Admitted()))
+    if denied:
+        assert manager.manager_fixture_auth_transfer('source', 'destination', origin=ORIGIN) == {
+            'status': 'auth-clone-unavailable', 'reason': 'single-browser-policy'}
+    else:
+        with pytest.raises(Admitted):
+            manager.manager_fixture_auth_transfer('source', 'destination', origin=ORIGIN)
+    with lease.connect(canonical) as store:
+        assert [tuple(row) for row in store.execute('SELECT * FROM browser_profile_leases ORDER BY lease_id')] == before_leases
+    with manager.db() as store:
+        assert [tuple(row) for row in store.execute('SELECT * FROM browsers ORDER BY lease_id')] == before_manager
+        assert [tuple(row) for row in store.execute('SELECT * FROM fixture_peers ORDER BY lease_id')] == before_peers
+        assert [tuple(row) for row in store.execute('SELECT * FROM fixture_generations')] == before_generations

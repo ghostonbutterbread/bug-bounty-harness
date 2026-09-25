@@ -472,6 +472,13 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
             if any(info.get('control_socket') != str(STATE.parent / (row['browser_id'] + '.sock'))
                    for row, info, _ in candidates):
                 return unavailable('manager-identity-unverified')
+            # Both running owners may predate a policy flip. Resolve policy from
+            # their verified pool while the manager and canonical locks are held;
+            # never authenticate the second browser under effective single mode.
+            source_row = candidates[0][0]
+            if profiles.single_browser_policy(leases, source_row['program'],
+                                              source_row['account'], source_row['auth_domain']):
+                return unavailable('single-browser-policy')
             try:
                 contract = _fixture_site_contract(origin)
             except SiteContractError:

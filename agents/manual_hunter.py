@@ -49,7 +49,7 @@ from bounty_core.reports import refresh_report_navigation_from_ledger, write_fin
 
 SEVERITIES = {"EXCEPTIONAL", "CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "UNKNOWN"}
 EDITABLE_FINDING_FIELDS = {
-    "title", "type", "vulnerability_name", "file", "line", "class_name", "category",
+    "title", "type", "file", "line", "class_name", "category",
     "severity", "description", "impact", "poc", "remediation", "source", "sink",
     "trust_boundary", "flow_path", "exploitability", "blocked_reason",
     "chain_requirements", "review_notes", "review_reason", "scoring_authority",
@@ -1063,6 +1063,12 @@ class ManualHunter:
         )
         if current is None:
             raise ValueError(f"no finding found for fid {target_fid}")
+        if "title" in patch:
+            patch["vulnerability_name"] = patch["title"]
+        if "severity" in patch:
+            patch["severity_label"] = normalize_severity(patch["severity"])
+        if "file" in patch and current.get("asset") == current.get("file"):
+            patch.setdefault("asset", patch["file"])
         updated = patch_finding_by_fid(
             self.program, target_fid, patch, family=self.family, lane=self.lane,
             root_override=self.storage_root, write_report=True, refresh=True,

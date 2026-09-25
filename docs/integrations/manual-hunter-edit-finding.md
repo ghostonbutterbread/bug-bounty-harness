@@ -1,6 +1,6 @@
 # Manual hunter finding-edit integration dossier
 
-- **Status:** review-ready
+- **Status:** blocked (provider review and integration)
 - **Owner:** Hermes
 - **Branch / owning ref:** `feat/manual-hunter-edit-finding`
 - **Base commit:** `3a25123903152994b9b431ac668c47ac3ad14e79`
@@ -21,7 +21,7 @@ Give agents an explicit way to replace false ledger content and add verified fac
 ## Evidence and review
 
 - Tests and commands: pinned checkout venv `python -m pytest -q agents/test_manual_hunter.py agents/test_ledger_v2.py tests/test_skill_command_lane_safety.py::SkillCommandLaneSafetyTests::test_canonical_skills_do_not_teach_stale_checkout_or_import_routing` — 39 passed, 9 subtests; CLI `--help` includes both new flags; `git diff --check` passed.
-- Independent review: pending.
+- Independent review: initial review blocked integration on stale generated type indexes and stale title/severity aliases. Alias repair is on this branch; Bounty Core provider fix `604d2b5` is under independent review. Consumer must pin and install the provider beta merge before acceptance.
 - Replay/cohort/fixture evidence: temporary fixture ledger exercises content correction, wrong FID, protected fields, lane isolation, generated report refresh, preserved hand-edited report.
 - Merge/ancestry evidence: branch from fetched `origin/beta` at base above.
 

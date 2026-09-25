@@ -208,10 +208,12 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         after = entries[0]
         self.assertEqual(after["title"], "Verified SQLite IPC injection")
+        self.assertEqual(after["vulnerability_name"], "Verified SQLite IPC injection")
         self.assertEqual(after["description"], "Controlled renderer input reached SQLite execution.")
         self.assertEqual(after["impact"], "Owned database rows were read.")
         self.assertEqual(after["poc"], "Owned fixture query returned the marker.")
         self.assertEqual(after["severity"], "HIGH")
+        self.assertEqual(after["severity_label"], "HIGH")
         self.assertEqual(after["line"], 5)
         self.assertEqual(after["fid"], before["fid"])
         self.assertEqual(after["sightings"], before["sightings"])

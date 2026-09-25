@@ -31,6 +31,17 @@ Use the detailed records below for supported invocation and safety boundaries.
 Each helper owns deterministic mechanics only; lane availability, account
 selection, target scope, and browser state still require agent verification.
 
+For a live browser request, invoke the selected lane's
+`bbh skills/chromium-test/scripts/browser_provisioner.py request ...`, **not**
+system Python or the script directly.
+`bbh --root` and
+`bbh --print-command skills/chromium-test/scripts/browser_provisioner.py`
+show which checkout supplies the command; Python tools then use that checkout's
+`.venv`. If it is missing, provision it with `./setup.sh --install-python-deps`
+in the intended checkout rather than trying system Python. The `.venv/bin/python`
+and `uv ... python -m pytest` examples below are **test verification commands**,
+not alternative browser launch commands.
+
 ## Historical manager-row repair (offline first)
 
 `browser_manager_row_repair.py --manager-db /private/browser_provisioner.sqlite --program <program> --account <account> --probe-runtime`

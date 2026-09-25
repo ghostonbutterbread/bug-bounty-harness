@@ -21,7 +21,8 @@ from agents.browser_offline_snapshot import TerminalProof, SnapshotRefused, snap
 
 
 @pytest.mark.skipif(os.environ.get('BBH_STOPPED_CLONE_CANARY') != '1', reason='explicit disposable opt-in')
-def test_stopped_profile_raw_vs_filtered_clone(capsys):
+@pytest.mark.parametrize('persistent', [True, False], ids=['persistent-cookie', 'session-only-cookie'])
+def test_stopped_profile_raw_vs_filtered_clone(capsys, persistent):
     import websocket  # dependency preflight
     from browser_lifecycle import owner_state
     secret = os.urandom(24).hex()
@@ -29,7 +30,8 @@ def test_stopped_profile_raw_vs_filtered_clone(capsys):
         def do_GET(self):
             if self.path == '/login':
                 self.send_response(302)
-                self.send_header('Set-Cookie', f'session={secret}; HttpOnly; SameSite=Lax; Path=/; Max-Age=3600')
+                lifetime = '; Max-Age=3600' if persistent else ''
+                self.send_header('Set-Cookie', f'session={secret}; HttpOnly; SameSite=Lax; Path=/{lifetime}')
                 self.send_header('Location', '/app')
                 self.end_headers()
                 return
@@ -130,7 +132,7 @@ def test_stopped_profile_raw_vs_filtered_clone(capsys):
             evaluate(source_url, "localStorage.setItem('fixture-required', 'approved')")
             assert evaluate(source_url, check) is True
             cookies = call_page(source_url, 'Network.getAllCookies')['cookies']
-            assert any(c['name'] == 'session' and c['expires'] > 0 for c in cookies), 'persistent cookie not set'
+            assert any(c['name'] == 'session' and (c['expires'] > 0) == persistent for c in cookies), 'cookie lifetime mismatch'
             assert evaluate(source_url, 'document.cookie') == ''  # HttpOnly
             # A live source cannot be copied even when a caller fabricates terminal flags.
             with pytest.raises(SnapshotRefused, match='lock|proof'):
@@ -146,14 +148,15 @@ def test_stopped_profile_raw_vs_filtered_clone(capsys):
             for cookie_db in cookie_dbs:
                 with sqlite3.connect(f'file:{cookie_db}?mode=ro', uri=True) as db:
                     counts.append(db.execute('SELECT count(*) FROM cookies').fetchone()[0])
-            assert any(count >= 1 for count in counts), ('cookie rows after stop', counts)
+            if persistent:
+                assert any(count >= 1 for count in counts), ('cookie rows after stop', counts)
             _, reused, check_url, _, _ = launch(0, 'persistence-check')
             assert reused == source, 'provisioner selected different source profile'
             navigate(check_url, origin + '/app')
-            assert evaluate(check_url, check) is True, ('source-restart',
-                evaluate(check_url, 'location.origin') == origin,
-                evaluate(check_url, "fetch('/me').then(r => r.status)"),
-                evaluate(check_url, "localStorage.getItem('fixture-required') === 'approved'"))
+            source_authenticated = evaluate(check_url, "fetch('/me').then(r => r.status === 200)")
+            assert evaluate(check_url, "localStorage.getItem('fixture-required') === 'approved'") is True
+            if persistent:
+                assert source_authenticated is True, 'persistent source lost authentication on restart'
             source = stop(0)  # reacquire terminal fence for copy
             storage_files = list(source.rglob('Local Storage/leveldb/*'))
             assert storage_files, 'source origin storage was not persisted at browser stop'
@@ -185,6 +188,8 @@ def test_stopped_profile_raw_vs_filtered_clone(capsys):
                 assert stop(index) == profile
             # Holding this fixture's no-restart boundary: no source launch until copies finish.
             assert 0 not in active
+            recipient_statuses = []
+            recipient_dirs = []
             raw = private / 'raw'
             # Chrome leaves dangling Singleton symlinks/socket after stop; raw
             # byte copy of those runtime artifacts fails or points back to source.
@@ -207,6 +212,9 @@ def test_stopped_profile_raw_vs_filtered_clone(capsys):
                 assert row is not None
                 target = Path(row[0])
                 assert target != source and not target.is_symlink()
+                assert not os.path.samefile(source, target), 'recipient aliases source physical directory'
+                assert all(not os.path.samefile(target, prior) for prior in recipient_dirs), 'recipient directories alias'
+                recipient_dirs.append(target)
                 shutil.rmtree(target)
                 shutil.copytree(donor, target, ignore=shutil.ignore_patterns('snapshot-manifest.json'))
                 assert sorted(str(p.relative_to(donor)) for p in donor.rglob('*')
@@ -217,16 +225,33 @@ def test_stopped_profile_raw_vs_filtered_clone(capsys):
                 navigate(url, origin + '/app')
                 observed = evaluate(url, "fetch('/me').then(r => r.status)")
                 storage = evaluate(url, "localStorage.getItem('fixture-required') === 'approved'")
-                assert evaluate(url, check) is True, (index, observed, storage)
+                if persistent:
+                    assert evaluate(url, check) is True, (index, observed, storage)
+                else:
+                    # Browser versions may persist session cookies on graceful close;
+                    # record the actual recipient app check rather than assuming loss.
+                    assert storage is True, (index, observed, storage)
+                    if not source_authenticated:
+                        assert observed == 401, (index, observed)
+                    recipient_statuses.append(observed)
                 assert evaluate(url, 'document.cookie') == ''
                 assert stop(index) == target
             # Reopen the source only after both copy operations; verify it retains its principal.
             _, reopened, url, _, _ = launch(0, 'verify')
             assert reopened == source
             navigate(url, origin + '/app')
-            assert evaluate(url, check) is True
+            if persistent:
+                assert evaluate(url, check) is True
+            else:
+                assert evaluate(url, "localStorage.getItem('fixture-required') === 'approved'") is True
+                if not source_authenticated:
+                    assert evaluate(url, "fetch('/me').then(r => r.status)") == 401
             assert stop(0) == source
-            print('stopped clone: raw=principal; filtered=principal; source=principal; CA trust=untested')
+            if persistent:
+                print('stopped clone: raw=principal; filtered=principal; source=principal; CA trust=untested')
+            else:
+                print(f'session-only cookie: source restart auth={source_authenticated}; '
+                      f'raw/filtered recipient /me statuses={recipient_statuses}; CA trust=untested')
         finally:
             for index in list(active): stop(index)
             for owner in owners:
@@ -239,3 +264,6 @@ def test_stopped_profile_raw_vs_filtered_clone(capsys):
             captured = capsys.readouterr()
             assert secret not in captured.out + captured.err
             assert not active
+            if captured.out:
+                with capsys.disabled():
+                    print(captured.out.strip())

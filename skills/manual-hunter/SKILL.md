@@ -85,4 +85,17 @@ Drop markdown notes here. They will be ingested on the next run.
 1. Parses the finding from your input.
 2. Deduplicates against the ledger.
 3. If new: adds to the ledger, updates the right report, and marks coverage when possible.
-4. If duplicate: shows the overlapping finding and can link your note as a comment.
+4. If duplicate: shows the overlapping finding; with `--link-duplicate-comment`, appends the note to that finding's comment ledger.
+
+## Add evidence to an existing finding
+
+Agents may attach a **new, relevant observation** to an existing finding. Before ingest, compare the note's file, line, class, and type/title with the intended finding in the selected program and lane: the active ledger dedupes on those normalized fields, not an explicitly selected FID. A matching sink alone does not establish the identity. If the match could be ambiguous, do not use the flag; resolve the finding identity first. The comment ledger stores the raw note, so omit credentials, tokens, and unrelated sensitive data.
+
+```bash
+bbh agents/manual_hunter.py <program> --lane <lane> \
+  --from-file <new-evidence-note.md> --link-duplicate-comment
+```
+
+Verify the output names the intended FID and says `Linked duplicate note to <FID>`. A successfully linked duplicate still exits with status 1; do not retry on exit status alone. The flag cannot force a note onto an FID, and a non-duplicate may create a new finding. If the output names the wrong FID or a new finding, reconcile that result instead of claiming an update.
+
+This attaches evidence; it does **not** rewrite canonical finding fields or the report. For a material report or severity change, update the canonical report through its owner and keep the claim aligned. Do not invent a `manual_hunter` edit mode, or confuse finding dedupe with the platform's `submission.result=duplicate`, which only Ryushe can relay.

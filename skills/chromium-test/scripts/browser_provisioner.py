@@ -170,8 +170,13 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
         if not condition:
             raise TransferError(reason)
 
+    bindings = {}
+
     def control(client, path, payload=None):
-        response = client.post('http://localhost/transfer/' + path, json=payload or {})
+        payload = dict(payload or {})
+        if path != 'begin':
+            payload.update(bindings[id(client)])
+        response = client.post('http://localhost/transfer/' + path, json=payload)
         response.raise_for_status()
         return response.json()
 
@@ -204,6 +209,7 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
             # authenticated production accounts or arbitrary origins.
             clients = []
             tickets = []
+            uncertain_begin = set()
             imported = False
             cleaned = True
             destination_end_unverified = False
@@ -211,10 +217,25 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
             committed_url = None
             reason = None
             try:
-                for index, (_, info, _) in enumerate(candidates):
+                for index, (row, info, _) in enumerate(candidates):
                     client = httpx.Client(transport=httpx.HTTPTransport(uds=info['control_socket']), timeout=15)
                     clients.append(client)
-                    tickets.append(control(client, 'begin', {'destination': index == 1})['ticket'])
+                    begin = {'transaction': uuid.uuid4().hex, 'owner': row['lease_id'],
+                             'generation': info['cdp_url'], 'destination': index == 1}
+                    bindings[id(client)] = {k: begin[k] for k in ('transaction', 'owner', 'generation')}
+                    try:
+                        ticket = control(client, 'begin', begin)['ticket']
+                    except (OSError, ValueError, httpx.HTTPError):
+                        # The adapter may have applied begin before its reply was
+                        # lost. Replay only this exact manager-derived attempt.
+                        try:
+                            ticket = control(client, 'begin', begin)['ticket']
+                        except (OSError, ValueError, httpx.HTTPError):
+                            ticket = None
+                            uncertain_begin.add(index)
+                        tickets.append(ticket)
+                        raise TransferError('transfer-control-unavailable')
+                    tickets.append(ticket)
                 source, destination = clients
                 st, dt = tickets
                 require(eval_js(source, st, 'location.origin') == origin, 'source-origin-mismatch')
@@ -263,6 +284,9 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                     except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError):
                         cleaned = False
                 for index, (client, ticket) in enumerate(zip(clients, tickets)):
+                    if index in uncertain_begin:
+                        cleaned = False
+                        continue
                     if index == 1 and imported and not cleaned:
                         # Keep the destination CDP closed rather than release a
                         # possibly authenticated, incompletely cleaned browser.
@@ -275,14 +299,41 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                         if index == 1 and imported and not reason:
                             destination_quarantined = True
                     except (OSError, ValueError, httpx.HTTPError):
-                        cleaned = False
-                        if index == 1 and imported:
-                            destination_end_unverified = True
+                        if index == 1:
+                            cleaned = False
+                            if imported:
+                                destination_end_unverified = True
+                        else:
+                            uncertain_begin.add(0)
                 for client in clients:
                     client.close()
+            if uncertain_begin:
+                # A missing ticket or lost source-end reply is not proof of
+                # release. Check only this manager-recorded process/generation;
+                # never end an unrelated ticket or dispose the source.
+                for index in tuple(uncertain_begin):
+                    try:
+                        with httpx.Client(transport=httpx.HTTPTransport(
+                                uds=candidates[index][1]['control_socket']), timeout=15) as probe:
+                            reply = probe.get('http://localhost/identity')
+                            reply.raise_for_status()
+                            observed = reply.json()
+                            info = candidates[index][1]
+                            if (observed.get('available') is True and
+                                    observed.get('quarantined') is False and
+                                    observed.get('cdp_url') == info['cdp_url'] and
+                                    observed.get('process_identity') == info['process_identity']):
+                                uncertain_begin.remove(index)
+                    except (OSError, ValueError, KeyError, httpx.HTTPError):
+                        pass
+                if uncertain_begin:
+                    return unavailable(('source' if 0 in uncertain_begin else 'destination') + '-cleanup-incomplete')
+                if not imported:
+                    cleaned = True
             if not reason and cleaned and destination_quarantined and not destination_end_unverified:
                 try:
                     with httpx.Client(transport=httpx.HTTPTransport(uds=candidates[1][1]['control_socket']), timeout=15) as check_client:
+                        bindings[id(check_client)] = bindings[id(clients[1])]
                         identity = check_client.get('http://localhost/identity')
                         identity.raise_for_status()
                         observed = identity.json()

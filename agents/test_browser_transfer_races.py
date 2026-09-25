@@ -13,7 +13,9 @@ from browser_control import PipeBrowser
 
 class Request:
     def __init__(self, **data):
-        self.data = data
+        self.data = {'transaction': 'test-transaction', 'owner': 'test-owner',
+                     'generation': 'http://127.0.0.1:9222/generation',
+                     'destination': False, **data}
         self.match_info = {'token': 'generation', 'suffix': 'devtools/browser'}
 
     async def json(self):
@@ -26,6 +28,7 @@ def adapter():
     b.port = 9222
     b.rotating = b.frozen = False
     b.transfer = None
+    b.transfer_identity = ('test-transaction', 'test-owner', 'http://127.0.0.1:9222/generation')
     b.transfer_destination = False
     b.quarantined = False
     b.epoch = 0
@@ -37,6 +40,30 @@ def adapter():
     b.transfer_lock = asyncio.Lock()
     b.mark_activity = lambda: None
     return b
+
+
+def test_begin_replay_is_exact_and_wrong_owner_cannot_end_ticket():
+    async def scenario():
+        b = adapter()
+        b.call = lambda *args, **kwargs: asyncio.sleep(0, result={'result': {}})
+        old_token, old_epoch = b.token, b.epoch
+        ticket = json.loads((await b.transfer_begin(Request())).text)['ticket']
+        assert json.loads((await b.transfer_begin(Request())).text)['ticket'] == ticket
+        assert b.epoch == old_epoch + 1 and b.token == old_token
+        for wrong in (Request(owner='other', ticket=ticket),
+                      Request(generation='http://127.0.0.1:9222/other', ticket=ticket),
+                      Request(transaction='other', ticket=ticket)):
+            with pytest.raises(web.HTTPConflict):
+                await b.transfer_begin(wrong)
+            with pytest.raises(web.HTTPForbidden):
+                await b.transfer_end(wrong)
+        with pytest.raises(web.HTTPGone):
+            await b.route(Request())
+        await b.transfer_end(Request(ticket=ticket))
+        assert b.transfer is None and b.token == old_token and b.epoch == old_epoch + 1
+        with pytest.raises(web.HTTPForbidden):
+            await b.transfer_end(Request(ticket=ticket))
+    asyncio.run(scenario())
 
 
 def test_public_write_waiting_on_lock_cannot_cross_begin():

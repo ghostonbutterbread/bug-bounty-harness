@@ -75,6 +75,7 @@ class PipeBrowser:
         self.frozen = False
         self.transfer = None
         self.transfer_destination = False
+        self.transfer_identity = None
         self.quarantined = False
         self.epoch = 0
         self.last_activity = time.time()
@@ -391,18 +392,30 @@ class PipeBrowser:
     async def transfer_begin(self, request):
         """Exclusive adapter generation for a synchronous manager transaction."""
         data = await request.json()
+        identity = (data.get('transaction'), data.get('owner'), data.get('generation'))
+        if (any(not isinstance(value, str) or not value for value in identity)
+                or type(data.get('destination')) is not bool):
+            raise web.HTTPBadRequest()
+        # The same manager-owned attempt can recover a reply lost after begin
+        # applied. No new attempt or different owner may inherit its ticket.
+        if self.transfer and not self.rotating and self.transfer_identity == identity and self.transfer_destination == data['destination']:
+            return web.json_response({'ticket': self.transfer})
+        if identity[2] != f'http://127.0.0.1:{self.port}/{self.token}':
+            raise web.HTTPConflict()
         if self.transfer or self.quarantined or self.rotating or self.frozen or self.inflight or self.clients:
             raise web.HTTPConflict()
         self.rotating = True
         self.epoch += 1
         self.transfer = secrets.token_urlsafe(32)
-        self.transfer_destination = data.get('destination') is True
+        self.transfer_identity = identity
+        self.transfer_destination = data['destination']
         try:
             if "result" not in await self.call("Browser.getVersion"):
                 raise web.HTTPServiceUnavailable()
             return web.json_response({"ticket": self.transfer})
         except BaseException:
             self.transfer = None
+            self.transfer_identity = None
             self.transfer_destination = False
             raise
         finally:
@@ -415,7 +428,7 @@ class PipeBrowser:
                           "Network.setCookies", "Network.deleteCookies"}:
             raise web.HTTPBadRequest()
         async with self.transfer_lock:
-            if not self.transfer or data.get("ticket") != self.transfer:
+            if not self.transfer or not self._owns_transfer(data):
                 raise web.HTTPForbidden()
             targets = await self.call("Target.getTargets")
             pages = [t for t in targets.get("result", {}).get("targetInfos", []) if t.get("type") == "page"]
@@ -434,12 +447,13 @@ class PipeBrowser:
     async def transfer_end(self, request):
         data = await request.json()
         async with self.transfer_lock:
-            if not self.transfer or data.get("ticket") != self.transfer:
+            if not self.transfer or not self._owns_transfer(data):
                 raise web.HTTPForbidden()
             if self.transfer_destination:
                 self.quarantined = True
             else:
                 self.transfer = None
+                self.transfer_identity = None
                 self.transfer_destination = False
             self.mark_activity()
         return web.json_response({"ended": True})
@@ -448,7 +462,7 @@ class PipeBrowser:
         """Rotate public control without yet exposing imported auth."""
         data = await request.json()
         async with self.transfer_lock:
-            if not self.quarantined or not self.transfer or data.get('ticket') != self.transfer:
+            if not self.quarantined or not self.transfer or not self._owns_transfer(data):
                 raise web.HTTPForbidden()
             self.token = secrets.token_urlsafe(32)
             self.epoch += 1
@@ -459,9 +473,10 @@ class PipeBrowser:
         """Release only a manager-verified empty destination, never an uncertain one."""
         data = await request.json()
         async with self.transfer_lock:
-            if not self.transfer or data.get('ticket') != self.transfer or not self.transfer_destination:
+            if not self.transfer or not self._owns_transfer(data) or not self.transfer_destination:
                 raise web.HTTPForbidden()
             self.transfer = None
+            self.transfer_identity = None
             self.transfer_destination = False
             self.quarantined = False
             self.mark_activity()
@@ -470,13 +485,19 @@ class PipeBrowser:
     async def transfer_activate(self, request):
         data = await request.json()
         async with self.transfer_lock:
-            if not self.quarantined or not self.transfer or data.get('ticket') != self.transfer:
+            if not self.quarantined or not self.transfer or not self._owns_transfer(data):
                 raise web.HTTPForbidden()
             self.transfer = None
+            self.transfer_identity = None
             self.transfer_destination = False
             self.quarantined = False
             self.mark_activity()
         return web.json_response({'activated': True})
+
+    def _owns_transfer(self, data):
+        return (bool(self.transfer) and data.get('ticket') == self.transfer
+                and (data.get('transaction'), data.get('owner'), data.get('generation'))
+                == self.transfer_identity)
 
     async def _serve(self, port, socket_path):
         self.diagnostics.mark("adapter-bind")

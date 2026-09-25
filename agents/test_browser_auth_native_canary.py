@@ -145,14 +145,18 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
                 import websocket
                 page = next(p for p in json.load(urllib.request.urlopen(source + '/json/list', timeout=5))
                             if p['type'] == 'page')
+                begin = {'transaction': 'direct-canary', 'owner': leases[0],
+                         'generation': source, 'destination': False}
                 with contextlib.closing(websocket.create_connection(page['webSocketDebuggerUrl'], timeout=5)):
-                    assert control.post('http://localhost/transfer/begin', json={}).status_code == 409
-                ticket = control.post('http://localhost/transfer/begin', json={}).json()['ticket']
+                    assert control.post('http://localhost/transfer/begin', json=begin).status_code == 409
+                ticket = control.post('http://localhost/transfer/begin', json=begin).json()['ticket']
                 try:
                     assert control.post('http://localhost/rotate').status_code == 409
-                    assert control.post('http://localhost/transfer/begin', json={}).status_code == 409
+                    assert control.post('http://localhost/transfer/begin',
+                                        json={**begin, 'transaction': 'other'}).status_code == 409
                 finally:
-                    assert control.post('http://localhost/transfer/end', json={'ticket': ticket}).status_code == 200
+                    assert control.post('http://localhost/transfer/end',
+                                        json={**begin, 'ticket': ticket}).status_code == 200
             assert evaluate(source, check) is True
             manager.STATE = Path(env['BROWSER_PROVISIONER_STATE'])
             # Inject an app-native rejection after the import. The manager must

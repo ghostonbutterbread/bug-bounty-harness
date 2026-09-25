@@ -113,7 +113,10 @@ work:
 2. **Use the provisioner's normal headed request first.** On a host with a
    probed discrete Mesa NVK Vulkan device, the launcher chooses ANGLE/Vulkan
    and selects that device only for the spawned browser; no user-manager or
-   session `CHROMIUM_TEST_CHROME` setting is needed. Without that device (or if
+   session `CHROMIUM_TEST_CHROME` setting is needed. The provisioner masks an
+   inherited wrapper setting for ordinary auto requests (even if the user
+   manager retains it), while explicit `--graphics-backend external` keeps the
+   selected wrapper. Without that device (or if
    the bounded probe fails), it retains the normal ANGLE/GL flags; verify the
    actual renderer in-page. An explicit `--chrome-binary` retains control of
    its own flags. A custom GL/Vulkan wrapper selected through the environment

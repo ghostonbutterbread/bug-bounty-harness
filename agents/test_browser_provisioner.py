@@ -147,12 +147,14 @@ def test_start_forwards_recover_profile_to_lease_acquire(monkeypatch, tmp_path):
     assert "--recover-profile" in acquire["parts"]
 
 
-def test_provisioner_marks_its_launcher_invocation_as_internal(monkeypatch, tmp_path):
+@pytest.mark.parametrize("graphics_backend", ["auto", "external"])
+def test_provisioner_marks_its_launcher_invocation_as_internal(monkeypatch, tmp_path, graphics_backend):
     m = load(monkeypatch, tmp_path)
+    monkeypatch.setenv("CHROMIUM_TEST_CHROME", "/host/old-vulkan-wrapper")
     args = start_args()
     args.driving_mode = "manual"
     args.display_backend = "kasmvnc"
-    args.graphics_backend = "external"
+    args.graphics_backend = graphics_backend
     calls = []
 
     monkeypatch.setattr(m, "sweep_rows", lambda *a: ([], []))
@@ -194,7 +196,9 @@ def test_provisioner_marks_its_launcher_invocation_as_internal(monkeypatch, tmp_
     shell = browser_dispatch[-1]
     assert "BROWSER_PROVISIONER_UNIT=browser-lease-browser.service" in shell
     assert "--driving-mode manual" in shell
-    assert "--graphics-backend external" in shell
+    assert ("--graphics-backend external" in shell) == (graphics_backend == "external")
+    assert ("--setenv=CHROMIUM_TEST_CHROME=" in browser_dispatch) == (graphics_backend == "auto")
+    assert ("--setenv=CHROMIUM_TEST_CHROME=/host/old-vulkan-wrapper" in browser_dispatch) == (graphics_backend == "external")
     assert "--display-backend kasmvnc" in shell
     assert "BROWSER_PROVISIONER_LAUNCH" not in shell
     assert "--provisioner-internal" not in shell

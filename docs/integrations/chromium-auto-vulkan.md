@@ -17,13 +17,13 @@ Hoster Nouveau/NVK exposes a real GPU through Vulkan, but KasmVNC/Xvfb GLX falls
 
 ## Implemented contract
 
-For ordinary headed browser requests, the launcher runs a bounded `vulkaninfo --summary` probe and selects a real discrete Mesa NVK device, ANGLE/Vulkan flags, and a process-scoped `MESA_VK_DEVICE_SELECT`. Missing/failed probes fall back to existing GL. Headless, explicit binary, external graphics backend, and environment-selected wrappers retain their prior behavior. No target traffic is needed for detection and no user-manager environment is changed. Process-level selection is not a claim of in-page WebGL or hardware rendering; that requires a disposable real browser check.
+For ordinary headed browser requests, the provisioner masks inherited `CHROMIUM_TEST_CHROME` for the browser unit (the Hoster user manager retained a wrapper), then the launcher runs a bounded `vulkaninfo --summary` probe and selects a real discrete Mesa NVK device, ANGLE/Vulkan flags, and a process-scoped `MESA_VK_DEVICE_SELECT`. Missing/failed probes fall back to existing GL. Headless, explicit binary and external graphics backend retain their prior behavior; external mode retains an explicitly selected wrapper. No target traffic is needed for detection and no user-manager environment is changed. Process-level selection is not a claim of in-page WebGL or hardware rendering; that requires a disposable real browser check.
 
 ## Evidence and review
 
-- Tests: `python3 -m pytest -q agents/test_chromium_test_launcher.py agents/test_browser_provisioner.py` — 88 passed locally. Regression was red before implementation (missing detector).
+- Tests: `python3 -m pytest -q agents/test_chromium_test_launcher.py agents/test_browser_provisioner.py` — 89 passed locally. Regressions were red before implementation (missing detector and inherited wrapper masking).
 - Hoster evidence: `vulkaninfo --summary` lists NVK discrete `10de:1b82` and llvmpipe CPU; the existing wrapper sets `MESA_VK_DEVICE_SELECT=10de:1b82` plus Vulkan flags; headed GL path uses `--use-angle=gl`. Host `eglinfo -B` also exposes NV134 and llvmpipe, so it is not in-page proof.
-- Independent review: pending.
+- Independent review: first review of `aab381d` found Hoster's user-manager retained the wrapper, blocking the automatic path; follow-up masks it per ordinary browser unit. Re-review pending.
 - Merge/ancestry evidence: pending.
 
 ## Blockers and deferred work
@@ -35,8 +35,8 @@ For ordinary headed browser requests, the launcher runs a bounded `vulkaninfo --
 - **Owning feature branch/ref:** `fix/chromium-auto-vulkan`
 - **Latest immutable recovery checkpoint:** `aadaefb9bb1589d50315a080da01a33854bbcced`
 - **Feature implementation commit(s):** `aadaefb9bb1589d50315a080da01a33854bbcced`
-- **Exact resume point:** review code and tests, commit, independent review, integrate beta, deploy Hoster, run disposable ordinary producer with in-page GPU check.
-- **Working-tree state at handoff:** clean after help-text follow-up checkpoint.
+- **Exact resume point:** commit wrapper masking and tests, re-review, integrate beta, deploy Hoster, run disposable ordinary producer with in-page GPU check.
+- **Working-tree state at handoff:** wrapper-masking follow-up pending commit.
 
 ## Decision gates
 

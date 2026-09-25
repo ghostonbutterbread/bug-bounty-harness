@@ -2256,8 +2256,15 @@ def start(args):
         "DISPLAY",
         "XAUTHORITY",
     ):
+        if key == "CHROMIUM_TEST_CHROME" and getattr(args, "graphics_backend", "auto") == "auto":
+            continue
         if key in os.environ:
             run.insert(2, "--setenv=" + key + "=" + os.environ[key])
+    if getattr(args, "graphics_backend", "auto") == "auto":
+        # User-systemd may retain an old interactive wrapper across sessions.
+        # Mask it for this ordinary browser unit so automatic probing selects
+        # the real browser even when the manager environment is stale.
+        run.insert(2, "--setenv=CHROMIUM_TEST_CHROME=")
     if diagnostics_dir:
         run.insert(2, "--setenv=BROWSER_STARTUP_RECEIPT_DIR=" + str(diagnostics_dir))
     with diagnostics.phase("dispatch"):

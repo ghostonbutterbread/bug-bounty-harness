@@ -148,18 +148,21 @@ def _transfer_candidates(manager_db, leases, source_id, destination_id, *, ticke
 def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, origin):
     """Private fixture-only synchronous transfer; never a CLI or generic site API.
 
-    The fixture contract is intentionally hard-coded: program/domain/account,
-    loopback origin, one cookie, one storage key, and its app-native check.
-    No identity, script, cookie or principal is accepted from the caller.
+    Only the disposable pool is supported. The manager selects a private
+    fixture contract; the caller cannot supply selectors, scripts or a path.
     """
     from urllib.parse import urlsplit
     import browser_profile_lease as profiles
     import httpx
+    if str(ROOT.parents[2]) not in sys.path:
+        sys.path.insert(0, str(ROOT.parents[2]))
+    from agents.browser_auth_site_contract import (SiteContractError, load_site_contract,
+        verify_check_response, verify_cookie_scope)
     unavailable = lambda reason: {'status': 'auth-clone-unavailable', 'reason': reason}
     parsed = urlsplit(origin) if isinstance(origin, str) else None
-    if (not parsed or parsed.scheme != 'http' or parsed.hostname != '127.0.0.1'
+    if (not parsed or parsed.scheme != 'http' or parsed.hostname != 'localhost'
             or not parsed.port or parsed.path or parsed.query or parsed.fragment
-            or origin != f'http://127.0.0.1:{parsed.port}'
+            or origin != f'http://localhost:{parsed.port}'
             or not isinstance(source_lease_id, str) or not isinstance(destination_lease_id, str)):
         return unavailable('site-contract-unavailable')
 
@@ -191,7 +194,34 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
         require('exceptionDetails' not in result, 'app-check-failed')
         return result.get('result', {}).get('value')
 
-    check = "fetch('/whoami').then(r => r.ok && localStorage.getItem('fixture-credential') === 'approved')"
+    def checked_contract():
+        contract = load_site_contract(STATE.parent / 'fixture-site-contract.json',
+            program='fixture', auth_domain='fixture.invalid', account_alias='anon', origin=origin)
+        if (contract.cookie_name != '__Host-session' or contract.cookie_domain != 'localhost'
+                or contract.cookie_path != '/' or contract.local_storage_keys != ('fixture-credential',)):
+            raise SiteContractError('Unsupported fixture state')
+        return contract
+
+    def check_expression(contract):
+        # Fixed manager code; selector and URL are JSON data, never executable JS.
+        return """(async () => {
+        const response = await fetch(URL, {redirect: 'manual', credentials: 'same-origin'});
+        const redirected = response.type === 'opaqueredirect' || response.status >= 300 && response.status < 400;
+        if (redirected) return {url: response.url, status: response.status, redirected: true, principal: ''};
+        const html = await response.text();
+        const element = new DOMParser().parseFromString(html, 'text/html').querySelector(SELECTOR);
+        return {url: response.url, status: response.status, redirected: false,
+                principal: element ? element.textContent.trim() : ''};
+    })()""".replace('URL', json.dumps(contract.check_url)).replace('SELECTOR', json.dumps(contract.principal_selector))
+    def app_check(client, ticket):
+        observation = eval_js(client, ticket, check)
+        try:
+            verify_check_response(contract, response_url=observation['url'],
+                status=observation['status'], redirected=observation['redirected'],
+                principal=observation['principal'])
+            return True
+        except (SiteContractError, KeyError, TypeError):
+            return False
     with node_lock(STATE):
         with db() as manager_db, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
             profiles.init_db(leases)
@@ -205,6 +235,11 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
             if any(info.get('control_socket') != str(STATE.parent / (row['browser_id'] + '.sock'))
                    for row, info, _ in candidates):
                 return unavailable('manager-identity-unverified')
+            try:
+                contract = checked_contract()
+            except SiteContractError:
+                return unavailable('site-contract-unavailable')
+            check = check_expression(contract)
             # This is deliberately a fixture boundary, not a transport for
             # authenticated production accounts or arbitrary origins.
             clients = []
@@ -240,27 +275,33 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                 st, dt = tickets
                 require(eval_js(source, st, 'location.origin') == origin, 'source-origin-mismatch')
                 source_url = eval_js(source, st, 'location.href')
-                require(eval_js(source, st, check) is True, 'source-app-check-failed')
+                require(app_check(source, st), 'source-app-check-failed')
                 # Destination must already be provisioned and at the exact origin;
                 # never overwrite an authenticated or populated destination.
                 require(eval_js(destination, dt, 'location.origin') == origin, 'destination-origin-mismatch')
-                require(eval_js(destination, dt, check) is False, 'destination-not-empty')
+                require(not app_check(destination, dt), 'destination-not-empty')
                 require(eval_js(destination, dt, "localStorage.getItem('fixture-credential')") is None,
                         'destination-not-empty')
                 cookies = call(source, st, 'Network.getAllCookies')['cookies']
-                selected = [c for c in cookies if c['domain'] == '127.0.0.1' and c['name'] == 'session'
-                            and c.get('path') == '/']
+                selected = [c for c in cookies if c['domain'] == contract.cookie_domain
+                            and c['name'] == contract.cookie_name and c.get('path') == contract.cookie_path]
                 require(len(selected) == 1 and selected[0].get('httpOnly') is True,
                         'source-cookie-unverified')
+                try:
+                    verify_cookie_scope(contract, browser_domain=selected[0]['domain'],
+                        host_only=selected[0].get('hostOnly'), secure=selected[0].get('secure'),
+                        browser_path=selected[0].get('path'))
+                except SiteContractError:
+                    raise TransferError('source-cookie-unverified') from None
                 existing = call(destination, dt, 'Network.getAllCookies')['cookies']
-                require(not any(c['domain'] == '127.0.0.1' for c in existing), 'destination-not-empty')
+                require(not any(c['domain'] == contract.cookie_domain for c in existing), 'destination-not-empty')
                 storage = eval_js(source, st, "localStorage.getItem('fixture-credential')")
                 require(storage == 'approved', 'source-storage-unverified')
                 imported = True  # cleanup even if the CDP write succeeds but its reply is lost
                 call(destination, dt, 'Network.setCookies', {'cookies': selected})
                 eval_js(destination, dt, 'localStorage.setItem(' + json.dumps('fixture-credential') + ',' + json.dumps(storage) + ')')
-                require(eval_js(destination, dt, check) is True, 'destination-app-check-failed')
-                require(eval_js(source, st, check) is True and eval_js(source, st, 'location.href') == source_url,
+                require(app_check(destination, dt), 'destination-app-check-failed')
+                require(app_check(source, st) and eval_js(source, st, 'location.href') == source_url,
                         'source-changed')
                 require(bool(_transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id,
                                                   ticketed=True)),
@@ -275,11 +316,11 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                         if reason:
                             destination, dt = clients[1], tickets[1]
                             call(destination, dt, 'Network.deleteCookies',
-                                 {'name': 'session', 'url': origin + '/'})
+                                 {'name': contract.cookie_name, 'url': origin + '/'})
                             eval_js(destination, dt, "localStorage.removeItem('fixture-credential')")
-                            cleaned = (eval_js(destination, dt, check) is False and
+                            cleaned = (not app_check(destination, dt) and
                                        eval_js(destination, dt, "localStorage.getItem('fixture-credential')") is None and
-                                       not any(c['domain'] == '127.0.0.1' for c in
+                                       not any(c['domain'] == contract.cookie_domain for c in
                                                call(destination, dt, 'Network.getAllCookies')['cookies']))
                     except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError):
                         cleaned = False

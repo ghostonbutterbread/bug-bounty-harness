@@ -50,19 +50,21 @@ def navigate(url, target, expected=None):
 
 
 @pytest.mark.skipif(os.environ.get('BBH_AUTH_CANARY') != '1', reason='explicit local canary opt-in')
-@pytest.mark.parametrize('lost_reply', [None, 'end', 'commit'])
-def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_reply, monkeypatch):
+@pytest.mark.parametrize('lost_reply,bad_check', [
+    (None, None), ('end', None), ('commit', None),
+    (None, 'principal'), (None, 'redirect'), (None, 'domain-cookie')])
+def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_reply, bad_check, monkeypatch, capsys):
     import websocket  # noqa: F401 - establish dependency before any browser allocation
     with disposable_fixture_root() as (root, _evidence):
         # The fixture issues an opaque test session; neither it nor browser state
         # is printed or written into a capture file. Only a local origin is used.
         secret = os.urandom(24).hex()
-        checks = {'count': 0, 'reject_at': None}
+        checks = {'count': 0, 'reject_at': None, 'bad': None}
         class App(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
                 if self.path == '/login':
                     self.send_response(302)
-                    self.send_header('Set-Cookie', f'session={secret}; HttpOnly; SameSite=Lax; Path=/')
+                    self.send_header('Set-Cookie', f'__Host-session={secret}; Secure; HttpOnly; SameSite=Lax; Path=/')
                     self.send_header('Location', '/app')
                     self.end_headers()
                 elif self.path == '/app':
@@ -70,14 +72,21 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
                     self.send_header('Content-Type', 'text/html')
                     self.end_headers()
                     self.wfile.write(b'<!doctype html><title>fixture</title>')
-                elif self.path == '/whoami':
+                elif self.path == '/me':
                     checks['count'] += 1
-                    authorized = (f'session={secret}' in self.headers.get('Cookie', '').split('; ')
+                    authorized = (any(c in self.headers.get('Cookie', '').split('; ') for c in
+                                      (f'__Host-session={secret}', f'session={secret}'))
                                   and checks['count'] != checks['reject_at'])
+                    if checks['bad'] == 'redirect' and authorized:
+                        self.send_response(302)
+                        self.send_header('Location', '/app')
+                        self.end_headers()
+                        return
                     self.send_response(200 if authorized else 401)
-                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Type', 'text/html')
                     self.end_headers()
-                    self.wfile.write(b'{"authenticated":true}' if authorized else b'{"authenticated":false}')
+                    principal = 'other' if checks['bad'] == 'principal' else 'anon'
+                    self.wfile.write(f'<span data-testid="account-name">{principal if authorized else "guest"}</span>'.encode())
                 else:
                     self.send_error(404)
             def log_message(self, *args):
@@ -85,7 +94,7 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
         app = http.server.ThreadingHTTPServer(('127.0.0.1', 0), App)
         thread = threading.Thread(target=app.serve_forever, daemon=True)
         thread.start()
-        origin = f'http://127.0.0.1:{app.server_port}'
+        origin = f'http://localhost:{app.server_port}'
         # Explicit external proxy mode owns this disposable browser fixture. Chrome
         # bypasses loopback for the app; nonlocal traffic is rejected by proxy.
         class Reject(http.server.BaseHTTPRequestHandler):
@@ -99,6 +108,17 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
                'BROWSER_PROVISIONER_STATE': str(root / 'state/manager.sqlite'),
                'HARNESS_BOUNTY_ARTIFACT_ROOT': str(root / 'artifacts'),
                'HARNESS_SHARED_BASE': str(root / 'shared')}
+        contract = {'program': 'fixture', 'auth_domain': 'fixture.invalid', 'account_alias': 'anon',
+                    'disposable_fixture': True, 'allowed_origins': [origin],
+                    'check': {'url': origin + '/me', 'method': 'GET',
+                              'principal_selector': '[data-testid="account-name"]', 'expected_principal': 'anon'},
+                    'local_storage_keys': ['fixture-credential'],
+                    'cookie_selector': {'name': '__Host-session', 'domain': 'localhost', 'path': '/'}}
+        state_dir = root / 'state'
+        state_dir.mkdir(mode=0o700, exist_ok=True)
+        contract_path = state_dir / 'fixture-site-contract.json'
+        contract_path.write_text(json.dumps(contract))
+        contract_path.chmod(0o600)
         owners = [subprocess.Popen(['sleep', 'infinity']) for _ in range(2)]
         leases = []
         def command(*args):
@@ -129,11 +149,11 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
             navigate(source, origin + '/login', origin + '/app')
             assert evaluate(source, 'location.origin') == origin
             evaluate(source, "localStorage.setItem('fixture-credential', 'approved')")
-            check = "fetch('/whoami').then(r => r.ok && localStorage.getItem('fixture-credential') === 'approved')"
+            check = "fetch('/me', {redirect:'manual'}).then(async r => r.status === 200 && (await r.text()).includes('>anon<') && localStorage.getItem('fixture-credential') === 'approved')"
             assert evaluate(source, check) is True
             source_url = evaluate(source, 'location.href')
             navigate(destination, origin + '/app')
-            assert evaluate(destination, "fetch('/whoami').then(r => r.ok)") is False
+            assert evaluate(destination, "fetch('/me').then(r => r.ok)") is False
             assert evaluate(destination, check) is False
             # The adapter fences rotation and public CDP while an exclusive
             # manager transaction is in progress; no payload is printed.
@@ -167,9 +187,22 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
             checks['reject_at'] = None
             assert evaluate(destination, check) is False
             assert evaluate(destination, "localStorage.getItem('fixture-credential')") is None
-            assert not any(c['name'] == 'session' and c['domain'] == '127.0.0.1'
+            assert not any(c['name'] == '__Host-session' and c['domain'] == 'localhost'
                            for c in call_page(destination, 'Network.getAllCookies')['cookies'])
             assert evaluate(source, check) is True
+            if bad_check:
+                checks['bad'] = bad_check
+                if bad_check == 'domain-cookie':
+                    call_page(source, 'Network.deleteCookies', {'name': '__Host-session', 'url': origin + '/'})
+                    call_page(source, 'Network.setCookie', {'name': 'session', 'value': secret,
+                        'domain': 'localhost', 'path': '/', 'httpOnly': True})
+                assert manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin) == {
+                    'status': 'auth-clone-unavailable', 'reason':
+                    'source-cookie-unverified' if bad_check == 'domain-cookie' else 'source-app-check-failed'}
+                assert evaluate(destination, "localStorage.getItem('fixture-credential')") is None
+                assert not call_page(destination, 'Network.getAllCookies')['cookies']
+                assert evaluate(source, 'location.href') == source_url
+                return
             if lost_reply:
                 with sqlite3.connect(env['BROWSER_PROVISIONER_STATE']) as db:
                     dest_launch = db.execute('SELECT launch_file FROM browsers WHERE lease_id=?',
@@ -232,3 +265,8 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
             app.server_close()
             thread.join(timeout=5)
             proxy_thread.join(timeout=5)
+            output = capsys.readouterr()
+            assert secret not in output.out and secret not in output.err
+            for pattern in ('*.json', '*.log', '*.txt'):
+                for file in root.rglob(pattern):
+                    assert secret not in file.read_text(errors='replace')

@@ -87,6 +87,44 @@ def test_exact_selector_and_partial_quarantine(tmp_path, runtime):
         apply(state, backup, plan)
 
 
+def test_excluded_row_change_invalidates_full_cohort_plan(tmp_path, runtime):
+    state, backup = fixture(tmp_path)
+    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite') as c:
+        c.execute("UPDATE browser_profile_leases SET status='active' WHERE lease_id='lid-1'")
+    plan = repair.run(state, 'neon', 'blue', probe=repair.runtime_quiescent)
+    assert plan['candidate_count'] == 2 and plan['blocked_count'] == 1
+    assert plan['observed_count'] == 3
+    with sqlite3.connect(state) as c:
+        c.execute("UPDATE browsers SET created=created+1 WHERE lease_id='lid-1'")
+    refreshed = repair.run(state, 'neon', 'blue', probe=repair.runtime_quiescent)
+    assert refreshed['candidate_count'] == plan['candidate_count']
+    assert refreshed['blocked'] == plan['blocked']
+    assert refreshed['plan_hash'] != plan['plan_hash']
+    with pytest.raises(repair.Refused, match='plan-changed'):
+        apply(state, backup, plan)
+    with sqlite3.connect(state) as c:
+        assert c.execute("SELECT count(*) FROM browsers WHERE state='stopped'").fetchone()[0] == 0
+
+
+def test_blocker_reason_change_invalidates_full_cohort_plan(tmp_path, runtime):
+    state, backup = fixture(tmp_path)
+    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite') as c:
+        c.execute("UPDATE browser_profile_leases SET status='active' WHERE lease_id='lid-1'")
+    plan = repair.run(state, 'neon', 'blue', probe=repair.runtime_quiescent)
+    (tmp_path / 'profile-bid-1' / 'SingletonLock').touch()
+    # The active lease still blocks before the lock probe; change to another
+    # terminal-but-blocked reason while the other candidates remain the same.
+    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite') as c:
+        c.execute("UPDATE browser_profile_leases SET status='released' WHERE lease_id='lid-1'")
+    refreshed = repair.run(state, 'neon', 'blue', probe=repair.runtime_quiescent)
+    assert refreshed['candidate_count'] == plan['candidate_count']
+    assert refreshed['observed_count'] == plan['observed_count']
+    assert refreshed['blocked'] != plan['blocked']
+    assert refreshed['plan_hash'] != plan['plan_hash']
+    with pytest.raises(repair.Refused, match='plan-changed'):
+        apply(state, backup, plan)
+
+
 def test_sparse_receipt_conflict_and_owner_ambiguity(tmp_path, runtime, monkeypatch):
     state, backup = fixture(tmp_path)
     receipt = tmp_path / 'bid-0.launch.json'

@@ -36,8 +36,11 @@ selection, target scope, and browser state still require agent verification.
 `browser_manager_row_repair.py --manager-db /private/browser_provisioner.sqlite --program <program> --account <account> --probe-runtime`
 reads the exact old appended-column layout and canonical lease database in the
 same directory. It emits counts, `complete`/`sparse`/`missing`/`idle-stopped`
-classifications for eligible opaque lease-ID hashes, blocked reasons and a plan
-hash; never raw launch records, paths, CDP URLs or account credentials.
+classifications for eligible opaque lease-ID hashes, blocked reasons, the
+full selected-cohort row count and a plan hash; never raw launch records,
+paths, CDP URLs or account credentials. The hash binds every manager row in
+that exact cohort (including excluded rows), blocked reasons and eligible row
+projections; any changed exclusion or row forces a new reviewed plan.
 The exact program/account pair selects rows; other accounts/programs are excluded.
 Only canonical released or expired leases with exact ID, ownership, unit and
 launch path can be candidates. **Expired is not evidence of shutdown**: the

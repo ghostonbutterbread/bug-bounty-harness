@@ -216,6 +216,8 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
             destination_quarantined = False
             source_recheck_failed = False
             committed_url = None
+            activated = False
+            terminal_disposition = False
             reason = None
             interruption = None
             cleanup_failure = None
@@ -394,29 +396,47 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                                            (committed_url, destination_lease_id, candidates[1][1]['cdp_url']))
                             require(leases.execute('SELECT changes()').fetchone()[0] == 1, 'manager-identity-changed')
                             leases.commit()
-                            control(check_client, 'activate', {'ticket': tickets[1]})
-                    except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError):
-                        # A lost activation ACK may mean the fully published owner
-                        # is live. Accept only exact private identity plus canonical
-                        # URL; otherwise it remains quarantined for exact disposal.
-                        activated = False
-                        if committed_url:
-                            try:
-                                with httpx.Client(transport=httpx.HTTPTransport(
-                                        uds=candidates[1][1]['control_socket']), timeout=15) as probe:
-                                    reply = probe.get('http://localhost/identity')
-                                    reply.raise_for_status()
-                                    state = reply.json()
-                                    canonical = leases.execute(
-                                        'SELECT cdp_url FROM browser_profile_leases WHERE lease_id=?',
-                                        (destination_lease_id,)).fetchone()
-                                    activated = (state.get('available') is True and
-                                                 state.get('process_identity') == candidates[1][1]['process_identity'] and
-                                                 state.get('cdp_url') == committed_url and canonical and
-                                                 canonical['cdp_url'] == committed_url)
-                            except (OSError, ValueError, KeyError, httpx.HTTPError):
-                                pass
-                        destination_end_unverified = not activated
+                            require(control(check_client, 'activate', {'ticket': tickets[1]}).get('activated') is True,
+                                    'activation-unverified')
+                            activated = True  # ACK is the irreversible terminal boundary.
+                    except BaseException as exc:
+                        # The activate ACK (including a cancellation after application)
+                        # cannot decide ownership. Reconcile all three exact authorities
+                        # before treating the published recipient as committed.
+                        if not isinstance(exc, (TransferError, OSError, ValueError, KeyError, httpx.HTTPError)):
+                            interruption = exc
+                    if committed_url and not activated:
+                        try:
+                            with httpx.Client(transport=httpx.HTTPTransport(
+                                    uds=candidates[1][1]['control_socket']), timeout=15) as probe:
+                                reply = probe.get('http://localhost/identity')
+                                reply.raise_for_status()
+                                state = reply.json()
+                                canonical = leases.execute(
+                                    'SELECT * FROM browser_profile_leases WHERE lease_id=?',
+                                    (destination_lease_id,)).fetchone()
+                                launch = record_info(candidates[1][0])
+                                activated = (state.get('available') is True and
+                                             state.get('quarantined') is False and
+                                             state.get('process_identity') == candidates[1][1]['process_identity'] and
+                                             state.get('cdp_url') == committed_url and
+                                             launch.get('cdp_url') == committed_url and
+                                             launch.get('process_identity') == candidates[1][1]['process_identity'] and
+                                             canonical is not None and canonical['status'] == 'active' and
+                                             canonical['browser_status'] == 'running' and
+                                             canonical['owner_agent_id'] == candidates[1][0]['agent_id'] and
+                                             canonical['owner_run_id'] == candidates[1][0]['run_id'] and
+                                             canonical['service_unit'] == candidates[1][0]['unit'] and
+                                             canonical['profile_dir'] == candidates[1][0]['profile_dir'] and
+                                             canonical['manager_id'] == manager_id() and
+                                             canonical['cdp_url'] == committed_url)
+                        except (OSError, ValueError, KeyError, httpx.HTTPError):
+                            pass
+                    # A missing ACK without exact readback is not success. Keep
+                    # pre-activation cancellation distinct from post-activation commit.
+                    destination_end_unverified = not activated
+                    if activated:
+                        interruption = None
                 if imported and (source_unproved or source_recheck_failed or destination_end_unverified):
                     # The end may have applied even when its reply was lost. Its
                     # ticket cannot be relied on to fence an imported destination.
@@ -426,6 +446,14 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                         disposed = stop_recorded(candidates[1][0])
                     except (OSError, ValueError):
                         disposed = False
+                    terminal_disposition = True
+                    if interruption is not None:
+                        interruption.add_note(
+                            'fixture transfer interrupted before verified activation; source='
+                            + ('release-unverified' if source_unproved else 'owner-preserved')
+                            + '; destination=' + ('disposed' if disposed else 'cleanup-incomplete')
+                        )
+                        raise interruption.with_traceback(interruption.__traceback__)
                     if source_unproved:
                         return {'status': 'auth-clone-unavailable', 'reason': 'source-cleanup-incomplete',
                                 'source': 'release-unverified',
@@ -444,7 +472,7 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                 return unavailable(reason) if reason else {'status': 'fixture-auth-transferred'}
             finally:
                 failure = sys.exc_info()[1]
-                if failure is not None and imported:
+                if failure is not None and imported and not activated and not terminal_disposition:
                     try:
                         disposed = stop_recorded(candidates[1][0])
                     except BaseException:

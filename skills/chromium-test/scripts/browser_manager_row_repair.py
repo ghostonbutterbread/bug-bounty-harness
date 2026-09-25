@@ -179,7 +179,10 @@ def inspect(conn, program, account, *, probe=None):
             identity = physical_profile(repaired['profile_dir'])
             for owner in conn.execute("SELECT lease_id,profile_dir,program,account_alias,auth_domain FROM lease.browser_profile_leases WHERE lease_id!=? AND status='active'", (lid,)):
                 other = physical_profile(owner['profile_dir'])
-                same_pool = (owner['program'], owner['account_alias'], owner['auth_domain']) == (repaired['program'], repaired['account'], repaired['auth_domain'])
+                same_pool = ((owner['program'], owner['account_alias']) ==
+                             (repaired['program'], repaired['account']) and
+                             (owner['auth_domain'] == repaired['auth_domain'] or
+                              owner['auth_domain'] is None and repaired['auth_domain'] == 'legacy-global'))
                 if owner['profile_dir'] == repaired['profile_dir'] or (identity and other == identity) or (same_pool and other is None):
                     raise Refused('profile-other-owner')
             if lease['status'] not in TERMINAL_LEASES:

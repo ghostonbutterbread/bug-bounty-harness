@@ -359,3 +359,17 @@ def test_incomplete_systemd_show_is_unknown(tmp_path, runtime, monkeypatch):
     monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: subprocess.CompletedProcess(a, 0, 'ActiveState=inactive\nLoadState=not-found\n', ''))
     with pytest.raises(repair.Refused, match='plan-changed'):
         apply(state, backup, plan)
+
+def test_legacy_null_domain_active_unknown_profile_quarantines_idle_row(tmp_path):
+    state, _ = fixture(tmp_path, 1)
+    with sqlite3.connect(state) as c:
+        c.execute('UPDATE browsers SET auth_domain=?,agent_id=?,run_id=?,purpose=?,unit=?,profile_dir=?,launch_file=?,state=?,tab_count=?,last_activity=?,created=?,updated=? WHERE lease_id=?',
+                  ('legacy-global','agent','run','purpose','browser-bid-0',str(tmp_path/'profile-bid-0'),str(tmp_path/'bid-0.launch.json'),'idle-stopped',0,1.,1.,1.,'lid-0'))
+    with sqlite3.connect(tmp_path / 'browser_profile_leases.sqlite') as c:
+        c.execute("UPDATE browser_profile_leases SET auth_domain=NULL WHERE lease_id='lid-0'")
+        c.execute('INSERT INTO browser_profile_leases VALUES (?,?,?,?,?,?,?,?,?,?)',
+                  ('unobserved', 'neon', 'blue', None, 'peer', 'run', 'purpose',
+                   str(tmp_path / 'missing-alias'), 'active', 'browser-unobserved'))
+    plan = repair.run(state, 'neon', 'blue')
+    assert plan['candidate_count'] == 0
+    assert list(plan['blocked'].values()) == ['profile-other-owner']

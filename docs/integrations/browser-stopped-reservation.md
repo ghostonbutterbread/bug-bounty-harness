@@ -1,14 +1,14 @@
 # Stopped-profile reservation + offline fixture integration dossier
 
-- **Status:** reconciled fixture-only feature checkpoint; no production consumer or activation
+- **Status:** independently approved for fixture-only beta integration; no production consumer or activation
 - **Owner / branch:** Hermes bugfix integration / `feat/browser-stopped-reservation`
 - **Worktree:** `/home/ryushe/projects/bug_bounty_harness/browser-stopped-reservation`
 - **Reservation base:** fetched `origin/beta` `2d80b03af499a033a0b9a46c87b7e3a4eb61236c`
 - **Reconciled beta tip:** fetched `origin/beta` `faa6163a0e7620af91818f05572c69de77bf2a70`, merged without rewriting history as `9efd9c2740cac56742480d4014370051ace2755a` (parents `a4b4ef5`, `faa6163`)
 - **Clone-fixture base:** `3a25123903152994b9b431ac668c47ac3ad14e79`
-- **Target:** `beta`, not merged or pushed; stable/production not authorized
+- **Target:** `beta` only; stable/production not authorized
 - **Last updated:** 2026-09-25
-- **Recovery checkpoint:** `9efd9c2740cac56742480d4014370051ace2755a` (history-preserving beta reconciliation); the dossier-only checkpoint containing this update is the current branch tip.
+- **Recovery checkpoint:** `7209fc6f98e491db4f2cf2d4c2c8ea219008cda4` (reconciled fixture tests and serial native receipts); this approval is a subsequent dossier-only checkpoint on the same feature branch.
 - **Implementation history:** reservation `0e943c0`, `71d378d`, `2bad39a`, `6400bb6`, `3f5ca5b7ce4a94069eb92d4ee7b4ae1de8d5d136`; offline helper and native fixture `9dfa0a4b71d15fc580eca97de6a82492e53b1163`, `6dc258c64abc537bab6ac4e4f22405614fd5fd6e`, `c5af3542ea5a2dd9c50a205dfcc3244f2fcd88e3`; integration merge `f5054ed` parents `3f5ca5b`, `c5af354`.
 - **Inspiration:** clone branch's offline helper originated from isolated `feat/browser-offline-snapshot` tip `015ff42` (copied, not merged). The clone's original dossier remains as historical branch-local evidence; this is the single active integration handoff. Remove both temporary dossiers only during a future accepted merge cleanup on the beta target, not on this checkpoint.
 
@@ -28,24 +28,24 @@ The offline helper accepts a proof reader, pins/checks physical source entries a
 - Earlier matching `-k 'session-only-cookie'` failed twice (139.96s: recipient verify `request` returned launch-failed/could not register owned browser; 80.28s: CDP `Page.navigate` timed out while checking an initially empty recipient). Those failures remain unexplained; the negative case did not reach auth comparison in either run. The first `-k persistent_cookie` selected no test (pytest exit 5); use the hyphenated ID.
 - On reconciled merge `9efd9c2`, `python3 -m pytest -q agents/test_browser_stopped_reservation.py agents/test_browser_profile_lease.py agents/test_browser_manager_transfer_gate.py agents/test_browser_provisioner.py agents/test_browser_offline_snapshot.py` — **107 passed, 41 subtests passed** (67.03s).
 - Serial native receipts on `9efd9c2`: `BBH_STOPPED_CLONE_CANARY=1 python3 -m pytest -q -s agents/test_browser_stopped_clone_feasibility.py -k 'persistent-cookie'` — **1 passed, 1 deselected** (32.03s), `raw=principal; filtered=principal; source=principal; CA trust=untested`; then same command with `-k 'session-only-cookie'` — **1 passed, 1 deselected** (30.70s), `source restart auth=False; raw/filtered recipient /me statuses=[401, 401]; CA trust=untested`. Private startup metadata under scratch `bbh-startup-evidence-r0403l2g` and `bbh-startup-evidence-ym9d35ip` records `fixture_failed=False`, `cleanup_verified=True` for each; profile material not inspected or retained in the dossier. These are local fixture results, not cross-version or real-session proof.
-- Independent reviewer approved a fixture-only beta candidate conditional on reconciliation. The reconciled tree's diff and whitespace checks were clean; the final fetch still showed `origin/beta=faa6163` as an ancestor. This task does not integrate it into beta. No production copy consumer has been added.
+- Final independent release gate approved fixture-only beta integration of `7209fc6` against `origin/beta=faa6163`, after 107 focused tests/41 subtests and both opt-in native cases passed serially with teardown. Fresh integration fetch still reports `faa6163` and proves it an ancestor of the feature; clean feature and beta checkouts and whitespace check verified. Earlier startup flakiness is unexplained. No production copy consumer has been added.
 
 ## Blockers and deferred work
 
-- **Intermittent native startup:** the fresh reconciled negative fixture passed, but the prior recipient registration and CDP navigation failures remain unexplained. Rerun both serial opt-in cases with sanitized private startup metadata on a new host/review cycle; if either fails, diagnose without dumping profile material and block beta integration. One green serial pair does not establish repeatability.
+- **Intermittent native startup:** the fresh reconciled negative fixture passed, but the prior recipient registration and CDP navigation failures remain unexplained. Rerun both serial opt-in cases with sanitized private startup metadata on a new host/review cycle; diagnose failures without dumping profile material. A passing integrated serial pair is required for this beta merge, but does not establish repeatability or authorize activation.
 - **Manager-authoritative copy lifecycle:** no proof reader bound to the reservation or `copying`/`uncertain` recovery, durable completion, safe release, or crash/alias-swap race test. Trigger: separately reviewed manager+canonical consumer and disposal protocol; test real disposable browser copy interruption, restart, claim and filesystem alias changes. Without it, never activate production cloning.
 - **Trust/session contract:** real CA import/trust, NSS client certificate behavior, browser-version-dependent session-cookie restoration, service workers/IndexedDB, SSO/device binding and site-specific authorization remain untested. Trigger: approved isolated HTTPS/proxy and site-specific fixtures; no claim of general auth portability.
 - **Filesystem TOCTOU:** `browser_profile_lease.py` physical resolution and sweep may race alias replacement; an eventual copy consumer must pin/open identity at use and test alias swaps. Gate alone has no copy consumer.
 
 ## Interruption / resume handoff
 
-- **Owner:** `feat/browser-stopped-reservation`; **immutable checkpoint:** `9efd9c2740cac56742480d4014370051ace2755a`; dossier-only handoff is committed at tip.
-- **Exact resume:** verify fresh beta tip and reconcile again if it advances; inspect the combined diff and conditional review disposition, then decide separately whether fixture-only beta integration is appropriate. No automatic production/activation decision.
+- **Owner:** `feat/browser-stopped-reservation`; **immutable test checkpoint:** `7209fc6f98e491db4f2cf2d4c2c8ea219008cda4`; final approval is recorded in a subsequent dossier-only commit at tip.
+- **Exact resume:** merge the reviewed feature into clean `beta` after confirming `origin/beta=faa6163` remains an ancestor; remove both temporary dossiers from beta while preserving feature history, run integrated focused tests and serial native cases, then push beta only from its own worktree if green. Stop for reconciliation/review if beta advances. No production/activation decision.
 - **Working tree:** clean after dossier checkpoint (verify independently).
 
 ## Decision gates
 
-- **Integration:** fixture-only candidate after conditional independent review and green reconciled local receipts; final integration decision and fresh beta-tip verification remain pending. No beta merge/push here.
+- **Integration:** independent approval for fixture-only beta merge against `faa6163` and feature `7209fc6`, conditional on fresh ancestry, clean integration worktree, green integrated focused and serial native receipts, and removal of both temporary dossiers from beta. This decision is not production approval.
 - **Activation/cohort:** prohibited; manager consumer/recovery and site/trust contract absent.
 - **Promotion:** prohibited.
 
@@ -53,3 +53,4 @@ The offline helper accepts a proof reader, pins/checks physical source entries a
 
 - 2026-09-25 — merged reviewed fixture history into reservation feature, preserved fetched beta ancestor; positive native case green, negative case newly red under integrated tree. Keep the feature branch for diagnosis and review.
 - 2026-09-25 — merged fresh `faa6163` beta history into feature, reran 107 focused tests/41 subtests and both native cases serially; negative now reaches auth comparison and shows `[401, 401]`. Retain unexplained intermittent startup risk and fixture-only boundary; do not activate or merge/push beta in this task.
+- 2026-09-25 — independent release gate APPROVED fixture-only beta integration of `7209fc6` against `faa6163`; fresh fetch and ancestry confirm unchanged beta. Production/Hoster activation, live Blue, manager copy lifecycle, real CA/session validation, and stable promotion are deferred and not granted by this decision. Preserve both dossiers in feature history and remove them only from the beta target. Integrated test failure or changed beta stops publication.

@@ -225,6 +225,15 @@ early task completion; persistent profile state survives browser cleanup.
 
 ## Invocation
 
+Run Chromium Test Python tools through the **selected lane's `bbh` command**,
+not system Python or a bare script invocation. `bbh` selects its own checkout and that checkout's `.venv`;
+system Python can miss the provisioner's dependencies even when the script is
+present. Check `bbh --root` and
+`bbh --print-command skills/chromium-test/scripts/browser_provisioner.py`
+before provisioning if the active lane is uncertain. If the intended checkout's
+`.venv` is missing, use its `./setup.sh --install-python-deps` rather than
+falling back to system Python. Do not substitute a stable-lane `bbh` for beta.
+
 ### From Ghost or another machine
 
 Use `hoster-ssh` to place the provisioner request in a named Hoster

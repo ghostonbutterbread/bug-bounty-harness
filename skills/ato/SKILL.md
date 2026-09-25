@@ -24,9 +24,14 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    flow with fresh eyes. Observe the flow directly. Avoid broad prior-state reads until the agent has current observations.
 3. **Fresh Observations** — Aim to identify 3-5 fresh identity flows, auth boundaries, or
    session behaviors from direct observation.
-4. **Memory Overlay** — Now read `prompts/ato-context-pack.md`
-   and any prior hunt state.
-5. Classify one lane:
+4. **Memory Overlay** — Now read the repo-root `prompts/ato-context-pack.md`
+   and any prior hunt state. From a synced skill, resolve the skill directory's
+   parent twice to locate the BBH repository root; these legacy prompts are
+   not packaged inside the skill.
+5. Read `references/methods.md` for a source-grounded hypothesis atlas. Select
+   only patterns the observed target actually exposes; this reference does not
+   override ownership, scope, or proof gates.
+6. Classify one lane:
    - forgot-password, reset link/code, recovery code, password change by token -> `/password-reset`
    - email change, recovery email, alternate email, verification code, identity merge -> `prompts/ato-playbook.md`
    - SSO/OAuth/SAML/OIDC, social login, account linking, first-login provisioning -> `prompts/ato-playbook.md`
@@ -35,7 +40,7 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    - race between verification, linking, reset, invite, or session state -> `/race`
    - host/header/path/method/parser mismatch -> `/headers` or `/bypass`
    - one live browser/proxy request must be captured and safely modified -> `/single-request-grabber`
-6. Load `prompts/ato-playbook.md` for full flow mapping, stuck analysis, or report writing.
+7. Load the repo-root `prompts/ato-playbook.md` for full flow mapping, stuck analysis, or report writing.
 
 ## Workflow
 

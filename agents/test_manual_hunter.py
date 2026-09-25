@@ -267,6 +267,26 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(updated["impact"], "Owned rows read")
         self.assertIn("Manual narrative.", report.read_text(encoding="utf-8"))
 
+    def test_edit_finding_type_retires_false_generated_index(self) -> None:
+        note = self.tmp / "finding.md"
+        note.write_text(
+            "Title: Incorrect type claim\nType: obsolete-unique-type\n"
+            "Class: native-module-abuse\nFile: .webpack/renderer/preload.js:4\n"
+            "Description: Initial details.\n",
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note)]), 0)
+        old_index = self._storage().reports_root / "index" / "obsolete-unique-type.md"
+        self.assertIn("Incorrect type claim", old_index.read_text(encoding="utf-8"))
+        patch_file = self.tmp / "type-correction.json"
+        patch_file.write_text('{"type":"corrected-type","title":"Verified finding"}', encoding="utf-8")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--edit-finding", "D01", "--patch-file", str(patch_file)]), 0)
+        self.assertFalse(old_index.exists())
+        new_index = self._storage().reports_root / "index" / "corrected-type.md"
+        self.assertIn("Verified finding", new_index.read_text(encoding="utf-8"))
+
     def test_minimal_note_is_parsed_tolerantly(self) -> None:
         hunter = ManualHunter(self.program)
         parsed = hunter.parse_text(

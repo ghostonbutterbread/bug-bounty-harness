@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REVIEWED_CORE_SHA = "8f0a11ca54e99e183d75d3099572716eaf027734"
+REVIEWED_CORE_SHA = "8cc64e68bc93919573c5e3cb2662283889d7858c"
 
 
 class RuntimeDependencyTests(unittest.TestCase):
@@ -29,6 +29,7 @@ class RuntimeDependencyTests(unittest.TestCase):
             "PyYAML>=6,<7",
             "beautifulsoup4>=4.15,<5",
             "websocket-client>=1.9,<2",
+            "aiohttp>=3.12,<4",
         ])
         self.assertEqual(sorted(p.name for p in ROOT.glob("requirements*.txt")),
                          ["requirements.txt"])

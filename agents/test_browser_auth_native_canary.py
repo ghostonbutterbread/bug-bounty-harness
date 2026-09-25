@@ -126,6 +126,7 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
         def command(*args):
             result = subprocess.run([sys.executable, str(PROVISIONER), *map(str, args)],
                                     env=env, text=True, capture_output=True, timeout=90)
+            assert secret not in result.stdout and secret not in result.stderr, 'auth leaked in provisioner output'
             assert result.returncode == 0, (args[0], result.returncode)
             return json.loads(result.stdout)
         try:
@@ -421,3 +422,17 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
             app.server_close()
             thread.join(timeout=5)
             proxy_thread.join(timeout=5)
+            # Check the public subprocess streams and pytest-captured streams on
+            # every return path, including rejection and interrupted transfers.
+            captured = capsys.readouterr()
+            assert secret not in captured.out and secret not in captured.err, 'auth leaked in captured output'
+            # Only inspect manager fixture/diagnostic and artifact text files.
+            # Chrome's private profile intentionally contains the test cookie.
+            public_files = list(state_dir.glob('*.json')) + list((state_dir / 'startup').glob('*/*.json'))
+            for directory in (root / 'artifacts', root / 'shared'):
+                public_files.extend(path for path in directory.rglob('*')
+                                    if path.is_file() and path.suffix in {'.json', '.jsonl', '.log', '.txt'})
+            assert len(public_files) <= 256, 'fixture output scan exceeded file bound'
+            for path in public_files:
+                assert path.stat().st_size <= 1024 * 1024, 'fixture output scan exceeded file size bound'
+                assert secret.encode() not in path.read_bytes(), 'auth leaked in fixture or diagnostic file'

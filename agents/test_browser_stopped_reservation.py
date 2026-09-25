@@ -139,6 +139,92 @@ class ReservationTest(unittest.TestCase):
         self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], 'reservation-unavailable')
         self.assertTrue(manager.fixture_pool_reserved('fixture','fixture.invalid','anon'))
 
+    def test_copying_retry_cannot_downgrade_then_cancel(self):
+        self.reserve()
+        for phase in ('copying', 'uncertain'):
+            with self.subTest(phase=phase):
+                with profiles.connect(self.lease_db) as c:
+                    c.execute('UPDATE browser_stopped_reservations SET phase=?', (phase,))
+                self.assertEqual(manager.stopped_reservation('source')['status'], 'reservation-unavailable')
+                self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], 'reservation-unavailable')
+                with profiles.connect(self.lease_db) as c:
+                    self.assertEqual(c.execute('SELECT phase FROM browser_stopped_reservations').fetchone()['phase'], phase)
+        self.assertTrue(manager.fixture_pool_reserved('fixture','fixture.invalid','anon'))
+
+    def test_cancel_rechecks_recorded_identity_and_canonical_owner(self):
+        for target, column, changed in (
+            ('manager', 'agent_id', 'different'), ('manager', 'run_id', 'different'),
+            ('manager', 'unit', 'different'), ('manager', 'profile_dir', 'different'),
+            ('canonical', 'owner_agent_id', 'different'), ('canonical', 'owner_run_id', 'different'),
+            ('canonical', 'manager_id', 'different'), ('canonical', 'service_unit', 'different'),
+            ('canonical', 'profile_dir', 'different'), ('canonical', 'work_state', 'active'),
+            ('record', 'process_identity', {'pid': 9999}),
+            ('record', 'cdp_url', 'http://127.0.0.1:8888'),
+            ('record', 'unit_invocation', 'different'),
+            ('record', 'control_generation', 'different'),
+        ):
+            with self.subTest(target=target, column=column):
+                self.reserve()
+                path = self.state if target == 'manager' else self.lease_db
+                table = 'browsers' if target == 'manager' else 'browser_profile_leases'
+                original = self.info[column] if target == 'record' else self._original_value(column)
+                if target == 'record':
+                    self.info[column] = changed
+                else:
+                    with sqlite3.connect(path) as c:
+                        c.execute(f'UPDATE {table} SET {column}=? WHERE lease_id=?', (changed, 'source'))
+                self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], 'reservation-unavailable')
+                self.assertTrue(manager.fixture_pool_reserved('fixture','fixture.invalid','anon'))
+                if target == 'record':
+                    self.info[column] = original
+                else:
+                    with sqlite3.connect(path) as c:
+                        c.execute(f'UPDATE {table} SET {column}=? WHERE lease_id=?',
+                                  (original, 'source'))
+
+    def _original_value(self, column):
+        return {'agent_id':'agent', 'run_id':'run', 'unit':'unit-one', 'profile_dir':str(self.path),
+                'owner_agent_id':'agent', 'owner_run_id':'run', 'manager_id':manager.manager_id(),
+                'service_unit':'unit-one', 'work_state':'terminal'}[column]
+
+    def test_cancel_rejects_alias_uncertainty_and_inode_drift(self):
+        self.reserve()
+        alias = self.base/'alias'
+        alias.symlink_to(self.path, target_is_directory=True)
+        with manager.db() as c:
+            c.execute("""INSERT INTO browsers
+                (lease_id,browser_id,program,account,auth_domain,agent_id,run_id,purpose,unit,
+                 profile_dir,launch_file,state,last_activity,created,updated)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                ('alias','browser-two','fixture','anon','fixture.invalid','agent','run','test',
+                 'unit-two',str(alias),str(self.base/'other.json'),'running',1,1,1))
+        self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], 'reservation-unavailable')
+        with manager.db() as c:
+            c.execute("DELETE FROM browsers WHERE lease_id='alias'")
+        self.path.rename(self.base/'old-profile')
+        self.path.mkdir()
+        self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], 'reservation-unavailable')
+
+    def test_cancel_missing_proof_and_changed_fence_fail_closed(self):
+        self.reserve()
+        for column, changed in (('owner_agent_id', 'other'), ('owner_run_id', 'other'),
+                ('root', '{}'), ('cdp_url', 'http://127.0.0.1:8888'),
+                ('service_unit', 'other'), ('unit_invocation', None),
+                ('manager_id', 'other'), ('profile_dir', 'other')):
+            with self.subTest(column=column):
+                with profiles.connect(self.lease_db) as c:
+                    original = c.execute(f'SELECT {column} FROM browser_stopped_reservations').fetchone()[0]
+                    c.execute(f'UPDATE browser_stopped_reservations SET {column}=?', (changed,))
+                self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], 'reservation-unavailable')
+                with profiles.connect(self.lease_db) as c:
+                    c.execute(f'UPDATE browser_stopped_reservations SET {column}=?', (original,))
+        original = self.info.pop('cdp_url')
+        self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], 'reservation-unavailable')
+        self.info['cdp_url'] = original
+        with profiles.connect(self.lease_db) as c:
+            c.execute("DELETE FROM browser_profile_leases WHERE lease_id='source'")
+        self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], 'reservation-unavailable')
+
 
 if __name__ == '__main__':
     unittest.main()

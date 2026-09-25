@@ -142,11 +142,14 @@ def init_db(conn: sqlite3.Connection) -> None:
             owner_agent_id TEXT NOT NULL, owner_run_id TEXT NOT NULL,
             control_generation TEXT NOT NULL, service_unit TEXT NOT NULL,
             root TEXT NOT NULL, cdp_url TEXT NOT NULL,
+            unit_invocation TEXT,
             profile_dir TEXT NOT NULL, profile_device INTEGER NOT NULL,
             profile_inode INTEGER NOT NULL,
             phase TEXT NOT NULL CHECK(phase IN ('reserved','copying','uncertain','released')),
             PRIMARY KEY(program, auth_domain, account_alias));
     """)
+    if 'unit_invocation' not in {row['name'] for row in conn.execute('PRAGMA table_info(browser_stopped_reservations)')}:
+        conn.execute('ALTER TABLE browser_stopped_reservations ADD COLUMN unit_invocation TEXT')
     for name, definition in {
         "work_state": "TEXT NOT NULL DEFAULT 'active'",
         "profile_health": "TEXT NOT NULL DEFAULT 'unknown'",

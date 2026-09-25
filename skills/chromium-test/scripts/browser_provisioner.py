@@ -133,7 +133,7 @@ def stopped_reservation(source_lease_id, phase='reserved'):
                         ('program', row['program']), ('auth_domain', row['auth_domain']),
                         ('account_alias', row['account']), ('owner_agent_id', row['agent_id']),
                         ('owner_run_id', row['run_id']), ('profile_dir', row['profile_dir']),
-                        ('manager_id', manager_id())))
+                        ('manager_id', manager_id()), ('service_unit', row['unit'])))
                     or not physical or not generation or not root or not cdp
                     or not info.get('unit_invocation')):
                 return {'status': 'reservation-unavailable'}
@@ -145,19 +145,30 @@ def stopped_reservation(source_lease_id, phase='reserved'):
                     if other_id != physical or other['status'] != 'released' or other['browser_status'] != 'stopped':
                         return {'status': 'reservation-unavailable'}
             if existing and existing['phase'] != 'released':
-                if (existing['source_lease'] != source_lease_id
+                # A retry is idempotent only while the fence is untouched. In
+                # particular, never turn an interrupted copy back into reserved.
+                if (existing['phase'] != 'reserved'
+                        or existing['source_lease'] != source_lease_id
+                        or existing['manager_id'] != manager_id()
+                        or existing['owner_agent_id'] != row['agent_id']
+                        or existing['owner_run_id'] != row['run_id']
+                        or existing['service_unit'] != row['unit']
+                        or existing['profile_dir'] != row['profile_dir']
+                        or existing['root'] != json.dumps(root, sort_keys=True)
+                        or existing['cdp_url'] != cdp
+                        or existing['unit_invocation'] != info['unit_invocation']
                         or existing['control_generation'] != generation
-                        or (existing['profile_device'], existing['profile_inode']) != physical
-                        or existing['phase'] == 'uncertain'
-                        or phase not in ('reserved', 'copying', 'uncertain')):
+                        or (existing['profile_device'], existing['profile_inode']) != physical):
                     return {'status': 'reservation-unavailable'}
-                leases.execute('UPDATE browser_stopped_reservations SET phase=? WHERE '
-                    'program=? AND auth_domain=? AND account_alias=?', (phase, *key))
             elif phase == 'reserved' and not profiles.reservation_conflict(leases, path=row['profile_dir']):
-                leases.execute('INSERT OR REPLACE INTO browser_stopped_reservations VALUES '
-                    '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', (*key, source_lease_id, manager_id(),
+                leases.execute('INSERT OR REPLACE INTO browser_stopped_reservations '
+                    '(program,auth_domain,account_alias,source_lease,manager_id,owner_agent_id,'
+                    'owner_run_id,control_generation,service_unit,root,cdp_url,profile_dir,'
+                    'profile_device,profile_inode,phase,unit_invocation) VALUES '
+                    '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', (*key, source_lease_id, manager_id(),
                     row['agent_id'], row['run_id'], generation, row['unit'],
-                    json.dumps(root, sort_keys=True), cdp, row['profile_dir'], *physical, phase))
+                    json.dumps(root, sort_keys=True), cdp, row['profile_dir'], *physical,
+                    phase, info['unit_invocation']))
             else:
                 return {'status': 'reservation-unavailable'}
             leases.commit()
@@ -183,15 +194,45 @@ def cancel_unstarted_reservation(source_lease_id):
             leases.execute('BEGIN IMMEDIATE')
             reserved = leases.execute('SELECT * FROM browser_stopped_reservations WHERE '
                 'program=? AND auth_domain=? AND account_alias=?', FIXTURE_POOL).fetchone()
-            if any(profiles.physical_profile(other['profile_dir']) == physical and
-                   (other['status'] != 'released' or other['browser_status'] != 'stopped')
-                   for other in leases.execute('SELECT * FROM browser_profile_leases')):
+            canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?',
+                                       (source_lease_id,)).fetchone()
+            info = record_info(row)
+            root = info.get('process_identity')
+            if (not canonical or not reserved or not root or not info.get('cdp_url')
+                    or not info.get('unit_invocation') or not info.get('control_generation')
+                    or canonical['status'] != 'released' or canonical['browser_status'] != 'stopped'
+                    or canonical['work_state'] != 'terminal'
+                    or any(canonical[k] != v for k, v in (
+                        ('program', row['program']), ('auth_domain', row['auth_domain']),
+                        ('account_alias', row['account']), ('owner_agent_id', row['agent_id']),
+                        ('owner_run_id', row['run_id']), ('profile_dir', row['profile_dir']),
+                        ('service_unit', row['unit']), ('manager_id', manager_id())))
+                    or any(reserved[k] != v for k, v in (
+                        ('source_lease', source_lease_id), ('manager_id', manager_id()),
+                        ('owner_agent_id', row['agent_id']), ('owner_run_id', row['run_id']),
+                        ('profile_dir', row['profile_dir']), ('service_unit', row['unit']),
+                        ('root', json.dumps(root, sort_keys=True)),
+                        ('cdp_url', info['cdp_url']),
+                        ('unit_invocation', info['unit_invocation']),
+                        ('control_generation', info['control_generation'])))):
                 return {'status': 'reservation-unavailable'}
+            # An unresolved alias is uncertainty, not evidence of a distinct
+            # profile. Recheck both stores before clearing the physical fence.
+            for other in manager.execute('SELECT * FROM browsers'):
+                other_id = profiles.physical_profile(other['profile_dir'])
+                if (other['profile_dir'] == row['profile_dir'] or other_id == physical):
+                    if other_id != physical or other['state'] != 'stopped' or not stopped(other):
+                        return {'status': 'reservation-unavailable'}
+            for other in leases.execute('SELECT * FROM browser_profile_leases'):
+                other_id = profiles.physical_profile(other['profile_dir'])
+                if other['profile_dir'] == row['profile_dir'] or other_id == physical:
+                    if other_id != physical or other['status'] != 'released' or other['browser_status'] != 'stopped':
+                        return {'status': 'reservation-unavailable'}
             if (not reserved or reserved['phase'] != 'reserved'
                     or reserved['source_lease'] != source_lease_id
                     or reserved['manager_id'] != manager_id()
                     or (reserved['profile_device'], reserved['profile_inode']) != physical
-                    or reserved['control_generation'] != record_info(row).get('control_generation')):
+                    or reserved['control_generation'] != info['control_generation']):
                 return {'status': 'reservation-unavailable'}
             leases.execute("UPDATE browser_stopped_reservations SET phase='released' WHERE "
                            'program=? AND auth_domain=? AND account_alias=?', FIXTURE_POOL)

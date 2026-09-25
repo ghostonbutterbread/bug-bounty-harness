@@ -183,12 +183,26 @@ migrating legacy single-profile leases. Manual policy and passive reporting:
 bbh skills/chromium-test/scripts/browser_profile_lease.py --state-dir <state> \
   set-browser-policy <program> <account> --auth-domain <domain> --mode single
 bbh skills/chromium-test/scripts/browser_profile_lease.py --state-dir <state> \
+  set-program-browser-policy <program> --mode single --source agent --evidence observed-session-limit
+bbh skills/chromium-test/scripts/browser_profile_lease.py --state-dir <state> \
+  show-program-browser-policy <program>
+bbh skills/chromium-test/scripts/browser_profile_lease.py --state-dir <state> \
   report-logout --lease-id <lease> --agent-id <agent> --reason user-observed
 ```
 
 `single` is enforced transactionally for new acquisitions of the resolved
-program/account/domain; `multiple` allows explicit independent slots. Policy
-writes do not kill existing browsers. Reasons are `user-observed`,
+program/account/domain; `multiple` allows explicit independent slots. Program
+policy applies to every account/domain within that program, but not other programs
+(even when they use the same color). Program `single` wins over exact `multiple`;
+exact `single` wins over program `multiple`. Without a program row, existing exact
+policy semantics remain unchanged. `show-program-browser-policy` returns a null
+policy if unset. `--source` accepts only `agent` or `operator`; `--evidence`
+accepts only `program-rules`, `observed-session-limit`,
+`observed-parallel-sessions`, or `operator-direction`. These are categorical
+non-secret labels, not free-form URLs, logs, cookies, or tokens; do not infer
+program `single` from a logout alone. Policy writes affect future admission
+only and do not kill existing browsers or retry authentication. Reasons are
+`user-observed`,
 `signed-out-ui`, or `session-rejected`; reports store no content, secrets or
 URLs and never infer single-session behavior, change policy, retry auth or
 create browsers. Released/handoff leases clear stale CDP/service metadata.

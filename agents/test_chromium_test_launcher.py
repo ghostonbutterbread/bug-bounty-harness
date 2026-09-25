@@ -93,6 +93,7 @@ def test_build_command_includes_remote_allow_origins(monkeypatch):
 
 def test_headed_default_exposes_webgl_flags_without_wrapper(monkeypatch):
     module = load_launcher_module()
+    monkeypatch.setattr(module, "detect_nvk_device", lambda: None)
     monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/usr/bin/chromium")
     monkeypatch.delenv("CHROMIUM_TEST_CHROME", raising=False)
     args = argparse.Namespace(chrome_binary=None, headless=False, no_proxy=True,
@@ -101,6 +102,55 @@ def test_headed_default_exposes_webgl_flags_without_wrapper(monkeypatch):
     assert all(flag in command for flag in (
         "--use-gl=angle", "--use-angle=gl", "--ignore-gpu-blocklist",
         "--enable-gpu-rasterization", "--enable-unsafe-swiftshader"))
+
+def test_headed_default_selects_probed_nvk_without_wrapper(monkeypatch):
+    module = load_launcher_module()
+    monkeypatch.delenv("CHROMIUM_TEST_CHROME", raising=False)
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/chrome")
+    monkeypatch.setattr(module, "detect_nvk_device", lambda: "10de:1b82")
+    args = argparse.Namespace(chrome_binary=None, headless=False, no_proxy=True,
+                              proxy_server=None, remote_allow_origins="*", url=None)
+    command = module.build_command(args, 9223, Path("/profile"))
+    assert command[0] == "/chrome"
+    assert "--use-angle=vulkan" in command
+    assert "--enable-features=Vulkan,DefaultANGLEVulkan,VulkanFromANGLE" in command
+    assert "--use-angle=gl" not in command
+    assert module.browser_graphics_env(args) == {"MESA_VK_DEVICE_SELECT": "10de:1b82"}
+
+def test_nvk_probe_excludes_software_and_other_drivers(monkeypatch):
+    module = load_launcher_module()
+    class Result:
+        returncode = 0
+        stdout = ("GPU0:\n\tvendorID = 0x10005\n\tdeviceID = 0x0000\n"
+                  "\tdeviceType = PHYSICAL_DEVICE_TYPE_CPU\n\tdriverName = llvmpipe\n"
+                  "GPU1:\n\tvendorID = 0x10de\n\tdeviceID = 0x1b82\n"
+                  "\tdeviceType = PHYSICAL_DEVICE_TYPE_DISCRETE_GPU\n\tdriverName = NVK\n")
+    monkeypatch.setattr(module.shutil, "which", lambda binary: "/usr/bin/vulkaninfo")
+    monkeypatch.setattr(module.subprocess, "run", lambda *a, **kw: Result())
+    assert module.detect_nvk_device() == "10de:1b82"
+    Result.stdout = Result.stdout.replace("driverName = NVK", "driverName = llvmpipe")
+    assert module.detect_nvk_device() is None
+
+def test_nvk_probe_timeout_falls_back_to_gl(monkeypatch):
+    module = load_launcher_module()
+    monkeypatch.setattr(module.shutil, "which", lambda binary: "/usr/bin/vulkaninfo")
+    def timeout(*_a, **_kw):
+        raise module.subprocess.TimeoutExpired("vulkaninfo", 4)
+    monkeypatch.setattr(module.subprocess, "run", timeout)
+    assert module.detect_nvk_device() is None
+
+def test_external_and_headless_modes_do_not_probe_nvk(monkeypatch):
+    module = load_launcher_module()
+    monkeypatch.delenv("CHROMIUM_TEST_CHROME", raising=False)
+    monkeypatch.setattr(module, "find_chrome_binary", lambda explicit=None: "/chrome")
+    monkeypatch.setattr(module, "detect_nvk_device", lambda: (_ for _ in ()).throw(AssertionError("probe")))
+    for headless, backend in ((True, "auto"), (False, "external")):
+        args = argparse.Namespace(chrome_binary=None, headless=headless,
+                                  graphics_backend=backend, no_proxy=True,
+                                  proxy_server=None, remote_allow_origins="*", url=None)
+        command = module.build_command(args, 9223, Path("/profile"))
+        assert "--use-angle=vulkan" not in command
+        assert module.browser_graphics_env(args) == {}
 
 
 def test_headless_command_does_not_force_headed_gl_backend(monkeypatch):

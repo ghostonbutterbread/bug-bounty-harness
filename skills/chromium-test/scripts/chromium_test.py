@@ -256,6 +256,31 @@ def find_chrome_binary(explicit: str | None = None) -> str:
             return path
     raise SystemExit("No Chromium/Chrome binary found")
 
+def detect_nvk_device() -> str | None:
+    """Find a real Mesa NVK GPU for ANGLE/Vulkan without a host-specific ID."""
+    vulkaninfo = shutil.which("vulkaninfo")
+    if not vulkaninfo:
+        return None
+    try:
+        probe = subprocess.run([vulkaninfo, "--summary"], capture_output=True,
+                               text=True, timeout=4, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if probe.returncode:
+        return None
+    for block in re.split(r"(?m)^GPU\d+:\s*$", probe.stdout)[1:]:
+        fields = dict(re.findall(r"(?m)^\s*(vendorID|deviceID|deviceType|driverName)\s*=\s*(\S+)", block))
+        if (fields.get("deviceType") == "PHYSICAL_DEVICE_TYPE_DISCRETE_GPU"
+                and fields.get("driverName") == "NVK"):
+            vendor, device = fields.get("vendorID", ""), fields.get("deviceID", "")
+            if re.fullmatch(r"0x[0-9a-fA-F]{1,4}", vendor) and re.fullmatch(r"0x[0-9a-fA-F]{1,4}", device):
+                return f"{int(vendor, 16):04x}:{int(device, 16):04x}"
+    return None
+
+def browser_graphics_env(args: argparse.Namespace) -> dict[str, str]:
+    device = getattr(args, "_auto_vulkan_device", None)
+    return {"MESA_VK_DEVICE_SELECT": device} if device else {}
+
 
 def default_profile_dir(program: str, account: str) -> Path:
     return (
@@ -687,10 +712,18 @@ def build_command(args: argparse.Namespace, port: int, profile_dir: Path) -> lis
     if (not getattr(args, "headless", False) and
             not getattr(args, "chrome_binary", None) and
             getattr(args, "graphics_backend", "auto") == "auto"):
+        # Xvfb/KasmVNC may expose only software GLX even when Nouveau's NVK
+        # Vulkan driver can reach the real GPU. Probe only the ordinary headed
+        # binary path; caller-selected wrappers retain their own graphics flags.
+        device = None if os.environ.get("CHROMIUM_TEST_CHROME") else detect_nvk_device()
+        args._auto_vulkan_device = device
         command[1:1] = [
-            "--use-gl=angle", "--use-angle=gl", "--ignore-gpu-blocklist",
+            "--use-gl=angle", f"--use-angle={'vulkan' if device else 'gl'}",
+            "--ignore-gpu-blocklist",
             "--enable-gpu-rasterization", "--enable-unsafe-swiftshader",
         ]
+        if device:
+            command.insert(3, "--enable-features=Vulkan,DefaultANGLEVulkan,VulkanFromANGLE")
 
     proxy_server = None if getattr(args, "no_proxy", False) else args.proxy_server or os.environ.get("CHROMIUM_TEST_PROXY_SERVER")
     if getattr(args, "no_proxy", False):
@@ -874,7 +907,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--chrome-binary", help="Override Chromium/Chrome executable.")
     parser.add_argument("--graphics-backend", choices=("auto", "external"), default="auto",
-                        help="auto adds headed ANGLE/GL flags; external leaves graphics flags to the selected executable.")
+                        help="auto probes headed NVK/Vulkan and otherwise uses ANGLE/GL; external leaves graphics flags to the selected executable.")
     parser.add_argument(
         "--display-backend",
         choices=("auto", "default", "kasmvnc"),
@@ -1102,6 +1135,7 @@ def main() -> int:
     bridge = None
     def spawn(command, **kwargs):
         nonlocal bridge
+        kwargs["env"] = {**kwargs["env"], **browser_graphics_env(args)}
         if kasmvnc_session:
             # DISPLAY alone does not select X11 on Wayland hosts. Keep this
             # browser on its owned KasmVNC display, not the ambient desktop.

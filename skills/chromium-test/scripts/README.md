@@ -31,6 +31,16 @@ Use the detailed records below for supported invocation and safety boundaries.
 Each helper owns deterministic mechanics only; lane availability, account
 selection, target scope, and browser state still require agent verification.
 
+For ordinary headed requests, the provisioner's launcher probes for a discrete
+Mesa NVK Vulkan device and selects ANGLE/Vulkan and that device for **this
+browser process only**. If unavailable, it retains the ANGLE/GL default. A
+session-level `CHROMIUM_TEST_CHROME` wrapper is not needed for Hoster GPU use;
+the provisioner masks that inherited setting in ordinary auto browser units,
+even when the user manager still has an old session value. Explicit
+binaries, wrapper-backed sessions, `--graphics-backend external`, and
+headless launches retain their own backend choices. CDP readiness alone does
+not prove hardware rendering: verify WebGL and its renderer inside the page.
+
 For a live browser request, invoke the selected lane's
 `bbh skills/chromium-test/scripts/browser_provisioner.py request ...`, **not**
 system Python or the script directly.

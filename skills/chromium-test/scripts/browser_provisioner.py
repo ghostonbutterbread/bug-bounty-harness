@@ -2256,8 +2256,15 @@ def start(args):
         "DISPLAY",
         "XAUTHORITY",
     ):
+        if key == "CHROMIUM_TEST_CHROME" and getattr(args, "graphics_backend", "auto") == "auto":
+            continue
         if key in os.environ:
             run.insert(2, "--setenv=" + key + "=" + os.environ[key])
+    if getattr(args, "graphics_backend", "auto") == "auto":
+        # User-systemd may retain an old interactive wrapper across sessions.
+        # Mask it for this ordinary browser unit so automatic probing selects
+        # the real browser even when the manager environment is stale.
+        run.insert(2, "--setenv=CHROMIUM_TEST_CHROME=")
     if diagnostics_dir:
         run.insert(2, "--setenv=BROWSER_STARTUP_RECEIPT_DIR=" + str(diagnostics_dir))
     with diagnostics.phase("dispatch"):
@@ -3032,7 +3039,7 @@ def main():
         )
         parser.add_argument("--headless", action="store_true")
         parser.add_argument("--graphics-backend", choices=("auto", "external"), default="auto",
-                            help="auto adds headed ANGLE/GL flags; external leaves graphics flags to the selected executable.")
+                            help="auto probes headed NVK/Vulkan and otherwise uses ANGLE/GL; external leaves flags to the selected executable.")
     t.add_argument("--awaiting-seconds", type=int, default=1800)
     sub.add_parser("maintain")
     watcher = sub.add_parser("watch")

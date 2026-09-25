@@ -216,6 +216,14 @@ def cancel_unstarted_reservation(source_lease_id):
                         ('unit_invocation', info['unit_invocation']),
                         ('control_generation', info['control_generation'])))):
                 return {'status': 'reservation-unavailable'}
+            # Inactive is not proof that this is the recorded unit invocation:
+            # systemd may have started and stopped a replacement since launch.
+            try:
+                invocation = unit_identity(row['unit'])
+            except Exception:
+                return {'status': 'reservation-unavailable'}
+            if not invocation or invocation != reserved['unit_invocation'] or invocation != info['unit_invocation']:
+                return {'status': 'reservation-unavailable'}
             # An unresolved alias is uncertainty, not evidence of a distinct
             # profile. Recheck both stores before clearing the physical fence.
             for other in manager.execute('SELECT * FROM browsers'):

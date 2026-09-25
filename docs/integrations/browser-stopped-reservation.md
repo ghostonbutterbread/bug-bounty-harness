@@ -6,19 +6,21 @@
 - **Base commit:** `2d80b03af499a033a0b9a46c87b7e3a4eb61236c` (fetched `origin/beta`)
 - **Intended integration target:** `beta` (no merge or push authorized)
 - **Last updated:** 2026-09-25
-- **Latest immutable recovery checkpoint:** `0e943c0` (initial inert fixture checkpoint); the repair commit is the owning branch tip after this dossier is committed.
-- **Feature implementation commit(s):** `0e943c0` plus the subsequent reservation repair commit.
+- **Latest immutable recovery checkpoint:** `71d378d` (retry and cancellation repair); inspect branch tip for this unit-identity repair commit.
+- **Feature implementation commit(s):** `0e943c0`, `71d378d`, plus the subsequent unit-identity repair commit.
 - **Inspiration:** stopped-profile feasibility is separate work; no feasibility-branch code used or edited.
 
 ## Intent and implemented contract
 
-A fixture-only, *inert* manager reservation persists in the canonical SQLite store. It binds exact fixture pool (`fixture`, `fixture.invalid`, `anon`), source lease, manager identity, owner, recorded control generation/root/unit/invocation/CDP and physical directory inode. Creation reads manager and canonical rows, checks stopped/terminal identity and historical physical aliases, then serializes against canonical acquisition with `BEGIN IMMEDIATE`. A retry is idempotent only for an identical `reserved` row; it cannot downgrade `copying` or `uncertain`. Cancellation requires an untouched `reserved` row, independently re-reading manager, canonical, launch receipt, stopped probes, and physical identity against every recorded field; missing evidence leaves the fence. Manager `start`, `retire`, `release`, and `sweep_rows` and direct canonical `acquire`, `transfer_managed_lease`, and `release` reject an active fence. The reservation is not time-expired; copy/uncertain phases stay fenced. No CLI or copy/snapshot activation is provided. No real browser profile was read.
+A fixture-only, *inert* manager reservation persists in the canonical SQLite store. It binds exact fixture pool (`fixture`, `fixture.invalid`, `anon`), source lease, manager identity, owner, recorded control generation/root/unit/invocation/CDP and physical directory inode. Creation reads manager and canonical rows, checks stopped/terminal identity and historical physical aliases, then serializes against canonical acquisition with `BEGIN IMMEDIATE`. A retry is idempotent only for an identical `reserved` row; it cannot downgrade `copying` or `uncertain`. Cancellation requires an untouched `reserved` row, independently re-reading manager, canonical, launch receipt, stopped probes, the recorded unit's live systemd `InvocationID`, and physical identity against every recorded field; a missing/failed or changed unit identity leaves the fence even when the unit is inactive. Manager `start`, `retire`, `release`, and `sweep_rows` and direct canonical `acquire`, `transfer_managed_lease`, and `release` reject an active fence. The reservation is not time-expired; copy/uncertain phases stay fenced. No CLI or copy/snapshot activation is provided. No real browser profile was read.
 
 ## Evidence and review
 
 - Initial independent review of `0e943c0` **BLOCKED**: copying→retry rewrote phase to reserved and allowed cancellation; cancellation compared only generation/inode/manager ID, not root/CDP/unit/invocation/owner/canonical identity.
 - RED receipt before repair: `python3 -m pytest agents/test_browser_stopped_reservation.py -q` — 16 failed, 10 passed, 1 subtest passed (includes initial fixture harness cascades after first unexpected release; invalid `applying` variation removed because schema excludes it).
-- GREEN receipt: `python3 -m pytest agents/test_browser_stopped_reservation.py agents/test_browser_profile_lease.py agents/test_browser_manager_transfer_gate.py agents/test_browser_provisioner.py -q` — **84 passed, 24 subtests passed** (63.19s); `git diff --check` clean. Fixture tests cover copying/uncertain retry→cancel, manager/canonical/recorded identity drift, missing proof, altered fence fields, symlink alias and inode replacement, and existing canonical/manager admission gates. Browser stop/CDP/unit probes are mocked for disposable SQLite fixtures. No post-repair independent review or integration/release claim.
+- Second independent review of `71d378d` **BLOCKED**: inactive replacement unit invocation was not checked against the reservation; stable launch receipt allowed cancellation and removed the fence.
+- Unit-drift RED receipt: focused `python3 -m pytest agents/test_browser_stopped_reservation.py -q -k 'cancel_rejects_independent_unit_invocation_drift or cancel_rejects_missing_or_failed_unit_identity or cancel_matching_inactive_unit_releases_fence'` — 2 failed, 4 subtests failed, 1 passed; the drift case released the fence without invoking `unit_identity`.
+- Unit-drift GREEN receipt: `python3 -m pytest agents/test_browser_stopped_reservation.py agents/test_browser_profile_lease.py agents/test_browser_manager_transfer_gate.py agents/test_browser_provisioner.py -q` — **87 passed, 28 subtests passed** (72.57s); `git diff --check` clean. The fixture covers changed and absent unit invocation, probe exceptions, matching inactive cancellation, and the previous retry, canonical-fence and identity regressions. No post-repair independent review or integration/release claim.
 
 ## Blockers and deferred work
 
@@ -30,8 +32,8 @@ A fixture-only, *inert* manager reservation persists in the canonical SQLite sto
 ## Interruption / resume handoff
 
 - **Branch:** `feat/browser-stopped-reservation`
-- **Checkpoint:** `0e943c0` initial; inspect branch tip for this repair commit and verify its diff/tests before any integration.
-- **Exact resume point:** obtain independent review of this repaired inert fence, then implement a manager+canonical-derived snapshot reader and verified phase/recovery contract only if feasibility evidence supports it.
+- **Checkpoint:** `71d378d` previous repair; inspect branch tip for this unit-identity repair commit and verify its diff/tests before any integration.
+- **Exact resume point:** obtain independent review of the new cancellation unit-identity gate, then implement a manager+canonical-derived snapshot reader and verified phase/recovery contract only if feasibility evidence supports it.
 - **Working-tree state at handoff:** clean after checkpoint.
 
 ## Decision gates

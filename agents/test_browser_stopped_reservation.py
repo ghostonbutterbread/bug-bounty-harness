@@ -35,6 +35,9 @@ class ReservationTest(unittest.TestCase):
         self.info_patch = patch.object(manager, 'record_info', return_value=self.info)
         self.info_patch.start()
         self.addCleanup(self.info_patch.stop)
+        self.identity_patch = patch.object(manager, 'unit_identity', return_value='invocation-one')
+        self.identity = self.identity_patch.start()
+        self.addCleanup(self.identity_patch.stop)
         self.lease_db = self.base / 'browser_profile_leases.sqlite'
         with profiles.connect(self.lease_db) as c:
             profiles.init_db(c)
@@ -131,6 +134,30 @@ class ReservationTest(unittest.TestCase):
             self.assertEqual(profiles.cmd_acquire(args)['reason'], 'stopped-profile-reserved')
         self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], 'released')
         self.assertFalse(manager.fixture_pool_reserved('fixture','fixture.invalid','anon'))
+
+    def test_cancel_rejects_independent_unit_invocation_drift(self):
+        self.reserve()
+        # Launch receipt remains unchanged; the inactive unit is a new invocation.
+        with patch.object(manager, 'unit_identity', return_value='invocation-two') as identity:
+            self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], 'reservation-unavailable')
+            identity.assert_called_once_with('unit-one')
+        self.assertTrue(manager.fixture_pool_reserved('fixture', 'fixture.invalid', 'anon'))
+
+    def test_cancel_rejects_missing_or_failed_unit_identity(self):
+        self.reserve()
+        for value in (None, '', OSError('unit unavailable'), RuntimeError('probe failed')):
+            with self.subTest(value=repr(value)):
+                with patch.object(manager, 'unit_identity', side_effect=value if isinstance(value, Exception) else None,
+                                  return_value=value if not isinstance(value, Exception) else None) as identity:
+                    self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], 'reservation-unavailable')
+                    identity.assert_called_once_with('unit-one')
+                self.assertTrue(manager.fixture_pool_reserved('fixture', 'fixture.invalid', 'anon'))
+
+    def test_cancel_matching_inactive_unit_releases_fence(self):
+        self.reserve()
+        self.assertEqual(manager.cancel_unstarted_reservation('source')['status'], 'released')
+        self.identity.assert_called_once_with('unit-one')
+        self.assertFalse(manager.fixture_pool_reserved('fixture', 'fixture.invalid', 'anon'))
 
     def test_uncertain_cannot_cancel(self):
         self.reserve()

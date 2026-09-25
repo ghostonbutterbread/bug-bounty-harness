@@ -160,3 +160,22 @@ def test_fixture_transfer_has_no_generic_origin_or_production_contract(tmp_path,
                    'http://127.0.0.1:31337/other'):
         assert manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)['reason'] == 'site-contract-unavailable'
     assert manager.manager_fixture_auth_transfer('source', 'destination', origin='http://127.0.0.1:31337')['reason'] == 'site-contract-unavailable'
+
+
+@pytest.mark.parametrize('program,domain,account', [
+    ('other', 'fixture.invalid', 'anon'),
+    ('fixture', 'other.invalid', 'anon'),
+    ('fixture', 'fixture.invalid', 'other'),
+])
+def test_fixture_transfer_requires_all_three_exact_scope_keys(tmp_path, monkeypatch,
+                                                              program, domain, account):
+    canonical = candidates(tmp_path, monkeypatch)
+    with manager.db() as db:
+        db.execute('UPDATE browsers SET program=?, auth_domain=?, account=?',
+                   (program, domain, account))
+    with lease.connect(canonical) as db:
+        db.execute('UPDATE browser_profile_leases SET program=?, auth_domain=?, account_alias=?',
+                   (program, domain, account))
+    assert manager.manager_fixture_auth_transfer(
+        'source', 'destination', origin='http://127.0.0.1:31337') == {
+            'status': 'auth-clone-unavailable', 'reason': 'site-contract-unavailable'}

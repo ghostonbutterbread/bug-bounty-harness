@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-25
 - **Owning feature branch/ref:** `fix/chromium-auto-vulkan`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `aadaefb9bb1589d50315a080da01a33854bbcced`
+- **Feature implementation commit(s):** `aadaefb9bb1589d50315a080da01a33854bbcced`
 - **Inspiration / canonical references:** Hoster Vulkan wrapper and `chromium-test` GPU guidance.
 
 ## Intent
@@ -33,10 +33,10 @@ For ordinary headed browser requests, the launcher runs a bounded `vulkaninfo --
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/chromium-auto-vulkan`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `aadaefb9bb1589d50315a080da01a33854bbcced`
+- **Feature implementation commit(s):** `aadaefb9bb1589d50315a080da01a33854bbcced`
 - **Exact resume point:** review code and tests, commit, independent review, integrate beta, deploy Hoster, run disposable ordinary producer with in-page GPU check.
-- **Working-tree state at handoff:** intentionally uncommitted implementation and tests.
+- **Working-tree state at handoff:** clean after help-text follow-up checkpoint.
 
 ## Decision gates
 

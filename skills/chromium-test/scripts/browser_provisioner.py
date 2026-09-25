@@ -3032,7 +3032,7 @@ def main():
         )
         parser.add_argument("--headless", action="store_true")
         parser.add_argument("--graphics-backend", choices=("auto", "external"), default="auto",
-                            help="auto adds headed ANGLE/GL flags; external leaves graphics flags to the selected executable.")
+                            help="auto probes headed NVK/Vulkan and otherwise uses ANGLE/GL; external leaves flags to the selected executable.")
     t.add_argument("--awaiting-seconds", type=int, default=1800)
     sub.add_parser("maintain")
     watcher = sub.add_parser("watch")

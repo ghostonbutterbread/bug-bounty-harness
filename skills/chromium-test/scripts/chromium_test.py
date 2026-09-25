@@ -907,7 +907,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--chrome-binary", help="Override Chromium/Chrome executable.")
     parser.add_argument("--graphics-backend", choices=("auto", "external"), default="auto",
-                        help="auto adds headed ANGLE/GL flags; external leaves graphics flags to the selected executable.")
+                        help="auto probes headed NVK/Vulkan and otherwise uses ANGLE/GL; external leaves graphics flags to the selected executable.")
     parser.add_argument(
         "--display-backend",
         choices=("auto", "default", "kasmvnc"),

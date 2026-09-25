@@ -162,6 +162,14 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
                                         json={**begin, 'ticket': ticket}).status_code == 200
             assert evaluate(source, check) is True
             manager.STATE = Path(env['BROWSER_PROVISIONER_STATE'])
+            if lost_reply is None:
+                evaluate(source, "localStorage.removeItem('fixture-credential')")
+                assert manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin) == {
+                    'status': 'auth-clone-unavailable', 'reason': 'source-app-check-failed'}
+                assert evaluate(destination, check) is False
+                assert evaluate(destination, "localStorage.getItem('fixture-credential')") is None
+                evaluate(source, "localStorage.setItem('fixture-credential', 'approved')")
+                assert evaluate(source, check) is True
             # Inject an app-native rejection after the import. The manager must
             # remove both cookie and storage before releasing destination CDP.
             checks['reject_at'] = checks['count'] + 3

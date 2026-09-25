@@ -334,86 +334,13 @@ def manager_fixture_pending(recipient_lease_id):
         return {'status': peer['state'], 'generation': peer['generation']}
 
 
-def _fixture_authenticated_recipient() -> tuple[str, str] | None:
-    """No authenticated caller channel exists for this private Python API.
-
-    Lease IDs and caller labels are not approval authority. A future manager-owned
-    authenticated entry point must provide this identity; until then fail closed.
-    """
-    return None
-
-
 def manager_fixture_apply(recipient_lease_id, *, generation, owner_agent_id, owner_run_id,
                           approved_boundary=False):
-    """Require authenticated recipient approval before transferring fixture auth."""
-    import browser_profile_lease as profiles
-    unavailable = lambda reason: {'status': 'auth-clone-unavailable', 'reason': reason}
-    if not approved_boundary or not isinstance(generation, int) or isinstance(generation, bool):
-        return unavailable('recipient-approval-required')
-    authenticated = _fixture_authenticated_recipient()
-    if (not isinstance(authenticated, tuple) or len(authenticated) != 2
-            or not all(isinstance(part, str) and part for part in authenticated)):
-        return unavailable('recipient-approval-required')
-    with node_lock(STATE):
-        with db() as store, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
-            profiles.init_db(leases)
-            leases.execute('BEGIN IMMEDIATE')
-            peer = store.execute('SELECT * FROM fixture_peers WHERE lease_id=?', (recipient_lease_id,)).fetchone()
-            current = store.execute('SELECT * FROM fixture_generations WHERE program=? AND auth_domain=? AND account=?', FIXTURE_POOL).fetchone()
-            recipient = _fixture_source(store, leases, recipient_lease_id, *authenticated)
-            if not recipient:
-                return unavailable('recipient-approval-required')
-            if (not peer or not current or peer['state'] != 'pending'
-                    or peer['generation'] != generation or current['generation'] != generation
-                    or tuple(peer[k] for k in ('program', 'auth_domain', 'account')) != FIXTURE_POOL
-                    or current['contract_revision'] != FIXTURE_CONTRACT_REVISION
-                    or recipient_lease_id == current['source_lease']):
-                return unavailable('pending-peer-unavailable')
-            source = store.execute('SELECT * FROM browsers WHERE lease_id=?', (current['source_lease'],)).fetchone()
-            if not source or not _fixture_source(store, leases, current['source_lease'], source['agent_id'], source['run_id']):
-                return unavailable('stale-source')
-            live_source = _fixture_source(store, leases, current['source_lease'], source['agent_id'], source['run_id'])
-            if _fixture_identity(*live_source) != current['source_identity']:
-                return unavailable('stale-source')
-            # Crash/interrupt after this point has an unknown transfer outcome;
-            # persist a non-retryable reservation before touching the adapters.
-            store.execute("UPDATE fixture_peers SET state='applying' WHERE lease_id=?", (recipient_lease_id,))
-            origin, source_id, identity = current['origin'], current['source_lease'], current['source_identity']
-        # Retain the node fence through transfer and disposition. Transfer still
-        # acquires the canonical writer lock and rechecks both owners/generations.
-        result = manager_fixture_auth_transfer(source_id, recipient_lease_id, origin=origin,
-                                               expected_source_identity=identity, _node_locked=True,
-                                               _peer_update_token=_PEER_UPDATE_TOKEN)
-        with db() as store, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
-            leases.execute('BEGIN IMMEDIATE')
-            current = store.execute('SELECT generation FROM fixture_generations WHERE program=? AND auth_domain=? AND account=?', FIXTURE_POOL).fetchone()
-            # A successful transfer alone does not prove the approved recipient
-            # still owns the canonical and manager rows at disposition time.
-            if result['status'] == 'fixture-auth-transferred' and not _fixture_source(
-                    store, leases, recipient_lease_id, *authenticated):
-                result = unavailable('manager-identity-changed')
-            # An uncertain/disposal-incomplete transfer is never silently
-            # retryable. Only a proved ordinary rollback returns to pending.
-            retryable = result.get('reason') in {
-                'destination-app-check-failed', 'destination-not-empty',
-                'destination-origin-mismatch', 'source-origin-mismatch',
-                'source-app-check-failed', 'source-cookie-unverified',
-                'source-storage-unverified', 'stale-source', 'manager-identity-unverified',
-            }
-            state = ('applied' if result['status'] == 'fixture-auth-transferred' and
-                     current and current['generation'] == generation else
-                     'pending' if retryable else 'applying')
-            store.execute("UPDATE fixture_peers SET state=? WHERE lease_id=? AND generation=? AND state='applying'",
-                          (state, recipient_lease_id, generation))
-    return ({'status': 'fixture-peer-applied', 'generation': generation} if state == 'applied' else result)
+    """Fail closed until a manager-authenticated recipient approval channel exists."""
+    return {'status': 'auth-clone-unavailable', 'reason': 'recipient-approval-required'}
 
 
-_PEER_UPDATE_TOKEN = object()  # Internal apply seam, not caller authentication.
-
-
-def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, origin,
-                                  expected_source_identity=None, _node_locked=False,
-                                  _peer_update_token=None):
+def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, origin):
     """Private fixture-only synchronous transfer; never a CLI or generic site API.
 
     The fixture contract is intentionally hard-coded: program/domain/account,
@@ -460,21 +387,17 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
         return result.get('result', {}).get('value')
 
     check = FIXTURE_CHECK
-    with (contextlib.nullcontext() if _node_locked else node_lock(STATE)):
+    with node_lock(STATE):
         with db() as manager_db, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
             profiles.init_db(leases)
             leases.execute('BEGIN IMMEDIATE')
-            peer = manager_db.execute('SELECT state FROM fixture_peers WHERE lease_id=?',
+            peer = manager_db.execute('SELECT 1 FROM fixture_peers WHERE lease_id=?',
                                       (destination_lease_id,)).fetchone()
             if peer:
-                if (_peer_update_token is not _PEER_UPDATE_TOKEN or peer['state'] != 'applying'
-                        or expected_source_identity is None or not _node_locked):
-                    return unavailable('recipient-approval-required')
+                return unavailable('recipient-approval-required')
             candidates = _transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id)
             if not candidates:
                 return unavailable('manager-identity-unverified')
-            if expected_source_identity is not None and _fixture_identity(*candidates[0][:2]) != expected_source_identity:
-                return unavailable('stale-source')
             if any((row['program'], row['auth_domain'], row['account']) !=
                    ('fixture', 'fixture.invalid', 'anon') for row, _, _ in candidates):
                 return unavailable('site-contract-unavailable')

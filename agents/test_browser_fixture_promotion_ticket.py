@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 from test_browser_fixture_peer_generation import ORIGIN, setup
-from test_browser_manager_transfer_gate import manager
+from test_browser_manager_transfer_gate import lease, manager
 
 SECRET = 'session=private-canary'
 
@@ -134,18 +134,31 @@ def test_unproved_promotion_never_publishes_generation(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('state', ['pending', 'applying', 'applied'])
 def test_direct_clone_cannot_consume_peer_update_or_change_ledger(tmp_path, monkeypatch, state):
-    setup(tmp_path, monkeypatch)
+    canonical = setup(tmp_path, monkeypatch)
     assert manager.manager_fixture_promote('source', origin=ORIGIN,
         owner_agent_id='source', owner_run_id='run')['generation'] == 1
     with manager.db() as store:
         store.execute("UPDATE fixture_peers SET state=? WHERE lease_id='destination'", (state,))
         before = ([tuple(row) for row in store.execute('SELECT * FROM fixture_generations')],
-                  [tuple(row) for row in store.execute('SELECT * FROM fixture_peers ORDER BY lease_id')])
+                  [tuple(row) for row in store.execute('SELECT * FROM fixture_peers ORDER BY lease_id')],
+                  [tuple(row) for row in store.execute('SELECT * FROM browsers ORDER BY lease_id')])
+        identity = store.execute('SELECT source_identity FROM fixture_generations').fetchone()[0]
+    with lease.connect(canonical) as store:
+        canonical_before = [tuple(row) for row in store.execute('SELECT * FROM browser_profile_leases ORDER BY lease_id')]
     # Direct initial-clone primitive must not reach either browser for a peer update.
     monkeypatch.setattr(manager, '_transfer_candidates', lambda *args, **kwargs: pytest.fail('browser I/O reached'))
     assert manager.manager_fixture_auth_transfer('source', 'destination', origin=ORIGIN) == {
         'status': 'auth-clone-unavailable', 'reason': 'recipient-approval-required'}
+    for kwargs in ({'_peer_update_token': object()}, {'_node_locked': True},
+                   {'expected_source_identity': identity},
+                   {'_peer_update_token': object(), '_node_locked': True,
+                    'expected_source_identity': identity}):
+        with pytest.raises(TypeError):
+            manager.manager_fixture_auth_transfer('source', 'destination', origin=ORIGIN, **kwargs)
     with manager.db() as store:
         after = ([tuple(row) for row in store.execute('SELECT * FROM fixture_generations')],
-                 [tuple(row) for row in store.execute('SELECT * FROM fixture_peers ORDER BY lease_id')])
+                 [tuple(row) for row in store.execute('SELECT * FROM fixture_peers ORDER BY lease_id')],
+                 [tuple(row) for row in store.execute('SELECT * FROM browsers ORDER BY lease_id')])
+    with lease.connect(canonical) as store:
+        assert [tuple(row) for row in store.execute('SELECT * FROM browser_profile_leases ORDER BY lease_id')] == canonical_before
     assert after == before

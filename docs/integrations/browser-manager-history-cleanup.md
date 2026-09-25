@@ -1,14 +1,14 @@
 # Browser manager historical row cleanup integration dossier
 
-- **Status:** review-ready
+- **Status:** reviewed; live cohort activation gated
 - **Owner:** Hermes bugfix
 - **Branch:** `fix/browser-manager-history-cleanup`
 - **Base commit:** `7690fc04e1a539c50013b119cc4a49f3082032f5`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-24
 - **Owning feature branch/ref:** `fix/browser-manager-history-cleanup`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `715f07c7ccf58ffaf1c8d037c4e019c355cc353c`
+- **Feature implementation commit(s):** `715f07c7ccf58ffaf1c8d037c4e019c355cc353c`
 - **Inspiration / canonical references:** user request to repair Hoster shifted historical manager rows and normalize idle-stopped; browser-runtime-operations lifecycle repair constraints.
 
 ## Intent
@@ -22,7 +22,7 @@ Read-only plan can run apply-time liveness probes. Gated apply requires plan has
 ## Evidence and review
 
 - Tests: `python3 -m pytest agents/test_browser_manager_row_repair.py agents/test_browser_legacy_auto.py -q` → 70 passed; `git diff --check` clean.
-- Independent review: pending.
+- Independent review: approved the beta code gate, no P1/P2; did not approve a live Hoster apply without per-cohort runtime proof.
 - Live read-only inventory: 401 rows, 236 shifted across six programs (176 released, 60 expired); 10 idle-stopped across two programs (eight expired, two released). Two active Neon browser units were seen; do not interrupt them.
 
 ## Blockers and deferred work
@@ -36,8 +36,8 @@ Read-only plan can run apply-time liveness probes. Gated apply requires plan has
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/browser-manager-history-cleanup`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `715f07c7ccf58ffaf1c8d037c4e019c355cc353c`
+- **Feature implementation commit(s):** `715f07c7ccf58ffaf1c8d037c4e019c355cc353c`
 - **Exact resume point:** final focused review of current diff and live plan; then beta integration/Hoster activation.
 - **Working-tree state at handoff:** intentionally uncommitted pending review.
 
@@ -50,3 +50,4 @@ Read-only plan can run apply-time liveness probes. Gated apply requires plan has
 ## Decision record
 
 - 2026-09-24 — began generalized terminal-history repair; active Neon owner untouched.
+- 2026-09-24 — independent release review approved code; live data repair remains separately gated by fresh Hoster evidence.

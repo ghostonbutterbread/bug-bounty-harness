@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-25
 - **Owning feature branch/ref:** `fix/chromium-gpu-host-tests`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `2aad1468ddc20dc0aaeb9e7a50d9e54b37f6e8a1`
+- **Feature implementation commit(s):** `2aad1468ddc20dc0aaeb9e7a50d9e54b37f6e8a1`
 - **Inspiration:** Hoster beta acceptance run for automatic NVK Chromium launch.
 
 ## Intent
@@ -23,7 +23,7 @@ Tests whose scope is CA, display or KasmVNC startup now explicitly mock NVK dete
 
 - Original Hoster beta suite: 5 failed, 84 passed. Three failures from mocked `subprocess.Popen` intercepting `vulkaninfo` probe; two from occupied loopback port 8463.
 - Local `python3 -m pytest -q agents/test_chromium_test_launcher.py agents/test_browser_provisioner.py`: 89 passed.
-- Hoster branch rerun, independent review, beta merge and remote read-back: pending.
+- Independent review: 10 relevant tests passed; the isolation does not mask NVK-specific tests. Its full-suite attempt timed out after 300 seconds; Hermes's preceding 89-test local suite passed. Hoster rerun, beta merge and remote read-back: pending.
 
 ## Blockers and deferred work
 
@@ -36,10 +36,10 @@ Tests whose scope is CA, display or KasmVNC startup now explicitly mock NVK dete
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/chromium-gpu-host-tests`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit, review, integrate, rerun Hoster tests.
-- **Working-tree state at handoff:** uncommitted test correction and dossier.
+- **Latest immutable recovery checkpoint:** `2aad1468ddc20dc0aaeb9e7a50d9e54b37f6e8a1`
+- **Feature implementation commit(s):** `2aad1468ddc20dc0aaeb9e7a50d9e54b37f6e8a1`
+- **Exact resume point:** integrate reviewed test correction, rerun Hoster tests.
+- **Working-tree state at handoff:** clean after dossier follow-up.
 
 ## Decision gates
 
@@ -50,3 +50,4 @@ Tests whose scope is CA, display or KasmVNC startup now explicitly mock NVK dete
 ## Decision record
 
 - 2026-09-25 — created after Hoster suite reproduced host-dependent failures.
+- 2026-09-25 — independent reviewer accepted test-only isolation; Hoster rerun remains required.

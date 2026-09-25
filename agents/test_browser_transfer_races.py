@@ -31,6 +31,8 @@ def adapter():
     b.transfer_identity = ('test-transaction', 'test-owner', 'http://127.0.0.1:9222/generation')
     b.transfer_destination = False
     b.quarantined = False
+    b.transfer_activated = False
+    b.transfer_fenced = False
     b.epoch = 0
     b.inflight = 0
     b.clients, b.roots, b.pending = {}, {}, {}

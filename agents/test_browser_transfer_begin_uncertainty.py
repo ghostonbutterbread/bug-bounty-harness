@@ -1,4 +1,5 @@
 """Lost begin replies cannot strand the source or publish an uncertain clone."""
+import asyncio
 import importlib.util
 from pathlib import Path
 
@@ -11,9 +12,13 @@ manager = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(manager)
 
 
+@pytest.mark.parametrize('interruption', [httpx.ReadError, KeyboardInterrupt, SystemExit, asyncio.CancelledError])
 @pytest.mark.parametrize('lost_at', ['source', 'destination'])
 @pytest.mark.parametrize('release_fails', [False, True])
-def test_applied_begin_reply_loss_releases_exact_owner(tmp_path, monkeypatch, lost_at, release_fails):
+@pytest.mark.parametrize('cleanup_interrupt', [False, True])
+def test_applied_begin_interrupt_releases_exact_owner(tmp_path, monkeypatch, lost_at, release_fails, interruption, cleanup_interrupt):
+    if cleanup_interrupt and interruption is httpx.ReadError:
+        pytest.skip('cleanup cancellation requires an original cancellation')
     monkeypatch.setattr(manager, 'STATE', tmp_path / 'manager.sqlite')
     rows = [dict(lease_id=name, browser_id=name, unit='unit-' + name,
                  program='fixture', auth_domain='fixture.invalid', account='anon')
@@ -50,7 +55,7 @@ def test_applied_begin_reply_loss_releases_exact_owner(tmp_path, monkeypatch, lo
                     s['open'] = False
                     if side == lost_at and not lost:
                         lost.append(side)
-                        raise httpx.ReadError('begin reply lost after application')
+                        raise interruption('begin reply lost after application')
                 assert txn == s['transaction'], 'different transaction cannot acquire locked adapter'
                 if release_fails and side == lost_at:
                     raise httpx.ReadError('recovery reply unavailable')
@@ -59,6 +64,8 @@ def test_applied_begin_reply_loss_releases_exact_owner(tmp_path, monkeypatch, lo
             assert json['transaction'] == s['transaction']
             assert json['owner'] == side and json['generation'].endswith('/' + side)
             if action in ('end', 'abort'):
+                if cleanup_interrupt and lost and side == 'source':
+                    raise SystemExit('cleanup interrupted')
                 s['open'] = action == 'end' and side == 'source' or action == 'abort'
                 s['transaction'] = None
                 return Response({action + 'ed': True})
@@ -84,15 +91,33 @@ def test_applied_begin_reply_loss_releases_exact_owner(tmp_path, monkeypatch, lo
 
     monkeypatch.setattr(httpx, 'HTTPTransport', lambda *, uds: type('Transport', (), {'uds': uds})())
     monkeypatch.setattr(httpx, 'Client', Client)
-    result = manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
+    if interruption is httpx.ReadError:
+        result = manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
+        caught = None
+    else:
+        result = None
+        with pytest.raises(interruption) as caught:
+            manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
     assert lost == [lost_at]
     assert not stopped
-    if not release_fails or lost_at == 'destination':
+    if (not release_fails and not cleanup_interrupt) or (lost_at == 'destination' and not cleanup_interrupt):
         assert state['source']['open'] is True
-    if not release_fails:
+    if not release_fails and not cleanup_interrupt:
         assert state['source']['transaction'] is None
         assert state['destination']['transaction'] is None
-        assert result == {'status': 'auth-clone-unavailable', 'reason': 'transfer-control-unavailable'}
+        if interruption is httpx.ReadError:
+            assert result == {'status': 'auth-clone-unavailable', 'reason': 'transfer-control-unavailable'}
+        else:
+            assert caught is not None
+            assert 'source=owner-preserved' in str(caught.value.__notes__)
     else:
-        assert result['reason'] == lost_at + '-cleanup-incomplete'
-        assert state[lost_at]['open'] is False
+        blocked = 'source' if cleanup_interrupt else lost_at
+        if interruption is httpx.ReadError:
+            assert result is not None and result['reason'] == blocked + '-cleanup-incomplete'
+        else:
+            assert caught is not None
+            assert blocked + '=cleanup-incomplete' in str(caught.value.__notes__)
+        assert state[blocked]['open'] is False
+    if interruption is not httpx.ReadError:
+        assert caught is not None
+        assert 'approved' not in str(caught.value.__notes__)

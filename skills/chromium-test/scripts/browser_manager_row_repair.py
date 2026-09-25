@@ -274,10 +274,21 @@ def run(manager, program, account, *, apply=False, plan_hash=None, confirmed=Fal
             try:
                 if apply:
                     backup_pair(manager, canonical, Path(backup_dir))
+                # Bind the approval to *every* manager row in the selected
+                # cohort, including ignored and quarantined history. A change
+                # to an excluded row or its runtime refusal must invalidate the
+                # plan even when the eligible candidate set is unchanged.
+                observed = [(r['lease_id'], digest(dict(r))) for r in conn.execute(
+                    'SELECT * FROM browsers WHERE program=? AND account=? ORDER BY lease_id',
+                    (program, account))]
                 candidates, blocked, evidence = inspect(conn, program, account, probe=probe or (runtime_quiescent if apply else None))
-                plan = digest([(r['lease_id'], digest(r), digest(v), evidence[digest(r['lease_id'])[:16]]) for r, v in candidates])
+                plan = digest({'program': program, 'account': account,
+                               'observed': observed, 'blocked': blocked,
+                               'candidates': [(r['lease_id'], digest(r), digest(v), evidence[digest(r['lease_id'])[:16]])
+                                              for r, v in candidates]})
                 receipt = {'status': 'planned' if not apply else 'refused', 'program': program,
-                           'account': account, 'candidate_count': len(candidates), 'blocked_count': len(blocked),
+                           'account': account, 'observed_count': len(observed),
+                           'candidate_count': len(candidates), 'blocked_count': len(blocked),
                            'blocked': blocked, 'evidence': evidence, 'plan_hash': plan}
                 if apply:
                     if plan != plan_hash or not candidates:

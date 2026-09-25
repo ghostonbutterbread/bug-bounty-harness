@@ -203,6 +203,7 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
             tickets = []
             imported = False
             cleaned = True
+            destination_end_unverified = False
             reason = None
             try:
                 for _, info, _ in candidates:
@@ -262,8 +263,22 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                         control(client, 'end', {'ticket': ticket})
                     except (OSError, ValueError, httpx.HTTPError):
                         cleaned = False
+                        if index == 1 and imported:
+                            destination_end_unverified = True
                 for client in clients:
                     client.close()
+            if destination_end_unverified:
+                # The end may have applied even when its reply was lost. Its
+                # ticket cannot be relied on to fence an imported destination.
+                # Dispose only the exact recorded unit, while still holding the
+                # manager/canonical ownership locks; never leave it serving CDP.
+                try:
+                    disposed = stop_recorded(candidates[1][0])
+                except (OSError, ValueError):
+                    disposed = False
+                if disposed:
+                    return unavailable('destination-disposed-after-end-uncertainty')
+                return unavailable('destination-cleanup-incomplete')
             if not cleaned:
                 return unavailable('destination-cleanup-unverified')
             if not reason and not _transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id):

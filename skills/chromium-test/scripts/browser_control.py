@@ -130,7 +130,7 @@ class PipeBrowser:
             # outside the event loop and serialize to avoid interleaving.
             async with self.write_lock:
                 if generation is not None and (
-                    generation != self.token or self.rotating or self.frozen
+                    generation != self.token or self.rotating or self.frozen or self.transfer
                 ):
                     raise ConnectionError("Controller generation revoked")
                 writing = asyncio.create_task(asyncio.to_thread(self._write, data))
@@ -204,11 +204,17 @@ class PipeBrowser:
         root = reply.get("result", {}).get("sessionId")
         if not root:
             raise web.HTTPServiceUnavailable()
-        if generation != self.token or self.rotating:
+        if generation != self.token or self.rotating or self.transfer:
             await self.call("Target.detachFromTarget", {"sessionId": root})
             raise web.HTTPGone()
         ws = web.WebSocketResponse(max_msg_size=4 * 1024 * 1024)
         await ws.prepare(request)
+        # prepare yields to transfer_begin. Admission and registration must be
+        # on the same loop turn as begin's clients/inflight check.
+        if generation != self.token or self.rotating or self.transfer:
+            await ws.close()
+            await self.detach(root)
+            return ws
         self.clients[ws] = {root}
         self.roots[ws] = root
         tasks = set()
@@ -393,37 +399,40 @@ class PipeBrowser:
 
     async def transfer_call(self, request):
         data = await request.json()
-        if not self.transfer or data.get("ticket") != self.transfer:
-            raise web.HTTPForbidden()
         method = data.get("method")
         if method not in {"Runtime.evaluate", "Network.getAllCookies",
                           "Network.setCookies", "Network.deleteCookies"}:
             raise web.HTTPBadRequest()
-        targets = await self.call("Target.getTargets")
-        pages = [t for t in targets.get("result", {}).get("targetInfos", []) if t.get("type") == "page"]
-        if len(pages) != 1:
-            raise web.HTTPConflict()
-        attachment = await self.call("Target.attachToTarget", {"targetId": pages[0]["targetId"], "flatten": True})
-        session = attachment.get("result", {}).get("sessionId")
-        if not session:
-            raise web.HTTPServiceUnavailable()
-        try:
-            reply = await self.call(method, data.get("params", {}), session)
-        finally:
-            await self.detach(session)
+        async with self.transfer_lock:
+            if not self.transfer or data.get("ticket") != self.transfer:
+                raise web.HTTPForbidden()
+            targets = await self.call("Target.getTargets")
+            pages = [t for t in targets.get("result", {}).get("targetInfos", []) if t.get("type") == "page"]
+            if len(pages) != 1:
+                raise web.HTTPConflict()
+            attachment = await self.call("Target.attachToTarget", {"targetId": pages[0]["targetId"], "flatten": True})
+            session = attachment.get("result", {}).get("sessionId")
+            if not session:
+                raise web.HTTPServiceUnavailable()
+            try:
+                reply = await self.call(method, data.get("params", {}), session)
+            finally:
+                await self.detach(session)
         return web.json_response(reply)
 
     async def transfer_end(self, request):
         data = await request.json()
-        if not self.transfer or data.get("ticket") != self.transfer:
-            raise web.HTTPForbidden()
-        self.transfer = None
-        self.mark_activity()
+        async with self.transfer_lock:
+            if not self.transfer or data.get("ticket") != self.transfer:
+                raise web.HTTPForbidden()
+            self.transfer = None
+            self.mark_activity()
         return web.json_response({"ended": True})
 
     async def _serve(self, port, socket_path):
         self.diagnostics.mark("adapter-bind")
         self.write_lock = asyncio.Lock()
+        self.transfer_lock = asyncio.Lock()
         app = web.Application()
         app.router.add_route("*", "/{token}/{suffix:.*}", self.route)
         self.runner = web.AppRunner(app, access_log=None)

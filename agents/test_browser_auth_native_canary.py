@@ -50,7 +50,8 @@ def navigate(url, target, expected=None):
 
 
 @pytest.mark.skipif(os.environ.get('BBH_AUTH_CANARY') != '1', reason='explicit local canary opt-in')
-def test_two_chrome_native_cookie_and_selected_origin_storage_transfer():
+@pytest.mark.parametrize('lose_destination_end', [False, True])
+def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lose_destination_end, monkeypatch):
     import websocket  # noqa: F401 - establish dependency before any browser allocation
     with disposable_fixture_root() as (root, _evidence):
         # The fixture issues an opaque test session; neither it nor browser state
@@ -165,6 +166,41 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer():
             assert not any(c['name'] == 'session' and c['domain'] == '127.0.0.1'
                            for c in call_page(destination, 'Network.getAllCookies')['cookies'])
             assert evaluate(source, check) is True
+            if lose_destination_end:
+                with sqlite3.connect(env['BROWSER_PROVISIONER_STATE']) as db:
+                    dest_launch = db.execute('SELECT launch_file FROM browsers WHERE lease_id=?',
+                                             (leases[1],)).fetchone()[0]
+                dest_socket = json.loads(Path(dest_launch).read_text())['control_socket']
+                original_client = httpx.Client
+                original_transport = httpx.HTTPTransport
+                sockets = {}
+                applied = []
+                def tracked_transport(*, uds):
+                    transport = original_transport(uds=uds)
+                    sockets[id(transport)] = uds
+                    return transport
+                class LostEndClient:
+                    def __init__(self, *, transport, timeout):
+                        self.client = original_client(transport=transport, timeout=timeout)
+                        self.is_destination = sockets[id(transport)] == dest_socket
+                    def post(self, url, **kwargs):
+                        response = self.client.post(url, **kwargs)
+                        if self.is_destination and url.endswith('/transfer/end'):
+                            applied.append(response.status_code)
+                            raise httpx.ReadError('end reply lost after application')
+                        return response
+                    def close(self): self.client.close()
+                with monkeypatch.context() as patch:
+                    patch.setattr(httpx, 'HTTPTransport', tracked_transport)
+                    patch.setattr(httpx, 'Client', LostEndClient)
+                    disposition = manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin)
+                assert applied == [200]
+                assert disposition == {'status': 'auth-clone-unavailable',
+                                       'reason': 'destination-disposed-after-end-uncertainty'}
+                with pytest.raises(Exception):
+                    urllib.request.urlopen(destination + '/json/version', timeout=2)
+                assert evaluate(source, check) is True
+                return
             assert manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin) == {
                 'status': 'fixture-auth-transferred'}
             assert evaluate(destination, check) is True

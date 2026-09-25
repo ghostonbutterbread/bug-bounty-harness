@@ -136,7 +136,20 @@ def init_db(conn: sqlite3.Connection) -> None:
             destination_lease TEXT NOT NULL, source_identity TEXT NOT NULL,
             destination_identity TEXT NOT NULL, expires_at REAL NOT NULL,
             consumed_at REAL);
+        CREATE TABLE IF NOT EXISTS browser_stopped_reservations (
+            program TEXT NOT NULL, auth_domain TEXT NOT NULL, account_alias TEXT NOT NULL,
+            source_lease TEXT NOT NULL, manager_id TEXT NOT NULL,
+            owner_agent_id TEXT NOT NULL, owner_run_id TEXT NOT NULL,
+            control_generation TEXT NOT NULL, service_unit TEXT NOT NULL,
+            root TEXT NOT NULL, cdp_url TEXT NOT NULL,
+            unit_invocation TEXT,
+            profile_dir TEXT NOT NULL, profile_device INTEGER NOT NULL,
+            profile_inode INTEGER NOT NULL,
+            phase TEXT NOT NULL CHECK(phase IN ('reserved','copying','uncertain','released')),
+            PRIMARY KEY(program, auth_domain, account_alias));
     """)
+    if 'unit_invocation' not in {row['name'] for row in conn.execute('PRAGMA table_info(browser_stopped_reservations)')}:
+        conn.execute('ALTER TABLE browser_stopped_reservations ADD COLUMN unit_invocation TEXT')
     for name, definition in {
         "work_state": "TEXT NOT NULL DEFAULT 'active'",
         "profile_health": "TEXT NOT NULL DEFAULT 'unknown'",
@@ -171,6 +184,24 @@ def physical_profile(path):
         return (info.st_dev, info.st_ino)
     except (OSError, ValueError, TypeError):
         return None
+
+
+def reservation_conflict(conn, *, program=None, domain=None, alias=None, lease_id=None, path=None):
+    """Canonical write-transaction gate; unknown physical identity fails closed."""
+    rows = conn.execute("SELECT * FROM browser_stopped_reservations WHERE phase!='released'").fetchall()
+    if not rows:
+        return False
+    identity = physical_profile(path) if path else None
+    for row in rows:
+        if lease_id and lease_id == row['source_lease']:
+            return True
+        if (program, domain, alias) == (row['program'], row['auth_domain'], row['account_alias']):
+            return True
+        if path and (path == row['profile_dir'] or
+                     identity == (row['profile_device'], row['profile_inode']) or
+                     (identity is None and os.path.islink(path))):
+            return True
+    return False
 
 
 def stopped_legacy_profile(conn, args, alias, domain, key):
@@ -843,6 +874,9 @@ def transfer_managed_lease(db_path, old_id, manager_id, agent_id, run_id, purpos
         old = conn.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?', (old_id,)).fetchone()
         if old is None or old['manager_id'] != manager_id or old['status'] != 'active':
             return {'status': 'not-owner-or-expired'}
+        if reservation_conflict(conn, program=old['program'], domain=old['auth_domain'],
+                                alias=old['account_alias'], lease_id=old_id, path=old['profile_dir']):
+            return {'status': 'locked', 'reason': 'stopped-profile-reserved'}
         if expected and any(old[key] != value for key, value in expected.items()):
             return {'status': 'canonical-identity-mismatch'}
         single = single_browser_policy(conn, old['program'], old['account_alias'], old['auth_domain'])
@@ -904,6 +938,10 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
         init_db(conn)
         conn.execute("BEGIN IMMEDIATE")
         expire_leases(conn, timestamp)
+        requested_path = instance_profile(args.program, auth_domain, alias, key)
+        if reservation_conflict(conn, program=slug(args.program), domain=auth_domain,
+                                alias=slug(alias), path=str(requested_path)):
+            return {'status': 'locked', 'reason': 'stopped-profile-reserved'}
         release = conn.execute(
             "SELECT * FROM browser_profile_leases WHERE program=? AND account_alias=? AND auth_domain=? AND instance_key=? AND status='released' ORDER BY released_at DESC LIMIT 1",
             (slug(args.program), slug(alias), auth_domain, key),
@@ -968,6 +1006,8 @@ def cmd_acquire(args: argparse.Namespace) -> dict[str, Any]:
         inherited_path, requested_inheritance = stopped_legacy_profile(conn, args, alias, auth_domain, key)
         if requested_inheritance and inherited_path is None:
             return {'status': 'locked', 'reason': 'legacy-profile-history-mismatch'}
+        if inherited_path and reservation_conflict(conn, path=inherited_path):
+            return {'status': 'locked', 'reason': 'stopped-profile-reserved'}
         lease_id = str(uuid.uuid4())
         expires_at = timestamp + args.ttl_seconds
         persistent_profile = inherited_path or instance_profile(args.program, auth_domain, alias, key)
@@ -1099,6 +1139,10 @@ def cmd_release(args: argparse.Namespace) -> dict[str, Any]:
         init_db(conn)
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT * FROM browser_profile_leases WHERE lease_id=?", (args.lease_id,)).fetchone()
+        if row and reservation_conflict(conn, program=row['program'], domain=row['auth_domain'],
+                                        alias=row['account_alias'], lease_id=args.lease_id,
+                                        path=row['profile_dir']):
+            return {'status': 'locked', 'reason': 'stopped-profile-reserved'}
         if row is None or row["owner_agent_id"] != args.agent_id or row["status"] != "active" or row["manager_id"] != getattr(args, "manager_id", None):
             conn.commit()
             return {"status": "not-owner-or-missing", "lease_id": args.lease_id}

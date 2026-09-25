@@ -95,6 +95,188 @@ def manager_id():
     return hashlib.sha256(str(STATE.resolve()).encode()).hexdigest()
 
 
+def stopped_reservation(source_lease_id, phase='reserved'):
+    """Fixture-only inert fence. No snapshot/copy consumer is activated here."""
+    if phase != 'reserved':
+        return {'status': 'reservation-unavailable'}
+    import browser_profile_lease as profiles
+    with node_lock(STATE):
+        with db() as manager, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+            profiles.init_db(leases)
+            row = manager.execute('SELECT * FROM browsers WHERE lease_id=?', (source_lease_id,)).fetchone()
+            if not row or tuple(row[k] for k in ('program','auth_domain','account')) != FIXTURE_POOL:
+                return {'status': 'reservation-unavailable'}
+            physical = profiles.physical_profile(row['profile_dir'])
+            if not physical or row['state'] != 'stopped' or not stopped(row):
+                return {'status': 'reservation-unavailable'}
+            for other in manager.execute('SELECT * FROM browsers'):
+                other_id = profiles.physical_profile(other['profile_dir'])
+                if other['profile_dir'] == row['profile_dir'] or other_id == physical:
+                    if other_id != physical or other['state'] != 'stopped' or not stopped(other):
+                        return {'status': 'reservation-unavailable'}
+            leases.execute('BEGIN IMMEDIATE')
+            canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?',
+                                       (source_lease_id,)).fetchone()
+            if not row or not canonical or tuple(row[k] for k in ('program','auth_domain','account')) != FIXTURE_POOL:
+                return {'status': 'reservation-unavailable'}
+            key = FIXTURE_POOL
+            existing = leases.execute('SELECT * FROM browser_stopped_reservations WHERE '
+                'program=? AND auth_domain=? AND account_alias=?', key).fetchone()
+            info = record_info(row)
+            generation = info.get('control_generation')
+            root = info.get('process_identity')
+            cdp = info.get('cdp_url')
+            if (row['state'] != 'stopped' or canonical['status'] != 'released'
+                    or canonical['browser_status'] != 'stopped'
+                    or canonical['work_state'] != 'terminal'
+                    or any(canonical[k] != v for k, v in (
+                        ('program', row['program']), ('auth_domain', row['auth_domain']),
+                        ('account_alias', row['account']), ('owner_agent_id', row['agent_id']),
+                        ('owner_run_id', row['run_id']), ('profile_dir', row['profile_dir']),
+                        ('manager_id', manager_id()), ('service_unit', row['unit'])))
+                    or not physical or not generation or not root or not cdp
+                    or not info.get('unit_invocation')):
+                return {'status': 'reservation-unavailable'}
+            # Every historical alias of the same directory must be terminal;
+            # missing physical evidence is not interpreted as a distinct profile.
+            for other in leases.execute('SELECT * FROM browser_profile_leases'):
+                other_id = profiles.physical_profile(other['profile_dir'])
+                if other['profile_dir'] == row['profile_dir'] or other_id == physical:
+                    if other_id != physical or other['status'] != 'released' or other['browser_status'] != 'stopped':
+                        return {'status': 'reservation-unavailable'}
+            if existing and existing['phase'] != 'released':
+                # A retry is idempotent only while the fence is untouched. In
+                # particular, never turn an interrupted copy back into reserved.
+                if (existing['phase'] != 'reserved'
+                        or existing['source_lease'] != source_lease_id
+                        or existing['manager_id'] != manager_id()
+                        or existing['owner_agent_id'] != row['agent_id']
+                        or existing['owner_run_id'] != row['run_id']
+                        or existing['service_unit'] != row['unit']
+                        or existing['profile_dir'] != row['profile_dir']
+                        or existing['root'] != json.dumps(root, sort_keys=True)
+                        or existing['cdp_url'] != cdp
+                        or existing['unit_invocation'] != info['unit_invocation']
+                        or existing['control_generation'] != generation
+                        or (existing['profile_device'], existing['profile_inode']) != physical):
+                    return {'status': 'reservation-unavailable'}
+            elif phase == 'reserved' and not profiles.reservation_conflict(leases, path=row['profile_dir']):
+                leases.execute('INSERT OR REPLACE INTO browser_stopped_reservations '
+                    '(program,auth_domain,account_alias,source_lease,manager_id,owner_agent_id,'
+                    'owner_run_id,control_generation,service_unit,root,cdp_url,profile_dir,'
+                    'profile_device,profile_inode,phase,unit_invocation) VALUES '
+                    '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', (*key, source_lease_id, manager_id(),
+                    row['agent_id'], row['run_id'], generation, row['unit'],
+                    json.dumps(root, sort_keys=True), cdp, row['profile_dir'], *physical,
+                    phase, info['unit_invocation']))
+            else:
+                return {'status': 'reservation-unavailable'}
+            leases.commit()
+            return {'status': 'reserved', 'phase': phase}
+
+
+def cancel_unstarted_reservation(source_lease_id):
+    """Only an untouched reserved fence can be cancelled; copying needs a future verifier."""
+    import browser_profile_lease as profiles
+    with node_lock(STATE):
+        with db() as manager, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+            profiles.init_db(leases)
+            row = manager.execute('SELECT * FROM browsers WHERE lease_id=?', (source_lease_id,)).fetchone()
+            if not row or tuple(row[k] for k in ('program','auth_domain','account')) != FIXTURE_POOL:
+                return {'status': 'reservation-unavailable'}
+            physical = profiles.physical_profile(row['profile_dir'])
+            if not physical or row['state'] != 'stopped' or not stopped(row):
+                return {'status': 'reservation-unavailable'}
+            if any(profiles.physical_profile(other['profile_dir']) == physical and
+                   (other['state'] != 'stopped' or not stopped(other))
+                   for other in manager.execute('SELECT * FROM browsers')):
+                return {'status': 'reservation-unavailable'}
+            leases.execute('BEGIN IMMEDIATE')
+            reserved = leases.execute('SELECT * FROM browser_stopped_reservations WHERE '
+                'program=? AND auth_domain=? AND account_alias=?', FIXTURE_POOL).fetchone()
+            canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?',
+                                       (source_lease_id,)).fetchone()
+            info = record_info(row)
+            root = info.get('process_identity')
+            if (not canonical or not reserved or not root or not info.get('cdp_url')
+                    or not info.get('unit_invocation') or not info.get('control_generation')
+                    or canonical['status'] != 'released' or canonical['browser_status'] != 'stopped'
+                    or canonical['work_state'] != 'terminal'
+                    or any(canonical[k] != v for k, v in (
+                        ('program', row['program']), ('auth_domain', row['auth_domain']),
+                        ('account_alias', row['account']), ('owner_agent_id', row['agent_id']),
+                        ('owner_run_id', row['run_id']), ('profile_dir', row['profile_dir']),
+                        ('service_unit', row['unit']), ('manager_id', manager_id())))
+                    or any(reserved[k] != v for k, v in (
+                        ('source_lease', source_lease_id), ('manager_id', manager_id()),
+                        ('owner_agent_id', row['agent_id']), ('owner_run_id', row['run_id']),
+                        ('profile_dir', row['profile_dir']), ('service_unit', row['unit']),
+                        ('root', json.dumps(root, sort_keys=True)),
+                        ('cdp_url', info['cdp_url']),
+                        ('unit_invocation', info['unit_invocation']),
+                        ('control_generation', info['control_generation'])))):
+                return {'status': 'reservation-unavailable'}
+            # Inactive is not proof that this is the recorded unit invocation:
+            # systemd may have started and stopped a replacement since launch.
+            try:
+                invocation = unit_identity(row['unit'])
+            except Exception:
+                return {'status': 'reservation-unavailable'}
+            if not invocation or invocation != reserved['unit_invocation'] or invocation != info['unit_invocation']:
+                return {'status': 'reservation-unavailable'}
+            # stopped() only interprets is-active's nonzero exit; cancellation
+            # needs affirmative systemd evidence, including a loaded unit.
+            try:
+                if not unit_explicitly_inactive(row['unit']):
+                    return {'status': 'reservation-unavailable'}
+            except Exception:
+                return {'status': 'reservation-unavailable'}
+            # An unresolved alias is uncertainty, not evidence of a distinct
+            # profile. Recheck both stores before clearing the physical fence.
+            for other in manager.execute('SELECT * FROM browsers'):
+                other_id = profiles.physical_profile(other['profile_dir'])
+                if (other['profile_dir'] == row['profile_dir'] or other_id == physical):
+                    if other_id != physical or other['state'] != 'stopped' or not stopped(other):
+                        return {'status': 'reservation-unavailable'}
+            for other in leases.execute('SELECT * FROM browser_profile_leases'):
+                other_id = profiles.physical_profile(other['profile_dir'])
+                if other['profile_dir'] == row['profile_dir'] or other_id == physical:
+                    if other_id != physical or other['status'] != 'released' or other['browser_status'] != 'stopped':
+                        return {'status': 'reservation-unavailable'}
+            if (not reserved or reserved['phase'] != 'reserved'
+                    or reserved['source_lease'] != source_lease_id
+                    or reserved['manager_id'] != manager_id()
+                    or (reserved['profile_device'], reserved['profile_inode']) != physical
+                    or reserved['control_generation'] != info['control_generation']):
+                return {'status': 'reservation-unavailable'}
+            leases.execute("UPDATE browser_stopped_reservations SET phase='released' WHERE "
+                           'program=? AND auth_domain=? AND account_alias=?', FIXTURE_POOL)
+            leases.commit()
+            return {'status': 'released'}
+
+
+def reservation_blocks(row):
+    """Manager admission/cleanup fence; canonical writers use their own transaction."""
+    import browser_profile_lease as profiles
+    with profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        profiles.init_db(leases)
+        leases.execute('BEGIN IMMEDIATE')
+        return profiles.reservation_conflict(leases, program=row['program'],
+            domain=row['auth_domain'], alias=row['account'], lease_id=row['lease_id'],
+            path=row['profile_dir'])
+
+
+def fixture_pool_reserved(program, domain, account):
+    if (slug(program), domain, slug(account)) != FIXTURE_POOL:
+        return False
+    import browser_profile_lease as profiles
+    with profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
+        profiles.init_db(leases)
+        leases.execute('BEGIN IMMEDIATE')
+        return profiles.reservation_conflict(leases, program=slug(program),
+                                             domain=domain, alias=slug(account))
+
+
 def manager_transfer_attestation_gate(source_lease_id, destination_lease_id):
     """Private manager-only preflight. Never issue a grant without native auth proof.
 
@@ -1018,6 +1200,19 @@ def unit_inactive(unit):
     return result.returncode == 0 and result.stdout.strip() in ("inactive", "failed")
 
 
+def unit_explicitly_inactive(unit):
+    """Cancellation proof: an existing loaded unit must report inactive."""
+    result = subprocess.run(
+        ["systemctl", "--user", "show", "--property=ActiveState",
+         "--property=LoadState", unit],
+        capture_output=True, text=True, env=sysenv(),
+    )
+    if result.returncode != 0:
+        return False
+    lines = result.stdout.splitlines()
+    return len(lines) == 2 and set(lines) == {"ActiveState=inactive", "LoadState=loaded"}
+
+
 def unit_identity(unit):
     result = subprocess.run(
         ["systemctl", "--user", "show", "--property=InvocationID", "--value", unit],
@@ -1397,6 +1592,8 @@ def stale_singleton_lock(path, row):
 
 
 def retire(c, row, health="healthy"):
+    if reservation_blocks(row):
+        return False
     if not stop_recorded(row):
         return False
     q = release_lease(row["lease_id"], row["agent_id"], health=health)
@@ -1866,6 +2063,8 @@ def start(args):
     if account is not None and not getattr(args, "task_owned", False) and not profiles.account_lease_eligible(account):
         emit({"status": "account-unavailable"}, 2)
     auth_domain = profiles.auth_domain_for(args, account)
+    if fixture_pool_reserved(args.program, auth_domain, alias):
+        emit({'status': 'locked', 'reason': 'stopped-profile-reserved'}, 2)
     instance = profiles.instance_key(args)
     automatic = False
     if (account is not None and not instance and not getattr(args, "legacy_profile", False)
@@ -2554,6 +2753,8 @@ def release(args):
     ).fetchone()
     if not r or r["agent_id"] != args.agent_id or r["state"] != "running":
         emit({"status": "not-owner"}, 2)
+    if reservation_blocks(r):
+        emit({'status': 'locked', 'reason': 'stopped-profile-reserved'}, 2)
     if not stop_recorded(r):
         info = record_info(r)
         emit(
@@ -2717,6 +2918,9 @@ def sweep_rows(c, older_than_days, confirm):
     for r in c.execute(
         "select * from browsers where state='stopped' and updated<?", (cutoff,)
     ).fetchall():
+        if reservation_blocks(r):
+            skipped.append({'browser_id': r['browser_id'], 'reason': 'stopped-profile-reserved'})
+            continue
         p = Path(r["profile_dir"])
         identity = profiles.physical_profile(p)
         if identity is None or not direct_path(p):

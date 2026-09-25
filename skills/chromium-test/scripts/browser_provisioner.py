@@ -1209,8 +1209,8 @@ def unit_explicitly_inactive(unit):
     )
     if result.returncode != 0:
         return False
-    properties = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
-    return properties.get("ActiveState") == "inactive" and properties.get("LoadState") == "loaded"
+    lines = result.stdout.splitlines()
+    return len(lines) == 2 and set(lines) == {"ActiveState=inactive", "LoadState=loaded"}
 
 
 def unit_identity(unit):

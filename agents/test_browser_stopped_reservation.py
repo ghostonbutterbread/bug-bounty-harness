@@ -191,6 +191,33 @@ class ReservationTest(unittest.TestCase):
                         phase = c.execute('SELECT phase FROM browser_stopped_reservations').fetchone()['phase']
                     self.assertEqual(phase, 'released' if expected == 'released' else 'reserved')
 
+    def test_cancel_rejects_ambiguous_systemd_properties_and_accepts_reordered_unique(self):
+        self.reserve()
+        self.stop_patch.stop()
+        self.unit_state_patch.stop()
+        outputs = (
+            ('contradictory', 'ActiveState=active\nLoadState=not-found\nActiveState=inactive\nLoadState=loaded\n', False),
+            ('identical duplicates', 'ActiveState=inactive\nLoadState=loaded\nActiveState=inactive\nLoadState=loaded\n', False),
+            ('extra property', 'ActiveState=inactive\nLoadState=loaded\nSubState=dead\n', False),
+            ('malformed property', 'ActiveState=inactive\nLoadState=loaded\ngarbage\n', False),
+            ('value only', 'inactive\nloaded\n', False),
+            ('missing property', 'ActiveState=inactive\n', False),
+            ('reordered unique', 'LoadState=loaded\nActiveState=inactive\n', True),
+        )
+        with (patch.object(manager, 'unit_active', return_value=False),
+              patch.object(manager, 'owner_state', return_value='terminal'),
+              patch.object(profiles, 'local_cdp_version', return_value={'status':'unavailable'})):
+            for label, output, releases in outputs:
+                with self.subTest(label=label):
+                    result = SimpleNamespace(returncode=0, stdout=output)
+                    with patch.object(manager.subprocess, 'run', return_value=result):
+                        self.assertEqual(manager.cancel_unstarted_reservation('source')['status'],
+                                         'released' if releases else 'reservation-unavailable')
+                    with profiles.connect(self.lease_db) as c:
+                        phase = c.execute('SELECT phase FROM browser_stopped_reservations').fetchone()['phase']
+                    self.assertEqual(phase, 'released' if releases else 'reserved')
+                    self.assertEqual(manager.fixture_pool_reserved('fixture', 'fixture.invalid', 'anon'), not releases)
+
     def test_cancel_systemd_state_probe_exception_keeps_fence(self):
         self.reserve()
         self.unit_state_patch.stop()

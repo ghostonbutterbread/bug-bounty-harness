@@ -6,13 +6,13 @@
 - **Base commit:** `2d80b03af499a033a0b9a46c87b7e3a4eb61236c` (fetched `origin/beta`)
 - **Intended integration target:** `beta` (no merge or push authorized)
 - **Last updated:** 2026-09-25
-- **Latest immutable recovery checkpoint:** `2bad39a` (unit-identity repair); inspect branch tip for the systemd-state repair commit.
-- **Feature implementation commit(s):** `0e943c0`, `71d378d`, `2bad39a`, plus the subsequent systemd-state repair commit.
+- **Latest immutable recovery checkpoint:** `6400bb6` (initial systemd-state repair); inspect branch tip for the strict parser repair commit.
+- **Feature implementation commit(s):** `0e943c0`, `71d378d`, `2bad39a`, `6400bb6`, plus the subsequent strict parser repair commit.
 - **Inspiration:** stopped-profile feasibility is separate work; no feasibility-branch code used or edited.
 
 ## Intent and implemented contract
 
-A fixture-only, *inert* manager reservation persists in the canonical SQLite store. It binds exact fixture pool (`fixture`, `fixture.invalid`, `anon`), source lease, manager identity, owner, recorded control generation/root/unit/invocation/CDP and physical directory inode. Creation reads manager and canonical rows, checks stopped/terminal identity and historical physical aliases, then serializes against canonical acquisition with `BEGIN IMMEDIATE`. A retry is idempotent only for an identical `reserved` row; it cannot downgrade `copying` or `uncertain`. Cancellation requires an untouched `reserved` row, independently re-reading manager, canonical, launch receipt, stopped probes, the recorded unit's live systemd `InvocationID`, an affirmative `ActiveState=inactive` and `LoadState=loaded` probe, and physical identity against every recorded field; unknown/failed/absent unit states, probe errors, and missing/changed invocation leave the fence. Manager `start`, `retire`, `release`, and `sweep_rows` and direct canonical `acquire`, `transfer_managed_lease`, and `release` reject an active fence. The reservation is not time-expired; copy/uncertain phases stay fenced. No CLI or copy/snapshot activation is provided. No real browser profile was read.
+A fixture-only, *inert* manager reservation persists in the canonical SQLite store. It binds exact fixture pool (`fixture`, `fixture.invalid`, `anon`), source lease, manager identity, owner, recorded control generation/root/unit/invocation/CDP and physical directory inode. Creation reads manager and canonical rows, checks stopped/terminal identity and historical physical aliases, then serializes against canonical acquisition with `BEGIN IMMEDIATE`. A retry is idempotent only for an identical `reserved` row; it cannot downgrade `copying` or `uncertain`. Cancellation requires an untouched `reserved` row, independently re-reading manager, canonical, launch receipt, stopped probes, the recorded unit's live systemd `InvocationID`, exactly one `ActiveState=inactive` and one `LoadState=loaded` line in a successful systemd show result, and physical identity against every recorded field; unknown/failed/absent unit states, duplicate/extra/malformed properties, probe errors, and missing/changed invocation leave the fence. Manager `start`, `retire`, `release`, and `sweep_rows` and direct canonical `acquire`, `transfer_managed_lease`, and `release` reject an active fence. The reservation is not time-expired; copy/uncertain phases stay fenced. No CLI or copy/snapshot activation is provided. No real browser profile was read.
 
 `stopped()` remains unchanged: its nonzero `is-active` interpretation is used by reservation creation, cancellation preflight/alias rechecks, stop polling, legacy quiescence and auto-instance selection, starting proxy reconciliation (which additionally checks `unit_inactive`), release and sweep/status paths. Changing it globally would alter those admission and lifecycle contracts; the strict loaded/inactive check is cancellation-only and follows the matching invocation proof.
 
@@ -26,6 +26,9 @@ A fixture-only, *inert* manager reservation persists in the canonical SQLite sto
 - Third independent review of `2bad39a` **BLOCKED**: `stopped()` treated nonzero `is-active` (including `unknown`) as stopped; with terminal root/CDP and matching `InvocationID`, cancellation released the fence.
 - Systemd-state RED receipt: `python -m unittest agents.test_browser_stopped_reservation.ReservationTest.test_cancel_requires_independent_terminal_unit_state` — failed (missing strict unit-state probe before repair).
 - Systemd-state GREEN receipt: `python -m pytest agents/test_browser_stopped_reservation.py agents/test_browser_profile_lease.py agents/test_browser_manager_transfer_gate.py agents/test_browser_provisioner.py -q` — **89 passed, 34 subtests passed** (70.88s). Deterministic terminal root/CDP and matching invocation fixture covers unknown, failed, not-found, empty/error response and positive loaded/inactive; separate bus exception stays fenced. No independent post-repair review or integration/release claim.
+- Fourth independent review of `6400bb6` **BLOCKED**: `dict(line.split('=', 1) ...)` overwrote duplicate properties, accepting contradictory or identically repeated systemd output as cancellation proof.
+- Strict-parser RED receipt: `python3 -m unittest agents.test_browser_stopped_reservation.ReservationTest.test_cancel_rejects_ambiguous_systemd_properties_and_accepts_reordered_unique` — first contradictory subtest released unexpectedly; subsequent subtest failures cascaded from that premature release.
+- Strict-parser GREEN receipt: same focused unittest plus the existing terminal-state and probe-exception tests — **3 passed**. `python3 -m pytest agents/test_browser_stopped_reservation.py agents/test_browser_profile_lease.py agents/test_browser_manager_transfer_gate.py agents/test_browser_provisioner.py -q` — **90 passed, 41 subtests passed** (68.08s). Contradictory and identical duplicate, extra/malformed, value-only and missing properties retain the persisted fence; reordered unique pair releases. No independent post-repair review or integration/release claim.
 
 ## Blockers and deferred work
 
@@ -37,9 +40,9 @@ A fixture-only, *inert* manager reservation persists in the canonical SQLite sto
 ## Interruption / resume handoff
 
 - **Branch:** `feat/browser-stopped-reservation`
-- **Checkpoint:** `2bad39a` previous repair; inspect branch tip for this systemd-state repair commit and verify its diff/tests before any integration.
-- **Exact resume point:** obtain independent review of the new cancellation loaded/inactive systemd-state gate, then implement a manager+canonical-derived snapshot reader and verified phase/recovery contract only if feasibility evidence supports it.
-- **Working-tree state at handoff:** clean after the systemd-state repair commit.
+- **Checkpoint:** `6400bb6` previous repair; inspect branch tip for this strict parser repair commit and verify its diff/tests before any integration.
+- **Exact resume point:** obtain independent review of the cancellation strict systemd-state parser, then implement a manager+canonical-derived snapshot reader and verified phase/recovery contract only if feasibility evidence supports it.
+- **Working-tree state at handoff:** clean after the strict parser repair commit.
 
 ## Decision gates
 

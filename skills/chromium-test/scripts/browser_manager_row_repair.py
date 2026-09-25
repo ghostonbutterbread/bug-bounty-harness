@@ -90,9 +90,16 @@ def runtime_quiescent(row, receipt, lease, metadata):
     import subprocess
     from browser_provisioner import sysenv
     for name in (unit, 'browser-owner-' + row['browser_id']):
-        result = subprocess.run(['systemctl', '--user', 'is-active', name],
+        result = subprocess.run(['systemctl', '--user', 'show', name,
+                                 '-p', 'ActiveState', '-p', 'LoadState',
+                                 '-p', 'MainPID', '-p', 'ControlGroup'],
                                 capture_output=True, text=True, env=sysenv())
-        if result.returncode != 3 or result.stdout.strip() != 'inactive':
+        if result.returncode != 0:
+            raise Refused('unit-active-or-unknown')
+        fields = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
+        if (fields.get('ActiveState') != 'inactive' or
+                fields.get('LoadState') not in ('loaded', 'not-found') or
+                fields.get('MainPID') != '0' or fields.get('ControlGroup') != ''):
             raise Refused('unit-active-or-unknown')
     if metadata.get('owner') and owner_state(metadata['owner']) != 'terminal':
         raise Refused('task-owner-active-or-unknown')
@@ -157,7 +164,8 @@ def inspect(conn, program, account, *, probe=None):
             if lease is None:
                 raise Refused('lease-missing')
             if any(repaired[k] != lease[v] for k, v in LEASE_FIELDS.items()
-                   if k != 'unit' or lease[v] is not None):
+                   if not (k == 'unit' and lease[v] is None) and not
+                   (k == 'auth_domain' and lease[v] is None and repaired[k] == 'legacy-global')):
                 raise Refused('lease-conflict')
             if not repaired['unit'] == 'browser-' + repaired['browser_id']:
                 raise Refused('unit-identity')
@@ -171,7 +179,10 @@ def inspect(conn, program, account, *, probe=None):
             identity = physical_profile(repaired['profile_dir'])
             for owner in conn.execute("SELECT lease_id,profile_dir,program,account_alias,auth_domain FROM lease.browser_profile_leases WHERE lease_id!=? AND status='active'", (lid,)):
                 other = physical_profile(owner['profile_dir'])
-                same_pool = (owner['program'], owner['account_alias'], owner['auth_domain']) == (repaired['program'], repaired['account'], repaired['auth_domain'])
+                same_pool = ((owner['program'], owner['account_alias']) ==
+                             (repaired['program'], repaired['account']) and
+                             (owner['auth_domain'] == repaired['auth_domain'] or
+                              owner['auth_domain'] is None and repaired['auth_domain'] == 'legacy-global'))
                 if owner['profile_dir'] == repaired['profile_dir'] or (identity and other == identity) or (same_pool and other is None):
                     raise Refused('profile-other-owner')
             if lease['status'] not in TERMINAL_LEASES:

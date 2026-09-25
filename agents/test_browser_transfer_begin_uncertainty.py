@@ -5,6 +5,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from agents.test_browser_auth_site_contract import write_fixture_contract
 
 ROOT = Path(__file__).resolve().parents[1] / 'skills/chromium-test/scripts'
 spec = importlib.util.spec_from_file_location('browser_provisioner_begin_fault', ROOT / 'browser_provisioner.py')
@@ -20,6 +21,7 @@ def test_applied_begin_interrupt_releases_exact_owner(tmp_path, monkeypatch, los
     if cleanup_interrupt and interruption is httpx.ReadError:
         pytest.skip('cleanup cancellation requires an original cancellation')
     monkeypatch.setattr(manager, 'STATE', tmp_path / 'manager.sqlite')
+    write_fixture_contract(tmp_path, 'http://localhost:31337')
     rows = [dict(lease_id=name, browser_id=name, unit='unit-' + name,
                  program='fixture', auth_domain='fixture.invalid', account='anon')
             for name in ('source', 'destination')]
@@ -28,7 +30,7 @@ def test_applied_begin_interrupt_releases_exact_owner(tmp_path, monkeypatch, los
                          'process_identity': {'pid': 1}}, None)
                   for row, name in zip(rows, ('source', 'destination'))]
     monkeypatch.setattr(manager, '_transfer_candidates', lambda *args, **kwargs: candidates)
-    origin = 'http://127.0.0.1:31337'
+    origin = 'http://localhost:31337'
     state = {side: {'transaction': None, 'open': True, 'generation': side}
              for side in ('source', 'destination')}
     lost = []

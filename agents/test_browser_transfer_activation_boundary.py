@@ -6,6 +6,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from agents.test_browser_auth_site_contract import write_fixture_contract
 
 ROOT = Path(__file__).resolve().parents[1] / 'skills/chromium-test/scripts'
 spec = importlib.util.spec_from_file_location('browser_provisioner_activation_fault', ROOT / 'browser_provisioner.py')
@@ -26,7 +27,8 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
     old = 'http://127.0.0.1:9222/old-private-token'
     new = 'http://127.0.0.1:9222/new-private-token'
     secret = 'fixture-secret-must-not-appear'
-    origin = 'http://127.0.0.1:31337'
+    origin = 'http://localhost:31337'
+    write_fixture_contract(tmp_path, origin)
     rows, infos = [], []
     with manager.db() as db, profiles.connect(tmp_path / 'browser_profile_leases.sqlite') as leases:
         profiles.init_db(leases)
@@ -115,15 +117,18 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
                 return Response({'finalized': True})
             method = json['method']
             if method == 'Network.getAllCookies':
-                return Response({'result': {'cookies': [{'domain': '127.0.0.1', 'name': 'session',
-                            'path': '/', 'httpOnly': True, 'value': secret}] if s['cookie'] else []}})
+                return Response({'result': {'cookies': [{'domain': 'localhost', 'name': '__Host-session',
+                            'path': '/', 'httpOnly': True, 'secure': True, 'value': secret}] if s['cookie'] else []}})
             if method == 'Network.setCookies': s['cookie'] = True; return Response({'result': {}})
             if method == 'Network.deleteCookies': s['cookie'] = False; return Response({'result': {}})
             assert method == 'Runtime.evaluate'
             expression = json['params']['expression']
             if expression == 'location.origin': value = origin
             elif expression == 'location.href': value = origin + '/app'
-            elif expression.startswith("fetch('/whoami')"): value = s['cookie'] and s['storage']
+            elif expression.startswith('(async () => {') and 'DOMParser' in expression:
+                authenticated = s['cookie'] and s['storage']
+                value = {'url': origin + '/me', 'status': 200 if authenticated else 401,
+                         'redirected': False, 'principal': 'anon' if authenticated else 'guest'}
             elif expression.startswith('localStorage.getItem'): value = 'approved' if s['storage'] else None
             elif expression.startswith('localStorage.setItem'): s['storage'] = True; value = None
             elif expression.startswith('localStorage.removeItem'): s['storage'] = False; value = None

@@ -151,7 +151,7 @@ def test_fixture_transfer_rejects_changed_source_or_scope_before_browser_io(tmp_
             db.execute("UPDATE browsers SET program='other-program' WHERE lease_id='destination'")
         with lease.connect(canonical) as db:
             db.execute("UPDATE browser_profile_leases SET program='other-program' WHERE lease_id='destination'")
-    assert manager.manager_fixture_auth_transfer('source', 'destination', origin='http://127.0.0.1:31337') == {
+    assert manager.manager_fixture_auth_transfer('source', 'destination', origin='http://localhost:31337') == {
         'status': 'auth-clone-unavailable', 'reason': 'manager-identity-unverified'}
 
 def test_fixture_transfer_has_no_generic_origin_or_production_contract(tmp_path, monkeypatch):

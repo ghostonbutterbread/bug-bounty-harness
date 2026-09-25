@@ -2,6 +2,7 @@
 import asyncio
 import importlib.util
 from pathlib import Path
+from agents.test_browser_auth_site_contract import write_fixture_contract
 
 import httpx
 import pytest
@@ -17,6 +18,8 @@ spec.loader.exec_module(manager)
 def test_imported_recipient_disposed_when_source_unproved(tmp_path, monkeypatch, stop_outcome, source_failure):
     stop_succeeds = stop_outcome == 'success'
     monkeypatch.setattr(manager, 'STATE', tmp_path / 'manager.sqlite')
+    origin = 'http://localhost:31337'
+    write_fixture_contract(tmp_path, origin)
     rows = [dict(lease_id=side, browser_id=side, unit='unit-' + side,
                  state='running', program='fixture', auth_domain='fixture.invalid', account='anon')
             for side in ('source', 'destination')]
@@ -26,7 +29,6 @@ def test_imported_recipient_disposed_when_source_unproved(tmp_path, monkeypatch,
                   for row, side in zip(rows, ('source', 'destination'))]
     monkeypatch.setattr(manager, '_transfer_candidates', lambda *args, **kwargs: candidates)
     monkeypatch.setattr(manager, 'record_info', lambda row: candidates[0 if row['lease_id'] == 'source' else 1][1])
-    origin = 'http://127.0.0.1:31337'
     state = {side: {'cookie': side == 'source', 'storage': side == 'source',
                     'open': True, 'quarantined': False, 'ends': 0}
              for side in ('source', 'destination')}
@@ -86,7 +88,8 @@ def test_imported_recipient_disposed_when_source_unproved(tmp_path, monkeypatch,
             assert action == 'call'
             method = json['method']
             if method == 'Network.getAllCookies':
-                cookies = [{'domain': '127.0.0.1', 'name': 'session', 'path': '/', 'httpOnly': True}] if s['cookie'] else []
+                cookies = [{'domain': 'localhost', 'name': '__Host-session', 'path': '/',
+                            'httpOnly': True, 'secure': True}] if s['cookie'] else []
                 return Response({'result': {'cookies': cookies}})
             if method == 'Network.setCookies': s['cookie'] = True; return Response({'result': {}})
             if method == 'Network.deleteCookies': s['cookie'] = False; return Response({'result': {}})
@@ -94,12 +97,14 @@ def test_imported_recipient_disposed_when_source_unproved(tmp_path, monkeypatch,
             expression = json['params']['expression']
             if expression == 'location.origin': value = origin
             elif expression == 'location.href': value = origin + '/app'
-            elif expression.startswith("fetch('/whoami')"):
+            elif expression.startswith('(async () => {') and 'DOMParser' in expression:
                 if source_failure == 'cancel-recheck' and side == 'source' and state['destination']['storage']:
                     raise asyncio.CancelledError()
-                value = s['cookie'] and s['storage']
+                authenticated = s['cookie'] and s['storage']
                 if source_failure == 'recheck' and side == 'source' and state['destination']['storage']:
-                    value = False
+                    authenticated = False
+                value = {'url': origin + '/me', 'status': 200 if authenticated else 401,
+                         'redirected': False, 'principal': 'anon' if authenticated else 'guest'}
             elif expression.startswith('localStorage.getItem'): value = 'approved' if s['storage'] else None
             elif expression.startswith('localStorage.setItem'): s['storage'] = True; value = None
             elif expression.startswith('localStorage.removeItem'): s['storage'] = False; value = None

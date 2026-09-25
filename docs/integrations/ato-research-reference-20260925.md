@@ -22,7 +22,7 @@ The `/ato` skill routes to a skill-local research atlas after fresh surface obse
 ## Evidence and review
 
 - Tests and commands: `sources.py render --replace-in skills/ato/references/methods.md`; `sources.py verify skills/ato/references/methods.md --min-coverage 0.5` passed (33/60 cited sentences, all 26 registered sources cited; 18 over-citation warnings reflect adjacent inline citations grouped by the validator's rough sentence splitter); `git diff --check` passed. Source URL and claim review sampled against standards; runtime skill load remains pending integration.
-- Independent review: pending.
+- Independent review: independent source/route audit accepted integration with no blockers (2026-09-25); sampled RFC 10017, OIDC, SAML, reset, invite and pre-hijacking claims; separately reran citation verification and diff check. Optional note: make symlink dereference explicit in a future wording pass; the existing “resolve” instruction is correct.
 - Replay/cohort/fixture evidence: none; documentation only, no live target testing.
 - Merge/ancestry evidence: pending.
 
@@ -35,7 +35,7 @@ None known. Source breadth is necessarily non-exhaustive; future methods should 
 - **Owning feature branch/ref:** `docs/ato-research-reference-20260925`
 - **Latest immutable recovery checkpoint:** `e7c75356999296a93b7b2f9d6336c0ceecc42931` (reachable and an ancestor of this branch's tip)
 - **Feature implementation commit(s):** `e7c75356999296a93b7b2f9d6336c0ceecc42931`
-- **Exact resume point:** request independent source/route review of implementation commit and later dossier-only tip, address blockers, then integrate into `beta`.
+- **Exact resume point:** merge reviewed branch into clean `beta`, remove this temporary dossier from the merge result, verify citation source index and active runtime skill load, then push `origin/beta`.
 - **Working-tree state at handoff:** clean after this dossier update is committed; the branch tip includes a later dossier-only handoff commit.
 
 ## Decision gates
@@ -47,3 +47,4 @@ None known. Source breadth is necessarily non-exhaustive; future methods should 
 ## Decision record
 
 - 2026-09-25 — created task-owned feature worktree from current beta for online ATO research.
+- 2026-09-25 — independent reviewer accepted the source-grounded reference and router; no blockers. Citation linter's strict over-citation warnings are a sentence-segmentation artifact, not unsupported sources. Approved beta integration after clean merge and verification; no main promotion.

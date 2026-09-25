@@ -26,6 +26,8 @@ from agents.coverage_store import CoverageStore
 from agents.finding_visibility import normalize_submission
 from agents.ledger import (
     create_team_ledger_from_storage,
+    ledger_get,
+    patch_finding_by_fid,
     update_team_finding,
 )
 from agents.report_checker import (
@@ -46,6 +48,14 @@ from bounty_core.reports import refresh_report_navigation_from_ledger, write_fin
 
 
 SEVERITIES = {"EXCEPTIONAL", "CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "UNKNOWN"}
+EDITABLE_FINDING_FIELDS = {
+    "title", "type", "vulnerability_name", "file", "line", "class_name", "category",
+    "severity", "description", "impact", "poc", "remediation", "source", "sink",
+    "trust_boundary", "flow_path", "exploitability", "blocked_reason",
+    "chain_requirements", "review_notes", "review_reason", "scoring_authority",
+    "severity_rationale", "program_constraint", "context", "url", "endpoint", "asset",
+    "review_tier", "status",
+}
 KNOWN_CLASSES = {
     "dom-xss",
     "exec-sink-reachability",
@@ -1029,6 +1039,41 @@ class ManualHunter:
         print(f"Submission updated: {updated['fid']} -> {submission['state']}")
         return 0
 
+    def edit_finding(self, fid: str, patch_path: Path) -> int:
+        """Apply explicit content corrections to an existing FID only."""
+        patch = json.loads(patch_path.read_text(encoding="utf-8"))
+        if not isinstance(patch, dict) or not patch:
+            raise ValueError("finding patch must be a non-empty JSON object")
+        unknown = set(patch) - EDITABLE_FINDING_FIELDS
+        if unknown:
+            raise ValueError(f"finding fields not editable: {', '.join(sorted(unknown))}")
+        for key, value in patch.items():
+            if key == "line":
+                if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                    raise ValueError("line must be a non-negative integer")
+            elif not isinstance(value, str):
+                raise ValueError(f"{key} must be a string")
+        if "review_tier" in patch:
+            patch["tier"] = patch["review_tier"]
+
+        target_fid = _normalize_text(fid)
+        current = ledger_get(
+            self.program, target_fid, family=self.family, lane=self.lane,
+            root_override=self.storage_root,
+        )
+        if current is None:
+            raise ValueError(f"no finding found for fid {target_fid}")
+        updated = patch_finding_by_fid(
+            self.program, target_fid, patch, family=self.family, lane=self.lane,
+            root_override=self.storage_root, write_report=True, refresh=True,
+            update_current=bool({"status", "review_tier"} & patch.keys()),
+        )
+        if updated is None:
+            raise ValueError(f"no finding found for fid {target_fid}")
+        print(f"Finding updated: {target_fid}")
+        print(f"Report: {updated.get('report_path', '(none)')}")
+        return 0
+
     def _append_report(self, finding: dict[str, Any]) -> None:
         report_path = write_finding_report(self.storage, finding)
         finding["report_path"] = str(report_path)
@@ -1311,6 +1356,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--from-file", dest="from_file", help="Read a finding note from a markdown/text file.")
     mode.add_argument("--interactive", action="store_true", help="Prompt for finding fields interactively.")
     mode.add_argument("--set-submission", metavar="FID", help="Record whether one finding was submitted or dropped by FID.")
+    mode.add_argument("--edit-finding", metavar="FID", help="Correct an existing finding by FID using --patch-file JSON.")
     mode.add_argument(
         "--hunt",
         action="store_true",
@@ -1344,6 +1390,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="When a duplicate is found, attach the raw note to the existing finding comment ledger.",
     )
+    parser.add_argument("--patch-file", help="JSON object of explicit content fields to replace with --edit-finding.")
     parser.add_argument("--submission-state", choices=("not_submitted", "submitted", "dropped"), default="submitted")
     parser.add_argument("--submission-report", help="Short report reference or URL, when submitted.")
     parser.add_argument("--submission-result", choices=("valid", "duplicate"), help="Platform outcome, when known.")
@@ -1353,6 +1400,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if bool(args.edit_finding) != bool(args.patch_file):
+        raise ValueError("--edit-finding and --patch-file must be used together")
     verbosity = clamp_verbosity(args.verbose)
     hunter = ManualHunter(
         args.program,
@@ -1384,7 +1433,9 @@ def main(argv: list[str] | None = None) -> int:
             report=args.submission_report,
             result=args.submission_result,
         )
-    if args.hunt or not any((args.watch, args.add is not None, args.from_file, args.interactive, args.set_submission)):
+    if args.edit_finding:
+        return hunter.edit_finding(args.edit_finding, Path(args.patch_file).expanduser())
+    if args.hunt or not any((args.watch, args.add is not None, args.from_file, args.interactive, args.set_submission, args.edit_finding)):
         if verbosity.verbose:
             print(f"[/ledger] verbosity={verbosity.level}")
             print(f"[/ledger] storage_root={hunter.storage.lane_root}")

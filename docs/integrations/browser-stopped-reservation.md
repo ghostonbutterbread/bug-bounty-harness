@@ -1,55 +1,50 @@
-# Fixture stopped-profile reservation checkpoint
+# Stopped-profile reservation + offline fixture integration dossier
 
-- **Status:** blocked / inert gate only
-- **Owner:** Hermes bugfix subagent
-- **Branch / owning ref:** `feat/browser-stopped-reservation`
-- **Base commit:** `2d80b03af499a033a0b9a46c87b7e3a4eb61236c` (fetched `origin/beta`)
-- **Intended integration target:** `beta` (no merge or push authorized)
+- **Status:** blocked feature checkpoint; fixture-only, no production consumer
+- **Owner / branch:** Hermes bugfix integration / `feat/browser-stopped-reservation`
+- **Worktree:** `/home/ryushe/projects/bug_bounty_harness/browser-stopped-reservation`
+- **Reservation base:** fetched `origin/beta` `2d80b03af499a033a0b9a46c87b7e3a4eb61236c`
+- **Clone-fixture base:** `3a25123903152994b9b431ac668c47ac3ad14e79`
+- **Target:** `beta`, not merged or pushed; stable/production not authorized
 - **Last updated:** 2026-09-25
-- **Latest immutable recovery checkpoint:** `6400bb6` (initial systemd-state repair); inspect branch tip for the strict parser repair commit.
-- **Feature implementation commit(s):** `0e943c0`, `71d378d`, `2bad39a`, `6400bb6`, plus the subsequent strict parser repair commit.
-- **Inspiration:** stopped-profile feasibility is separate work; no feasibility-branch code used or edited.
+- **Recovery checkpoint:** `f5054edef7559453e73a48b793ebb090c25115bf` (two-parent fixture merge); the dossier-only checkpoint containing this update is the current branch tip.
+- **Implementation history:** reservation `0e943c0`, `71d378d`, `2bad39a`, `6400bb6`, `3f5ca5b7ce4a94069eb92d4ee7b4ae1de8d5d136`; offline helper and native fixture `9dfa0a4b71d15fc580eca97de6a82492e53b1163`, `6dc258c64abc537bab6ac4e4f22405614fd5fd6e`, `c5af3542ea5a2dd9c50a205dfcc3244f2fcd88e3`; integration merge `f5054ed` parents `3f5ca5b`, `c5af354`.
+- **Inspiration:** clone branch's offline helper originated from isolated `feat/browser-offline-snapshot` tip `015ff42` (copied, not merged). The clone's original dossier remains as historical branch-local evidence; this is the single active integration handoff. Remove both temporary dossiers only during a future accepted merge cleanup on the beta target, not on this checkpoint.
 
 ## Intent and implemented contract
 
-A fixture-only, *inert* manager reservation persists in the canonical SQLite store. It binds exact fixture pool (`fixture`, `fixture.invalid`, `anon`), source lease, manager identity, owner, recorded control generation/root/unit/invocation/CDP and physical directory inode. Creation reads manager and canonical rows, checks stopped/terminal identity and historical physical aliases, then serializes against canonical acquisition with `BEGIN IMMEDIATE`. A retry is idempotent only for an identical `reserved` row; it cannot downgrade `copying` or `uncertain`. Cancellation requires an untouched `reserved` row, independently re-reading manager, canonical, launch receipt, stopped probes, the recorded unit's live systemd `InvocationID`, exactly one `ActiveState=inactive` and one `LoadState=loaded` line in a successful systemd show result, and physical identity against every recorded field; unknown/failed/absent unit states, duplicate/extra/malformed properties, probe errors, and missing/changed invocation leave the fence. Manager `start`, `retire`, `release`, and `sweep_rows` and direct canonical `acquire`, `transfer_managed_lease`, and `release` reject an active fence. The reservation is not time-expired; copy/uncertain phases stay fenced. No CLI or copy/snapshot activation is provided. No real browser profile was read.
+Combine independently reviewed *fixture-only* feasibility and inert reservation history without rewriting either. The canonical SQLite reservation binds exact fixture pool (`fixture`, `fixture.invalid`, `anon`), lease, manager/owner/control generation/root/unit/invocation/CDP and physical inode. Creation verifies stopped/terminal identity and historical physical aliases and serializes with canonical acquisition (`BEGIN IMMEDIATE`). Identical `reserved` retry is idempotent but cannot downgrade `copying` or `uncertain`. Cancellation requires untouched `reserved`, independently re-read manager/canonical/launch/stopped proof, matching unit invocation, exactly one `ActiveState=inactive` and one `LoadState=loaded` in successful systemd output, and matching physical/control identity; unknown, duplicate, malformed, extra, missing or changed evidence retains the fence. Manager `start`, `retire`, `release`, `sweep_rows` and canonical `acquire`, `transfer_managed_lease`, `release` reject the active reservation. No expiry, CLI, copy phase or production activation exists. The existing general `stopped()` interpretation remains unchanged; strict systemd proof is cancellation-only.
 
-`stopped()` remains unchanged: its nonzero `is-active` interpretation is used by reservation creation, cancellation preflight/alias rechecks, stop polling, legacy quiescence and auto-instance selection, starting proxy reconciliation (which additionally checks `unit_inactive`), release and sweep/status paths. Changing it globally would alter those admission and lifecycle contracts; the strict loaded/inactive check is cancellation-only and follows the matching invocation proof.
+The offline helper accepts a proof reader, pins/checks physical source entries and excludes task-proxy/NSS material, but **does not itself provide a manager-held no-restart fence**. The opt-in disposable fixture separately demonstrates browser-native persistent HttpOnly cookie/localStorage success in physically distinct raw and filtered recipients, and probes session-only cookie loss; this is not a supported site/session contract. Raw comparison omits stale Singleton runtime artifacts. No live account, Blue profile, Hoster, real CA or client certificate was used.
 
 ## Evidence and review
 
-- Initial independent review of `0e943c0` **BLOCKED**: copying→retry rewrote phase to reserved and allowed cancellation; cancellation compared only generation/inode/manager ID, not root/CDP/unit/invocation/owner/canonical identity.
-- RED receipt before repair: `python3 -m pytest agents/test_browser_stopped_reservation.py -q` — 16 failed, 10 passed, 1 subtest passed (includes initial fixture harness cascades after first unexpected release; invalid `applying` variation removed because schema excludes it).
-- Second independent review of `71d378d` **BLOCKED**: inactive replacement unit invocation was not checked against the reservation; stable launch receipt allowed cancellation and removed the fence.
-- Unit-drift RED receipt: focused `python3 -m pytest agents/test_browser_stopped_reservation.py -q -k 'cancel_rejects_independent_unit_invocation_drift or cancel_rejects_missing_or_failed_unit_identity or cancel_matching_inactive_unit_releases_fence'` — 2 failed, 4 subtests failed, 1 passed; the drift case released the fence without invoking `unit_identity`.
-- Unit-drift GREEN receipt: `python3 -m pytest agents/test_browser_stopped_reservation.py agents/test_browser_profile_lease.py agents/test_browser_manager_transfer_gate.py agents/test_browser_provisioner.py -q` — **87 passed, 28 subtests passed** (72.57s); `git diff --check` clean. The fixture covers changed and absent unit invocation, probe exceptions, matching inactive cancellation, and the previous retry, canonical-fence and identity regressions. No post-repair independent review or integration/release claim.
-- Third independent review of `2bad39a` **BLOCKED**: `stopped()` treated nonzero `is-active` (including `unknown`) as stopped; with terminal root/CDP and matching `InvocationID`, cancellation released the fence.
-- Systemd-state RED receipt: `python -m unittest agents.test_browser_stopped_reservation.ReservationTest.test_cancel_requires_independent_terminal_unit_state` — failed (missing strict unit-state probe before repair).
-- Systemd-state GREEN receipt: `python -m pytest agents/test_browser_stopped_reservation.py agents/test_browser_profile_lease.py agents/test_browser_manager_transfer_gate.py agents/test_browser_provisioner.py -q` — **89 passed, 34 subtests passed** (70.88s). Deterministic terminal root/CDP and matching invocation fixture covers unknown, failed, not-found, empty/error response and positive loaded/inactive; separate bus exception stays fenced. No independent post-repair review or integration/release claim.
-- Fourth independent review of `6400bb6` **BLOCKED**: `dict(line.split('=', 1) ...)` overwrote duplicate properties, accepting contradictory or identically repeated systemd output as cancellation proof.
-- Strict-parser RED receipt: `python3 -m unittest agents.test_browser_stopped_reservation.ReservationTest.test_cancel_rejects_ambiguous_systemd_properties_and_accepts_reordered_unique` — first contradictory subtest released unexpectedly; subsequent subtest failures cascaded from that premature release.
-- Strict-parser GREEN receipt: same focused unittest plus the existing terminal-state and probe-exception tests — **3 passed**. `python3 -m pytest agents/test_browser_stopped_reservation.py agents/test_browser_profile_lease.py agents/test_browser_manager_transfer_gate.py agents/test_browser_provisioner.py -q` — **90 passed, 41 subtests passed** (68.08s). Contradictory and identical duplicate, extra/malformed, value-only and missing properties retain the persisted fence; reordered unique pair releases. No independent post-repair review or integration/release claim.
+- Prior independent reviews of reservation checkpoints found retry phase downgrade, incomplete cancellation identity, unit invocation drift, permissive nonzero `is-active`, then duplicate systemd property parsing; `71d378d`, `2bad39a`, `6400bb6`, `3f5ca5b` respectively addressed them. Final independent review approved **only** the inert reservation gate, with 90 focused tests and 41 subtests. The clone fixture's prior independent review approved **only** the controlled Chrome fixture (persistent login copied; session-only cookie lost locally), with 19 tests; neither approval covers integrated beta or production activation.
+- Fresh `git fetch origin beta` yielded `2d80b03af499a033a0b9a46c87b7e3a4eb61236c`, already an ancestor of the reservation branch. Clone's three commits were merged `--no-ff` from separate local checkout; no textual conflict. Beta commits between `3a25123` and `2d80b03` include manual-hunter edits, Chromium GPU/launcher updates and a Bounty Core pin; no overlapping clone-fixture file changes, and beta's provisioner change is retained. No rebase or beta worktree modification.
+- `python3 -m pytest -q agents/test_browser_stopped_reservation.py agents/test_browser_profile_lease.py agents/test_browser_manager_transfer_gate.py agents/test_browser_provisioner.py agents/test_browser_offline_snapshot.py` — **107 passed, 41 subtests passed** (71.13s).
+- `BBH_STOPPED_CLONE_CANARY=1 python3 -m pytest -q -s agents/test_browser_stopped_clone_feasibility.py -k 'persistent-cookie'` — **1 passed, 1 deselected**, 36.49s; raw, filtered, source principals verified; CA trust untested.
+- Matching `-k 'session-only-cookie'` — **failed twice** (139.96s: recipient verify `request` returned launch-failed/could not register owned browser; 80.28s: CDP `Page.navigate` timed out while checking an initially empty recipient). The negative case did not reach its auth comparison in either fresh run. The first `-k persistent_cookie` selected no test (pytest exit 5); corrected to the actual hyphenated ID above. Prior clone-branch receipts remain evidence but do not substitute for a green integrated negative run.
+- `git diff --check origin/beta...HEAD` was clean after the merge. Review staged dossier and final diff/secret scan before this checkpoint; no production copy consumer has been added.
 
 ## Blockers and deferred work
 
-- **Missing evidence:** manager-authoritative offline snapshot proof reader and session-only negative canary. **Fixture/trigger:** add a snapshot consumer only after separate feasibility branch supplies validated session-only evidence; run a crash-during-copy restart/claim/cleanup race with actual disposable browser and filesystem alias changes. **Why blocking:** the gate alone does not make copying safe.
-- **Missing consumer:** state transitions into `copying`/`uncertain`, verified completion/resume, and release after a successful copy. These are intentionally absent; no production clone activation or real account testing permitted. A manually uncertain row remains fenced until a future reviewed recovery protocol exists.
-- **Deferred filesystem TOCTOU:** `browser_profile_lease.py:185-201` physical-profile resolution and sweep around `:2852` / `:2939-2942` may race symlink/directory replacement across check and consumer access. The inert reservation has no snapshot/copy consumer, so this is not a present copy bypass; an actual consumer must pin/open the profile identity and verify at use, then exercise alias-swap races. Do not activate or merge into `beta` on the basis of fixture-only tests.
-- **Missing integration review:** independently examine all manager lifecycle entry points, physical alias race/TOCTOU behavior, and canonical policy mutation. Retry tests under a disposable browser after the above consumer exists.
+- **Fresh integrated negative fixture:** rerun the session-only opt-in fixture in a stable disposable local Chrome environment; diagnose bounded provisioner registration/CDP navigation failures using sanitized private startup metadata, never dump profile material. Trigger: host/native fixture readiness and a new integration review; command above with `-k 'session-only-cookie'`. Failure blocks a passing combined native receipt and beta integration decision.
+- **Manager-authoritative copy lifecycle:** no proof reader bound to the reservation or `copying`/`uncertain` recovery, durable completion, safe release, or crash/alias-swap race test. Trigger: separately reviewed manager+canonical consumer and disposal protocol; test real disposable browser copy interruption, restart, claim and filesystem alias changes. Without it, never activate production cloning.
+- **Trust/session contract:** real CA import/trust, NSS client certificate behavior, browser-version-dependent session-cookie restoration, service workers/IndexedDB, SSO/device binding and site-specific authorization remain untested. Trigger: approved isolated HTTPS/proxy and site-specific fixtures; no claim of general auth portability.
+- **Filesystem TOCTOU:** `browser_profile_lease.py` physical resolution and sweep may race alias replacement; an eventual copy consumer must pin/open identity at use and test alias swaps. Gate alone has no copy consumer.
 
 ## Interruption / resume handoff
 
-- **Branch:** `feat/browser-stopped-reservation`
-- **Checkpoint:** `6400bb6` previous repair; inspect branch tip for this strict parser repair commit and verify its diff/tests before any integration.
-- **Exact resume point:** obtain independent review of the cancellation strict systemd-state parser, then implement a manager+canonical-derived snapshot reader and verified phase/recovery contract only if feasibility evidence supports it.
-- **Working-tree state at handoff:** clean after the strict parser repair commit.
+- **Owner:** `feat/browser-stopped-reservation`; **immutable checkpoint:** `f5054edef7559453e73a48b793ebb090c25115bf`; dossier-only handoff is committed at tip.
+- **Exact resume:** investigate the failed integrated session-only native fixture, get independent review of combined diff and blocker disposition, then decide whether a fixture-only beta integration is appropriate. No automatic production/activation decision.
+- **Working tree:** clean after dossier checkpoint (verify independently).
 
 ## Decision gates
 
-- **Integration:** blocked pending independent review and full lifecycle/consumer verification.
-- **Activation:** prohibited; fixture only.
+- **Integration:** blocked pending fresh negative native fixture and combined review; no beta merge/push here.
+- **Activation/cohort:** prohibited; manager consumer/recovery and site/trust contract absent.
 - **Promotion:** prohibited.
 
 ## Decision record
 
-- 2026-09-25 — fixture-only inert reservation checkpoint; full clone safety explicitly not claimed.
+- 2026-09-25 — merged reviewed fixture history into reservation feature, preserved fetched beta ancestor; positive native case green, negative case newly red under integrated tree. Keep the feature branch for diagnosis and review.

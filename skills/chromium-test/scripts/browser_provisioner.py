@@ -211,40 +211,66 @@ def _fixture_source(db_conn, leases, source_id, agent_id, run_id):
 
 
 def _fixture_native_source_check(row, info, origin):
-    """Exclusive adapter ticket; fail closed if release cannot be proved."""
+    """Probe auth under an exact ticket; never infer release from an end ACK."""
     import httpx
     begin = {'transaction': uuid.uuid4().hex, 'owner': row['lease_id'],
              'generation': info['cdp_url'], 'destination': False}
+    binding = {k: begin[k] for k in ('transaction', 'owner', 'generation')}
+    ticket = None
+    verified = False
+    interruption = None
     with httpx.Client(transport=httpx.HTTPTransport(uds=info['control_socket']), timeout=15) as client:
-        ticket = None
-        try:
-            for _ in range(2):  # idempotent replay for a lost applied begin
-                try:
-                    response = client.post('http://localhost/transfer/begin', json=begin)
-                    response.raise_for_status()
-                    ticket = response.json()['ticket']
-                    break
-                except (OSError, ValueError, KeyError, httpx.HTTPError):
-                    pass
-            if not ticket:
-                return False
+        # A failed begin may have applied. Replay only the manager-derived attempt.
+        for _ in range(2):
+            try:
+                response = client.post('http://localhost/transfer/begin', json=begin)
+                response.raise_for_status()
+                ticket = response.json()['ticket']
+                break
+            except BaseException as exc:
+                if not isinstance(exc, (OSError, ValueError, KeyError, httpx.HTTPError)):
+                    interruption = exc
+        if ticket and interruption is None:
             def evaluate(expression):
                 response = client.post('http://localhost/transfer/call', json={
-                    **{k: begin[k] for k in ('transaction', 'owner', 'generation')},
-                    'ticket': ticket, 'method': 'Runtime.evaluate',
+                    **binding, 'ticket': ticket, 'method': 'Runtime.evaluate',
                     'params': {'expression': expression, 'returnByValue': True, 'awaitPromise': True}})
                 response.raise_for_status()
                 result = response.json()
                 if 'error' in result or 'exceptionDetails' in result.get('result', {}):
                     return None
                 return result['result']['result'].get('value')
-            verified = evaluate('location.origin') == origin and evaluate(FIXTURE_CHECK) is True
-            response = client.post('http://localhost/transfer/end', json={
-                **{k: begin[k] for k in ('transaction', 'owner', 'generation')}, 'ticket': ticket})
+            try:
+                verified = evaluate('location.origin') == origin and evaluate(FIXTURE_CHECK) is True
+            except BaseException as exc:
+                if not isinstance(exc, (OSError, ValueError, KeyError, httpx.HTTPError)):
+                    interruption = exc
+        if ticket:
+            try:
+                response = client.post('http://localhost/transfer/end', json={**binding, 'ticket': ticket})
+                response.raise_for_status()
+            except BaseException as exc:
+                if interruption is None and not isinstance(exc, (OSError, ValueError, KeyError, httpx.HTTPError)):
+                    interruption = exc
+        # Even an applied end with a lost reply needs an independent exact
+        # adapter identity/availability readback. Never release another ticket.
+        released = False
+        try:
+            response = client.get('http://localhost/identity')
             response.raise_for_status()
-            return verified
-        except (OSError, ValueError, KeyError, httpx.HTTPError):
-            return False
+            identity = response.json()
+            released = (identity.get('available') is True and identity.get('quarantined') is False
+                        and identity.get('cdp_url') == info['cdp_url']
+                        and identity.get('process_identity') == info['process_identity'])
+        except BaseException as exc:
+            if interruption is None and not isinstance(exc, (OSError, ValueError, KeyError, httpx.HTTPError)):
+                interruption = exc
+    if interruption is not None:
+        interruption.add_note('fixture promotion interrupted; source='
+                              + ('owner-preserved' if released else 'cleanup-incomplete'))
+        raise interruption.with_traceback(interruption.__traceback__)
+    return (True if verified and released and ticket else
+            'source-cleanup-incomplete' if not released else False)
 
 
 def manager_fixture_promote(source_lease_id, *, origin, owner_agent_id, owner_run_id):
@@ -264,8 +290,10 @@ def manager_fixture_promote(source_lease_id, *, origin, owner_agent_id, owner_ru
             identity = _fixture_identity(row, info)
             # Keep the ownership lock across the native check and metadata write:
             # concurrent promotions cannot both publish from the same snapshot.
-            if not _fixture_native_source_check(row, info, origin):
-                return unavailable('source-app-check-failed')
+            check = _fixture_native_source_check(row, info, origin)
+            if check is not True:
+                return unavailable('source-cleanup-incomplete' if check == 'source-cleanup-incomplete'
+                                   else 'source-app-check-failed')
             source = _fixture_source(store, leases, source_lease_id, owner_agent_id, owner_run_id)
             if not source or _fixture_identity(*source) != identity:
                 return unavailable('source-changed')
@@ -354,7 +382,8 @@ def manager_fixture_apply(recipient_lease_id, *, generation, owner_agent_id, own
         # Retain the node fence through transfer and disposition. Transfer still
         # acquires the canonical writer lock and rechecks both owners/generations.
         result = manager_fixture_auth_transfer(source_id, recipient_lease_id, origin=origin,
-                                               expected_source_identity=identity, _node_locked=True)
+                                               expected_source_identity=identity, _node_locked=True,
+                                               _peer_update_token=_PEER_UPDATE_TOKEN)
         with db() as store, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
             leases.execute('BEGIN IMMEDIATE')
             current = store.execute('SELECT generation FROM fixture_generations WHERE program=? AND auth_domain=? AND account=?', FIXTURE_POOL).fetchone()
@@ -379,8 +408,12 @@ def manager_fixture_apply(recipient_lease_id, *, generation, owner_agent_id, own
     return ({'status': 'fixture-peer-applied', 'generation': generation} if state == 'applied' else result)
 
 
+_PEER_UPDATE_TOKEN = object()  # Internal apply seam, not caller authentication.
+
+
 def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, origin,
-                                  expected_source_identity=None, _node_locked=False):
+                                  expected_source_identity=None, _node_locked=False,
+                                  _peer_update_token=None):
     """Private fixture-only synchronous transfer; never a CLI or generic site API.
 
     The fixture contract is intentionally hard-coded: program/domain/account,
@@ -431,6 +464,12 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
         with db() as manager_db, profiles.connect(STATE.parent / 'browser_profile_leases.sqlite') as leases:
             profiles.init_db(leases)
             leases.execute('BEGIN IMMEDIATE')
+            peer = manager_db.execute('SELECT state FROM fixture_peers WHERE lease_id=?',
+                                      (destination_lease_id,)).fetchone()
+            if peer:
+                if (_peer_update_token is not _PEER_UPDATE_TOKEN or peer['state'] != 'applying'
+                        or expected_source_identity is None or not _node_locked):
+                    return unavailable('recipient-approval-required')
             candidates = _transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id)
             if not candidates:
                 return unavailable('manager-identity-unverified')

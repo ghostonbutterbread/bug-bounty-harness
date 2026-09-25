@@ -365,9 +365,19 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
                     urllib.request.urlopen(destination + '/json/version', timeout=2)
                 assert evaluate(source, check) is True
                 return
+            # Direct clone is allowed only for an empty initial recipient, not
+            # for populated state or a promotion-pending peer.
+            evaluate(destination, "localStorage.setItem('fixture-credential', 'approved')")
+            assert manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin) == {
+                'status': 'auth-clone-unavailable', 'reason': 'destination-not-empty'}
+            assert evaluate(destination, "localStorage.getItem('fixture-credential')") == 'approved'
+            evaluate(destination, "localStorage.removeItem('fixture-credential')")
             assert manager.manager_fixture_promote(leases[0], origin=origin,
                 owner_agent_id='fixture-agent', owner_run_id='canary-0') == {
-                    'status': 'fixture-generation-promoted', 'generation': 1}
+                'status': 'fixture-generation-promoted', 'generation': 1}
+            assert manager.manager_fixture_pending(leases[1]) == {'status': 'pending', 'generation': 1}
+            assert manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin) == {
+                'status': 'auth-clone-unavailable', 'reason': 'recipient-approval-required'}
             assert manager.manager_fixture_pending(leases[1]) == {'status': 'pending', 'generation': 1}
             assert evaluate(destination, check) is False  # promotion did not touch peer
             evaluate(destination, "localStorage.setItem('fixture-credential', 'approved')")

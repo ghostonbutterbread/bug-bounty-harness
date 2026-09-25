@@ -1,13 +1,13 @@
 # Manual hunter finding-edit integration dossier
 
-- **Status:** feature (review pending)
+- **Status:** review-ready
 - **Owner:** Hermes
 - **Branch / owning ref:** `feat/manual-hunter-edit-finding`
 - **Base commit:** `3a25123903152994b9b431ac668c47ac3ad14e79`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-25
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commits:** none yet
+- **Latest immutable recovery checkpoint:** `661aacebd646e6b30411adf7b69462d4c60ff2c1`
+- **Feature implementation commits:** `661aacebd646e6b30411adf7b69462d4c60ff2c1`
 - **Inspiration / canonical references:** Ryu's correction to the duplicate-comment request; existing `bounty_core.ledger.patch_finding_by_fid` and `agents/ledger.py`.
 
 ## Intent
@@ -33,10 +33,10 @@ Give agents an explicit way to replace false ledger content and add verified fac
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/manual-hunter-edit-finding`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commits:** none yet
+- **Latest immutable recovery checkpoint:** `661aacebd646e6b30411adf7b69462d4c60ff2c1`
+- **Feature implementation commits:** `661aacebd646e6b30411adf7b69462d4c60ff2c1`
 - **Exact resume point:** review diff and committed tests, independent review, beta merge.
-- **Working-tree state at handoff:** implementation uncommitted until checkpoint below.
+- **Working-tree state at handoff:** clean after dossier checkpoint.
 
 ## Decision gates
 

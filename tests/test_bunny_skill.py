@@ -23,6 +23,15 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("never a factual finding", text)
         self.assertIn("verified reportable finding", text)
 
+    def test_role_visible_agent_names(self):
+        text = SKILL.read_text(encoding="utf-8")
+        for role in ("hunter", "recon", "verifier", "reporter"):
+            self.assertIn(f"bunny-{role}-", text)
+        self.assertIn("Claude Code's Agent tool", text)
+        self.assertIn("unique, short `name`", text)
+        self.assertIn("role written only inside the prompt does not rename", text)
+        self.assertIn("alongside the ordinary scoped `description` and full task packet", text)
+
     def test_registered(self):
         registry = (ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8")
         self.assertIn("| **bunny** |", registry)

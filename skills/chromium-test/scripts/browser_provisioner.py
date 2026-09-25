@@ -108,7 +108,7 @@ def manager_transfer_attestation_gate(source_lease_id, destination_lease_id):
             # generation. Do not materialize an auth_generation, identity, or grant.
             return {'status': 'auth-clone-unavailable', 'reason': 'attestation-hook-unavailable'}
 
-def _transfer_candidates(manager_db, leases, source_id, destination_id):
+def _transfer_candidates(manager_db, leases, source_id, destination_id, *, ticketed=False):
     """Derive both owners from canonical and manager state, never caller claims."""
     import browser_profile_lease as profiles
     if not source_id or not destination_id or source_id == destination_id:
@@ -132,7 +132,10 @@ def _transfer_candidates(manager_db, leases, source_id, destination_id):
                 or not physical or not identity or owner_state(identity) != 'active'
                 or not info.get('unit_invocation')
                 or info['unit_invocation'] != unit_identity(row['unit'])
-                or info.get('control_mode') != 'pipe-fenced' or not healthy(row)):
+                or info.get('control_mode') != 'pipe-fenced' or
+                (not ticketed and not healthy(row)) or
+                (ticketed and (not unit_active(row['unit']) or
+                 process_identity(identity['pid']) != identity))):
             return None
         candidates.append((row, info, physical))
     if (candidates[0][2] == candidates[1][2]
@@ -204,12 +207,14 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
             imported = False
             cleaned = True
             destination_end_unverified = False
+            destination_quarantined = False
+            committed_url = None
             reason = None
             try:
-                for _, info, _ in candidates:
+                for index, (_, info, _) in enumerate(candidates):
                     client = httpx.Client(transport=httpx.HTTPTransport(uds=info['control_socket']), timeout=15)
                     clients.append(client)
-                    tickets.append(control(client, 'begin')['ticket'])
+                    tickets.append(control(client, 'begin', {'destination': index == 1})['ticket'])
                 source, destination = clients
                 st, dt = tickets
                 require(eval_js(source, st, 'location.origin') == origin, 'source-origin-mismatch')
@@ -236,6 +241,9 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                 require(eval_js(destination, dt, check) is True, 'destination-app-check-failed')
                 require(eval_js(source, st, check) is True and eval_js(source, st, 'location.href') == source_url,
                         'source-changed')
+                require(bool(_transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id,
+                                                  ticketed=True)),
+                        'manager-identity-changed')
                 # Manager/canonical ownership stays serialized by node lock and
                 # BEGIN IMMEDIATE; the adapter's exclusive ticket fences CDP.
             except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError) as exc:
@@ -260,13 +268,64 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                         # possibly authenticated, incompletely cleaned browser.
                         continue
                     try:
+                        if index == 1 and reason and cleaned:
+                            control(client, 'abort', {'ticket': ticket})
+                            continue
                         control(client, 'end', {'ticket': ticket})
+                        if index == 1 and imported and not reason:
+                            destination_quarantined = True
                     except (OSError, ValueError, httpx.HTTPError):
                         cleaned = False
                         if index == 1 and imported:
                             destination_end_unverified = True
                 for client in clients:
                     client.close()
+            if not reason and cleaned and destination_quarantined and not destination_end_unverified:
+                try:
+                    with httpx.Client(transport=httpx.HTTPTransport(uds=candidates[1][1]['control_socket']), timeout=15) as check_client:
+                        identity = check_client.get('http://localhost/identity')
+                        identity.raise_for_status()
+                        observed = identity.json()
+                        require(observed.get('quarantined') is True and
+                                observed.get('cdp_url') == candidates[1][1]['cdp_url'] and
+                                observed.get('process_identity') == candidates[1][1]['process_identity'],
+                                'destination-identity-changed')
+                        # Source retains its owner and usable generation. Destination
+                        # remains private throughout commit; an ACK is not activation.
+                        committed = control(check_client, 'commit', {'ticket': tickets[1]})
+                        require(committed.get('quarantined') is True, 'commit-unverified')
+                        committed_url = committed['cdp_url']
+                        info = record_info(candidates[1][0])
+                        require(info.get('cdp_url') == candidates[1][1]['cdp_url'], 'destination-identity-changed')
+                        info['cdp_url'] = committed_url
+                        private_json(candidates[1][0]['launch_file'], info)
+                        leases.execute('UPDATE browser_profile_leases SET cdp_url=? WHERE lease_id=? AND cdp_url=?',
+                                       (committed_url, destination_lease_id, candidates[1][1]['cdp_url']))
+                        require(leases.execute('SELECT changes()').fetchone()[0] == 1, 'manager-identity-changed')
+                        leases.commit()
+                        control(check_client, 'activate', {'ticket': tickets[1]})
+                except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError):
+                    # A lost activation ACK may mean the fully published owner
+                    # is live. Accept only exact private identity plus canonical
+                    # URL; otherwise it remains quarantined for exact disposal.
+                    activated = False
+                    if committed_url:
+                        try:
+                            with httpx.Client(transport=httpx.HTTPTransport(
+                                    uds=candidates[1][1]['control_socket']), timeout=15) as probe:
+                                reply = probe.get('http://localhost/identity')
+                                reply.raise_for_status()
+                                state = reply.json()
+                                canonical = leases.execute(
+                                    'SELECT cdp_url FROM browser_profile_leases WHERE lease_id=?',
+                                    (destination_lease_id,)).fetchone()
+                                activated = (state.get('available') is True and
+                                             state.get('process_identity') == candidates[1][1]['process_identity'] and
+                                             state.get('cdp_url') == committed_url and canonical and
+                                             canonical['cdp_url'] == committed_url)
+                        except (OSError, ValueError, KeyError, httpx.HTTPError):
+                            pass
+                    destination_end_unverified = not activated
             if destination_end_unverified:
                 # The end may have applied even when its reply was lost. Its
                 # ticket cannot be relied on to fence an imported destination.
@@ -281,8 +340,6 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                 return unavailable('destination-cleanup-incomplete')
             if not cleaned:
                 return unavailable('destination-cleanup-unverified')
-            if not reason and not _transfer_candidates(manager_db, leases, source_lease_id, destination_lease_id):
-                return unavailable('manager-identity-changed')
             return unavailable(reason) if reason else {'status': 'fixture-auth-transferred'}
 
 

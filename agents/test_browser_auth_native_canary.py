@@ -50,8 +50,8 @@ def navigate(url, target, expected=None):
 
 
 @pytest.mark.skipif(os.environ.get('BBH_AUTH_CANARY') != '1', reason='explicit local canary opt-in')
-@pytest.mark.parametrize('lose_destination_end', [False, True])
-def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lose_destination_end, monkeypatch):
+@pytest.mark.parametrize('lost_reply', [None, 'end', 'commit'])
+def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_reply, monkeypatch):
     import websocket  # noqa: F401 - establish dependency before any browser allocation
     with disposable_fixture_root() as (root, _evidence):
         # The fixture issues an opaque test session; neither it nor browser state
@@ -146,11 +146,11 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lose_dest
                 page = next(p for p in json.load(urllib.request.urlopen(source + '/json/list', timeout=5))
                             if p['type'] == 'page')
                 with contextlib.closing(websocket.create_connection(page['webSocketDebuggerUrl'], timeout=5)):
-                    assert control.post('http://localhost/transfer/begin').status_code == 409
-                ticket = control.post('http://localhost/transfer/begin').json()['ticket']
+                    assert control.post('http://localhost/transfer/begin', json={}).status_code == 409
+                ticket = control.post('http://localhost/transfer/begin', json={}).json()['ticket']
                 try:
                     assert control.post('http://localhost/rotate').status_code == 409
-                    assert control.post('http://localhost/transfer/begin').status_code == 409
+                    assert control.post('http://localhost/transfer/begin', json={}).status_code == 409
                 finally:
                     assert control.post('http://localhost/transfer/end', json={'ticket': ticket}).status_code == 200
             assert evaluate(source, check) is True
@@ -166,7 +166,7 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lose_dest
             assert not any(c['name'] == 'session' and c['domain'] == '127.0.0.1'
                            for c in call_page(destination, 'Network.getAllCookies')['cookies'])
             assert evaluate(source, check) is True
-            if lose_destination_end:
+            if lost_reply:
                 with sqlite3.connect(env['BROWSER_PROVISIONER_STATE']) as db:
                     dest_launch = db.execute('SELECT launch_file FROM browsers WHERE lease_id=?',
                                              (leases[1],)).fetchone()[0]
@@ -185,10 +185,13 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lose_dest
                         self.is_destination = sockets[id(transport)] == dest_socket
                     def post(self, url, **kwargs):
                         response = self.client.post(url, **kwargs)
-                        if self.is_destination and url.endswith('/transfer/end'):
+                        if self.is_destination and url.endswith('/transfer/' + lost_reply):
                             applied.append(response.status_code)
-                            raise httpx.ReadError('end reply lost after application')
+                            raise httpx.ReadError('control reply lost after application')
                         return response
+                    def get(self, url, **kwargs): return self.client.get(url, **kwargs)
+                    def __enter__(self): return self
+                    def __exit__(self, *args): self.close()
                     def close(self): self.client.close()
                 with monkeypatch.context() as patch:
                     patch.setattr(httpx, 'HTTPTransport', tracked_transport)
@@ -203,6 +206,10 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lose_dest
                 return
             assert manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin) == {
                 'status': 'fixture-auth-transferred'}
+            destination = json.loads(Path(rows[1][1]).read_text())['cdp_url']
+            assert destination != urls[1]
+            with pytest.raises(Exception):
+                urllib.request.urlopen(urls[1] + '/json/version', timeout=2)
             assert evaluate(destination, check) is True
             assert evaluate(source, check) is True
             assert evaluate(source, 'location.href') == source_url

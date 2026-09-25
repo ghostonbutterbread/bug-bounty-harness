@@ -12,14 +12,16 @@ spec.loader.exec_module(manager)
 
 
 @pytest.mark.parametrize('stop_succeeds', [True, False])
-def test_applied_destination_end_with_lost_reply_requires_exact_disposal(tmp_path, monkeypatch, stop_succeeds):
+@pytest.mark.parametrize('lost_at', ['end', 'commit'])
+def test_applied_destination_reply_loss_requires_exact_disposal(tmp_path, monkeypatch, stop_succeeds, lost_at):
     monkeypatch.setattr(manager, 'STATE', tmp_path / 'manager.sqlite')
     rows = [dict(lease_id=name, browser_id=name, unit='unit-' + name,
                  program='fixture', auth_domain='fixture.invalid', account='anon')
             for name in ('source', 'destination')]
-    candidates = [(row, {'control_socket': str(tmp_path / (name + '.sock'))}, None)
+    candidates = [(row, {'control_socket': str(tmp_path / (name + '.sock')),
+                         'cdp_url': 'http://127.0.0.1:9222/old', 'process_identity': {'pid': 1}}, None)
                   for row, name in zip(rows, ('source', 'destination'))]
-    monkeypatch.setattr(manager, '_transfer_candidates', lambda *args: candidates)
+    monkeypatch.setattr(manager, '_transfer_candidates', lambda *args, **kwargs: candidates)
     monkeypatch.setattr(manager, 'stop_recorded', lambda row: stopped.append(row) or stop_succeeds)
     stopped = []
     origin = 'http://127.0.0.1:31337'
@@ -41,14 +43,20 @@ def test_applied_destination_end_with_lost_reply_requires_exact_disposal(tmp_pat
             action = url.rsplit('/', 1)[-1]
             if action == 'begin':
                 s['open'] = False
+                s['destination'] = json.get('destination', False)
                 return Response({'ticket': side})
             assert json['ticket'] == side
             if action == 'end':
-                s['open'] = True
+                s['open'] = not s['destination']
                 end_applied.append(side)
-                if side == 'destination':
+                if side == 'destination' and lost_at == 'end':
                     raise httpx.ReadError('response lost after application')
                 return Response({'ended': True})
+            if action == 'commit':
+                s['open'] = False
+                if lost_at == 'commit':
+                    raise httpx.ReadError('commit reply lost after application')
+                return Response({'cdp_url': 'http://127.0.0.1:9222/new', 'quarantined': True})
             method = json['method']
             if method == 'Network.getAllCookies':
                 value = [{'domain': '127.0.0.1', 'name': 'session', 'path': '/', 'httpOnly': True}] if s['cookie'] else []
@@ -66,6 +74,11 @@ def test_applied_destination_end_with_lost_reply_requires_exact_disposal(tmp_pat
                 else: raise AssertionError('unexpected expression')
                 return Response({'result': {'result': {'value': value}}})
             raise AssertionError(method)
+        def get(self, url):
+            assert url.endswith('/identity')
+            return Response({'quarantined': True, **candidates[1][1]})
+        def __enter__(self): return self
+        def __exit__(self, *args): self.close()
         def close(self): pass
 
     monkeypatch.setattr(httpx, 'HTTPTransport', lambda *, uds: type('Transport', (), {'uds': uds})())
@@ -75,5 +88,6 @@ def test_applied_destination_end_with_lost_reply_requires_exact_disposal(tmp_pat
     assert stopped == [rows[1]]  # exact destination, never source
     assert state['source']['cookie'] and state['source']['storage']
     assert state['destination']['cookie'] and state['destination']['storage']
+    assert not state['destination']['open']  # failed stop cannot reopen old public URL
     assert result == {'status': 'auth-clone-unavailable', 'reason':
                       'destination-disposed-after-end-uncertainty' if stop_succeeds else 'destination-cleanup-incomplete'}

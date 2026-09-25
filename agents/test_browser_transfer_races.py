@@ -26,6 +26,9 @@ def adapter():
     b.port = 9222
     b.rotating = b.frozen = False
     b.transfer = None
+    b.transfer_destination = False
+    b.quarantined = False
+    b.epoch = 0
     b.inflight = 0
     b.clients, b.roots, b.pending = {}, {}, {}
     b.serial = 0
@@ -42,7 +45,7 @@ def test_public_write_waiting_on_lock_cannot_cross_begin():
         writes = []
         b._write = lambda data: writes.append(json.loads(data[:-1]))
         async with b.write_lock:
-            public = asyncio.create_task(b.call('Runtime.evaluate', generation=b.token))
+            public = asyncio.create_task(b.call('Runtime.evaluate', generation=b.token, epoch=b.epoch))
             await asyncio.sleep(0)
             async def private(method, *args, **kwargs):
                 if method == 'Browser.getVersion':

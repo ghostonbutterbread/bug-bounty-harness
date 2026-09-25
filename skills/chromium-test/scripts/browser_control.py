@@ -79,6 +79,7 @@ class PipeBrowser:
         self.quarantined = False
         self.transfer_activated = False
         self.transfer_fenced = False
+        self.finalized_identity = None
         self.epoch = 0
         self.last_activity = time.time()
         self.last_use = time.monotonic()
@@ -411,6 +412,7 @@ class PipeBrowser:
         self.transfer = secrets.token_urlsafe(32)
         self.transfer_identity = identity
         self.transfer_destination = data['destination']
+        self.finalized_identity = None
         try:
             if "result" not in await self.call("Browser.getVersion"):
                 raise web.HTTPServiceUnavailable()
@@ -505,11 +507,29 @@ class PipeBrowser:
         async with self.transfer_lock:
             if not self._owns_transfer(data) or not self.transfer_activated or self.transfer_fenced or self.quarantined:
                 raise web.HTTPForbidden()
+            self.finalized_identity = (self.transfer, self.transfer_identity,
+                                       f'http://127.0.0.1:{self.port}/{self.token}')
             self.transfer = None
             self.transfer_identity = None
             self.transfer_destination = False
             self.transfer_activated = False
         return web.json_response({'finalized': True})
+
+    async def transfer_status(self, request):
+        """Private exact-ticket receipt, distinct from manager availability."""
+        data = await request.json()
+        async with self.transfer_lock:
+            url = f'http://127.0.0.1:{self.port}/{self.token}'
+            identity = (data.get('transaction'), data.get('owner'), data.get('generation'))
+            if self._owns_transfer(data):
+                phase = ('fenced' if self.transfer_fenced else
+                         'activated' if self.transfer_activated and not self.quarantined else
+                         'quarantined' if self.quarantined else 'pending')
+            elif self.finalized_identity == (data.get('ticket'), identity, url):
+                phase = 'finalized'
+            else:
+                raise web.HTTPForbidden()
+            return web.json_response({'phase': phase, 'cdp_url': url})
 
     async def transfer_fence(self, request):
         """Exact-ticket recovery; revoke admission before any awaited detach."""
@@ -567,6 +587,7 @@ class PipeBrowser:
         control.router.add_post("/transfer/abort", self.transfer_abort)
         control.router.add_post("/transfer/activate", self.transfer_activate)
         control.router.add_post("/transfer/finalize", self.transfer_finalize)
+        control.router.add_post("/transfer/status", self.transfer_status)
         control.router.add_post("/transfer/fence", self.transfer_fence)
         self.control_runner = web.AppRunner(control, access_log=None)
         await self.control_runner.setup()

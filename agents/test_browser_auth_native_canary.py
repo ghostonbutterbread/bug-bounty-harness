@@ -53,7 +53,7 @@ def navigate(url, target, expected=None):
 @pytest.mark.parametrize('lost_reply', [None, 'end', 'commit',
                                         'begin-source', 'begin-destination',
                                         'begin-source-unproved', 'begin-destination-unproved',
-                                        'activate-fence'])
+                                        'activate-fence', 'activate-ack', 'finalize-ack'])
 def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_reply, monkeypatch):
     import websocket  # noqa: F401 - establish dependency before any browser allocation
     with disposable_fixture_root() as (root, _evidence):
@@ -277,6 +277,55 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
                     assert evaluate(source, check) is True
                 finally:
                     for ws in admitted: ws.close()
+                return
+            if lost_reply in ('activate-ack', 'finalize-ack'):
+                import httpx
+                original_client, original_transport = httpx.Client, httpx.HTTPTransport
+                dest_socket = json.loads(Path(rows[1][1]).read_text())['control_socket']
+                sockets, applied, receipt = {}, [], {}
+                def tracked_transport(*, uds):
+                    transport = original_transport(uds=uds)
+                    sockets[id(transport)] = uds
+                    return transport
+                class LostAckClient:
+                    def __init__(self, *, transport, timeout):
+                        self.client = original_client(transport=transport, timeout=timeout)
+                        self.destination = sockets[id(transport)] == dest_socket
+                    def post(self, url, **kwargs):
+                        response = self.client.post(url, **kwargs)
+                        if self.destination and url.endswith('/transfer/' + lost_reply.split('-')[0]):
+                            assert response.status_code == 200
+                            applied.append(True)
+                            receipt.update(kwargs['json'])
+                            if lost_reply == 'activate-ack':
+                                assert self.client.get('http://localhost/identity').json()['available'] is False
+                                assert self.client.post('http://localhost/transfer/status',
+                                                        json=receipt).json()['phase'] == 'activated'
+                            raise httpx.ReadError('ack lost after adapter application')
+                        return response
+                    def get(self, url, **kwargs): return self.client.get(url, **kwargs)
+                    def __enter__(self): return self
+                    def __exit__(self, *args): self.close()
+                    def close(self): self.client.close()
+                with monkeypatch.context() as patch:
+                    patch.setattr(httpx, 'HTTPTransport', tracked_transport)
+                    patch.setattr(httpx, 'Client', LostAckClient)
+                    disposition = manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin)
+                assert applied == [True] and disposition == {'status': 'fixture-auth-transferred'}
+                published = json.loads(Path(rows[1][1]).read_text())['cdp_url']
+                with original_client(transport=original_transport(uds=dest_socket), timeout=15) as exact:
+                    assert exact.get('http://localhost/identity').json()['available'] is True
+                    assert exact.post('http://localhost/transfer/status', json=receipt).json() == {
+                        'phase': 'finalized', 'cdp_url': published}
+                    for mutation in ({'ticket': 'wrong'}, {'owner': 'wrong'},
+                                     {'generation': 'wrong'}, {'transaction': 'wrong'}):
+                        assert exact.post('http://localhost/transfer/status',
+                                          json={**receipt, **mutation}).status_code == 403
+                with pytest.raises(Exception):
+                    urllib.request.urlopen(destination + '/json/version', timeout=2)
+                assert evaluate(published, check) is True
+                assert evaluate(source, check) is True
+                assert evaluate(source, 'location.href') == source_url
                 return
             if lost_reply:
                 with sqlite3.connect(env['BROWSER_PROVISIONER_STATE']) as db:

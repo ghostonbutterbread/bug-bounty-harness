@@ -224,6 +224,38 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
             reason = None
             interruption = None
             cleanup_failure = None
+            def published_receipt(probe, phase):
+                status = control(probe, 'status', {'ticket': tickets[1]})
+                identity = probe.get('http://localhost/identity')
+                identity.raise_for_status()
+                state = identity.json()
+                canonical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?',
+                                           (destination_lease_id,)).fetchone()
+                launch = record_info(candidates[1][0])
+                row, original, _ = candidates[1]
+                if not (status.get('phase') == phase and status.get('cdp_url') == committed_url and
+                        state.get('quarantined') is False and
+                        state.get('available') is (phase == 'finalized') and
+                        state.get('process_identity') == original['process_identity'] and
+                        state.get('cdp_url') == committed_url and
+                        process_identity(original['process_identity']['pid']) == original['process_identity'] and
+                        unit_active(row['unit']) and unit_identity(row['unit']) == original['unit_invocation'] and
+                        launch.get('cdp_url') == committed_url and
+                        launch.get('process_identity') == original['process_identity'] and
+                        launch.get('unit_invocation') == original['unit_invocation'] and
+                        canonical is not None and canonical['status'] == 'active' and
+                        canonical['browser_status'] == 'running' and
+                        canonical['owner_agent_id'] == row['agent_id'] and
+                        canonical['owner_run_id'] == row['run_id'] and
+                        canonical['service_unit'] == row['unit'] and
+                        canonical['profile_dir'] == row['profile_dir'] and
+                        canonical['manager_id'] == manager_id() and
+                        canonical['cdp_url'] == committed_url):
+                    return False
+                # Exact public endpoint must accept the committed generation.
+                public = httpx.get(committed_url + '/json/version', timeout=5)
+                public.raise_for_status()
+                return public.json().get('webSocketDebuggerUrl') == committed_url.replace('http:', 'ws:') + '/devtools/browser'
             # A post-import exception must not escape before exact recipient disposal.
             try:
                 try:
@@ -402,38 +434,19 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                             activation_attempted = True
                             require(control(check_client, 'activate', {'ticket': tickets[1]}).get('activated') is True,
                                     'activation-unverified')
-                            activated = True  # ACK is the irreversible terminal boundary.
+                            # ACK alone is not an attestation of the published owner.
                     except BaseException as exc:
                         # The activate ACK (including a cancellation after application)
                         # cannot decide ownership. Reconcile all three exact authorities
                         # before treating the published recipient as committed.
                         if not isinstance(exc, (TransferError, OSError, ValueError, KeyError, httpx.HTTPError)):
                             interruption = exc
-                    if committed_url and not activated:
+                    if committed_url:
                         try:
                             with httpx.Client(transport=httpx.HTTPTransport(
                                     uds=candidates[1][1]['control_socket']), timeout=15) as probe:
-                                reply = probe.get('http://localhost/identity')
-                                reply.raise_for_status()
-                                state = reply.json()
-                                canonical = leases.execute(
-                                    'SELECT * FROM browser_profile_leases WHERE lease_id=?',
-                                    (destination_lease_id,)).fetchone()
-                                launch = record_info(candidates[1][0])
-                                activated = (state.get('available') is True and
-                                             state.get('quarantined') is False and
-                                             state.get('process_identity') == candidates[1][1]['process_identity'] and
-                                             state.get('cdp_url') == committed_url and
-                                             launch.get('cdp_url') == committed_url and
-                                             launch.get('process_identity') == candidates[1][1]['process_identity'] and
-                                             canonical is not None and canonical['status'] == 'active' and
-                                             canonical['browser_status'] == 'running' and
-                                             canonical['owner_agent_id'] == candidates[1][0]['agent_id'] and
-                                             canonical['owner_run_id'] == candidates[1][0]['run_id'] and
-                                             canonical['service_unit'] == candidates[1][0]['unit'] and
-                                             canonical['profile_dir'] == candidates[1][0]['profile_dir'] and
-                                             canonical['manager_id'] == manager_id() and
-                                             canonical['cdp_url'] == committed_url)
+                                bindings[id(probe)] = bindings[id(clients[1])]
+                                activated = published_receipt(probe, 'activated')
                         except BaseException as exc:
                             # Readback is only evidence of activation, never a
                             # new terminal decision or a replacement for the
@@ -444,17 +457,27 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                         # Retire the exact recovery ticket only after manager
                         # ownership/commit evidence. A lost finalize reply is
                         # not permission to leave an unverified public session.
+                        finalized = False
                         try:
                             with httpx.Client(transport=httpx.HTTPTransport(
                                     uds=candidates[1][1]['control_socket']), timeout=15) as final_client:
                                 bindings[id(final_client)] = bindings[id(clients[1])]
                                 require(control(final_client, 'finalize', {'ticket': tickets[1]}).get('finalized') is True,
                                         'finalize-unverified')
+                                finalized = published_receipt(final_client, 'finalized')
                         except BaseException:
-                            # Activation itself is already committed; a lost
-                            # finalize reply may have retired the ticket. Never
-                            # attempt rollback after verified publication.
-                            pass
+                            try:
+                                with httpx.Client(transport=httpx.HTTPTransport(
+                                        uds=candidates[1][1]['control_socket']), timeout=15) as final_probe:
+                                    bindings[id(final_probe)] = bindings[id(clients[1])]
+                                    finalized = published_receipt(final_probe, 'finalized')
+                            except BaseException:
+                                pass
+                        if not finalized:
+                            # Ticket may still be live. Fence before exact disposal;
+                            # never report success with an unverified public recipient.
+                            activated = False
+                            reason = 'finalize-unverified'
                     if activation_attempted and not activated:
                         # A failed activate readback does not prove the URL is
                         # private. Exact adapter recovery revokes admission and

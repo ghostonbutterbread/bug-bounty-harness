@@ -15,6 +15,7 @@ import browser_profile_lease as profiles
 
 
 @pytest.mark.parametrize('fault', ['before', 'after', 'lost-ack', None,
+                                   'lost-finalize-ack', 'finalize-unproved',
                                    'secondary-stop', 'secondary-readback',
                                    'readback-exit', 'stop-exit', 'published-readback-exit',
                                    'published-readback-unavailable', 'published-interrupted-readback-exit',
@@ -46,6 +47,9 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
         db.commit()
         leases.commit()
     monkeypatch.setattr(manager, '_transfer_candidates', lambda *args, **kwargs: [(r, i, side) for r, i, side in zip(rows, infos, ('source', 'destination'))])
+    monkeypatch.setattr(manager, 'process_identity', lambda pid: {'pid': pid})
+    monkeypatch.setattr(manager, 'unit_active', lambda unit: True)
+    monkeypatch.setattr(manager, 'unit_identity', lambda unit: unit.removesuffix('-unit') + '-inv')
     state = {'source': {'cookie': True, 'storage': True, 'available': True, 'quarantined': False},
              'destination': {'cookie': False, 'storage': False, 'available': True, 'quarantined': False}}
     stopped = []
@@ -70,8 +74,13 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
             s = state[side]
             if action == 'begin':
                 s['available'] = False
+                s['binding'] = {k: json[k] for k in ('transaction', 'owner', 'generation')}
                 return Response({'ticket': side})
             assert json['ticket'] == side
+            assert all(json[k] == s['binding'][k] for k in s['binding'])
+            if action == 'status':
+                return Response({'phase': s.get('phase', 'pending'),
+                                 'cdp_url': new if s.get('rotated') else old})
             if action == 'end':
                 s['quarantined'] = side == 'destination'
                 s['available'] = side == 'source'
@@ -86,10 +95,10 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
                     raise KeyboardInterrupt(secret)
                 if fault in ('readback-exit', 'stop-exit'):
                     raise httpx.ReadError(secret)
-                s['quarantined'], s['available'] = False, True
-                if fault in ('after', 'published-interrupted-readback-exit'):
+                s['quarantined'], s['available'], s['phase'] = False, False, 'activated'
+                if fault == 'published-interrupted-readback-exit':
                     raise KeyboardInterrupt(secret)
-                if fault in ('lost-ack', 'published-readback-exit', 'published-readback-unavailable', 'published-fence-unavailable'):
+                if fault in ('after', 'lost-ack', 'published-readback-exit', 'published-readback-unavailable', 'published-fence-unavailable'):
                     raise httpx.ReadError(secret)
                 return Response({'activated': True})
             if action == 'fence':
@@ -99,7 +108,10 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
                 s['fenced'] = True
                 return Response({'fenced': True, 'quarantined': True, 'cdp_url': new + '-fenced'})
             if action == 'finalize':
-                assert s['available'] and not s['quarantined']
+                assert s['phase'] == 'activated' and not s['quarantined']
+                if fault == 'finalize-unproved': raise httpx.ReadError(secret)
+                s['phase'], s['available'] = 'finalized', True
+                if fault == 'lost-finalize-ack': raise httpx.ReadError(secret)
                 return Response({'finalized': True})
             method = json['method']
             if method == 'Network.getAllCookies':
@@ -135,6 +147,8 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
     def json_load_url(path): return json.loads(Path(path).read_text())['cdp_url']
     monkeypatch.setattr(httpx, 'HTTPTransport', lambda *, uds: type('Transport', (), {'uds': uds})())
     monkeypatch.setattr(httpx, 'Client', Client)
+    monkeypatch.setattr(httpx, 'get', lambda url, **kwargs: Response({
+        'webSocketDebuggerUrl': new.replace('http:', 'ws:') + '/devtools/browser'}))
     if fault in ('before', 'secondary-stop', 'secondary-readback', 'readback-exit',
                  'stop-exit', 'published-readback-exit', 'published-interrupted-readback-exit'):
         expected = SystemExit if fault in ('readback-exit', 'stop-exit', 'published-readback-exit') else KeyboardInterrupt
@@ -158,14 +172,20 @@ def test_activation_is_irreversible_only_after_verified_application(tmp_path, mo
                           'source': 'owner-preserved', 'destination': 'cleanup-incomplete',
                           'public_exposure': 'possible'}
         assert stopped == ['destination']
-        assert state['destination']['available']
+        assert state['destination']['phase'] == 'activated' and not state['destination']['quarantined']
     elif fault == 'published-readback-unavailable' and not stop_succeeds:
         result = manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
         assert result == {'status': 'auth-clone-unavailable', 'reason': 'destination-fenced-after-activation-uncertainty',
                           'source': 'owner-preserved', 'destination': 'fenced'}
         assert stopped == ['destination']
         assert secret not in str(result)
-    elif fault in ('published-readback-unavailable', 'published-fence-unavailable'):
+    elif fault == 'finalize-unproved' and not stop_succeeds:
+        result = manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
+        assert result == {'status': 'auth-clone-unavailable',
+                          'reason': 'destination-fenced-after-activation-uncertainty',
+                          'source': 'owner-preserved', 'destination': 'fenced'}
+        assert stopped == ['destination']
+    elif fault in ('published-readback-unavailable', 'published-fence-unavailable', 'finalize-unproved'):
         result = manager.manager_fixture_auth_transfer('source', 'destination', origin=origin)
         assert result == {'status': 'auth-clone-unavailable', 'reason': 'destination-disposed-after-end-uncertainty'}
         assert stopped == ['destination']

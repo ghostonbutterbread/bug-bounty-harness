@@ -208,8 +208,21 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
                     urllib.request.urlopen(destination + '/json/version', timeout=2)
                 assert evaluate(source, check) is True
                 return
-            assert manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin) == {
-                'status': 'fixture-auth-transferred'}
+            assert manager.manager_fixture_promote(leases[0], origin=origin,
+                owner_agent_id='fixture-agent', owner_run_id='canary-0') == {
+                    'status': 'fixture-generation-promoted', 'generation': 1}
+            assert manager.manager_fixture_pending(leases[1]) == {'status': 'pending', 'generation': 1}
+            assert evaluate(destination, check) is False  # promotion did not touch peer
+            evaluate(destination, "localStorage.setItem('fixture-credential', 'approved')")
+            assert manager.manager_fixture_apply(leases[1], generation=1,
+                owner_agent_id='fixture-agent', owner_run_id='canary-1', approved_boundary=True) == {
+                    'status': 'auth-clone-unavailable', 'reason': 'destination-not-empty'}
+            assert manager.manager_fixture_pending(leases[1]) == {'status': 'pending', 'generation': 1}
+            evaluate(destination, "localStorage.removeItem('fixture-credential')")
+            assert manager.manager_fixture_apply(leases[1], generation=1,
+                owner_agent_id='fixture-agent', owner_run_id='canary-1', approved_boundary=True) == {
+                    'status': 'fixture-peer-applied', 'generation': 1}
+            assert manager.manager_fixture_pending(leases[1]) == {'status': 'applied', 'generation': 1}
             destination = json.loads(Path(rows[1][1]).read_text())['cdp_url']
             assert destination != urls[1]
             with pytest.raises(Exception):

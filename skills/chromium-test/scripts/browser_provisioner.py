@@ -217,6 +217,8 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
             source_recheck_failed = False
             committed_url = None
             reason = None
+            interruption = None
+            cleanup_failure = None
             # A post-import exception must not escape before exact recipient disposal.
             try:
                 try:
@@ -228,16 +230,19 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                         bindings[id(client)] = {k: begin[k] for k in ('transaction', 'owner', 'generation')}
                         try:
                             ticket = control(client, 'begin', begin)['ticket']
-                        except (OSError, ValueError, httpx.HTTPError):
+                        except BaseException as exc:
                             # The adapter may have applied begin before its reply was
-                            # lost. Replay only this exact manager-derived attempt.
+                            # lost, including on cancellation. Replay only this
+                            # exact manager-derived attempt before releasing it.
                             try:
                                 ticket = control(client, 'begin', begin)['ticket']
-                            except (OSError, ValueError, httpx.HTTPError):
+                            except BaseException:
                                 ticket = None
                                 uncertain_begin.add(index)
                             tickets.append(ticket)
-                            raise TransferError('transfer-control-unavailable')
+                            if isinstance(exc, (OSError, ValueError, httpx.HTTPError)):
+                                raise TransferError('transfer-control-unavailable') from exc
+                            raise
                         tickets.append(ticket)
                     source, destination = clients
                     st, dt = tickets
@@ -276,7 +281,13 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                     # BEGIN IMMEDIATE; the adapter's exclusive ticket fences CDP.
                 except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError) as exc:
                     reason = str(exc) if isinstance(exc, TransferError) else 'transfer-control-unavailable'
+                except BaseException as exc:
+                    if imported:
+                        raise  # The outer boundary owns imported-recipient disposal.
+                    interruption = exc
+                    reason = 'transfer-interrupted'
                 finally:
+                    active_failure = sys.exc_info()[1]
                     if imported:
                         try:
                             if reason:
@@ -288,13 +299,15 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                                            eval_js(destination, dt, "localStorage.getItem('fixture-credential')") is None and
                                            not any(c['domain'] == '127.0.0.1' for c in
                                                    call(destination, dt, 'Network.getAllCookies')['cookies']))
-                        except (TransferError, OSError, ValueError, KeyError, httpx.HTTPError):
+                        except BaseException as exc:
                             cleaned = False
+                            if active_failure is None and interruption is None:
+                                cleanup_failure = exc
                     for index, (client, ticket) in enumerate(zip(clients, tickets)):
                         if index in uncertain_begin:
                             cleaned = False
                             continue
-                        if index == 1 and imported and (not cleaned or source_recheck_failed):
+                        if index == 1 and imported and (not cleaned or source_recheck_failed or cleanup_failure):
                             # Keep the recipient private until exact disposal, even
                             # when rollback appears clean after a source failure.
                             continue
@@ -305,7 +318,10 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                             control(client, 'end', {'ticket': ticket})
                             if index == 1 and imported and not reason:
                                 destination_quarantined = True
-                        except (OSError, ValueError, httpx.HTTPError):
+                        except BaseException as exc:
+                            if (not isinstance(exc, (OSError, ValueError, httpx.HTTPError))
+                                    and active_failure is None and interruption is None and cleanup_failure is None):
+                                cleanup_failure = exc
                             if index == 1:
                                 cleaned = False
                                 if imported:
@@ -313,7 +329,13 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                             else:
                                 uncertain_begin.add(0)
                     for client in clients:
-                        client.close()
+                        try:
+                            client.close()
+                        except BaseException as exc:
+                            if active_failure is None and interruption is None and cleanup_failure is None:
+                                cleanup_failure = exc
+                if cleanup_failure is not None:
+                    raise cleanup_failure.with_traceback(cleanup_failure.__traceback__)
                 if uncertain_begin:
                     # A missing ticket or lost source-end reply is not proof of
                     # release. Check only this manager-recorded process/generation;
@@ -331,11 +353,19 @@ def manager_fixture_auth_transfer(source_lease_id, destination_lease_id, *, orig
                                         observed.get('cdp_url') == info['cdp_url'] and
                                         observed.get('process_identity') == info['process_identity']):
                                     uncertain_begin.remove(index)
-                        except (OSError, ValueError, KeyError, httpx.HTTPError):
+                        except BaseException:
                             pass
                     if not imported:
                         cleaned = True
                 source_unproved = 0 in uncertain_begin
+                if interruption is not None:
+                    interruption.add_note(
+                        'fixture transfer interrupted; source='
+                        + ('cleanup-incomplete' if source_unproved else 'owner-preserved')
+                        + '; destination='
+                        + ('cleanup-incomplete' if 1 in uncertain_begin else 'owner-preserved')
+                    )
+                    raise interruption.with_traceback(interruption.__traceback__)
                 # Resolve source uncertainty before any destination commit. Even a
                 # clean rollback cannot authorize release of an imported recipient
                 # when source release or the post-import recheck is unproved.

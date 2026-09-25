@@ -50,7 +50,9 @@ def navigate(url, target, expected=None):
 
 
 @pytest.mark.skipif(os.environ.get('BBH_AUTH_CANARY') != '1', reason='explicit local canary opt-in')
-@pytest.mark.parametrize('lost_reply', [None, 'end', 'commit'])
+@pytest.mark.parametrize('lost_reply', [None, 'end', 'commit',
+                                        'begin-source', 'begin-destination',
+                                        'begin-source-unproved', 'begin-destination-unproved'])
 def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_reply, monkeypatch):
     import websocket  # noqa: F401 - establish dependency before any browser allocation
     with disposable_fixture_root() as (root, _evidence):
@@ -170,6 +172,62 @@ def test_two_chrome_native_cookie_and_selected_origin_storage_transfer(lost_repl
             assert not any(c['name'] == 'session' and c['domain'] == '127.0.0.1'
                            for c in call_page(destination, 'Network.getAllCookies')['cookies'])
             assert evaluate(source, check) is True
+            if lost_reply and lost_reply.startswith('begin-'):
+                side = 'source' if 'source' in lost_reply else 'destination'
+                unproved = lost_reply.endswith('-unproved')
+                target_socket = socket_path if side == 'source' else json.loads(Path(rows[1][1]).read_text())['control_socket']
+                original_client, original_transport = httpx.Client, httpx.HTTPTransport
+                sockets, applied = {}, []
+                def tracked_transport(*, uds):
+                    transport = original_transport(uds=uds)
+                    sockets[id(transport)] = uds
+                    return transport
+                class InterruptedBeginClient:
+                    def __init__(self, *, transport, timeout):
+                        self.client = original_client(transport=transport, timeout=timeout)
+                        self.target = sockets[id(transport)] == target_socket
+                    def post(self, url, **kwargs):
+                        if self.target and url.endswith('/transfer/begin'):
+                            if applied and unproved:
+                                raise httpx.ReadError('exact recovery reply unavailable')
+                            response = self.client.post(url, **kwargs)
+                            if not applied:
+                                applied.append((response.status_code, kwargs['json'].copy()))
+                                raise KeyboardInterrupt('fixture begin interrupted')
+                            return response
+                        return self.client.post(url, **kwargs)
+                    def get(self, url, **kwargs): return self.client.get(url, **kwargs)
+                    def __enter__(self): return self
+                    def __exit__(self, *args): self.close()
+                    def close(self): self.client.close()
+                with monkeypatch.context() as patch:
+                    patch.setattr(httpx, 'HTTPTransport', tracked_transport)
+                    patch.setattr(httpx, 'Client', InterruptedBeginClient)
+                    with pytest.raises(KeyboardInterrupt) as interrupted:
+                        manager.manager_fixture_auth_transfer(leases[0], leases[1], origin=origin)
+                assert len(applied) == 1 and applied[0][0] == 200
+                assert (side + '=cleanup-incomplete' if unproved else 'source=owner-preserved') in str(interrupted.value.__notes__)
+                with sqlite3.connect(env['BROWSER_PROVISIONER_STATE']) as db:
+                    assert [db.execute('SELECT agent_id,state FROM browsers WHERE lease_id=?', (lid,)).fetchone()
+                            for lid in leases] == [('fixture-agent', 'running')] * 2
+                if side == 'destination' or not unproved:
+                    assert evaluate(source, check) is True
+                if unproved:
+                    old_url = source if side == 'source' else destination
+                    with pytest.raises(Exception):
+                        urllib.request.urlopen(old_url + '/json/version', timeout=2)
+                    # The manager may not invent a ticket, but the exact private
+                    # transaction remains recoverable for this disposable canary.
+                    with original_client(transport=original_transport(uds=target_socket), timeout=15) as exact:
+                        ticket = exact.post('http://localhost/transfer/begin', json=applied[0][1]).json()['ticket']
+                        assert exact.post('http://localhost/transfer/end',
+                                          json={**applied[0][1], 'transaction': 'not-this-transaction',
+                                                'ticket': ticket}).status_code == 403
+                        assert exact.post('http://localhost/transfer/' + ('end' if side == 'source' else 'abort'),
+                                          json={**applied[0][1], 'ticket': ticket}).status_code == 200
+                assert evaluate(source, check) is True
+                assert evaluate(destination, check) is False
+                return
             if lost_reply:
                 with sqlite3.connect(env['BROWSER_PROVISIONER_STATE']) as db:
                     dest_launch = db.execute('SELECT launch_file FROM browsers WHERE lease_id=?',

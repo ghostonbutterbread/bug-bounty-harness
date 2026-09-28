@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-28
 - **Owning feature branch/ref:** `docs/ato-progressive-disclosure-20260928`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `572e6ed0cb5bb3b75acf2ac7b81b6680e0e87055`
+- **Feature implementation commit(s):** `572e6ed0cb5bb3b75acf2ac7b81b6680e0e87055`
 - **Inspiration / canonical references:** prior ATO atlas `skills/ato/references/methods.md`, repo-root ATO context/playbook, `skills/password-reset/references/ato-patterns.md`, user feedback in Discord thread 1553084831322083382.
 
 ## Intent
@@ -33,10 +33,10 @@ None known. Citation checker counts one source-bearing Markdown bullet as severa
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/ato-progressive-disclosure-20260928`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit the migration and its dossier, independently review source conservation, owner routing, and representative flow discovery; address blockers, then merge into beta and push.
-- **Working-tree state at handoff:** active work, uncommitted until checkpoint.
+- **Latest immutable recovery checkpoint:** `572e6ed0cb5bb3b75acf2ac7b81b6680e0e87055`
+- **Feature implementation commit(s):** `572e6ed0cb5bb3b75acf2ac7b81b6680e0e87055`
+- **Exact resume point:** independently review source conservation, owner routing, and representative flow discovery; address blockers, then merge into beta and push.
+- **Working-tree state at handoff:** clean after this dossier-only handoff commit; current tip is later than implementation commit.
 
 ## Decision gates
 

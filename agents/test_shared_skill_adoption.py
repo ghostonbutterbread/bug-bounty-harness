@@ -13,6 +13,7 @@ class SharedSkillAdoptionTests(unittest.TestCase):
         expected = {
             "bounty-storage": ("references/storage-layout.md", "references/run-manifests.md"),
             "huge-ingest": ("references/bounty-storage-lanes.md",),
+            "vulnerability-patch-research": ("references/disposable-local-proof.md",),
         }
         for skill, references in expected.items():
             skill_dir = ROOT / "skills" / skill
@@ -26,7 +27,8 @@ class SharedSkillAdoptionTests(unittest.TestCase):
             text = path.read_text()
             self.assertIn("bounty-storage", text)
             self.assertIn("huge-ingest", text)
-        for path in (ROOT / "skills/bounty-storage/SKILL.md", ROOT / "skills/huge-ingest/SKILL.md"):
+            self.assertIn("vulnerability-patch-research", text)
+        for path in (ROOT / "skills/bounty-storage/SKILL.md", ROOT / "skills/huge-ingest/SKILL.md", ROOT / "skills/vulnerability-patch-research/SKILL.md"):
             self.assertNotIn("projects/general-skills", path.read_text())
 
 

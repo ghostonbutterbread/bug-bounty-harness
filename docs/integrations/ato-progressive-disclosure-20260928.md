@@ -1,6 +1,6 @@
 # Progressive ATO idea discovery — integration dossier
 
-- **Status:** review-ready
+- **Status:** re-review pending
 - **Owner:** Hermes / Kanban `t_d68599c3`
 - **Branch:** `docs/ato-progressive-disclosure-20260928`
 - **Base commit:** `74db0772e459b646297a98d5dacd112d466879ed`
@@ -28,7 +28,7 @@ Keep all plausible ATO idea families discoverable without demanding full referen
 
 ## Blockers and deferred work
 
-None known. Citation checker counts one source-bearing Markdown bullet as several sentences because citations follow the final sentence; standalone topical files therefore pass URL/ID verification without a numerical coverage threshold. Do not infer unsupported claims from the mechanical percentage.
+Initial independent review blocked integration on two method-loss gaps: token leakage after opening a valid reset link, and support-assisted recovery recognition. Both were restored in the owning routes; a fresh independent verdict is required before merge. Citation checker counts one source-bearing Markdown bullet as several sentences because citations follow the final sentence; standalone topical files therefore pass URL/ID verification without a numerical coverage threshold. Do not infer unsupported claims from the mechanical percentage.
 
 ## Interruption / resume handoff
 

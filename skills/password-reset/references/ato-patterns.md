@@ -80,6 +80,10 @@ Referer
 
 Safe proof: use an owned account and an owned callback/domain. Promote only if the received reset email points to the injected host or otherwise leaks the token to attacker-controlled infrastructure.
 
+## Token Exposure After Opening A Valid Link
+
+This is distinct from poisoning the generated link: when an owned inbox receives a normal reset link, inspect the reset page's browser requests and redirects, its `Referrer-Policy`, and any *owned, authorized* request-log sink. Does the full token-bearing URL enter a third-party `Referer`, external redirect, or accessible log after the link is opened? Record only redacted evidence of the destination and token presence. Do not send a usable token to an unowned collector, and do not infer leakage from a third-party request lacking the token.[1][2]
+
 ## Link/Code Purpose Confusion
 
 When the application exposes magic login, signup confirmation, email change, and password reset in related link/code flows, identify the account, intended purpose, pending transaction, single-use state, and **resulting session** at redemption. Compare only valid artifacts from owned inboxes; opening a correct link on another device is not itself ATO. A cross-purpose or wrong-account session requires read-back proof.[1][4]

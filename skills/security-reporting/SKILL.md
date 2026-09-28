@@ -56,7 +56,9 @@ Use the program form when it mandates different labels; otherwise:
 <brief root cause: attacker-controlled action/input, missing or incorrect control, causal link to result>
 
 ## How to reproduce
-**Prerequisites:** <roles, controlled accounts/resources, feature state and human-only setup>
+**Prerequisites:**
+- <Required role/account and controlled resource or feature state.>
+- <If applicable, required special permission, plan, or human-only setup; otherwise, when verified, “Default user/plan permissions suffice.” Omit this bullet if neither is established.>
 
 **PoC:** `<command>` — <one or two sentences on what this run proves>
 - `<flag>`: <required input and where to obtain it>
@@ -72,6 +74,8 @@ Use the program form when it mandates different labels; otherwise:
 ## Remediation
 <durable fix of the demonstrated root cause and, when needed, independent material exploit-stage control>
 ```
+
+Prefer concise bullets for scan-friendly lists, especially prerequisites; use prose where sequence or causality reads better. List only what the reviewer actually needs to reproduce the finding. Name a special plan or permission only when it is required; if default user/plan access has been verified to suffice, say so in one bullet rather than speculating about elevated access. If access requirements are unverified, preserve that uncertainty in the Evidence Report and do not assert that default access suffices.
 
 Do not invent flags when the default PoC takes none. Give necessary nontrivial external setup (create/configure/activate an integration and locate its ID) only if the PoC cannot provision it. In the report, explain what the PoC does in a sentence or two; let its run walk the reviewer through provisioning, exploit, verification, and cleanup. Do not narrate its guided output again.
 

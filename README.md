@@ -66,6 +66,17 @@ parser differential), its recognition signals, a small discriminating check,
 and its limits. Broad methodology, tool descriptions, architecture guidance,
 and mindset material belong outside ResearchMap. See [docs/research-map.md](docs/research-map.md).
 
+## Patch research
+
+BBH owns [`vulnerability-patch-research`](skills/vulnerability-patch-research/SKILL.md):
+an observed open-source component/version and reachable feature start bounded
+known-CVE and initially independent release-diff lanes alongside recon. When a
+local proof could be destructive, use a disposable, task-owned Docker instance
+or stronger VM, preserve evidence, then verify exact cleanup; see its
+[`disposable-local-proof` reference](skills/vulnerability-patch-research/references/disposable-local-proof.md).
+Local proof does not authorize destructive testing of a live target or public
+PoC publication.
+
 ## Explicit `/goal` runs
 
 The explicit `/goal` workflow is opt-in: `goal_router.py` classifies the stated

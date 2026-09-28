@@ -26,6 +26,13 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    selected surface to one specialist lane. When no signal exists, run an
    adaptive, class-appropriate live discovery sequence to establish or reject
    it; signal controls escalation severity, not permission to test.
+   For any potentially destructive proof, prefer a recreated, task-owned
+   disposable local Docker/VM instance, preserve evidence, then remove and
+   verify only its resources. Isolation does not authorize live impact; if a
+   safe local reproduction is unavailable, stop and name the blocker.
+   For an observed open-source component, version, and reachable feature, load
+   `/vulnerability-patch-research` for concurrent CVE/diff research and its
+   detailed disposable-local-proof reference.
 5. Use `$HARNESS_SHARED_BASE` and the canonical storage tools: `/bounty-storage`
    for Shared vs mounted-artifact vs scratch routing, `/map-store` for durable
    target facts, `/docs` for compact program-specific application-behavior models,

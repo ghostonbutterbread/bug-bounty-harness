@@ -124,6 +124,14 @@ lens when that exposes a real coverage or trust-boundary gap:
 - technology/dependency/configuration behavior; or
 - offline source/JavaScript analysis connected to the observed live flow.
 
+When a mapped flow identifies an open-source component, a plausible version,
+and a reachable feature, load `vulnerability-patch-research` and start its
+bounded CVE and independent release-diff lanes alongside continuing recon;
+neither lane waits for the other to fail. The parent reconciles their results
+by mechanism before selecting any local proof or authorized live test. Keep
+target observations in MapStore and do not turn a local patch differential
+into a target finding without separate reachability evidence.
+
 Prefer assigning the next adjacent, same-surface task to the existing steward
 while its pressure state is warm/hot. Split work only for independently
 testable, evidence-backed questions or a distinct offline slice. A verifier is

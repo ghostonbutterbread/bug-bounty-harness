@@ -5,6 +5,12 @@ description: Use when a patched release diff can narrow source analysis.
 
 # Patch Analysis
 
+For an observed open-source component, version, and reachable feature, load
+`vulnerability-patch-research` first: it owns the parallel known-CVE and
+independent release-diff lanes, mechanism-level reconciliation, and local proof
+stages. This skill is a focused exact-patch source-review technique within that
+workflow, not a CVE-only trigger or replacement for the independent diff lane.
+
 When analyzing source after an upstream security fix, diff the version that was patched against the version immediately before it. Use the exact changed code to narrow where to look next: the altered function, its callers, and equivalent code paths. The diff is a starting point for source review, not proof of a vulnerability.
 
 ## When to Use

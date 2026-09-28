@@ -2,6 +2,8 @@
 
 Source inspiration: `https://github.com/wadgamaraldeen/ATO-Via-Password-Reset/blob/main/ATO-Via-Password-Reset-Test.md?plain=1`
 
+Primary-source grounding: OWASP describes account-bound, expiring, single-use reset tokens, trusted reset URL construction, and final account binding.[1][2] Session invalidation after reset should be checked against the product's policy, not assumed to be an automatic ATO finding.[1]
+
 These are examples to adapt to the observed application. They are not mandatory payloads and should not be used against non-owned accounts.
 
 ## Email Recipient Confusion
@@ -77,6 +79,10 @@ Referer
 ```
 
 Safe proof: use an owned account and an owned callback/domain. Promote only if the received reset email points to the injected host or otherwise leaks the token to attacker-controlled infrastructure.
+
+## Link/Code Purpose Confusion
+
+When the application exposes magic login, signup confirmation, email change, and password reset in related link/code flows, identify the account, intended purpose, pending transaction, single-use state, and **resulting session** at redemption. Compare only valid artifacts from owned inboxes; opening a correct link on another device is not itself ATO. A cross-purpose or wrong-account session requires read-back proof.[1][4]
 
 ## Token Lifecycle
 
@@ -177,3 +183,9 @@ True-Client-IP
 ```
 
 Stop before lockout-prone loops, inbox flooding, or repeated reset delivery to non-owned recipients.
+
+## Sources
+
+[1] https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html
+[2] https://wstg.owasp.org/latest/4-Web_Application_Security_Testing/04-Authentication/09-Weak_Password_Change_or_Reset_Functionalities
+[4] https://cheatsheetseries.owasp.org/cheatsheets/Email_Validation_and_Verification_Cheat_Sheet.html

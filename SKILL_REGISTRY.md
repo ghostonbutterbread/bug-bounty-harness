@@ -123,7 +123,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **agent-tool-abuse** | `/agent-tool-abuse {program} {target_url-or-flow}` | `prompts/agent-tool-abuse-playbook.md` |
 | **model-redteam-taxonomy** | `/model-redteam-taxonomy {program-or-lab} {model-or-feature}` | `prompts/model-redteam-taxonomy-playbook.md` |
 | **liberate-fren** | `/liberate-fren {lab-or-provider} {model}` | `prompts/liberate-fren-playbook.md` |
-| **ato** | `/ato {program} {auth-or-account-flow}` | `prompts/ato-playbook.md` |
+| **ato** | `/ato {program} {auth-or-account-flow}` | `skills/ato/SKILL.md` (conditional `skills/ato/references/`) |
 | **password-reset** | `/password-reset {program} {reset-flow-context}` | `skills/password-reset/SKILL.md` |
 | **payment-testing** | `/payment-testing {program} {checkout-or-billing-context}` | `prompts/payment-testing-playbook.md` |
 | **bypass** | `/bypass {target_url} {type}` | `prompts/bypass-playbook.md` |

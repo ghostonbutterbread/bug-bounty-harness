@@ -1,11 +1,11 @@
 ---
 name: password-reset
-description: "Test password reset, forgot-password, reset-token, email reset, and account recovery flows for account takeover risks."
+description: "Test password reset, recovery, and related magic-link/login-code flows for account takeover risks."
 ---
 
 # Password Reset
 
-Use when testing forgot-password, reset-token, account recovery, email reset, reset-link generation, password-change-by-token, or recovery API behavior.
+Use when testing forgot-password, reset-token, account recovery, email reset, reset-link generation, password-change-by-token, related magic-link/login-code flows, or recovery API behavior.
 
 Treat the reference examples as idea patterns, not a fixed checklist. Adapt them to the target's actual request shape, parser, auth state, and ownership model.
 
@@ -14,7 +14,7 @@ Treat the reference examples as idea patterns, not a fixed checklist. Adapt them
 1. Read scope, owned-account context, and `/live-testing-policy`.
 2. Confirm every email address, inbox, reset token, target account, and resource is owned or explicitly approved.
 3. If a disposable/destructible account is needed, load `/temporary-email`. If Ghost's mailbox is needed, load `/gmail`.
-4. Capture the baseline reset request, reset email/link behavior, and final password-change request without storing raw reset links, tokens, cookies, passwords, or private email bodies.
+4. Capture the baseline request, delivered link/code behavior, and final redemption/account result without storing raw links, tokens, cookies, passwords, or private email bodies.
 5. Read `references/ato-patterns.md`.
 6. Route focused lanes:
    - host/header-generated reset links -> `/headers`
@@ -25,8 +25,8 @@ Treat the reference examples as idea patterns, not a fixed checklist. Adapt them
 
 ## Workflow
 
-1. Map the flow: request reset, receive link/code, redeem token, change password, invalidate sessions.
-2. Identify the trust boundary: email recipient, reset token, account identifier, session state, origin/host, rate limit, and final password-change target.
+1. Map the actual flow: request reset or login link/code, receive it, redeem it, inspect the resulting account/session or password change, and check session invalidation when relevant.
+2. Identify the trust boundary: email recipient, link/code purpose and account binding, session state, origin/host, rate limit, and final account or password-change target.
 3. Test one hypothesis at a time using owned accounts only.
 4. Compare baseline vs mutation: recipient, generated link host/path, token account binding, token reuse, response deltas, session invalidation, and email side effects.
 5. Stop after minimum proof of cross-account impact, token leakage, token confusion, unauthorized password change, or non-owned data exposure.
@@ -34,7 +34,7 @@ Treat the reference examples as idea patterns, not a fixed checklist. Adapt them
 
 ## Proof Standard
 
-Promote only with reproducible evidence that a reset flow can affect the wrong owned account, leak or redirect a reset token, reuse an expired/used token, bypass account binding, skip required verification, or perform an unauthorized password change.
+Promote only with reproducible evidence that a reset or login-link flow can affect the wrong owned account, leak or redirect a usable token, reuse an expired/used token, bypass account/purpose binding, skip required verification, create a wrong-account session, or perform an unauthorized password change.
 
 Do not promote generic reset email delivery, cosmetic response differences, normal plus-address behavior without account confusion, public metadata, or caller-owned password changes.
 

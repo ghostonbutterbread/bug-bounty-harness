@@ -12,7 +12,7 @@ Before any ingest, the finding must pass the claim-time classification gate:
 name the protected resource or capability obtained and the observation that
 demonstrates it; a status code or error string alone is a signal, not a
 finding — label it Informational and keep testing. When the finding passes,
-load `evidence-first-vulnerability-reporting` and write or finalize the
+load BBH's canonical `security-reporting` skill and write or finalize the
 Evidence Report first — the ledger entry records the finding, the report
 carries the evidence. If only the ledger entry can be produced now, note
 `report: pending` and write the Evidence Report before any submission step.

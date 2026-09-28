@@ -138,6 +138,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **manual-places-to-hunt** | `/manual {program} [--run <run-id>] [--historical]` | `skills/manual-places-to-hunt/SKILL.md` |
 | **leads** | `/leads <program> [--class <vuln-class>]`; `agents/leads.py {create|search|update-status}` | `skills/leads/SKILL.md` |
 | **ledger** | `/ledger {program}` | `skills/ledger/SKILL.md` |
+| **security-reporting** | `/security-reporting` (report-writing guidance; no standalone runner) | `skills/security-reporting/SKILL.md` |
 
 ---
 

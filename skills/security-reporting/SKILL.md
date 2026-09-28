@@ -21,7 +21,24 @@ BBH's generated per-FID finding packet (`REPORT.md` and its navigation, written 
 
 ## Evidence-first sequence
 
-Record the protected capability and the observation that proves it before claiming impact. Write or reconcile the Evidence Report first: attacker/victim roles and access, controlled fixtures, expected versus actual behavior, sanitized request/response and independent effect verification, evidence index, root-cause facts, failed controls and variants, negative boundaries, side effects/cleanup, and open questions. Distinguish an owned fictional fixture from retrieved customer data. A status code or reflected input alone proves only the narrower observation.
+Record the protected capability and the observation that proves it before claiming impact. Write or reconcile the Evidence Report first with a checkable minimum structure:
+
+```markdown
+# <finding-id> — <precise title>
+
+## Claim and status
+## Attacker model and prerequisites
+## Evidence index
+## Complete reproduction record
+## Root cause and supporting implementation facts
+## Demonstrated impact and negative boundaries
+## Reproduction variants, controls, and failed attempts
+## PoC and artifact references
+## Remediation candidates
+## Open questions / dated corrections
+```
+
+Within that structure distinguish attacker/victim roles and access, controlled fixtures, expected versus actual behavior, sanitized request/response and independent effect verification, source facts, side effects/cleanup, and uncertainty. Map each load-bearing claim to a PoC run, sanitized transcript/screenshot, source fact, or documented negative. Distinguish an owned fictional fixture from retrieved customer data. A status code or reflected input alone proves only the narrower observation. Preserve exact technical context, including failed paths and why they are outside the claim, without putting raw credentials or unrelated private content in the report.
 
 Fact-check each material claim against its evidence pointer and PoC. Remove stale facts, secrets, researcher-local paths, unsupported scale or escalation, and misleading negatives. Use the same finding ID in the submission and judge receipt. If proof or an owned prerequisite is missing, name the gap rather than inventing a result. An independent judge compares the submission to the Evidence Report, final PoC, and program overlay; revise or leave a precise blocker.
 

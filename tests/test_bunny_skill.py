@@ -23,8 +23,12 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("never a factual finding", text)
         self.assertIn("verified reportable finding", text)
 
-    def test_role_visible_agent_names(self):
+    def test_native_worker_dispatch_and_optional_claude_roles(self):
         text = SKILL.read_text(encoding="utf-8")
+        self.assertIn("current harness's native subagent", text)
+        self.assertIn("role in the scoped task packet", text)
+        self.assertIn("Do not require Claude Code", text)
+        self.assertNotIn("Launch Claude Code workers", text)
         for role in ("hunter", "recon", "verifier", "reporter"):
             name = f"bunny-{role}"
             self.assertIn(f"`{name}`", text)
@@ -33,8 +37,8 @@ class BunnySkillTests(unittest.TestCase):
             self.assertTrue(body.startswith(f"---\nname: {name}\n"))
             self.assertIn("description:", body)
             self.assertIn("Follow the coordinator's scoped task packet", body)
-        self.assertIn("role written only in the prompt or `description`", text)
-        self.assertIn("instead of silently launching `general-purpose`", text)
+        self.assertIn("When running in Claude Code", text)
+        self.assertIn("general-purpose", text)
 
     def test_registered(self):
         registry = (ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8")

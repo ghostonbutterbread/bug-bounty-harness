@@ -1,6 +1,6 @@
 # Business Model and Issue Families
 
-Use this focused reference after the `/business-logic` entry skill selects a concrete workflow. These are lenses, not a fixed checklist or permission to touch non-owned resources. Prefer combinations of normal actions and compare the resulting server-side effect with the business's intended invariant. `business-logic-modeling` owns the broader intent/attacker-advantage interpretation; specialist skills own the actual tests.
+Use this focused reference after the `/business-logic` entry skill selects a concrete workflow. These are lenses, not a fixed checklist or permission to touch non-owned resources. Prefer combinations of normal actions and compare the resulting server-side effect with the business's intended invariant. `business-logic-modeling` owns the broader intent and owner-expectation interpretation; `impact-fit-policy` owns incremental attacker advantage and consequence, and specialist skills own the actual tests.
 
 ## Business-operation sketch
 

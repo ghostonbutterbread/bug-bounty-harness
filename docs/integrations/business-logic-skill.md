@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-29
 - **Owning feature branch/ref:** `feat/business-logic-skill`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `8cf0239a2d7e63c7c22a5aab5c920d3cdfc5b017`
+- **Feature implementation commit(s):** `8cf0239a2d7e63c7c22a5aab5c920d3cdfc5b017`
 - **Inspiration / canonical references:** OWASP WSTG Business Logic, OWASP Business Logic Security Cheat Sheet, PortSwigger Web Security Academy Business Logic; AI Policies `business-logic-modeling`.
 
 ## Intent
@@ -22,7 +22,7 @@ Give BBH agents a hunt-specific entry skill and issue-family reference for under
 ## Evidence and review
 
 - Tests and commands: `python3 -m pytest -q tests/test_business_logic_skill.py agents/test_js_analyzer.py agents/test_access_control_control_harness.py` (29 passed); `git diff --check` passed.
-- Independent review: pending.
+- Independent review: 29 focused tests and diff check independently rerun; two findings (stale dossier and overlapping attacker-advantage owner) corrected in follow-up. Re-review pending.
 - Replay/cohort/fixture evidence: not applicable; documentation/skill route only.
 - Merge/ancestry evidence: pending.
 
@@ -33,10 +33,10 @@ None known. The AI Policies broad business-model lens remains canonical and the 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/business-logic-skill`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** independent review, reconcile beta tip, then integrate to beta.
-- **Working-tree state at handoff:** intentionally uncommitted draft.
+- **Latest immutable recovery checkpoint:** `8cf0239a2d7e63c7c22a5aab5c920d3cdfc5b017`
+- **Feature implementation commit(s):** `8cf0239a2d7e63c7c22a5aab5c920d3cdfc5b017`
+- **Exact resume point:** re-review correction commit, reconcile beta tip, then integrate to beta.
+- **Working-tree state at handoff:** clean after follow-up commit.
 
 ## Decision gates
 
@@ -47,3 +47,4 @@ None known. The AI Policies broad business-model lens remains canonical and the 
 ## Decision record
 
 - 2026-09-29 — created from beta; researched business-logic categories, drafted and tested BBH skill.
+- 2026-09-29 — committed implementation `8cf0239`; review found two narrow issues; corrected ownership wording and this handoff record.

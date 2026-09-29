@@ -95,7 +95,8 @@ lead:
 - `access-control` / `idor`: role, permission, tenant, team, workspace, brand,
   design, folder, invite, group, and owner IDs.
 - `business-logic`: workflow state, feature gates, entitlement checks, install
-  flows, share/publish/import/export controls, and unsafe client assumptions.
+  flows, share/publish/import/export controls, and unsafe client assumptions;
+  route a concrete workflow lead to `/business-logic`.
 - `ssrf-import`: URL importers, preview/fetch resolvers, webhooks, media loaders,
   embeds, favicon fetches, and server-side URL resolution hints.
 - `auth-ato`: login, reset, invite, OAuth/SSO, captcha/risk scoring, session,

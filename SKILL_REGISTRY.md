@@ -62,6 +62,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **stored-xss** | `/stored-xss {program} {write-and-render-context}` | `skills/stored-xss/SKILL.md` |
 | **dom-xss** | `/dom-xss {target_url}` | `skills/dom-xss/SKILL.md` |
 | **access-control** | `/access-control {program}` | `prompts/access-control-playbook.md` |
+| **business-logic** | `/business-logic {program} {workflow}` | `skills/business-logic/SKILL.md`; issue families in `references/` |
 | **idor** | `/idor {program}` | `prompts/idor-playbook.md` |
 | **jwt-auth** | `/jwt-auth {program} {jwt-auth-context}` | `prompts/jwt-auth-playbook.md` |
 | **sqli** | `/sqli {program}` | `prompts/sqli-playbook.md` |

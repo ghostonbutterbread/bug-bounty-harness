@@ -28,7 +28,7 @@ Use when Ryushe asks for Bunny or explicitly chooses persistent campaign orchest
 
 ## Worker roles and upward signals
 
-Spawn workers through the current harness's native subagent facility. Name every recon worker `bunny-recon`, every hunter/steward `bunny-hunter`, every verifier `bunny-verifier`, and every reporter `bunny-reporter`. Set the native worker name when supported; if the harness exposes only a generic agent type, use that type and put the Bunny name in its task title/description and scoped packet. The name identifies a role, not a separate harness-specific agent type. The bundled [`agents/`](agents/) files are portable role instructions, not a prerequisite for spawning.
+Spawn workers through the current harness's native subagent facility. Name every recon worker `bunny-recon`, every hunter/steward `bunny-hunter`, every verifier `bunny-verifier`, and every reporter `bunny-reporter`. Set the native worker name when supported. If native naming is unavailable, put the Bunny name in the task title/description and scoped packet, using the harness's available agent type. The name identifies a role, not a separate harness-specific agent type. The bundled [`agents/`](agents/) files are portable role instructions, not a prerequisite for spawning.
 
 Each packet includes the named role and its responsibilities below, selected policy chain, leased surface, run ID, evidence destination, and stop condition. A worker name confers no authority or proof of progress; inspect actual status and evidence before reporting either. If the current harness cannot spawn a subagent, report that blocker rather than pretend a prompt-only role was dispatched.
 

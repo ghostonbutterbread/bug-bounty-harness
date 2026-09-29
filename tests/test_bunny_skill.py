@@ -27,7 +27,9 @@ class BunnySkillTests(unittest.TestCase):
         text = SKILL.read_text(encoding="utf-8")
         self.assertIn("current harness's native subagent", text)
         self.assertIn("Set the native worker name when supported", text)
+        self.assertIn("If native naming is unavailable", text)
         self.assertIn("task title/description and scoped packet", text)
+        self.assertIn("harness's available agent type", text)
         self.assertNotIn("Claude Code", text)
         self.assertNotIn("subagent_type", text)
         for role in ("hunter", "recon", "verifier", "reporter"):

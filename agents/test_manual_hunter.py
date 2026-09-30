@@ -96,6 +96,11 @@ class ManualHunterTests(unittest.TestCase):
         ledger_payload = json.loads(self._ledger_path().read_text(encoding="utf-8"))
         self.assertEqual(len(ledger_payload["findings"]), 1)
         self.assertEqual(ledger_payload["findings"][0]["fid"], "D01")
+        packet = self._storage().reports_root / "D01"
+        self.assertTrue((packet / "EVIDENCE.md").is_file())
+        self.assertIn("## Claim and status", (packet / "EVIDENCE.md").read_text(encoding="utf-8"))
+        self.assertIn("## How to reproduce", (packet / "REPORT.md").read_text(encoding="utf-8"))
+        self.assertFalse((packet / "SUBMISSION.md").exists())
         self.assertEqual(ledger_payload["findings"][0]["class_name"], "native-module-abuse")
 
         report_files = sorted(self._storage().reports_root.rglob("*.md"))

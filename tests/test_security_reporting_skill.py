@@ -18,7 +18,7 @@ class SecurityReportingSkillTests(unittest.TestCase):
     def test_evidence_submission_and_poc_contract(self):
         text = SKILL.read_text(encoding="utf-8")
         for marker in (
-            "Evidence Report", "Submission Report", "Judge Receipt", "PASS", "REVISE", "BLOCKED",
+            "EVIDENCE.md", "SUBMISSION.md", "Judge Receipt", "PASS", "REVISE", "BLOCKED",
             "## Evidence index", "## Complete reproduction record", "## Demonstrated impact and negative boundaries",
             "## Reproduction variants, controls, and failed attempts", "## PoC and artifact references", "## Open questions / dated corrections",
             "## Technical details", "## How to reproduce", "**Prerequisites:**", "**PoC:**",

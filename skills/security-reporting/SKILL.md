@@ -10,18 +10,30 @@ This is the canonical BBH report-writing skill. Use it for a verified, reportabl
 
 ## Artifacts and identity
 
-Use one stable finding ID across the package:
+Use one stable FID and one current file per stage in `reports/<FID>/`:
 
-1. **Evidence Report:** complete internal source of truth, with claim-to-evidence pointers, prerequisites, sanitized request/response observations, root cause, controls, negatives, variants, limits, corrections, PoC pointer, and cleanup state. Preserve detail and uncertainty; do not put raw credentials, cookies, tokens, or unapproved private content in it.
-2. **Submission Report:** concise, triager-facing derivative. It may compress or clarify the Evidence Report but must not introduce claims from memory, prior reports, or intuition. State material prerequisites and limitations rather than hiding them.
-3. **PoC:** a small, executable walkthrough of the actual boundary break, with visible attacker/victim actions, decisive evidence, verification, and cleanup. Finalize it alongside the submission; do not ship the research harness merely because it worked.
-4. **Judge Receipt:** separate result (`PASS`, `REVISE`, or `BLOCKED`), claim-to-evidence coverage, program-overlay checks, required revisions, and residual gaps. Do not overwrite either report with the receipt.
+1. **`EVIDENCE.md`:** living internal source of truth, seeded when a proven finding is recorded. Maintain claim-to-evidence pointers, prerequisites, sanitized observations, controls, negatives, variants, limits, corrections, PoC pointer, and cleanup state. An initial scaffold is not complete proof. Keep raw credentials, cookies, tokens, and unapproved private content out.
+2. **`REPORT.md`:** rough, editable report beginning with the currently demonstrated vulnerability. Its Summary, Technical details, How to reproduce, Impact, and Remediation give the eventual submission its spine; short open questions and evidence pointers may remain while investigating. The ledger-derived generated version is a starting draft, not the Evidence Report or a submission-ready claim. Revise this same file as the boundary and impact become clearer; preserve hand edits during ledger refresh.
+3. **`SUBMISSION.md`:** one concise, triager-facing derivative, created automatically by the reporting agent once the boundary is understood and the evidence supports the claim. It may compress or change the impact angle of the rough report, but cannot introduce unproven claims. A prepared file is not an external submission; review and refine the same file rather than creating versioned siblings.
+4. **PoC:** a small executable walkthrough of the actual boundary break, with visible actor actions, decisive evidence, verification, and cleanup. Finalize it alongside the submission; do not ship the research harness merely because it worked.
+5. **Judge Receipt:** separate review result (`PASS`, `REVISE`, or `BLOCKED`) under `_meta/`, with claim coverage, overlay checks, revisions, and residual gaps. Do not overwrite the three report files with it.
 
-BBH's generated per-FID finding packet (`REPORT.md` and its navigation, written by `bounty_core.reports`) is a ledger-derived record, **not** automatically the Evidence Report or final submission. Preserve hand-edited records and the selected canonical report in place. When an existing artifact is named, edit that artifact directly; do not create parallel versioned drafts or mirror an exported report without direction. `FINALIZED.md` is not evidence of external submission. Only record a platform submission after Ryushe confirms it through the owning `manual-hunter` flow.
+At first verified finding, apply `impact-fit-policy` to state attacker starting access, gained capability, proof observation, and demonstrated consequence; record the FID promptly. After a new FID, decide whether a material boundary or impact question remains. For a straightforward finding whose proof already answers it, record that conclusion and move to drafting; do not force additional testing. Otherwise the primary hunter dispatches one focused per-FID subagent with sanitized evidence, owned-fixture and scope limits, one decision question, and a stop condition. The child investigates the actual boundary and discriminating controls under the live-testing and Attempts policies; the parent reconciles its observations and corrections into the same FID, `EVIDENCE.md`, and `REPORT.md`. Do not launch live work from a ledger or report writer, delay capture until every possible impact is tested, or treat hypothesized escalations as proven.
+
+When the boundary is understood, the reporting agent authors one concise five-section draft from `EVIDENCE.md` and `REPORT.md` in task-owned scratch, then prepares the canonical file with:
+
+```bash
+bbh agents/finding_submission.py <program> <FID> --lane <lane> \
+  --from-file <scratch/concise-draft.md> --evidence-pointer <exact-index-id>
+```
+
+Repeat `--evidence-pointer` for independently cited observations. Before invoking, replace the scaffold's `Pending` sections with verified evidence, state `Verified: ...` under `## Claim and status`, and preserve a concise evidence index with exact IDs. A program-mandated form with different headings uses `--program-form` only after checking that overlay. The command checks exact FID, packet, nonempty structural sections and pointers and creates `SUBMISSION.md` once; it does **not** judge claim truth, program compliance, secret hygiene, or external submission. The reporting agent must inspect those directly and request independent review. Do not create an extra submission version in the packet or imply that the CLI alone certifies readiness.
+
+Before creating `SUBMISSION.md`, establish the attacker model, failed control, actual result, independent proof of the claimed consequence, reproducible prerequisites, and material limits. When a link is missing, name the test or blocker in `EVIDENCE.md` and keep working in `REPORT.md`; do not polish uncertainty into a submission. Preserve the existing `SUBMISSION.md` on later updates; a changed claim calls for review and targeted revision, never silent regeneration or `v2` copies. `FINALIZED.md` is a legacy optional Bounty Core copy, not the canonical submission and not evidence of external submission. Only record a platform submission after Ryushe confirms it through `manual-hunter`.
 
 ## Evidence-first sequence
 
-Record the protected capability and the observation that proves it before claiming impact. Write or reconcile the Evidence Report first with a checkable minimum structure:
+Record the protected capability and the observation that proves it before claiming impact. Populate the create-only `EVIDENCE.md` scaffold with the growing investigation; its useful sections are:
 
 ```markdown
 # <finding-id> — <precise title>

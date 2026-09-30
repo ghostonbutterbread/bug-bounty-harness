@@ -108,6 +108,12 @@ class SubmissionTests(unittest.TestCase):
             self.prepare(fid="../escape")
         self.assertFalse((self.packet / "SUBMISSION.md").exists())
 
+    def test_honest_negative_boundary_is_not_a_placeholder(self) -> None:
+        self.evidence(EVIDENCE.format(fid=self.fid).replace(
+            "broader access was not tested", "broader access remains unverified and is not claimed"
+        ))
+        self.assertEqual(self.prepare(), self.packet / "SUBMISSION.md")
+
     def test_pointer_requires_whole_index_identifier(self) -> None:
         self.evidence(EVIDENCE.format(fid=self.fid).replace("capture-17", "capture-170"))
         with self.assertRaisesRegex(ValueError, "pointer"):

@@ -1,5 +1,11 @@
 # Known defects awaiting their own task
 
+## Legacy report-layout assertions fail against stable FID packets
+
+**Location:** two tests in `agents/test_sync_reports.py`, one in `agents/test_base_team_ledger_writes.py`, one in `agents/test_base_team_review.py`.
+**Evidence:** all four expect `reports/findings/...` while the canonical writer now uses `reports/<FID>/REPORT.md`; they fail identically on unchanged BBH beta when tested with the same installed Bounty Core revision.
+**Impact:** related reporting suites remain red despite a working FID packet. Update the tests to assert canonical paths in a separate bounded task; do not revive legacy duplicate report files.
+
 ## ScopeManager does not load explicit exclusions
 
 **Location:** `agents/scope_manager.py:17-27`, `_load_domains`, `_load_urls`,

@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-29
 - **Owning feature branch/ref:** `feat/fid-evidence-submission`
-- **Latest immutable recovery checkpoint:** `21ebf0c` (consumer correction; pin commit pending)
-- **Feature implementation commits:** `45f36fd`, `21ebf0c`; pin commit pending
+- **Latest immutable recovery checkpoint:** `89bd76c` (installed pin; final review fix pending)
+- **Feature implementation commits:** `45f36fd`, `21ebf0c`, `89bd76c`; final fix pending
 - **Inspiration / canonical references:** Ryushe's FID → evidence → rough report → exploration → concise submission workflow; `security-reporting`, `manual-hunter`, Bounty Core report writer.
 
 ## Intent
@@ -21,8 +21,8 @@ In progress: Bounty Core provider owns packet initialization and draft; BBH owns
 
 ## Evidence and review
 
-- Tests and commands: provider beta full 158 passed and focused 41 passed; BBH installed pinned provider `54ac5e8` via `.venv` direct_url.json; consumer focused 35 passed and ledger/BaseTeam subset 25 passed (1 known stale assertion deselected). Existing three report-layout assertions in sync/BaseTeam tests fail against pre-existing `reports/<FID>` change, not this feature.
-- Independent review: two passes found free-form secret copying and empty program-form acceptance; corrected with tests. Final provider review accepted `1122ea5` and beta is published at `54ac5e8`. Consumer pin review pending.
+- Tests and commands: provider beta full 158 passed and focused 41 passed; BBH installed pinned provider `54ac5e8` via `.venv` direct_url.json; consumer focused 36 passed and relevant subset 30 passed (4 stale assertions excluded). The same four report-layout tests fail in unmodified BBH beta against the installed provider and are not caused by this feature.
+- Independent review: two passes found free-form secret copying and empty program-form acceptance; corrected with tests. Final provider review accepted `1122ea5` and beta is published at `54ac5e8`. Consumer review found that 'unverified' in an honest negative was rejected; corrected with a regression, final re-review pending.
 - Replay/cohort/fixture evidence: isolated provider→consumer packet-to-submission test, no target traffic.
 - Merge/ancestry evidence: feature reconciled with fetched `origin/beta` via `dd14cf2`; base `0afc696`.
 
@@ -37,10 +37,10 @@ In progress: Bounty Core provider owns packet initialization and draft; BBH owns
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/fid-evidence-submission`
-- **Latest immutable recovery checkpoint:** `21ebf0c` (pin awaiting commit)
-- **Feature implementation commit(s):** `45f36fd`, `21ebf0c`
-- **Exact resume point:** test installed pinned provider, independent consumer review, integrate beta and verify runtime projection.
-- **Working-tree state at handoff:** pin and dossier intentionally uncommitted until installed tests.
+- **Latest immutable recovery checkpoint:** `89bd76c` (final reviewer correction pending commit)
+- **Feature implementation commit(s):** `45f36fd`, `21ebf0c`, `89bd76c`
+- **Exact resume point:** final consumer review, integration to beta, launcher and skill resolver verification.
+- **Working-tree state at handoff:** intentionally uncommitted final correction until regression checks.
 
 ## Decision gates
 

@@ -26,7 +26,7 @@ EVIDENCE_SECTIONS = (
     "Claim and status", "Attacker model and prerequisites", "Evidence index",
     "Complete reproduction record", "Demonstrated impact and negative boundaries",
 )
-_PLACEHOLDER = re.compile(r"(?i)\b(?:TODO|TBD|FIXME|placeholder|unverified|unproven|hypothetical)\b|<[^>\n]+>|\[[^]\n]*(?:insert|describe|provide)[^]\n]*\]")
+_PLACEHOLDER = re.compile(r"(?i)\b(?:TODO|TBD|FIXME|placeholder)\b|<[^>\n]+>|\[[^]\n]*(?:insert|describe|provide)[^]\n]*\]")
 _HEADING = re.compile(r"^## ([^\n]+)\s*$", re.MULTILINE)
 _FID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 

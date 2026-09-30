@@ -11,6 +11,7 @@ from pathlib import Path
 from agents.finding_submission import prepare_submission
 from agents.storage_resolver import resolve_storage
 from bounty_core.ledger import ledger_add, ledger_get
+from bounty_core.reports import write_finding_report
 
 SCRIPT = Path(__file__).with_name("finding_submission.py")
 EVIDENCE = """# {fid} — Boundary failure
@@ -107,6 +108,32 @@ class SubmissionTests(unittest.TestCase):
             self.prepare(fid="../escape")
         self.assertFalse((self.packet / "SUBMISSION.md").exists())
 
+    def test_pointer_requires_whole_index_identifier(self) -> None:
+        self.evidence(EVIDENCE.format(fid=self.fid).replace("capture-17", "capture-170"))
+        with self.assertRaisesRegex(ValueError, "pointer"):
+            self.prepare()
+
+    def test_packet_symlink_cannot_redirect_submission(self) -> None:
+        retained = self.root / "original-packet"
+        self.packet.rename(retained)
+        outside = self.root / "outside"
+        outside.mkdir()
+        self.packet.symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "escapes"):
+            self.prepare()
+        self.assertFalse((outside / "SUBMISSION.md").exists())
+
+    def test_program_mandated_form_uses_explicit_override(self) -> None:
+        self.evidence()
+        self.source.write_text("# Finding\n\n## Vendor summary\nA concrete issue.\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "headings"):
+            self.prepare()
+        self.source.write_text("# Finding\n\n## Vendor summary\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "empty"):
+            self.prepare(program_form=True)
+        self.source.write_text("# Finding\n\n## Vendor summary\nA concrete issue.\n", encoding="utf-8")
+        self.assertEqual(self.prepare(program_form=True), self.packet / "SUBMISSION.md")
+
     def test_five_nonempty_ordered_sections(self) -> None:
         self.evidence()
         report = self.packet / "REPORT.md"
@@ -122,6 +149,18 @@ class SubmissionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "submission"):
                 self.prepare()
         self.assertFalse((self.packet / "SUBMISSION.md").exists())
+
+    def test_provider_packet_to_prepared_submission(self) -> None:
+        finding = ledger_get(self.program, self.fid, lane="web", family="web_bounty", root_override=self.root)
+        write_finding_report(self.layout, finding)
+        evidence_path = self.packet / "EVIDENCE.md"
+        self.assertIn("## Claim and status", evidence_path.read_text(encoding="utf-8"))
+        with self.assertRaisesRegex(ValueError, "EVIDENCE.md"):
+            self.prepare()
+        self.evidence()
+        (self.packet / "REPORT.md").write_text(DRAFT, encoding="utf-8")
+        self.assertEqual(self.prepare(), self.packet / "SUBMISSION.md")
+        self.assertTrue((self.packet / "SUBMISSION.md").is_file())
 
     def test_cli_creates_once_and_leaves_ledger_unsubmitted(self) -> None:
         self.evidence()

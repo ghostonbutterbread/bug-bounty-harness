@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-29
 - **Owning feature branch/ref:** `feat/fid-evidence-submission`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commits:** none yet
+- **Latest immutable recovery checkpoint:** `45f36fd` (initial slice; correction checkpoint pending)
+- **Feature implementation commits:** `45f36fd`; subsequent correction commit pending
 - **Inspiration / canonical references:** Ryushe's FID → evidence → rough report → exploration → concise submission workflow; `security-reporting`, `manual-hunter`, Bounty Core report writer.
 
 ## Intent
@@ -21,10 +21,10 @@ In progress: Bounty Core provider owns packet initialization and draft; BBH owns
 
 ## Evidence and review
 
-- Tests and commands: pending provider and consumer focused tests.
-- Independent review: pending.
-- Replay/cohort/fixture evidence: pending isolated fixture.
-- Merge/ancestry evidence: base matches fetched `origin/beta`.
+- Tests and commands: provider full 158 passed; consumer focused 34 passed against provider feature source. Installed pinned-provider and post-merge tests pending.
+- Independent review: two passes found free-form secret copying and empty program-form acceptance; both corrected with tests. Final provider acceptance and consumer pin review pending.
+- Replay/cohort/fixture evidence: isolated provider→consumer packet-to-submission test, no target traffic.
+- Merge/ancestry evidence: feature reconciled with fetched `origin/beta` via `dd14cf2`; base `0afc696`.
 
 ## Blockers and deferred work
 
@@ -37,10 +37,10 @@ In progress: Bounty Core provider owns packet initialization and draft; BBH owns
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/fid-evidence-submission`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** finish provider and consumer code, integrate pin, review and test.
-- **Working-tree state at handoff:** intentionally uncommitted during active development.
+- **Latest immutable recovery checkpoint:** `45f36fd` (corrections awaiting commit)
+- **Feature implementation commit(s):** `45f36fd`
+- **Exact resume point:** accept provider, pin published beta SHA, install and test consumer, then integrate.
+- **Working-tree state at handoff:** intentionally uncommitted corrections until local checks and commit.
 
 ## Decision gates
 

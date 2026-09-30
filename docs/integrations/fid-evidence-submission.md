@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-29
 - **Owning feature branch/ref:** `feat/fid-evidence-submission`
-- **Latest immutable recovery checkpoint:** `89bd76c` (installed pin; final review fix pending)
-- **Feature implementation commits:** `45f36fd`, `21ebf0c`, `89bd76c`; final fix pending
+- **Latest immutable recovery checkpoint:** `97b5669` (final reviewed implementation)
+- **Feature implementation commits:** `45f36fd`, `21ebf0c`, `89bd76c`, `97b5669`
 - **Inspiration / canonical references:** Ryushe's FID → evidence → rough report → exploration → concise submission workflow; `security-reporting`, `manual-hunter`, Bounty Core report writer.
 
 ## Intent
@@ -22,25 +22,25 @@ In progress: Bounty Core provider owns packet initialization and draft; BBH owns
 ## Evidence and review
 
 - Tests and commands: provider beta full 158 passed and focused 41 passed; BBH installed pinned provider `54ac5e8` via `.venv` direct_url.json; consumer focused 36 passed and relevant subset 30 passed (4 stale assertions excluded). The same four report-layout tests fail in unmodified BBH beta against the installed provider and are not caused by this feature.
-- Independent review: two passes found free-form secret copying and empty program-form acceptance; corrected with tests. Final provider review accepted `1122ea5` and beta is published at `54ac5e8`. Consumer review found that 'unverified' in an honest negative was rejected; corrected with a regression, final re-review pending.
+- Independent review: provider privacy and consumer structural issues corrected with regressions. Final provider review accepted `1122ea5` and beta published `54ac5e8`; final consumer re-review accepted `97b5669` for beta.
 - Replay/cohort/fixture evidence: isolated provider→consumer packet-to-submission test, no target traffic.
 - Merge/ancestry evidence: feature reconciled with fetched `origin/beta` via `dd14cf2`; base `0afc696`.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** provider API review, consumer integration against pinned provider, focused packet and readiness tests.
-- **Command / fixture:** provider `tests/test_reports.py tests/test_ledger_v2_contract.py`; consumer `agents/test_finding_submission.py agents/test_manual_hunter.py` with temp storage.
-- **Trigger:** provider feature accepted and integrated to immutable beta commit.
-- **Why it blocks integration:** BBH cannot claim automatic packet creation against an unpinned provider.
-- **Next step:** review provider, pin verified SHA, install manifest, exercise end-to-end.
+- **Missing test or evidence:** four pre-existing legacy-path assertions remain red on both unchanged beta and this feature; no new lifecycle evidence is missing.
+- **Command / fixture:** rerun the four named sync/BaseTeam tests after their separate path-expectation repair; installed `.venv` provider is `54ac5e8`.
+- **Trigger:** separate bounded test-maintenance task; do not restore duplicate report layout.
+- **Why it blocks integration:** it does not block this reviewed feature because the baseline reproduces identically; it prevents claiming a wholly green reporting suite.
+- **Next step:** merge the accepted feature into beta, run focused tests there, activate the selected runtime and verify its skill/launcher path.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/fid-evidence-submission`
-- **Latest immutable recovery checkpoint:** `89bd76c` (final reviewer correction pending commit)
-- **Feature implementation commit(s):** `45f36fd`, `21ebf0c`, `89bd76c`
-- **Exact resume point:** final consumer review, integration to beta, launcher and skill resolver verification.
-- **Working-tree state at handoff:** intentionally uncommitted final correction until regression checks.
+- **Latest immutable recovery checkpoint:** `97b5669` (final reviewed code; dossier update pending)
+- **Feature implementation commit(s):** `45f36fd`, `21ebf0c`, `89bd76c`, `97b5669`
+- **Exact resume point:** accepted feature ready for beta merge, focused post-merge tests, launcher/skill projection check.
+- **Working-tree state at handoff:** clean after dossier commit.
 
 ## Decision gates
 

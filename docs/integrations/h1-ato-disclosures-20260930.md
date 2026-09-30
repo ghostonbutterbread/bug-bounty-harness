@@ -1,13 +1,13 @@
 # Public HackerOne ATO disclosure premises — integration dossier
 
-- **Status:** thirteen primary-report premises integrated on feature branch; independent review pending. Corpus is not exhaustive.
+- **Status:** thirteen primary-report premises on feature branch; initial independent review blocked integration on four source-precondition errors. Corrections pending fresh review. Corpus is not exhaustive.
 - **Owner:** Hermes / Kanban `t_921f8fc5`
 - **Owning feature branch/ref:** `docs/h1-ato-disclosures-20260929`
 - **Worktree:** `/home/ryushe/projects/bug_bounty_harness/h1-ato-disclosures-20260929`
 - **Base beta commit:** `8a64ae0441130694b9a7faffa65ed8801adf946b`
 - **Target:** `beta` (not `main`)
-- **Latest immutable recovery checkpoint:** `f743b186e8223da1881f1d03d2ff90e78f24450a` (implementation; dossier-only handoff commit follows)
-- **Implementation commit(s):** `f743b186e8223da1881f1d03d2ff90e78f24450a`
+- **Latest immutable recovery checkpoint:** `1ff4ad50e7918caafec9516d44fd2a8f5582cd56` (corrected implementation; dossier-only handoff commit follows)
+- **Implementation commit(s):** `f743b186e8223da1881f1d03d2ff90e78f24450a`, `1ff4ad50e7918caafec9516d44fd2a8f5582cd56`
 
 ## Intent and source method
 
@@ -24,8 +24,9 @@ The root idea map now routes conditional signup/passwordless, SCIM, cross-domain
 ## Evidence and review
 
 - Existing reference IDs `[1]`–`[26]` were mechanically reconstructed from the live skill; canonical H1 report URLs assigned `[27]`–`[39]` in task ledger `/home/ryushe/.hermes/cache/scratch/h1-ato-sources-20260930.json`.
-- Mechanical validation: all 39 IDs map consistently to one URL, with all 13 new report IDs cited and defined in the correct owner; root routes for four ATO references plus `/password-reset` resolve; `git diff --check` passed. Focused `pytest -q tests/test_business_logic_skill.py tests/test_security_reporting_skill.py`: **3 passed, 24 subtests passed**. A broader command including `tests/test_skill_command_lane_safety.py` had one pre-existing unrelated failure on `docs/integrations/broad-goal-map-reconciliation.md:24`, a command line untouched by this feature. Strict `sources.py verify` on each modular reference warns about ledger IDs intentionally cited by *other* references, so the custom cross-reference check validates the shared 39-ID ledger without suppressing that tool warning.
-- Pending: independent review of exact diff, current-beta merge compatibility, post-merge focused tests, and active skill projection.
+- Mechanical validation: all 39 IDs map consistently to one URL, with all 13 new report IDs cited and defined in the correct owner; root routes for four ATO references plus `/password-reset` resolve; `git diff --check` passed. `pytest -q tests/test_business_logic_skill.py tests/test_security_reporting_skill.py`: **3 passed, 24 subtests passed**, but those suites do **not** exercise these ATO reference claims; primary-report review plus citation/path and route assertions are the relevant validation. A broader command including `tests/test_skill_command_lane_safety.py` had one pre-existing unrelated failure on `docs/integrations/broad-goal-map-reconciliation.md:24`, a command line untouched by this feature. Strict `sources.py verify` on each modular reference warns about ledger IDs intentionally cited by *other* references, so the custom cross-reference check validates the shared 39-ID ledger without suppressing that tool warning.
+- Independent reviewer verdict on implementation `f743b18`: **No integration yet.** Four blocking source-precondition corrections: Shopify legacy merge/eligibility, SSO DoS vs new/removed-member provisioning and existing-member Join, factor setup requiring known ID and no prior factor, and telemetry exposure vs attacker event-read prerequisite. One optional clarification distinguishes Mozilla's local-source code-replay PoC from a demonstrated victim-code theft. Corrected in implementation `1ff4ad50e7918caafec9516d44fd2a8f5582cd56`; fresh `git diff --check`, per-document citation mapping, route and qualification assertions passed, and focused `pytest` returned 3 passed/24 subtests. A fresh independent verdict is required before merge.
+- Pending: fresh review of corrected exact diff, current-beta merge compatibility, post-merge focused tests, and active skill projection.
 
 ## Blockers and deferred work
 
@@ -34,6 +35,6 @@ Exhaustive review of every disclosed HackerOne ATO report is **not proven**: pub
 ## Interruption / resume handoff
 
 - **Branch/ref:** `docs/h1-ato-disclosures-20260929`, base `8a64ae0441130694b9a7faffa65ed8801adf946b`, target `beta`.
-- **Checkpoint:** implementation commit `f743b186e8223da1881f1d03d2ff90e78f24450a` (verify its ancestry and the later dossier-only branch tip).
+- **Checkpoint:** corrected implementation commit `1ff4ad50e7918caafec9516d44fd2a8f5582cd56` (verify its ancestry and the later dossier-only branch tip).
 - **Exact next action:** reconcile independent read-only review of the implementation diff, fix and re-review blockers if any; check beta compatibility, merge/push beta from its clean integration worktree, and verify active projection.
 - **Working tree:** dossier-only handoff to be committed separately; do not merge this branch-local file into beta.

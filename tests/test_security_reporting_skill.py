@@ -29,6 +29,19 @@ class SecurityReportingSkillTests(unittest.TestCase):
                 self.assertIn(marker, text)
         self.assertNotIn("evidence-first-vulnerability-reporting", (ROOT / "skills/manual-hunter/SKILL.md").read_text())
 
+    def test_poc_author_and_reporter_are_distinct(self):
+        text = SKILL.read_text(encoding="utf-8")
+        for marker in (
+            "The primary hunter owns the PoC's claim-to-proof design",
+            "delegate construction or refinement",
+            "The reporting agent owns `SUBMISSION.md`",
+            "does not make it the PoC author or authorize it to run the exploit",
+            "do not repeat a destructive, irreversible, metered",
+            "any additional live test needs a specific unresolved proof question",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
 
 if __name__ == "__main__":
     unittest.main()

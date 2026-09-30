@@ -1,12 +1,12 @@
 # Security-reporting PoC owner integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes
 - **Branch / owning ref:** `docs/security-reporting-poc-owner`
 - **Base commit:** `34339045941d894fdb6f402551d2133fb99462ed`
 - **Intended integration target:** `beta`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `b7ad2f9880101731dba2b0238fe19f7b902a1b4f`
+- **Feature implementation commit(s):** `b7ad2f9880101731dba2b0238fe19f7b902a1b4f`
 - **Canonical reference:** `skills/security-reporting/SKILL.md`
 
 ## Intent
@@ -21,7 +21,7 @@ Primary hunter owns PoC proof and final artifact, may delegate artifact construc
 
 - Focused test: `python -m unittest tests.test_security_reporting_skill` — 3 tests passed; `git diff --check` clean.
 - Policy neighbors checked: `poc-tooling-policy`, `triager-first-poc-authoring`, `hunt-orchestration-policy`, `bunny-reporter.md`, `agents/index.md`. These retain specialist artifact and live authorization ownership; no competing author assignment found.
-- Independent review: pending.
+- Independent review: PASS, no blocking findings; reviewer reran `git diff --check` and all 3 focused tests. Non-blocking note: wording-marker test cannot detect every possible future contradiction.
 - Merge/ancestry: branch created from fetched `origin/beta` at base SHA above.
 
 ## Blockers and deferred work
@@ -31,10 +31,10 @@ Primary hunter owns PoC proof and final artifact, may delegate artifact construc
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/security-reporting-poc-owner`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** run focused checks and independent review, then reconcile current beta, integrate, and verify projection.
-- **Working-tree state at handoff:** pending commit.
+- **Latest immutable recovery checkpoint:** `b7ad2f9880101731dba2b0238fe19f7b902a1b4f`
+- **Feature implementation commit(s):** `b7ad2f9880101731dba2b0238fe19f7b902a1b4f`
+- **Exact resume point:** reconcile current beta, integrate, and verify projection.
+- **Working-tree state at handoff:** clean after this handoff-only commit.
 
 ## Decision gates
 
@@ -45,3 +45,4 @@ Primary hunter owns PoC proof and final artifact, may delegate artifact construc
 ## Decision record
 
 - Created on feature branch to assign proof-of-concept ownership at the canonical reporting boundary.
+- Independent review passed; accepted for beta integration with no deferred source-level checks. Do not promote to stable implicitly.

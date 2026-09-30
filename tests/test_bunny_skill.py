@@ -41,6 +41,24 @@ class BunnySkillTests(unittest.TestCase):
             self.assertIn("description:", body)
             self.assertIn("Follow the coordinator's scoped task packet", body)
 
+    def test_checkpoint_and_negative_challenge(self):
+        text = SKILL.read_text(encoding="utf-8")
+        hunter = (SKILL.parent / "agents" / "bunny-hunter.md").read_text(encoding="utf-8")
+        for phrase in (
+            "Checkpoint and steering contract",
+            "successive bounded segments",
+            "periodic stall check is a backstop",
+            "3–5 feedback-turn negative-result challenge",
+            "There is a vulnerability here. You might have to get creative to find it.",
+            "targeted research",
+            "creative in-scope tricks",
+            "Stop the challenge early on direct disproof",
+            "never a factual finding",
+        ):
+            self.assertIn(phrase, text)
+        self.assertIn("requested checkpoints, not only at final completion", hunter)
+        self.assertIn("motivational search stance, not evidence", hunter)
+
     def test_registered(self):
         registry = (ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8")
         self.assertIn("| **bunny** |", registry)

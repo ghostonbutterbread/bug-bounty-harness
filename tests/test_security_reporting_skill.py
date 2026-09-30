@@ -32,8 +32,13 @@ class SecurityReportingSkillTests(unittest.TestCase):
     def test_poc_author_and_reporter_are_distinct(self):
         text = SKILL.read_text(encoding="utf-8")
         for marker in (
-            "The primary hunter owns the PoC's claim-to-proof design",
-            "delegate construction or refinement",
+            "PoC authorship follows finding context, not agent rank",
+            "names one finding/PoC owner",
+            "If the main hunter established the proof",
+            "if a hunting subagent established it",
+            "A child that only mapped or investigated a piece returns observations",
+            "owns the single final artifact and report handoff",
+            "delegates focused construction/refinement",
             "The reporting agent owns `SUBMISSION.md`",
             "does not make it the PoC author or authorize it to run the exploit",
             "do not repeat a destructive, irreversible, metered",

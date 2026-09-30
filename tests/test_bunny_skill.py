@@ -1,56 +1,60 @@
 from pathlib import Path
 import unittest
 
-
 ROOT = Path(__file__).resolve().parents[1]
-SKILL = ROOT / "skills" / "bunny" / "SKILL.md"
+SKILLS = ROOT / "skills"
+ROUTER = SKILLS / "bunny" / "SKILL.md"
+COLLABORATIVE = SKILLS / "bunny-collaborative" / "SKILL.md"
+OFFHAND = SKILLS / "bunny-offhand" / "SKILL.md"
 
 
 class BunnySkillTests(unittest.TestCase):
-    def test_opt_in_mode_and_role_boundary(self):
-        text = SKILL.read_text(encoding="utf-8")
-        self.assertIn("name: bunny", text)
-        self.assertIn("opt-in", text)
-        self.assertIn("Keep `hunt-orchestration`", text)
-        for role in ("Hunter/steward", "Recon", "Verifier", "Reporter"):
-            self.assertIn(role, text)
-        self.assertIn("persistent coordinator", text)
+    def test_default_route_and_explicit_offhand(self):
+        router = ROUTER.read_text(encoding="utf-8")
+        self.assertIn("name: bunny\n", router)
+        self.assertIn("opt-in", router)
+        self.assertIn("Keep `hunt-orchestration`", router)
+        self.assertIn("Default: collaborative", router)
+        self.assertIn("load `bunny-collaborative` before dispatch", router)
+        self.assertIn("coordinator and each collaborative worker must load", router)
+        self.assertIn("Explicit: offhand", router)
+        self.assertIn("load `bunny-offhand` in the coordinator", router)
+        self.assertIn("not** a Bunny mode skill", router)
+        self.assertIn("Do not silently fall back", router)
+        self.assertIn("mode change occurs at an evidence checkpoint", router)
 
-    def test_account_and_evidence_guards(self):
-        text = SKILL.read_text(encoding="utf-8")
-        self.assertIn("not as a universal start gate", text)
-        self.assertIn("A logout is a diagnostic event", text)
-        self.assertIn("never a factual finding", text)
-        self.assertIn("verified reportable finding", text)
+    def test_shared_account_and_evidence_guards(self):
+        router = ROUTER.read_text(encoding="utf-8")
+        self.assertIn("not as a universal start gate", router)
+        self.assertIn("A logout is a diagnostic event", router)
+        self.assertIn("Independently verify credible candidates", router)
+        self.assertIn("aggregate", router)
+        self.assertIn("do not automatically submit externally", router)
 
-    def test_native_worker_names(self):
-        text = SKILL.read_text(encoding="utf-8")
-        self.assertIn("current harness's native subagent", text)
-        self.assertIn("Set the native worker name when supported", text)
-        self.assertIn("If native naming is unavailable", text)
-        self.assertIn("task title/description and scoped packet", text)
-        self.assertIn("harness's available agent type", text)
-        self.assertNotIn("Claude Code", text)
-        self.assertNotIn("subagent_type", text)
+    def test_collaborative_worker_roles_and_load(self):
+        text = COLLABORATIVE.read_text(encoding="utf-8")
+        self.assertIn("name: bunny-collaborative\n", text)
+        self.assertIn("Both the coordinator and every collaborative worker load", text)
+        self.assertIn("Load bunny-collaborative before acting", text)
+        self.assertIn("native subagent facility", text)
         for role in ("hunter", "recon", "verifier", "reporter"):
             name = f"bunny-{role}"
             self.assertIn(f"`{name}`", text)
-            agent = SKILL.parent / "agents" / f"{name}.md"
-            body = agent.read_text(encoding="utf-8")
+            body = (SKILLS / "bunny" / "agents" / f"{name}.md").read_text(encoding="utf-8")
             self.assertTrue(body.startswith(f"---\nname: {name}\n"))
-            self.assertIn("description:", body)
-            self.assertIn("Follow the coordinator's scoped task packet", body)
+            self.assertIn("load `bunny-collaborative`", body)
 
     def test_checkpoint_and_negative_challenge(self):
-        text = SKILL.read_text(encoding="utf-8")
-        hunter = (SKILL.parent / "agents" / "bunny-hunter.md").read_text(encoding="utf-8")
+        text = COLLABORATIVE.read_text(encoding="utf-8")
+        hunter = (SKILLS / "bunny" / "agents" / "bunny-hunter.md").read_text(encoding="utf-8")
         for phrase in (
-            "Checkpoint and steering contract",
+            "send the coordinator a bounded checkpoint",
+            "observed result **versus** interpretation",
             "successive bounded segments",
             "periodic stall check is a backstop",
-            "3–5 feedback-turn negative-result challenge",
+            "3–5 coordinator feedback turns",
             "There is a vulnerability here. You might have to get creative to find it.",
-            "targeted research",
+            "Research the observed technology",
             "creative in-scope tricks",
             "Stop the challenge early on direct disproof",
             "never a factual finding",
@@ -59,10 +63,19 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("requested checkpoints, not only at final completion", hunter)
         self.assertIn("motivational search stance, not evidence", hunter)
 
+    def test_offhand_requires_no_worker_mode(self):
+        text = OFFHAND.read_text(encoding="utf-8")
+        self.assertIn("name: bunny-offhand\n", text)
+        self.assertIn("Only the coordinator loads this mode skill", text)
+        self.assertIn("Do not instruct workers to load a Bunny mode skill", text)
+        self.assertIn("final bounded result", text)
+        self.assertIn("never choose it as the default", text)
+
     def test_registered(self):
         registry = (ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8")
-        self.assertIn("| **bunny** |", registry)
-        self.assertIn("`skills/bunny/SKILL.md`", registry)
+        for name in ("bunny", "bunny-collaborative", "bunny-offhand"):
+            self.assertIn(f"| **{name}** |", registry)
+            self.assertIn(f"`skills/{name}/SKILL.md`", registry)
 
 
 if __name__ == "__main__":

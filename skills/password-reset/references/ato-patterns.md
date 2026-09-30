@@ -84,7 +84,7 @@ Safe proof: use an owned account and an owned callback/domain. Promote only if t
 
 This is distinct from poisoning the generated link: when an owned inbox receives a normal reset link, inspect the reset page's browser requests and redirects, its `Referrer-Policy`, and any *owned, authorized* request-log sink. Does the full token-bearing URL enter a third-party `Referer`, external redirect, or accessible log after the link is opened? Record only redacted evidence of the destination and token presence. Do not send a usable token to an unowned collector, and do not infer leakage from a third-party request lacking the token.[1][2]
 
-Also inspect *automatic telemetry payloads* generated on page load, not only headers and redirects. One disclosed report found an unused reset token copied into analytics page-event URL/search fields before redemption, with browser identity correlation. Prove the owned token appears in an outbound event and remains usable at that moment; do not inspect a third party's dashboard or disclose the raw token in evidence.[27]
+Also inspect *automatic telemetry payloads* generated on page load, not only headers and redirects. One disclosed report found an unused reset token copied into analytics page-event URL/search fields before redemption, with browser identity correlation. An outbound event containing a usable owned token proves exposure, **not remote takeover**: that path additionally requires timely read access to the paired events or a downstream destination before token use/expiry. Do not inspect a third party's dashboard or disclose the raw token in evidence.[27]
 
 ## Reset Authority Retained in Browser State
 

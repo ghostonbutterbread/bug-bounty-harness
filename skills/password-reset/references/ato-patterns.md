@@ -84,9 +84,17 @@ Safe proof: use an owned account and an owned callback/domain. Promote only if t
 
 This is distinct from poisoning the generated link: when an owned inbox receives a normal reset link, inspect the reset page's browser requests and redirects, its `Referrer-Policy`, and any *owned, authorized* request-log sink. Does the full token-bearing URL enter a third-party `Referer`, external redirect, or accessible log after the link is opened? Record only redacted evidence of the destination and token presence. Do not send a usable token to an unowned collector, and do not infer leakage from a third-party request lacking the token.[1][2]
 
+Also inspect *automatic telemetry payloads* generated on page load, not only headers and redirects. One disclosed report found an unused reset token copied into analytics page-event URL/search fields before redemption, with browser identity correlation. An outbound event containing a usable owned token proves exposure, **not remote takeover**: that path additionally requires timely read access to the paired events or a downstream destination before token use/expiry. Do not inspect a third party's dashboard or disclose the raw token in evidence.[27]
+
+## Reset Authority Retained in Browser State
+
+After opening a valid link for an owned account, check whether a new reset-capability cookie or browser state remains usable after the link closes, on a later reset page, or after the product promises it is consumed. A disclosed case required access to the same shared browser; that is a different precondition from remote unauthenticated ATO. Read back the owned account's final password change, avoid collecting raw cookies, and state the attacker-access prerequisite explicitly.[28]
+
 ## Link/Code Purpose Confusion
 
 When the application exposes magic login, signup confirmation, email change, and password reset in related link/code flows, identify the account, intended purpose, pending transaction, single-use state, and **resulting session** at redemption. Compare only valid artifacts from owned inboxes; opening a correct link on another device is not itself ATO. A cross-purpose or wrong-account session requires read-back proof.[1][4]
+
+For mobile magic links, follow the URL through the app-link/deep-link handoff. A disclosed report showed an unverified Android app-link domain letting another installed app intercept an owned login token; a web redirect alone does not prove a malicious app can receive or redeem it. Use only a test device, owned app fixture, and owned account under program rules.[30]
 
 ## Token Lifecycle
 
@@ -97,6 +105,7 @@ Checks:
 - redeem token once, then retry the same token
 - request token for account A, attempt redemption against account B's final reset request shape
 - verify token invalidation after password change
+- check once whether an old unused reset link remains usable after the account's recovery/primary email changes when product policy says prior recovery authority should be retired; distinguish an old mailbox holder's lingering access from ordinary self-service use.[29]
 - verify old sessions are invalidated when the product promises that behavior
 
 Do not brute force tokens or codes.
@@ -193,3 +202,7 @@ Stop before lockout-prone loops, inbox flooding, or repeated reset delivery to n
 [1] https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html
 [2] https://wstg.owasp.org/latest/4-Web_Application_Security_Testing/04-Authentication/09-Weak_Password_Change_or_Reset_Functionalities
 [4] https://cheatsheetseries.owasp.org/cheatsheets/Email_Validation_and_Verification_Cheat_Sheet.html
+[27] https://hackerone.com/reports/4000185
+[28] https://hackerone.com/reports/1004536
+[29] https://hackerone.com/reports/685007
+[30] https://hackerone.com/reports/855618

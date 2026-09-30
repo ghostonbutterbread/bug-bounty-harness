@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-09-29
 - **Owning feature branch/ref:** `feat/fid-evidence-submission`
-- **Latest immutable recovery checkpoint:** `45f36fd` (initial slice; correction checkpoint pending)
-- **Feature implementation commits:** `45f36fd`; subsequent correction commit pending
+- **Latest immutable recovery checkpoint:** `21ebf0c` (consumer correction; pin commit pending)
+- **Feature implementation commits:** `45f36fd`, `21ebf0c`; pin commit pending
 - **Inspiration / canonical references:** Ryushe's FID → evidence → rough report → exploration → concise submission workflow; `security-reporting`, `manual-hunter`, Bounty Core report writer.
 
 ## Intent
@@ -21,8 +21,8 @@ In progress: Bounty Core provider owns packet initialization and draft; BBH owns
 
 ## Evidence and review
 
-- Tests and commands: provider full 158 passed; consumer focused 34 passed against provider feature source. Installed pinned-provider and post-merge tests pending.
-- Independent review: two passes found free-form secret copying and empty program-form acceptance; both corrected with tests. Final provider acceptance and consumer pin review pending.
+- Tests and commands: provider beta full 158 passed and focused 41 passed; BBH installed pinned provider `54ac5e8` via `.venv` direct_url.json; consumer focused 35 passed and ledger/BaseTeam subset 25 passed (1 known stale assertion deselected). Existing three report-layout assertions in sync/BaseTeam tests fail against pre-existing `reports/<FID>` change, not this feature.
+- Independent review: two passes found free-form secret copying and empty program-form acceptance; corrected with tests. Final provider review accepted `1122ea5` and beta is published at `54ac5e8`. Consumer pin review pending.
 - Replay/cohort/fixture evidence: isolated provider→consumer packet-to-submission test, no target traffic.
 - Merge/ancestry evidence: feature reconciled with fetched `origin/beta` via `dd14cf2`; base `0afc696`.
 
@@ -37,10 +37,10 @@ In progress: Bounty Core provider owns packet initialization and draft; BBH owns
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/fid-evidence-submission`
-- **Latest immutable recovery checkpoint:** `45f36fd` (corrections awaiting commit)
-- **Feature implementation commit(s):** `45f36fd`
-- **Exact resume point:** accept provider, pin published beta SHA, install and test consumer, then integrate.
-- **Working-tree state at handoff:** intentionally uncommitted corrections until local checks and commit.
+- **Latest immutable recovery checkpoint:** `21ebf0c` (pin awaiting commit)
+- **Feature implementation commit(s):** `45f36fd`, `21ebf0c`
+- **Exact resume point:** test installed pinned provider, independent consumer review, integrate beta and verify runtime projection.
+- **Working-tree state at handoff:** pin and dossier intentionally uncommitted until installed tests.
 
 ## Decision gates
 

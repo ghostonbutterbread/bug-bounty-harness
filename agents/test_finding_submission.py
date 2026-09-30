@@ -150,6 +150,11 @@ class SubmissionTests(unittest.TestCase):
                 self.prepare()
         self.assertFalse((self.packet / "SUBMISSION.md").exists())
 
+    def test_provider_pin_matches_packet_contract(self) -> None:
+        manifest = (SCRIPT.parent.parent / "requirements.txt").read_text(encoding="utf-8")
+        self.assertIn("54ac5e8261edd313c815adde17d4fbb64fb4727d", manifest)
+        self.assertNotIn("8cc64e68bc93919573c5e3cb2662283889d7858c", manifest)
+
     def test_provider_packet_to_prepared_submission(self) -> None:
         finding = ledger_get(self.program, self.fid, lane="web", family="web_bounty", root_override=self.root)
         write_finding_report(self.layout, finding)

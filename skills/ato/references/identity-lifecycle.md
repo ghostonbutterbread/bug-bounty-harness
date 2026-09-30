@@ -9,6 +9,8 @@
 - **Verification of the wrong pending change.** For two owned pending signups or email/phone changes, compare which recipient, purpose, account, and pending transaction the final link/code actually confirms. Check a canceled or superseded change only once to see whether its old proof can still install a recovery destination. A verification banner or old link opening a page is not the security result.[4][8][9]
 - **Email/recovery address change.** Map current session, recent password/MFA proof when required, new-address confirmation, notice to the old address, and the account ID at final confirmation. Ask whether a weaker session or B's inbox installs a recovery path on A. Ordinary verified self-service change is not ATO.[3][7]
 - **Local/federated merge.** If social login creates or attaches an account by email, compare the provider's verified-email status and stable issuer/subject with an existing unverified local account. Test whether the local password survives a later legitimate IdP login to the *same* account. Continue in `references/federation.md` for callback and provider binding.[8][12]
+- **New-account action on an existing identity.** If a passwordless signup or first-password flow exists, compare whether its final server-side decision verifies a genuinely new owned account or changes an already-existing owned account merely because the request supplies its phone/email and a client-selected workflow state. A reported passwordless-signup path changed an existing account's password; the endpoint name and a `SUCCEEDED` field alone are not proof—read back the owned account's credential state. Route password reset mechanics to `/password-reset`.[31]
+- **Verification installed by an unrelated write.** When a pending email change or unverified signup survives profile edits, check whether a subsequent avatar/profile save silently applies or validates a different pending address than the one proved by the owned mailbox. One disclosed chain combined email-change state with profile-photo writes; the report's exact UI sequence is a clue, not a portable payload. Require the verified identifier and retained login method on the owned account to change server-side.[35]
 
 ## Evidence discriminator
 
@@ -22,3 +24,5 @@ Use owned account aliases and inboxes; observe final local account ID, verified 
 [8] https://www.microsoft.com/en-us/msrc/blog/2022/05/pre-hijacking-attacks
 [9] https://arxiv.org/abs/2205.10174
 [12] https://openid.net/specs/openid-connect-core-1_0.html
+[31] https://hackerone.com/reports/143717
+[35] https://hackerone.com/reports/910300

@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-03
 - **Owning feature branch/ref:** `docs/report-impact-framing`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `94c81f298b7e754a308075dc0a95c977625d2714`
+- **Feature implementation commit(s):** `94c81f298b7e754a308075dc0a95c977625d2714`
 - **Inspiration / canonical references:** Ryushe's report-stage and impact-framing conversation; `skills/security-reporting/SKILL.md`
 
 ## Intent
@@ -21,7 +21,7 @@ Clarify the existing three-stage report method without replacing the five-sectio
 
 ## Evidence and review
 
-- Tests and commands: `.venv/bin/python -m pytest -q tests/test_security_reporting_skill.py agents/test_finding_submission.py` — 14 passed, 41 subtests; `git diff --check` clean.
+- Tests and commands: `python3 -m pytest -q tests/test_security_reporting_skill.py agents/test_finding_submission.py` — 14 passed, 41 subtests; `git diff --check` clean.
 - Independent review: pending
 - Replay/cohort/fixture evidence: not applicable; documentation-only
 - Merge/ancestry evidence: pending
@@ -33,10 +33,10 @@ Clarify the existing three-stage report method without replacing the five-sectio
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/report-impact-framing`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** test, commit, independent review, merge into beta, push and sync Hoster.
-- **Working-tree state at handoff:** intentionally uncommitted while implementing
+- **Latest immutable recovery checkpoint:** `94c81f298b7e754a308075dc0a95c977625d2714`
+- **Feature implementation commit(s):** `94c81f298b7e754a308075dc0a95c977625d2714`
+- **Exact resume point:** independent review, merge into beta, push and sync Hoster.
+- **Working-tree state at handoff:** clean after the dossier correction commit
 
 ## Decision gates
 

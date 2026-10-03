@@ -73,6 +73,11 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
 
 ## Cross-account control harness
 
+When an action appears to bypass a permission boundary for one owned account,
+test the same action with other relevant owned permission tiers on comparable
+owned resources. Record which tiers succeed or fail rather than assuming the
+first account's result applies to everyone.
+
 For two-identity authorization comparisons, load and follow `idor-live-policy`.
 For API mining, GraphQL, batch REST, or direct replay, load the control-harness
 section of `prompts/access-control-playbook.md`. For a one-shot,

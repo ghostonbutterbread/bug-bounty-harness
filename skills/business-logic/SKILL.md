@@ -11,6 +11,10 @@ description: "Use when hunting workflow, role, value, state, or lifecycle flaws 
 
 Browser-drive the feature's normal UI with `/live-map` and `/chromium-test` before claiming to understand or exhaust it. Read product/developer docs with `/docs` when they clarify roles or operations; map requests and effects through `/analyze-endpoint` or task MITM as useful. Begin with a current scoped surface rather than treating prior leads as proof. Identify the actors, artifact/value, role permissions, expected sequence, state transitions, ownership, visibility/audit trail, and lifecycle end. Record what is *observed* separately from what is inferred to be intended.
 
+Before forming an abuse idea, ask: **What are my account's normal permissions?
+Is this action on this resource already allowed for me, or would the proposed
+abuse grant access I do not normally have?**
+
 Then ask what the business assumes a user cannot or would not do. Compare the actor's legitimate capability with the suspected path: does it give a different artifact, hide a transfer or exposure from the owner, evade a contextual rule, alter value, or preserve a capability after a meaningful transition? A technically permitted action is not automatically harmless; a surprising UI response is not automatically a vulnerability. Load `references/business-model-and-issue-families.md` for candidate issue families and the D16 interpretation lesson, then form a specific invariant and an owned, observable discriminator. Use `/assumption-testing` for server enforcement claims and `/hypothesis-expansion-policy` for distinct candidate branches.
 
 ## Follow the consequential branch

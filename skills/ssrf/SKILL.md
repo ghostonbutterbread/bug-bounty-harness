@@ -18,6 +18,14 @@ callback hit, DNS lookup, parser error, redirect difference, private-IP block,
 scheme-specific error, async queue behavior, or status delta is signal. Signal
 means classify the fetch/filter boundary and enter pressure mode.
 
+An attributed server-origin HTTP callback proves fetching, not internal reachability
+or impact; DNS alone proves only resolution. Follow confirmed fetching into
+plausible internal services, pages, APIs, and metadata paths. Determine what
+the fetcher can access, return, or do, including whether credentials or other
+sensitive data are exposed. Sensitivity and the absence of an owned fixture are
+not reasons to avoid testing; program scope and concrete harm govern the next
+action.
+
 ## Load Order
 
 Read `general-security-testing-policy` first and follow its Cold-Start guidance (mirrored in `agents/index.md`):
@@ -64,22 +72,23 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    surface from direct behavior.
 3. Query MapStore and prior attempts for this URL/fetch surface to avoid
    duplicate work and reuse known parser/filter boundaries.
-4. Confirm server-side fetch when possible with an owned controlled callback. If
-   outbound callbacks are unavailable, use the smallest safe internal URL proof
-   available—response/status delta, timing, job state, or other direct server
-   behavior—and record that the evidence is indirect or bounded by the surface.
+4. Confirm server-side fetching with a controlled callback when possible.
+   Distinguish DNS resolution from HTTP and server requests from client-side
+   navigation. Otherwise compare attributable response/status, timing, job
+   state, or other server behavior and state the evidence limits.
 5. If no callback, reflection, status change, or visible delta appears, classify
    likely controls anyway: allowlist, private-IP block, redirect handling, DNS
    timing, scheme block, URL parser split, sanitizer, WAF, or async fetch.
-6. Use the idea seeds that match the observed or plausible filtering/routing
-   behavior, then run a bounded mutation ladder. Once a backend fetch boundary
-   is confirmed, cover as many distinct representation variants as useful at the
-   permitted rate; expand a family when a variant behaves differently, and stop
-   repeating variants that normalize or behave identically.
-7. Prefer status, banner, callback, or low-risk root proof over secret retrieval.
-8. Stop after the impact boundary is proved or, when impact proof is not yet
-   available, after representative mutation families show the filter boundary is
-   understood.
+6. Use idea seeds that fit the observed filtering/routing behavior. Cover
+   mechanism-distinct variants at the permitted rate; expand a family when it
+   behaves differently and stop repeating equivalent normalized variants.
+7. Map plausible internal destinations from the app and observations. Test
+   whether internal content, authenticated service behavior, sensitive data,
+   credentials, or an action is accessible. For blind fetches, look for response
+   sinks or attributable indirect effects; do not infer a response from a hit.
+8. Stop when impact is proved, a concrete scope/harm gate blocks the next test,
+   or distinct variants explain the remaining control. Record the missing link
+   rather than calling the class closed.
 
 ## Pressure Mode
 
@@ -116,9 +125,9 @@ Typical SSRF pressure ladder:
 5. family queue: redirects, DNS tricks, parser confusion, userinfo, IPv6,
    octal/decimal, suffix/prefix allowlist, protocol smuggling, Host/header
    trust
-6. internal-surface discovery when reached with a low rate limit: IP/root
-   checks, service identity/protocol/banner/status classification, and candidate
-   surface mapping from non-sensitive evidence
+6. internal-surface discovery at a low rate: architecture-led destinations,
+   IP/root checks, internal pages/APIs, service identity, metadata, and
+   observable responses or effects, including sensitive exposure when reached
 7. impact proof, residual next probe, or exact kill reason
 
 ## Primary Harness
@@ -132,22 +141,26 @@ Lower concurrency and RPS when rules are unclear or the fetcher fans out server-
 
 ## Proof Standard
 
-Promote only when evidence shows the server, not the client, reached a controlled, internal, metadata, or otherwise security-relevant destination.
-
-Do not promote client-side-only navigation, generic fetch errors, public URL fetches without impact, or unsupported timing speculation.
+Record each claim separately: server-side HTTP fetch, internal reachability,
+response visibility, privileged access, and concrete impact. Promote a finding
+only for a demonstrated security boundary or consequence, not for a public
+callback alone. Blindness concerns response visibility, not whether an internal
+destination was reached. Do not promote client-side navigation, DNS-only lookup
+as an HTTP request, generic errors, or unsupported timing speculation.
 
 ## Escalation And Stop Conditions
 
-After proving a server-side fetch boundary, continue with a bounded,
-rate-limited, read-only internal proof ladder when program rules permit. Internal
-reads may establish impact, including the minimum sensitive response needed to
-show the reachable boundary; preserve only the smallest necessary proof and
-never disclose raw secrets or third-party data. Stop after the impact boundary
-is proved, on instability, or when a next request may change state, authenticate
-with retrieved credentials/tokens, persist data, cause destructive behavior, or
-broaden into an uncontrolled scan. DNS rebinding still requires explicit
-approval. Use the observed fetcher's service cost and program rules—not an
-arbitrary payload-count cap—to set rate, concurrency, and backoff.
+After proving a server-side fetch, pursue internal reachability and impact
+under program rules at a rate that fits the fetcher's cost. Sensitive content
+is a valid proof target; retain only the evidence needed to demonstrate exposure
+in restricted storage, without publishing raw secrets or third-party data.
+Disclosure proof does not authorize credential use. Follow
+`information-disclosure-policy` for any permitted minimal validity check;
+beyond that, ask first under `live-testing-policy`. Do not infer authority to
+mutate internal state: classify the next request's effect before acting.
+Stop on instability, out-of-scope effects, or uncontrolled scans. DNS rebinding
+still requires explicit approval. Do not impose an arbitrary payload-count cap;
+expand distinct variants that discriminate a live boundary.
 
 ## Evidence
 

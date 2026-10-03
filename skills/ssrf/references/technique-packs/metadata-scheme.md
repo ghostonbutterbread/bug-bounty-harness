@@ -1,9 +1,12 @@
 # Cloud, Container, Internal Service, and Scheme Boundaries
 
-Use only after a server-side fetch boundary is confirmed and program scope is
-known. Start with low-sensitivity identity/status proof; do not retrieve, retain,
-or use secrets, tokens, user data, or credentials unless the program permits the
-minimum necessary proof.
+Use after a server-side fetch boundary is confirmed and program scope is
+known. Investigate internal pages, APIs, metadata, and credential-bearing
+surfaces where reachable. Sensitivity is not a reason to skip a proof; keep
+exposure evidence minimal and restricted. Disclosure proof does not authorize
+credential use. Follow `information-disclosure-policy` for a permitted minimal
+validity check; beyond that, use requires the live policy's ask-first decision
+and applicable specialist routing.
 
 ## Destination classes
 
@@ -49,13 +52,14 @@ protocol proof. Raw CR/LF, gopher, header injection, and protocol smuggling can
 produce state-changing traffic: treat them as a high-risk, separately authorized
 escalation with an owned receiver/lab. Route header behavior to `/headers`.
 
-## Proof ladder
+## Proof questions
 
-1. Controlled callback.
-2. Controlled redirect/DNS evidence.
-3. Internal status/banner/root with no secrets.
-4. Permitted redacted metadata root/version shape.
-5. Stop at the impact boundary.
+1. Did the server fetch, or only resolve a name?
+2. Was an internal destination reached? What evidence identifies it?
+3. Is the result visible through a response, error, job, or indirect effect?
+4. Can an internal page, API, metadata route, or credential-bearing resource
+   be read, or can a privileged action be demonstrated under the live rules?
+5. Which specific impact is proved, and what remains unobserved?
 
 ## Sources
 

@@ -62,13 +62,15 @@ Fact-check each material claim against its evidence pointer and PoC. Remove stal
 
 ## Submission structure
 
+Let `REPORT.md` remain an evolving explanation: retain competing impact angles and open proof questions there and in `EVIDENCE.md` while investigating. When preparing `SUBMISSION.md`, lead with the **highest demonstrated impact**, not the longest list of possible actions. In the Summary, state the vulnerability and failed boundary, then the proven attacker outcome and its consequence. Include another impact only when evidence shows it is materially distinct rather than an ordinary action already encompassed by the lead (for example, separately persistent organization access after recovery, if verified). Do not list routine account actions after a proven account takeover merely to inflate the claim. Script execution alone does not prove takeover; name session-only access, enduring account control, and their prerequisites accurately. The Impact section explains the lead and any distinct non-subsumed consequence without repeating the Summary; keep speculative chains in `EVIDENCE.md` or as explicitly unresolved questions in the rough report. Place decisive supporting evidence beside reproduction steps and cite the corresponding evidence-index pointers rather than adding an undifferentiated evidence dump.
+
 Use the program form when it mandates different labels; otherwise:
 
 ```markdown
 # <specific vulnerability> allows <security-relevant outcome>
 
 ## Summary
-<one compact paragraph: affected location, failed control, demonstrated attacker outcome and company/user consequence>
+<one compact paragraph: vulnerability and failed boundary → highest demonstrated impact; add only distinct, proven non-subsumed consequences>
 
 ## Technical details
 <brief root cause: attacker-controlled action/input, missing or incorrect control, causal link to result>
@@ -107,4 +109,4 @@ Never cite, link, name, or refer a triager to another one of our reports. Privat
 
 For multi-organisation access, state the proven membership and role-permitted access; do not claim specific PII or customer data was read unless separately demonstrated. For a user-mediated OAuth/callback pivot, state the user navigation/login condition and code-to-token sequence; do not call it silent takeover. Include material limits that change the impact, not an exhaustive negative-results section. Apply the program overlay's fields, length, artifact types, prohibited claims, and code-reference preferences without padding the report.
 
-The independent judge checks section order, evidence support and actual effect for each material claim, runnable prerequisites, PoC/flag alignment, the malicious request and decisive response, no cross-report references, secret hygiene, company-focused Impact, and remediation of the root cause. Preserve the receipt and name any unresolved gap. Report preparation does not set `submission.state=submitted`.
+The independent judge checks section order, whether the Summary leads with the highest demonstrated impact and includes only proven non-subsumed additional consequences, evidence support and actual effect for each material claim, runnable prerequisites, PoC/flag alignment with the lead impact, the malicious request and decisive response, no cross-report references, secret hygiene, company-focused Impact, and remediation of the root cause. Preserve the receipt and name any unresolved gap. Report preparation does not set `submission.state=submitted`.

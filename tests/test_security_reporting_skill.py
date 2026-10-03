@@ -29,6 +29,19 @@ class SecurityReportingSkillTests(unittest.TestCase):
                 self.assertIn(marker, text)
         self.assertNotIn("evidence-first-vulnerability-reporting", (ROOT / "skills/manual-hunter/SKILL.md").read_text())
 
+    def test_impact_framing_is_proven_nonredundant_and_triager_facing(self):
+        text = SKILL.read_text(encoding="utf-8")
+        for marker in (
+            "highest demonstrated impact",
+            "materially distinct",
+            "ordinary action already encompassed by the lead",
+            "Script execution alone does not prove takeover",
+            "decisive supporting evidence beside reproduction steps",
+            "PoC/flag alignment with the lead impact",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
     def test_poc_author_and_reporter_are_distinct(self):
         text = SKILL.read_text(encoding="utf-8")
         for marker in (

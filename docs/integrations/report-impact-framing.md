@@ -22,7 +22,7 @@ Clarify the existing three-stage report method without replacing the five-sectio
 ## Evidence and review
 
 - Tests and commands: `python3 -m pytest -q tests/test_security_reporting_skill.py agents/test_finding_submission.py` — 14 passed, 41 subtests; `git diff --check` clean.
-- Independent review: pending
+- Independent review: PASS on committed tip `bf9ecc3`; focused 14 tests/41 subtests and clean diff check independently rerun. Test is a wording guard, not a behavioral PoC.
 - Replay/cohort/fixture evidence: not applicable; documentation-only
 - Merge/ancestry evidence: pending
 
@@ -40,10 +40,10 @@ Clarify the existing three-stage report method without replacing the five-sectio
 
 ## Decision gates
 
-- **Integration gate:** focused test, independent review, clean beta merge and retest.
+- **Integration gate:** PASS independent review and focused checks; merge into current clean beta and retest.
 - **Activation / cohort gate:** sync selected Hoster beta source and verify exact projected skill and launcher.
 - **Promotion gate:** no stable promotion requested.
 
 ## Decision record
 
-- 2026-10-03 — created on current `origin/beta`.
+- 2026-10-03 — created on current `origin/beta`; independent review PASS, accepted for beta integration with dossier retirement.

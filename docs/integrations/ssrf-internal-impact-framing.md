@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-02
 - **Owning feature branch/ref:** `fix/ssrf-internal-impact-framing`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `ac006212d2aaf6192aff5717d3ec11e774537118`
+- **Feature implementation commit(s):** `ac006212d2aaf6192aff5717d3ec11e774537118`
 - **Inspiration / canonical references:** PortSwigger SSRF and Blind SSRF; OWASP SSRF WSTG and Prevention Cheat Sheet; Ryushe's SSRF evidence/impact correction in Discord.
 
 ## Intent
@@ -33,10 +33,10 @@ The SSRF entry and metadata pack distinguish DNS/HTTP fetch, internal reachabili
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/ssrf-internal-impact-framing`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** review two SSRF files against AI Policies boundary, run checks, commit, integrate reviewed change to beta.
-- **Working-tree state at handoff:** intentionally uncommitted implementation and dossier pending verification.
+- **Latest immutable recovery checkpoint:** `ac006212d2aaf6192aff5717d3ec11e774537118`
+- **Feature implementation commit(s):** `ac006212d2aaf6192aff5717d3ec11e774537118`
+- **Exact resume point:** merge reviewed feature into current `beta`, remove this dossier on integration, verify policy and runtime projection.
+- **Working-tree state at handoff:** clean after dossier-only checkpoint commit.
 
 ## Decision gates
 
@@ -46,4 +46,4 @@ The SSRF entry and metadata pack distinguish DNS/HTTP fetch, internal reachabili
 
 ## Decision record
 
-- 2026-10-02 — opened feature from fetched beta; aligned SSRF skill and metadata pack with impact-first framing.
+- 2026-10-02 — independent review corrected three conflicts; re-review found and resolved the credential-validity exception. Accepted for beta integration after green lint and smoke.

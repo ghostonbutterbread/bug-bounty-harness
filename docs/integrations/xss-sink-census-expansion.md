@@ -1,53 +1,50 @@
 # XSS sink census expansion integration dossier
 
-- **Status:** blocked
+- **Status:** feature
 - **Owner:** Hermes
 - **Branch:** `feat/xss-sink-census-expansion`
 - **Base commit:** `baf6065b9ce06033df3a4fb8f71f323e782694dc`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-05
 - **Owning feature branch/ref:** `feat/xss-sink-census-expansion`
-- **Latest immutable recovery checkpoint:** `1f4fd4773a1469d1c33f6fc543e4584db2e184a7` (feature merged current beta; dossier-only update follows)
-- **Feature implementation commit(s):** `0a91d65ad39c2f896070638bb29233bfc2ccb954`
-- **Inspiration / canonical references:** PortSwigger DOM-based XSS sink catalog and DOM Invader testcases; OWASP DOM-based XSS cheat sheet; React/Vue/Angular/Svelte/Lit and jQuery documentation. See `docs/xss-sink-inventory.md`.
+- **Latest immutable recovery checkpoint:** `bd5571c6f00a19723c5bb1ecc3143dad17222fb5` (merged corrected local beta; dossier-only update follows)
+- **Feature implementation commit(s):** `0a91d65`, `dd1580b`, `981e7a8`, `e12ba55`
+- **Inspiration / canonical references:** PortSwigger Academy and DOM Invader, CodeQL, Dalfox, Semgrep, XSStrike, OWASP, framework docs; details in `docs/xss-sink-inventory.md`.
 
 ## Intent
 
-Expand BBH's existing `agents/js_analyzer.py` deterministic JS sink-farming vocabulary while preserving the existing `sinks` labels and non-exhaustive coverage contract. No live target testing, browser confirmation, or changes to XSS finding statuses.
+Expand BBH's existing `agents/js_analyzer.py` deterministic JS sink-farming vocabulary while preserving existing `sinks` labels and the non-exhaustive coverage contract. No live target testing, browser confirmation, or change to XSS finding statuses.
 
 ## Implemented contract
 
-The static inventory emits additional sorted category labels for HTML parsers, iframe srcdoc, event attributes, jQuery HTML/URL helpers and legacy review candidates, framework raw HTML/trust bypass, script text/URL/import, and URL navigation. Output remains heuristic `exhaustive: false`; a detected name is not taint or execution proof. Historical six labels remain.
+Static bundle inventory emits additional sorted category labels for HTML parsers, iframe srcdoc, event attributes, jQuery HTML/URL helpers and review candidates, framework raw HTML/trust bypass, script text/URL/import, and URL navigation. Output remains heuristic `exhaustive: false`; a detected name is not taint or execution proof. Historical six labels remain.
 
 ## Evidence and review
 
-- Tests and commands: checkout-local `./setup.sh --install-python-deps`; `.venv/bin/python -m pytest agents/test_js_analyzer.py -q` 99 passed (189.98s) after jQuery parser, global eval, and event-name fixes; 73 focused parametrized cases; `git diff --check` clean. A prior full-suite attempt timed out at 120s; rerun succeeded at 360s.
-- Independent review: initial reviewer findings (untyped method/property false positives, unqualified `open` regression, overstated source-map coverage) were fixed. A second reviewer of dd1580b found missed `$.parseHTML`, qualified global eval, and generic on-prefixed fields; all addressed with explicit regressions. Re-review of the resulting tip is pending.
-- Replay/cohort/fixture evidence: 73 parametrized positive/negative sink fixtures plus an exact empty-bucket regression for native DOM and unrelated APIs in `agents/test_js_analyzer.py`.
-- Merge/ancestry evidence: fetched `origin/beta` at `baf6065b9ce06033df3a4fb8f71f323e782694dc` before branching; merged updated `origin/beta` `869929d8e147fa9b6f35b0fd89d2e57ed69ab769` into the feature (`1f4fd4773a1469d1c33f6fc543e4584db2e184a7`), no conflicts. Focused XSS inventory remains green after reconciliation; broad script-policy test 96 passed / 1 unrelated pre-existing failure.
+- Tests and commands: checkout-local `./setup.sh --install-python-deps`; `.venv/bin/python -m pytest agents/test_js_analyzer.py -q` → 99 passed (189.98s). After merging corrected local beta: `.venv/bin/python -m pytest agents/test_js_analyzer.py tests/test_script_policy.py -q` → 123 passed; `git diff --check` clean. A prior test attempt timed out at 120s, then passed with a 360s timeout.
+- Independent review: first reviewer findings (untyped jQuery/native DOM matches, unqualified `open`, overstated source-map coverage) and second reviewer findings (`$.parseHTML`, qualified global eval, generic on-prefixed fields) were addressed in code/tests/docs. Current-tip review is pending; reviewer output must be checked against the reconciled tip.
+- Replay/cohort/fixture evidence: 73 parametrized positive/negative sink fixtures plus an exact empty-bucket regression for native DOM/unrelated APIs in `agents/test_js_analyzer.py`.
+- Merge/ancestry evidence: fetched `origin/beta` at `baf6065b9ce06033df3a4fb8f71f323e782694dc` before branching, then reconciled `869929d8e147fa9b6f35b0fd89d2e57ed69ab769`. A separate reviewed Chromium index repair was merged to local beta at `d5cd501fe99d1bb9fd11c278a9d0eb67b5f344f8`; corrected beta was merged into this feature at `bd5571c6f00a19723c5bb1ecc3143dad17222fb5`, no conflicts. Combined 123 tests pass.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** `tests/test_script_policy.py::test_each_skill_index_has_complete_nonstale_records` fails because `skills/chromium-test/scripts/README.md` omits `browser_manager_row_repair.py`. Reproduced on unchanged beta at `869929d8e147fa9b6f35b0fd89d2e57ed69ab769` as well as this feature.
-- **Command / fixture / environment needed:** add the helper's complete record in the Chromium Test script index in a separate task, then rerun `.venv/bin/python -m pytest agents/test_js_analyzer.py tests/test_script_policy.py -q`.
-- **Trigger to run it:** after that independent beta repair lands and is merged into this feature.
-- **Why it blocks integration, activation, or promotion:** broad declared script-policy verification remains red; feature-only 73 tests pass, but a required failed test cannot be misreported as green.
-- **Next completion step / successor reference:** track the unrelated repair separately; review this feature's own diff meanwhile. Runtime source-to-sink analysis/browser execution is deliberately not claimed by this inventory.
+The pre-existing Chromium index failure is resolved on local beta and the combined test suite is green. Current-tip independent XSS review remains open before integration. Remote beta still trails a clean local integration checkout with other task-owned commits; local integration must not be called publication or runtime activation. This static inventory does not claim runtime source-to-sink analysis or browser execution.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/xss-sink-census-expansion`
-- **Latest immutable recovery checkpoint:** `1f4fd4773a1469d1c33f6fc543e4584db2e184a7` (feature merged current beta; dossier-only update follows)
-- **Feature implementation commit(s):** `0a91d65ad39c2f896070638bb29233bfc2ccb954`
-- **Exact resume point:** receive independent review, resolve concrete findings and rerun focused tests; independently repair the pre-existing Chromium Test script-index failure on its own task/branch before beta integration.
+- **Latest immutable recovery checkpoint:** `bd5571c6f00a19723c5bb1ecc3143dad17222fb5` (dossier-only update follows)
+- **Feature implementation commit(s):** `0a91d65`, `dd1580b`, `981e7a8`, `e12ba55`
+- **Exact resume point:** receive current-tip independent review, address verified findings, rerun combined tests, merge reviewed XSS feature into clean local beta and retire this dossier in beta.
 - **Working-tree state at handoff:** clean after the forthcoming dossier/BUGFIXES checkpoint commit.
 
 ## Decision gates
 
-- **Integration gate:** focused tests, independent review, clean current-beta reconciliation and beta smoke.
+- **Integration gate:** combined tests, independent review, current-beta reconciliation and beta smoke.
 - **Activation / cohort gate:** not in scope; do not claim runtime deployment from a beta merge.
 - **Promotion gate:** stable/main requires separate owner direction.
 
 ## Decision record
 
 - 2026-10-05 — created from current origin/beta for an offline sink-inventory expansion.
+- 2026-10-05 — resolved separate Chromium index prerequisite on local beta, removed its stale BUGFIXES entry from this feature, and verified 123 combined tests after reconciliation. XSS final review and integration remain open.

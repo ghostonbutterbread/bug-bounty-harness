@@ -1,11 +1,5 @@
 # Known defects awaiting their own task
 
-## Chromium test script index omits row-repair helper
-
-**Location:** `skills/chromium-test/scripts/README.md` and `tests/test_script_policy.py::test_each_skill_index_has_complete_nonstale_records`.
-**Evidence:** `browser_manager_row_repair.py` exists but has no index record. The test fails identically on unchanged `beta` at `869929d8e147fa9b6f35b0fd89d2e57ed69ab769` and the XSS sink-inventory feature branch.
-**Impact:** broad script-policy verification remains red until the Chromium Test index owner adds a complete record; unrelated to XSS sink matching.
-
 ## Legacy report-layout assertions fail against stable FID packets
 
 **Location:** two tests in `agents/test_sync_reports.py`, one in `agents/test_base_team_ledger_writes.py`, one in `agents/test_base_team_review.py`.

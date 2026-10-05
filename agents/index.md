@@ -22,9 +22,8 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    decisions.
 3. Begin from the current user goal and a cold, current surface. Do not preload
    broad prior leads, findings, or peer theory queues. When mapping a
-   user-influenced value or workflow, ask who else might consume it after this
-   point. Use `/live-map` for class-neutral runtime mapping; class-specific
-   lineage stays with the matching specialist lane (such as `/xss-lifecycle`).
+   user-influenced value or workflow, consult `/live-map` for its consumer
+   question; keep class-specific testing and lineage with the specialist lane.
 4. Use `/hunter-loop` only for bounded orchestration; route each plausible
    selected surface to one specialist lane. When no signal exists, run an
    adaptive, class-appropriate live discovery sequence to establish or reject

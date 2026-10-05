@@ -5,7 +5,21 @@ description: "Build runtime application maps from browser exploration, proxy tra
 
 # Live Map
 
-Use this when an agent needs to explore a live app without being told the vulnerability class.
+Use this for runtime application mapping, including mapping inside a
+vulnerability-specific investigation. The question below is a mapping lens,
+not a requirement to initialize the universal map for every specialist probe;
+specialist testing and lineage stay with the relevant class skill. The Load
+Order applies when building that universal runtime map.
+
+## Consumer question
+
+While mapping a user-influenced value or state change, ask: **Where else can
+this value go, and who might consume it after this point?** Follow observed
+behavior to later processors, stored views, or effects. Distinguish evidenced
+consumers from plausible but unverified next steps; record an unobserved
+boundary as unknown. A safe first render settles only that render. This is
+not an exhaustive consumer census or permission to test an external service
+outside the program's scope.
 
 `/live-map` complements `/appmap`:
 - `/appmap` maps local source or extracted binaries.

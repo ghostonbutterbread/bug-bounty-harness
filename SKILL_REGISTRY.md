@@ -97,7 +97,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **temporary-email** | `/temporary-email {create|read|show|accounts}` | `skills/temporary-email/SKILL.md` |
 | **account-management** | `/account-management {program}` | `prompts/account-management-playbook.md` |
 | **create-account** | `/create-account {program}` | `skills/create-account/SKILL.md` |
-| **live-map** | `/live-map {program}` | `prompts/live-map-playbook.md` |
+| **live-map** | `/live-map {program}` | `skills/live-map/SKILL.md` (loads `prompts/live-map-playbook.md` for full mapping) |
 | **error-mapper** | `/error-mapper {program} --url {target_url}` | `prompts/error-mapper-playbook.md` |
 | **error-intelligence** | `/error-intelligence {program} [--url {target_url}]` | `skills/error-intelligence/SKILL.md`; `agents/error_store.py` |
 | **blockers** | `/blockers {program}` | `skills/blockers/SKILL.md`; `agents/blockers.py` |

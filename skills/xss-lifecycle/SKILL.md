@@ -18,7 +18,8 @@ through an application workflow. No immediate reflection is required.
 
 Examples include upload filename/metadata, profile fields, drafts, comments,
 notifications, exports, emails, data islands, route state, storage, and
-framework re-rendering.
+framework re-rendering. An integrated service or widget can be a later
+consumer even when the program's first render safely encodes the value.
 
 ## Build The Lineage
 
@@ -42,7 +43,8 @@ hypothesis with that evidence.
 
 1. Identify processing transitions: validation, metadata extraction, storage,
    preview, feed, notification, moderation, email/export, router/state transfer,
-   client decoding, and framework re-rendering.
+   client decoding, framework re-rendering, and integration handoff (API,
+   webhook, embed, SDK, or shared metadata).
 2. Visit or map only relevant owned/approved consumers. Classify every render
    context separately; one stored value may create reflected, stored, and DOM
    lanes at different consumers.
@@ -53,6 +55,27 @@ hypothesis with that evidence.
 
 Completion: every discovered consumer is either routed with its own packet,
 recorded as unreachable/unsafe to view, or given an exact next observation.
+
+## Integrated consumers
+
+When a program-controlled value flows into an integrated renderer, follow the
+value across the boundary rather than treating the first safe preview as the
+final verdict. Compare the sent value, any transformation by the service, and
+the actual browser context in an owned/approved view: a linked media card,
+embedded widget, share preview, or imported content can parse the same bytes
+differently. A SoundCloud-style integration is one example, not a presumption
+that every external widget is vulnerable.
+
+Record which party owns the input, integration configuration, response, render
+surface, and affected session/origin. Separate execution in a program page
+from execution only on the provider's domain; an iframe's origin matters to
+impact. A provider bug is not automatically a program finding, and an
+integrated service is not automatically in scope. Check the program's exact
+asset and third-party rules before active testing of an external endpoint,
+account, or destination. When that step is not authorized, retain the observed
+handoff and the next safe program-side observation rather than probing the
+provider. Use `impact-fit-policy` for program-relevant consequence and the
+applicable live/ownership policies for external actions.
 
 ## Optional Sidecars
 

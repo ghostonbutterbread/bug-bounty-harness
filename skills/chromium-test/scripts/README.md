@@ -56,8 +56,8 @@ not alternative browser launch commands.
 
 - **Purpose:** Plan and, only after exact cohort and terminal-state proof, repair eligible historical positional or idle-stopped browser-manager rows.
 - **Inputs:** Private browser-manager database, exact `--program` and `--account`, canonical lease database, runtime-probe state; gated apply additionally requires the reviewed plan hash and private backup directory.
-- **Outputs:** Redacted cohort classifications, blocked reasons, plan hash, and (for apply) a guarded repair receipt and paired backups.
-- **Mutates:** Planning is read-only. `--apply` writes only eligible manager rows after independent liveness checks and atomic paired backups; it does not modify canonical leases or browser profiles.
+- **Outputs:** Redacted cohort classifications, blocked reasons, plan hash, and (for apply) a guarded repair receipt and paired database backups.
+- **Mutates:** Planning is read-only. `--apply` writes only eligible manager rows after independent liveness checks and transactionally consistent snapshots of both databases under the manager lock and attached-DB transaction. The snapshots are sequential; caught failures clean up incomplete pairs, but a process crash can leave one snapshot. It does not modify canonical leases or browser profiles.
 - **Verification:** `.venv/bin/python -m pytest agents/test_browser_manager_row_repair.py -q`
 - **Owner/scope:** Chromium Test historical browser-manager repair on the browser node; not an ordinary browser launch path.
 - **Last verified:** 2026-10-05 (script-index contract).

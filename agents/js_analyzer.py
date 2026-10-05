@@ -69,11 +69,94 @@ SOURCE_KEYWORDS = {
     "form": re.compile(r"\b(?:FormData|HTMLInputElement|querySelector)\b"),
 }
 
+# Non-exhaustive static review seeds, not proof of a tainted source or browser execution.
+# Keep the original bucket names for consumers of inventory JSONL. HTML parsing,
+# framework bypasses and URL navigation are review leads with different semantics.
+# Known browser event-handler names; unusual custom on* assignments remain
+# separate low-confidence leads rather than claiming any on-prefixed field is JS.
+_DOM_EVENT_NAME = (
+    r"(?:abort|animation(?:start|end|iteration|cancel)|auxclick|"
+    r"before(?:input|unload)|blur|canplay(?:through)?|change|click|"
+    r"contextmenu|dblclick|drag(?:start|end|enter|leave|over)?|drop|"
+    r"ended|error|focus(?:in|out)?|hashchange|input|invalid|"
+    r"key(?:down|press|up)|load|message|mouse(?:down|enter|leave|move|out|over|up)|"
+    r"pause|play|pointer(?:down|enter|leave|move|out|over|up|cancel)|"
+    r"popstate|reset|resize|scroll|submit|touch(?:start|end|move|cancel)|"
+    r"transition(?:end|start|cancel|run)|toggle|unload|wheel)"
+)
 SINK_KEYWORDS = {
-    "dom_write": re.compile(r"\b(?:innerHTML|outerHTML|insertAdjacentHTML|document\.write)\b"),
-    "script_create": re.compile(r"\b(?:createElement\s*\(\s*['\"]script|appendChild|setAttribute\s*\(\s*['\"]src)\b"),
-    "navigation": re.compile(r"\b(?:location\.href|location\.assign|open\()\b"),
-    "eval": re.compile(r"\b(?:eval|Function|setTimeout|setInterval)\s*\("),
+    "dom_write": re.compile(
+        r"(?:\.\s*(?:innerHTML|outerHTML)\s*(?:\+=|=(?!=|>))|"
+        r"\[\s*['\"](?:innerHTML|outerHTML)['\"]\s*\]\s*(?:\+=|=(?!=|>))|"
+        r"\.\s*insertAdjacentHTML\s*\(|"
+        r"\bdocument\s*\.\s*(?:write|writeln)\s*\()"
+    ),
+    "html_parse": re.compile(
+        r"\b(?:DOMParser\s*\(\s*\)\s*\.|[\w$]+\s*\.)parseFromString\s*\(|"
+        r"\b(?:document|Document)\.parseHTMLUnsafe\s*\(|"
+        r"\.\s*(?:createContextualFragment|setHTMLUnsafe)\s*\(|"
+        r"\.\s*execCommand\s*\(\s*['\"]insertHTML['\"]"
+    ),
+    "iframe_srcdoc": re.compile(r"\.\s*srcdoc\s*=(?!=|>)|\[\s*['\"]srcdoc['\"]\s*\]\s*=(?!=|>)|\.\s*setAttribute\s*\(\s*['\"]srcdoc['\"]"),
+    "event_handler": re.compile(
+        rf"\.\s*on{_DOM_EVENT_NAME}\s*=(?!=|>)|"
+        rf"\.\s*setAttribute\s*\(\s*['\"]on{_DOM_EVENT_NAME}['\"]|"
+        rf"\.\s*setAttributeNS\s*\(\s*[^,]{{0,120}},\s*['\"]on{_DOM_EVENT_NAME}['\"]",
+        re.I,
+    ),
+    "event_handler_candidate": re.compile(
+        rf"\.\s*on(?!{_DOM_EVENT_NAME}\s*=|(?:e|ce|ly)\s*=)[a-z]{{2,}}\s*=(?!=|>)",
+        re.I,
+    ),
+    "jquery_html": re.compile(
+        r"(?:\$|jQuery)\s*\(\s*['\"`]\s*<|"
+        r"(?:\$|\bjQuery|\bangular\.element)\s*\([^)]{0,120}\)"
+        r"(?:\s*\.\s*[\w$]+\s*\([^)]{0,120}\)){0,2}\s*\.\s*"
+        r"(?:html|append|prepend|after|before|replaceWith|replaceAll|"
+        r"insertAfter|insertBefore|wrap|wrapAll|wrapInner|add)\s*\(\s*(?=[^\s)])"
+    ),
+    "jquery_parse": re.compile(r"(?:\bjQuery|\$)\.parseHTML\s*\("),
+    "jquery_selector_candidate": re.compile(r"(?:\bjQuery|\$)\s*\(\s*(?:window\.)?location\s*\.\s*(?:hash|search|href)\b"),
+    # PortSwigger lists these jQuery calls, but a call without a jQuery receiver
+    # or controlled argument is only a low-confidence review candidate.
+    "jquery_legacy_candidate": re.compile(r"(?:\$|\bjQuery)\s*\([^)]{0,120}\)\s*\.\s*(?:animate|has|constructor|init|index)\s*\("),
+    "jquery_attribute": re.compile(
+        r"(?:\$|\bjQuery|\bangular\.element)\s*\([^)]{0,120}\)"
+        r"(?:\s*\.\s*[\w$]+\s*\([^)]{0,120}\)){0,2}\s*\.\s*"
+        r"(?:attr|prop)\s*\(\s*['\"](?:href|src|action|formaction|on[a-z]+)['\"]\s*,",
+        re.I,
+    ),
+    "framework_raw_html": re.compile(
+        r"\bdangerouslySetInnerHTML\b|\b(?:v-html|ng-bind-html|x-html|set:html)\s*=|"
+        r"\[innerHTML\]\s*=|\binnerHTML\s*=\s*\{|\{@html\s+|\bunsafeHTML\s*\("
+    ),
+    "framework_trust_bypass": re.compile(
+        r"\.\s*bypassSecurityTrust(?:Html|Script|Url|ResourceUrl)\s*\(|"
+        r"\$sce\s*\.\s*trustAsHtml\s*\(|"
+        r"\$sceProvider\s*\.\s*enabled\s*\(\s*false\s*\)|"
+        r"\b(?:new\s+)?Handlebars\.SafeString\s*\("
+    ),
+    "trusted_types_policy_candidate": re.compile(r"\btrustedTypes\.createPolicy\s*\(|\.\s*createHTML\s*\("),
+    "script_create": re.compile(r"\.\s*createElement\s*\(\s*['\"]script['\"]"),
+    "script_content": re.compile(r"\b(?:script|scriptElement|scriptTag)\s*\.\s*(?:text|textContent|innerText|src)\s*=(?!=|>)"),
+    "script_import": re.compile(r"\bimportScripts\s*\(|\bimport\s*\(\s*(?!['\"`])"),
+    "url_attribute": re.compile(
+        r"\.\s*(?:href|src|action|formAction)\s*=(?!=|>)|"
+        r"\b(?:object|objectElement)\s*\.\s*(?:data|codeBase)\s*=(?!=|>)|"
+        r"\.\s*setAttribute\s*\(\s*['\"](?:href|src|action|formaction|xlink:href|data)['\"]|"
+        r"\.\s*setAttributeNS\s*\(\s*[^,]{0,120},\s*['\"](?:href|src|action|formaction|xlink:href|data)['\"]",
+        re.I,
+    ),
+    "navigation": re.compile(r"\b(?:(?:window|document)\.)?location\s*(?:\.\s*(?:href\s*=(?!=|>)|(?:assign|replace)\s*\()|=(?!=|>))|\b(?:window\.open|navigation\.navigate)\s*\("),
+    "unqualified_open_candidate": re.compile(r"(?<![\w$.])open\s*\("),
+    "eval": re.compile(
+        r"(?<![\w$.])(?:eval|Function|execScript)\s*\(|"
+        r"\b(?:window|globalThis|self)\s*\.\s*eval\s*\(|"
+        r"\b(?:jQuery|\$)\.globalEval\s*\(|\bnew\s+Function\s*\("
+    ),
+    "string_timer_candidate": re.compile(
+        r"\b(?:setTimeout|setInterval)\s*\(\s*(?!function\b|async\b|\(|[\w$]+\s*=>)[^)]{1,120}"
+    ),
     "request": re.compile(r"\b(?:fetch|XMLHttpRequest|axios|sendBeacon)\b"),
     "storage_write": re.compile(r"\b(?:localStorage|sessionStorage)\.setItem\b"),
 }

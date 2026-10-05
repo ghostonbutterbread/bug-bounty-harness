@@ -72,6 +72,145 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
     assert "user_id" in signals["interesting_keys"]
 
 
+@pytest.mark.parametrize(
+    ("snippet", "bucket"),
+    [
+        ("node.innerHTML = value", "dom_write"),
+        ("node['outerHTML'] += value", "dom_write"),
+        ("node.insertAdjacentHTML('beforeend', value)", "dom_write"),
+        ("document.writeln(value)", "dom_write"),
+        ("node.setHTMLUnsafe(value)", "html_parse"),
+        ("Document.parseHTMLUnsafe(value)", "html_parse"),
+        ("range.createContextualFragment(value)", "html_parse"),
+        ("new DOMParser().parseFromString(value, 'text/html')", "html_parse"),
+        ("iframe.srcdoc = value", "iframe_srcdoc"),
+        ("iframe.setAttribute('srcdoc', value)", "iframe_srcdoc"),
+        ("el.setAttribute('onerror', value)", "event_handler"),
+        ("el.setAttributeNS(null, 'onload', value)", "event_handler"),
+        ("el.onclick = value", "event_handler"),
+        ("el.oncustom = value", "event_handler_candidate"),
+        ("$(el).html(value)", "jquery_html"),
+        ("jQuery.parseHTML(value)", "jquery_parse"),
+        ("$.parseHTML(value)", "jquery_parse"),
+        ("jQuery(location.hash)", "jquery_selector_candidate"),
+        ("$(el).attr('href', value)", "jquery_attribute"),
+        ("$(el).prop('action', value)", "jquery_attribute"),
+        ("$(el).find('.x').attr('href', value)", "jquery_attribute"),
+        ("$(el).wrap(value)", "jquery_html"),
+        ("$(el).find('.target').append(value)", "jquery_html"),
+        ("angular.element(el).html(value)", "jquery_html"),
+        ("$(el).animate(value)", "jquery_legacy_candidate"),
+        ("jQuery.globalEval(value)", "eval"),
+        ("<div dangerouslySetInnerHTML={{__html: value}} />", "framework_raw_html"),
+        ("<div v-html=\"value\" />", "framework_raw_html"),
+        ("<div x-html=\"value\" />", "framework_raw_html"),
+        ("<div set:html={value} />", "framework_raw_html"),
+        ("<div innerHTML={value} />", "framework_raw_html"),
+        ("<div [innerHTML]=\"value\" />", "framework_raw_html"),
+        ("{@html value}", "framework_raw_html"),
+        ("unsafeHTML(value)", "framework_raw_html"),
+        ("sanitizer.bypassSecurityTrustResourceUrl(value)", "framework_trust_bypass"),
+        ("$sce.trustAsHtml(value)", "framework_trust_bypass"),
+        ("new Handlebars.SafeString(value)", "framework_trust_bypass"),
+        ("trustedTypes.createPolicy('default', callbacks)", "trusted_types_policy_candidate"),
+        ("policy.createHTML(value)", "trusted_types_policy_candidate"),
+        ("document.createElement('script')", "script_create"),
+        ("script.src = value", "script_content"),
+        ("importScripts(value)", "script_import"),
+        ("import(moduleName)", "script_import"),
+        ("a.href = value", "url_attribute"),
+        ("el.setAttribute('xlink:href', value)", "url_attribute"),
+        ("location.replace(value)", "navigation"),
+        ("location.href = value", "navigation"),
+        ("document.location = value", "navigation"),
+        ("window.open(value)", "navigation"),
+        ("open(value)", "unqualified_open_candidate"),
+        ("object.data = value", "url_attribute"),
+        ("new Function(value)", "eval"),
+        ("window.eval(value)", "eval"),
+        ("globalThis.eval(value)", "eval"),
+        ("self.eval(value)", "eval"),
+        ("setTimeout(value, 1)", "string_timer_candidate"),
+        ("setInterval('render()', 1)", "string_timer_candidate"),
+    ],
+)
+def test_xss_sink_inventory_recognizes_distinct_families(snippet: str, bucket: str):
+    assert bucket in J.extract_signals(snippet, "https://app.example/static/app.js")["sinks"]
+
+
+@pytest.mark.parametrize(
+    ("snippet", "absent_bucket"),
+    [
+        ("node.textContent = value", "dom_write"),
+        ("node.setHTML(value)", "html_parse"),
+        ("document.parseHTML(value)", "html_parse"),
+        ("storage.write(value)", "dom_write"),
+        ("document.createElement('div')", "script_create"),
+        ("element.addEventListener('click', callback)", "event_handler"),
+        ("logger.write(value)", "dom_write"),
+        ("element.insertAdjacentText('beforeend', value)", "dom_write"),
+        ("element.append(value)", "jquery_html"),
+        ("element.before(value)", "jquery_html"),
+        ("element.wrap(value)", "jquery_html"),
+        ("$(el).html()", "jquery_html"),
+        ("$(el).html( )", "jquery_html"),
+        ("angular.element(el).html()", "jquery_html"),
+        ("$(el).attr('href')", "jquery_attribute"),
+        ("$(el).prop('action')", "jquery_attribute"),
+        ("node.attr('href', value)", "jquery_attribute"),
+        ("setTimeout(() => render(), 1)", "string_timer_candidate"),
+        ("setInterval(function tick() {}, 1)", "string_timer_candidate"),
+        ("element.innerHTML == value", "dom_write"),
+        ("obj.eval(value)", "eval"),
+        ("obj.one = fn", "event_handler"),
+        ("obj.once = callback", "event_handler"),
+        ("obj.only = true", "event_handler"),
+        ("el.onclick === fn", "event_handler"),
+        ("el.oncustom === fn", "event_handler_candidate"),
+        ("iframe.srcdoc === expected", "iframe_srcdoc"),
+        ("iframe['srcdoc'] === expected", "iframe_srcdoc"),
+        ("script.textContent === text", "script_content"),
+        ("element.href === nextUrl", "url_attribute"),
+        ("object.data === nextUrl", "url_attribute"),
+        ("location.href === nextUrl", "navigation"),
+        ("element.innerHTML.length", "dom_write"),
+    ],
+)
+def test_xss_sink_inventory_does_not_conflate_safe_or_unrelated_apis(snippet: str, absent_bucket: str):
+    assert absent_bucket not in J.extract_signals(snippet, "https://app.example/static/app.js")["sinks"]
+
+
+def test_xss_sink_inventory_safe_unrelated_methods_emit_no_sink_buckets():
+    text = """
+    node.append(value);
+    node.prepend(value);
+    node.before(value);
+    $(el).html();
+    angular.element(el).html();
+    $(el).attr('href');
+    $(el).prop('action');
+    node.attr('href', value);
+    items.index(value);
+    Set.add(value);
+    graph.data = rows;
+    obj.one = fn;
+    obj.once = callback;
+    obj.only = true;
+    obj.eval(value);
+    if (el.onclick === fn) {}
+    if (el.oncustom === fn) {}
+    if (iframe.srcdoc === expected) {}
+    if (iframe['srcdoc'] === expected) {}
+    if (script.textContent === text) {}
+    if (element.href === nextUrl) {}
+    if (object.data === nextUrl) {}
+    if (location.href === nextUrl) {}
+    xhr.open('GET', url);
+    setTimeout(() => render(), 1);
+    """
+    assert J.extract_signals(text, "https://app.example/static/app.js")["sinks"] == []
+
+
 def test_extract_signals_accepts_legacy_source_map_directive():
     signals = J.extract_signals("//@ sourceMappingURL=legacy.js.map", "https://app.example.com/static/app.js")
 

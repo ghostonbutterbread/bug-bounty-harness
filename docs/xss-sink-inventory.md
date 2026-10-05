@@ -1,0 +1,24 @@
+# JS XSS sink inventory (static review seeds)
+
+`agents/js_analyzer.py` scans downloaded JS and source-map module text. Its `sinks` field is a **sorted list of broad review categories**, not call sites or a source-to-sink trace. The `signal_coverage.exhaustive` value remains `false`. A hit only means a pattern occurs in inventoried text; a miss cannot establish safety. Dynamic property names, minification, template expansion, missing bundles, aliases, parser context, and browser/runtime paths need agent review.
+
+The existing `dom_write`, `script_create`, `navigation`, `eval`, `request`, and `storage_write` labels remain for JSONL consumers. Added XSS review labels:
+
+- `html_parse`: HTML parsing and unsafe insertion (`parseFromString`, `parseHTMLUnsafe`, `setHTMLUnsafe`, `createContextualFragment`, `execCommand('insertHTML')`). Parsing alone may be inert; follow where the fragment is inserted.
+- `iframe_srcdoc`, `event_handler`: iframe HTML documents and string event-handler attributes/properties.
+- `jquery_html`, `jquery_parse`, `jquery_attribute`, `jquery_selector_candidate`, `jquery_legacy_candidate`: jQuery-style HTML insertion, parser, URL/event-sensitive attributes, location-fed selector use, and the unusual jQuery sink candidates enumerated by PortSwigger. A generic method call may not even have a jQuery receiver; `jquery_legacy_candidate` and selector use are **low confidence**, never XSS findings by themselves.
+- `framework_raw_html`, `framework_trust_bypass`: React, Vue, Angular/AngularJS, Svelte, Lit, Alpine, Astro and Solid raw HTML or Angular trust-bypass paths. Sanitizer bypass is a trust-boundary clue, not automatically executable input.
+- `script_content`, `script_import`, `url_attribute`: script text/URL assignment, worker/dynamic imports, and URL-bearing attributes. Scheme, element kind, CSP, user interaction and controllability matter.
+
+`navigation` also recognizes Navigation API and window open; these and `url_attribute` are **conditional URL sinks**, not equivalent to HTML injection. `eval` includes jQuery `globalEval` and string-evaluating APIs; string timers may also receive safe callbacks. `request` and `storage_write` are legacy general inventory categories, **not direct XSS execution sinks**.
+
+## Primary references checked
+
+- [PortSwigger Web Security Academy: DOM-based XSS, including jQuery sink list](https://portswigger.net/web-security/cross-site-scripting/dom-based). It lists broad candidates including `document.domain`; we intentionally omit `document.domain` as a direct XSS sink because setting it alone does not interpret untrusted HTML or JavaScript.
+- [PortSwigger DOM Invader testcases](https://portswigger-labs.net/dom-invader/): cross-check for jQuery globalEval/wrap, `importScripts`, Navigation API, and core DOM sinks. Testcases are not an authoritative exhaustive sink taxonomy.
+- [OWASP DOM-based XSS Prevention Cheat Sheet](https://github.com/OWASP/CheatSheetSeries/blob/master/cheatsheets/DOM_based_XSS_Prevention_Cheat_Sheet.md): HTML insertion, `setAttribute` coercion, eval/string timers, and URL context. Safe text APIs are deliberately excluded from high-confidence categories.
+- [CodeQL JavaScript DOM model](https://github.com/github/codeql/blob/main/javascript/ql/lib/semmle/javascript/security/dataflow/DOM.qll) and [DOM-XSS query](https://github.com/github/codeql/blob/main/javascript/ql/lib/semmle/javascript/security/dataflow/DomBasedXssQuery.qll): distinguish HTML, URL, and jQuery sink semantics. Structural DOM methods such as `appendChild` are not promoted to direct XSS sinks without the created element/content path.
+- [XSStrike DOM recognizer](https://github.com/s0md3v/XSStrike/blob/master/core/dom.py): cross-check of legacy code execution, script element, fragment, navigation, and HTML write signatures. Its broad `evaluate`/`assign`/modal-dialog and other legacy terms are not copied blindly as direct XSS proof.
+- [React raw HTML](https://react.dev/reference/react-dom/components/common#dangerously-setting-the-inner-html), [Vue `v-html`](https://vuejs.org/guide/essentials/template-syntax.html#raw-html), [Angular DomSanitizer bypass](https://angular.dev/api/platform-browser/DomSanitizer), [Svelte `{@html}`](https://svelte.dev/docs/svelte/@html), [Lit `unsafeHTML`](https://lit.dev/docs/templates/directives/#unsafehtml), [Alpine `x-html`](https://alpinejs.dev/directives/html), [Astro `set:html`](https://docs.astro.build/en/reference/directives-reference/#sethtml), [Solid `innerHTML`](https://docs.solidjs.com/reference/jsx-attributes/innerhtml), and [jQuery `.html()`](https://api.jquery.com/html/): framework-specific raw rendering and trust bypasses.
+
+Do not promote a regex hit into `Confirmed` without an attacker-controlled source, its transformations and a browser execution proof. Reconcile the inventoried bundle/page coverage before treating any zero-hit result as meaningful.

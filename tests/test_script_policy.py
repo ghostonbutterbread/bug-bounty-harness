@@ -113,6 +113,7 @@ def test_xss_and_js_scripts_pair_inventory_with_stack_specific_review() -> None:
     js = " ".join((ROOT / "skills/js/SKILL.md").read_text(encoding="utf-8").lower().split())
     assert "scripted sink censuses are non-exhaustive seeds" in xss
     assert "bbh agents/js_analyzer.py inventory" in xss
+    assert "inventory analysis is static, but collection may download" in xss
     assert "load `js`" in xss
     assert "docs/xss-sink-inventory.md" in xss
     assert (ROOT / "agents/js_analyzer.py").is_file()

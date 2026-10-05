@@ -118,8 +118,10 @@ allowlists, scans responses for reflections, classifies basic render contexts,
 and writes compact `agent_packets/*.md` for XSS lane workers. Use `--offline`
 or the `plan`/`scan` commands when you only want artifact processing.
 
-For an offline JS-bundle sink census, load `js` and run
+For a static JS-bundle sink census, load `js` and run
 `bbh agents/js_analyzer.py inventory <program> --input <js-url-list> --target-host <in-scope-host>`.
+Inventory analysis is static, but collection may download uncached scoped JS URLs
+and source maps; apply the normal scope and rate controls before fetching.
 Review its `sinks` labels with the bundle and page provenance; the label list
 is a non-exhaustive review seed, not a taint trace or proof of XSS. See
 `docs/xss-sink-inventory.md` for supported categories and coverage limits.

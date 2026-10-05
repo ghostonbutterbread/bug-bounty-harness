@@ -7,7 +7,7 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-05
 - **Owning worktree:** `/home/ryushe/projects/bug_bounty_harness/xss-sink-inventory-route`
-- **Recovery checkpoint:** pending first commit
+- **Recovery checkpoint:** `5bd66f816c86264a1f9d224551b1f6050b163f6b` (initial route/tests/dossier commit; reviewer corrections follow)
 
 ## Intent and contract
 
@@ -17,8 +17,8 @@ Route XSS workers to the already-reviewed `agents/js_analyzer.py inventory` sink
 
 - Existing sink change was merged locally as `3ad7330d04563bb612502d4293a7e18cd35e1824`, approved by independent review, and is now an ancestor of published `origin/beta` at base `23638e0b5546d14fbf0314045c65245d3fb0773f`.
 - Hoster's actual source is `~/projects/bug_bounty_harness-runtime-beta-clean`, clean at `91953bd77a124702715c83cb73cd470544d64098`; its managed `xss` and `js` symlinks and `~/.local/bin/bbh` launcher resolve to that checkout. Hoster remote beta already advertises `23638e0`; runtime refresh still pending.
-- Proposed change: `skills/xss/SKILL.md` gives a conditional offline sink-inventory route, repo-relative dispatcher command, and coverage caveat; `tests/test_script_policy.py` guards the pointer and target artifacts.
-- Tests: checkout-local `./setup.sh --install-python-deps`; `.venv/bin/python -m pytest tests/test_script_policy.py agents/test_js_analyzer.py -q` → 141 passed; `./scripts/bbh --print-command agents/js_analyzer.py` resolved the feature worktree; `git diff --check` clean. Independent review, integrated-tree checks and Hoster smoke: pending.
+- Proposed change: `skills/xss/SKILL.md` gives a conditional static sink-inventory route, clarifies that collection may make scoped network requests, uses the repo-relative dispatcher, and keeps the coverage caveat; `tests/test_script_policy.py` guards the pointer and target artifacts.
+- Tests: checkout-local `./setup.sh --install-python-deps`; `.venv/bin/python -m pytest tests/test_script_policy.py agents/test_js_analyzer.py -q` → 141 passed; `./scripts/bbh --print-command agents/js_analyzer.py` resolved the feature worktree; `git diff --check` clean. Initial independent review found two documentation defects (offline wording and stale dossier checkpoint), both corrected; current-tip review and integrated-tree/Hoster smoke pending.
 
 ## Blockers and deferred work
 
@@ -26,7 +26,7 @@ No current blocker. Source publication and Hoster projection must be read back s
 
 ## Interruption / resume handoff
 
-Commit changed skill, focused regression and this dossier on the feature branch, run checks, obtain independent review, merge into clean current local beta and retire dossier there, publish `beta` only from its integration checkout, then fast-forward only Hoster's clean configured beta checkout through its configured sync workflow. Verify active XSS and JS skill route, launcher root, and read-only `js_analyzer.py` help/inventory behavior. If integration or sync encounters divergent/dirty state, preserve it and stop for reconciliation.
+Rerun focused checks after the reviewer corrections and obtain current-tip approval. Reconcile any beta advance, merge the reviewed feature into clean local beta and retire this dossier there, then publish `beta` only from its integration checkout. Fast-forward only Hoster's clean configured beta checkout through its configured sync workflow. Verify active XSS and JS skill route, launcher root, and read-only `js_analyzer.py` help/inventory behavior. If integration or sync encounters divergent/dirty state, preserve it and stop for reconciliation.
 
 ## Decision gates
 

@@ -108,6 +108,18 @@ def test_repository_script_policy_defines_owner_based_placement() -> None:
     assert "reuse" in text
 
 
+def test_xss_script_misses_cannot_close_coverage_without_independent_evidence() -> None:
+    xss = " ".join((ROOT / "skills/xss/SKILL.md").read_text(encoding="utf-8").lower().split())
+    router = " ".join((ROOT / "agents/index.md").read_text(encoding="utf-8").lower().split())
+    assert "non-exhaustive seeds" in xss
+    assert "a zero-hit script result" in xss
+    assert "framework-specific sinks" in xss
+    assert "reconcile the script's boundary" in xss
+    assert "regression fixture" in xss
+    assert "script output would justify a coverage or exhaustion claim" in router
+    assert "heuristic misses are not proof" in router
+
+
 def test_other_agent_maintenance_boundary_preserves_manager_authority() -> None:
     text = " ".join(POLICY.read_text(encoding="utf-8").lower().split())
 

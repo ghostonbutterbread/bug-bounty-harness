@@ -60,7 +60,8 @@ class BunnySkillTests(unittest.TestCase):
             "free a slot only after confirming that worker has stopped",
             "reporters all count",
             "Verify each candidate independently in its own program",
-            "plan for each named program",
+            "call it separately for each named program",
+            "does not validate a comma-separated list",
             "Bunny remains the sole coordinator",
             "without `/goal`, this goal helper is not a prerequisite",
         ):

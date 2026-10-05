@@ -88,8 +88,10 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
         ("el.setAttribute('onerror', value)", "event_handler"),
         ("el.setAttributeNS(null, 'onload', value)", "event_handler"),
         ("el.onclick = value", "event_handler"),
+        ("el.oncustom = value", "event_handler_candidate"),
         ("$(el).html(value)", "jquery_html"),
         ("jQuery.parseHTML(value)", "jquery_parse"),
+        ("$.parseHTML(value)", "jquery_parse"),
         ("jQuery(location.hash)", "jquery_selector_candidate"),
         ("$(el).attr('href', value)", "jquery_attribute"),
         ("$(el).wrap(value)", "jquery_html"),
@@ -121,6 +123,9 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
         ("open(value)", "unqualified_open_candidate"),
         ("object.data = value", "url_attribute"),
         ("new Function(value)", "eval"),
+        ("window.eval(value)", "eval"),
+        ("globalThis.eval(value)", "eval"),
+        ("self.eval(value)", "eval"),
         ("setTimeout(value, 1)", "string_timer_candidate"),
         ("setInterval('render()', 1)", "string_timer_candidate"),
     ],
@@ -146,6 +151,10 @@ def test_xss_sink_inventory_recognizes_distinct_families(snippet: str, bucket: s
         ("setTimeout(() => render(), 1)", "string_timer_candidate"),
         ("setInterval(function tick() {}, 1)", "string_timer_candidate"),
         ("element.innerHTML == value", "dom_write"),
+        ("obj.eval(value)", "eval"),
+        ("obj.one = fn", "event_handler"),
+        ("obj.once = callback", "event_handler"),
+        ("obj.only = true", "event_handler"),
         ("element.innerHTML.length", "dom_write"),
     ],
 )
@@ -161,6 +170,10 @@ def test_xss_sink_inventory_safe_unrelated_methods_emit_no_sink_buckets():
     items.index(value);
     Set.add(value);
     graph.data = rows;
+    obj.one = fn;
+    obj.once = callback;
+    obj.only = true;
+    obj.eval(value);
     xhr.open('GET', url);
     setTimeout(() => render(), 1);
     """

@@ -21,9 +21,9 @@ The static inventory emits additional sorted category labels for HTML parsers, i
 
 ## Evidence and review
 
-- Tests and commands: checkout-local `./setup.sh --install-python-deps`; `.venv/bin/python -m pytest agents/test_js_analyzer.py -q` 90 passed after receiver-aware negatives and explicit unqualified-open candidate; `git diff --check` clean.
-- Independent review: initial review identified untyped method/property false positives, unqualified `open` regression, and overstated source-map coverage. Reproduced and addressed in code/tests/docs; a fresh final-tip review remains required.
-- Replay/cohort/fixture evidence: 64 parametrized positive/negative sink fixtures plus an exact empty-bucket regression for native DOM and unrelated APIs in `agents/test_js_analyzer.py`.
+- Tests and commands: checkout-local `./setup.sh --install-python-deps`; `.venv/bin/python -m pytest agents/test_js_analyzer.py -q` 99 passed (189.98s) after jQuery parser, global eval, and event-name fixes; 73 focused parametrized cases; `git diff --check` clean. A prior full-suite attempt timed out at 120s; rerun succeeded at 360s.
+- Independent review: initial reviewer findings (untyped method/property false positives, unqualified `open` regression, overstated source-map coverage) were fixed. A second reviewer of dd1580b found missed `$.parseHTML`, qualified global eval, and generic on-prefixed fields; all addressed with explicit regressions. Re-review of the resulting tip is pending.
+- Replay/cohort/fixture evidence: 73 parametrized positive/negative sink fixtures plus an exact empty-bucket regression for native DOM and unrelated APIs in `agents/test_js_analyzer.py`.
 - Merge/ancestry evidence: fetched `origin/beta` at `baf6065b9ce06033df3a4fb8f71f323e782694dc` before branching; merged updated `origin/beta` `869929d8e147fa9b6f35b0fd89d2e57ed69ab769` into the feature (`1f4fd4773a1469d1c33f6fc543e4584db2e184a7`), no conflicts. Focused XSS inventory remains green after reconciliation; broad script-policy test 96 passed / 1 unrelated pre-existing failure.
 
 ## Blockers and deferred work

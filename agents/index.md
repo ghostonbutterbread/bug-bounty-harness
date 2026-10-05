@@ -26,9 +26,8 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    selected surface to one specialist lane. When no signal exists, run an
    adaptive, class-appropriate live discovery sequence to establish or reject
    it; signal controls escalation severity, not permission to test.
-   When script output would justify a coverage or exhaustion claim, load
-   `script-manager` and the selected lane: heuristic misses are not proof of
-   absent sources, sinks, or behaviors; reconcile with independent observations.
+   When running or interpreting a script, load `script-manager` alongside the
+   selected lane for output and coverage boundaries.
    For any potentially destructive proof, prefer a recreated, task-owned
    disposable local Docker/VM instance, preserve evidence, then remove and
    verify only its resources. Isolation does not authorize live impact; if a

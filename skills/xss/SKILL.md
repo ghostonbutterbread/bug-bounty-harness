@@ -329,19 +329,11 @@ fresh ranked list is motion, not progress, and the ranked list is not a
 deliverable. This is consistent with the coverage decisions owned by
 `class-derivation-policy`.
 
-Treat a script's sink inventory as non-exhaustive seeds, not the boundary of
-the application. Record which bundles, routes, runtime states, sink families,
-and transforms it actually observed. While a census runs, independently inspect
-the active framework and its less-obvious consumers (for example, raw-HTML
-helpers, URL navigation, legacy bundles, microfrontends, or server-rendered
-bootstrap data) and follow live source-to-sink behavior where it changes the
-hypothesis. A zero-hit script result or a completed pass over one bundle cannot
-establish that other bundles or framework-specific sinks are absent. Before a
-coverage or exhaustion claim, reconcile the script's boundary against the
-observed application surface and name unexamined consumers or missing fixtures
-as open work. Promote a reproducible script miss through `script-manager` with
-its evidence and a regression fixture; do not silently turn a local heuristic
-into an exhaustive guarantee.
+Apply `script-manager` to any scripted sink census; it owns the general output
+and coverage boundary. For XSS, inspect stack-specific render consumers such as
+raw-HTML helpers, URL navigation, legacy bundles, microfrontends, and bootstrap
+data where the observed surface warrants it. Follow live source-to-sink behavior
+and name unexamined consumers or missing fixtures as open XSS work.
 
 ## Deep Default For Hybrid And Hunter Loop
 

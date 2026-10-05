@@ -6,6 +6,7 @@ SKILLS = ROOT / "skills"
 ROUTER = SKILLS / "bunny" / "SKILL.md"
 COLLABORATIVE = SKILLS / "bunny-collaborative" / "SKILL.md"
 OFFHAND = SKILLS / "bunny-offhand" / "SKILL.md"
+GOALS = SKILLS / "bug-goals" / "SKILL.md"
 
 
 class BunnySkillTests(unittest.TestCase):
@@ -30,6 +31,29 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("Independently verify credible candidates", router)
         self.assertIn("aggregate", router)
         self.assertIn("do not automatically submit externally", router)
+
+    def test_multi_program_is_depth_first_with_bounded_workers(self):
+        router = ROUTER.read_text(encoding="utf-8")
+        goals = GOALS.read_text(encoding="utf-8")
+        registry = (ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8")
+        for phrase in (
+            "Multi-program overlay (explicit)",
+            "not** an offhand mode or an instruction to rotate programs",
+            "multiple domains within its assigned program",
+            "run-local coordinator key",
+            "not in any program's Shared data",
+            "not** a timer, deadline, or reason to stop",
+            "Only mark a program closed on evidence-backed grounds",
+            "three active subagents total",
+            "reporter all count",
+            "Verify each candidate independently inside its own program",
+            "release or pause an existing slot at a checkpoint first",
+        ):
+            self.assertIn(phrase, router)
+        self.assertIn("/goal bunny multi", goals)
+        self.assertIn("plan` separately for each named program", goals)
+        self.assertIn("Do not pass a comma-separated list", goals)
+        self.assertIn("/goal bunny multi", registry)
 
     def test_collaborative_worker_roles_and_load(self):
         text = COLLABORATIVE.read_text(encoding="utf-8")

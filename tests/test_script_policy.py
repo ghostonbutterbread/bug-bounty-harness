@@ -108,13 +108,15 @@ def test_repository_script_policy_defines_owner_based_placement() -> None:
     assert "reuse" in text
 
 
-def test_xss_script_guidance_routes_general_judgment_to_testing_posture() -> None:
+def test_xss_and_js_scripts_pair_inventory_with_stack_specific_review() -> None:
     xss = " ".join((ROOT / "skills/xss/SKILL.md").read_text(encoding="utf-8").lower().split())
-    router = " ".join((ROOT / "agents/index.md").read_text(encoding="utf-8").lower().split())
-    assert "`general-security-testing-policy`'s testing-posture reference" in xss
-    assert "stack-specific render consumers" in xss
-    assert "unexamined consumers or missing fixtures" in xss
-    assert "load `script-manager`" not in router
+    js = " ".join((ROOT / "skills/js/SKILL.md").read_text(encoding="utf-8").lower().split())
+    assert "scripted sink censuses are non-exhaustive seeds" in xss
+    assert "while a longer census runs" in xss
+    assert "program-specific render consumers" in xss
+    assert "reconcile both streams before a coverage claim" in xss
+    assert "while a longer inventory runs" in js
+    assert "stack-specific source-to-sink flows" in js
 
 
 def test_other_agent_maintenance_boundary_preserves_manager_authority() -> None:

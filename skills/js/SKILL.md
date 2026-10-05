@@ -80,6 +80,9 @@ that a bundle was fully searched. Give ambiguous code comprehension, unfamiliar
 framework behavior, dynamic construction, semantic dataflow, and technology-
 specific interpretation to agents reading the actual bounded source. Agent
 review extends the deterministic inventory instead of being constrained by it.
+While a longer inventory runs, inspect stack-specific source-to-sink flows and
+render paths in the actual program that known patterns may miss; compare those
+observations with the script's results when it finishes.
 
 ## Analysis Lenses
 

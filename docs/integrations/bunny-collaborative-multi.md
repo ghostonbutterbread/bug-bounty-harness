@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-05
 - **Owning feature branch/ref:** `feat/bunny-collaborative-multi`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `e2f993d261a30e7ae0f140fac6b7ec91f6ae5273` (implementation)
+- **Feature implementation commit(s):** `e2f993d261a30e7ae0f140fac6b7ec91f6ae5273`
 - **Inspiration / canonical references:** Discord correction 1556756300031852725, `skills/bunny-collaborative/SKILL.md`, `skills/bunny/SKILL.md`, prior beta overlay a2b53d2
 
 ## Intent
@@ -34,10 +34,10 @@ No known blocker. Remote agent hosts are not part of the local beta projection c
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/bunny-collaborative-multi`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit tested change, obtain independent review, integrate into beta and verify local projected skill resolution.
-- **Working-tree state at handoff:** uncommitted until first checkpoint.
+- **Latest immutable recovery checkpoint:** `e2f993d261a30e7ae0f140fac6b7ec91f6ae5273` (implementation)
+- **Feature implementation commit(s):** `e2f993d261a30e7ae0f140fac6b7ec91f6ae5273`
+- **Exact resume point:** obtain independent review of the committed feature, integrate into beta and verify local projected skill resolution.
+- **Working-tree state at handoff:** clean after dossier-only handoff commit (verify with Git).
 
 ## Decision gates
 

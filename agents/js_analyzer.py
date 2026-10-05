@@ -113,14 +113,19 @@ SINK_KEYWORDS = {
         r"(?:\$|\bjQuery|\bangular\.element)\s*\([^)]{0,120}\)"
         r"(?:\s*\.\s*[\w$]+\s*\([^)]{0,120}\)){0,2}\s*\.\s*"
         r"(?:html|append|prepend|after|before|replaceWith|replaceAll|"
-        r"insertAfter|insertBefore|wrap|wrapAll|wrapInner|add)\s*\("
+        r"insertAfter|insertBefore|wrap|wrapAll|wrapInner|add)\s*\(\s*(?=[^\s)])"
     ),
     "jquery_parse": re.compile(r"(?:\bjQuery|\$)\.parseHTML\s*\("),
     "jquery_selector_candidate": re.compile(r"(?:\bjQuery|\$)\s*\(\s*(?:window\.)?location\s*\.\s*(?:hash|search|href)\b"),
     # PortSwigger lists these jQuery calls, but a call without a jQuery receiver
     # or controlled argument is only a low-confidence review candidate.
     "jquery_legacy_candidate": re.compile(r"(?:\$|\bjQuery)\s*\([^)]{0,120}\)\s*\.\s*(?:animate|has|constructor|init|index)\s*\("),
-    "jquery_attribute": re.compile(r"\.\s*(?:attr|prop)\s*\(\s*['\"](?:href|src|action|formaction|on[a-z]+)['\"]", re.I),
+    "jquery_attribute": re.compile(
+        r"(?:\$|\bjQuery|\bangular\.element)\s*\([^)]{0,120}\)"
+        r"(?:\s*\.\s*[\w$]+\s*\([^)]{0,120}\)){0,2}\s*\.\s*"
+        r"(?:attr|prop)\s*\(\s*['\"](?:href|src|action|formaction|on[a-z]+)['\"]\s*,",
+        re.I,
+    ),
     "framework_raw_html": re.compile(
         r"\bdangerouslySetInnerHTML\b|\b(?:v-html|ng-bind-html|x-html|set:html)\s*=|"
         r"\[innerHTML\]\s*=|\binnerHTML\s*=\s*\{|\{@html\s+|\bunsafeHTML\s*\("

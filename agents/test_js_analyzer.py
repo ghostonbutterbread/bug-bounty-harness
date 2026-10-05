@@ -94,6 +94,8 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
         ("$.parseHTML(value)", "jquery_parse"),
         ("jQuery(location.hash)", "jquery_selector_candidate"),
         ("$(el).attr('href', value)", "jquery_attribute"),
+        ("$(el).prop('action', value)", "jquery_attribute"),
+        ("$(el).find('.x').attr('href', value)", "jquery_attribute"),
         ("$(el).wrap(value)", "jquery_html"),
         ("$(el).find('.target').append(value)", "jquery_html"),
         ("angular.element(el).html(value)", "jquery_html"),
@@ -150,6 +152,12 @@ def test_xss_sink_inventory_recognizes_distinct_families(snippet: str, bucket: s
         ("element.append(value)", "jquery_html"),
         ("element.before(value)", "jquery_html"),
         ("element.wrap(value)", "jquery_html"),
+        ("$(el).html()", "jquery_html"),
+        ("$(el).html( )", "jquery_html"),
+        ("angular.element(el).html()", "jquery_html"),
+        ("$(el).attr('href')", "jquery_attribute"),
+        ("$(el).prop('action')", "jquery_attribute"),
+        ("node.attr('href', value)", "jquery_attribute"),
         ("setTimeout(() => render(), 1)", "string_timer_candidate"),
         ("setInterval(function tick() {}, 1)", "string_timer_candidate"),
         ("element.innerHTML == value", "dom_write"),
@@ -177,6 +185,11 @@ def test_xss_sink_inventory_safe_unrelated_methods_emit_no_sink_buckets():
     node.append(value);
     node.prepend(value);
     node.before(value);
+    $(el).html();
+    angular.element(el).html();
+    $(el).attr('href');
+    $(el).prop('action');
+    node.attr('href', value);
     items.index(value);
     Set.add(value);
     graph.data = rows;

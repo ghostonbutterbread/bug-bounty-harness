@@ -120,12 +120,14 @@ SINK_KEYWORDS = {
     "script_content": re.compile(r"\b(?:script|scriptElement|scriptTag)\s*\.\s*(?:text|textContent|innerText|src)\s*="),
     "script_import": re.compile(r"\bimportScripts\s*\(|\bimport\s*\(\s*(?!['\"`])"),
     "url_attribute": re.compile(
-        r"\.\s*(?:href|src|action|formAction|data|codeBase)\s*=|"
+        r"\.\s*(?:href|src|action|formAction)\s*=|"
+        r"\b(?:object|objectElement)\s*\.\s*(?:data|codeBase)\s*=|"
         r"\.\s*setAttribute\s*\(\s*['\"](?:href|src|action|formaction|xlink:href|data)['\"]|"
         r"\.\s*setAttributeNS\s*\(\s*[^,]{0,120},\s*['\"](?:href|src|action|formaction|xlink:href|data)['\"]",
         re.I,
     ),
     "navigation": re.compile(r"\b(?:(?:window|document)\.)?location\s*(?:\.\s*(?:href|assign|replace)\s*(?:=|\()|=(?!=))|\b(?:window\.open|navigation\.navigate)\s*\("),
+    "unqualified_open_candidate": re.compile(r"(?<![\w$.])open\s*\("),
     "eval": re.compile(r"(?<![\w$.])(?:eval|Function|execScript)\s*\(|\b(?:jQuery|\$)\.globalEval\s*\(|\bnew\s+Function\s*\("),
     "string_timer_candidate": re.compile(
         r"\b(?:setTimeout|setInterval)\s*\(\s*(?!function\b|async\b|\(|[\w$]+\s*=>)[^)]{1,120}"

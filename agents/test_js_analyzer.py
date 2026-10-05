@@ -118,6 +118,8 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
         ("el.setAttribute('xlink:href', value)", "url_attribute"),
         ("location.replace(value)", "navigation"),
         ("window.open(value)", "navigation"),
+        ("open(value)", "unqualified_open_candidate"),
+        ("object.data = value", "url_attribute"),
         ("new Function(value)", "eval"),
         ("setTimeout(value, 1)", "string_timer_candidate"),
         ("setInterval('render()', 1)", "string_timer_candidate"),
@@ -149,6 +151,20 @@ def test_xss_sink_inventory_recognizes_distinct_families(snippet: str, bucket: s
 )
 def test_xss_sink_inventory_does_not_conflate_safe_or_unrelated_apis(snippet: str, absent_bucket: str):
     assert absent_bucket not in J.extract_signals(snippet, "https://app.example/static/app.js")["sinks"]
+
+
+def test_xss_sink_inventory_safe_unrelated_methods_emit_no_sink_buckets():
+    text = """
+    node.append(value);
+    node.prepend(value);
+    node.before(value);
+    items.index(value);
+    Set.add(value);
+    graph.data = rows;
+    xhr.open('GET', url);
+    setTimeout(() => render(), 1);
+    """
+    assert J.extract_signals(text, "https://app.example/static/app.js")["sinks"] == []
 
 
 def test_extract_signals_accepts_legacy_source_map_directive():

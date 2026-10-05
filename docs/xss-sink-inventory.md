@@ -1,6 +1,6 @@
 # JS XSS sink inventory (static review seeds)
 
-`agents/js_analyzer.py` scans downloaded JS and source-map module text. Its `sinks` field is a **sorted list of broad review categories**, not call sites or a source-to-sink trace. The `signal_coverage.exhaustive` value remains `false`. A hit only means a pattern occurs in inventoried text; a miss cannot establish safety. Dynamic property names, minification, template expansion, missing bundles, aliases, parser context, and browser/runtime paths need agent review.
+`agents/js_analyzer.py` scans downloaded JS **bundle text** for its `sinks` field. It separately inventories embedded source-map modules and writes review packets for their source; this sink-pattern pass does **not** independently scan each module's text. The `sinks` field is a **sorted list of broad review categories**, not call sites or a source-to-sink trace. The `signal_coverage.exhaustive` value remains `false`. A hit only means a pattern occurs in inventoried bundle text; a miss cannot establish safety. Dynamic property names, minification, template expansion, source-only module code, missing bundles, aliases, parser context, and browser/runtime paths need agent review.
 
 The existing `dom_write`, `script_create`, `navigation`, `eval`, `request`, and `storage_write` labels remain for JSONL consumers. Added XSS review labels:
 
@@ -10,7 +10,7 @@ The existing `dom_write`, `script_create`, `navigation`, `eval`, `request`, and 
 - `framework_raw_html`, `framework_trust_bypass`, `trusted_types_policy_candidate`: React, Vue, Angular/AngularJS, Svelte, Lit, Alpine, Astro and Solid raw HTML; Angular sanitizer/$sce bypass and Handlebars SafeString; Trusted Types policy creation/use. A trust wrapper or policy is **not a standalone execution sink**—inspect its implementation and downstream renderer.
 - `script_content`, `script_import`, `url_attribute`: script text/URL assignment, worker/dynamic imports, and URL-bearing attributes. Scheme, element kind, CSP, user interaction and controllability matter.
 
-`navigation` also recognizes Navigation API and window open; these and `url_attribute` are **conditional URL sinks**, not equivalent to HTML injection. `eval` includes direct `eval`/Function and jQuery `globalEval`; `string_timer_candidate` covers string/variable timer arguments but does not assert that a variable is code rather than a callback. `event_handler` property assignments also need value-type review. `request` and `storage_write` are legacy general inventory categories, **not direct XSS execution sinks**.
+`navigation` also recognizes Navigation API and qualified `window.open`; unqualified `open(...)` is retained under `unqualified_open_candidate` because static text cannot always distinguish `window.open` from unrelated functions or XHR usage. These and `url_attribute` are **conditional URL sinks**, not equivalent to HTML injection. `eval` includes direct `eval`/Function and jQuery `globalEval`; `string_timer_candidate` covers string/variable timer arguments but does not assert that a variable is code rather than a callback. `event_handler` property assignments also need value-type review. `request` and `storage_write` are legacy general inventory categories, **not direct XSS execution sinks**.
 
 ## Primary references checked
 

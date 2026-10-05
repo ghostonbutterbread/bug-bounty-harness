@@ -2,7 +2,9 @@
 
 ## Purpose
 
-Build a reusable runtime application map before vulnerability-specific testing.
+Build a reusable runtime application map from observed behavior, including
+when a specialist needs to map a value flow. Specialist testing remains with
+its class skill.
 
 The goal is to make agents explore from observed app behavior instead of from leaked vulnerability labels. A scout maps routes, flows, object references, auth boundaries, and state-changing actions. Focused child agents receive only narrow map slices.
 
@@ -13,17 +15,6 @@ The goal is to make agents explore from observed app behavior instead of from le
 - `/live-map`: universal runtime JSONL map from browser, proxy, manual, or hybrid observations.
 
 Use `/live-map` for live web testing and any case where future agents should reuse previously explored areas.
-
-## Follow The Value
-
-While mapping a user-influenced value or state change, ask: **Where else can
-this value go, and who might consume it after this point?** Use observed
-follow-on behavior to connect the producer to later processors, stored views,
-or effects. Distinguish evidenced consumers from plausible but unverified next
-steps; record an unobserved boundary as unknown. A safe first render answers
-only for that render, not for every later consumer. The question is a lens for
-the current flow, not an exhaustive consumer census or permission to test an
-external service outside the program's scope.
 
 ## Storage
 

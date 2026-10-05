@@ -37,19 +37,6 @@ bbh scripts/goal_router.py plan --program <program> --objective "<goal>" \
 Use `init` only after choosing the approved run-artifact directory. It writes
 routing state only; durable target truth belongs in MapStore.
 
-For an explicit `/goal bunny multi` request, load `bunny` and
-`bunny-collaborative` for the portfolio overlay instead of treating the goal as
-a single-program Hunter Loop. The helper above accepts **one program per call**:
-run `plan` separately for each named program before its first target action,
-using the same objective. Do not pass a comma-separated list as one program or
-pretend the helper launches workers. Treat its Hunter Loop and
-`hunt-orchestration-policy` fields, when present, as **per-program routing hints**;
-Bunny remains the sole parent coordinator and its collaborative contract governs
-worker dispatch and checkpoints. Bunny owns the run-local program queue and
-three-active-subagent limit; each program retains its own routed specialist
-skills and evidence. Missing program names require clarification before live
-work, not an inferred cross-program scope.
-
 ## Goal modes
 
 ### Broad program

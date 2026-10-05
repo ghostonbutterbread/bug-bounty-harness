@@ -42,9 +42,12 @@ class BunnySkillTests(unittest.TestCase):
             "multiple domains within its assigned program",
             "run-local coordinator key",
             "not in any program's Shared data",
+            "all active worker/run IDs",
             "not** a timer, deadline, or reason to stop",
             "Only mark a program closed on evidence-backed grounds",
             "three active subagents total",
+            "including multiple workers within one program",
+            "free a slot only after confirming that worker has stopped",
             "reporter all count",
             "Verify each candidate independently inside its own program",
             "release or pause an existing slot at a checkpoint first",
@@ -53,6 +56,8 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("/goal bunny multi", goals)
         self.assertIn("plan` separately for each named program", goals)
         self.assertIn("Do not pass a comma-separated list", goals)
+        self.assertIn("per-program routing hints", goals)
+        self.assertIn("Bunny remains the sole parent coordinator", goals)
         self.assertIn("/goal bunny multi", registry)
 
     def test_collaborative_worker_roles_and_load(self):

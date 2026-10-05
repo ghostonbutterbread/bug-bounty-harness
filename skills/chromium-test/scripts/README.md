@@ -52,6 +52,17 @@ in the intended checkout rather than trying system Python. The `.venv/bin/python
 and `uv ... python -m pytest` examples below are **test verification commands**,
 not alternative browser launch commands.
 
+## `browser_manager_row_repair.py`
+
+- **Purpose:** Plan and, only after exact cohort and terminal-state proof, repair eligible historical positional or idle-stopped browser-manager rows.
+- **Inputs:** Private browser-manager database, exact `--program` and `--account`, canonical lease database, runtime-probe state; gated apply additionally requires the reviewed plan hash and private backup directory.
+- **Outputs:** Redacted cohort classifications, blocked reasons, plan hash, and (for apply) a guarded repair receipt and paired backups.
+- **Mutates:** Planning is read-only. `--apply` writes only eligible manager rows after independent liveness checks and atomic paired backups; it does not modify canonical leases or browser profiles.
+- **Verification:** `.venv/bin/python -m pytest agents/test_browser_manager_row_repair.py -q`
+- **Owner/scope:** Chromium Test historical browser-manager repair on the browser node; not an ordinary browser launch path.
+- **Last verified:** 2026-10-05 (script-index contract).
+- **Coverage:** Exact legacy layout and selected owned cohort only; refuses uncertain runtime or changed plans. Detailed invocation and safeguards follow below.
+
 ## Historical manager-row repair (offline first)
 
 `browser_manager_row_repair.py --manager-db /private/browser_provisioner.sqlite --program <program> --account <account> --probe-runtime`

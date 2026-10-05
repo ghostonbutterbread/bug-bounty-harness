@@ -119,6 +119,8 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
         ("a.href = value", "url_attribute"),
         ("el.setAttribute('xlink:href', value)", "url_attribute"),
         ("location.replace(value)", "navigation"),
+        ("location.href = value", "navigation"),
+        ("document.location = value", "navigation"),
         ("window.open(value)", "navigation"),
         ("open(value)", "unqualified_open_candidate"),
         ("object.data = value", "url_attribute"),
@@ -155,6 +157,14 @@ def test_xss_sink_inventory_recognizes_distinct_families(snippet: str, bucket: s
         ("obj.one = fn", "event_handler"),
         ("obj.once = callback", "event_handler"),
         ("obj.only = true", "event_handler"),
+        ("el.onclick === fn", "event_handler"),
+        ("el.oncustom === fn", "event_handler_candidate"),
+        ("iframe.srcdoc === expected", "iframe_srcdoc"),
+        ("iframe['srcdoc'] === expected", "iframe_srcdoc"),
+        ("script.textContent === text", "script_content"),
+        ("element.href === nextUrl", "url_attribute"),
+        ("object.data === nextUrl", "url_attribute"),
+        ("location.href === nextUrl", "navigation"),
         ("element.innerHTML.length", "dom_write"),
     ],
 )
@@ -174,6 +184,14 @@ def test_xss_sink_inventory_safe_unrelated_methods_emit_no_sink_buckets():
     obj.once = callback;
     obj.only = true;
     obj.eval(value);
+    if (el.onclick === fn) {}
+    if (el.oncustom === fn) {}
+    if (iframe.srcdoc === expected) {}
+    if (iframe['srcdoc'] === expected) {}
+    if (script.textContent === text) {}
+    if (element.href === nextUrl) {}
+    if (object.data === nextUrl) {}
+    if (location.href === nextUrl) {}
     xhr.open('GET', url);
     setTimeout(() => render(), 1);
     """

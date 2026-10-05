@@ -97,15 +97,15 @@ SINK_KEYWORDS = {
         r"\.\s*(?:createContextualFragment|setHTMLUnsafe)\s*\(|"
         r"\.\s*execCommand\s*\(\s*['\"]insertHTML['\"]"
     ),
-    "iframe_srcdoc": re.compile(r"\.\s*srcdoc\s*=|\[\s*['\"]srcdoc['\"]\s*\]\s*=|\.\s*setAttribute\s*\(\s*['\"]srcdoc['\"]"),
+    "iframe_srcdoc": re.compile(r"\.\s*srcdoc\s*=(?!=|>)|\[\s*['\"]srcdoc['\"]\s*\]\s*=(?!=|>)|\.\s*setAttribute\s*\(\s*['\"]srcdoc['\"]"),
     "event_handler": re.compile(
-        rf"\.\s*on{_DOM_EVENT_NAME}\s*=|"
+        rf"\.\s*on{_DOM_EVENT_NAME}\s*=(?!=|>)|"
         rf"\.\s*setAttribute\s*\(\s*['\"]on{_DOM_EVENT_NAME}['\"]|"
         rf"\.\s*setAttributeNS\s*\(\s*[^,]{{0,120}},\s*['\"]on{_DOM_EVENT_NAME}['\"]",
         re.I,
     ),
     "event_handler_candidate": re.compile(
-        rf"\.\s*on(?!{_DOM_EVENT_NAME}\s*=|(?:e|ce|ly)\s*=)[a-z]{{2,}}\s*=",
+        rf"\.\s*on(?!{_DOM_EVENT_NAME}\s*=|(?:e|ce|ly)\s*=)[a-z]{{2,}}\s*=(?!=|>)",
         re.I,
     ),
     "jquery_html": re.compile(
@@ -133,16 +133,16 @@ SINK_KEYWORDS = {
     ),
     "trusted_types_policy_candidate": re.compile(r"\btrustedTypes\.createPolicy\s*\(|\.\s*createHTML\s*\("),
     "script_create": re.compile(r"\.\s*createElement\s*\(\s*['\"]script['\"]"),
-    "script_content": re.compile(r"\b(?:script|scriptElement|scriptTag)\s*\.\s*(?:text|textContent|innerText|src)\s*="),
+    "script_content": re.compile(r"\b(?:script|scriptElement|scriptTag)\s*\.\s*(?:text|textContent|innerText|src)\s*=(?!=|>)"),
     "script_import": re.compile(r"\bimportScripts\s*\(|\bimport\s*\(\s*(?!['\"`])"),
     "url_attribute": re.compile(
-        r"\.\s*(?:href|src|action|formAction)\s*=|"
-        r"\b(?:object|objectElement)\s*\.\s*(?:data|codeBase)\s*=|"
+        r"\.\s*(?:href|src|action|formAction)\s*=(?!=|>)|"
+        r"\b(?:object|objectElement)\s*\.\s*(?:data|codeBase)\s*=(?!=|>)|"
         r"\.\s*setAttribute\s*\(\s*['\"](?:href|src|action|formaction|xlink:href|data)['\"]|"
         r"\.\s*setAttributeNS\s*\(\s*[^,]{0,120},\s*['\"](?:href|src|action|formaction|xlink:href|data)['\"]",
         re.I,
     ),
-    "navigation": re.compile(r"\b(?:(?:window|document)\.)?location\s*(?:\.\s*(?:href|assign|replace)\s*(?:=|\()|=(?!=))|\b(?:window\.open|navigation\.navigate)\s*\("),
+    "navigation": re.compile(r"\b(?:(?:window|document)\.)?location\s*(?:\.\s*(?:href\s*=(?!=|>)|(?:assign|replace)\s*\()|=(?!=|>))|\b(?:window\.open|navigation\.navigate)\s*\("),
     "unqualified_open_candidate": re.compile(r"(?<![\w$.])open\s*\("),
     "eval": re.compile(
         r"(?<![\w$.])(?:eval|Function|execScript)\s*\(|"

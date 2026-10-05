@@ -21,14 +21,16 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    runtime mechanics. BBH does not override scope, account, rate, or impact
    decisions.
 3. Begin from the current user goal and a cold, current surface. Do not preload
-   broad prior leads, findings, or peer theory queues.
+   broad prior leads, findings, or peer theory queues. When mapping a
+   user-influenced value or workflow, ask who else might consume it after this
+   point. Use `/live-map` for class-neutral runtime mapping; class-specific
+   lineage stays with the matching specialist lane (such as `/xss-lifecycle`).
 4. Use `/hunter-loop` only for bounded orchestration; route each plausible
    selected surface to one specialist lane. When no signal exists, run an
    adaptive, class-appropriate live discovery sequence to establish or reject
    it; signal controls escalation severity, not permission to test.
-   When script output would justify a coverage or exhaustion claim, load
-   `script-manager` and the selected lane: heuristic misses are not proof of
-   absent sources, sinks, or behaviors; reconcile with independent observations.
+   When running or interpreting a script, load `script-manager` alongside the
+   selected lane for output and coverage boundaries.
    For any potentially destructive proof, prefer a recreated, task-owned
    disposable local Docker/VM instance, preserve evidence, then remove and
    verify only its resources. Isolation does not authorize live impact; if a

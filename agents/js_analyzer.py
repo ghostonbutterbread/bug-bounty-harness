@@ -86,23 +86,36 @@ SINK_KEYWORDS = {
         r"\.\s*execCommand\s*\(\s*['\"]insertHTML['\"]"
     ),
     "iframe_srcdoc": re.compile(r"\.\s*srcdoc\s*=|\[\s*['\"]srcdoc['\"]\s*\]\s*=|\.\s*setAttribute\s*\(\s*['\"]srcdoc['\"]"),
-    "event_handler": re.compile(r"\.\s*on[a-z]+\s*=|\.\s*setAttribute(?:NS)?\s*\(\s*['\"]on[a-z]+['\"]", re.I),
+    "event_handler": re.compile(
+        r"\.\s*on[a-z]+\s*=|"
+        r"\.\s*setAttribute\s*\(\s*['\"]on[a-z]+['\"]|"
+        r"\.\s*setAttributeNS\s*\(\s*[^,]{0,120},\s*['\"]on[a-z]+['\"]",
+        re.I,
+    ),
     "jquery_html": re.compile(
         r"(?:\$|jQuery)\s*\(\s*['\"`]\s*<|"
-        r"\.\s*(?:html|append|prepend|after|before|replaceWith|replaceAll|"
+        r"(?:\$|\bjQuery|\bangular\.element)\s*\([^)]{0,120}\)"
+        r"(?:\s*\.\s*[\w$]+\s*\([^)]{0,120}\)){0,2}\s*\.\s*"
+        r"(?:html|append|prepend|after|before|replaceWith|replaceAll|"
         r"insertAfter|insertBefore|wrap|wrapAll|wrapInner|add)\s*\("
     ),
     "jquery_parse": re.compile(r"\b(?:jQuery|\$)\.parseHTML\s*\("),
     "jquery_selector_candidate": re.compile(r"(?:\bjQuery|\$)\s*\(\s*(?:window\.)?location\s*\.\s*(?:hash|search|href)\b"),
     # PortSwigger lists these jQuery calls, but a call without a jQuery receiver
-    # or a controlled argument is only a low-confidence review candidate.
-    "jquery_legacy_candidate": re.compile(r"\.\s*(?:animate|has|constructor|init|index)\s*\("),
+    # or controlled argument is only a low-confidence review candidate.
+    "jquery_legacy_candidate": re.compile(r"(?:\$|\bjQuery)\s*\([^)]{0,120}\)\s*\.\s*(?:animate|has|constructor|init|index)\s*\("),
     "jquery_attribute": re.compile(r"\.\s*(?:attr|prop)\s*\(\s*['\"](?:href|src|action|formaction|on[a-z]+)['\"]", re.I),
     "framework_raw_html": re.compile(
         r"\bdangerouslySetInnerHTML\b|\b(?:v-html|ng-bind-html|x-html|set:html)\s*=|"
         r"\[innerHTML\]\s*=|\binnerHTML\s*=\s*\{|\{@html\s+|\bunsafeHTML\s*\("
     ),
-    "framework_trust_bypass": re.compile(r"\.\s*bypassSecurityTrust(?:Html|Script|Url|ResourceUrl)\s*\("),
+    "framework_trust_bypass": re.compile(
+        r"\.\s*bypassSecurityTrust(?:Html|Script|Url|ResourceUrl)\s*\(|"
+        r"\$sce\s*\.\s*trustAsHtml\s*\(|"
+        r"\$sceProvider\s*\.\s*enabled\s*\(\s*false\s*\)|"
+        r"\b(?:new\s+)?Handlebars\.SafeString\s*\("
+    ),
+    "trusted_types_policy_candidate": re.compile(r"\btrustedTypes\.createPolicy\s*\(|\.\s*createHTML\s*\("),
     "script_create": re.compile(r"\.\s*createElement\s*\(\s*['\"]script['\"]"),
     "script_content": re.compile(r"\b(?:script|scriptElement|scriptTag)\s*\.\s*(?:text|textContent|innerText|src)\s*="),
     "script_import": re.compile(r"\bimportScripts\s*\(|\bimport\s*\(\s*(?!['\"`])"),
@@ -113,7 +126,10 @@ SINK_KEYWORDS = {
         re.I,
     ),
     "navigation": re.compile(r"\b(?:(?:window|document)\.)?location\s*(?:\.\s*(?:href|assign|replace)\s*(?:=|\()|=(?!=))|\b(?:window\.open|navigation\.navigate)\s*\("),
-    "eval": re.compile(r"(?<![\w$])(?:eval|Function|execScript|msSetImmediate)\s*\(|\b(?:jQuery|\$)\.globalEval\s*\(|\bnew\s+Function\s*\(|\b(?:setTimeout|setInterval|setImmediate)\s*\("),
+    "eval": re.compile(r"(?<![\w$.])(?:eval|Function|execScript)\s*\(|\b(?:jQuery|\$)\.globalEval\s*\(|\bnew\s+Function\s*\("),
+    "string_timer_candidate": re.compile(
+        r"\b(?:setTimeout|setInterval)\s*\(\s*(?!function\b|async\b|\(|[\w$]+\s*=>)[^)]{1,120}"
+    ),
     "request": re.compile(r"\b(?:fetch|XMLHttpRequest|axios|sendBeacon)\b"),
     "storage_write": re.compile(r"\b(?:localStorage|sessionStorage)\.setItem\b"),
 }

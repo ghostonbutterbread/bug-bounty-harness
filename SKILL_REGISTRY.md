@@ -110,8 +110,9 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **hunter-memory** | `/hunter-memory {program} {surface}` | `prompts/hunter-memory-playbook.md` |
 | **hypothesis-ledger** | `/hypothesis-ledger {create|heartbeat|continuation|list|lead-followup|peer-surface-review|operator-app-review|transition|release|delegate|reclaim|complete} {program}` | `skills/hypothesis-ledger/SKILL.md` |
 | **hunter-loop** | `/hunter-loop {program} --goal {objective}` | `prompts/hunter-loop-playbook.md` |
-| **bunny** | `/bunny {program} --goal {objective}` or explicit `/goal bunny multi` with named programs (collaborative default; max three active subagents; skill guidance, no standalone CLI runner) | `skills/bunny/SKILL.md` |
+| **bunny** | `/bunny {program} --goal {objective}` or explicit Bunny `multi` parameter (collaborative default; skill guidance, no standalone CLI runner) | `skills/bunny/SKILL.md` |
 | **bunny-collaborative** | Default Bunny mode; coordinator and collaborative workers load it | `skills/bunny-collaborative/SKILL.md` |
+| **bunny-multi** | Coordinator-only collaborative overlay when Bunny has explicit `multi` parameter (with or without `/goal`) | `skills/bunny-multi/SKILL.md` |
 | **bunny-offhand** | Explicit dispatch-and-collect mode; coordinator loads it, ordinary workers do not | `skills/bunny-offhand/SKILL.md` |
 | **brainstorm-spec** | `/brainstorm-spec {program}` | `prompts/brainstorm-spec-playbook.md` |
 | **appmap** | `/appmap {program} {target_path}` | `prompts/appmap-playbook.md` |

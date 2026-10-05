@@ -6,6 +6,7 @@ SKILLS = ROOT / "skills"
 ROUTER = SKILLS / "bunny" / "SKILL.md"
 COLLABORATIVE = SKILLS / "bunny-collaborative" / "SKILL.md"
 OFFHAND = SKILLS / "bunny-offhand" / "SKILL.md"
+MULTI = SKILLS / "bunny-multi" / "SKILL.md"
 GOALS = SKILLS / "bug-goals" / "SKILL.md"
 
 
@@ -34,31 +35,37 @@ class BunnySkillTests(unittest.TestCase):
 
     def test_multi_program_is_depth_first_with_bounded_workers(self):
         router = ROUTER.read_text(encoding="utf-8")
+        collaborative = COLLABORATIVE.read_text(encoding="utf-8")
+        multi = MULTI.read_text(encoding="utf-8")
         goals = GOALS.read_text(encoding="utf-8")
         registry = (ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8")
+        self.assertIn("`multi` is a parameter", router)
+        self.assertIn("coordinator loads `bunny-multi` before dispatch", collaborative)
+        self.assertIn("Ordinary workers load this collaborative skill, not `bunny-multi`", collaborative)
+        self.assertIn("Without `multi`, use the ordinary single-program contract", collaborative)
+        self.assertIn("name: bunny-multi\n", multi)
+        self.assertNotIn("/goal bunny multi", goals)
+        self.assertNotIn("run-local coordinator key", router)
         for phrase in (
-            "Multi-program overlay (explicit)",
-            "not** an offhand mode or an instruction to rotate programs",
-            "multiple domains within its assigned program",
+            "only in the coordinator",
+            "not a new Bunny mode, a `/goal` requirement",
+            "Several domains within one program are still one program",
             "run-local coordinator key",
             "not in any program's Shared data",
             "all active worker/run IDs",
-            "not** a timer, deadline, or reason to stop",
-            "Only mark a program closed on evidence-backed grounds",
+            "not** a timer, deadline, or reason to move on",
+            "close a program only on evidence-backed grounds",
             "three active subagents total",
-            "including multiple workers within one program",
+            "including multiple workers in one program",
             "free a slot only after confirming that worker has stopped",
-            "reporter all count",
-            "Verify each candidate independently inside its own program",
-            "release or pause an existing slot at a checkpoint first",
+            "reporters all count",
+            "Verify each candidate independently in its own program",
+            "plan for each named program",
+            "Bunny remains the sole coordinator",
+            "without `/goal`, this goal helper is not a prerequisite",
         ):
-            self.assertIn(phrase, router)
-        self.assertIn("/goal bunny multi", goals)
-        self.assertIn("plan` separately for each named program", goals)
-        self.assertIn("Do not pass a comma-separated list", goals)
-        self.assertIn("per-program routing hints", goals)
-        self.assertIn("Bunny remains the sole parent coordinator", goals)
-        self.assertIn("/goal bunny multi", registry)
+            self.assertIn(phrase, multi)
+        self.assertIn("| **bunny-multi** |", registry)
 
     def test_collaborative_worker_roles_and_load(self):
         text = COLLABORATIVE.read_text(encoding="utf-8")
@@ -102,7 +109,7 @@ class BunnySkillTests(unittest.TestCase):
 
     def test_registered(self):
         registry = (ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8")
-        for name in ("bunny", "bunny-collaborative", "bunny-offhand"):
+        for name in ("bunny", "bunny-collaborative", "bunny-multi", "bunny-offhand"):
             self.assertIn(f"| **{name}** |", registry)
             self.assertIn(f"`skills/{name}/SKILL.md`", registry)
 

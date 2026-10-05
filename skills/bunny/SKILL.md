@@ -17,16 +17,9 @@ Bunny is an **opt-in** BBH campaign mode. A coordinator owns the program map, wo
 ## Select one mode
 
 - **Default: collaborative.** When Bunny is invoked without a mode, load `bunny-collaborative` before dispatch. The coordinator and each collaborative worker must load that skill: it defines checkpoints, upward evidence, steering, and the negative-result challenge. Name the mode and its worker load requirement in each packet.
+- **Collaborative with `multi`:** Load `bunny-collaborative`; it selects its coordinator-only `bunny-multi` overlay. `multi` is a parameter, not an offhand mode or a `/goal`-specific route. If Ryushe combines `multi` and offhand, clarify which mode to use before dispatch rather than silently combining them.
 - **Explicit: offhand.** Only when Ryushe selects offhand/dispatch-and-collect, load `bunny-offhand` in the coordinator. Its ordinary workers receive scoped tasks and applicable security policies, **not** a Bunny mode skill or collaboration contract.
 - A mode change occurs at an evidence checkpoint, after reconciling the current worker and surface lease. Do not silently fall back from collaborative to offhand when a transport or worker skill is unavailable; report the limitation and seek a workable collaborative channel or an explicit mode change.
-
-## Multi-program overlay (explicit)
-
-When Ryushe asks for `Bunny multi` or `/goal bunny multi`, keep the collaborative mode and its checkpoints; multi is **not** an offhand mode or an instruction to rotate programs. The coordinator owns one goal across named, distinct bounty programs. Confirm each program against its published scope/rules before assigning work. If the program list is missing, obtain it before live work; do not infer multi from several domains in one program. One worker may investigate multiple domains within its assigned program, but may not cross into another program.
-
-Keep a small **run-local coordinator key** in the existing campaign record, not in any program's Shared data: program identifier, queued/active/paused/closed state, **all active worker/run IDs** for that program, next decision, and pointer to that program's evidence. A queue is a memory of eligible future work, **not** a timer, deadline, or reason to stop a deep current investigation. Admit the next program when a worker slot is actually available and the coordinator judges it useful; a blocked or quiet worker does not automatically vacate a slot. A paused program retains its next discriminator and can resume. Only mark a program closed on evidence-backed grounds, never to make room.
-
-At most **three active subagents total** across programs (hunter, recon, verifier, and reporter all count; the coordinator does not). Count every active run ID globally, including multiple workers within one program; free a slot only after confirming that worker has stopped. Keep each live packet, account/browser/proxy lease, rate budget, and evidence path bound to exactly one program. A candidate from one program can inform a sanitized, portable hypothesis elsewhere, but never transfers credentials, session state, raw captures, or proof. Verify each candidate independently inside its own program before treating it as a finding. When all slots are occupied, continue or steer current workers; if verification needs a fresh worker, release or pause an existing slot at a checkpoint first. Apply `bunny-collaborative`'s depth and negative-result challenge inside each program.
 
 ## Shared boundaries
 

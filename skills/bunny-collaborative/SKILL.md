@@ -11,6 +11,8 @@ metadata:
 
 Load `bunny` for shared safety and mode selection. **Both the coordinator and every collaborative worker load this skill.** The coordinator includes `Load bunny-collaborative before acting` in each worker packet alongside the selected security policy chain, leased surface, run ID, evidence destination, checkpoint expectation, and stop condition. A worker that cannot load the collaboration contract reports the blocker before live work; do not quietly run it in offhand mode. No worker gains new testing authority from the role name or this mode.
 
+When Bunny is invoked with the explicit `multi` parameter (with or without `/goal`), the **coordinator loads `bunny-multi` before dispatch** for program isolation, the shared subagent cap, and its optional queue. Ordinary workers load this collaborative skill, not `bunny-multi`; their packets remain program-scoped. Without `multi`, use the ordinary single-program contract below. Do not infer `multi` from multiple domains within one program.
+
 ## Coordinator and worker contract
 
 Use the harness's native subagent facility. Name recon, hunter/steward, verifier, and reporter workers `bunny-recon`, `bunny-hunter`, `bunny-verifier`, and `bunny-reporter` when native names are supported; otherwise put the name in the task title and scoped packet. The role is not a harness-specific agent type. The bundled [`../bunny/agents/`](../bunny/agents/) files are portable role instructions, not a prerequisite to spawn.

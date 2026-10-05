@@ -1,6 +1,6 @@
 # Bunny multi-program integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes
 - **Branch:** `feat/bunny-multi-program`
 - **Base commit:** `468700b19c3805c8b4c45fe88e3b2b59b4459627`
@@ -23,7 +23,7 @@ Explicit `Bunny multi` and `/goal bunny multi` select a collaborative portfolio 
 
 - Tests and commands: `python3 -m unittest tests.test_bunny_skill tests.test_goal_router -v` (7 Bunny tests); `python3 -m pytest -q tests/test_bunny_skill.py tests/test_goal_router.py` (13 passed); `python3 scripts/goal_router.py plan --program sample-one --objective 'Find an ATO in password reset' --class auth` (single-program focused-surface plan); frontmatter/route assertions for Bunny and bug-goals; `git diff --check` clean.
 - Policy alignment: compared `bunny` with `bunny-collaborative`, `bug-goals`, `goal_router.py`, registry, and `agents/index.md`. Coordinator queue lives only in existing campaign record; published rules and program-specific evidence remain authoritative. No duplicate router implementation.
-- Independent review: first pass held beta integration on multi-worker accounting, parent-mode routing, and stale handoff; corrections included in this follow-up. Fresh verdict pending.
+- Independent review: first pass held beta integration on multi-worker accounting, parent-mode routing, and stale handoff; fresh independent review of corrected `f05094805bc2d2310be92ace2cdfb7180837da84` accepted for beta integration. Reviewer independently ran 13 focused pytest and 7 Bunny unittest checks; beta compatibility and post-merge checks remain.
 - Replay/cohort/fixture evidence: not applicable (guidance-only change).
 - Merge/ancestry evidence: pending.
 
@@ -36,7 +36,7 @@ None known. No program-selected live smoke is part of this guidance-only change;
 - **Owning feature branch/ref:** `feat/bunny-multi-program`
 - **Latest immutable recovery checkpoint:** `77ff2289c21e5085848d0602fb0dda802bc0fc6f` (review corrections)
 - **Feature implementation commit(s):** `6b546cd52ec2353edf91c0aa16f4e27b441c1339`, `77ff2289c21e5085848d0602fb0dda802bc0fc6f`
-- **Exact resume point:** obtain fresh independent review of the corrected commit, then beta integration.
+- **Exact resume point:** preflight clean beta merge, remove this branch-local dossier from the merge target, run post-merge checks, push beta, verify runtime projection.
 - **Working-tree state at handoff:** clean after dossier-only handoff commit (verify with Git).
 
 ## Decision gates
@@ -49,3 +49,4 @@ None known. No program-selected live smoke is part of this guidance-only change;
 
 - 2026-10-05 — created explicit multi-program guidance in existing Bunny owner and `/goal` route; no new parallel skill or store.
 - 2026-10-05 — first independent review identified three blockers; corrected global active-run accounting and single-parent routing, and refreshed branch handoff.
+- 2026-10-05 — fresh independent reviewer accepted corrected guidance at `f05094805bc2d2310be92ace2cdfb7180837da84`; remaining beta integration checks owned by Hermes.

@@ -1,6 +1,6 @@
 # Compiled Handlebars XSS candidate integration dossier
 
-- **Status:** fourth independent gate blocked on regex-literal return; no beta integration
+- **Status:** review-ready after regex-literal repair; no beta integration yet
 - **Owner:** Hermes
 - **Branch:** `fix/xss-compiled-handlebars-20261006`
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-compiled-handlebars`
@@ -23,7 +23,7 @@ Detect raw interpolations in compiled Handlebars output even when source syntax 
 ## Evidence and review
 
 - RED: first compiled-template fixture failed with zero raw candidates; cap regression then failed on false truncation.
-- GREEN: `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` — 302 passed after nested-function regression addition (2026-10-06).
+- GREEN: `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` — 304 passed after regex-literal regressions (2026-10-06).
 - `git diff --check` — clean.
 - Local saved `globalV2.js` (~485 KB): 8 capped raw interpolation candidates; first offsets 207094, 212344, 214311, 215735; `framework_template_candidate` present and `sink_sites_truncated=true`. No live requests made.
 - Independent review: **blocked**. Fresh `git fetch origin beta` confirms `origin/beta` at `59e72403600c9e9035081ca32e7ac5c64f3bbd83`, with only the implementation and dossier commits unique to the feature. Independent rerun: `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` — 295 passed; `git diff --check origin/beta...HEAD` clean.
@@ -34,18 +34,19 @@ Detect raw interpolations in compiled Handlebars output even when source syntax 
 - Third independent gate: fetched `origin/beta` at `59e72403600c9e9035081ca32e7ac5c64f3bbd83`; `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` passed 301; `git diff --check origin/beta...HEAD` clean. **Blocked:** `_direct_return_append` treats a nested function's `return` as the template function's direct output. Reproducer (run `scan_sink_sites(s)` and filter signature `Handlebars.compiledRawInterpolation(candidate)`): `s='x.template({0:function(x,t){var a,l=x.lookupProperty;return "<p>"+(function(){return "<b>"+(null!=(a=l(t,"name"))?a:"")},"</p>")}});'` returns a candidate at `[90,119)`. This valid JS uses a comma expression that discards the nested function; executing the template yields `<p></p>` with no lookup or callback invocation. The field is not interpolated into the output. This violates the direct-output contract and persists after the comment-aware repair.
 - Repair: brace depth from `template({` confines the direct return to the compiled program body (depth two), excluding nested function returns and discarded callbacks. Reviewer repro RED then GREEN; focused suite 302 passed. Saved `globalV2.js` still produces eight capped raw candidates at prior offsets. Fourth independent gate pending.
 - Fourth independent gate: fetched `origin/beta` at `59e72403600c9e9035081ca32e7ac5c64f3bbd83`; `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` passed 302; `git diff --check origin/beta...HEAD` clean. **Blocked:** `_js_code_chars` treats regex-literal content as code, so `_direct_return_append` accepts `return` inside `/return /` as the template program's return. Reproduce with `python -c 'from agents.xss_sink_sites import scan_sink_sites; s="x.template({0:function(x,t){var a,l=x.lookupProperty,r=/return /,buf=\"<p>\"+(null!=(a=l(t,\"name\"))?a:\"\");return \"<p>\"}});"; print([h for h in scan_sink_sites(s)["hits"] if h["signature"]=="Handlebars.compiledRawInterpolation(candidate)"])'`: a candidate at `[74,103)` is emitted. Node execution of program `0` with `name:"<img src=x>"` returns only `<p>`; the interpolated local buffer is discarded. This contradicts direct-output scope. Add a negative regression for the regex literal and correct lexical return matching before requesting another gate.
+- Repair: bounded lexer skips closed slash-delimited regex content, including escaped characters and character classes; ambiguous division may lose candidates rather than assert a false direct output. Regex `return` and delimiter cases were RED then GREEN; focused suite 304 passes, saved `globalV2.js` still produces eight capped candidates at prior offsets. Fifth gate pending.
 - No integration performed; beta remains at fetched base.
 
 ## Blockers and deferred work
 
-Block release on the reproducible regex-literal false positive above; rerun the 302-test focused suite plus the new negative regression and request independent review of the lexical fix. Other compiler versions and long/dynamic expression forms still require manual review. No live XSS proof is claimed.
+Block release until a fresh independent review accepts regex-literal handling. Other compiler versions and long/dynamic expression forms still require manual review. No live XSS proof is claimed.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/xss-compiled-handlebars-20261006`
 - **Latest immutable recovery checkpoint:** `6be416fea8979b564075839452f5e1e68cb870c5` (review the later dossier-only tip too).
 - **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`, `b3f9653e879e2972808587e2a8b2950ce4cd482c`, `7ed87bd922cd5599013cd690b57824873fc77279`, `6be416fea8979b564075839452f5e1e68cb870c5`.
-- **Exact resume point:** repair regex-literal contamination of direct-return detection, add the negative regression, rerun focused tests, and request independent review before integration.
+- **Exact resume point:** review regex-literal repair and integrate only after independent acceptance.
 - **Working-tree state at handoff:** clean after repair commit.
 
 ## Decision gates
@@ -64,3 +65,4 @@ Block release on the reproducible regex-literal false positive above; rerun the 
 - 2026-10-06 — third independent release gate **rejected**: a nested `return` in a discarded function expression is classified as template output, despite runtime `<p></p>` and no field lookup. Retain feature and dossier; do not merge beta.
 - 2026-10-06 — constrained direct-output append to compiled program body; nested-function regression passes with 302 focused tests and saved-bundle candidate persistence. Fourth gate pending.
 - 2026-10-06 — fourth independent release gate **rejected**: `/return /` in a regex literal makes a discarded local append look like a direct program return. Reproducer and runtime observation above; beta remains unchanged.
+- 2026-10-06 — skipped regex-literal bodies in lexical scope checks; 304 focused tests and saved bundle pass. Fifth independent gate pending.

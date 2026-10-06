@@ -196,6 +196,26 @@ def _js_code_chars(text: str, start: int, limit: int):
             end = text.find("\n", index + 2, limit)
             index = limit if end < 0 else end + 1
             continue
+        if char == "/":
+            # A closed slash-delimited token is conservatively treated as a
+            # regex literal. Ambiguous division can cause a missed candidate,
+            # never a claimed raw output based on regex contents.
+            cursor = index + 1
+            in_class = False
+            while cursor < limit and text[cursor] not in "\r\n":
+                if text[cursor] == "\\":
+                    cursor += 2
+                    continue
+                if text[cursor] == "[":
+                    in_class = True
+                elif text[cursor] == "]":
+                    in_class = False
+                elif text[cursor] == "/" and not in_class:
+                    index = cursor + 1
+                    break
+                cursor += 1
+            if index == cursor + 1:
+                continue
         yield index, char
         index += 1
 

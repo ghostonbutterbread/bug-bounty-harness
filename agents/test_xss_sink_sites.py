@@ -215,6 +215,18 @@ def test_compiled_raw_candidate_excludes_discarded_nested_function_return():
     assert not any(site["signature"] == "Handlebars.compiledRawInterpolation(candidate)"
                    for site in scan_sink_sites(snippet)["hits"])
 
+def test_compiled_raw_candidate_ignores_return_inside_regex_literal():
+    snippet = ('x.template({0:function(x,t){var a,l=x.lookupProperty,r=/return /,'
+               'buf="<p>"+(null!=(a=l(t,"name"))?a:"");return "<p>"}});')
+    assert not any(site["signature"] == "Handlebars.compiledRawInterpolation(candidate)"
+                   for site in scan_sink_sites(snippet)["hits"])
+
+def test_compiled_raw_candidate_ignores_regex_delimiters_before_real_return():
+    snippet = ('x.template({0:function(x,t){var a,l=x.lookupProperty,r=/[}/]/;'
+               'return "<p>"+(null!=(a=l(t,"name"))?a:"")}});')
+    assert "Handlebars.compiledRawInterpolation(candidate)" in {
+        site["signature"] for site in scan_sink_sites(snippet)["hits"]}
+
 
 def test_script_alias_stops_at_rebinding():
     shadowed = 'const s = document.createElement("script"); { const s = document.createElement("div"); s.textContent = user; }'

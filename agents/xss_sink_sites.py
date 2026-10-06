@@ -260,6 +260,23 @@ def _direct_return_append(text: str, template_start: int, begin: int) -> bool:
             previous_return = -1
     return previous_return >= 0 and brace_depth == 2 and depth == 0
 
+def _discarded_by_comma(text: str, end: int) -> bool:
+    """Reject a later top-level comma before the return expression ends."""
+    depth = 0
+    for _, char in _js_code_chars(text, end, end + 1024):
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            if depth == 0:
+                return False
+            depth -= 1
+        elif depth == 0:
+            if char == ",":
+                return True
+            if char == ";":
+                return False
+    return False
+
 def _compiled_raw_interpolations(text: str, per_rule: int) -> tuple[list[dict], bool]:
     """Bounded Handlebars precompile hint, not proof of a controlled HTML value."""
     if "template({" not in text or "lookupProperty" not in text:
@@ -299,6 +316,8 @@ def _compiled_raw_interpolations(text: str, per_rule: int) -> tuple[list[dict], 
         if not suffix:
             continue
         end = assignment_close + 1 + suffix.end()
+        if _discarded_by_comma(text, end):
+            continue
         context = text[max(template_start, begin - 8_000):begin]
         if "lookupProperty" not in context:
             continue

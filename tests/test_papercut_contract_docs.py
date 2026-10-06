@@ -9,6 +9,7 @@ from bounty_core.error_store import VALID_CHANNELS, VALID_LAYERS
 from agents.error_store import build_parser
 from agents.manual_hunter import EDITABLE_FINDING_FIELDS
 from agents.map_store import VALID_STATUSES
+from scripts.bbh import main as bbh_main
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,3 +54,11 @@ def test_finding_edit_guidance_excludes_derived_severity_label():
     fields = guide.split("Editable fields are ", 1)[1].split(". `severity_label`", 1)[0]
     assert set(re.findall(r"`([^`]+)`", fields)) == EDITABLE_FINDING_FIELDS
     assert "severity_label" not in EDITABLE_FINDING_FIELDS
+
+def test_attempts_module_guidance_uses_selected_checkout_venv(capsys):
+    contract = (ROOT / "docs/attempt-recording-contract.md").read_text(encoding="utf-8")
+    assert bbh_main(["--root"]) == 0
+    assert capsys.readouterr().out.strip() == str(ROOT)
+    assert 'cd "$(bbh --root)"' in contract
+    assert '.venv/bin/python -c' in contract
+    assert "system Python" in contract

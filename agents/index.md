@@ -16,9 +16,9 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    task: it governs local artifact search and processing, including when a
    broad corpus is legitimate but must be scanned with bounded, streaming
    methods. Load only the minimum ordered live-testing overlay(s) required for
-   the next decision. Before running a script for a BBH vulnerability hunt,
-   load `/bb-script-rules` alongside the selected class skill; find runnable
-   scripts in that skill and its index.
+   the next decision. Before running a bug-bounty script to investigate a
+   target, load `/bb-script-rules` alongside the relevant BBH skill; find
+   runnable scripts in that skill and its index.
 2. Authority order is published program rules and scope → AI Policies → BBH
    runtime mechanics. BBH does not override scope, account, rate, or impact
    decisions.

@@ -1,0 +1,14 @@
+# XSS skill clarity (branch-local integration dossier)
+
+Status: focused implementation verified; independent review and beta integration pending. Owner: Hermes. Canonical change: `skills/xss/SKILL.md` and conditional references.
+Base: `28c8a27e205c5525ae6654db44d5618f01c95753` (`origin/beta`, fetched October 6, 2026). Branch/worktree: `docs/xss-skill-clarity-20261006` at `/home/ryushe/worktrees/bbh-xss-skill-clarity`. Target: `beta`.
+
+Intent: remove duplicate, quota-like, and contradictory XSS guidance without weakening scope, owned-fixture continuation, browser proof, attempt recording, or warm/hot deepening. Audit the remaining projected skills separately; do not bundle their edits into this branch.
+
+Contract: keep XSS root as actionable routing/decision card; route cold start to general-security-testing-policy's `references/opening-and-knowledge.md`, exact attempt contract to attempt-recording-policy, payload families to xss-payload-engineering, tool details to existing tool-assisted-discovery reference, and sink/source triage detail to a conditional XSS reference. Preserve script and defense-signal regression contracts; remove unresolvable provisional reference. Clarify blind callback proof and false-positive scope.
+
+Neighbor alignment: `agents/index.md` (cold current surface, selected skill, script routing), general-security-testing-policy + opening-and-knowledge (scope/current evidence), live-testing-policy (safety), injection-testing-policy (defense continuation), attempt-recording-policy (write schema), xss-payload-engineering (payload families), xss-technology-research and waf-live-policy (defense routes). No new global rule, status schema, or launcher behavior.
+
+Verification: `python3 -m pytest -q agents/test_xss_skill_clarity.py agents/test_xss_defense_signal_routing.py agents/test_agent_context_routing.py tests/test_script_policy.py` passed (31). `git diff --check` passed. The full root `pytest -q` could not collect `test_catalog.py` (`bac_checks` absent); `pytest -q agents tests` exceeded the tool's 420-second wall and left no running process. These are residual verification limits, not passing receipts. Independent review, beta integration tests, and runtime projection still pending.
+
+Next: independent review and focused correction, reconcile current beta, integrate with dossier removed, run post-merge checks, verify projected skill. Other-skill audit is read-only and separate.

@@ -98,3 +98,39 @@ identically before the scope normalization change.
 **Impact:** a parser differential between the scope gate and the tools it
 gates. Not exploitable through the current corpus, but the gate should agree
 with whatever actually issues the request. Needs its own task.
+
+## Proxy-store private-ancestor fence can never pass under `/tmp`
+
+**Location:** `skills/chromium-test/scripts/proxy_store.py:60-78`,
+`_open_private_parent`.
+
+**Evidence:** the loop reads each ancestor's mode *before* descending, and raises
+`PermissionError: Proxy store ancestor is group/world writable` when
+`mode & 0o022` and `private_fence` is still unset. `/` is `0755` so it does not
+set the fence (`mode & 0o011` is nonzero); the next component is `/tmp` at
+`1777`, which trips the check. The `0700` directory that would set the fence
+(e.g. `/tmp/pytest-of-ryushe`) is deeper and never reached. Confirmed by reading
+the traversal and by `stat /tmp` = `1777`. Introduced by `5fbb569` / `a0717c4`;
+reproduces on unchanged beta, independent of the XSS sink-inventory fix.
+
+**Impact:** `agents/test_proxy_store.py` fails against pytest's own basetemp, and
+**any real run whose proxy store resolves under `/tmp` is blocked**, however
+private the store directory itself is. The default store at
+`~/.local/share/ghost/proxy-store/` is unaffected. Needs its own task: either set
+the fence from a later `0700` component or evaluate the final directory rather
+than failing on the first world-writable ancestor.
+
+## Canonical findings file not written where sync_reports asserts
+
+**Location:** `agents/test_sync_reports.py:787`; writer under the manual
+finding-tiers path.
+
+**Evidence:** import reports success (`ADDED D01`, `Imported: 1 new findings`)
+but `canonical_reports` is empty, so the canonical findings `.md` is absent from
+the asserted location. Reproduces on unchanged beta; distinct from the legacy
+report-layout assertions already recorded above, which are path-expectation
+failures rather than a missing write.
+
+**Impact:** a successful-looking import can leave no canonical report on disk,
+so a finding may be silently unrecoverable from the reports tree. Needs its own
+task on the owning branch.

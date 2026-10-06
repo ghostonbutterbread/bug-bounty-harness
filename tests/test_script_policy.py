@@ -108,24 +108,27 @@ def test_repository_script_policy_defines_owner_based_placement() -> None:
     assert "reuse" in text
 
 
-def test_hunt_script_policy_loads_with_class_and_bounds_output() -> None:
+def test_bug_bounty_script_policy_loads_with_skill_and_bounds_output() -> None:
     policy = " ".join((ROOT / "skills/bb-script-rules/SKILL.md").read_text(encoding="utf-8").lower().split())
     router = " ".join((ROOT / "agents/index.md").read_text(encoding="utf-8").lower().split())
     registry = (ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8")
     manager = " ".join(POLICY.read_text(encoding="utf-8").lower().split())
     assert "name: bb-script-rules" in policy
-    assert "description: use when running a script during a bbh vulnerability hunt" in policy
-    assert "load `/bb-script-rules` alongside the selected vulnerability-class skill" in policy
+    assert "description: use when running a bug-bounty script to investigate a target in bbh" in policy
+    assert "load `/bb-script-rules` alongside the relevant bbh skill before running a bug-bounty script" in policy
     assert "script output is non-exhaustive" in policy
     assert "only what the script checked" in policy
     assert "while a longer script runs" in policy
     assert "target's technology stack" in policy
-    assert "class-specific behavior its patterns may miss" in policy
+    assert "behavior its patterns may miss" in policy
     assert "framework-specific sinks, request flows, or custom validation paths" in policy
     assert "reconcile both before judging coverage" in policy
-    assert "before running a script for a bbh vulnerability hunt, load `/bb-script-rules`" in router
+    assert "before running a bug-bounty script to investigate a target, load `/bb-script-rules`" in router
     assert "find runnable scripts in that skill and its index" in router
+    assert "vulnerability hunt" not in policy
     assert "| **bb-script-rules** |" in registry
+    assert "with the relevant BBH skill before a bug-bounty script investigates a target" in registry
+    assert "interpretation of bug-bounty script output" in registry
     assert not (ROOT / "skills/scripts/SKILL.md").exists()
     assert "`script-manager` skill when creating or maintaining scripts" in manager
     assert "## deterministic authority" not in manager

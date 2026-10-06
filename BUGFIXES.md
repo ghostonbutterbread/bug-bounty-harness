@@ -134,3 +134,36 @@ failures rather than a missing write.
 **Impact:** a successful-looking import can leave no canonical report on disk,
 so a finding may be silently unrecoverable from the reports tree. Needs its own
 task on the owning branch.
+
+## Browser transfer/fixture suites fail en masse; cause not yet separated
+
+**Location:** `agents/test_browser_transfer_begin_uncertainty.py` (28),
+`test_browser_transfer_activation_boundary.py` (28),
+`test_browser_transfer_source_end_uncertainty.py` (24),
+`test_browser_fixture_promotion_ticket.py` (21),
+`test_browser_fixture_peer_generation.py` (11),
+`test_browser_auth_site_contract.py` (10),
+`test_browser_transfer_end_uncertainty.py` (4) — **126 failures**.
+
+**Evidence:** a full `pytest agents/` sweep on beta `d196c1c` reported 150 failed /
+1987 passed / 30 skipped; this cluster is 126 of the 150. Failures are assertion-
+shaped rather than permission-shaped — `assert [] == ['source']` and
+`DID NOT RAISE CancelledError` at
+`test_browser_transfer_begin_uncertainty.py:101,103` — so they are **not** the
+`/tmp` proxy-store fence recorded above. Pre-existing: unrelated to the XSS
+sink-inventory change, which touches only `agents/js_analyzer.py` and
+`agents/xss_sink_sites.py` and whose only coupled suites pass fully.
+
+**Cause is ambiguous and should be separated before any repair.** Either the
+transfer/fixture subsystem is genuinely broken, or these suites require a
+browser/CDP environment the sweep did not provide. Counter-evidence for the
+"genuinely broken" reading: on 2026-10-05/06 several live runs provisioned browser
+leases successfully on this same checkout — cleared Fastly challenges, solved an
+image CAPTCHA, read mounted asset lists, and released leases verifying
+`state: stopped` with CDP unreachable. So the runtime lease path demonstrably
+works even while these suites fail.
+
+**Impact:** beta's suite health cannot be read as a signal while this cluster is
+red, and a genuine regression in browser transfer would be masked by it. First
+task is to run this cluster **with** a provisioned CDP browser and record whether
+the failures persist; only then decide whether it is a code defect.

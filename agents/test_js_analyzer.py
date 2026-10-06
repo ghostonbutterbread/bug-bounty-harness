@@ -123,6 +123,9 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
         ("renderer.setProperty(host, 'innerHTML', value)", "framework_raw_html"),
         ("Vue.createApp({template: userTemplate}).mount('#app')", "framework_template_candidate"),
         ("Vue.compile(userTemplate)", "framework_template_candidate"),
+        ('Vue.createApp({template: "<div>" + userTemplate + "</div>"}).mount("#app")', "framework_template_candidate"),
+        ("Vue.compile(`<div>${userTemplate}</div>`)", "framework_template_candidate"),
+        ("Vue.createApp({template: `<div>` + userTemplate + `</div>`})", "framework_template_candidate"),
         ("$sce.trustAsJs(value)", "framework_trust_bypass"),
         ("createNodesFromMarkup(value, callback)", "html_parse"),
         ("sanitizer.bypassSecurityTrustResourceUrl(value)", "framework_trust_bypass"),
@@ -138,6 +141,7 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
         ("$.getScript(url)", "script_import"),
         ("$.ajax({url: userUrl, dataType: 'script'})", "script_import_candidate"),
         ("const n = document.createElement('script'); n.textContent = code; document.head.appendChild(n)", "script_alias_candidate"),
+        ("const $s = document.createElement('script'); $s.textContent = code;", "script_alias_candidate"),
         ("const s = document.createElement('script'); s.appendChild(document.createTextNode(input)); document.head.appendChild(s)", "script_alias_candidate"),
         ("importScripts(value)", "script_import"),
         ("import(moduleName)", "script_import"),
@@ -200,6 +204,7 @@ def test_xss_sink_inventory_recognizes_distinct_families(snippet: str, bucket: s
         ("node.attr('href', value)", "jquery_attribute"),
         ("$(el).prop('innerHTML')", "jquery_html_property"),
         ("node.prop('innerHTML', value)", "jquery_html_property"),
+        ('$(el).attr("innerHTML", value)', "jquery_html_property"),
         ("nativeNode.appendTo(target)", "jquery_html"),
         ("logger.getScript(url)", "script_import"),
         ("script['textContent'] === expected", "script_content"),
@@ -242,6 +247,7 @@ def test_xss_sink_inventory_safe_unrelated_methods_emit_no_sink_buckets():
     node.attr('href', value);
     $(el).prop('innerHTML');
     node.prop('innerHTML', value);
+    $(el).attr('innerHTML', value);
     nativeNode.appendTo(target);
     logger.getScript(url);
     logger['write'](value);

@@ -84,6 +84,10 @@ _DOM_EVENT_NAME = (
     r"popstate|reset|resize|scroll|submit|touch(?:start|end|move|cancel)|"
     r"transition(?:end|start|cancel|run)|toggle|unload|wheel)"
 )
+_VUE_DYNAMIC_TEMPLATE_VALUE = (
+    r"(?:['\"`][^'\"`]{0,160}['\"`]\s*\+\s*[A-Za-z_$][\w$]*|"
+    r"`[^`]{0,160}\$\{[^}]{1,160}\}[^`]{0,160}`)"
+)
 _JQUERY_CHAIN = (
     r"(?:\$|\bjQuery|\bangular\.element)\s*\([^)]{0,120}\)"
     r"(?:\s*\.\s*[\w$]+\s*\([^)]{0,120}\)){0,2}\s*\.\s*"
@@ -127,7 +131,7 @@ SINK_KEYWORDS = {
         r"insertAfter|insertBefore|appendTo|prependTo|wrap|wrapAll|wrapInner|add)\s*\(\s*(?=[^\s)])"
     ),
     "jquery_html_property": re.compile(
-        _JQUERY_CHAIN + r"(?:prop|attr)\s*\(\s*['\"](?:innerHTML|outerHTML)['\"]\s*,",
+        _JQUERY_CHAIN + r"prop\s*\(\s*['\"](?:innerHTML|outerHTML)['\"]\s*,",
         re.I,
     ),
     "jquery_parse": re.compile(r"(?:\bjQuery|\$)\.parseHTML\s*\("),
@@ -155,8 +159,10 @@ SINK_KEYWORDS = {
     ),
     "framework_template_candidate": re.compile(
         r"\b(?:Vue\s*\.\s*(?:createApp|component)|new\s+Vue)\s*\(\s*"
-        r"(?:['\"][^'\"]{1,80}['\"]\s*,\s*)?\{[^}]{0,300}\btemplate\s*:\s*(?=[^\s'\"`])|"
-        r"\bVue\s*\.\s*compile\s*\(\s*(?=[^\s'\"`])"
+        r"(?:['\"][^'\"]{1,80}['\"]\s*,\s*)?\{[^}]{0,300}\btemplate\s*:\s*"
+        + r"(?:(?=[^\s'\"`])|(?=" + _VUE_DYNAMIC_TEMPLATE_VALUE + r"))|"
+        + r"\bVue\s*\.\s*compile\s*\(\s*"
+        + r"(?:(?=[^\s'\"`])|(?=" + _VUE_DYNAMIC_TEMPLATE_VALUE + r"))"
     ),
     "framework_trust_bypass": re.compile(
         r"\.\s*bypassSecurityTrust(?:Html|Script|Url|ResourceUrl)\s*\(|"
@@ -179,7 +185,7 @@ SINK_KEYWORDS = {
     ),
     "script_alias_candidate": re.compile(
         r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*document\s*\.\s*createElement\s*\(\s*['\"]script['\"]\s*\)\s*;"
-        r"[\s\S]{0,300}?\b\1\s*\.\s*(?:(?:text|textContent|innerText|innerHTML)\s*=(?!=|>)|(?:append|appendChild)\s*\()"
+        r"[\s\S]{0,300}?(?<![\w$])\1(?![\w$])\s*\.\s*(?:(?:text|textContent|innerText|innerHTML)\s*=(?!=|>)|(?:append|appendChild)\s*\()"
     ),
     "url_attribute": re.compile(
         r"\.\s*(?:href|src|action|formAction)\s*=(?!=|>)|"

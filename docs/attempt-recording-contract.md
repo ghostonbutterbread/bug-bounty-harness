@@ -61,6 +61,22 @@ equivalent or no longer provide information.
 BBH agents must use the compatibility writer rather than appending JSONL
 manually:
 
+For an inline import or a task-owned Python script, use the **same checkout and
+interpreter** selected by `bbh`. The system Python and a different checkout's
+virtualenv may import an older or missing Bounty Core. Check the writer without
+writing an Attempt:
+
+```bash
+( cd "$(bbh --root)" && .venv/bin/python -c 'from agents.attempts import append_attempt; print("attempts-ready")' )
+```
+
+Run a task-owned Python script with that checkout's `.venv/bin/python` from its
+root (or use `bbh <repository-relative-script>` for an existing BBH tool).
+If the selected checkout's virtualenv is missing or has the wrong installed Core
+revision, provision **that checkout** with `./setup.sh --install-python-deps`;
+do not inject another checkout into `PYTHONPATH`. This import check proves the
+writer is available, not that a Hoster run recorded an Attempt.
+
 ```python
 from agents.attempts import append_attempt, utc_timestamp
 

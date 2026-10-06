@@ -1,6 +1,6 @@
 # Compiled Handlebars XSS candidate integration dossier
 
-- **Status:** review-ready after comment-aware repair; no beta integration yet
+- **Status:** blocked by third independent review; no beta integration
 - **Owner:** Hermes
 - **Branch:** `fix/xss-compiled-handlebars-20261006`
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-compiled-handlebars`
@@ -31,19 +31,20 @@ Detect raw interpolations in compiled Handlebars output even when source syntax 
 - Repair: failing regression fixtures added for all four classes; balanced template-object and assignment-expression boundaries, return-append check, and escaped-helper alias exclusion now pass those fixtures. Saved `globalV2.js` still yields eight capped candidates, first offsets unchanged. A later gate found comment handling unsound (below).
 - Fresh independent gate: `git fetch origin beta` confirmed `59e72403600c9e9035081ca32e7ac5c64f3bbd83`; focused suite `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` passed 299. Reviewer found a new direct-return false positive: `_direct_return_append` treats `return` in a JavaScript comment as a real return. Reproducer: `x.template({0:function(x,t){var a,l=x.lookupProperty;/* return */var buf="<p>"+(null!=(a=l(t,"name"))?a:"");return buf}});` yields `Handlebars.compiledRawInterpolation(candidate)` at offset 78 even though the append is in a local assignment, not a direct return. `scan_sink_sites` from `agents.xss_sink_sites` suffices to reproduce; filter hits by that signature. Conversely `+/*(*/(null!=(a=l(t,"name"))?a:"")` inside a legitimate return is missed because `_direct_return_append` counts parentheses inside a block comment. The repair's lexical boundary is not yet sound for comments; no merge.
 - Repair: `_js_code_chars` skips comments and quoted text while matching delimiters and finding code `return`; both reviewer cases were RED then GREEN. A positive fixture additionally includes `/*}*/` inside the compiled template to check balanced-object boundaries. Focused suite 301 passed; saved bundle still yields the same eight capped candidates and broad family. New independent gate pending.
+- Third independent gate: fetched `origin/beta` at `59e72403600c9e9035081ca32e7ac5c64f3bbd83`; `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` passed 301; `git diff --check origin/beta...HEAD` clean. **Blocked:** `_direct_return_append` treats a nested function's `return` as the template function's direct output. Reproducer (run `scan_sink_sites(s)` and filter signature `Handlebars.compiledRawInterpolation(candidate)`): `s='x.template({0:function(x,t){var a,l=x.lookupProperty;return "<p>"+(function(){return "<b>"+(null!=(a=l(t,"name"))?a:"")},"</p>")}});'` returns a candidate at `[90,119)`. This valid JS uses a comma expression that discards the nested function; executing the template yields `<p></p>` with no lookup or callback invocation. The field is not interpolated into the output. This violates the direct-output contract and persists after the comment-aware repair.
 - No integration performed; beta remains at fetched base.
 
 ## Blockers and deferred work
 
-Block release until a fresh independent review accepts the comment-aware repair. Other compiler versions and long/dynamic expression forms still require manual review. No live XSS proof is claimed.
+Block release until the nested-return false positive is repaired with a regression and a fresh independent review. Other compiler versions and long/dynamic expression forms still require manual review. No live XSS proof is claimed.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/xss-compiled-handlebars-20261006`
 - **Latest immutable recovery checkpoint:** `7ed87bd922cd5599013cd690b57824873fc77279` (review the later dossier-only tip too).
 - **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`, `b3f9653e879e2972808587e2a8b2950ce4cd482c`, `7ed87bd922cd5599013cd690b57824873fc77279`.
-- **Exact resume point:** review comment-aware repair and integrate only after an independent acceptance.
-- **Working-tree state at handoff:** clean after repair commit.
+- **Exact resume point:** fix nested-function return scope so only direct output appends qualify, add a negative regression for the discarded callback, rerun focused suite and independent gate before integration.
+- **Working-tree state at handoff:** clean after third-gate decision commit.
 
 ## Decision gates
 
@@ -58,3 +59,4 @@ Block release until a fresh independent review accepts the comment-aware repair.
 - 2026-10-06 — repaired four reviewer-proven cases via balanced context and expression checks; 299 tests passed and saved bundle still routes candidate. Request a new independent gate.
 - 2026-10-06 — fresh independent release gate **rejected**: comment text contaminates direct-return depth/boundary, creating a false positive on `/* return */` before a local buffer assignment and a false negative on `/*(*/` in a direct return. Focused 299-test suite passes but lacks these cases; beta remains unchanged.
 - 2026-10-06 — fixed comment handling and added both reviewer reproductions; 301 focused tests pass, saved bundle still yields candidates. Third independent gate pending.
+- 2026-10-06 — third independent release gate **rejected**: a nested `return` in a discarded function expression is classified as template output, despite runtime `<p></p>` and no field lookup. Retain feature and dossier; do not merge beta.

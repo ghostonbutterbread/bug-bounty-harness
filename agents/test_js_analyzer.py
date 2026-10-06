@@ -512,6 +512,75 @@ def test_inventory_writes_metadata_and_packets(tmp_path: Path):
     assert "Hidden/bootstrap state hints" in packet
 
 
+def test_inventory_page_includes_inline_executable_script_in_packets(tmp_path: Path):
+    page = "https://app.example.com/account"
+    html = b'''<html><script src="/static/app.js"></script>
+    <script type="application/json">{"url":"/api/ignored"}</script>
+    <script>const endpoint = "/api/account?owner_id=7";
+    document.querySelector('#target').innerHTML = location.hash;</script></html>'''
+    requested = []
+
+    def fake_get(url: str, timeout: int = 20):
+        requested.append(url)
+        if url == page:
+            return html, 200, "text/html"
+        if url == "https://app.example.com/static/app.js":
+            return b"console.log('external')", 200, "application/javascript"
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    with patch.object(J, "http_get", side_effect=fake_get):
+        assert J.main([
+            "inventory", "demo", "--page", page, "--target-host", "example.com",
+            "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
+            "--integration-index-root", str(tmp_path / "integrations"),
+        ]) == 0
+
+    rows = [json.loads(line) for line in (tmp_path / "out" / "metadata.jsonl").read_text().splitlines()]
+    inline = [row for row in rows if "inline-script" in row["url"]]
+    assert len(inline) == 1
+    assert inline[0]["in_scope_endpoints"] == ["https://app.example.com/api/account?owner_id=7"]
+    assert inline[0]["sink_sites"]
+    assert inline[0]["artifact_links"]["packets"]
+    page_row = json.loads((tmp_path / "out" / "page_context.jsonl").read_text().splitlines()[0])
+    assert page_row["inline_script_count"] == 1
+    assert page_row["inline_scripts_truncated"] == 0
+    provenance = [json.loads(line) for line in (tmp_path / "out" / "js_provenance.jsonl").read_text().splitlines()]
+    assert any(row["js_url"] == inline[0]["url"] and row["page_url"] == page for row in provenance)
+    assert requested == [page, "https://app.example.com/static/app.js"]
+
+
+def test_inline_parser_caps_bodies_and_counts_omissions():
+    parser = J.ScriptSrcParser()
+    parser.feed('<script>' + 'x' * (2 * 1024 * 1024 + 1) + '</script>')
+    parser.feed('<script type="application/ld+json">{"@context":"https://example.com"}</script>')
+    parser.feed('<script type="module">fetch("/api/safe")</script>')
+    assert len(parser.inline_scripts) == 2
+    assert len(parser.inline_scripts[0][1]) == 2 * 1024 * 1024
+    assert parser.inline_truncated == 1
+    assert parser.inline_scripts[1][1] == 'fetch("/api/safe")'
+
+
+def test_inventory_keeps_extensionless_page_script_src(tmp_path: Path):
+    page = "https://app.example.com/account"
+    seen = []
+
+    def fake_get(url: str, timeout: int = 20):
+        seen.append(url)
+        if url == page:
+            return b'<script src="/assets/runtime"></script>', 200, "text/html"
+        if url == "https://app.example.com/assets/runtime":
+            return b'fetch("/api/account")', 200, "application/javascript"
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    with patch.object(J, "http_get", side_effect=fake_get):
+        assert J.main([
+            "inventory", "demo", "--page", page, "--target-host", "example.com",
+            "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
+            "--integration-index-root", str(tmp_path / "integrations"),
+        ]) == 0
+    assert seen == [page, "https://app.example.com/assets/runtime"]
+
+
 def test_inventory_reuses_ledger_download_and_chunk_set(tmp_path: Path):
     input_file = tmp_path / "jsfiles.txt"
     input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")

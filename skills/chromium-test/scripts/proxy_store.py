@@ -58,7 +58,11 @@ def _open_private_parent(parent: Path, *, default_store: bool) -> int:
     private_fence = False
     try:
         for component in parent.parts[1:]:
-            mode = os.fstat(dir_fd).st_mode
+            details = os.fstat(dir_fd)
+            mode = details.st_mode
+            # The directory owner can replace its children even at 0755.
+            if details.st_uid not in {0, os.geteuid()}:
+                raise PermissionError("Proxy store ancestor owner is not trusted")
             # A 0700 ancestor makes deeper group-writable directories
             # unreachable to other accounts; otherwise fail before traversal.
             if mode & 0o022 and not private_fence:
@@ -72,9 +76,12 @@ def _open_private_parent(parent: Path, *, default_store: bool) -> int:
                 child_fd = os.open(component, flags, dir_fd=dir_fd)
             os.close(dir_fd)
             dir_fd = child_fd
+        final = os.fstat(dir_fd)
+        if final.st_uid not in {0, os.geteuid()}:
+            raise PermissionError("Proxy store parent owner is not trusted")
         if default_store:
             os.fchmod(dir_fd, 0o700)
-        elif os.fstat(dir_fd).st_mode & 0o022:
+        elif final.st_mode & 0o022:
             raise PermissionError("Proxy store parent is group/world writable")
         return dir_fd
     except BaseException:

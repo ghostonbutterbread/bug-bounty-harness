@@ -197,6 +197,32 @@ def test_connect_rejects_attacker_writable_ancestor(tmp_path, monkeypatch):
     assert not db.exists()
 
 
+@pytest.mark.parametrize("foreign_component", ["ancestor", "parent"])
+def test_connect_refuses_foreign_owned_path_component(tmp_path, monkeypatch, foreign_component):
+    module = load_proxy_store()
+    ancestor = tmp_path / "foreign"
+    parent = ancestor / "private"
+    parent.mkdir(parents=True, mode=0o700)
+    os.chmod(ancestor, 0o755)
+    db = parent / "proxy.sqlite"
+    claimed_foreign = ancestor if foreign_component == "ancestor" else parent
+    real_fstat = os.fstat
+
+    def foreign_owned_fstat(fd):
+        result = real_fstat(fd)
+        if os.readlink(f"/proc/self/fd/{fd}") == str(claimed_foreign):
+            fields = list(result)
+            fields[4] = os.geteuid() + 1
+            return os.stat_result(fields)
+        return result
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(module.os, "fstat", foreign_owned_fstat)
+        with pytest.raises(PermissionError, match="owner"):
+            module.connect(db)
+    assert not db.exists()
+
+
 def test_connect_refuses_intermediate_default_symlink_without_chmod(tmp_path, monkeypatch):
     module = load_proxy_store()
     actual = tmp_path / "shared"

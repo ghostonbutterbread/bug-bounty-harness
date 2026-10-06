@@ -602,11 +602,3 @@ confirm CDP is closed, and recheck disposable directory absence.
   does not provide intercept on/off or a Tamper API. Replay safely or stop.
 - Stay inside the program scope, account authorization, and rate limits.
 - For state-changing tasks, confirm the action is allowed and non-destructive before proceeding.
-
-## Scripts map
-
-- [`scripts/README.md`](scripts/README.md) — provisioner, browser lifecycle,
-  profile lease, MITM, and supporting helper records. Request browsers through
-  the provisioner, not the underlying Chromium launcher.
-- When Ryushe needs private interactive access to that owned browser, continue
-  to `/chromium-handoff`.

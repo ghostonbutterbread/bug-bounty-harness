@@ -169,55 +169,66 @@ SITE_RULES = _sites()
 _SCRIPT_CREATE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*document\s*\.\s*createElement\s*\(\s*['\"]script['\"]\s*\)\s*;")
 _RAW_INTERPOLATION_HEAD = re.compile(r"\+\s*\(\s*null\s*!=\s*\(\s*([A-Za-z_$][\w$]*)\s*=")
 
-def _matching_delimiter(text: str, opened: int, left: str, right: str, limit: int) -> int:
-    """Find one balanced close while skipping quoted JS strings; -1 means unknown."""
-    depth = 0
-    quote = ""
-    index = opened
-    while index < min(len(text), limit):
+def _js_code_chars(text: str, start: int, limit: int):
+    """Yield code positions, skipping quoted strings and JS comments conservatively."""
+    index = start
+    limit = min(len(text), limit)
+    while index < limit:
         char = text[index]
-        if quote:
-            if char == "\\":
-                index += 2
-                continue
-            if char == quote:
-                quote = ""
-        elif char in "'\"`":
+        following = text[index + 1] if index + 1 < limit else ""
+        if char in "'\"`":
             quote = char
-        elif char == left:
+            index += 1
+            while index < limit:
+                if text[index] == "\\":
+                    index += 2
+                elif text[index] == quote:
+                    index += 1
+                    break
+                else:
+                    index += 1
+            continue
+        if char == "/" and following == "*":
+            end = text.find("*/", index + 2, limit)
+            index = limit if end < 0 else end + 2
+            continue
+        if char == "/" and following == "/":
+            end = text.find("\n", index + 2, limit)
+            index = limit if end < 0 else end + 1
+            continue
+        yield index, char
+        index += 1
+
+def _matching_delimiter(text: str, opened: int, left: str, right: str, limit: int) -> int:
+    """Find one balanced close in code; -1 means unknown."""
+    depth = 0
+    for index, char in _js_code_chars(text, opened, limit):
+        if char == left:
             depth += 1
         elif char == right:
             depth -= 1
             if depth == 0:
                 return index
-        index += 1
     return -1
 
 def _direct_return_append(text: str, template_start: int, begin: int) -> bool:
-    previous_return = text.rfind("return", template_start, begin)
-    if previous_return < 0 or (previous_return > 0 and text[previous_return - 1].isalnum()):
-        return False
-    quote = ""
+    previous_return = -1
     depth = 0
-    index = previous_return + len("return")
-    while index < begin:
-        char = text[index]
-        if quote:
-            if char == "\\":
-                index += 2
-                continue
-            if char == quote:
-                quote = ""
-        elif char in "'\"`":
-            quote = char
+    for index, char in _js_code_chars(text, template_start, begin):
+        if (char == "r" and text.startswith("return", index)
+                and (index == 0 or not (text[index - 1].isalnum() or text[index - 1] in "_$"))
+                and (index + 6 == len(text) or not (text[index + 6].isalnum() or text[index + 6] in "_$"))):
+            previous_return = index
+            depth = 0
+        elif previous_return < 0 or index < previous_return + len("return"):
+            continue
         elif char in "([{":
             depth += 1
         elif char in ")]}":
             depth -= 1
         elif char == ";" and depth == 0:
-            return False
-        index += 1
-    return depth == 0 and not quote
+            previous_return = -1
+    return previous_return >= 0 and depth == 0
 
 def _compiled_raw_interpolations(text: str, per_rule: int) -> tuple[list[dict], bool]:
     """Bounded Handlebars precompile hint, not proof of a controlled HTML value."""

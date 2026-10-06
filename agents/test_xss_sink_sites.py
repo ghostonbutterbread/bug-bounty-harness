@@ -196,6 +196,18 @@ def test_compiled_raw_candidate_does_not_leak_beyond_template():
     assert not any(s["signature"] == "Handlebars.compiledRawInterpolation(candidate)"
                    for s in scan_sink_sites(snippet)["hits"])
 
+def test_compiled_raw_candidate_ignores_return_word_in_comment():
+    snippet = ('x.template({0:function(x,t){var a,l=x.lookupProperty;/* return */'
+               'var buf="<p>"+(null!=(a=l(t,"name"))?a:"");return buf}});')
+    assert not any(s["signature"] == "Handlebars.compiledRawInterpolation(candidate)"
+                   for s in scan_sink_sites(snippet)["hits"])
+
+def test_compiled_raw_candidate_ignores_delimiters_in_comment():
+    snippet = ('x.template({0:function(x,t){var a,l=x.lookupProperty;'
+               '/*}*/ return /*(*/ "<p>"+(null!=(a=l(t,"name"))?a:"")}});')
+    assert "Handlebars.compiledRawInterpolation(candidate)" in {
+        site["signature"] for site in scan_sink_sites(snippet)["hits"]}
+
 
 def test_script_alias_stops_at_rebinding():
     shadowed = 'const s = document.createElement("script"); { const s = document.createElement("div"); s.textContent = user; }'

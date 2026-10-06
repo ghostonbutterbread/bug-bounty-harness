@@ -1,14 +1,14 @@
 # BBH papercut contracts integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes bugfix
 - **Branch:** `fix/papercuts-attempts-errors-20261005`
 - **Base commit:** `140c096250ad246bd89a998bd8b5eadca7497136` (`origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-06
 - **Owning feature branch/ref:** `fix/papercuts-attempts-errors-20261005`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `2b558cd2a48ac497a7151feb59ef6179cab4940d`
+- **Feature implementation commit(s):** `2b558cd2a48ac497a7151feb59ef6179cab4940d`
 - **Inspiration / canonical references:** Shared PAPERCUTS.md entries PC-20261005-235010-e4aad741, PC-20261005-232908-685dca27, PC-20261005-232245-8b5dccda, PC-20261003-050323-735d3220, PC-20261006-025055-311ac47d.
 
 ## Intent
@@ -24,7 +24,7 @@ The Attempts writer import incident does **not** reproduce in a properly provisi
 ## Evidence and review
 
 - Tests and commands: feature `.venv/bin/python -m pytest -q tests/test_papercut_contract_docs.py tests/test_runtime_dependencies.py agents/test_error_store.py` → 7 passed; `agents/test_map_store.py -k status` → 7 passed, 64 deselected; `agents/test_manual_hunter.py -k edit_finding` → 4 passed, 20 deselected; `git diff --check` clean. A broader map-store run timed out at pre-existing `test_mapstore_url_projection_is_idempotent` after 33 passes; this unrelated I/O-heavy path is not changed here.
-- Independent review: pending.
+- Independent review: fresh reviewer verified the seven-file diff against current `origin/beta`, CLI/Core enums and editable fields, and the pinned dependency; focused contract/Error Store/MapStore selection passed 77 with one unrelated I/O-heavy MapStore case deselected, and four manual-hunter edit tests passed. The reviewer required this dossier correction before release. Two unchanged baseline tests (`test_hoster_script_authority.py`, `test_skill_command_lane_safety.py`) remain red and are not counted as green.
 - Replay/cohort/fixture evidence: no live target actions. The first run using a stale foreign venv failed importing `bounty_core.provenance`; checkout-local setup installed `bounty-core` at `54ac5e8261edd313c815adde17d4fbb64fb4727d` and focused tests passed.
 - Merge/ancestry evidence: pending.
 
@@ -39,10 +39,10 @@ The Attempts writer import incident does **not** reproduce in a properly provisi
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/papercuts-attempts-errors-20261005`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** run focused suites, independent review, then commit and integrate only if clean.
-- **Working-tree state at handoff:** intentionally uncommitted for active implementation; commit before pause.
+- **Latest immutable recovery checkpoint:** `2b558cd2a48ac497a7151feb59ef6179cab4940d`
+- **Feature implementation commit(s):** `2b558cd2a48ac497a7151feb59ef6179cab4940d`
+- **Exact resume point:** reconcile current beta, then integrate the reviewed change if focused checks remain green.
+- **Working-tree state at handoff:** clean after the dossier-only review correction commit.
 
 ## Decision gates
 
@@ -53,3 +53,4 @@ The Attempts writer import incident does **not** reproduce in a properly provisi
 ## Decision record
 
 - 2026-10-06 — validated local beta and repaired only reproduced documentation/test mismatch; remote Attempts environment remains unverified.
+- 2026-10-06 — independent reviewer approved the contract changes but blocked release on stale dossier checkpoint metadata; corrected handoff before integration.

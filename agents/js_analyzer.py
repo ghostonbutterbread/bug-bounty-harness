@@ -248,13 +248,46 @@ class ScriptSrcParser(html.parser.HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.scripts: list[str] = []
+        self.inline_scripts: list[tuple[int, str]] = []
+        self.inline_truncated = 0
+        self.script_ordinal = 0
+        self._inline_ordinal: int | None = None
+        self._inline_parts: list[str] = []
+        self._inline_size = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag.lower() != "script":
             return
-        for name, value in attrs:
-            if name.lower() == "src" and value:
-                self.scripts.append(value)
+        self.script_ordinal += 1
+        attrs_by_name = {name.lower(): value for name, value in attrs}
+        src = attrs_by_name.get("src")
+        if src:
+            self.scripts.append(src)
+        elif (attrs_by_name.get("type") or "").split(";", 1)[0].strip().lower() in (
+            "", "module", "text/javascript", "application/javascript", "text/ecmascript", "application/ecmascript"
+        ):
+            self._inline_ordinal = self.script_ordinal
+            self._inline_parts = []
+            self._inline_size = 0
+
+    def handle_data(self, data: str) -> None:
+        if self._inline_ordinal is not None:
+            remaining = 2 * 1024 * 1024 - self._inline_size
+            if remaining > 0:
+                self._inline_parts.append(data[:remaining])
+                self._inline_size += min(len(data), remaining)
+            if len(data) > remaining:
+                self.inline_truncated += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "script" and self._inline_ordinal is not None:
+            content = "".join(self._inline_parts)
+            if content.strip() and len(self.inline_scripts) < 100:
+                self.inline_scripts.append((self._inline_ordinal, content))
+            elif content.strip():
+                self.inline_truncated += 1
+            self._inline_ordinal = None
+            self._inline_parts = []
 
 
 @dataclass(slots=True)
@@ -464,7 +497,7 @@ def http_get(url: str, timeout: int = 20) -> tuple[bytes, int | None, str]:
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.build_opener(NoRedirectHandler()).open(req, timeout=timeout) as resp:
             return resp.read(), int(getattr(resp, "status", 0) or 0), resp.headers.get("content-type", "")
     except urllib.error.HTTPError as exc:
         return exc.read(), exc.code, exc.headers.get("content-type", "") if exc.headers else ""
@@ -473,7 +506,7 @@ def http_get(url: str, timeout: int = 20) -> tuple[bytes, int | None, str]:
 
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Keep a scoped source-map request from silently crossing to another host."""
+    """Keep a scoped artifact request from silently crossing to another host."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
         return None
@@ -598,13 +631,17 @@ def allowed_context_actions(classification: str) -> list[str]:
     return base
 
 
-def collect_from_page(page_url: str, page_context: str, scope_hosts: list[str]) -> tuple[list[str], list[dict]]:
+def collect_from_page(page_url: str, page_context: str, scope_hosts: list[str]) -> tuple[list[str], list[dict], dict[str, bytes]]:
     body, status, content_type = http_get(page_url)
-    if not body:
-        return [], []
+    if not body or status is None or not 200 <= status < 300:
+        return [], [], {}
     text = body.decode("utf-8", errors="ignore")
     parser = ScriptSrcParser()
     parser.feed(text)
+    inline_bodies = {
+        f"{page_url}#inline-script-{ordinal}": content.encode("utf-8")
+        for ordinal, content in parser.inline_scripts
+    }
     js_urls = []
     for script in parser.scripts:
         normalized = normalize_url(script, page_url)
@@ -616,8 +653,10 @@ def collect_from_page(page_url: str, page_context: str, scope_hosts: list[str]) 
         "content_type": content_type,
         "page_context": page_context,
         "script_count": len(js_urls),
+        "inline_script_count": len(inline_bodies),
+        "inline_scripts_truncated": parser.inline_truncated,
     }]
-    return dedupe(js_urls), page_records
+    return dedupe(js_urls), page_records, inline_bodies
 
 
 def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = None) -> dict:
@@ -863,9 +902,9 @@ def append_jsonl(path: Path, rows: Iterable[dict]) -> None:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
-# JavaScript URL suffixes worth inventorying. ".mjs"/".cjs" are ES/CommonJS
-# modules that a plain ".js" suffix test silently drops.
-JS_URL_SUFFIXES = (".js", ".mjs", ".cjs")
+# A supplied JS list can contain extensionless scripts, but not known non-JS
+# assets. Page script[src] references are direct evidence regardless of suffix.
+JS_URL_SUFFIXES = {"", ".js", ".mjs", ".cjs"}
 
 
 def iter_jsonl(path: Path) -> Iterator[dict]:
@@ -1001,6 +1040,9 @@ def load_provenance_hints(path: Path | None) -> dict[str, list[dict]]:
         normalized = normalize_url(raw_url)
         if not normalized:
             continue
+        fragment = urllib.parse.urlparse(raw_url).fragment
+        if re.fullmatch(r"inline-script-\d+", fragment):
+            normalized += f"#{fragment}"
         hints.setdefault(normalized, []).append(row)
     return hints
 
@@ -1756,22 +1798,29 @@ def command_inventory(args: argparse.Namespace) -> int:
 
     target_host = normalize_host_value(args.target_host) if args.target_host else None
     scope_hosts = build_scope_hosts(target_host=target_host, page=args.page)
+    if args.page and (not normalize_url(args.page) or not in_scope_url(args.page, scope_hosts)):
+        raise SystemExit("--page is outside --target-host scope or is not an HTTP URL")
 
     urls: list[str] = []
+    page_urls: list[str] = []
     page_records: list[dict] = []
+    inline_bodies: dict[str, bytes] = {}
     if args.input:
         urls.extend(read_lines(Path(args.input).expanduser()))
     if args.page:
-        page_urls, records = collect_from_page(args.page, args.page_context or "", scope_hosts)
+        page_urls, page_rows, inline_bodies = collect_from_page(args.page, args.page_context or "", scope_hosts)
         urls.extend(page_urls)
-        page_records.extend(records)
+        page_records.extend(page_rows)
 
     normalized_urls = []
     for url in urls:
         normalized = normalize_url(url)
-        if normalized and normalized.lower().split("?", 1)[0].endswith(JS_URL_SUFFIXES) and in_scope_url(normalized, scope_hosts):
+        if normalized and in_scope_url(normalized, scope_hosts) and (
+            url in page_urls or Path(urllib.parse.urlparse(normalized).path).suffix.lower() in JS_URL_SUFFIXES
+        ):
             normalized_urls.append(normalized)
     normalized_urls = dedupe(normalized_urls)
+    normalized_urls.extend(inline_bodies)
     if args.limit:
         normalized_urls = normalized_urls[: args.limit]
 
@@ -1789,7 +1838,7 @@ def command_inventory(args: argparse.Namespace) -> int:
     source_maps_reused = 0
     source_maps_too_large = 0
     for index, url in enumerate(normalized_urls, start=1):
-        if args.skip_cached_processing and not args.refresh:
+        if args.skip_cached_processing and not args.refresh and url not in inline_bodies:
             cached_artifact = cached_artifact_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
             if cached_artifact:
                 skipped_cached_urls += 1
@@ -1802,7 +1851,7 @@ def command_inventory(args: argparse.Namespace) -> int:
                 continue
 
         reused_download = False
-        cached = None if args.refresh else load_body_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
+        cached = None if args.refresh or url in inline_bodies else load_body_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
         if cached:
             body, digest, artifact_path = cached
             status = None
@@ -1810,9 +1859,12 @@ def command_inventory(args: argparse.Namespace) -> int:
             reused_download = True
             reused_downloads += 1
         else:
-            if args.delay:
+            if args.delay and url not in inline_bodies:
                 time.sleep(args.delay)
-            body, status, content_type = http_get(url, timeout=args.timeout)
+            if url in inline_bodies:
+                body, status, content_type = inline_bodies[url], None, "application/javascript"
+            else:
+                body, status, content_type = http_get(url, timeout=args.timeout)
             if not body:
                 continue
             digest = hashlib.sha256(body).hexdigest()

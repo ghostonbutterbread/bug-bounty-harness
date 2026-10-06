@@ -259,6 +259,11 @@ Script responsibilities:
 
 - collect JS URLs from pages, aggregated recon, proxy/recon artifacts, Wayback,
   and source maps when available
+- when collecting an HTML page, inventory its executable inline scripts as
+  bounded, page-anchored synthetic artifacts alongside scoped `script[src]`
+  URLs (including extensionless `src` values); do not classify JSON script
+  blocks as executable JS. The page context records omitted/truncated inline
+  bodies. A synthetic inline URL is an artifact identity, not a fetch target
 - download JS bodies with rate control
 - check `ledger.json` before fetching a URL that has already been mapped to a
   content hash
@@ -303,6 +308,35 @@ Script responsibilities:
   64 MiB and 1,000 packets per bundle. Record modules truncated by any budget
   so a deliberate follow-up can raise the limit instead of silently pretending
   coverage is complete
+
+### Tool-assisted acquisition and parsing
+
+Prefer established tools for deterministic breadth rather than asking an agent
+to manually sample a large JS list. Keep discovery and parsing separate:
+
+- Browser/CDP or task-scoped proxy observations are the best evidence for
+  actually loaded and lazy chunks. Export observed script URLs and page/flow
+  provenance into the inventory inputs; passive observation does not discover
+  dormant routes. Browser interaction follows the normal live-testing policies.
+- For historical candidates, run Waymore in URL-only mode (`-mode U -oU`) on
+  the approved domain, then scope-check, deduplicate, and feed selected JS URLs
+  into inventory. Do not confuse an archived URL with a live endpoint, or use
+  Waymore's default response-download mode unintentionally. Extension-only
+  filters miss extensionless scripts.
+- For already downloaded JS, JSLuice `urls <local-file>` is a useful optional
+  AST-based complement to this helper's bounded regex seeds. Keep its output
+  keyed to the existing content hash and page provenance; computed `EXPR`
+  values are leads, not replayable request contracts. Do not let a parser fetch
+  targets on its own or mark missing matches as negative evidence.
+- jxscout is a separate proxy-integrated option, not a silent dependency of
+  inventory. Its OSS edition reports maintenance/coverage caveats, and its
+  licensed Pro edition is distinct. Chunk prefetch and map retrieval make
+  requests: configure exact scope, rate and ownership before using them.
+
+Use the owning acquisition/runtime tools for these operations; this helper
+does not claim to implement CDP crawling, archive enumeration, JSLuice AST
+analysis, or jxscout chunk reconstruction. Agents still trace actual function
+flows and validate dangerous-sink context after the deterministic pass.
 
 Use `--refresh` only when intentionally checking whether a URL's content has
 changed:

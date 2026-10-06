@@ -33,6 +33,8 @@ Ryu corrected the earlier category-count framing: enumerate **individual XSS exe
 
 - Fresh re-review of `0c4b285` approved the two jQuery corrections but blocked on script-alias shadowing: function/arrow parameters and uninitialized declarations were not fenced, and a valid outer binding after an inner block was incorrectly discarded. Replaced permanent rebound stop with bounded block-scope tracking; positive and negative fixtures cover those cases. `.venv/bin/python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py tests/test_script_policy.py -q`: 316 passed, and `git diff --check` clean. Awaiting independent final-tip approval.
 
+- Final-tip review of `35a4379` verified prior three corrections but found two remaining alias-scope false positives: assignment to an outer binding inside a block was lost after that block, and an expression-bodied arrow parameter was not shadowed. The bounded scope tracker now marks the nearest actual binding on assignment and handles expression-bodied arrows through the terminating semicolon. Fixtures cover both negatives and valid sites after block/arrow scope; 117 site tests and 199 analyzer/policy tests pass, `git diff --check` clean. Request independent re-review before integration.
+
 ## Risks / deferred
 
 - Static signatures cannot prove an attacker-controlled source, CSP behavior, browser execution, or dynamic computed-property value. Bound regex complexity and output volume on minified bundles. Preserve source-map truncation indicators and original module provenance.

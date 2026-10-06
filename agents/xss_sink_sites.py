@@ -170,29 +170,39 @@ _SCRIPT_CREATE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*doc
 
 
 def _script_alias_live(prefix: str, name: str) -> bool:
-    """Track a bounded alias through block scopes; uncertainty remains a candidate."""
+    """Track one bounded script binding across simple blocks and parameters."""
     alias = re.escape(name)
     events = re.compile(
         rf"function(?:\s+[A-Za-z_$][\w$]*)?\s*\(([^)]{{0,120}})\)\s*\{{|"
-        rf"(?<![\w$])(\(?\s*{alias}\s*\)?)\s*=>\s*\{{|"
+        rf"(?<![\w$])(\(?\s*{alias}\s*\)?)\s*=>\s*(\{{)?|"
         rf"\b(?:const|let|var)\s+{alias}\b|"
-        rf"(?<![\w$.]){alias}\s*=(?!=|>)|[{{}}]"
+        rf"(?<![\w$.]){alias}\s*=(?!=|>)|[{{}};]"
     )
-    scopes = [True]
+    # Each frame holds (still_script, locally_declared, expression_arrow).
+    scopes = [[True, True, False]]
     for event in events.finditer(prefix):
+        token = event.group()
         if event.group(1) is not None:
             params = re.findall(r"[A-Za-z_$][\w$]*", event.group(1))
-            scopes.append(scopes[-1] and name not in params)
+            shadowed = name in params
+            scopes.append([scopes[-1][0] and not shadowed, shadowed, False])
         elif event.group(2) is not None:
-            scopes.append(False)
-        elif event.group() == "{":
-            scopes.append(scopes[-1])
-        elif event.group() == "}":
+            scopes.append([False, True, event.group(3) is None])
+        elif token == "{":
+            scopes.append([scopes[-1][0], False, False])
+        elif token == "}":
             if len(scopes) > 1:
                 scopes.pop()
+        elif token == ";":
+            if len(scopes) > 1 and scopes[-1][2]:
+                scopes.pop()
+        elif token.startswith(("const", "let", "var")):
+            scopes[-1][:2] = [False, True]
         else:
-            scopes[-1] = False
-    return scopes[-1]
+            binding = next(i for i in range(len(scopes) - 1, -1, -1) if scopes[i][1])
+            for frame in scopes[binding:]:
+                frame[0] = False
+    return scopes[-1][0]
 
 
 def scan_sink_sites(text: str, *, max_hits: int = 200, per_rule: int = 8) -> dict:

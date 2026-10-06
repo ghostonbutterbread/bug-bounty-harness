@@ -1,6 +1,6 @@
 # Script-assisted hunting integration dossier
 
-- **Status:** review-ready
+- **Status:** feature
 - **Owner:** Hermes Agent
 - **Branch:** `docs/scripts-hunt-policy`
 - **Base commit:** `58706890ddb4cb4e882bbe781a4a9157a806dc5b`
@@ -18,7 +18,7 @@
 ## Evidence and review
 
 - Tests and commands: `python3 -m pytest -q tests/test_script_policy.py` (25 passed); `python3 -m pytest -q skills/xss/scripts/test_xss_canary_mapper.py` (15 passed); `git diff --check` clean. `python3 -m pytest -q tests` returned 183 passed, 1 skipped, 3 pre-existing failures in `test_hoster_script_authority.py`, `test_runtime_dependencies.py`, and `test_skill_command_lane_safety.py` (the latter names an unchanged dossier at base). Root-level `python3 -m pytest -q` additionally fails collecting `test_catalog.py` due to unavailable `bac_checks` import.
-- Independent review: pending.
+- Independent review: reviewer blocked initial implementation because JS retained general output-authority prose alongside `/scripts`; a narrow follow-up now leaves JS inventory mechanics and class-specific source review only. Re-review pending.
 - Merge/ancestry evidence: pending fresh `origin/beta` reconciliation.
 
 ## Blockers and deferred work
@@ -41,4 +41,4 @@
 
 ## Decision record
 
-- 2026-10-06 — implementation checkpoint `2061f033`; focused tests passed; wider baseline failures recorded; requested independent review.
+- 2026-10-06 — implementation checkpoint `2061f033`; focused tests passed; wider baseline failures recorded. Reviewer blocked duplicate JS output doctrine; narrowed JS guidance to mechanics and moved interpretation exclusively to `/scripts`.

@@ -140,6 +140,8 @@ def test_xss_and_js_route_script_judgment_to_shared_hunt_skill() -> None:
     assert "xss-specific render consumers" in xss
     assert "raw-html helpers" in xss
     assert "for script-run coverage judgment, load `/scripts`" in js
+    assert "their misses never prove absence" not in js
+    assert "not a model of every technology or application" not in js
 
 
 def test_other_agent_maintenance_boundary_preserves_manager_authority() -> None:

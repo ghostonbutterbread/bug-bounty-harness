@@ -65,6 +65,8 @@ from agents.xss_sink_sites import SITE_RULES, scan_sink_sites
         ("el.insertAdjacentHTML('beforeend', html)", "Element.insertAdjacentHTML"),
         ("document.execCommand('insertHTML', false, html)", "Document.execCommand(insertHTML)"),
         ("$.parseHTML(html)", "jQuery.parseHTML"),
+        ("$(el).find('.result').html(user)", "jQuery.html"),
+        ("$(el).find('.result').eq(0).append(user)", "jQuery.append"),
         ("$(el).html(html)", "jQuery.html"),
         ("$(el).append(html)", "jQuery.append"),
         ("$(el).before(html)", "jQuery.before"),
@@ -72,6 +74,7 @@ from agents.xss_sink_sites import SITE_RULES, scan_sink_sites
         ("$(el).insertAfter(html)", "jQuery.insertAfter"),
         ("$(el).prop('innerHTML', html)", "jQuery.prop(innerHTML)"),
         ("$(html)", "jQuery.constructor(candidate)"),
+        ("$(location.hash)", "jQuery.constructor(candidate)"),
         ("$compile(template)(scope)", "AngularJS.$compile"),
         ("WinJS.Utilities.setInnerHTMLUnsafe(el, html)", "WinJS.Utilities.setInnerHTMLUnsafe"),
         ("unsafeHTML(value)", "Lit.unsafeHTML"),
@@ -119,10 +122,14 @@ def test_individual_site_signatures(snippet: str, site: str):
         ("stylesheet.href = url", "HTMLAnchorElement.href"),
         ("frame.src === url", "HTMLIFrameElement.src"),
         ("new DOMParser().parseFromString(xml, 'text/xml')", "DOMParser.parseFromString(text/html)"),
+        ("node.find('.result').html(user)", "jQuery.html"),
+        ("$(el).find('.result').html()", "jQuery.html"),
         ("$(el).html()", "jQuery.html"),
         ("$(el).attr('innerHTML', html)", "jQuery.prop(innerHTML)"),
         ("node.append(html)", "jQuery.append"),
         ("other.wrapInner(html)", "jQuery.wrapInner"),
+        ("$(el)", "jQuery.constructor(candidate)"),
+        ("$(node)", "jQuery.constructor(candidate)"),
         ("$('#known-id')", "jQuery.constructor(candidate)"),
         ("Vue.compile('<p>fixed</p>')", "Vue.compile"),
         ("unsafeStatic(value)", "Lit.unsafeStatic(template)"),
@@ -133,6 +140,19 @@ def test_individual_site_signatures(snippet: str, site: str):
 )
 def test_individual_site_false_positives(snippet: str, absent: str):
     assert absent not in {hit["signature"] for hit in scan_sink_sites(snippet)["hits"]}
+
+
+def test_jquery_constructor_candidates_do_not_lose_html_to_dom_wrappers():
+    scan = scan_sink_sites("$(el);" * 9 + "$(html);")
+    assert [site["signature"] for site in scan["hits"]] == ["jQuery.constructor(candidate)"]
+    assert scan["truncated"] is False
+
+
+def test_script_alias_stops_at_rebinding():
+    shadowed = 'const s = document.createElement("script"); { const s = document.createElement("div"); s.textContent = user; }'
+    reassigned = 'const s = document.createElement("script"); s = document.createElement("div"); s.appendChild(document.createTextNode(user));'
+    for snippet in (shadowed, reassigned):
+        assert not any(site["family"] == "script_alias_candidate" for site in scan_sink_sites(snippet)["hits"])
 
 
 def test_site_output_is_bounded_and_deterministic():

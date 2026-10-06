@@ -24,7 +24,9 @@ def rule(signature: str, family: str, tier: str, pattern: str, *needles: str, fl
 
 _ASSIGN = r"\s*(?:\+=|=(?!=|>))"
 _ARG = r"\s*\(\s*(?=[^\s)])"
-_JQ = r"(?:\bjQuery|(?<![\w$])\$)\s*\([^)]{0,120}\)\s*\.\s*"
+_JQ = (r"(?:\bjQuery|(?<![\w$])\$)\s*\([^)]{0,120}\)\s*\.\s*"
+       r"(?:(?:find|filter|eq|first|last|closest|parent|children|end|addBack)"
+       r"\s*\([^()]{0,120}\)\s*\.\s*){0,2}")
 _EVENT_NAMES = (
     "abort", "animationend", "animationstart", "beforeinput", "blur", "change",
     "click", "contextmenu", "dblclick", "drag", "drop", "error", "focus",
@@ -99,7 +101,9 @@ def _sites() -> tuple[SiteRule, ...]:
         rule("Location.href", "navigation", "url", rf"\b(?:location|window\.location|document\.location)\s*(?:\.\s*href|\[\s*['\"]href['\"]\s*\]){_ASSIGN}", "location", "href"),
         rule("HTMLObjectElement.data", "url_attribute", "url", rf"\b(?:object|objectElement)\s*\.\s*data{_ASSIGN}", "data"),
         rule("jQuery.parseHTML", "jquery_parse", "candidate", r"(?:\bjQuery|(?<![\w$])\$)\s*\.\s*parseHTML\s*\(", "parseHTML"),
-        rule("jQuery.constructor(candidate)", "jquery_selector_candidate", "candidate", r"(?:\bjQuery|(?<![\w$])\$)\s*\(\s*(?!['\"`\s])(?:[A-Za-z_$][\w$]*)\s*\)", "(", ")"),
+        rule("jQuery.constructor(candidate)", "jquery_selector_candidate", "candidate",
+             r"(?:\bjQuery|(?<![\w$])\$)\s*\(\s*(?:(?:window\s*\.\s*)?location\s*\.\s*(?:hash|search)|(?:html|markup|fragment|template|payload|untrusted|user\w*|input|selector|hash)\w*)\s*\)",
+             "(", ")", flags=re.IGNORECASE),
         rule("AngularJS.$compile", "framework_template_candidate", "candidate", r"(?<![\w$])\$compile\s*\(\s*(?!['\"`])\w+\s*\)\s*\(", "$compile"),
         rule("WinJS.Utilities.setInnerHTMLUnsafe", "framework_raw_html", "html", r"\bWinJS\.Utilities\.setInnerHTMLUnsafe\s*\(", "WinJS.Utilities", "setInnerHTMLUnsafe"),
         rule("WinJS.Utilities.setOuterHTMLUnsafe", "framework_raw_html", "html", r"\bWinJS\.Utilities\.setOuterHTMLUnsafe\s*\(", "WinJS.Utilities", "setOuterHTMLUnsafe"),
@@ -189,7 +193,7 @@ def scan_sink_sites(text: str, *, max_hits: int = 200, per_rule: int = 8) -> dic
                 if windows > 10_000:
                     truncated = True
                     break
-                begin = max(0, position - 320)
+                begin = max(0, position - 600)
                 fragment = text[begin:min(len(text), position + 400)]
                 for match in item.pattern.finditer(fragment):
                     start, end = begin + match.start(), begin + match.end()
@@ -215,11 +219,14 @@ def scan_sink_sites(text: str, *, max_hits: int = 200, per_rule: int = 8) -> dic
                 break
             alias = re.escape(match.group(1))
             window = text[match.end():match.end() + 240]
+            rebound = re.compile(rf"\b(?:const|let|var)\s+{alias}\s*=|(?<![\w$.]){alias}\s*=(?!=|>)")
             suffixes = re.finditer(
                 rf"(?<![\w$]){alias}(?![\w$])\s*\.\s*(?:(append|appendChild)\s*\(\s*document\s*\.\s*createTextNode\s*\(|(text|textContent|innerText|innerHTML|src)\s*=(?!=|>))",
                 window,
             )
             for suffix in suffixes:
+                if rebound.search(window, 0, suffix.start()):
+                    break
                 method = suffix.group(1) or suffix.group(2)
                 signature = (f"HTMLScriptElement.{method}(textNode)" if suffix.group(1)
                              else f"HTMLScriptElement.alias.{method}")

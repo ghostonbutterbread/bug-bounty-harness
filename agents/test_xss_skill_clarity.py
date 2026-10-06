@@ -52,4 +52,11 @@ def test_blind_lane_uses_the_same_confirmed_evidence_threshold() -> None:
     assert "jumps straight to `Confirmed`" not in blind
     assert "last-resort execution" not in blind
     assert "proves script execution" not in blind
+    assert "can support `Confirmed` **if**" in blind
+    assert "full GET is retained and correlated" in " ".join(blind.split())
+    assert "A bare collector hit remains `Pending-OOB`" in blind
+    image_line = next(line for line in blind.splitlines() if '<img src onerror=' in line)
+    assert "WEBHOOK_URL?probe=" in image_line
+    assert "location.href" in image_line
+    assert "document.cookie" not in image_line
     assert "Do not automatically resubmit to a staff queue" in blind

@@ -571,7 +571,7 @@ def _load_markdown_findings_from_text(
         return []
 
     findings: list[FindingRecord] = []
-    blocks = re.split(r"\n##\s+\[", text)
+    blocks = re.split(r"(?m)^##\s+\[", text)
     if len(blocks) > 1:
         for block in blocks[1:]:
             match = re.match(r"([A-Z_]+)\]\s+(.+?)(?:\n|$)", block, re.DOTALL)

@@ -309,6 +309,25 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(parsed.finding["review_tier"], "CONFIRMED")
         self.assertTrue(parsed.finding["sink"])
 
+    def test_ambiguous_narrative_requires_explicit_review_tier(self) -> None:
+        hunter = ManualHunter(self.program)
+        note = (
+            "Title: Cross-account record read\n"
+            "Class: idor\n"
+            "File: src/access.py\n"
+            "Description: Reproduced reading another owned test account's record; "
+            "impact may extend to sibling records.\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Review Tier"):
+            hunter.parse_text(note, source_label="unit-test")
+
+        confirmed = hunter.parse_text("Review Tier: CONFIRMED\n" + note, source_label="unit-test")
+        self.assertEqual(confirmed.finding["review_tier"], "CONFIRMED")
+        hypothetical = hunter.parse_text(
+            "Review Tier: DORMANT_HYPOTHETICAL\n" + note, source_label="unit-test"
+        )
+        self.assertEqual(hypothetical.finding["review_tier"], "DORMANT_HYPOTHETICAL")
+
     def test_scoring_fields_are_parsed_into_the_finding(self) -> None:
         hunter = ManualHunter(self.program)
         parsed = hunter.parse_text(

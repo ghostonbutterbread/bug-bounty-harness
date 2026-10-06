@@ -903,6 +903,21 @@ class ManualHunter:
         blocked_reason = _normalize_text(parsed.get("blocked_reason"))
         chain_requirements = _normalize_text(parsed.get("chain_requirements"))
         review_tier = _infer_review_tier(parsed)
+        if (
+            not _normalize_text(parsed.get("review_tier"))
+            and review_tier == "DORMANT_HYPOTHETICAL"
+            and not any(_normalize_text(parsed.get(key)) for key in ("blocked_reason", "chain_requirements", "exploitability"))
+            and re.search(
+                r"\b(?:reproduced|observed|demonstrated|verified|confirmed)\b",
+                f"{description} {_normalize_text(parsed.get('poc'))}",
+                re.I,
+            )
+        ):
+            raise ValueError(
+                "Review Tier is ambiguous from narrative wording; add "
+                "'Review Tier: CONFIRMED' for observed proof or "
+                "'Review Tier: DORMANT_HYPOTHETICAL' for an unproven finding."
+            )
         vulnerability_name = title
 
         if review_tier.startswith("DORMANT") and not blocked_reason:

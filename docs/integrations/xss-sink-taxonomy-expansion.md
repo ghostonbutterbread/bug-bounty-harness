@@ -1,6 +1,6 @@
 # XSS sink taxonomy gap expansion
 
-- **Status:** reviewer findings corrected; fresh review pending
+- **Status:** independently approved for beta integration
 - **Owner:** Hermes
 - **Branch:** `feat/xss-sink-taxonomy-expansion`
 - **Base commit:** `58706890ddb4cb4e882bbe781a4a9157a806dc5b`
@@ -22,15 +22,19 @@ Second pass extends existing sink categories with literal bracket DOM writes and
 - Baseline: beta `5870689` was the published Hoster beta at feature creation. PortSwigger Academy/DOM Invader and CodeQL, Semgrep, Dalfox, XSStrike, jQuery, Vue, Angular and Lit primary-source comparisons informed the bounded additions; see `docs/xss-sink-inventory.md`.
 - Checkout-local `.venv/bin/python -m pytest agents/test_js_analyzer.py tests/test_script_policy.py -q`: **188 passed** after implementation; positive and exact-negative sink fixtures cover new patterns. `git diff --check` passed. No live target testing.
 - Reconciled against fetched `origin/beta` `76105d6` with merge `f0f7cc5`. Checkout-local `.venv/bin/python -m pytest agents/test_js_analyzer.py tests/test_script_policy.py -q`: **189 passed** after reconciliation; `git status` clean before this dossier-only update.
-- Second independent review of `54574e5` confirmed prior fixes but found comment-prefixed fixed Vue templates, `Vue.compile()` and `template: null` wrongly labeled. Added exact red/green fixtures; the Vue value recognizer now skips bounded block comments and requires a plausible dynamic value. Focused **148 passed**, combined **199 passed**, `git diff --check` clean. Fresh final-tip review pending.
+- Final independent review approved `eabfa79` against beta `76105d6`: **174 analyzer**, **199 combined** tests and **18 targeted probes** passed; `git diff --check` clean. No unresolved actionable finding. Fetched `origin/beta` still `76105d6`; beta integration worktree clean. Integration check and publication remain pending.
 
 ## Blockers and deferred work
 
 No blocker. A finite regex vocabulary cannot discover every sink or prove source-to-sink taint; dynamic aliases, computed properties, browser state and source-map-only modules remain human-review territory. Cite accepted signatures in `docs/xss-sink-inventory.md`; record intentionally deferred noisy or non-XSS terms there.
 
+## Integration decision
+
+Approve the reviewed feature for the existing `beta` lane only. Remove this temporary dossier on the integration target while retaining the feature-history record. Deferred: no live-target proof or runtime activation is implied by static inventory tests; the XSS skill must keep the scoped collection and non-exhaustive caveats. Stable/main remains out of scope.
+
 ## Resume point
 
-Get fresh independent review of the reconciled feature tip against fetched beta, resolve any actionable findings, then merge into clean current beta with the dossier retired on target and rerun integrated checks. Publication and Hoster activation are separate decisions; do not imply rollout from a local merge.
+Merge this approved feature into clean current beta, retire this dossier on target, run integrated checks and inspect the changed paths. Publish beta and verify remote/Hoster runtime only as a separate rollout; do not imply activation from a local merge.
 
 ## Decision gates
 

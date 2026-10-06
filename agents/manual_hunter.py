@@ -606,6 +606,16 @@ class InvalidReviewTierError(ReviewTierDecisionRequired):
     """A supplied tier is not one of the supported values."""
 
 
+def _tier_field_value(value: str) -> str:
+    """Remove Markdown bold markers adjoining a tier field's colon/value."""
+    text = value.strip()
+    if text.startswith("**"):
+        text = text[2:].strip()
+    if text.endswith("**"):
+        text = text[:-2].strip()
+    return text
+
+
 NEUTRAL_PRECONDITIONS = {
     "", "none", "n/a", "na", "not applicable", "unknown", "no",
     "no blocker", "no blockers", "no additional preconditions",
@@ -868,6 +878,14 @@ class ManualHunter:
                 key = FIELD_ALIASES.get(label)
                 if key:
                     value = match.group("value").strip()
+                    if key == "review_tier":
+                        value = _tier_field_value(value)
+                        candidate = _infer_review_tier({"review_tier": value}) if value else None
+                        previous = parsed.get("review_tier")
+                        if previous and candidate != _infer_review_tier({"review_tier": previous}):
+                            raise ReviewTierDecisionRequired(
+                                "Conflicting Review Tier fields; supply one explicit decision."
+                            )
                     parsed[key] = value
                     current_key = key if key in MULTILINE_FIELDS else None
                     continue

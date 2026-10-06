@@ -117,6 +117,32 @@ class TestSyncReports(unittest.TestCase):
         candidates = _candidates_for_file("test_program", "apk", hunter, self.report_path)
         self.assertEqual([item["review_tier"] for item in candidates], ["CONFIRMED", "DORMANT_HYPOTHETICAL"])
 
+    def test_conflicting_structured_heading_and_field_are_rejected(self):
+        self.report_path.write_text(
+            "# Findings\n\n## [CONFIRMED] Cross-account record read\n"
+            "File: src/access.py\nClass: idor\n"
+            "Review Tier: DORMANT_HYPOTHETICAL\n"
+            "### Description\nReproduced reading another owned account's record; "
+            "impact may extend.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("test_program", lane="apk", storage_root=self.tmp / "storage-root")
+        with self.assertRaisesRegex(ReviewTierDecisionRequired, "Conflicting Review Tier"):
+            _candidates_for_file("test_program", "apk", hunter, self.report_path)
+
+    def test_generic_bold_markdown_tier_is_preserved(self):
+        self.report_path.write_text(
+            "# Cross-account record read\n**Tier:** CONFIRMED\n"
+            "File: src/access.py\nClass: idor\n"
+            "Description: Reproduced reading another owned account's record; "
+            "impact may extend.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("test_program", lane="apk", storage_root=self.tmp / "storage-root")
+        candidates = _candidates_for_file("test_program", "apk", hunter, self.report_path)
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["review_tier"], "CONFIRMED")
+
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._mark_coverage", return_value=None)
     @patch("agents.sync_reports._append_canonical_report")

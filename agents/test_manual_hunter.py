@@ -391,6 +391,27 @@ class ManualHunterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Review Tier"):
             hunter.parse_text(note, source_label="unit-test")
 
+    def test_conflicting_duplicate_review_tiers_are_rejected(self) -> None:
+        hunter = ManualHunter(self.program)
+        note = (
+            "Title: Cross-account record read\nClass: idor\nFile: src/access.py\n"
+            "Review Tier: CONFIRMED\nStatus: DORMANT_HYPOTHETICAL\n"
+            "Description: Reproduced reading another owned account's record.\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Conflicting Review Tier"):
+            hunter.parse_text(note, source_label="unit-test")
+
+    def test_bold_markdown_tier_is_accepted(self) -> None:
+        hunter = ManualHunter(self.program)
+        note = (
+            "Title: Cross-account record read\nClass: idor\nFile: src/access.py\n"
+            "**Tier:** CONFIRMED\n"
+            "Description: Reproduced reading another owned account's record; "
+            "impact may extend.\n"
+        )
+        parsed = hunter.parse_text(note, source_label="unit-test")
+        self.assertEqual(parsed.finding["review_tier"], "CONFIRMED")
+
     def test_invalid_explicit_tier_is_rejected(self) -> None:
         hunter = ManualHunter(self.program)
         note = (

@@ -1,14 +1,14 @@
 # Script-assisted hunting integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes Agent
 - **Branch:** `docs/scripts-hunt-policy`
 - **Base commit:** `58706890ddb4cb4e882bbe781a4a9157a806dc5b`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-06
 - **Owning feature branch/ref:** `docs/scripts-hunt-policy`
-- **Latest immutable recovery checkpoint:** `2061f033aa8e6a46182d99e042a1128fdb2f7751`
-- **Feature implementation commit(s):** `2061f033aa8e6a46182d99e042a1128fdb2f7751`
+- **Latest immutable recovery checkpoint:** `c06b7fca5c65ad9476c1b52049d92ad59910748a`
+- **Feature implementation commit(s):** `2061f033aa8e6a46182d99e042a1128fdb2f7751`, `c06b7fca5c65ad9476c1b52049d92ad59910748a`
 - **Inspiration:** Ryu's request for one BBH `/scripts` policy loaded when vulnerability hunters run scripts, rather than duplicated specialist-only wording or Script Manager obligations.
 
 ## Intent and contract
@@ -17,7 +17,7 @@
 
 ## Evidence and review
 
-- Tests and commands: `python3 -m pytest -q tests/test_script_policy.py` (25 passed); `python3 -m pytest -q skills/xss/scripts/test_xss_canary_mapper.py` (15 passed); `git diff --check` clean. `python3 -m pytest -q tests` returned 183 passed, 1 skipped, 3 pre-existing failures in `test_hoster_script_authority.py`, `test_runtime_dependencies.py`, and `test_skill_command_lane_safety.py` (the latter names an unchanged dossier at base). Root-level `python3 -m pytest -q` additionally fails collecting `test_catalog.py` due to unavailable `bac_checks` import.
+- Tests and commands: `python3 -m pytest -q tests/test_script_policy.py skills/xss/scripts/test_xss_canary_mapper.py` (40 passed after JS authority fix); `git diff --check` clean. `python3 -m pytest -q tests` returned 183 passed, 1 skipped, 3 pre-existing failures in `test_hoster_script_authority.py`, `test_runtime_dependencies.py`, and `test_skill_command_lane_safety.py` (the latter names an unchanged dossier at base). Root-level `python3 -m pytest -q` additionally fails collecting `test_catalog.py` due to unavailable `bac_checks` import.
 - Independent review: reviewer blocked initial implementation because JS retained general output-authority prose alongside `/scripts`; a narrow follow-up now leaves JS inventory mechanics and class-specific source review only. Re-review pending.
 - Merge/ancestry evidence: pending fresh `origin/beta` reconciliation.
 
@@ -28,8 +28,8 @@
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/scripts-hunt-policy`
-- **Latest immutable recovery checkpoint:** `2061f033aa8e6a46182d99e042a1128fdb2f7751`
-- **Feature implementation commit(s):** `2061f033aa8e6a46182d99e042a1128fdb2f7751`
+- **Latest immutable recovery checkpoint:** `c06b7fca5c65ad9476c1b52049d92ad59910748a`
+- **Feature implementation commit(s):** `2061f033aa8e6a46182d99e042a1128fdb2f7751`, `c06b7fca5c65ad9476c1b52049d92ad59910748a`
 - **Exact resume point:** obtain independent review, then integrate to `beta` and activate linked skill.
 - **Working-tree state at handoff:** clean after dossier checkpoint commit.
 
@@ -41,4 +41,4 @@
 
 ## Decision record
 
-- 2026-10-06 — implementation checkpoint `2061f033`; focused tests passed; wider baseline failures recorded. Reviewer blocked duplicate JS output doctrine; narrowed JS guidance to mechanics and moved interpretation exclusively to `/scripts`.
+- 2026-10-06 — implementation checkpoint `2061f033`; focused tests passed; wider baseline failures recorded. Reviewer blocked duplicate JS output doctrine; follow-up `c06b7fc` narrowed JS guidance to mechanics and moved interpretation exclusively to `/scripts`. Focused tests: 40 passed; re-review requested.

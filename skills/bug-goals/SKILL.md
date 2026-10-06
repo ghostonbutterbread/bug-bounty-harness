@@ -82,7 +82,7 @@ Load `error-mapper` for the bounded comparison probe set and default character f
 
 Goal: trigger class-appropriate errors across the application — parameter mutations, type mismatches, malformed values, missing fields, parser boundaries, path characters, encoding edge cases — and capture meaningful differentials. Each error response teaches something: framework names, internal paths, stack traces, validation order, parser boundaries, upstream consumers.
 
-Tag every Error Store event by signal and class. Route high-signal errors (stack traces, SQL/database errors, internal path leaks, debug disclosures) to the relevant specialist skill or Finding Capture. Map differentials through `error-intelligence`. Preserve untested continuations in the Hypothesis Ledger; push reusable facts to MapStore.
+Triage errors by signal and class in your analysis; these are not Error Store fields or query filters. Record supported layer/channel and route high-signal errors (stack traces, SQL/database errors, internal path leaks, debug disclosures) to the relevant specialist skill or Finding Capture. Map differentials through `error-intelligence`. Preserve untested continuations in the Hypothesis Ledger; push reusable facts to MapStore.
 
 ### Technology review
 

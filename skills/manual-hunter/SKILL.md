@@ -100,6 +100,15 @@ This attaches evidence; it does **not** rewrite canonical finding fields or the 
 
 Agents may edit an existing finding's **content** when evidence establishes a correction or adds a verified fact. Use the exact FID, program, and lane; make a JSON object containing only the fields to replace (for example `title`, `description`, `impact`, `poc`, `severity`, `file`, `line`, `class_name`, or `type`). An empty string clears a false text field; omitted fields stay unchanged. `line` is a non-negative integer. The command rejects missing FIDs and protected identity, observation, and submission metadata rather than creating another finding.
 
+Editable fields are `title`, `type`, `file`, `line`, `class_name`, `category`,
+`severity`, `description`, `impact`, `poc`, `remediation`, `source`, `sink`,
+`trust_boundary`, `flow_path`, `exploitability`, `blocked_reason`,
+`chain_requirements`, `review_notes`, `review_reason`, `scoring_authority`,
+`severity_rationale`, `program_constraint`, `context`, `url`, `endpoint`,
+`asset`, `review_tier`, and `status`. `severity_label` is derived from
+`severity`, not editable; remove it from a correction patch rather than
+retrying a rejected multi-field update unchanged.
+
 ```bash
 bbh agents/manual_hunter.py <program> --lane <lane> \
   --edit-finding D01 --patch-file correction.json

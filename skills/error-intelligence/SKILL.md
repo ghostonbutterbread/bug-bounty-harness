@@ -104,11 +104,16 @@ fingerprints but does not discard individual observations. It is distinct from:
 
 ## Error Tagging
 
-Every Error Store event carries structured tags so agents can query by signal quality and class without re-reading raw evidence:
+Use signal quality and error class as triage labels in your analysis; they are
+not structured Error Store fields or query filters. Do not pass `--signal` or
+`--class` to `error_store.py`. Query stored events by subject, fingerprint,
+layer, or channel instead:
 
-- **signal:** `high` (stack trace, internal path, framework name, SQL/database error, debug disclosure, new consumer/trust boundary) | `medium` (validation differential, parser behavior change, state-dependent error, client/server divergence) | `low` (generic validation, expected auth denial, known edge template, repeated identical response)
-- **class:** `sql_error`, `database_error`, `stack_trace`, `framework_leak`, `path_leak`, `validation_error`, `auth_error`, `internal_service_error`, `debug_disclosure`, `info_disclosure`, `parser_differential`, `state_error`, `upstream_error`
-- **layer:** `client`, `server`, `proxy`, `edge`, `database`, `upstream_service`
+- **Signal (triage only):** high for disclosures/new trust boundaries; medium for meaningful validation, parser, state, or client/server differentials; low for routine errors (subject to the noise gate above).
+- **Class (triage only):** e.g. stack trace, database error, parser differential, or upstream error; route to the relevant specialist rather than inventing a store tag.
+- **Layer (`--layer`):** `application`, `client`, `dependency`, `edge`, `server`, `unknown`, `workflow`.
+- **Channel (`--channel`):** `async-job`, `browser-console`, `http`, `network`, `proxy`, `unknown`.
+  gRPC-web over HTTP uses the HTTP channel, not a gRPC-specific channel.
 
 High-signal errors are priority routing: relevant specialist skill or Finding Capture. Medium-signal errors inform understanding and may combine into findings. Low-signal errors record boundaries for dedupe but don't drive continuation.
 

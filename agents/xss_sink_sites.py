@@ -169,6 +169,56 @@ SITE_RULES = _sites()
 _SCRIPT_CREATE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*document\s*\.\s*createElement\s*\(\s*['\"]script['\"]\s*\)\s*;")
 _RAW_INTERPOLATION_HEAD = re.compile(r"\+\s*\(\s*null\s*!=\s*\(\s*([A-Za-z_$][\w$]*)\s*=")
 
+def _matching_delimiter(text: str, opened: int, left: str, right: str, limit: int) -> int:
+    """Find one balanced close while skipping quoted JS strings; -1 means unknown."""
+    depth = 0
+    quote = ""
+    index = opened
+    while index < min(len(text), limit):
+        char = text[index]
+        if quote:
+            if char == "\\":
+                index += 2
+                continue
+            if char == quote:
+                quote = ""
+        elif char in "'\"`":
+            quote = char
+        elif char == left:
+            depth += 1
+        elif char == right:
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return -1
+
+def _direct_return_append(text: str, template_start: int, begin: int) -> bool:
+    previous_return = text.rfind("return", template_start, begin)
+    if previous_return < 0 or (previous_return > 0 and text[previous_return - 1].isalnum()):
+        return False
+    quote = ""
+    depth = 0
+    index = previous_return + len("return")
+    while index < begin:
+        char = text[index]
+        if quote:
+            if char == "\\":
+                index += 2
+                continue
+            if char == quote:
+                quote = ""
+        elif char in "'\"`":
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif char == ";" and depth == 0:
+            return False
+        index += 1
+    return depth == 0 and not quote
+
 def _compiled_raw_interpolations(text: str, per_rule: int) -> tuple[list[dict], bool]:
     """Bounded Handlebars precompile hint, not proof of a controlled HTML value."""
     if "template({" not in text or "lookupProperty" not in text:
@@ -176,6 +226,8 @@ def _compiled_raw_interpolations(text: str, per_rule: int) -> tuple[list[dict], 
     hits: list[dict] = []
     position = 0
     windows = 0
+    template_start = -1
+    template_end = -1
     while (position := text.find("null", position)) != -1:
         windows += 1
         if windows > 10_000:
@@ -187,15 +239,31 @@ def _compiled_raw_interpolations(text: str, per_rule: int) -> tuple[list[dict], 
             continue
         begin = start + head.start()
         alias = head.group(1)
-        suffix = re.search(r"\)\s*\?\s*" + re.escape(alias) + r"\s*:\s*(['\"])\1\s*\)", text[position:position + 500])
-        if not suffix:
+        if not (template_start <= begin < template_end):
+            template_start = text.rfind("template({", 0, begin)
+            template_end = (_matching_delimiter(text, template_start + len("template("), "{", "}", len(text))
+                            if template_start >= 0 else -1)
+        if not (template_start <= begin < template_end) or not _direct_return_append(text, template_start, begin):
             continue
-        end = position + suffix.end()
-        expression = text[start + head.end():position + suffix.start()]
+        assignment_open = text.find("(", position, start + head.end())
+        if assignment_open < 0:
+            continue
+        assignment_close = _matching_delimiter(text, assignment_open, "(", ")", position + 500)
+        if assignment_close < 0:
+            continue
+        expression = text[start + head.end():assignment_close]
         if "invokePartial" in expression or ".call(" in expression:
             continue
-        context = text[max(0, begin - 8_000):begin]
-        if "template({" not in context or "lookupProperty" not in context:
+        suffix = re.match(r"\s*\?\s*" + re.escape(alias) + r"\s*:\s*(['\"])\1\s*\)", text[assignment_close + 1:assignment_close + 40])
+        if not suffix:
+            continue
+        end = assignment_close + 1 + suffix.end()
+        context = text[max(template_start, begin - 8_000):begin]
+        if "lookupProperty" not in context:
+            continue
+        call = re.match(r"\s*([A-Za-z_$][\w$]*)\s*\(", expression)
+        if "escapeExpression" in expression or (call and re.search(
+                rf"\b{re.escape(call.group(1))}\s*=\s*[\w$]+\.escapeExpression\b", context)):
             continue
         hits.append({"signature": "Handlebars.compiledRawInterpolation(candidate)",
                      "family": "framework_template_candidate", "tier": "candidate",

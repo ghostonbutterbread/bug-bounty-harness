@@ -179,6 +179,23 @@ def test_compiled_raw_candidate_cap_reports_actual_overflow():
     assert scan_sink_sites(exactly_two + 'const unrelated = null;', per_rule=2)["truncated"] is False
     assert scan_sink_sites(prefix + '+'.join([raw] * 3) + '}});', per_rule=2)["truncated"] is True
 
+@pytest.mark.parametrize("body", [
+    'return "<p>"+(null!=(a=s(l(t,"name")))?a:"")',  # s=e.escapeExpression
+    'return foo("<p>"+(null!=(a=l(t,"name"))?a:""))',
+    'return "<p>"+(null!=(a=l(t,"name"))?b:"")+tail? a:""',
+])
+def test_compiled_raw_candidate_rejects_non_direct_or_escaped_output(body: str):
+    snippet = ('x.template({0:function(x,t){var a,l=x.lookupProperty,s=x.escapeExpression;'
+               + body + '}});')
+    assert not any(s["signature"] == "Handlebars.compiledRawInterpolation(candidate)"
+                   for s in scan_sink_sites(snippet)["hits"])
+
+def test_compiled_raw_candidate_does_not_leak_beyond_template():
+    snippet = ('x.template({0:function(x,t){var a,l=x.lookupProperty;return "<p>"}});'
+               'el.innerHTML = "<p>"+(null!=(a=l(t,"name"))?a:"");')
+    assert not any(s["signature"] == "Handlebars.compiledRawInterpolation(candidate)"
+                   for s in scan_sink_sites(snippet)["hits"])
+
 
 def test_script_alias_stops_at_rebinding():
     shadowed = 'const s = document.createElement("script"); { const s = document.createElement("div"); s.textContent = user; }'

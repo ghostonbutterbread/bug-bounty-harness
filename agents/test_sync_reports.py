@@ -1,7 +1,9 @@
+import io
 import json
 import os
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -10,7 +12,8 @@ from agents.shared_brain import RepoIndex, save_index
 from agents.snapshot_identity import get_snapshot_id
 from agents.storage_resolver import resolve_storage
 from agents.report_paths import discover_report_files, select_report_source
-from agents.sync_reports import _resolve_source_root, _mark_coverage, sync_reports_main
+from agents.manual_hunter import ManualHunter, ReviewTierDecisionRequired
+from agents.sync_reports import _candidates_for_file, _flexible_findings_for_file, _resolve_source_root, _mark_coverage, sync_reports_main
 
 
 def _brain_file(sha1: str) -> dict[str, object]:
@@ -57,6 +60,149 @@ class TestSyncReports(unittest.TestCase):
                 ledgers_root=self.tmp / "ledgers",
             ),
         )
+
+    def test_ambiguous_tier_is_skipped_without_loose_fallback(self):
+        text = (
+            "Title: Cross-account record read\n"
+            "Class: idor\n"
+            "File: src/access.py\n"
+            "Description: The response includes another owned account's record; "
+            "impact may extend to sibling records.\n"
+        )
+        self.report_path.write_text(text, encoding="utf-8")
+        hunter = ManualHunter("test_program", lane="apk", storage_root=self.tmp / "storage-root")
+        with self.assertRaises(ReviewTierDecisionRequired):
+            _flexible_findings_for_file(hunter, self.report_path, text)
+
+        errors = io.StringIO()
+        with patch("agents.sync_reports.update_team_finding") as write, redirect_stderr(errors):
+            rc = sync_reports_main(
+                "test_program", lane="apk", source_dir=self.source_dir.as_posix(),
+                storage_root=self.tmp / "storage-root",
+            )
+        self.assertEqual(rc, 1)
+        write.assert_not_called()
+        self.assertIn("Review Tier", errors.getvalue())
+
+    def test_invalid_tier_without_description_never_uses_loose_fallback(self):
+        text = "Title: Cross-account read\nFile: src/access.py\nReview Tier: CONFRIMED\n"
+        hunter = ManualHunter("test_program", lane="apk", storage_root=self.tmp / "storage-root")
+        with self.assertRaises(ReviewTierDecisionRequired):
+            _flexible_findings_for_file(hunter, self.report_path, text)
+
+    def test_structured_confirmed_heading_overrides_whole_file_ambiguity(self):
+        self.report_path.write_text(
+            "# Findings\n\n## [CONFIRMED] Cross-account record read\n"
+            "File: src/access.py\nClass: idor\n"
+            "### Description\nReproduced reading another owned account's record; "
+            "impact may extend to sibling records.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("test_program", lane="apk", storage_root=self.tmp / "storage-root")
+        candidates = _candidates_for_file("test_program", "apk", hunter, self.report_path)
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["review_tier"], "CONFIRMED")
+
+    def test_structured_tiers_are_preserved_per_finding(self):
+        self.report_path.write_text(
+            "# Findings\n\n## [CONFIRMED] Cross-account record read\n"
+            "File: src/access.py\nClass: idor\n"
+            "### Description\nReproduced reading another owned record; impact may extend.\n"
+            "\n## [DORMANT_HYPOTHETICAL] Possible second record read\n"
+            "File: src/other.py\nClass: idor\n"
+            "### Description\nThis may permit reading another account record.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("test_program", lane="apk", storage_root=self.tmp / "storage-root")
+        candidates = _candidates_for_file("test_program", "apk", hunter, self.report_path)
+        self.assertEqual([item["review_tier"] for item in candidates], ["CONFIRMED", "DORMANT_HYPOTHETICAL"])
+
+    def test_structured_report_starting_with_heading_keeps_both_findings(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] First cross-account read\n"
+            "File: src/first.py\nClass: idor\n"
+            "### Description\nReproduced reading another owned record.\n"
+            "\n## [DORMANT_HYPOTHETICAL] Possible second read\n"
+            "File: src/second.py\nClass: idor\n"
+            "### Description\nThis may permit reading another account record.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("test_program", lane="apk", storage_root=self.tmp / "storage-root")
+        candidates = _candidates_for_file("test_program", "apk", hunter, self.report_path)
+        self.assertEqual([item["file"] for item in candidates], ["src/first.py", "src/second.py"])
+        self.assertEqual(
+            [item["review_tier"] for item in candidates],
+            ["CONFIRMED", "DORMANT_HYPOTHETICAL"],
+        )
+
+    def test_conflict_in_first_heading_at_file_start_is_not_ignored(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] First cross-account read\n"
+            "File: src/first.py\nClass: idor\n"
+            "Review Tier: DORMANT_HYPOTHETICAL\n"
+            "### Description\nReproduced reading another owned record.\n"
+            "\n## [DORMANT_HYPOTHETICAL] Possible second read\n"
+            "File: src/second.py\nClass: idor\n"
+            "### Description\nThis may permit reading another account record.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("test_program", lane="apk", storage_root=self.tmp / "storage-root")
+        with self.assertRaisesRegex(ReviewTierDecisionRequired, "Conflicting Review Tier"):
+            _candidates_for_file("test_program", "apk", hunter, self.report_path)
+
+    def test_unparsed_structured_heading_rejects_partial_import(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] First read\n"
+            "File: src/first.py\nClass: idor\n"
+            "### Description\nReproduced reading another owned record.\n"
+            "\n## [confirmed] Second read\n"
+            "File: src/second.py\nClass: idor\n"
+            "### Description\nReproduced reading another owned record.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("test_program", lane="apk", storage_root=self.tmp / "storage-root")
+        with self.assertRaisesRegex(ReviewTierDecisionRequired, "heading count"):
+            _candidates_for_file("test_program", "apk", hunter, self.report_path)
+
+    def test_misspelled_uppercase_heading_tier_is_not_inferred(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] First read\n"
+            "File: src/first.py\nClass: idor\n"
+            "### Description\nReproduced reading another owned record.\n"
+            "\n## [CONFRIMED] Second read\n"
+            "File: src/second.py\nClass: idor\n"
+            "### Description\nReproduced reading another owned record.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("test_program", lane="apk", storage_root=self.tmp / "storage-root")
+        with self.assertRaisesRegex(ReviewTierDecisionRequired, "Unsupported Review Tier heading"):
+            _candidates_for_file("test_program", "apk", hunter, self.report_path)
+
+    def test_conflicting_structured_heading_and_field_are_rejected(self):
+        self.report_path.write_text(
+            "# Findings\n\n## [CONFIRMED] Cross-account record read\n"
+            "File: src/access.py\nClass: idor\n"
+            "Review Tier: DORMANT_HYPOTHETICAL\n"
+            "### Description\nReproduced reading another owned account's record; "
+            "impact may extend.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("test_program", lane="apk", storage_root=self.tmp / "storage-root")
+        with self.assertRaisesRegex(ReviewTierDecisionRequired, "Conflicting Review Tier"):
+            _candidates_for_file("test_program", "apk", hunter, self.report_path)
+
+    def test_generic_bold_markdown_tier_is_preserved(self):
+        self.report_path.write_text(
+            "# Cross-account record read\n**Tier:** CONFIRMED\n"
+            "File: src/access.py\nClass: idor\n"
+            "Description: Reproduced reading another owned account's record; "
+            "impact may extend.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("test_program", lane="apk", storage_root=self.tmp / "storage-root")
+        candidates = _candidates_for_file("test_program", "apk", hunter, self.report_path)
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["review_tier"], "CONFIRMED")
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._mark_coverage", return_value=None)

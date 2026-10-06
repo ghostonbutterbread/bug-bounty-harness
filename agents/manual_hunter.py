@@ -598,13 +598,48 @@ def _infer_sink(note: dict[str, Any]) -> str:
     return _derive_title(text, fallback="manual finding")
 
 
+class ReviewTierDecisionRequired(ValueError):
+    """A note must explicitly select a tier before it can be imported."""
+
+
+class InvalidReviewTierError(ReviewTierDecisionRequired):
+    """A supplied tier is not one of the supported values."""
+
+
+def _tier_field_value(value: str) -> str:
+    """Remove Markdown bold markers adjoining a tier field's colon/value."""
+    text = value.strip()
+    if text.startswith("**"):
+        text = text[2:].strip()
+    if text.endswith("**"):
+        text = text[:-2].strip()
+    return text
+
+
+NEUTRAL_PRECONDITIONS = {
+    "", "none", "n/a", "na", "not applicable", "unknown", "no",
+    "no blocker", "no blockers", "no additional preconditions",
+}
+
+
+def _precondition_text(value: Any) -> str:
+    text = _normalize_text(value)
+    return "" if text.lower().rstrip(".") in NEUTRAL_PRECONDITIONS else text
+
+
 def _infer_review_tier(parsed: dict[str, Any]) -> str:
     explicit = _normalize_text(parsed.get("review_tier")).upper()
-    if explicit in {"CONFIRMED", "DORMANT_ACTIVE", "DORMANT_HYPOTHETICAL"}:
+    if explicit:
+        if explicit not in {"CONFIRMED", "DORMANT_ACTIVE", "DORMANT_HYPOTHETICAL"}:
+            raise InvalidReviewTierError(
+                "Invalid Review Tier; use CONFIRMED, DORMANT_ACTIVE, or DORMANT_HYPOTHETICAL."
+            )
         return explicit
 
     blob = " ".join(
-        _normalize_text(parsed.get(key))
+        _precondition_text(parsed.get(key))
+        if key in {"blocked_reason", "chain_requirements", "exploitability"}
+        else _normalize_text(parsed.get(key))
         for key in ("blocked_reason", "chain_requirements", "exploitability", "description", "review_notes")
     ).lower()
     vague = (
@@ -616,6 +651,8 @@ def _infer_review_tier(parsed: dict[str, Any]) -> str:
         "potential",
         "might",
         "may",
+        "appear to",
+        "appears to",
         "theoretical",
     )
     blocked = (
@@ -632,9 +669,9 @@ def _infer_review_tier(parsed: dict[str, Any]) -> str:
     )
     if any(marker in blob for marker in vague):
         return "DORMANT_HYPOTHETICAL"
-    if any(marker in blob for marker in blocked) or _normalize_text(parsed.get("chain_requirements")):
+    if any(marker in blob for marker in blocked) or _precondition_text(parsed.get("chain_requirements")):
         return "DORMANT_ACTIVE"
-    if _normalize_text(parsed.get("blocked_reason")):
+    if _precondition_text(parsed.get("blocked_reason")):
         return "DORMANT_HYPOTHETICAL"
     return "CONFIRMED"
 
@@ -841,6 +878,14 @@ class ManualHunter:
                 key = FIELD_ALIASES.get(label)
                 if key:
                     value = match.group("value").strip()
+                    if key == "review_tier":
+                        value = _tier_field_value(value)
+                        candidate = _infer_review_tier({"review_tier": value}) if value else None
+                        previous = parsed.get("review_tier")
+                        if previous and candidate != _infer_review_tier({"review_tier": previous}):
+                            raise ReviewTierDecisionRequired(
+                                "Conflicting Review Tier fields; supply one explicit decision."
+                            )
                     parsed[key] = value
                     current_key = key if key in MULTILINE_FIELDS else None
                     continue
@@ -858,6 +903,11 @@ class ManualHunter:
             parsed["review_notes"] = (
                 (parsed.get("review_notes", "") + "\n" + narrative).strip()
             )
+
+        # Validate an explicit decision before any missing-field fallback can
+        # reinterpret this note with a guessed review tier.
+        if _normalize_text(parsed.get("review_tier")):
+            _infer_review_tier({"review_tier": parsed["review_tier"]})
 
         if not parsed.get("file"):
             file_hint = FILE_HINT_RE.search(text)
@@ -900,9 +950,30 @@ class ManualHunter:
         severity = _normalize_severity(parsed.get("severity"))
         sink = _infer_sink(parsed)
         exploitability = _normalize_text(parsed.get("exploitability"))
-        blocked_reason = _normalize_text(parsed.get("blocked_reason"))
-        chain_requirements = _normalize_text(parsed.get("chain_requirements"))
+        blocked_reason = _precondition_text(parsed.get("blocked_reason"))
+        chain_requirements = _precondition_text(parsed.get("chain_requirements"))
         review_tier = _infer_review_tier(parsed)
+        evidence_supplied = bool(
+            _normalize_text(parsed.get("poc"))
+            or _normalize_text(parsed.get("review_notes"))
+            or re.search(
+                r"\b(?:reproduced|observed|demonstrated|verified|confirmed|"
+                r"response\s+(?:includes?|contains?|returns?|returned?|shows?|showed))\b",
+                description,
+                re.I,
+            )
+        )
+        if (
+            not _normalize_text(parsed.get("review_tier"))
+            and review_tier == "DORMANT_HYPOTHETICAL"
+            and not (blocked_reason or chain_requirements)
+            and evidence_supplied
+        ):
+            raise ReviewTierDecisionRequired(
+                "Review Tier is ambiguous from narrative wording; add "
+                "'Review Tier: CONFIRMED' for observed proof or "
+                "'Review Tier: DORMANT_HYPOTHETICAL' for an unproven finding."
+            )
         vulnerability_name = title
 
         if review_tier.startswith("DORMANT") and not blocked_reason:

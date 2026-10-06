@@ -17,14 +17,14 @@ Close a deterministic JS acquisition miss: fetched HTML page scripts without a f
 
 ## Implemented contract
 
-`inventory --page` rejects out-of-scope page URLs before fetching, then parses external script sources, including extensionless URLs, plus executable inline `script` elements. `--input` accepts extensionless JS candidates while filtering known non-JS suffixes. It sends inline bodies through existing content hash, signal, packet, metadata and provenance outputs under synthetic `#inline-script-N` identities; provenance hints preserve those identities. JSON/data script blocks are not treated as executable JS. The parser caps each inline body at 2 MiB of decoded text and inventories at most 100 inline scripts; page context records truncation. These synthetic identities must not be fetched as URLs. The JS skill and playbook prefer bounded CDP/proxy acquisition and optional external AST/archive tooling for other evidence families without claiming those tools are installed or integrated.
+`inventory --page` rejects out-of-scope page URLs before fetching, does not follow HTTP redirects, ignores non-2xx page bodies, then parses external script sources, including extensionless URLs, plus executable inline `script` elements. `--input` accepts extensionless JS candidates while filtering known non-JS suffixes. It sends inline bodies through existing content hash, signal, packet, metadata and provenance outputs under synthetic `#inline-script-N` identities; provenance hints preserve those identities. JSON/data script blocks are not treated as executable JS. The parser caps each inline body at 2 MiB of decoded text and inventories at most 100 inline scripts; page context records truncation. `--limit` bounds the combined external and inline inventory. These synthetic identities must not be fetched as URLs. The JS skill and playbook prefer bounded CDP/proxy acquisition and optional external AST/archive tooling for other evidence families without claiming those tools are installed or integrated.
 
 ## Evidence and review
 
-- Tests and commands: test-first failures for inline page flow, extensionless source, and three review defects; checkout-local `.venv/bin/python -m pytest agents/test_js_analyzer.py agents/test_xss_sink_sites.py -q` after beta merge -> 313 passed; `git diff --check` clean.
-- Independent review: first review requested three fixes: out-of-scope page, extensionless `--input`, and synthetic provenance hint. All three patched with regressions; re-review pending on reconciled tip.
+- Tests and commands: test-first failures for inline page flow, extensionless source, three first-review defects, and two second-review defects; checkout-local `.venv/bin/python -m pytest agents/test_js_analyzer.py agents/test_xss_sink_sites.py -q` -> 316 passed; `git diff --check` clean before second beta reconciliation.
+- Independent review: first review requested three fixes (out-of-scope page, extensionless `--input`, synthetic provenance); second review verified those and identified redirect-following and limit bypass. Both patched with regressions; final review pending.
 - Replay/cohort/fixture evidence: local mocked HTML/JS inputs only; no live target.
-- Merge/ancestry evidence: branch starts at fetched `origin/beta` `b89b944`; merged target `30482cb` into feature at `97a254d` and reran focused JS and XSS tests.
+- Merge/ancestry evidence: branch starts at fetched `origin/beta` `b89b944`; merged target `30482cb` into feature at `97a254d`. New fetched target `60845f1` has no intervening edits to the JS owner files; pending merge and checks.
 
 ## Blockers and deferred work
 
@@ -39,8 +39,8 @@ Close a deterministic JS acquisition miss: fetched HTML page scripts without a f
 - **Owning feature branch/ref:** `feat/js-inline-inventory`
 - **Latest immutable recovery checkpoint:** `97a254d` (review fixes and beta reconciliation)
 - **Feature implementation commit(s):** `777109d`, `5f24b14`
-- **Exact resume point:** independent re-review of reconciled feature tip, then beta integration if approved.
-- **Working-tree state at handoff:** dossier-only update pending commit; implementation tree otherwise clean.
+- **Exact resume point:** commit second-review fixes, merge latest beta, rerun focused checks, then final review/integration.
+- **Working-tree state at handoff:** second-review fixes and dossier pending commit.
 
 ## Decision gates
 
@@ -53,3 +53,4 @@ Close a deterministic JS acquisition miss: fetched HTML page scripts without a f
 - 2026-10-06 — created at fetched beta with bounded inline/extensionless inventory and non-claims for other tools.
 - 2026-10-06 — independent review found scope, explicit input, and provenance-hint defects; repaired with regression tests; beta advanced to `30482cb`.
 - 2026-10-06 — committed repair `5f24b14`, merged beta `30482cb` via `97a254d`, and passed 313 focused tests.
+- 2026-10-06 — second review found redirect-following scope bypass and `--limit` bypass; repaired with tests (316 passed); beta advanced to `60845f1`.

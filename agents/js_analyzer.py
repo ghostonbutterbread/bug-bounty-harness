@@ -497,7 +497,7 @@ def http_get(url: str, timeout: int = 20) -> tuple[bytes, int | None, str]:
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.build_opener(NoRedirectHandler()).open(req, timeout=timeout) as resp:
             return resp.read(), int(getattr(resp, "status", 0) or 0), resp.headers.get("content-type", "")
     except urllib.error.HTTPError as exc:
         return exc.read(), exc.code, exc.headers.get("content-type", "") if exc.headers else ""
@@ -506,7 +506,7 @@ def http_get(url: str, timeout: int = 20) -> tuple[bytes, int | None, str]:
 
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Keep a scoped source-map request from silently crossing to another host."""
+    """Keep a scoped artifact request from silently crossing to another host."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
         return None
@@ -633,7 +633,7 @@ def allowed_context_actions(classification: str) -> list[str]:
 
 def collect_from_page(page_url: str, page_context: str, scope_hosts: list[str]) -> tuple[list[str], list[dict], dict[str, bytes]]:
     body, status, content_type = http_get(page_url)
-    if not body:
+    if not body or status is None or not 200 <= status < 300:
         return [], [], {}
     text = body.decode("utf-8", errors="ignore")
     parser = ScriptSrcParser()
@@ -1820,9 +1820,9 @@ def command_inventory(args: argparse.Namespace) -> int:
         ):
             normalized_urls.append(normalized)
     normalized_urls = dedupe(normalized_urls)
+    normalized_urls.extend(inline_bodies)
     if args.limit:
         normalized_urls = normalized_urls[: args.limit]
-    normalized_urls.extend(inline_bodies)
 
     records: list[JsRecord] = []
     packet_rows: list[dict] = []

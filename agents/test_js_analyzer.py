@@ -592,6 +592,47 @@ def test_inventory_rejects_out_of_scope_page_before_fetch(tmp_path: Path):
     get.assert_not_called()
 
 
+def test_http_get_does_not_follow_redirects():
+    from email.message import Message
+    from urllib.error import HTTPError
+
+    headers = Message()
+    headers["Location"] = "https://other.example.net/account"
+    with patch.object(J.urllib.request, "build_opener") as build_opener:
+        build_opener.return_value.open.side_effect = HTTPError(
+            "https://app.example.com/account", 302, "Found", headers, None
+        )
+        body, status, _ = J.http_get("https://app.example.com/account")
+    assert body == b""
+    assert status == 302
+    assert isinstance(build_opener.call_args.args[0], J.NoRedirectHandler)
+
+
+def test_inventory_ignores_redirect_page_body(tmp_path: Path):
+    with patch.object(J, "http_get", return_value=(b'<script>fetch("/api/private")</script>', 302, "text/html")):
+        assert J.main([
+            "inventory", "demo", "--page", "https://app.example.com/account",
+            "--target-host", "example.com", "--output-root", str(tmp_path / "out"),
+            "--library-root", str(tmp_path / "library"),
+        ]) == 0
+    assert (tmp_path / "out" / "metadata.jsonl").read_text() == ""
+
+
+def test_limit_bounds_inline_script_inventory(tmp_path: Path):
+    html = b'<script>fetch("/api/one")</script><script>fetch("/api/two")</script>'
+    with patch.object(J, "http_get", return_value=(html, 200, "text/html")):
+        assert J.main([
+            "inventory", "demo", "--page", "https://app.example.com/account",
+            "--target-host", "example.com", "--limit", "1",
+            "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
+            "--integration-index-root", str(tmp_path / "integrations"),
+        ]) == 0
+    rows = (tmp_path / "out" / "metadata.jsonl").read_text().splitlines()
+    manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert len(rows) == 1
+    assert manifest["js_urls_seen"] == 1
+
+
 def test_inventory_accepts_extensionless_explicit_js_input(tmp_path: Path):
     source = tmp_path / "jsfiles.txt"
     source.write_text("https://app.example.com/assets/runtime\n")

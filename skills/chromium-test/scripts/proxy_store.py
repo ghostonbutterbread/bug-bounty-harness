@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sqlite3
+import stat
 import sys
 import time
 from pathlib import Path
@@ -50,9 +51,87 @@ def scrub_user_site_for_mitmproxy() -> None:
     sys.path[:] = [entry for entry in sys.path if not entry.startswith(user_site)]
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+def _open_private_parent(parent: Path, *, default_store: bool) -> int:
+    """Open each path component without symlinks or replaceable ancestors."""
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    dir_fd = os.open("/", flags)
+    private_fence = False
+    try:
+        for component in parent.parts[1:]:
+            details = os.fstat(dir_fd)
+            mode = details.st_mode
+            # The directory owner can replace its children even at 0755.
+            if details.st_uid not in {0, os.geteuid()}:
+                raise PermissionError("Proxy store ancestor owner is not trusted")
+            # A 0700 ancestor makes deeper group-writable directories
+            # unreachable to other accounts; otherwise fail before traversal.
+            if mode & 0o022 and not private_fence:
+                raise PermissionError("Proxy store ancestor is group/world writable")
+            if not mode & 0o011:
+                private_fence = True
+            try:
+                child_fd = os.open(component, flags, dir_fd=dir_fd)
+            except FileNotFoundError:
+                os.mkdir(component, 0o700, dir_fd=dir_fd)
+                child_fd = os.open(component, flags, dir_fd=dir_fd)
+            os.close(dir_fd)
+            dir_fd = child_fd
+        final = os.fstat(dir_fd)
+        if final.st_uid not in {0, os.geteuid()}:
+            raise PermissionError("Proxy store parent owner is not trusted")
+        if default_store:
+            os.fchmod(dir_fd, 0o700)
+        elif final.st_mode & 0o022:
+            raise PermissionError("Proxy store parent is group/world writable")
+        return dir_fd
+    except BaseException:
+        os.close(dir_fd)
+        raise
+
+
+def connect(db_path: Path, *, read_only: bool = False) -> sqlite3.Connection:
+    db_path = Path(os.path.abspath(db_path))
+    default_store = db_path == Path(os.path.abspath(DEFAULT_STORE))
+    # SQLite reopens by pathname. No component of that path may be replaceable
+    # by another account between the permission check and the SQLite open.
+    dir_fd = _open_private_parent(db_path.parent, default_store=default_store)
+    try:
+        def secure_file(name: str, *, create: bool = False) -> None:
+            flags = os.O_RDWR if create else os.O_RDONLY
+            if create:
+                flags |= os.O_CREAT
+            try:
+                fd = os.open(name, flags | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
+            except FileNotFoundError:
+                if not create:
+                    return
+                raise
+            try:
+                mode = os.fstat(fd).st_mode
+                if not stat.S_ISREG(mode):
+                    raise OSError("Proxy store artifact is not a regular file")
+                # Do not make an existing read-only DB writable just to query it.
+                os.fchmod(fd, 0o400 if read_only and not mode & stat.S_IWUSR else 0o600)
+            finally:
+                os.close(fd)
+
+        secure_file(db_path.name, create=not read_only)
+        for suffix in ("-wal", "-shm"):
+            secure_file(db_path.name + suffix)
+        if read_only:
+            conn = sqlite3.connect(db_path.absolute().as_uri() + "?mode=ro", uri=True)
+        else:
+            conn = sqlite3.connect(db_path)
+        try:
+            # SQLite may create/open sidecars while connecting. Later WAL files
+            # inherit the already-private DB mode; verify that behavior in tests.
+            for suffix in ("-wal", "-shm"):
+                secure_file(db_path.name + suffix)
+        except BaseException:
+            conn.close()
+            raise
+    finally:
+        os.close(dir_fd)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -647,7 +726,7 @@ def query_requests(args: argparse.Namespace) -> dict[str, Any]:
         LIMIT ?
     """
     values.append(args.limit)
-    with connect(db_path) as conn:
+    with connect(db_path, read_only=True) as conn:
         rows = [dict(row) for row in conn.execute(sql, values).fetchall()]
     for row in rows:
         for key in ("query_names_json", "body_field_names_json", "tags_json"):
@@ -659,7 +738,7 @@ def lane_summary(args: argparse.Namespace) -> dict[str, Any]:
     db_path = Path(args.db).expanduser()
     if not db_path.exists():
         return {"status": "missing-db", "db": str(db_path), "lanes": []}
-    with connect(db_path) as conn:
+    with connect(db_path, read_only=True) as conn:
         rows = conn.execute(
             """
             SELECT lane, program, task, run_id, agent_id, account_label, proxy_server,
@@ -825,7 +904,7 @@ def export_request_packet(args: argparse.Namespace) -> dict[str, Any]:
         values.append(args.flow_uid)
     if not clauses:
         return {"status": "missing-selector", "db": str(db_path)}
-    with connect(db_path) as conn:
+    with connect(db_path, read_only=True) as conn:
         row = conn.execute(
             f"""
             SELECT p.*, r.lane, r.program, r.task

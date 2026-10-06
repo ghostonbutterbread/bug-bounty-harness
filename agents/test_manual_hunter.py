@@ -309,6 +309,122 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(parsed.finding["review_tier"], "CONFIRMED")
         self.assertTrue(parsed.finding["sink"])
 
+    def test_ambiguous_narrative_requires_explicit_review_tier(self) -> None:
+        hunter = ManualHunter(self.program)
+        note = (
+            "Title: Cross-account record read\n"
+            "Class: idor\n"
+            "File: src/access.py\n"
+            "Description: Reproduced reading another owned test account's record; "
+            "impact may extend to sibling records.\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Review Tier"):
+            hunter.parse_text(note, source_label="unit-test")
+
+        confirmed = hunter.parse_text("Review Tier: CONFIRMED\n" + note, source_label="unit-test")
+        self.assertEqual(confirmed.finding["review_tier"], "CONFIRMED")
+        hypothetical = hunter.parse_text(
+            "Review Tier: DORMANT_HYPOTHETICAL\n" + note, source_label="unit-test"
+        )
+        self.assertEqual(hypothetical.finding["review_tier"], "DORMANT_HYPOTHETICAL")
+
+    def test_uncertain_note_with_neutral_fields_and_proof_in_review_notes_requires_tier(self) -> None:
+        hunter = ManualHunter(self.program)
+        note = (
+            "Title: Cross-account record read\n"
+            "Class: idor\n"
+            "File: src/access.py\n"
+            "Description: The response includes the other owned account's record; "
+            "impact may extend to sibling records.\n"
+            "Review Notes: The response body contained the other account ID and private field.\n"
+            "Exploitability: none\n"
+            "Blocked Reason: none\n"
+            "Chain Requirements: none\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Review Tier"):
+            hunter.parse_text(note, source_label="unit-test")
+
+    def test_uncertain_appears_to_note_requires_explicit_tier(self) -> None:
+        hunter = ManualHunter(self.program)
+        note = (
+            "Title: Cross-account record read\n"
+            "Class: idor\n"
+            "File: src/access.py\n"
+            "Description: The response includes another owned account's record; "
+            "this appears to expose sibling records.\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Review Tier"):
+            hunter.parse_text(note, source_label="unit-test")
+
+    def test_neutral_preconditions_do_not_downgrade_observed_finding(self) -> None:
+        hunter = ManualHunter(self.program)
+        base = (
+            "Title: Cross-account record read\n"
+            "Class: idor\n"
+            "File: src/access.py\n"
+            "Description: The response contains another owned account's private record.\n"
+        )
+        for field in ("Blocked Reason: none", "Chain Requirements: none"):
+            with self.subTest(field=field):
+                parsed = hunter.parse_text(base + field + "\n", source_label="unit-test")
+                self.assertEqual(parsed.finding["review_tier"], "CONFIRMED")
+
+    def test_pure_hypothetical_hedges_stay_dormant_without_proof(self) -> None:
+        hunter = ManualHunter(self.program)
+        for hedge in ("may", "might"):
+            with self.subTest(hedge=hedge):
+                note = (
+                    "Title: Possible record access\nClass: idor\nFile: src/access.py\n"
+                    f"Description: This {hedge} permit reading another account record.\n"
+                )
+                parsed = hunter.parse_text(note, source_label="unit-test")
+                self.assertEqual(parsed.finding["review_tier"], "DORMANT_HYPOTHETICAL")
+
+    def test_poc_with_concrete_response_and_potential_impact_requires_tier(self) -> None:
+        hunter = ManualHunter(self.program)
+        note = (
+            "Title: Cross-account record read\nClass: idor\nFile: src/access.py\n"
+            "Description: The response includes another owned account's private record; "
+            "potential sibling-record exposure.\n"
+            "PoC: GET /records/other-owned-ID showed the private field in the body.\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Review Tier"):
+            hunter.parse_text(note, source_label="unit-test")
+
+    def test_conflicting_duplicate_review_tiers_are_rejected(self) -> None:
+        hunter = ManualHunter(self.program)
+        note = (
+            "Title: Cross-account record read\nClass: idor\nFile: src/access.py\n"
+            "Review Tier: CONFIRMED\nStatus: DORMANT_HYPOTHETICAL\n"
+            "Description: Reproduced reading another owned account's record.\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Conflicting Review Tier"):
+            hunter.parse_text(note, source_label="unit-test")
+
+    def test_bold_markdown_tier_is_accepted(self) -> None:
+        hunter = ManualHunter(self.program)
+        note = (
+            "Title: Cross-account record read\nClass: idor\nFile: src/access.py\n"
+            "**Tier:** CONFIRMED\n"
+            "Description: Reproduced reading another owned account's record; "
+            "impact may extend.\n"
+        )
+        parsed = hunter.parse_text(note, source_label="unit-test")
+        self.assertEqual(parsed.finding["review_tier"], "CONFIRMED")
+
+    def test_invalid_explicit_tier_is_rejected(self) -> None:
+        hunter = ManualHunter(self.program)
+        note = (
+            "Title: Cross-account record read\n"
+            "Class: idor\n"
+            "File: src/access.py\n"
+            "Review Tier: CONFRIMED\n"
+            "Description: Reproduced reading another owned account's record; "
+            "impact may extend to sibling records.\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Review Tier"):
+            hunter.parse_text(note, source_label="unit-test")
+
     def test_scoring_fields_are_parsed_into_the_finding(self) -> None:
         hunter = ManualHunter(self.program)
         parsed = hunter.parse_text(

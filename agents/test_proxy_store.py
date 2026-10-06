@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sqlite3
+import stat
 import subprocess
 import sys
 import types
 from argparse import Namespace
 from pathlib import Path
+
+import pytest
 
 
 def load_proxy_store():
@@ -18,6 +22,221 @@ def load_proxy_store():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_connect_creates_and_repairs_private_default_store(tmp_path, monkeypatch):
+    module = load_proxy_store()
+    db = tmp_path / "proxy-store" / "proxy.sqlite"
+    monkeypatch.setattr(module, "DEFAULT_STORE", db)
+    previous_umask = os.umask(0o022)
+    try:
+        with module.connect(db) as conn:
+            module.init_db(conn)
+        assert stat.S_IMODE(db.parent.stat().st_mode) == 0o700
+        assert stat.S_IMODE(db.stat().st_mode) == 0o600
+
+        os.chmod(db.parent, 0o755)
+        os.chmod(db, 0o644)
+        with module.connect(db) as conn:
+            assert conn.execute("SELECT 1").fetchone()[0] == 1
+        assert stat.S_IMODE(db.parent.stat().st_mode) == 0o700
+        assert stat.S_IMODE(db.stat().st_mode) == 0o600
+    finally:
+        os.umask(previous_umask)
+
+
+def test_connect_repairs_existing_sidecars_before_sqlite_opens(tmp_path, monkeypatch):
+    module = load_proxy_store()
+    db = tmp_path / "proxy.sqlite"
+    with module.connect(db) as conn:
+        module.init_db(conn)
+    for suffix in ("-wal", "-shm"):
+        Path(f"{db}{suffix}").write_bytes(b"fixture")
+        os.chmod(f"{db}{suffix}", 0o644)
+    original_connect = module.sqlite3.connect
+
+    def checked_connect(path):
+        assert all(stat.S_IMODE(Path(f"{db}{suffix}").stat().st_mode) == 0o600
+                   for suffix in ("-wal", "-shm"))
+        return original_connect(path)
+
+    monkeypatch.setattr(module.sqlite3, "connect", checked_connect)
+    with module.connect(db) as conn:
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
+
+
+def test_connect_repairs_read_only_existing_sidecars(tmp_path):
+    module = load_proxy_store()
+    db = tmp_path / "proxy.sqlite"
+    with module.connect(db) as conn:
+        module.init_db(conn)
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(f"{db}{suffix}")
+        sidecar.write_bytes(b"fixture")
+        os.chmod(sidecar, 0o444)
+
+    with module.connect(db, read_only=True) as conn:
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
+    for suffix in ("-wal", "-shm"):
+        assert stat.S_IMODE(Path(f"{db}{suffix}").stat().st_mode) == 0o400
+
+
+def test_writable_connect_repairs_read_only_existing_sidecars(tmp_path):
+    module = load_proxy_store()
+    db = tmp_path / "proxy.sqlite"
+    with module.connect(db) as conn:
+        module.init_db(conn)
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(f"{db}{suffix}")
+        sidecar.write_bytes(b"fixture")
+        os.chmod(sidecar, 0o444)
+
+    with module.connect(db) as conn:
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
+    for suffix in ("-wal", "-shm"):
+        assert stat.S_IMODE(Path(f"{db}{suffix}").stat().st_mode) == 0o600
+
+
+def test_connect_keeps_sqlite_created_sidecars_private(tmp_path):
+    module = load_proxy_store()
+    db = tmp_path / "proxy.sqlite"
+    previous_umask = os.umask(0o022)
+    try:
+        with module.connect(db) as conn:
+            module.init_db(conn)
+            conn.execute("INSERT INTO lanes(lane) VALUES ('fixture')")
+            conn.commit()
+            for suffix in ("-wal", "-shm"):
+                sidecar = Path(f"{db}{suffix}")
+                assert sidecar.exists()
+                assert stat.S_IMODE(sidecar.stat().st_mode) == 0o600
+    finally:
+        os.umask(previous_umask)
+
+
+def test_connect_refuses_symlinked_default_directory_without_chmod(tmp_path, monkeypatch):
+    module = load_proxy_store()
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o755)
+    os.chmod(shared, 0o755)
+    dedicated = tmp_path / "proxy-store"
+    dedicated.symlink_to(shared, target_is_directory=True)
+    db = dedicated / "proxy.sqlite"
+    monkeypatch.setattr(module, "DEFAULT_STORE", db)
+
+    with pytest.raises(OSError):
+        module.connect(db)
+    assert stat.S_IMODE(shared.stat().st_mode) == 0o755
+    assert not (shared / "proxy.sqlite").exists()
+
+
+@pytest.mark.parametrize("mode", [0o770, 0o757])
+def test_connect_rejects_attacker_writable_custom_parent(tmp_path, mode):
+    module = load_proxy_store()
+    parent = tmp_path / "shared"
+    parent.mkdir()
+    os.chmod(parent, mode)
+    db = parent / "proxy.sqlite"
+
+    with pytest.raises(OSError):
+        module.connect(db)
+    assert not db.exists()
+    assert stat.S_IMODE(parent.stat().st_mode) == mode
+
+
+def test_query_and_export_read_only_custom_database(tmp_path):
+    module = load_proxy_store()
+    db = tmp_path / "proxy.sqlite"
+    with module.connect(db) as conn:
+        module.init_db(conn)
+        conn.execute("INSERT INTO requests(flow_uid,lane,indexed_at) VALUES ('f1','fixture',1)")
+        request_id = conn.execute("SELECT id FROM requests").fetchone()[0]
+        conn.execute("INSERT INTO request_packets(request_id,flow_uid,method,indexed_at) VALUES (?, 'f1', 'GET', 1)", (request_id,))
+        conn.commit()
+    os.chmod(db, 0o444)
+
+    query = module.query_requests(Namespace(
+        db=str(db), program=None, lane=None, run_id=None, agent_id=None,
+        account_label=None, host=None, method=None, path=None, param=None,
+        no_background=False, limit=10,
+    ))
+    export = module.export_request_packet(Namespace(
+        db=str(db), id=request_id, flow_uid=None, output=str(tmp_path / "out.json"),
+        allow_sensitive_stdout=False,
+    ))
+    assert query["count"] == 1
+    assert export["status"] == "exported"
+    assert stat.S_IMODE(db.stat().st_mode) == 0o400
+
+
+def test_connect_rejects_attacker_writable_ancestor(tmp_path, monkeypatch):
+    module = load_proxy_store()
+    shared = tmp_path / "shared"
+    parent = shared / "private"
+    parent.mkdir(parents=True, mode=0o700)
+    os.chmod(shared, 0o777)
+    db = parent / "proxy.sqlite"
+    # Scratch is deliberately private. Model otherwise traversable ancestors
+    # so this fixture represents the reviewer's attacker-accessible path.
+    private_ancestors = {
+        str(path) for path in shared.parents
+        if not (stat.S_IMODE(path.stat().st_mode) & 0o011)
+    }
+    real_fstat = os.fstat
+
+    def publicly_traversable_fstat(fd):
+        result = real_fstat(fd)
+        if os.readlink(f"/proc/self/fd/{fd}") in private_ancestors:
+            return os.stat_result((result.st_mode | 0o055, *result[1:]))
+        return result
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(module.os, "fstat", publicly_traversable_fstat)
+        with pytest.raises(PermissionError, match="writable"):
+            module.connect(db)
+    assert not db.exists()
+
+
+@pytest.mark.parametrize("foreign_component", ["ancestor", "parent"])
+def test_connect_refuses_foreign_owned_path_component(tmp_path, monkeypatch, foreign_component):
+    module = load_proxy_store()
+    ancestor = tmp_path / "foreign"
+    parent = ancestor / "private"
+    parent.mkdir(parents=True, mode=0o700)
+    os.chmod(ancestor, 0o755)
+    db = parent / "proxy.sqlite"
+    claimed_foreign = ancestor if foreign_component == "ancestor" else parent
+    real_fstat = os.fstat
+
+    def foreign_owned_fstat(fd):
+        result = real_fstat(fd)
+        if os.readlink(f"/proc/self/fd/{fd}") == str(claimed_foreign):
+            fields = list(result)
+            fields[4] = os.geteuid() + 1
+            return os.stat_result(fields)
+        return result
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(module.os, "fstat", foreign_owned_fstat)
+        with pytest.raises(PermissionError, match="owner"):
+            module.connect(db)
+    assert not db.exists()
+
+
+def test_connect_refuses_intermediate_default_symlink_without_chmod(tmp_path, monkeypatch):
+    module = load_proxy_store()
+    actual = tmp_path / "shared"
+    dedicated = actual / "proxy-store"
+    dedicated.mkdir(parents=True, mode=0o755)
+    os.chmod(dedicated, 0o755)
+    alias = tmp_path / "alias"
+    alias.symlink_to(actual, target_is_directory=True)
+    db = alias / "proxy-store" / "proxy_store.sqlite"
+    monkeypatch.setattr(module, "DEFAULT_STORE", db)
+    with pytest.raises(OSError):
+        module.connect(db)
+    assert stat.S_IMODE(dedicated.stat().st_mode) == 0o755
+    assert not (dedicated / "proxy_store.sqlite").exists()
 
 
 def test_init_db_creates_core_tables(tmp_path):

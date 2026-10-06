@@ -28,7 +28,12 @@ Use `/js` for deterministic JavaScript inventory and agent-led deep review.
    it accepts a host, domain, or URL and stores non-matching extracted URLs as
    external context instead of test targets.
 3. Use `agents/js_analyzer.py inventory` to download, hash, dedupe, cheaply
-   parse, and chunk JavaScript into agent packets. For every in-scope bundle
+   parse, and chunk JavaScript into agent packets. `--page` also inventories
+   executable inline scripts and extensionless `script[src]` assets; an inline
+   artifact's `#inline-script-N` identity is not a URL to fetch. Prefer scoped
+   browser/proxy observations for lazy chunks, Waymore URL-only discovery for
+   historical candidates, and optional local JSLuice parsing for AST-derived
+   request leads, as described in the playbook. For every in-scope bundle
    with a `sourceMappingURL`, it also retrieves a bounded source map, inventories
    all original module names, and creates module-level packets from embedded
    source text. Start source-map review from `source_map_modules.jsonl` and

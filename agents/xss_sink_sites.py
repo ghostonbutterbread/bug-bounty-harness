@@ -169,6 +169,32 @@ SITE_RULES = _sites()
 _SCRIPT_CREATE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*document\s*\.\s*createElement\s*\(\s*['\"]script['\"]\s*\)\s*;")
 
 
+def _script_alias_live(prefix: str, name: str) -> bool:
+    """Track a bounded alias through block scopes; uncertainty remains a candidate."""
+    alias = re.escape(name)
+    events = re.compile(
+        rf"function(?:\s+[A-Za-z_$][\w$]*)?\s*\(([^)]{{0,120}})\)\s*\{{|"
+        rf"(?<![\w$])(\(?\s*{alias}\s*\)?)\s*=>\s*\{{|"
+        rf"\b(?:const|let|var)\s+{alias}\b|"
+        rf"(?<![\w$.]){alias}\s*=(?!=|>)|[{{}}]"
+    )
+    scopes = [True]
+    for event in events.finditer(prefix):
+        if event.group(1) is not None:
+            params = re.findall(r"[A-Za-z_$][\w$]*", event.group(1))
+            scopes.append(scopes[-1] and name not in params)
+        elif event.group(2) is not None:
+            scopes.append(False)
+        elif event.group() == "{":
+            scopes.append(scopes[-1])
+        elif event.group() == "}":
+            if len(scopes) > 1:
+                scopes.pop()
+        else:
+            scopes[-1] = False
+    return scopes[-1]
+
+
 def scan_sink_sites(text: str, *, max_hits: int = 200, per_rule: int = 8) -> dict:
     """Find bounded site offsets in one artifact. Offsets are Unicode character indices."""
     if max_hits < 1 or per_rule < 1:
@@ -219,14 +245,13 @@ def scan_sink_sites(text: str, *, max_hits: int = 200, per_rule: int = 8) -> dic
                 break
             alias = re.escape(match.group(1))
             window = text[match.end():match.end() + 240]
-            rebound = re.compile(rf"\b(?:const|let|var)\s+{alias}\s*=|(?<![\w$.]){alias}\s*=(?!=|>)")
             suffixes = re.finditer(
                 rf"(?<![\w$]){alias}(?![\w$])\s*\.\s*(?:(append|appendChild)\s*\(\s*document\s*\.\s*createTextNode\s*\(|(text|textContent|innerText|innerHTML|src)\s*=(?!=|>))",
                 window,
             )
             for suffix in suffixes:
-                if rebound.search(window, 0, suffix.start()):
-                    break
+                if not _script_alias_live(window[:suffix.start()], match.group(1)):
+                    continue
                 method = suffix.group(1) or suffix.group(2)
                 signature = (f"HTMLScriptElement.{method}(textNode)" if suffix.group(1)
                              else f"HTMLScriptElement.alias.{method}")

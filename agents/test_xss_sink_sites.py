@@ -151,8 +151,18 @@ def test_jquery_constructor_candidates_do_not_lose_html_to_dom_wrappers():
 def test_script_alias_stops_at_rebinding():
     shadowed = 'const s = document.createElement("script"); { const s = document.createElement("div"); s.textContent = user; }'
     reassigned = 'const s = document.createElement("script"); s = document.createElement("div"); s.appendChild(document.createTextNode(user));'
-    for snippet in (shadowed, reassigned):
+    parameter = 'const s = document.createElement("script"); function render(s) { s.textContent = user; }'
+    arrow = 'const s = document.createElement("script"); const render = (s) => { s.textContent = user; };'
+    uninitialized = 'const s = document.createElement("script"); { let s; s.textContent = user; }'
+    for snippet in (shadowed, reassigned, parameter, arrow, uninitialized):
         assert not any(site["family"] == "script_alias_candidate" for site in scan_sink_sites(snippet)["hits"])
+
+
+def test_script_alias_resumes_after_inner_shadowing():
+    snippet = 'const s = document.createElement("script"); { const s = document.createElement("div"); s.textContent = ignored; } s.textContent = user;'
+    sites = [site for site in scan_sink_sites(snippet)["hits"] if site["family"] == "script_alias_candidate"]
+    assert len(sites) == 1
+    assert sites[0]["start"] == snippet.rfind("s.textContent")
 
 
 def test_site_output_is_bounded_and_deterministic():

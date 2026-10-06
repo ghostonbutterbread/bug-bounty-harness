@@ -22,6 +22,7 @@ from agents.ledger import update_team_finding
 from agents.manual_hunter import (
     ManualHunter,
     ParsedFinding,
+    ReviewTierDecisionRequired,
     _default_run_id,
     _derive_title,
     _infer_class,
@@ -172,6 +173,8 @@ def _flexible_findings_for_file(hunter: ManualHunter, path: Path, text: str) -> 
     findings: list[FindingRecord] = []
     try:
         parsed = hunter.parse_text(text, source_label=str(path), source_path=path)
+    except ReviewTierDecisionRequired:
+        raise  # Never downgrade an ambiguous or invalid tier via the loose importer.
     except ValueError:
         loose = _loose_markdown_fallback(text, path)
         if loose:
@@ -664,10 +667,16 @@ def main(argv: list[str] | None = None) -> int:
 
     imported_fids: list[str] = []
     skipped_fids: list[str] = []
+    review_tier_errors: list[Path] = []
     chain_lines: list[str] = []
 
     for report_path in report_files:
-        candidates = _candidates_for_file(program, hunt_type, hunter, report_path)
+        try:
+            candidates = _candidates_for_file(program, hunt_type, hunter, report_path)
+        except ReviewTierDecisionRequired as exc:
+            review_tier_errors.append(report_path)
+            print(f"[sync_reports] skipped {report_path}: {exc}", file=sys.stderr)
+            continue
         if verbosity.verbose:
             print(f"[sync_reports] parsed {len(candidates)} findings from {report_path}")
 
@@ -722,9 +731,11 @@ def main(argv: list[str] | None = None) -> int:
     print(_format_summary_count("Imported", len(imported_fids), "new findings", imported_fids))
     duplicate_summary = [f"{fid} already in ledger" for fid in skipped_fids]
     print(_format_summary_count("Skipped", len(skipped_fids), "duplicates", duplicate_summary))
+    if review_tier_errors:
+        print(f"  Review-tier decisions required: {len(review_tier_errors)}")
     if chain_lines:
         print(f"  Chain suggestions: {'; '.join(chain_lines)}")
-    return 0
+    return 1 if review_tier_errors else 0
 
 
 if __name__ == "__main__":

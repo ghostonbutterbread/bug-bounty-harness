@@ -328,6 +328,47 @@ class ManualHunterTests(unittest.TestCase):
         )
         self.assertEqual(hypothetical.finding["review_tier"], "DORMANT_HYPOTHETICAL")
 
+    def test_uncertain_note_with_neutral_fields_and_proof_in_review_notes_requires_tier(self) -> None:
+        hunter = ManualHunter(self.program)
+        note = (
+            "Title: Cross-account record read\n"
+            "Class: idor\n"
+            "File: src/access.py\n"
+            "Description: The response includes the other owned account's record; "
+            "impact may extend to sibling records.\n"
+            "Review Notes: The response body contained the other account ID and private field.\n"
+            "Exploitability: none\n"
+            "Blocked Reason: none\n"
+            "Chain Requirements: none\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Review Tier"):
+            hunter.parse_text(note, source_label="unit-test")
+
+    def test_uncertain_appears_to_note_requires_explicit_tier(self) -> None:
+        hunter = ManualHunter(self.program)
+        note = (
+            "Title: Cross-account record read\n"
+            "Class: idor\n"
+            "File: src/access.py\n"
+            "Description: The response includes another owned account's record; "
+            "this appears to expose sibling records.\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Review Tier"):
+            hunter.parse_text(note, source_label="unit-test")
+
+    def test_invalid_explicit_tier_is_rejected(self) -> None:
+        hunter = ManualHunter(self.program)
+        note = (
+            "Title: Cross-account record read\n"
+            "Class: idor\n"
+            "File: src/access.py\n"
+            "Review Tier: CONFRIMED\n"
+            "Description: Reproduced reading another owned account's record; "
+            "impact may extend to sibling records.\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Review Tier"):
+            hunter.parse_text(note, source_label="unit-test")
+
     def test_scoring_fields_are_parsed_into_the_finding(self) -> None:
         hunter = ManualHunter(self.program)
         parsed = hunter.parse_text(

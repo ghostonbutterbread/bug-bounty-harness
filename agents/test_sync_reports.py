@@ -1,7 +1,9 @@
+import io
 import json
 import os
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -10,7 +12,8 @@ from agents.shared_brain import RepoIndex, save_index
 from agents.snapshot_identity import get_snapshot_id
 from agents.storage_resolver import resolve_storage
 from agents.report_paths import discover_report_files, select_report_source
-from agents.sync_reports import _resolve_source_root, _mark_coverage, sync_reports_main
+from agents.manual_hunter import ManualHunter, ReviewTierDecisionRequired
+from agents.sync_reports import _flexible_findings_for_file, _resolve_source_root, _mark_coverage, sync_reports_main
 
 
 def _brain_file(sha1: str) -> dict[str, object]:
@@ -57,6 +60,29 @@ class TestSyncReports(unittest.TestCase):
                 ledgers_root=self.tmp / "ledgers",
             ),
         )
+
+    def test_ambiguous_tier_is_skipped_without_loose_fallback(self):
+        text = (
+            "Title: Cross-account record read\n"
+            "Class: idor\n"
+            "File: src/access.py\n"
+            "Description: The response includes another owned account's record; "
+            "impact may extend to sibling records.\n"
+        )
+        self.report_path.write_text(text, encoding="utf-8")
+        hunter = ManualHunter("test_program", lane="apk", storage_root=self.tmp / "storage-root")
+        with self.assertRaises(ReviewTierDecisionRequired):
+            _flexible_findings_for_file(hunter, self.report_path, text)
+
+        errors = io.StringIO()
+        with patch("agents.sync_reports.update_team_finding") as write, redirect_stderr(errors):
+            rc = sync_reports_main(
+                "test_program", lane="apk", source_dir=self.source_dir.as_posix(),
+                storage_root=self.tmp / "storage-root",
+            )
+        self.assertEqual(rc, 1)
+        write.assert_not_called()
+        self.assertIn("Review Tier", errors.getvalue())
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._mark_coverage", return_value=None)

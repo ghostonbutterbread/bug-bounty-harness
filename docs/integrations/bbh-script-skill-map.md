@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-06
 - **Owning feature branch/ref:** `docs/bbh-script-skill-map`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `498fc64`
+- **Feature implementation commit(s):** `498fc64`
 - **Inspiration / canonical references:** `SCRIPT_POLICY.md`, `agents/index.md`, `skills/xss/SKILL.md` Scripts map, `scripts/README.md`.
 
 ## Intent
@@ -22,7 +22,7 @@ Bottom `## Scripts map` pointers in the seven remaining indexed script-owner ski
 ## Evidence and review
 
 - Tests and commands: `python3 -m pytest tests/test_script_policy.py -q` (26 passed after final refinement); `git diff --check` passed. Broader `tests/test_hoster_script_authority.py` and `tests/test_skill_command_lane_safety.py` fail on unchanged beta files; reproduced both against the clean beta checkout, matching existing papercut PC-20261006-025055.
-- Independent review: pending.
+- Independent review: accepted the maps and all 32 relative links, with one handoff correction requested: record the committed checkpoint here. The reviewer reran the focused suite (26 passed) and confirmed both broader failures on unchanged beta.
 - Replay/cohort/fixture evidence: static documentation and path audit only; no target traffic.
 - Merge/ancestry evidence: feature starts at fetched `origin/beta` `bdce1f3`.
 - Policy alignment: `SCRIPT_POLICY.md` owns placement and index, `agents/index.md` routes `/bb-script-rules` with the relevant skill, XSS provides existing map precedent, Bounty Tools owns tool execution (not specialist proof); no duplicate operational rule introduced.
@@ -34,10 +34,10 @@ Bottom `## Scripts map` pointers in the seven remaining indexed script-owner ski
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/bbh-script-skill-map`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** rerun focused verification, review exact diff, checkpoint/commit, independent review, then integrate into `beta` if accepted.
-- **Working-tree state at handoff:** intentionally uncommitted pending tests and review.
+- **Latest immutable recovery checkpoint:** `498fc64`
+- **Feature implementation commit(s):** `498fc64`
+- **Exact resume point:** commit this dossier correction, fetch/reconcile beta, merge the reviewed map and retire the temporary dossier in beta.
+- **Working-tree state at handoff:** clean after the dossier-only handoff commit.
 
 ## Decision gates
 
@@ -48,3 +48,4 @@ Bottom `## Scripts map` pointers in the seven remaining indexed script-owner ski
 ## Decision record
 
 - 2026-10-06 — created a bounded BBH skill/index navigation branch; no runtime changes.
+- 2026-10-06 — independent review accepted the maps, link check, and focused tests; corrected the stale checkpoint receipt before integration.

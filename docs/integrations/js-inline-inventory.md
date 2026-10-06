@@ -7,8 +7,8 @@
 - **Intended integration target:** `origin/beta` / `beta`
 - **Last updated:** 2026-10-06
 - **Owning feature branch/ref:** `feat/js-inline-inventory`
-- **Latest immutable recovery checkpoint:** `97a254d` (review fixes and beta reconciliation)
-- **Feature implementation commit(s):** `777109d`, `5f24b14`
+- **Latest immutable recovery checkpoint:** `2ec3640` (second-review repair and beta reconciliation)
+- **Feature implementation commit(s):** `777109d`, `5f24b14`, `9e032e0`
 - **Inspiration / canonical references:** Jason Haddix, Hackbots DEF CON 34 BBV Masterclass, 13:00–17:20 (tools mind map ~14:20); upstream JSLuice, jxscout, Waymore repositories and Chrome DevTools protocol.
 
 ## Intent
@@ -21,10 +21,10 @@ Close a deterministic JS acquisition miss: fetched HTML page scripts without a f
 
 ## Evidence and review
 
-- Tests and commands: test-first failures for inline page flow, extensionless source, three first-review defects, and two second-review defects; checkout-local `.venv/bin/python -m pytest agents/test_js_analyzer.py agents/test_xss_sink_sites.py -q` -> 316 passed; `git diff --check` clean before second beta reconciliation.
+- Tests and commands: test-first failures for inline page flow, extensionless source, three first-review defects, and two second-review defects; checkout-local `.venv/bin/python -m pytest agents/test_js_analyzer.py agents/test_xss_sink_sites.py -q` -> 316 passed after second beta reconciliation; `git diff --check` clean.
 - Independent review: first review requested three fixes (out-of-scope page, extensionless `--input`, synthetic provenance); second review verified those and identified redirect-following and limit bypass. Both patched with regressions; final review pending.
 - Replay/cohort/fixture evidence: local mocked HTML/JS inputs only; no live target.
-- Merge/ancestry evidence: branch starts at fetched `origin/beta` `b89b944`; merged target `30482cb` into feature at `97a254d`. New fetched target `60845f1` has no intervening edits to the JS owner files; pending merge and checks.
+- Merge/ancestry evidence: branch starts at fetched `origin/beta` `b89b944`; merged `30482cb` at `97a254d`, then `60845f1` at `2ec3640`. No intervening JS-owner edits in the second merge; focused checks passed.
 
 ## Blockers and deferred work
 
@@ -37,10 +37,10 @@ Close a deterministic JS acquisition miss: fetched HTML page scripts without a f
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/js-inline-inventory`
-- **Latest immutable recovery checkpoint:** `97a254d` (review fixes and beta reconciliation)
-- **Feature implementation commit(s):** `777109d`, `5f24b14`
-- **Exact resume point:** commit second-review fixes, merge latest beta, rerun focused checks, then final review/integration.
-- **Working-tree state at handoff:** second-review fixes and dossier pending commit.
+- **Latest immutable recovery checkpoint:** `2ec3640` (second-review repair and beta reconciliation)
+- **Feature implementation commit(s):** `777109d`, `5f24b14`, `9e032e0`
+- **Exact resume point:** final independent re-review of reconciled tip, then beta integration if approved.
+- **Working-tree state at handoff:** dossier-only update pending commit; implementation tree clean.
 
 ## Decision gates
 
@@ -54,3 +54,4 @@ Close a deterministic JS acquisition miss: fetched HTML page scripts without a f
 - 2026-10-06 — independent review found scope, explicit input, and provenance-hint defects; repaired with regression tests; beta advanced to `30482cb`.
 - 2026-10-06 — committed repair `5f24b14`, merged beta `30482cb` via `97a254d`, and passed 313 focused tests.
 - 2026-10-06 — second review found redirect-following scope bypass and `--limit` bypass; repaired with tests (316 passed); beta advanced to `60845f1`.
+- 2026-10-06 — committed second repair `9e032e0`, merged beta `60845f1` via `2ec3640`, and passed 316 focused tests.

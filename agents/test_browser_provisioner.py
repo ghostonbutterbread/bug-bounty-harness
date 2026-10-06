@@ -525,6 +525,37 @@ def test_task_proxy_starts_before_browser_and_reuses_private_lane(monkeypatch, t
     assert not created and same["lane"] == row["lane"] and len(commands) == 1
 
 
+@pytest.mark.parametrize("occupied, expected", [(set(), 8091), ({8091}, 8092)])
+def test_task_proxy_uses_bounded_overflow_when_existing_pool_is_reserved(monkeypatch, tmp_path, occupied, expected):
+    m = load(monkeypatch, tmp_path)
+    c = m.db()
+    for offset in range(10):
+        c.execute(
+            "insert into task_proxies(agent_id,run_id,program,account,purpose,lane,port,unit,run_dir,state) "
+            "values(?,?,?,?,?,?,?,?,?,?)",
+            (f"prior-{offset}", f"run-{offset}", "demo", "fixture", "test",
+             f"task-prior-{offset}", 8081 + offset, f"task-mitm-prior-{offset}",
+             str(tmp_path / f"prior-{offset}"), "running"),
+        )
+    c.commit()
+    commands = []
+    monkeypatch.setattr(m, "port_open", lambda p: p in occupied)
+    monkeypatch.setattr(m, "mitm_runtime", lambda: ("/bin/mitmdump", "/bin/python"))
+    monkeypatch.setattr(m, "unit_identity", lambda _: "invocation")
+    monkeypatch.setattr(m, "proxy_ready", lambda _: True)
+    monkeypatch.setattr(m, "stop_unit", lambda _: pytest.fail("prior unit must not be stopped"))
+    def run(command, **_):
+        commands.append(command)
+        return argparse.Namespace(returncode=0)
+    monkeypatch.setattr(m.subprocess, "run", run)
+
+    row, created = m.start_proxy(c, start_args())
+
+    assert created and row["state"] == "running" and row["port"] == expected
+    assert commands[0][commands[0].index("--listen-port") + 1] == str(expected)
+    assert c.execute("select count(*) from task_proxies where port between 8081 and 8090").fetchone()[0] == 10
+
+
 def test_missing_mitmdump_rolls_back_reservation_without_shared_fallback(monkeypatch, tmp_path):
     m = load(monkeypatch, tmp_path)
     args = start_args()

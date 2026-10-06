@@ -1338,7 +1338,8 @@ def start_proxy(c, args):
                 or row["state"] != "running" or not proxy_ready(row)):
             emit({"status": "proxy-conflict", "detail": "task listener unavailable or belongs to another request"}, 2)
         return row, False
-    port = next((p for p in range(8081, 8091) if not c.execute(
+    # Keep a finite overflow beyond the default 8081–8090 lane-lease pool.
+    port = next((p for p in range(8081, 8096) if not c.execute(
         "select 1 from task_proxies where port=?", (p,)).fetchone() and not port_open(p)), None)
     if port is None:
         c.rollback()

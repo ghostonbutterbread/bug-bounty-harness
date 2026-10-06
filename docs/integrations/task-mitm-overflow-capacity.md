@@ -1,6 +1,6 @@
 # Task MITM bounded overflow integration dossier
 
-- **Status:** review-ready after blocker remediation; independent re-review pending
+- **Status:** independently reviewed for beta integration
 - **Owner:** Hermes bugfix task `t_083f0962`
 - **Branch / owning ref:** `fix/task-mitm-overflow-capacity-20261006`
 - **Base commit:** `a9d625d39f247a9b708401056938533613419bae`
@@ -25,7 +25,8 @@ Task proxy allocation considers 8081–8095 in order; 8091–8095 are bounded ov
 - Regression checks selection of 8091, skipping an occupied or pre-existing standalone-leased 8091 for 8092, and retention of all 10 original reservations without stopping old units.
 - RED then GREEN: an explicit custom 8091 lease was granted before the guard; now rejected. A custom-only 8091–8095 range no longer grants a lease. CLI previously returned success for the new rejection status; now exits 2. The guard happens before any DB creation for explicit `--port`.
 - Hoster read-only preflight: no listeners on 8091–8110 at inspection, and no active Proxy Store leases on candidate ports. Recheck before any operational activation; the snapshot is not a durable exclusivity proof.
-- Independent review of first tip `6de8580`: **beta blocker**—Proxy Store granted a custom 8091 lease while allocator independently chose it. The current guard and shared constants address that finding; fresh independent re-review required.
+- Independent review of first tip `6de8580`: **beta blocker**—Proxy Store granted a custom 8091 lease while allocator independently chose it. This triggered the shared bound and legacy-lease guard in `086ee51e`.
+- Independent re-review at tip `b38a40b3341c3989be9df6747e53c9c25b781d88`: no remaining beta source blocker; independently reran five focused files (70 passed, 2 skipped), probed all five explicit custom ports (exit 2/no DB), custom ranges, default leasing, legacy active lease skip, and corrupt-store fail-closed behavior. Hoster admission/readiness remains a separate activation gate.
 - Merge/ancestry evidence: feature started at fetched beta `a9d625d`; merged current beta `b095679` at `36de6a151f226c909079cb9058fb1b88492b04a6` before this remediation. Re-fetch before merge.
 
 ## Blockers and deferred work
@@ -39,7 +40,7 @@ Task proxy allocation considers 8081–8095 in order; 8091–8095 are bounded ov
 - **Owning feature branch/ref:** `fix/task-mitm-overflow-capacity-20261006`
 - **Latest immutable recovery checkpoint:** `086ee51e32a834a21e286ccf302557c9452098f9`
 - **Feature implementation commit(s):** `5c24dfee67fc6171d02b74ae66e2a664111ce818`, `086ee51e32a834a21e286ccf302557c9452098f9`
-- **Exact resume point:** get fresh independent release review of the reconciled feature tip and old-lease activation boundary; if accepted, integrate through beta.
+- **Exact resume point:** merge reviewed feature into clean current beta, remove temporary dossier, test and publish; separately pass Hoster candidate-port preflight before any source activation.
 - **Working-tree state at handoff:** clean after dossier-only checkpoint update.
 
 ## Decision gates
@@ -52,3 +53,4 @@ Task proxy allocation considers 8081–8095 in order; 8091–8095 are bounded ov
 
 - 2026-10-06 — created a bounded bridge for exhausted task-MITM capacity; no old reservation was changed.
 - 2026-10-06 — independent first review blocked beta on custom standalone lease collision; reconciled to beta `b095679` and added a shared reserved overflow bound with Proxy Store acquisition guard and RED/GREEN coverage. Re-review pending.
+- 2026-10-06 — independent re-review found no remaining beta blocker; Hoster activation and owned-task admission still require separate proof.

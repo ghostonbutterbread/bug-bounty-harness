@@ -1,6 +1,6 @@
 # Compiled Handlebars XSS candidate integration dossier
 
-- **Status:** review-ready after non-code-token repair and beta reconciliation; no beta integration yet
+- **Status:** seventh independent gate accepted; local beta integration authorized pending post-merge verification
 - **Owner:** Hermes
 - **Branch:** `fix/xss-compiled-handlebars-20261006`
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-compiled-handlebars`
@@ -44,14 +44,14 @@ Detect raw interpolations in compiled Handlebars output even when source syntax 
 
 ## Blockers and deferred work
 
-Block release until a fresh independent review accepts non-code-token rejection. Other compiler versions and long/dynamic expression forms still require manual review. No live XSS proof is claimed.
+Seventh gate accepts the code-token repair for local beta integration. Other compiler versions and long/dynamic expression forms still require manual review; no live XSS proof is claimed. No Hoster activation or stable promotion is authorized.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/xss-compiled-handlebars-20261006`
 - **Latest immutable recovery checkpoint:** `7231cd861ccbb76f40a885f1b63fe086492f60a1` (review the later dossier-only tip too).
 - **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`, `b3f9653e879e2972808587e2a8b2950ce4cd482c`, `7ed87bd922cd5599013cd690b57824873fc77279`, `6be416fea8979b564075839452f5e1e68cb870c5`, `e6c3a92690e6b94775630d3b39ab9ddbedc58b76`, `3c4964abede5478ff8e8675be7029755e2ad5138`, `eddd68f7cb062d01fb50fe54ccb3b04e442bb651`.
-- **Exact resume point:** review reconciled non-code-token repair and integrate only after independent acceptance.
+- **Exact resume point:** seventh gate accepted; merge locally into clean current beta, remove this temporary dossier, rerun focused tests and verify ancestry.
 - **Working-tree state at handoff:** clean after reconciliation receipt commit.
 
 ## Decision gates
@@ -74,3 +74,4 @@ Block release until a fresh independent review accepts non-code-token rejection.
 - 2026-10-06 — rejected later top-level comma and clarified syntactic-candidate semantics; 305 tests pass and saved bundle still routes. Sixth gate pending.
 - 2026-10-06 — sixth independent release gate **rejected**: a block-comment raw-shaped expression is emitted as a compiled raw interpolation candidate at `[68,97)` even though program `0` returns constant `<p></p>`. Reproducer above; retain feature and dossier, do not merge beta.
 - 2026-10-06 — required the candidate head to be a code token; 307 tests and saved-bundle candidate check pass. Seventh gate pending.
+- 2026-10-06 — seventh independent gate **accepted for local beta**: freshly fetched `origin/beta` remained `b89b944821cc005708af7bd351c64dcf6e141056`, ancestor of reconciled feature tip `a66aefeb04a3e717c12667257607f3730ad40395`; reviewed `origin/beta...HEAD` source, tests and docs; `git diff --check` clean and independent focused suite 307 passed. Additional code-token probes emit the expected positive but no candidate for block comment, line comment, quoted text, regex `return`, or nested return. The scanner is a syntactic candidate, not dataflow/XSS proof. Deferred: review other compiler versions and long/dynamic expressions manually. Integrate only locally into clean beta and remove this dossier; no push, activation or main promotion.

@@ -4,8 +4,9 @@ Status: active
 Owner: BBH maintainers
 
 This is the repository-local script policy discovered through the shared
-`script_manager` skill. It owns BBH script placement, indexing, and maintenance
-conventions. Shared safety, authorization, scope, and lane rules still apply.
+`script-manager` skill when creating or maintaining scripts. It owns BBH script
+placement, indexing, and maintenance conventions. Shared safety, authorization,
+scope, and lane rules still apply.
 
 ## Discover Before Creating
 
@@ -98,11 +99,3 @@ Route broader code changes as proposals and broader skill or policy changes as
 skill seeds to Hermes. Map/index authority covers associated entries, not
 unrelated normative prose. Normal branch, test, independent review, and release
 guidance still applies.
-
-## Deterministic Authority
-
-Follow the shared `script_manager` bounded-authority contract. Deterministic
-mechanics are reusable; hardcoded patterns and heuristic misses remain
-non-exhaustive unless a closed input contract proves otherwise. Agents retain
-responsibility for semantics, unfamiliar technology, computed behavior, and
-unknowns.

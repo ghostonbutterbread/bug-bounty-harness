@@ -337,12 +337,10 @@ fresh ranked list is motion, not progress, and the ranked list is not a
 deliverable. This is consistent with the coverage decisions owned by
 `class-derivation-policy`.
 
-Scripted sink censuses are non-exhaustive seeds. While a longer census runs,
-inspect program-specific render consumers its patterns may miss: raw-HTML
-helpers, URL navigation, legacy bundles, microfrontends, and bootstrap data.
-Reconcile both streams before a coverage claim; a zero-hit script result does
-not close an unexamined source-to-sink path. For a short run, make that
-comparison when reviewing its output rather than inventing parallel busywork.
+Load `/scripts` when running a sink census. XSS-specific render consumers to
+inspect in the observed stack include raw-HTML helpers, URL navigation, legacy
+bundles, microfrontends, and bootstrap data. Track unexamined source-to-sink
+paths rather than treating a ranked sink list as the XSS coverage boundary.
 
 ## Deep Default For Hybrid And Hunter Loop
 

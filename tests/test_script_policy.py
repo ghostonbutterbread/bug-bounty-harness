@@ -108,21 +108,40 @@ def test_repository_script_policy_defines_owner_based_placement() -> None:
     assert "reuse" in text
 
 
-def test_xss_and_js_scripts_pair_inventory_with_stack_specific_review() -> None:
+def test_hunt_script_policy_loads_with_class_and_bounds_output() -> None:
+    policy = " ".join((ROOT / "skills/scripts/SKILL.md").read_text(encoding="utf-8").lower().split())
+    router = " ".join((ROOT / "agents/index.md").read_text(encoding="utf-8").lower().split())
+    registry = (ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8")
+    manager = " ".join(POLICY.read_text(encoding="utf-8").lower().split())
+    assert "name: scripts" in policy
+    assert "load `/scripts` alongside the selected vulnerability-class skill" in policy
+    assert "only the inputs and patterns it actually examined" in policy
+    assert "while a longer script handles its mechanical pass" in policy
+    assert "application-specific questions in the selected vulnerability class" in policy
+    assert "for a short script" in policy
+    assert "program rules and `general-security-testing-policy` / `live-testing-policy`" in policy
+    assert "for scripts used in a bbh vulnerability hunt, load `/scripts`" in router
+    assert "find runnable scripts in that skill and its index" in router
+    assert "| **scripts** |" in registry
+    assert "`script-manager` skill when creating or maintaining scripts" in manager
+    assert "## deterministic authority" not in manager
+
+
+def test_xss_and_js_route_script_judgment_to_shared_hunt_skill() -> None:
     xss = " ".join((ROOT / "skills/xss/SKILL.md").read_text(encoding="utf-8").lower().split())
     js = " ".join((ROOT / "skills/js/SKILL.md").read_text(encoding="utf-8").lower().split())
-    assert "scripted sink censuses are non-exhaustive seeds" in xss
     assert "bbh agents/js_analyzer.py inventory" in xss
     assert "inventory analysis is static, but collection may download" in xss
     assert "load `js`" in xss
     assert "docs/xss-sink-inventory.md" in xss
     assert (ROOT / "agents/js_analyzer.py").is_file()
     assert (ROOT / "docs/xss-sink-inventory.md").is_file()
-    assert "while a longer census runs" in xss
-    assert "program-specific render consumers" in xss
-    assert "reconcile both streams before a coverage claim" in xss
-    assert "while a longer inventory runs" in js
-    assert "stack-specific source-to-sink flows" in js
+    assert "load `/scripts` when running a sink census" in xss
+    assert "xss-specific render consumers" in xss
+    assert "raw-html helpers" in xss
+    assert "for script-run coverage judgment, load `/scripts`" in js
+    assert "their misses never prove absence" not in js
+    assert "not a model of every technology or application" not in js
 
 
 def test_other_agent_maintenance_boundary_preserves_manager_authority() -> None:

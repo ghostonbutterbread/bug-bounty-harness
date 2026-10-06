@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-06
 - **Owning feature branch/ref:** `fix/xss-compiled-handlebars-20261006`
-- **Latest immutable recovery checkpoint:** `7ed87bd922cd5599013cd690b57824873fc77279`
-- **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`, `b3f9653e879e2972808587e2a8b2950ce4cd482c`, `7ed87bd922cd5599013cd690b57824873fc77279`
+- **Latest immutable recovery checkpoint:** `6be416fea8979b564075839452f5e1e68cb870c5`
+- **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`, `b3f9653e879e2972808587e2a8b2950ce4cd482c`, `7ed87bd922cd5599013cd690b57824873fc77279`, `6be416fea8979b564075839452f5e1e68cb870c5`
 - **Inspiration:** Ryushe's empirical `globalV2.js` observation; local bounded bundle and synthetic regression fixtures. Seed: `Shared/skill_seeds/2026-10-06-xss-precompiled-handlebars-sink-gap.md`.
 
 ## Intent
@@ -42,8 +42,8 @@ Block release until a fresh independent review accepts the function-scope repair
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/xss-compiled-handlebars-20261006`
-- **Latest immutable recovery checkpoint:** `7ed87bd922cd5599013cd690b57824873fc77279` (review the later dossier-only tip too).
-- **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`, `b3f9653e879e2972808587e2a8b2950ce4cd482c`, `7ed87bd922cd5599013cd690b57824873fc77279`.
+- **Latest immutable recovery checkpoint:** `6be416fea8979b564075839452f5e1e68cb870c5` (review the later dossier-only tip too).
+- **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`, `b3f9653e879e2972808587e2a8b2950ce4cd482c`, `7ed87bd922cd5599013cd690b57824873fc77279`, `6be416fea8979b564075839452f5e1e68cb870c5`.
 - **Exact resume point:** review function-scope repair and integrate only after independent acceptance.
 - **Working-tree state at handoff:** clean after repair commit.
 

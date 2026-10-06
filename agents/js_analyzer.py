@@ -644,8 +644,9 @@ def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = No
 
     secret_hints = sorted(set(m.group(1).lower() for m in SECRET_HINT_RE.finditer(text)))[:50]
     sources = sorted(name for name, pattern in SOURCE_KEYWORDS.items() if pattern.search(text))
-    sinks = sorted(name for name, pattern in SINK_KEYWORDS.items() if pattern.search(text))
     site_scan = scan_sink_sites(text)
+    sinks = sorted({name for name, pattern in SINK_KEYWORDS.items() if pattern.search(text)} |
+                   {site["family"] for site in site_scan["hits"] if site["signature"] == "Handlebars.compiledRawInterpolation(candidate)"})
     flow_hints = sorted(name for name, pattern in FLOW_HINTS.items() if pattern.search(text))
     interesting_keys = set(PARAM_NAME_RE.findall(text))
     graphql_operations = sorted(set(GRAPHQL_RE.findall(text)))[:100]

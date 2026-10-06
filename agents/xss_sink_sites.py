@@ -167,6 +167,172 @@ def _sites() -> tuple[SiteRule, ...]:
 
 SITE_RULES = _sites()
 _SCRIPT_CREATE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*document\s*\.\s*createElement\s*\(\s*['\"]script['\"]\s*\)\s*;")
+_RAW_INTERPOLATION_HEAD = re.compile(r"\+\s*\(\s*null\s*!=\s*\(\s*([A-Za-z_$][\w$]*)\s*=")
+
+def _js_code_chars(text: str, start: int, limit: int):
+    """Yield code positions, skipping quoted strings and JS comments conservatively."""
+    index = start
+    limit = min(len(text), limit)
+    while index < limit:
+        char = text[index]
+        following = text[index + 1] if index + 1 < limit else ""
+        if char in "'\"`":
+            quote = char
+            index += 1
+            while index < limit:
+                if text[index] == "\\":
+                    index += 2
+                elif text[index] == quote:
+                    index += 1
+                    break
+                else:
+                    index += 1
+            continue
+        if char == "/" and following == "*":
+            end = text.find("*/", index + 2, limit)
+            index = limit if end < 0 else end + 2
+            continue
+        if char == "/" and following == "/":
+            end = text.find("\n", index + 2, limit)
+            index = limit if end < 0 else end + 1
+            continue
+        if char == "/":
+            # A closed slash-delimited token is conservatively treated as a
+            # regex literal. Ambiguous division can cause a missed candidate,
+            # never a claimed raw output based on regex contents.
+            cursor = index + 1
+            in_class = False
+            while cursor < limit and text[cursor] not in "\r\n":
+                if text[cursor] == "\\":
+                    cursor += 2
+                    continue
+                if text[cursor] == "[":
+                    in_class = True
+                elif text[cursor] == "]":
+                    in_class = False
+                elif text[cursor] == "/" and not in_class:
+                    index = cursor + 1
+                    break
+                cursor += 1
+            if index == cursor + 1:
+                continue
+        yield index, char
+        index += 1
+
+def _matching_delimiter(text: str, opened: int, left: str, right: str, limit: int) -> int:
+    """Find one balanced close in code; -1 means unknown."""
+    depth = 0
+    for index, char in _js_code_chars(text, opened, limit):
+        if char == left:
+            depth += 1
+        elif char == right:
+            depth -= 1
+            if depth == 0:
+                return index
+    return -1
+
+def _direct_return_append(text: str, template_start: int, begin: int) -> bool:
+    previous_return = -1
+    depth = 0
+    brace_depth = 0
+    for index, char in _js_code_chars(text, template_start, begin):
+        if char == "{":
+            brace_depth += 1
+            continue
+        if char == "}":
+            brace_depth -= 1
+            if brace_depth < 2:
+                previous_return = -1
+            continue
+        if (char == "r" and text.startswith("return", index)
+                and brace_depth == 2
+                and (index == 0 or not (text[index - 1].isalnum() or text[index - 1] in "_$"))
+                and (index + 6 == len(text) or not (text[index + 6].isalnum() or text[index + 6] in "_$"))):
+            previous_return = index
+            depth = 0
+        elif previous_return < 0 or index < previous_return + len("return"):
+            continue
+        elif char in "([":
+            depth += 1
+        elif char in ")]":
+            depth -= 1
+        elif char == ";" and depth == 0:
+            previous_return = -1
+    return previous_return >= 0 and brace_depth == 2 and depth == 0
+
+def _discarded_by_comma(text: str, end: int) -> bool:
+    """Reject a later top-level comma before the return expression ends."""
+    depth = 0
+    for _, char in _js_code_chars(text, end, end + 1024):
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            if depth == 0:
+                return False
+            depth -= 1
+        elif depth == 0:
+            if char == ",":
+                return True
+            if char == ";":
+                return False
+    return False
+
+def _compiled_raw_interpolations(text: str, per_rule: int) -> tuple[list[dict], bool]:
+    """Bounded Handlebars precompile hint, not proof of a controlled HTML value."""
+    if "template({" not in text or "lookupProperty" not in text:
+        return [], False
+    hits: list[dict] = []
+    position = 0
+    windows = 0
+    template_start = -1
+    template_end = -1
+    while (position := text.find("null", position)) != -1:
+        windows += 1
+        if windows > 10_000:
+            return hits, True
+        start = max(0, position - 8)
+        head = _RAW_INTERPOLATION_HEAD.search(text[start:position + 80])
+        position += 4
+        if not head or start + head.start() > position - 4:
+            continue
+        begin = start + head.start()
+        alias = head.group(1)
+        if not (template_start <= begin < template_end):
+            template_start = text.rfind("template({", 0, begin)
+            template_end = (_matching_delimiter(text, template_start + len("template("), "{", "}", len(text))
+                            if template_start >= 0 else -1)
+        if not (template_start <= begin < template_end) or not _direct_return_append(text, template_start, begin):
+            continue
+        if not any(index == begin for index, _ in _js_code_chars(text, template_start, begin + 1)):
+            continue
+        assignment_open = text.find("(", position, start + head.end())
+        if assignment_open < 0:
+            continue
+        assignment_close = _matching_delimiter(text, assignment_open, "(", ")", position + 500)
+        if assignment_close < 0:
+            continue
+        expression = text[start + head.end():assignment_close]
+        if "invokePartial" in expression or ".call(" in expression:
+            continue
+        suffix = re.match(r"\s*\?\s*" + re.escape(alias) + r"\s*:\s*(['\"])\1\s*\)", text[assignment_close + 1:assignment_close + 40])
+        if not suffix:
+            continue
+        end = assignment_close + 1 + suffix.end()
+        if _discarded_by_comma(text, end):
+            continue
+        context = text[max(template_start, begin - 8_000):begin]
+        if "lookupProperty" not in context:
+            continue
+        call = re.match(r"\s*([A-Za-z_$][\w$]*)\s*\(", expression)
+        if "escapeExpression" in expression or (call and re.search(
+                rf"\b{re.escape(call.group(1))}\s*=\s*[\w$]+\.escapeExpression\b", context)):
+            continue
+        hits.append({"signature": "Handlebars.compiledRawInterpolation(candidate)",
+                     "family": "framework_template_candidate", "tier": "candidate",
+                     "start": begin, "end": end})
+        if len(hits) > per_rule:
+            return hits[:per_rule], True
+    return hits, False
 
 
 def scan_sink_sites(text: str, *, max_hits: int = 200, per_rule: int = 8) -> dict:
@@ -210,6 +376,9 @@ def scan_sink_sites(text: str, *, max_hits: int = 200, per_rule: int = 8) -> dic
                 break
         if len(seen) > per_rule:
             del hits[-(len(seen) - per_rule):]
+    raw_sites, raw_truncated = _compiled_raw_interpolations(text, per_rule)
+    hits.extend(raw_sites)
+    truncated |= raw_truncated
     # Follow a literal script-element alias only inside a small window; a generic
     # appendChild/textContent call is not a script-content execution site.
     if "createElement" in text and "script" in text:

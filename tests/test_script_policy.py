@@ -127,6 +127,8 @@ def test_bug_bounty_script_policy_loads_with_skill_and_bounds_output() -> None:
     assert "find runnable scripts in that skill and its index" in router
     assert "vulnerability hunt" not in policy
     assert "| **bb-script-rules** |" in registry
+    assert "with the relevant BBH skill before a bug-bounty script investigates a target" in registry
+    assert "interpretation of bug-bounty script output" in registry
     assert not (ROOT / "skills/scripts/SKILL.md").exists()
     assert "`script-manager` skill when creating or maintaining scripts" in manager
     assert "## deterministic authority" not in manager

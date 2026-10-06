@@ -102,9 +102,12 @@ stored = append_attempt(attempts_path, {
 })
 ```
 
-The writer validates legacy compatibility fields, normalizes generic Core fields,
-assigns a schema version and `attempt_id`, locks the append, and redacts common
-secret-bearing material before persistence. Use the returned `stored` row's
+The writer validates the five required compatibility fields and **does not fill
+missing compatibility fields**: callers must supply `timestamp` (for example,
+with `utc_timestamp()`), `tool`, `target`, `outcome`, and `stop_reason` for every
+Attempt. It normalizes generic Core fields, assigns a schema version and
+`attempt_id`, locks the append, and redacts common secret-bearing material
+before persistence. Use the returned `stored` row's
 `attempt_id` when linking another record.
 
 Hybrid workers that cannot import BBH must still produce one valid JSON object

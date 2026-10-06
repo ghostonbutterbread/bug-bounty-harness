@@ -4,7 +4,10 @@ import argparse
 from pathlib import Path
 import re
 
+import pytest
+
 from bounty_core.error_store import VALID_CHANNELS, VALID_LAYERS
+from agents.attempts import append_attempt
 
 from agents.error_store import build_parser
 from agents.manual_hunter import EDITABLE_FINDING_FIELDS
@@ -62,3 +65,13 @@ def test_attempts_module_guidance_uses_selected_checkout_venv(capsys):
     assert 'cd "$(bbh --root)"' in contract
     assert '.venv/bin/python -c' in contract
     assert "system Python" in contract
+
+def test_attempts_guidance_requires_explicit_timestamp(tmp_path):
+    contract = (ROOT / "docs/attempt-recording-contract.md").read_text(encoding="utf-8")
+    with pytest.raises(ValueError, match="timestamp"):
+        append_attempt(tmp_path / "attempts.jsonl", {
+            "tool": "fixture", "target": "fixture.invalid", "outcome": "blocked",
+            "stop_reason": "comparison complete",
+        })
+    assert "does not fill missing compatibility fields" in " ".join(contract.split())
+    assert "utc_timestamp()" in contract

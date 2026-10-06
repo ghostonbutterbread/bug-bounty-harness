@@ -1,13 +1,13 @@
 # XSS sink taxonomy gap expansion
 
-- **Status:** implementation verified locally; independent review pending
+- **Status:** reconciled with current beta; independent review pending
 - **Owner:** Hermes
 - **Branch:** `feat/xss-sink-taxonomy-expansion`
 - **Base commit:** `58706890ddb4cb4e882bbe781a4a9157a806dc5b`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-06
 - **Owning worktree:** `/home/ryushe/projects/bug_bounty_harness/xss-sink-taxonomy-expansion`
-- **Latest immutable recovery checkpoint:** pending first implementation commit
+- **Latest immutable recovery checkpoint:** `f0f7cc5fc099cf86c347ce7d2b902e404e3f563d` (feature implementation `5e65941`, merged fetched `origin/beta` `76105d6`)
 
 ## Intent and inspiration
 
@@ -21,7 +21,8 @@ Second pass extends existing sink categories with literal bracket DOM writes and
 
 - Baseline: beta `5870689` was the published Hoster beta at feature creation. PortSwigger Academy/DOM Invader and CodeQL, Semgrep, Dalfox, XSStrike, jQuery, Vue, Angular and Lit primary-source comparisons informed the bounded additions; see `docs/xss-sink-inventory.md`.
 - Checkout-local `.venv/bin/python -m pytest agents/test_js_analyzer.py tests/test_script_policy.py -q`: **188 passed** after implementation; positive and exact-negative sink fixtures cover new patterns. `git diff --check` passed. No live target testing.
-- Independent review, current beta reconciliation and integrated verification: pending.
+- Reconciled against fetched `origin/beta` `76105d6` with merge `f0f7cc5`. Checkout-local `.venv/bin/python -m pytest agents/test_js_analyzer.py tests/test_script_policy.py -q`: **189 passed** after reconciliation; `git status` clean before this dossier-only update.
+- Independent review and integrated verification: pending.
 
 ## Blockers and deferred work
 
@@ -29,7 +30,7 @@ No blocker. A finite regex vocabulary cannot discover every sink or prove source
 
 ## Resume point
 
-Commit the verified change as a recoverable feature checkpoint, merge current fetched `origin/beta` into this branch, rerun checks and get independent review of the reconciled tip. Integrate only after approval. Publication and Hoster activation are separate decisions; do not imply rollout from a local merge.
+Get fresh independent review of the reconciled feature tip against fetched beta, resolve any actionable findings, then merge into clean current beta with the dossier retired on target and rerun integrated checks. Publication and Hoster activation are separate decisions; do not imply rollout from a local merge.
 
 ## Decision gates
 

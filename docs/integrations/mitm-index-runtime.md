@@ -7,7 +7,7 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-06
 - **Owning feature branch/ref:** `fix/mitm-index-runtime-20261006`
-- **Latest immutable recovery checkpoint:** `2c312aa685e317f3b1f265932d2af89e703ba5c4` on `fix/mitm-index-runtime-20261006`
+- **Latest immutable recovery checkpoint:** `3bd083c` (beta reconciliation merge) on `fix/mitm-index-runtime-20261006`
 - **Feature implementation commit(s):** `2c312aa685e317f3b1f265932d2af89e703ba5c4`
 - **Inspiration / canonical references:** Shared PAPERCUTS.md `PC-20261005-203035-4b6c4b56`.
 
@@ -25,7 +25,7 @@ Repair an observed offline indexing failure: the BBH checkout-local Python canno
 - RED: new offline index-store regression failed on the missing import before implementation.
 - GREEN: 19 passed in `agents/test_mitm_lane.py agents/test_proxy_store.py agents/test_hoster_mitm_lane.py` using the selected beta integration venv against the feature source; `git diff --check` clean.
 - Independent read-only review of `2c312aa` approved the observed interpreter fix and privacy contract after rerunning 19 focused tests; the stale checkpoint text in this dossier was the only integration blocker and is corrected here. Optional end-to-end tests for metadata and packet-storage modes were exercised manually with synthetic flows, but are not new regressions in this commit.
-- Merge/ancestry evidence: pending.
+- Reconciled `origin/beta` at `7f7a3546819194db93f3d846ecdf0b11123a4b1f` into the feature at `3bd083c` without conflicts; the feature diff against beta remains limited to the MITM script, its regression, and this temporary dossier. Reran `agents/test_mitm_lane.py agents/test_proxy_store.py agents/test_hoster_mitm_lane.py` from the integration checkout's `.venv` against feature paths: 19 passed in 5.09s; `git diff --check origin/beta...HEAD` clean. Reconciled-tip independent review is pending.
 
 ## Blockers and deferred work
 
@@ -35,10 +35,10 @@ Repair an observed offline indexing failure: the BBH checkout-local Python canno
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/mitm-index-runtime-20261006`
-- **Latest immutable recovery checkpoint:** `2c312aa685e317f3b1f265932d2af89e703ba5c4` (implementation); the current dossier correction is committed separately after that checkpoint.
+- **Latest immutable recovery checkpoint:** `3bd083c` (reconciled feature); consult the owning branch tip for subsequent dossier-only commits.
 - **Feature implementation commit(s):** `2c312aa685e317f3b1f265932d2af89e703ba5c4`
-- **Exact resume point:** reconcile the advanced `origin/beta`, rerun focused tests, review the reconciled tip, then integrate if approved.
-- **Working-tree state at handoff:** committed implementation; dossier correction is a separate follow-up commit before reconciliation.
+- **Exact resume point:** independently review the reconciled tip and updated dossier, then merge into clean current beta if approved; rerun integrated tests, remove this temporary dossier, and push beta with remote read-back.
+- **Working-tree state at handoff:** committed implementation, beta merge, and dossier correction; verify the branch tip remains clean before integration.
 
 ## Decision gates
 
@@ -50,3 +50,4 @@ Repair an observed offline indexing failure: the BBH checkout-local Python canno
 
 - 2026-10-06 — reproduced interpreter mismatch, added failing regression, applied minimal subprocess runtime correction, validated focused suites.
 - 2026-10-06 — independent review found no functional or privacy blocker; corrected the inaccurate uncommitted handoff before beta reconciliation.
+- 2026-10-06 — merged advanced beta into feature without conflicts; reran 19 focused tests and diff check; final reconciled-tip review remains pending.

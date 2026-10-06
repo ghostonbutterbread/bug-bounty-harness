@@ -261,23 +261,11 @@ Pointers:
 
 ## Goal-Run Tunnel Guard
 
-Apply this guard only to find-vulnerability / goal / hunt / new-finding runs.
-Do not apply it to repass, retest, cleanup, duplicate triage, evidence capture,
-or status-review runs.
-
-If the last two test targets were chosen mainly from `old-leads` / old
-MapStore entries, or the run has gone roughly 30-45 minutes without a fresh
-current-run observation, pause old-lead querying. Before following another old
-lead, make three fresh observations from the current app/session, such as:
-
-- a new route, panel, role boundary, or surface
-- new JavaScript/API behavior
-- changed feature flag, plan, entitlement, or account behavior
-- a new trust boundary, renderer, export path, or consumer
-
-This guard does not block `app-facts`, `dedupe`, or `coverage` queries. It only
-prevents old vulnerability leads from becoming the path of least resistance in
-normal goal runs.
+For a new-finding hunt **when historical leads start choosing targets instead
+of current app observations**, load Hunter Loop's
+`references/freshness-and-memory.md` to re-ground the next target choice. Do not
+load it for ordinary targeted `app-facts`, `dedupe`, or `coverage` queries, or for
+retest, repass, cleanup, duplicate triage, evidence capture, or status review.
 
 ## Opportunistic Lifecycle Hygiene
 

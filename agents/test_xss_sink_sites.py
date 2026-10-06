@@ -233,6 +233,15 @@ def test_compiled_raw_candidate_excludes_discarded_comma_expression():
     assert not any(site["signature"] == "Handlebars.compiledRawInterpolation(candidate)"
                    for site in scan_sink_sites(snippet)["hits"])
 
+@pytest.mark.parametrize("body", [
+    'return "<p>"/* +(null!=(a=l(t,"name"))?a:"") */ +"</p>"',
+    'return "<p>+(null!=(a=l(t,\\"name\\"))?a:\\"\\")</p>"',
+])
+def test_compiled_raw_candidate_rejects_non_code_tokens(body: str):
+    snippet = 'x.template({0:function(x,t){var a,l=x.lookupProperty;' + body + '}});'
+    assert not any(site["signature"] == "Handlebars.compiledRawInterpolation(candidate)"
+                   for site in scan_sink_sites(snippet)["hits"])
+
 
 def test_script_alias_stops_at_rebinding():
     shadowed = 'const s = document.createElement("script"); { const s = document.createElement("div"); s.textContent = user; }'

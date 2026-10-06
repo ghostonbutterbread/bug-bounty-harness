@@ -303,6 +303,8 @@ def _compiled_raw_interpolations(text: str, per_rule: int) -> tuple[list[dict], 
                             if template_start >= 0 else -1)
         if not (template_start <= begin < template_end) or not _direct_return_append(text, template_start, begin):
             continue
+        if not any(index == begin for index, _ in _js_code_chars(text, template_start, begin + 1)):
+            continue
         assignment_open = text.find("(", position, start + head.end())
         if assignment_open < 0:
             continue

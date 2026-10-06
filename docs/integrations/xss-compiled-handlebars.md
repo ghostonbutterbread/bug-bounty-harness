@@ -1,6 +1,6 @@
 # Compiled Handlebars XSS candidate integration dossier
 
-- **Status:** sixth independent release gate rejected; no beta integration
+- **Status:** review-ready after non-code-token repair; no beta integration yet
 - **Owner:** Hermes
 - **Branch:** `fix/xss-compiled-handlebars-20261006`
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-compiled-handlebars`
@@ -23,7 +23,7 @@ Detect raw interpolations in compiled Handlebars output even when source syntax 
 ## Evidence and review
 
 - RED: first compiled-template fixture failed with zero raw candidates; cap regression then failed on false truncation.
-- GREEN: `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` — 305 passed after discarded-comma regression (2026-10-06).
+- GREEN: `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` — 307 passed after comment/string-token regressions (2026-10-06).
 - `git diff --check` — clean.
 - Local saved `globalV2.js` (~485 KB): 8 capped raw interpolation candidates; first offsets 207094, 212344, 214311, 215735; `framework_template_candidate` present and `sink_sites_truncated=true`. No live requests made.
 - Independent review: **blocked**. Fresh `git fetch origin beta` confirms `origin/beta` at `59e72403600c9e9035081ca32e7ac5c64f3bbd83`, with only the implementation and dossier commits unique to the feature. Independent rerun: `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` — 295 passed; `git diff --check origin/beta...HEAD` clean.
@@ -38,18 +38,19 @@ Detect raw interpolations in compiled Handlebars output even when source syntax 
 - Fifth independent gate: fetched `origin/beta` at `59e72403600c9e9035081ca32e7ac5c64f3bbd83`; focused `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` passed 304 and `git diff --check origin/beta...HEAD` passed. Regex-literal negatives and positive character-class delimiter fixture pass. **Blocked:** `_direct_return_append` still accepts an interpolation discarded by the JavaScript comma operator as direct output. Reproducer: `s='x.template({0:function(x,t){var a,l=x.lookupProperty;return "<p>"+(null!=(a=l(t,"name"))?a:""),"<p>"}});'`; filtering `scan_sink_sites(s)['hits']` for `Handlebars.compiledRawInterpolation(candidate)` yields `[65,94)`. Running program `0` under Node with `lookupProperty:(obj,key)=>obj[key]` and `name:'<img src=x>'` returns only `<p>`: the interpolated value is evaluated then discarded. This contradicts the direct-output contract; add a negative regression and constrain the return expression's output flow before another gate.
 - Repair: bounded scan after the candidate rejects a later top-level comma before the return expression terminates. Reviewer reproduction RED then GREEN, focused suite 305 passes; saved bundle still yields eight capped raw candidates. Documentation clarifies the syntactic candidate does not prove output dataflow. Sixth gate pending.
 - Sixth independent gate: fresh `git fetch origin beta` confirms `59e72403600c9e9035081ca32e7ac5c64f3bbd83`; `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` passes 305; `git diff --check origin/beta...HEAD` clean. **Rejected:** a raw-shaped match wholly inside a block comment is emitted as a syntactic interpolation. Reproduce from the feature worktree with `from agents.xss_sink_sites import scan_sink_sites; s='x.template({0:function(x,t){var a,l=x.lookupProperty;return "<p>"/* +(null!=(a=l(t,"name"))?a:"") */ +"</p>"}});'; print([h for h in scan_sink_sites(s)['hits'] if h['signature']=='Handlebars.compiledRawInterpolation(candidate)'])`: result is one candidate at `[68,97)`, within the comment. Node execution of program `0` with `lookupProperty:(obj,key)=>obj[key]` and `name:'<img src=x onerror=alert(1)>'` returns `<p></p>`. `_compiled_raw_interpolations` searches raw text for the head; `_matching_delimiter` starts lexing inside the comment and `_direct_return_append` does not verify that the candidate head is code. Unlike an uncertain generated-value flow, commented text is not a syntactic interpolation at all. Add a negative regression for this exact case and reject comment/string token matches before requesting a new gate.
+- Repair: verify the matched `+` is a code token under the bounded lexical scan, excluding comment and string hits before assignment analysis. Reviewer comment case was RED then GREEN; an escaped-string fixture was added. Focused suite 307 passed, saved bundle still yields eight capped candidates at prior offsets. Seventh independent gate pending.
 - No integration performed. During the decision commit, an unrelated script-map revert advanced local and fetched `beta` from the reviewed base `59e72403600c9e9035081ca32e7ac5c64f3bbd83` to `b89b944821cc005708af7bd351c64dcf6e141056` (commits `23efb1d`, `b89b944`). The feature did not merge or reconcile those commits; the next gate must compare against the then-current beta and rerun checks before any integration.
 
 ## Blockers and deferred work
 
-Block release until the comment-token false positive above is repaired and a fresh independent review accepts it. Re-run `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` and the exact reproducer above, then review the updated diff. Other compiler versions and long/dynamic expression forms still require manual review. No live XSS proof is claimed.
+Block release until a fresh independent review accepts non-code-token rejection. Other compiler versions and long/dynamic expression forms still require manual review. No live XSS proof is claimed.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/xss-compiled-handlebars-20261006`
 - **Latest immutable recovery checkpoint:** `3c4964abede5478ff8e8675be7029755e2ad5138` (review the later dossier-only tip too).
 - **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`, `b3f9653e879e2972808587e2a8b2950ce4cd482c`, `7ed87bd922cd5599013cd690b57824873fc77279`, `6be416fea8979b564075839452f5e1e68cb870c5`, `e6c3a92690e6b94775630d3b39ab9ddbedc58b76`, `3c4964abede5478ff8e8675be7029755e2ad5138`.
-- **Exact resume point:** add a comment-token negative regression and repair `_compiled_raw_interpolations` so candidate spans are code; reconcile the newer beta before a fresh independent gate. No feature integration occurred.
+- **Exact resume point:** review non-code-token repair, reconcile newer beta, and integrate only after independent acceptance.
 - **Working-tree state at handoff:** sixth-gate dossier-only decision committed; no implementation changes in this gate.
 
 ## Decision gates
@@ -71,3 +72,4 @@ Block release until the comment-token false positive above is repaired and a fre
 - 2026-10-06 — skipped regex-literal bodies in lexical scope checks; 304 focused tests and saved bundle pass. Fifth independent gate **rejected**: a comma expression discards the candidate interpolation and returns fixed `<p>`; direct-output classifier nevertheless emits `[65,94)`. Reproducer and Node observation above; retain feature and dossier, do not merge beta.
 - 2026-10-06 — rejected later top-level comma and clarified syntactic-candidate semantics; 305 tests pass and saved bundle still routes. Sixth gate pending.
 - 2026-10-06 — sixth independent release gate **rejected**: a block-comment raw-shaped expression is emitted as a compiled raw interpolation candidate at `[68,97)` even though program `0` returns constant `<p></p>`. Reproducer above; retain feature and dossier, do not merge beta.
+- 2026-10-06 — required the candidate head to be a code token; 307 tests and saved-bundle candidate check pass. Seventh gate pending.

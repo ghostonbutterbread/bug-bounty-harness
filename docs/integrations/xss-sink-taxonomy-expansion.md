@@ -22,7 +22,7 @@ Second pass extends existing sink categories with literal bracket DOM writes and
 - Baseline: beta `5870689` was the published Hoster beta at feature creation. PortSwigger Academy/DOM Invader and CodeQL, Semgrep, Dalfox, XSStrike, jQuery, Vue, Angular and Lit primary-source comparisons informed the bounded additions; see `docs/xss-sink-inventory.md`.
 - Checkout-local `.venv/bin/python -m pytest agents/test_js_analyzer.py tests/test_script_policy.py -q`: **188 passed** after implementation; positive and exact-negative sink fixtures cover new patterns. `git diff --check` passed. No live target testing.
 - Reconciled against fetched `origin/beta` `76105d6` with merge `f0f7cc5`. Checkout-local `.venv/bin/python -m pytest agents/test_js_analyzer.py tests/test_script_policy.py -q`: **189 passed** after reconciliation; `git status` clean before this dossier-only update.
-- First independent review of `4cacf5c` requested three corrections: Vue dynamic quoted/template-literal values missed, jQuery `.attr('innerHTML', value)` mislabeled as DOM property, and `$`-prefixed script alias missed. Added exact red fixtures, changed the patterns, and covered a backtick-concatenation variant. Reran focused **143 passed** and combined **194 passed**; no live target testing. Fresh final-tip review pending.
+- Second independent review of `54574e5` confirmed prior fixes but found comment-prefixed fixed Vue templates, `Vue.compile()` and `template: null` wrongly labeled. Added exact red/green fixtures; the Vue value recognizer now skips bounded block comments and requires a plausible dynamic value. Focused **148 passed**, combined **199 passed**, `git diff --check` clean. Fresh final-tip review pending.
 
 ## Blockers and deferred work
 

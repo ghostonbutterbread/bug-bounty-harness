@@ -85,9 +85,11 @@ _DOM_EVENT_NAME = (
     r"transition(?:end|start|cancel|run)|toggle|unload|wheel)"
 )
 _VUE_DYNAMIC_TEMPLATE_VALUE = (
-    r"(?:['\"`][^'\"`]{0,160}['\"`]\s*\+\s*[A-Za-z_$][\w$]*|"
+    r"(?:(?!null\b|undefined\b|true\b|false\b)[A-Za-z_$][\w$]*|"
+    r"['\"`][^'\"`]{0,160}['\"`]\s*\+\s*[A-Za-z_$][\w$]*|"
     r"`[^`]{0,160}\$\{[^}]{1,160}\}[^`]{0,160}`)"
 )
+_VUE_TEMPLATE_PREFIX = r"(?:/\*[\s\S]{0,120}?\*/\s*){0,2}"
 _JQUERY_CHAIN = (
     r"(?:\$|\bjQuery|\bangular\.element)\s*\([^)]{0,120}\)"
     r"(?:\s*\.\s*[\w$]+\s*\([^)]{0,120}\)){0,2}\s*\.\s*"
@@ -160,9 +162,9 @@ SINK_KEYWORDS = {
     "framework_template_candidate": re.compile(
         r"\b(?:Vue\s*\.\s*(?:createApp|component)|new\s+Vue)\s*\(\s*"
         r"(?:['\"][^'\"]{1,80}['\"]\s*,\s*)?\{[^}]{0,300}\btemplate\s*:\s*"
-        + r"(?:(?=[^\s'\"`])|(?=" + _VUE_DYNAMIC_TEMPLATE_VALUE + r"))|"
+        + _VUE_TEMPLATE_PREFIX + _VUE_DYNAMIC_TEMPLATE_VALUE + r"|"
         + r"\bVue\s*\.\s*compile\s*\(\s*"
-        + r"(?:(?=[^\s'\"`])|(?=" + _VUE_DYNAMIC_TEMPLATE_VALUE + r"))"
+        + _VUE_TEMPLATE_PREFIX + _VUE_DYNAMIC_TEMPLATE_VALUE
     ),
     "framework_trust_bypass": re.compile(
         r"\.\s*bypassSecurityTrust(?:Html|Script|Url|ResourceUrl)\s*\(|"

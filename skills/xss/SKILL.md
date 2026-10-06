@@ -156,3 +156,13 @@ per-probe record; the selected XSS lane owns its proof and report shape.
   is not.
 - `False positive`: the claimed path is evidenced inert or unreachable in the
   tested context. Do not extend that negative to untested consumers.
+
+## Scripts map
+
+- [`scripts/README.md`](scripts/README.md) — maintained XSS helper records and
+  invocations. Use `bbh skills/xss/scripts/xss_canary_mapper.py` to map inert
+  canaries from selected input artifacts to observed reflections; its sink
+  classifications are non-exhaustive leads, not browser proof.
+- `bbh agents/js_analyzer.py inventory` — use through `/js` for a static JS and
+  source-map sink census. The inventory supplies review leads, not verified
+  source-to-sink paths; see `docs/xss-sink-inventory.md` for coverage limits.

@@ -15,7 +15,7 @@ The agent lane is a task-scoped local `mitmproxy`/`mitmdump` listener—not Caid
 
 For each task, record a unique run ID, local/leased MITM host:port, flow-file path, CA/profile path, account boundary, and stop/cleanup condition.
 
-On Hoster, lease an available loopback listener in `8081-8090`. Do not use port `8080`; it is not the agent MITM lane. Keep the MITM service and flow file owner-restricted because captured flows can contain session material.
+On Hoster, lease an available loopback listener in `8081-8090`. Ports `8091-8095` are reserved for the Chromium task-proxy overflow: Proxy Store rejects them even in a custom standalone range. Do not use port `8080`; it is not the agent MITM lane. Keep the MITM service and flow file owner-restricted because captured flows can contain session material.
 
 Route all active work through that listener:
 

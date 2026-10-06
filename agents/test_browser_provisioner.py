@@ -525,9 +525,12 @@ def test_task_proxy_starts_before_browser_and_reuses_private_lane(monkeypatch, t
     assert not created and same["lane"] == row["lane"] and len(commands) == 1
 
 
-@pytest.mark.parametrize("occupied, expected", [(set(), 8091), ({8091}, 8092)])
-def test_task_proxy_uses_bounded_overflow_when_existing_pool_is_reserved(monkeypatch, tmp_path, occupied, expected):
+@pytest.mark.parametrize("occupied, legacy_lease, expected", [
+    (set(), False, 8091), ({8091}, False, 8092), (set(), True, 8092),
+])
+def test_task_proxy_uses_bounded_overflow_when_existing_pool_is_reserved(monkeypatch, tmp_path, occupied, legacy_lease, expected):
     m = load(monkeypatch, tmp_path)
+    monkeypatch.setattr(m, "DEFAULT_STORE", tmp_path / "standalone.sqlite")
     c = m.db()
     for offset in range(10):
         c.execute(
@@ -538,6 +541,11 @@ def test_task_proxy_uses_bounded_overflow_when_existing_pool_is_reserved(monkeyp
              str(tmp_path / f"prior-{offset}"), "running"),
         )
     c.commit()
+    if legacy_lease:
+        lease_db = m.DEFAULT_STORE
+        with sqlite3.connect(lease_db) as standalone:
+            standalone.execute("CREATE TABLE proxy_leases(proxy_port INTEGER, status TEXT, expires_at REAL)")
+            standalone.execute("INSERT INTO proxy_leases VALUES(8091, 'active', NULL)")
     commands = []
     monkeypatch.setattr(m, "port_open", lambda p: p in occupied)
     monkeypatch.setattr(m, "mitm_runtime", lambda: ("/bin/mitmdump", "/bin/python"))

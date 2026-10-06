@@ -315,8 +315,9 @@ handoff alongside the browser and profile cleanup.
 ## MITM Proxy Certificate Handling
 
 The provisioner defaults to `--proxy mitm`: it reserves a task/run-specific
-loopback listener in 8081–8095 (8091–8095 are bounded overflow beyond the
-standalone lane lease defaults), waits for its private CA, and passes both to
+loopback listener in 8081–8095 (8091–8095 are reserved task-proxy overflow;
+Proxy Store `lease-acquire` excludes them even for custom standalone port
+requests), waits for its private CA, and passes both to
 the launcher before Chromium spawns. The launcher imports that CA into the
 isolated profile; readiness requires a trusted import receipt. Browser release
 does **not** stop the task proxy: direct replay may continue through the

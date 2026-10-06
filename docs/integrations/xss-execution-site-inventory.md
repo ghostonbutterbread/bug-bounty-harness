@@ -40,6 +40,8 @@ Ryu corrected the earlier category-count framing: enumerate **individual XSS exe
 
 - Review of `fc1df8b` confirmed prior fixes but found object/class method parameters shadowing a script alias. Extended the bounded scope scanner to recognize method parameter lists in object/class bodies, with negative method writes and valid outer-resumption fixtures. The 316-test combined suite passes and `git diff --check` is clean. This remains a heuristic candidate, not JavaScript AST binding proof; unmodeled syntax and dynamic aliases require manual inspection. Independent final-tip review pending.
 
+- Approval review of `0753896` found two method-scanner regressions: empty `function render()` params raised a `TypeError` and `if(s)` was misread as an object method, hiding a valid script-alias site. Corrected empty-group handling and control-keyword exclusion; both fixtures plus empty object method now pass. Combined suite: 316 passed, `git diff --check` clean. No beta integration before a fresh approval.
+
 ## Risks / deferred
 
 - Static signatures cannot prove an attacker-controlled source, CSP behavior, browser execution, or dynamic computed-property value. Bound regex complexity and output volume on minified bundles. Preserve source-map truncation indicators and original module provenance.

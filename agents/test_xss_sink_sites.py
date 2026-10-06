@@ -176,6 +176,9 @@ def test_script_alias_resumes_after_inner_shadowing():
         'const s = document.createElement("script"); const render = (x, s, y) => s.textContent = ignored; s.textContent = user;',
         'const s = document.createElement("script"); const o = { f(s) { s.textContent = ignored; } }; s.textContent = user;',
         'const s = document.createElement("script"); class C { f(s) { s.textContent = ignored; } } s.textContent = user;',
+        'const s = document.createElement("script"); function render() { s.textContent = user; }',
+        'const s = document.createElement("script"); const o = { f() { s.textContent = user; } };',
+        'const s = document.createElement("script"); { if(s) { s.textContent = user; } }',
     )
     for snippet in snippets:
         sites = [site for site in scan_sink_sites(snippet)["hits"] if site["family"] == "script_alias_candidate"]

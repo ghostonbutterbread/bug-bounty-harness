@@ -502,9 +502,10 @@ def index_lane(args: argparse.Namespace) -> dict[str, Any]:
 
     root = Path(args.lane_root).expanduser()
     lane_state = read_lane_state(root, args.lane)
-    flow_file = Path(args.flow_file or lane_state.get("flow_file", "")).expanduser()
-    if not flow_file.exists():
-        return {"status": "missing-flow-file", "flow_file": str(flow_file), "lane": args.lane}
+    source_path = args.flow_file or lane_state.get("flow_file")
+    flow_file = Path(source_path).expanduser() if source_path else None
+    if flow_file is None or not flow_file.is_file():
+        return {"status": "missing-flow-file", "flow_file": str(flow_file) if flow_file else "", "lane": args.lane}
 
     program = args.program or lane_state.get("program")
     task = args.task or lane_state.get("task")

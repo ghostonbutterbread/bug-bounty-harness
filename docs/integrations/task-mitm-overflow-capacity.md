@@ -6,8 +6,8 @@
 - **Base commit:** `a9d625d39f247a9b708401056938533613419bae`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-06
-- **Latest immutable recovery checkpoint:** none yet (set after implementation commit)
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `5c24dfee67fc6171d02b74ae66e2a664111ce818`
+- **Feature implementation commit(s):** `5c24dfee67fc6171d02b74ae66e2a664111ce818`
 - **Inspiration / canonical references:** read-only Hoster task-proxy investigation and `PC` proxy-capacity backlog in `Shared/PAPERCUTS.md`; `browser_provisioner.py` owns allocation.
 
 ## Intent
@@ -36,10 +36,10 @@ Task proxy allocation considers 8081–8095 in order; 8091–8095 are overflow b
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/task-mitm-overflow-capacity-20261006`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit feature, record checkpoint, get independent review of allocator bounds, cross-lease race, negative paths, and feature ancestry; reconcile beta if it advances.
-- **Working-tree state at handoff:** changes pending first commit.
+- **Latest immutable recovery checkpoint:** `5c24dfee67fc6171d02b74ae66e2a664111ce818`
+- **Feature implementation commit(s):** `5c24dfee67fc6171d02b74ae66e2a664111ce818`
+- **Exact resume point:** get independent review of allocator bounds, cross-lease race, negative paths, and feature ancestry; reconcile beta if it advances.
+- **Working-tree state at handoff:** clean after dossier-only handoff commit.
 
 ## Decision gates
 

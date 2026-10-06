@@ -1,6 +1,6 @@
 # Compiled Handlebars XSS candidate integration dossier
 
-- **Status:** review-ready
+- **Status:** blocked at independent release gate
 - **Owner:** Hermes
 - **Branch:** `fix/xss-compiled-handlebars-20261006`
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-compiled-handlebars`
@@ -26,20 +26,21 @@ Detect raw interpolations in compiled Handlebars output even when source syntax 
 - GREEN: `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` — 295 passed.
 - `git diff --check` — clean.
 - Local saved `globalV2.js` (~485 KB): 8 capped raw interpolation candidates; first offsets 207094, 212344, 214311, 215735; `framework_template_candidate` present and `sink_sites_truncated=true`. No live requests made.
-- Independent review: pending.
-- Merge/ancestry evidence: pending fetch and review gate.
+- Independent review: **blocked**. Fresh `git fetch origin beta` confirms `origin/beta` at `59e72403600c9e9035081ca32e7ac5c64f3bbd83`, with only the implementation and dossier commits unique to the feature. Independent rerun: `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` — 295 passed; `git diff --check origin/beta...HEAD` clean.
+- Reviewer probes against `scan_sink_sites` demonstrated three false positives: `+(null!=(a=s(l(t,"name")))?a:"")` with `s=e.escapeExpression` was labeled raw; a matching generic ternary **after** the compiled template was labeled Handlebars because `template({`/`lookupProperty` remained in the preceding 8 KB; and a malformed ternary `?b:""` was joined to a later `?a:""` suffix, producing one span across two expressions. A ternary passed as a function argument was also labeled a direct output append. These violate the stated raw/direct/context contract, not merely the acknowledged attacker-control uncertainty.
+- No integration performed; beta remains at fetched base.
 
 ## Blockers and deferred work
 
-No blocker to static candidate coverage. This is intentionally not general Handlebars taint/escaping analysis; other compiler versions and long/dynamic expression forms still require manual review. No live XSS proof is claimed.
+Block release until the matcher excludes escaped wrappers, confines candidates to the compiled template/output expression, and pairs suffixes with their own head (including balanced/nested expression handling or a sufficiently conservative alternative). Add regression fixtures for the reviewer probes and rerun focused tests; then obtain a fresh independent review. Other compiler versions and long/dynamic expression forms still require manual review. No live XSS proof is claimed.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/xss-compiled-handlebars-20261006`
 - **Latest immutable recovery checkpoint:** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196` (review the later dossier-only tip too).
 - **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`.
-- **Exact resume point:** independent release review, then reconcile and integrate to beta if clean.
-- **Working-tree state at handoff:** clean after dossier receipt commit.
+- **Exact resume point:** repair the four reviewer-proven false-positive cases with regression tests on this branch; rerun focused tests and request a new independent gate. Do not merge current tip.
+- **Working-tree state at handoff:** clean after review-decision commit.
 
 ## Decision gates
 
@@ -50,3 +51,4 @@ No blocker to static candidate coverage. This is intentionally not general Handl
 ## Decision record
 
 - 2026-10-06 — candidate matcher and regressions prepared for independent review.
+- 2026-10-06 — independent release gate **rejected**: escaped expression, post-template ternary, cross-expression suffix, and function-argument false positives reproduced. Retain feature and dossier for repair; no beta merge.

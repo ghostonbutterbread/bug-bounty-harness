@@ -5,10 +5,11 @@ Canonical sources:
 - Dalfox: `https://github.com/hahwul/dalfox`
 - Dursgo: `https://github.com/roomkangali/dursgo`
 
-Use Dalfox and Dursgo to expand the application map before deep XSS work. Tool
-output is triage evidence, not confirmation. Every lead still needs source,
-sink/context, and browser verification through the normal reflected, stored, or
-DOM XSS lane.
+Use Dalfox for broad parameter/reflection discovery and Dursgo for route or
+browser-rendered mapping when those are the current questions. Do not defer a
+known source-to-sink path for a broad scan. Tool output is triage evidence, not
+confirmation; each lead still needs source, sink/context, and browser proof
+through the matching XSS lane.
 
 Before running either tool, load `/bounty-tools` for the shared output directory,
 manifest, raw/parsed/normalized artifact, rate-limit, stop-condition, and ingest
@@ -202,6 +203,20 @@ Good packet shape:
   "status": "Potential"
 }
 ```
+
+## BBH XSS harnesses
+
+Use `agents/xss_framework.py` for a broad reflected/stored/DOM pass, or
+`agents/xss_hunter.py` for a narrower parameter-focused pass. Verify their
+current CLI flags in the selected checkout; keep scope and rate bounded.
+
+```bash
+bbh agents/xss_framework.py --target 'https://target.example/search?q=test' --program target --mode full --rate-limit 2
+bbh agents/xss_hunter.py --target 'https://target.example/search?q=test' --program target --depth deep --rate-limit 5
+```
+
+A harness lead still needs the selected lane's source-to-consumer and browser
+proof. Do not run a broad harness merely to delay an already warm vector.
 
 ## Agent Rules
 

@@ -20,6 +20,7 @@ from agents.chain_matrix import build_chain_graph, get_chainable_findings
 from agents.coverage_store import CoverageStore
 from agents.ledger import update_team_finding
 from agents.manual_hunter import (
+    InvalidReviewTierError,
     ManualHunter,
     ParsedFinding,
     ReviewTierDecisionRequired,
@@ -185,7 +186,9 @@ def _flexible_findings_for_file(hunter: ManualHunter, path: Path, text: str) -> 
     return findings
 
 
-def _normalize_candidate(record: FindingRecord, raw_text: str, source_path: Path) -> dict[str, Any]:
+def _normalize_candidate(
+    record: FindingRecord, raw_text: str, source_path: Path, *, explicit_tier: str | None = None
+) -> dict[str, Any]:
     finding = record.to_finding_dict()
     title = _normalize_text(finding.get("title") or finding.get("type"))
     description = _normalize_text(finding.get("description"))
@@ -217,7 +220,7 @@ def _normalize_candidate(record: FindingRecord, raw_text: str, source_path: Path
     if category not in {"class", "novel"}:
         category = "novel" if class_name == "novel" else "class"
 
-    review_tier = _normalize_text(finding.get("review_tier") or finding.get("tier")).upper()
+    review_tier = explicit_tier or _normalize_text(finding.get("review_tier") or finding.get("tier")).upper()
     if review_tier not in {"CONFIRMED", "DORMANT_ACTIVE", "DORMANT_HYPOTHETICAL"}:
         review_tier = _infer_review_tier(
             {
@@ -328,7 +331,21 @@ def _candidates_for_file(
 ) -> list[dict[str, Any]]:
     raw_text = source_path.read_text(encoding="utf-8", errors="replace")
     structured = _load_markdown_findings(program, hunt_type, report_paths=[source_path])
-    flexible = _flexible_findings_for_file(hunter, source_path, raw_text)
+    heading_tiers = re.findall(
+        r"(?m)^##\s+\[(CONFIRMED|DORMANT_ACTIVE|DORMANT_HYPOTHETICAL)\]\s+\S",
+        raw_text,
+    )
+    explicit_headings = heading_tiers if len(heading_tiers) == len(structured) else []
+    try:
+        flexible = _flexible_findings_for_file(hunter, source_path, raw_text)
+    except InvalidReviewTierError:
+        raise
+    except ReviewTierDecisionRequired:
+        if not explicit_headings:
+            raise
+        # A structured per-finding tier is an explicit decision, even when a
+        # whole-file loose parse cannot make sense of its evidence narrative.
+        flexible = []
     if structured and flexible and len(structured) == 1 and len(flexible) == 1:
         merged = [_merge_single_record(structured[0], flexible[0])]
     elif structured:
@@ -338,8 +355,9 @@ def _candidates_for_file(
 
     candidates: list[dict[str, Any]] = []
     seen_fingerprints: set[str] = set()
-    for record in merged:
-        normalized = _normalize_candidate(record, raw_text, source_path)
+    for index, record in enumerate(merged):
+        explicit_tier = explicit_headings[index] if explicit_headings else None
+        normalized = _normalize_candidate(record, raw_text, source_path, explicit_tier=explicit_tier)
         if not _normalize_text(normalized.get("file")):
             continue
         fingerprint = hunter.ledger.fingerprint_for(normalized)

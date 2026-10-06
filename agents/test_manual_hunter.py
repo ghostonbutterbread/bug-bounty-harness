@@ -356,6 +356,41 @@ class ManualHunterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Review Tier"):
             hunter.parse_text(note, source_label="unit-test")
 
+    def test_neutral_preconditions_do_not_downgrade_observed_finding(self) -> None:
+        hunter = ManualHunter(self.program)
+        base = (
+            "Title: Cross-account record read\n"
+            "Class: idor\n"
+            "File: src/access.py\n"
+            "Description: The response contains another owned account's private record.\n"
+        )
+        for field in ("Blocked Reason: none", "Chain Requirements: none"):
+            with self.subTest(field=field):
+                parsed = hunter.parse_text(base + field + "\n", source_label="unit-test")
+                self.assertEqual(parsed.finding["review_tier"], "CONFIRMED")
+
+    def test_pure_hypothetical_hedges_stay_dormant_without_proof(self) -> None:
+        hunter = ManualHunter(self.program)
+        for hedge in ("may", "might"):
+            with self.subTest(hedge=hedge):
+                note = (
+                    "Title: Possible record access\nClass: idor\nFile: src/access.py\n"
+                    f"Description: This {hedge} permit reading another account record.\n"
+                )
+                parsed = hunter.parse_text(note, source_label="unit-test")
+                self.assertEqual(parsed.finding["review_tier"], "DORMANT_HYPOTHETICAL")
+
+    def test_poc_with_concrete_response_and_potential_impact_requires_tier(self) -> None:
+        hunter = ManualHunter(self.program)
+        note = (
+            "Title: Cross-account record read\nClass: idor\nFile: src/access.py\n"
+            "Description: The response includes another owned account's private record; "
+            "potential sibling-record exposure.\n"
+            "PoC: GET /records/other-owned-ID showed the private field in the body.\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Review Tier"):
+            hunter.parse_text(note, source_label="unit-test")
+
     def test_invalid_explicit_tier_is_rejected(self) -> None:
         hunter = ManualHunter(self.program)
         note = (

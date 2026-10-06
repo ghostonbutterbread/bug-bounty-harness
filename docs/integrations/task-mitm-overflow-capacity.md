@@ -6,8 +6,8 @@
 - **Base commit:** `a9d625d39f247a9b708401056938533613419bae`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-06
-- **Latest immutable recovery checkpoint:** `5c24dfee67fc6171d02b74ae66e2a664111ce818`
-- **Feature implementation commit(s):** `5c24dfee67fc6171d02b74ae66e2a664111ce818`
+- **Latest immutable recovery checkpoint:** `086ee51e32a834a21e286ccf302557c9452098f9`
+- **Feature implementation commit(s):** `5c24dfee67fc6171d02b74ae66e2a664111ce818`, `086ee51e32a834a21e286ccf302557c9452098f9`
 - **Inspiration / canonical references:** read-only Hoster task-proxy investigation and `PC` proxy-capacity backlog in `Shared/PAPERCUTS.md`; `browser_provisioner.py` owns allocation.
 
 ## Intent
@@ -21,7 +21,7 @@ Task proxy allocation considers 8081–8095 in order; 8091–8095 are bounded ov
 ## Evidence and review
 
 - RED: isolated regression with 10 reserved rows failed `proxy-unavailable` at base range.
-- GREEN after reconciliation: `agents/test_browser_provisioner.py agents/test_browser_lifecycle.py agents/test_mitm_lane.py agents/test_proxy_store.py agents/test_hoster_mitm_lane.py` — 69 passed, 2 skipped (October 6, feature worktree using beta venv); `git diff --check` clean.
+- GREEN after reconciliation: `agents/test_browser_provisioner.py agents/test_browser_lifecycle.py agents/test_mitm_lane.py agents/test_proxy_store.py agents/test_hoster_mitm_lane.py` — 70 passed, 2 skipped (October 6, feature worktree using beta venv); `git diff --check` clean.
 - Regression checks selection of 8091, skipping an occupied or pre-existing standalone-leased 8091 for 8092, and retention of all 10 original reservations without stopping old units.
 - RED then GREEN: an explicit custom 8091 lease was granted before the guard; now rejected. A custom-only 8091–8095 range no longer grants a lease. CLI previously returned success for the new rejection status; now exits 2. The guard happens before any DB creation for explicit `--port`.
 - Hoster read-only preflight: no listeners on 8091–8110 at inspection, and no active Proxy Store leases on candidate ports. Recheck before any operational activation; the snapshot is not a durable exclusivity proof.
@@ -37,10 +37,10 @@ Task proxy allocation considers 8081–8095 in order; 8091–8095 are bounded ov
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/task-mitm-overflow-capacity-20261006`
-- **Latest immutable recovery checkpoint:** `5c24dfee67fc6171d02b74ae66e2a664111ce818`
-- **Feature implementation commit(s):** `5c24dfee67fc6171d02b74ae66e2a664111ce818`
-- **Exact resume point:** commit blocker remediation, record immutable checkpoint, get fresh independent release review of reconciled tip and old-lease activation boundary.
-- **Working-tree state at handoff:** changes pending blocker-remediation commit.
+- **Latest immutable recovery checkpoint:** `086ee51e32a834a21e286ccf302557c9452098f9`
+- **Feature implementation commit(s):** `5c24dfee67fc6171d02b74ae66e2a664111ce818`, `086ee51e32a834a21e286ccf302557c9452098f9`
+- **Exact resume point:** get fresh independent release review of the reconciled feature tip and old-lease activation boundary; if accepted, integrate through beta.
+- **Working-tree state at handoff:** clean after dossier-only checkpoint update.
 
 ## Decision gates
 

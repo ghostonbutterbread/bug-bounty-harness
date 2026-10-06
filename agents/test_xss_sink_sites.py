@@ -162,28 +162,22 @@ def test_script_alias_stops_at_rebinding():
     class_method = 'const s = document.createElement("script"); class C { f(x, s) { s.textContent = user; } }'
     inner_reassignment = 'const s = document.createElement("script"); { s = document.createElement("div"); } s.textContent = user;'
     uninitialized = 'const s = document.createElement("script"); { let s; s.textContent = user; }'
+    property_receiver = 'const s = document.createElement("script"); obj.s.textContent = user;'
+    catch_parameter = 'const s = document.createElement("script"); try {} catch (s) { s.textContent = user; }'
+    block_local = 'const s = document.createElement("div"); { const s = document.createElement("script"); } s.textContent = user;'
+    empty_arrow = 'const s = document.createElement("script"); const f = () => { s.textContent = user; };'
     for snippet in (shadowed, reassigned, parameter, arrow, expression_arrow, first_param, middle_param,
                     first_param_expression, middle_param_expression, object_method, class_method,
-                    inner_reassignment, uninitialized):
+                    inner_reassignment, uninitialized, property_receiver, catch_parameter, block_local, empty_arrow):
         assert not any(site["family"] == "script_alias_candidate" for site in scan_sink_sites(snippet)["hits"])
 
 
-def test_script_alias_resumes_after_inner_shadowing():
-    snippets = (
-        'const s = document.createElement("script"); { const s = document.createElement("div"); s.textContent = ignored; } s.textContent = user;',
-        'const s = document.createElement("script"); const render = s => s.textContent = ignored; s.textContent = user;',
-        'const s = document.createElement("script"); const render = (s, x) => { s.textContent = ignored; }; s.textContent = user;',
-        'const s = document.createElement("script"); const render = (x, s, y) => s.textContent = ignored; s.textContent = user;',
-        'const s = document.createElement("script"); const o = { f(s) { s.textContent = ignored; } }; s.textContent = user;',
-        'const s = document.createElement("script"); class C { f(s) { s.textContent = ignored; } } s.textContent = user;',
-        'const s = document.createElement("script"); function render() { s.textContent = user; }',
-        'const s = document.createElement("script"); const o = { f() { s.textContent = user; } };',
-        'const s = document.createElement("script"); { if(s) { s.textContent = user; } }',
-    )
-    for snippet in snippets:
-        sites = [site for site in scan_sink_sites(snippet)["hits"] if site["family"] == "script_alias_candidate"]
-        assert len(sites) == 1
-        assert sites[0]["start"] == snippet.rfind("s.textContent")
+def test_script_alias_straight_line_only():
+    snippet = 'const s = document.createElement("script"); s.textContent = user; s.src = url;'
+    sites = [site for site in scan_sink_sites(snippet)["hits"] if site["family"] == "script_alias_candidate"]
+    assert len(sites) == 2
+    assert {site["signature"] for site in sites} == {"HTMLScriptElement.alias.textContent", "HTMLScriptElement.alias.src"}
+    assert sites[0]["start"] == snippet.index("s.textContent")
 
 
 def test_site_output_is_bounded_and_deterministic():

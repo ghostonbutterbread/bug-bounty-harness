@@ -169,48 +169,6 @@ SITE_RULES = _sites()
 _SCRIPT_CREATE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*document\s*\.\s*createElement\s*\(\s*['\"]script['\"]\s*\)\s*;")
 
 
-def _script_alias_live(prefix: str, name: str) -> bool:
-    """Track one bounded script binding across simple blocks and parameters."""
-    alias = re.escape(name)
-    events = re.compile(
-        rf"function(?:\s+[A-Za-z_$][\w$]*)?\s*\((?P<function_params>[^)]{{0,120}})\)\s*\{{|"
-        rf"[{{,]\s*(?:async\s+)?(?!if\b|for\b|while\b|switch\b|with\b)[A-Za-z_$][\w$]*\s*\((?P<method_params>[^()]{{0,120}})\)\s*\{{|"
-        rf"(?<![\w$])(?:\((?P<arrow_params>[^()]{{0,120}})\)|(?P<arrow_single>[A-Za-z_$][\w$]*))\s*=>\s*(?P<arrow_block>\{{)?|"
-        rf"\b(?:const|let|var)\s+{alias}\b|"
-        rf"(?<![\w$.]){alias}\s*=(?!=|>)|[{{}};]"
-    )
-    # Each frame holds (still_script, locally_declared, expression_arrow).
-    scopes = [[True, True, False]]
-    for event in events.finditer(prefix):
-        token = event.group()
-        if event.group("function_params") is not None or event.group("method_params") is not None:
-            params_text = event.group("function_params")
-            if params_text is None:
-                params_text = event.group("method_params")
-            params = re.findall(r"[A-Za-z_$][\w$]*", params_text)
-            shadowed = name in params
-            scopes.append([scopes[-1][0] and not shadowed, shadowed, False])
-        elif event.group("arrow_params") is not None or event.group("arrow_single") is not None:
-            params = re.findall(r"[A-Za-z_$][\w$]*", event.group("arrow_params") or event.group("arrow_single"))
-            shadowed = name in params
-            scopes.append([scopes[-1][0] and not shadowed, shadowed, event.group("arrow_block") is None])
-        elif token == "{":
-            scopes.append([scopes[-1][0], False, False])
-        elif token == "}":
-            if len(scopes) > 1:
-                scopes.pop()
-        elif token == ";":
-            if len(scopes) > 1 and scopes[-1][2]:
-                scopes.pop()
-        elif token.startswith(("const", "let", "var")):
-            scopes[-1][:2] = [False, True]
-        else:
-            binding = next(i for i in range(len(scopes) - 1, -1, -1) if scopes[i][1])
-            for frame in scopes[binding:]:
-                frame[0] = False
-    return scopes[-1][0]
-
-
 def scan_sink_sites(text: str, *, max_hits: int = 200, per_rule: int = 8) -> dict:
     """Find bounded site offsets in one artifact. Offsets are Unicode character indices."""
     if max_hits < 1 or per_rule < 1:
@@ -262,11 +220,16 @@ def scan_sink_sites(text: str, *, max_hits: int = 200, per_rule: int = 8) -> dic
             alias = re.escape(match.group(1))
             window = text[match.end():match.end() + 240]
             suffixes = re.finditer(
-                rf"(?<![\w$]){alias}(?![\w$])\s*\.\s*(?:(append|appendChild)\s*\(\s*document\s*\.\s*createTextNode\s*\(|(text|textContent|innerText|innerHTML|src)\s*=(?!=|>))",
+                rf"(?<![\w$.]){alias}(?![\w$])\s*\.\s*(?:(append|appendChild)\s*\(\s*document\s*\.\s*createTextNode\s*\(|(text|textContent|innerText|innerHTML|src)\s*=(?!=|>))",
                 window,
             )
             for suffix in suffixes:
-                if not _script_alias_live(window[:suffix.start()], match.group(1)):
+                prefix = window[:suffix.start()]
+                # Do not infer binding identity across JS scopes or arrow bodies.
+                # The remaining straight-line hint is deliberately non-exhaustive.
+                if any(mark in prefix for mark in ("{", "}", "=>")):
+                    continue
+                if re.search(rf"\b(?:const|let|var)\s+{alias}\b|(?<![\w$.]){alias}(?![\w$])\s*=(?!=|>)", prefix):
                     continue
                 method = suffix.group(1) or suffix.group(2)
                 signature = (f"HTMLScriptElement.{method}(textNode)" if suffix.group(1)

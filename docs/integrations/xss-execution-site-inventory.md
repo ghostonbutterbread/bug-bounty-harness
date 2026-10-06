@@ -42,6 +42,8 @@ Ryu corrected the earlier category-count framing: enumerate **individual XSS exe
 
 - Approval review of `0753896` found two method-scanner regressions: empty `function render()` params raised a `TypeError` and `if(s)` was misread as an object method, hiding a valid script-alias site. Corrected empty-group handling and control-keyword exclusion; both fixtures plus empty object method now pass. Combined suite: 316 passed, `git diff --check` clean. No beta integration before a fresh approval.
 
+- Parallel review of `e704f14` found four further ordinary-JavaScript alias defects despite one approval: empty-parameter arrows could crash, `obj.s` was mistaken for local `s`, catch parameters could be mistaken for a script, and an inner block's script binding could leak outward. The growing regex mini-parser could not honestly model JavaScript binding. Replaced it with a deliberately conservative same-block, straight-line 240-character alias seed (no intervening braces/arrows/rebinding, no property receiver); complex scope crossings are now an explicit coverage limit rather than misleading alias evidence. Added four negative fixtures, retained direct same-block positive cases, and updated `docs/xss-sink-inventory.md`. Combined suite: 316 passed; `git diff --check` clean. Fresh review required before beta integration.
+
 ## Risks / deferred
 
 - Static signatures cannot prove an attacker-controlled source, CSP behavior, browser execution, or dynamic computed-property value. Bound regex complexity and output volume on minified bundles. Preserve source-map truncation indicators and original module provenance.

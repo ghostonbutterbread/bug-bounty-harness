@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 XSS = ROOT / "skills/xss/SKILL.md"
 SOURCE = ROOT / "skills/xss/references/source-acquisition.md"
+BLIND = ROOT / "skills/blind-xss/SKILL.md"
 
 
 def test_xss_router_has_one_cold_start_and_no_observation_quota() -> None:
@@ -39,3 +40,13 @@ def test_xss_record_and_proof_contract_has_one_owner() -> None:
     assert "tested context" in text
     assert "## Evidence Standard" not in text
     assert "Typical XSS pressure ladder" not in text
+
+
+def test_blind_lane_uses_the_same_confirmed_evidence_threshold() -> None:
+    router = XSS.read_text(encoding="utf-8")
+    blind = BLIND.read_text(encoding="utf-8")
+    for text in (router, blind):
+        assert "planted executable payload" in text
+        assert "bare collector hit" in text
+        assert "Confirmed" in text
+    assert "jumps straight to `Confirmed`" not in blind

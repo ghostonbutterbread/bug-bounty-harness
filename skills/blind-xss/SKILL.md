@@ -195,8 +195,9 @@ A blind payload does not resolve inside the run:
   and must not trigger the automatic pivot. The agent moves on to other
   hypotheses without retiring the lane.
 - Status on planting is **`Pending-OOB`** (owned by the `xss` router status
-  rules). On fire, the lane jumps straight to `Confirmed` - a callback from a
-  privileged view is browser-executed by definition.
+  rules). A correlated fire from the planted executable payload with origin
+  and page evidence becomes `Confirmed`; a bare collector hit or the image
+  variant's connection probe alone is not a reportable execution proof.
 - Register every planted payload in the retest queue with its correlation
   token, so a fire weeks later reaches a future agent.
 - End-of-run reporting must list planted-and-pending payloads with surfaces

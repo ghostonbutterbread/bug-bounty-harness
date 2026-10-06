@@ -48,7 +48,7 @@ BOUNTYLENS_URL=https://bountylens.com
 ## Required Rules
 
 1. Never print, paste, commit, summarize, or expose `BOUNTYLENS_API_KEY` or raw `~/.env` contents.
-2. Do not shell-source `~/.env`; use `scripts/bountylens_api.py`, which parses key/value lines without executing the file.
+2. Do not shell-source `~/.env`; use `bbh skills/bountylens/scripts/bountylens_api.py`, which parses key/value lines without executing the file.
 3. Treat BountyLens as an external system. Before writing any entry, finding, or report draft to BountyLens, check for PII, real secrets, cookies, tokens, private customer data, and accidental sensitive file contents.
 4. Use full URLs for endpoints in findings, leads, tested entries, and reports whenever the target has a known base URL.
 5. Do not delete sessions, entries, or reports unless Ryushe explicitly asks for deletion in the current task.
@@ -134,3 +134,10 @@ The process expects `BOUNTYLENS_API_KEY` and optionally `BOUNTYLENS_URL` in its 
 - A requested write would include secrets, cookies, tokens, private customer data, or unreviewed sensitive files.
 - A requested delete or `submitted` status change was not explicitly approved by Ryushe in the current task.
 - The API returns an ownership, subscription, authentication, or rate-limit error that changes the expected workflow.
+
+## Scripts map
+
+- [`scripts/README.md`](scripts/README.md) — the BountyLens API transport
+  helper, invocation, and write boundary.
+- For target facts and evidence rather than a specifically requested
+  BountyLens operation, continue to `/map-store` and the relevant local lane.

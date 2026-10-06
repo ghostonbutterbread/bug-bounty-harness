@@ -187,6 +187,36 @@ def test_root_index_links_every_skill_script_index() -> None:
     assert not missing, f"root script index missing child indexes: {missing}"
 
 
+def test_script_owners_link_their_indexes_and_cross_skill_routes_resolve() -> None:
+    for index_dir in [*script_dirs(), BOUNTY_TOOLS_SCRIPTS]:
+        owner = index_dir.parent / "SKILL.md"
+        text = owner.read_text(encoding="utf-8")
+        assert "## Scripts map\n" in text, f"{owner} lacks a script map"
+        map_text = text.split("## Scripts map\n", 1)[1]
+        assert "(scripts/README.md)" in map_text, f"{owner} does not link its index"
+
+    owners = [
+        *(path.parent / "SKILL.md" for path in script_dirs()),
+        BOUNTY_TOOLS_SCRIPTS.parent / "SKILL.md",
+        ROOT / "skills/bb-script-rules/SKILL.md",
+    ]
+    for markdown in [ROOT_INDEX, *owners]:
+        text = markdown.read_text(encoding="utf-8")
+        if markdown == ROOT_INDEX:
+            section = text.split("## Skill routes for cross-skill helpers\n", 1)[1]
+            section = section.split("\n## `bbh`", 1)[0]
+        else:
+            section = text.split("## Scripts map\n", 1)[1]
+        for target in re.findall(r"\]\(([^)#]+)(?:#[^)]*)?\)", section):
+            assert (markdown.parent / target).is_file(), f"{markdown}: broken map link {target}"
+
+    root_text = ROOT_INDEX.read_text(encoding="utf-8")
+    route_text = root_text.split("## Skill routes for cross-skill helpers\n", 1)[1].split("\n## `bbh`", 1)[0]
+    for script in script_files(ROOT / "scripts"):
+        name = script.name
+        assert f"`{name}`" in route_text, f"missing skill route for {name}"
+
+
 def test_bounty_tools_uses_category_indexes() -> None:
     assert BOUNTY_TOOLS_INDEX.is_file()
     root_text = ROOT_INDEX.read_text(encoding="utf-8")

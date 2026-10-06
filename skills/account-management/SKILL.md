@@ -201,3 +201,10 @@ bbh skills/account-management/scripts/account_inventory.py set-integration-profi
 Stop and ask Ryushe before recording real secrets, non-owned private data,
 personal account details outside the approved test identity, or destructive
 cleanup assumptions that are not explicit.
+
+## Scripts map
+
+- [`scripts/README.md`](scripts/README.md) — owned-account inventory and auth
+  resolver helpers, with invocation and mutation boundaries.
+- For browser profile leases and task auth, continue to `/chromium-test`; for
+  credential references, continue to `/bitwarden`.

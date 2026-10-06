@@ -35,6 +35,29 @@ checkout-local interpreter.
 - [Proxy Curl](../skills/proxy-curl/scripts/README.md)
 - [XSS](../skills/xss/scripts/README.md)
 
+## Skill routes for cross-skill helpers
+
+Select the owning skill for decisions and safety boundaries, then use the
+record below for the helper's interface. These routes do not make script output
+exhaustive or substitute for the selected specialist skill.
+
+- `bbh` / `bbh.py` → [BBH launcher guidance](../docs/bbh-launcher.md) for
+  lane-safe dispatch of any repository-owned helper.
+- `goal_router.py` → [`bug-goals`](../skills/bug-goals/SKILL.md) for explicit
+  `/goal` routing.
+- `preview_mcp.py` → [`bug-goals`](../skills/bug-goals/SKILL.md) for optional
+  external write-up retrieval during a goal run; use cited research only as
+  hypothesis input.
+- `program_init.py` → [`pullscope`](../skills/pullscope/SKILL.md) for program
+  scope acquisition before bootstrap and [`bounty-storage`](../skills/bounty-storage/SKILL.md)
+  for the resulting program layout.
+- `recon_bus.py` → [`recon`](../skills/recon/SKILL.md) for collection and
+  [`bounty-tools`](../skills/bounty-tools/SKILL.md) for tool-run ingest.
+- `research_map.py` → [`bug-goals`](../skills/bug-goals/SKILL.md) for
+  question-driven retrieval of portable mechanisms, not target facts.
+- `tool_run.py` → [`bounty-tools`](../skills/bounty-tools/SKILL.md) for
+  scoped external-tool execution and artifacts.
+
 ## `bbh`
 
 - **Purpose:** Portable executable shim that forwards to `bbh.py` using the

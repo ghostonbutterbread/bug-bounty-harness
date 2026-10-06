@@ -1,6 +1,6 @@
 # Proxy Store absent-flow integration dossier
 
-- **Status:** review-ready
+- **Status:** reviewed for beta integration
 - **Owner:** Hermes bugfix task `t_083f0962`
 - **Branch / owning ref:** `fix/proxy-store-absent-flow-20261006`
 - **Base commit:** `edd1865d12c5814fea3eeb57ffcf52f916ff2304`
@@ -18,7 +18,7 @@ On current beta, `index-lane` without `--flow-file` and without lane state creat
 
 - RED: new absent-path regression first failed at the real directory opening; second directory-path regression failed the same way against the first partial fix.
 - GREEN: `agents/test_proxy_store.py agents/test_mitm_lane.py` — 11 passed. Fresh scratch CLI with real installed mitmproxy returned `missing-flow-file` (exit 2), with no database created. `git diff --check` clean.
-- Independent review: pending.
+- Independent review: blocker-free at feature tip `be749840af2474422b7e6e207018cd2994557675`; reviewer reran 11 passing tests, checked isolated installed-mitmproxy CLI and wrapper missing-flow behavior, and found no privacy or contract issue.
 - Merge/ancestry: started at freshly fetched beta `edd1865d`; re-fetch/reconcile before integration.
 
 ## Blockers and deferred work
@@ -31,7 +31,7 @@ On current beta, `index-lane` without `--flow-file` and without lane state creat
 - **Owning feature branch/ref:** `fix/proxy-store-absent-flow-20261006`
 - **Latest immutable recovery checkpoint:** `8921bf5e018da51454c4affa232ff9fb4bb5aca2`
 - **Feature implementation commit(s):** `8921bf5e018da51454c4affa232ff9fb4bb5aca2`
-- **Exact resume point:** independent review, reconcile beta, integrate and verify.
+- **Exact resume point:** merge reviewed feature into current beta, remove temporary dossier, rerun focused checks, push and verify remote; verify Hoster activation separately.
 - **Working-tree state at handoff:** clean after dossier-only handoff commit.
 
 ## Decision gates
@@ -43,3 +43,4 @@ On current beta, `index-lane` without `--flow-file` and without lane state creat
 ## Decision record
 
 - 2026-10-06 — verified still affecting current beta; implemented bounded input correction.
+- 2026-10-06 — independent review approved beta integration; isolated Hoster activation remains deferred until the selected checkout contains this fix.

@@ -79,3 +79,10 @@ Stop before saving or replaying raw secrets, non-owned private data, unclear acc
 ## Evidence
 
 Record full URL, method, route template, source proxy lane, account alias/PwnFox color, sanitized headers/cookies/body fields, response class if known, artifact path, and confidence. Do not record reusable auth material.
+
+## Scripts map
+
+- [`scripts/README.md`](scripts/README.md) — the offline request-shape parser,
+  invocation, and coverage limits.
+- For auth-preserving replay of a selected request, continue to `/proxy-curl`;
+  for hidden-field discovery, continue to `/intelligent-fuzzing`.

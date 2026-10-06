@@ -47,3 +47,10 @@ Stop if the request would perform a destructive action, touch non-owned data, us
 ## Evidence
 
 Record only sanitized shape: method, full URL, non-secret header names in original order, body field names, mutation, result, and artifact path. Do not store raw cookies, bearer tokens, CSRF tokens, or product session headers.
+
+## Scripts map
+
+- [`scripts/README.md`](scripts/README.md) — raw-request-to-curl converter,
+  invocation, and replay-safety boundary.
+- For a durable sanitized request contract before mutation, continue to
+  `/analyze-endpoint`; for deliberate field mutation, use `/request-exploration`.

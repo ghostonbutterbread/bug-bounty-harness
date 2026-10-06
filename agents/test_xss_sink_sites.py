@@ -147,6 +147,38 @@ def test_jquery_constructor_candidates_do_not_lose_html_to_dom_wrappers():
     assert [site["signature"] for site in scan["hits"]] == ["jQuery.constructor(candidate)"]
     assert scan["truncated"] is False
 
+def test_precompiled_handlebars_raw_interpolation_is_a_candidate_without_framework_name():
+    snippet = ('var x=e.template({0:function(e,t,r,n,o){var a,i=e.lambda,l=e.lookupProperty;'
+               'return "<span>"+(null!=(a=i(null!=t?l(t,"name"):t,t))?a:"")+"</span>"}});'
+               '$(el).html(x(t));')
+    sites = scan_sink_sites(snippet)["hits"]
+    raw = [s for s in sites if s["signature"] == "Handlebars.compiledRawInterpolation(candidate)"]
+    assert len(raw) == 1
+    assert raw[0]["tier"] == "candidate"
+    assert snippet[raw[0]["start"]:raw[0]["end"]].startswith('+(null!=(a=i(')
+    assert "framework_template_candidate" in J.extract_signals(snippet, "https://app.example/app.js")["sinks"]
+    assert "jQuery.html" in {s["signature"] for s in sites}
+
+def test_precompiled_handlebars_escaped_and_partial_output_are_not_raw_field_candidates():
+    snippet = ('var x=e.template({0:function(e,t,r,n,o){var a,i=e.lambda,s=e.escapeExpression,l=e.lookupProperty;'
+               'return "<span>"+s(i(null!=t?l(t,"name"):t,t))+'
+               '(null!=(a=e.invokePartial(l(n,"part"),t,{name:"part"}))?a:"")+"</span>"}});')
+    assert not any(s["signature"] == "Handlebars.compiledRawInterpolation(candidate)"
+                   for s in scan_sink_sites(snippet)["hits"])
+    assert "framework_template_candidate" not in J.extract_signals(snippet, "https://app.example/app.js")["sinks"]
+
+def test_raw_ternary_without_compiled_template_context_is_not_labeled_handlebars():
+    snippet = 'el.innerHTML = "<span>"+(null!=(a=getValue(user))?a:"")+"</span>";'
+    assert not any(s["signature"] == "Handlebars.compiledRawInterpolation(candidate)"
+                   for s in scan_sink_sites(snippet)["hits"])
+
+def test_compiled_raw_candidate_cap_reports_actual_overflow():
+    prefix = 'x.template({0:function(x,t){var a,l=x.lookupProperty;return "<p>"+'
+    raw = '(null!=(a=l(t,"name"))?a:"")'
+    exactly_two = prefix + '+'.join([raw] * 2) + '}});'
+    assert scan_sink_sites(exactly_two + 'const unrelated = null;', per_rule=2)["truncated"] is False
+    assert scan_sink_sites(prefix + '+'.join([raw] * 3) + '}});', per_rule=2)["truncated"] is True
+
 
 def test_script_alias_stops_at_rebinding():
     shadowed = 'const s = document.createElement("script"); { const s = document.createElement("div"); s.textContent = user; }'

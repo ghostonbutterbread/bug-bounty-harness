@@ -167,6 +167,42 @@ def _sites() -> tuple[SiteRule, ...]:
 
 SITE_RULES = _sites()
 _SCRIPT_CREATE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*document\s*\.\s*createElement\s*\(\s*['\"]script['\"]\s*\)\s*;")
+_RAW_INTERPOLATION_HEAD = re.compile(r"\+\s*\(\s*null\s*!=\s*\(\s*([A-Za-z_$][\w$]*)\s*=")
+
+def _compiled_raw_interpolations(text: str, per_rule: int) -> tuple[list[dict], bool]:
+    """Bounded Handlebars precompile hint, not proof of a controlled HTML value."""
+    if "template({" not in text or "lookupProperty" not in text:
+        return [], False
+    hits: list[dict] = []
+    position = 0
+    windows = 0
+    while (position := text.find("null", position)) != -1:
+        windows += 1
+        if windows > 10_000:
+            return hits, True
+        start = max(0, position - 8)
+        head = _RAW_INTERPOLATION_HEAD.search(text[start:position + 80])
+        position += 4
+        if not head or start + head.start() > position - 4:
+            continue
+        begin = start + head.start()
+        alias = head.group(1)
+        suffix = re.search(r"\)\s*\?\s*" + re.escape(alias) + r"\s*:\s*(['\"])\1\s*\)", text[position:position + 500])
+        if not suffix:
+            continue
+        end = position + suffix.end()
+        expression = text[start + head.end():position + suffix.start()]
+        if "invokePartial" in expression or ".call(" in expression:
+            continue
+        context = text[max(0, begin - 8_000):begin]
+        if "template({" not in context or "lookupProperty" not in context:
+            continue
+        hits.append({"signature": "Handlebars.compiledRawInterpolation(candidate)",
+                     "family": "framework_template_candidate", "tier": "candidate",
+                     "start": begin, "end": end})
+        if len(hits) > per_rule:
+            return hits[:per_rule], True
+    return hits, False
 
 
 def scan_sink_sites(text: str, *, max_hits: int = 200, per_rule: int = 8) -> dict:
@@ -210,6 +246,9 @@ def scan_sink_sites(text: str, *, max_hits: int = 200, per_rule: int = 8) -> dic
                 break
         if len(seen) > per_rule:
             del hits[-(len(seen) - per_rule):]
+    raw_sites, raw_truncated = _compiled_raw_interpolations(text, per_rule)
+    hits.extend(raw_sites)
+    truncated |= raw_truncated
     # Follow a literal script-element alias only inside a small window; a generic
     # appendChild/textContent call is not a script-content execution site.
     if "createElement" in text and "script" in text:

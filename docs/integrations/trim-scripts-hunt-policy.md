@@ -3,7 +3,7 @@
 - Status: review-ready
 - Owner: Hermes Agent; branch: `docs/trim-scripts-hunt-policy`
 - Base: `28c8a27e205c5525ae6654db44d5618f01c95753`; target: `beta`
-- Implementation checkpoint: pending commit
+- Implementation checkpoint: `22a32abb3642a1b1c1c73a9b6d1d7a2d24601a03`
 
 ## Intent and contract
 
@@ -17,6 +17,6 @@ Ryu requested less policy prose. Reduce `skills/scripts/SKILL.md` to its trigger
 
 ## Handoff and gates
 
-- Branch: `docs/trim-scripts-hunt-policy`; checkpoint: pending commit; worktree includes the task edits before initial commit.
-- Resume: commit, independent review, merge beta with this temporary dossier retired, push beta, verify already-linked runtime skill content.
+- Branch: `docs/trim-scripts-hunt-policy`; checkpoint: `22a32abb3642a1b1c1c73a9b6d1d7a2d24601a03`; worktree clean after dossier checkpoint.
+- Resume: independent review, merge beta with this temporary dossier retired, push beta, verify already-linked runtime skill content.
 - Activation: update clean Hoster beta source only after reviewed publication; existing sessions retain loaded text. No main promotion.

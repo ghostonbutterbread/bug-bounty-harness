@@ -1,6 +1,6 @@
 # JavaScript inline inventory integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes / t_f05c3e08
 - **Branch:** `feat/js-inline-inventory`
 - **Base commit:** `b89b944821cc005708af7bd351c64dcf6e141056`
@@ -22,7 +22,7 @@ Close a deterministic JS acquisition miss: fetched HTML page scripts without a f
 ## Evidence and review
 
 - Tests and commands: test-first failures for inline page flow, extensionless source, three first-review defects, and two second-review defects; checkout-local `.venv/bin/python -m pytest agents/test_js_analyzer.py agents/test_xss_sink_sites.py -q` -> 316 passed after second beta reconciliation; `git diff --check` clean.
-- Independent review: first review requested three fixes (out-of-scope page, extensionless `--input`, synthetic provenance); second review verified those and identified redirect-following and limit bypass. Both patched with regressions; final review pending.
+- Independent review: first review requested three fixes (out-of-scope page, extensionless `--input`, synthetic provenance); second review verified those and identified redirect-following and limit bypass. Final reviewer reran 316 tests, verified a local redirect fixture, extensionless input, combined limit and provenance, and found no implementation blocker. A stale dossier handoff line was corrected before integration.
 - Replay/cohort/fixture evidence: local mocked HTML/JS inputs only; no live target.
 - Merge/ancestry evidence: branch starts at fetched `origin/beta` `b89b944`; merged `30482cb` at `97a254d`, then `60845f1` at `2ec3640`. No intervening JS-owner edits in the second merge; focused checks passed.
 
@@ -39,8 +39,8 @@ Close a deterministic JS acquisition miss: fetched HTML page scripts without a f
 - **Owning feature branch/ref:** `feat/js-inline-inventory`
 - **Latest immutable recovery checkpoint:** `2ec3640` (second-review repair and beta reconciliation)
 - **Feature implementation commit(s):** `777109d`, `5f24b14`, `9e032e0`
-- **Exact resume point:** final independent re-review of reconciled tip, then beta integration if approved.
-- **Working-tree state at handoff:** dossier-only update pending commit; implementation tree clean.
+- **Exact resume point:** merge this reviewed feature into a clean, current beta integration checkout, remove this temporary dossier from beta, rerun focused checks, and verify the remote ref if pushed.
+- **Working-tree state at handoff:** clean implementation checkpoint `ce61a7a`; final decision-record edit committed separately.
 
 ## Decision gates
 
@@ -55,3 +55,4 @@ Close a deterministic JS acquisition miss: fetched HTML page scripts without a f
 - 2026-10-06 — committed repair `5f24b14`, merged beta `30482cb` via `97a254d`, and passed 313 focused tests.
 - 2026-10-06 — second review found redirect-following scope bypass and `--limit` bypass; repaired with tests (316 passed); beta advanced to `60845f1`.
 - 2026-10-06 — committed second repair `9e032e0`, merged beta `60845f1` via `2ec3640`, and passed 316 focused tests.
+- 2026-10-06 — final independent reviewer passed the implementation gate with 316 tests and local redirect check; corrected stale dossier handoff line. Accept beta integration of this bounded feature; external tool integrations remain separate deferred work.

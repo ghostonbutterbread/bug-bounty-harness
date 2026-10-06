@@ -69,20 +69,13 @@ Use `/js` for deterministic JavaScript inventory and agent-led deep review.
    Route a complete exposed username/password pair with in-scope provenance to
    `/credential-exposure-validation`; do not turn it into a wordlist candidate.
 
-## Deterministic Script Boundary
+## JavaScript Inventory Mechanics
 
-Use scripts for facts they can determine mechanically: collection, hashing,
-deduplication, parsing known syntax, bounded regex seed extraction, chunking,
-and artifact indexing. Hardcoded source/sink/framework/route/key patterns are
-versioned starting points, not a model of every technology or application.
-Their hits prioritize review; their misses never prove absence, completion, or
-that a bundle was fully searched. Give ambiguous code comprehension, unfamiliar
-framework behavior, dynamic construction, semantic dataflow, and technology-
-specific interpretation to agents reading the actual bounded source. Agent
-review extends the deterministic inventory instead of being constrained by it.
-While a longer inventory runs, inspect stack-specific source-to-sink flows and
-render paths in the actual program that known patterns may miss; compare those
-observations with the script's results when it finishes.
+`agents/js_analyzer.py inventory` collects, hashes, deduplicates, parses known
+syntax, extracts bounded regex seeds, chunks source, and indexes artifacts.
+Review candidate flows in the bounded source with page context, including
+framework behavior, dynamic construction, and semantic dataflow. For script-run
+coverage judgment, load `/scripts`.
 
 ## Analysis Lenses
 

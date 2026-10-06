@@ -1,12 +1,12 @@
 # XSS execution-site inventory
 
-- **Status:** implemented; beta reconciliation and independent review pending
+- **Status:** review-ready after reconciliation with fetched beta
 - **Owner:** Hermes
 - **Branch:** `feat/xss-execution-site-inventory`
 - **Base:** `28c8a27e205c5525ae6654db44d5618f01c95753` (`origin/beta`)
 - **Target:** `beta`
 - **Worktree:** `/home/ryushe/projects/bug_bounty_harness/xss-execution-site-inventory`
-- **Recovery checkpoint:** pending first implementation commit
+- **Recovery checkpoint:** `3907b41e733995423d3572f3b2ed9c9a7413936c` (implementation), reconciled merge `2dec820`
 
 ## Intent and boundary
 
@@ -26,7 +26,7 @@ Ryu corrected the earlier category-count framing: enumerate **individual XSS exe
 - Read-only research compared PortSwigger Academy and DOM Invader scenarios with CodeQL, Dalfox, XSStrike, Semgrep and framework documentation. Academy's 7 browser and 20 jQuery entries and DOM Invader's 77 scenarios are not distinct execution-sink counts. PortSwigger `document.domain` is context, not execution. `docs/xss-sink-inventory.md` records source links, candidate tiers and omissions.
 - Implemented `agents/xss_sink_sites.py` with 218 named, bounded signature rules (108 event spellings), plus script-alias cases. `agents/js_analyzer.py inventory` retains `sinks` and adds `sink_sites` with signature/family/tier/character offsets, explicit truncation, metadata/manifest totals, and packetized embedded-source-map hits. It does not scan server templates or skipped modules; no target traffic was sent for this feature.
 - `.venv/bin/python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py tests/test_script_policy.py -q`: 306 passed. `git diff --check`: clean. Offline inventory and source-map module packet fixtures assert persisted offsets and packet routing; positives and negatives cover receivers, getters, assignments, URL/event/HTML paths.
-- `origin/beta` advanced to `140c096` during implementation (12 commits beyond feature base). Reconcile before independent review. No feature commit, beta merge, publication, or Hoster activation yet.
+- `origin/beta` advanced to `140c096` during implementation (12 commits beyond feature base); merged it into this feature at `2dec820`. Reconciled `.venv/bin/python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py tests/test_script_policy.py -q`: 306 passed; `git diff --check`: clean. Implementation checkpoint `3907b41`. Independent review, beta merge, publication and Hoster activation pending.
 
 ## Risks / deferred
 

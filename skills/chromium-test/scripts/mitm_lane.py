@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import signal
 import socket
 import subprocess
@@ -221,35 +222,36 @@ def replay_flows(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def index_store(args: argparse.Namespace) -> dict[str, Any]:
-    import importlib.util
-
     script = Path(__file__).resolve().parent / "proxy_store.py"
-    spec = importlib.util.spec_from_file_location("proxy_store", script)
-    if not spec or not spec.loader:
+    if not script.is_file():
         return {"status": "missing-proxy-store", "script": str(script)}
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    store_args = argparse.Namespace(
-        db=args.db,
-        lane=args.lane,
-        lane_root=args.root,
-        flow_file=args.flow_file,
-        program=args.program,
-        task=args.task,
-        run_id=getattr(args, "run_id", None),
-        agent_id=getattr(args, "agent_id", None),
-        account_label=getattr(args, "account_label", None),
-        runtime_host=getattr(args, "runtime_host", None),
-        proxy_host=getattr(args, "proxy_host", None),
-        proxy_port=getattr(args, "proxy_port", None),
-        proxy_server=getattr(args, "proxy_server", None),
-        transport=getattr(args, "transport", None),
-        browser_profile_id=getattr(args, "browser_profile_id", None),
-        session_source=getattr(args, "session_source", None),
-        note=args.note,
-        store_full_requests=args.store_full_requests,
-    )
-    return module.index_lane(store_args)
+    executable = shutil.which(args.mitmdump)
+    if not executable:
+        return {"status": "mitmdump-interpreter-unavailable"}
+    shebang = Path(executable).resolve().open("rb").readline().decode("utf-8", errors="replace").strip()
+    python = shebang[2:] if shebang.startswith("#!/") else ""
+    if not Path(python).is_file():
+        return {"status": "mitmdump-interpreter-unavailable"}
+    command = [python, str(script), "--json", "--db", args.db,
+               "index-lane", "--lane", args.lane, "--lane-root", args.root]
+    for name in ("flow_file", "program", "task", "run_id", "agent_id",
+                 "account_label", "runtime_host", "proxy_host", "proxy_port",
+                 "proxy_server", "transport", "browser_profile_id", "session_source", "note"):
+        value = getattr(args, name, None)
+        if value is not None:
+            command.extend(("--" + name.replace("_", "-"), str(value)))
+    if not args.store_full_requests:
+        command.append("--no-full-requests")
+    result = subprocess.run(command, capture_output=True, text=True, env=mitm_env(), check=False)
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        payload = None
+    if result.returncode:
+        if isinstance(payload, dict) and payload.get("status") == "missing-flow-file":
+            return payload
+        return {"status": "index-failed", "returncode": result.returncode}
+    return payload if isinstance(payload, dict) else {"status": "index-failed", "detail": "proxy store returned no JSON"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -325,7 +327,7 @@ def main() -> int:
         for key in ("proxy_server", "ca_cert", "flow_file", "log_file", "pid"):
             if result.get(key) is not None:
                 print(f"{key}: {result[key]}")
-    return 0 if result.get("status") not in {"port-unavailable", "missing-flow-file", "replay-failed"} else 2
+    return 0 if result.get("status") not in {"port-unavailable", "missing-flow-file", "replay-failed", "mitmdump-interpreter-unavailable", "index-failed"} else 2
 
 
 if __name__ == "__main__":

@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-06
 - **Owning feature branch/ref:** `docs/scripts-hunt-policy`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `2061f033aa8e6a46182d99e042a1128fdb2f7751`
+- **Feature implementation commit(s):** `2061f033aa8e6a46182d99e042a1128fdb2f7751`
 - **Inspiration:** Ryu's request for one BBH `/scripts` policy loaded when vulnerability hunters run scripts, rather than duplicated specialist-only wording or Script Manager obligations.
 
 ## Intent and contract
@@ -28,10 +28,10 @@
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/scripts-hunt-policy`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit tested feature, obtain independent review, then integrate to `beta` and activate linked skill.
-- **Working-tree state at handoff:** intentionally uncommitted implementation in task worktree before first checkpoint.
+- **Latest immutable recovery checkpoint:** `2061f033aa8e6a46182d99e042a1128fdb2f7751`
+- **Feature implementation commit(s):** `2061f033aa8e6a46182d99e042a1128fdb2f7751`
+- **Exact resume point:** obtain independent review, then integrate to `beta` and activate linked skill.
+- **Working-tree state at handoff:** clean after dossier checkpoint commit.
 
 ## Decision gates
 
@@ -41,4 +41,4 @@
 
 ## Decision record
 
-- 2026-10-06 — opened task-owned feature from fetched beta; owner proposed as `skills/scripts/SKILL.md`; focused tests passed; wider baseline failures recorded.
+- 2026-10-06 — implementation checkpoint `2061f033`; focused tests passed; wider baseline failures recorded; requested independent review.

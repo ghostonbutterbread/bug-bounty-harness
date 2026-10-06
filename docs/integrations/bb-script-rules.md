@@ -3,7 +3,7 @@
 - Status: review-ready
 - Owner: Hermes Agent; branch: `docs/bb-script-rules`
 - Base: `8bad30736c553c13791be07588d38afe96eafa3a`; target: `beta`
-- Implementation checkpoint: pending commit
+- Implementation checkpoint: `d93d020b3ad4cd9b0b751ed879dfc4c8e6d562fb`
 
 ## Intent
 
@@ -17,6 +17,6 @@ Rename the BBH hunt-script interpretation skill from `/scripts` to `/bb-script-r
 
 ## Handoff and gates
 
-- Branch: `docs/bb-script-rules`; checkpoint pending; task worktree has scoped edits before initial commit.
-- Resume: commit, review, merge beta with this dossier retired, publish, update clean Hoster source, then profile-sync new name and inspect safe removal of managed old links. If a full-profile plan includes unrelated changes, do not apply it blindly.
+- Branch: `docs/bb-script-rules`; checkpoint `d93d020b3ad4cd9b0b751ed879dfc4c8e6d562fb`; worktree clean after dossier checkpoint.
+- Resume: review, merge beta with this dossier retired, publish, update clean Hoster source, then profile-sync new name and inspect safe removal of managed old links. If a full-profile plan includes unrelated changes, do not apply it blindly.
 - No main promotion; already-running agents may retain previously loaded instructions.

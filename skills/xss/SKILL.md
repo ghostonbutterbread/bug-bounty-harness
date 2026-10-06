@@ -109,10 +109,11 @@ server constraint. For prioritization, sanitizer configuration, an existing
 impact amplifier, and the condition to rerun a sink census, load
 `references/source-acquisition.md` when those questions arise.
 
-Load `/scripts` when running a sink census. XSS-specific render consumers to
-inspect in the observed stack include raw-HTML helpers, URL navigation, legacy
-bundles, microfrontends, and bootstrap data. Track unexamined source-to-sink
-paths instead of treating the ranked sink list as coverage.
+Load `/bb-script-rules` when running a sink census. XSS-specific render
+consumers to inspect in the observed stack include raw-HTML helpers, URL
+navigation, legacy bundles, microfrontends, and bootstrap data. Track
+unexamined source-to-sink paths instead of treating the ranked sink list as
+coverage.
 
 ## Discovery tools, when they answer the next question
 

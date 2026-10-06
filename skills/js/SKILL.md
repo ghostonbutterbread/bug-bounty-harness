@@ -75,7 +75,7 @@ Use `/js` for deterministic JavaScript inventory and agent-led deep review.
 syntax, extracts bounded regex seeds, chunks source, and indexes artifacts.
 Review candidate flows in the bounded source with page context, including
 framework behavior, dynamic construction, and semantic dataflow. For script-run
-coverage judgment, load `/scripts`.
+coverage judgment, load `/bb-script-rules`.
 
 ## Analysis Lenses
 

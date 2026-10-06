@@ -336,6 +336,11 @@ def _candidates_for_file(
     structured = _load_markdown_findings(program, hunt_type, report_paths=[source_path])
     heading_blocks = re.split(r"(?m)^##\s+\[", raw_text)[1:]
     explicit_headings: list[str] = []
+    if heading_blocks and len(heading_blocks) != len(structured):
+        raise ReviewTierDecisionRequired(
+            "Structured Review Tier heading count does not match parsed findings; "
+            "check each heading before importing."
+        )
     if len(heading_blocks) == len(structured):
         for block in heading_blocks:
             heading = re.match(r"(CONFIRMED|DORMANT_ACTIVE|DORMANT_HYPOTHETICAL)\]\s+\S", block)

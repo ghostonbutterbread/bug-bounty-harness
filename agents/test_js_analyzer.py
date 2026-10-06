@@ -85,6 +85,10 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
         ("new DOMParser().parseFromString(value, 'text/html')", "html_parse"),
         ("iframe.srcdoc = value", "iframe_srcdoc"),
         ("iframe.setAttribute('srcdoc', value)", "iframe_srcdoc"),
+        ("iframe.attributes.srcdoc.nodeValue = value", "iframe_srcdoc"),
+        ("iframe.attributes['srcdoc'].textContent = value", "iframe_srcdoc"),
+        ("document['write'](value)", "dom_write"),
+        ("el['insertAdjacentHTML']('beforeend', value)", "dom_write"),
         ("el.setAttribute('onerror', value)", "event_handler"),
         ("el.setAttributeNS(null, 'onload', value)", "event_handler"),
         ("el.onclick = value", "event_handler"),
@@ -93,10 +97,16 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
         ("jQuery.parseHTML(value)", "jquery_parse"),
         ("$.parseHTML(value)", "jquery_parse"),
         ("jQuery(location.hash)", "jquery_selector_candidate"),
+        ("const html = location.hash.slice(1); $(html)", "jquery_selector_candidate"),
+        ("const $out = $('#out'); $out.html(input)", "jquery_alias_candidate"),
         ("$(el).attr('href', value)", "jquery_attribute"),
         ("$(el).prop('action', value)", "jquery_attribute"),
         ("$(el).find('.x').attr('href', value)", "jquery_attribute"),
         ("$(el).wrap(value)", "jquery_html"),
+        ("$(el).appendTo(target)", "jquery_html"),
+        ("jQuery(el).prependTo(target)", "jquery_html"),
+        ("$(el).prop('innerHTML', value)", "jquery_html_property"),
+        ("jQuery(el).prop('outerHTML', value)", "jquery_html_property"),
         ("$(el).find('.target').append(value)", "jquery_html"),
         ("angular.element(el).html(value)", "jquery_html"),
         ("$(el).animate(value)", "jquery_legacy_candidate"),
@@ -109,6 +119,16 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
         ("<div [innerHTML]=\"value\" />", "framework_raw_html"),
         ("{@html value}", "framework_raw_html"),
         ("unsafeHTML(value)", "framework_raw_html"),
+        ("unsafeSVG(value)", "framework_raw_html"),
+        ("renderer.setProperty(host, 'innerHTML', value)", "framework_raw_html"),
+        ("Vue.createApp({template: userTemplate}).mount('#app')", "framework_template_candidate"),
+        ("Vue.compile(userTemplate)", "framework_template_candidate"),
+        ('Vue.createApp({template: "<div>" + userTemplate + "</div>"}).mount("#app")', "framework_template_candidate"),
+        ("Vue.compile(`<div>${userTemplate}</div>`)", "framework_template_candidate"),
+        ("Vue.createApp({template: `<div>` + userTemplate + `</div>`})", "framework_template_candidate"),
+        ("Vue.compile(/* dynamic */ userTemplate)", "framework_template_candidate"),
+        ("$sce.trustAsJs(value)", "framework_trust_bypass"),
+        ("createNodesFromMarkup(value, callback)", "html_parse"),
         ("sanitizer.bypassSecurityTrustResourceUrl(value)", "framework_trust_bypass"),
         ("$sce.trustAsHtml(value)", "framework_trust_bypass"),
         ("new Handlebars.SafeString(value)", "framework_trust_bypass"),
@@ -116,6 +136,14 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
         ("policy.createHTML(value)", "trusted_types_policy_candidate"),
         ("document.createElement('script')", "script_create"),
         ("script.src = value", "script_content"),
+        ("script['textContent'] = value", "script_content"),
+        ("script.innerHTML = value", "script_content"),
+        ("jQuery.getScript(url)", "script_import"),
+        ("$.getScript(url)", "script_import"),
+        ("$.ajax({url: userUrl, dataType: 'script'})", "script_import_candidate"),
+        ("const n = document.createElement('script'); n.textContent = code; document.head.appendChild(n)", "script_alias_candidate"),
+        ("const $s = document.createElement('script'); $s.textContent = code;", "script_alias_candidate"),
+        ("const s = document.createElement('script'); s.appendChild(document.createTextNode(input)); document.head.appendChild(s)", "script_alias_candidate"),
         ("importScripts(value)", "script_import"),
         ("import(moduleName)", "script_import"),
         ("a.href = value", "url_attribute"),
@@ -123,6 +151,8 @@ def test_extract_signals_finds_endpoints_params_and_sinks():
         ("location.replace(value)", "navigation"),
         ("location.href = value", "navigation"),
         ("document.location = value", "navigation"),
+        ("window['location']['href'] = value", "navigation"),
+        ("location['href'] = value", "navigation"),
         ("window.open(value)", "navigation"),
         ("open(value)", "unqualified_open_candidate"),
         ("object.data = value", "url_attribute"),
@@ -148,16 +178,41 @@ def test_xss_sink_inventory_recognizes_distinct_families(snippet: str, bucket: s
         ("document.createElement('div')", "script_create"),
         ("element.addEventListener('click', callback)", "event_handler"),
         ("logger.write(value)", "dom_write"),
+        ("logger['write'](value)", "dom_write"),
+        ("img.attributes.alt.nodeValue = value", "iframe_srcdoc"),
+        ("iframe.attributes.srcdoc.nodeValue === expected", "iframe_srcdoc"),
+        ("el['insertAdjacentText']('beforeend', value)", "dom_write"),
+        ("renderer.setProperty(host, 'textContent', value)", "framework_raw_html"),
+        ("Vue.createApp({template: '<p>Fixed</p>'})", "framework_template_candidate"),
+        ("Vue.compile('<p>Fixed</p>')", "framework_template_candidate"),
+        ("Vue.compile(/* static */ '<p>Fixed</p>')", "framework_template_candidate"),
+        ("Vue.createApp({template: /* static */ '<p>Fixed</p>'})", "framework_template_candidate"),
+        ("Vue.compile()", "framework_template_candidate"),
+        ("Vue.createApp({template: null})", "framework_template_candidate"),
+        ("$sce.getTrustedJs(value)", "framework_trust_bypass"),
+        ("createNodesFromMarkup('<b>Fixed</b>', callback)", "html_parse"),
+        ("$.ajax({url: userUrl, dataType: 'json'})", "script_import_candidate"),
+        ("const n = document.createElement('div'); n.textContent = code; document.body.appendChild(n)", "script_alias_candidate"),
         ("element.insertAdjacentText('beforeend', value)", "dom_write"),
         ("element.append(value)", "jquery_html"),
         ("element.before(value)", "jquery_html"),
         ("element.wrap(value)", "jquery_html"),
         ("$(el).html()", "jquery_html"),
         ("$(el).html( )", "jquery_html"),
+        ("const html = location.hash.slice(1); $('#results')", "jquery_selector_candidate"),
+        ("const $out = $('#out'); $out.text(input)", "jquery_alias_candidate"),
+        ("const $out = $('#out'); $out.html()", "jquery_alias_candidate"),
+        ("const out = 3; out.html(input)", "jquery_alias_candidate"),
         ("angular.element(el).html()", "jquery_html"),
         ("$(el).attr('href')", "jquery_attribute"),
         ("$(el).prop('action')", "jquery_attribute"),
         ("node.attr('href', value)", "jquery_attribute"),
+        ("$(el).prop('innerHTML')", "jquery_html_property"),
+        ("node.prop('innerHTML', value)", "jquery_html_property"),
+        ('$(el).attr("innerHTML", value)', "jquery_html_property"),
+        ("nativeNode.appendTo(target)", "jquery_html"),
+        ("logger.getScript(url)", "script_import"),
+        ("script['textContent'] === expected", "script_content"),
         ("setTimeout(() => render(), 1)", "string_timer_candidate"),
         ("setInterval(function tick() {}, 1)", "string_timer_candidate"),
         ("element.innerHTML == value", "dom_write"),
@@ -173,6 +228,8 @@ def test_xss_sink_inventory_recognizes_distinct_families(snippet: str, bucket: s
         ("element.href === nextUrl", "url_attribute"),
         ("object.data === nextUrl", "url_attribute"),
         ("location.href === nextUrl", "navigation"),
+        ("window['location']['href'] === nextUrl", "navigation"),
+        ("location['href'] === nextUrl", "navigation"),
         ("element.innerHTML.length", "dom_write"),
     ],
 )
@@ -186,10 +243,27 @@ def test_xss_sink_inventory_safe_unrelated_methods_emit_no_sink_buckets():
     node.prepend(value);
     node.before(value);
     $(el).html();
+    const html = location.hash.slice(1); $('#results');
+    const $out = $('#out'); $out.text(input);
+    const other = 3; other.html(input);
     angular.element(el).html();
     $(el).attr('href');
     $(el).prop('action');
     node.attr('href', value);
+    $(el).prop('innerHTML');
+    node.prop('innerHTML', value);
+    $(el).attr('innerHTML', value);
+    nativeNode.appendTo(target);
+    logger.getScript(url);
+    logger['write'](value);
+    img.attributes.alt.nodeValue = value;
+    if (iframe.attributes.srcdoc.nodeValue === expected) {}
+    renderer.setProperty(host, 'textContent', value);
+    Vue.createApp({template: '<p>Fixed</p>'});
+    Vue.compile('<p>Fixed</p>');
+    createNodesFromMarkup('<b>Fixed</b>', callback);
+    $.ajax({url: userUrl, dataType: 'json'});
+    if (script['textContent'] === expected) {}
     items.index(value);
     Set.add(value);
     graph.data = rows;

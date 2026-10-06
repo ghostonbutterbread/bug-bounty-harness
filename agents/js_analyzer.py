@@ -84,20 +84,32 @@ _DOM_EVENT_NAME = (
     r"popstate|reset|resize|scroll|submit|touch(?:start|end|move|cancel)|"
     r"transition(?:end|start|cancel|run)|toggle|unload|wheel)"
 )
+_JQUERY_CHAIN = (
+    r"(?:\$|\bjQuery|\bangular\.element)\s*\([^)]{0,120}\)"
+    r"(?:\s*\.\s*[\w$]+\s*\([^)]{0,120}\)){0,2}\s*\.\s*"
+)
 SINK_KEYWORDS = {
     "dom_write": re.compile(
         r"(?:\.\s*(?:innerHTML|outerHTML)\s*(?:\+=|=(?!=|>))|"
         r"\[\s*['\"](?:innerHTML|outerHTML)['\"]\s*\]\s*(?:\+=|=(?!=|>))|"
         r"\.\s*insertAdjacentHTML\s*\(|"
-        r"\bdocument\s*\.\s*(?:write|writeln)\s*\()"
+        r"\[\s*['\"]insertAdjacentHTML['\"]\s*\]\s*\(|"
+        r"\bdocument\s*\.\s*(?:write|writeln)\s*\(|"
+        r"\bdocument\s*\[\s*['\"](?:write|writeln)['\"]\s*\]\s*\()"
     ),
     "html_parse": re.compile(
         r"\b(?:DOMParser\s*\(\s*\)\s*\.|[\w$]+\s*\.)parseFromString\s*\(|"
         r"\b(?:document|Document)\.parseHTMLUnsafe\s*\(|"
         r"\.\s*(?:createContextualFragment|setHTMLUnsafe)\s*\(|"
-        r"\.\s*execCommand\s*\(\s*['\"]insertHTML['\"]"
+        r"\.\s*execCommand\s*\(\s*['\"]insertHTML['\"]|"
+        r"\bcreateNodesFromMarkup\s*\(\s*(?=[^\s'\"`)])"
     ),
-    "iframe_srcdoc": re.compile(r"\.\s*srcdoc\s*=(?!=|>)|\[\s*['\"]srcdoc['\"]\s*\]\s*=(?!=|>)|\.\s*setAttribute\s*\(\s*['\"]srcdoc['\"]"),
+    "iframe_srcdoc": re.compile(
+        r"\.\s*srcdoc\s*=(?!=|>)|\[\s*['\"]srcdoc['\"]\s*\]\s*=(?!=|>)|"
+        r"\.\s*setAttribute\s*\(\s*['\"]srcdoc['\"]|"
+        r"\b(?:iframe|frame)\s*\.\s*attributes\s*(?:\.\s*srcdoc|\[\s*['\"]srcdoc['\"]\s*\])"
+        r"\s*\.\s*(?:nodeValue|value|textContent)\s*=(?!=|>)"
+    ),
     "event_handler": re.compile(
         rf"\.\s*on{_DOM_EVENT_NAME}\s*=(?!=|>)|"
         rf"\.\s*setAttribute\s*\(\s*['\"]on{_DOM_EVENT_NAME}['\"]|"
@@ -110,36 +122,65 @@ SINK_KEYWORDS = {
     ),
     "jquery_html": re.compile(
         r"(?:\$|jQuery)\s*\(\s*['\"`]\s*<|"
-        r"(?:\$|\bjQuery|\bangular\.element)\s*\([^)]{0,120}\)"
-        r"(?:\s*\.\s*[\w$]+\s*\([^)]{0,120}\)){0,2}\s*\.\s*"
-        r"(?:html|append|prepend|after|before|replaceWith|replaceAll|"
-        r"insertAfter|insertBefore|wrap|wrapAll|wrapInner|add)\s*\(\s*(?=[^\s)])"
+        + _JQUERY_CHAIN
+        + r"(?:html|append|prepend|after|before|replaceWith|replaceAll|"
+        r"insertAfter|insertBefore|appendTo|prependTo|wrap|wrapAll|wrapInner|add)\s*\(\s*(?=[^\s)])"
+    ),
+    "jquery_html_property": re.compile(
+        _JQUERY_CHAIN + r"(?:prop|attr)\s*\(\s*['\"](?:innerHTML|outerHTML)['\"]\s*,",
+        re.I,
     ),
     "jquery_parse": re.compile(r"(?:\bjQuery|\$)\.parseHTML\s*\("),
-    "jquery_selector_candidate": re.compile(r"(?:\bjQuery|\$)\s*\(\s*(?:window\.)?location\s*\.\s*(?:hash|search|href)\b"),
+    "jquery_selector_candidate": re.compile(
+        r"(?:\bjQuery|(?<![\w$])\$)\s*\(\s*(?:window\.)?location\s*\.\s*(?:hash|search|href)\b|"
+        r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:window\.)?location\."
+        r"(?:hash|search|href)\b[^;]{0,120};[\s\S]{0,200}?(?:\bjQuery|(?<![\w$])\$)\s*\(\s*\1\s*\)"
+    ),
+    "jquery_alias_candidate": re.compile(
+        r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:\$|\bjQuery)\s*\([^)]{0,120}\)\s*;"
+        r"[\s\S]{0,300}?(?<![\w$])\1(?![\w$])\s*\.\s*(?:html|append|prepend|after|before|replaceWith|wrap|wrapAll|wrapInner)\s*\(\s*(?=[^\s)])"
+    ),
     # PortSwigger lists these jQuery calls, but a call without a jQuery receiver
     # or controlled argument is only a low-confidence review candidate.
     "jquery_legacy_candidate": re.compile(r"(?:\$|\bjQuery)\s*\([^)]{0,120}\)\s*\.\s*(?:animate|has|constructor|init|index)\s*\("),
     "jquery_attribute": re.compile(
-        r"(?:\$|\bjQuery|\bangular\.element)\s*\([^)]{0,120}\)"
-        r"(?:\s*\.\s*[\w$]+\s*\([^)]{0,120}\)){0,2}\s*\.\s*"
-        r"(?:attr|prop)\s*\(\s*['\"](?:href|src|action|formaction|on[a-z]+)['\"]\s*,",
+        _JQUERY_CHAIN
+        + r"(?:attr|prop)\s*\(\s*['\"](?:href|src|action|formaction|on[a-z]+)['\"]\s*,",
         re.I,
     ),
     "framework_raw_html": re.compile(
         r"\bdangerouslySetInnerHTML\b|\b(?:v-html|ng-bind-html|x-html|set:html)\s*=|"
-        r"\[innerHTML\]\s*=|\binnerHTML\s*=\s*\{|\{@html\s+|\bunsafeHTML\s*\("
+        r"\[innerHTML\]\s*=|\binnerHTML\s*=\s*\{|\{@html\s+|\bunsafe(?:HTML|SVG)\s*\(|"
+        r"\b(?:renderer|renderer2)\s*\.\s*setProperty\s*\(\s*[^,()]{1,100},\s*['\"](?:innerHTML|outerHTML)['\"]\s*,"
+    ),
+    "framework_template_candidate": re.compile(
+        r"\b(?:Vue\s*\.\s*(?:createApp|component)|new\s+Vue)\s*\(\s*"
+        r"(?:['\"][^'\"]{1,80}['\"]\s*,\s*)?\{[^}]{0,300}\btemplate\s*:\s*(?=[^\s'\"`])|"
+        r"\bVue\s*\.\s*compile\s*\(\s*(?=[^\s'\"`])"
     ),
     "framework_trust_bypass": re.compile(
         r"\.\s*bypassSecurityTrust(?:Html|Script|Url|ResourceUrl)\s*\(|"
-        r"\$sce\s*\.\s*trustAsHtml\s*\(|"
+        r"\$sce\s*\.\s*trustAs(?:Html|Js)\s*\(|"
         r"\$sceProvider\s*\.\s*enabled\s*\(\s*false\s*\)|"
         r"\b(?:new\s+)?Handlebars\.SafeString\s*\("
     ),
     "trusted_types_policy_candidate": re.compile(r"\btrustedTypes\.createPolicy\s*\(|\.\s*createHTML\s*\("),
     "script_create": re.compile(r"\.\s*createElement\s*\(\s*['\"]script['\"]"),
-    "script_content": re.compile(r"\b(?:script|scriptElement|scriptTag)\s*\.\s*(?:text|textContent|innerText|src)\s*=(?!=|>)"),
-    "script_import": re.compile(r"\bimportScripts\s*\(|\bimport\s*\(\s*(?!['\"`])"),
+    "script_content": re.compile(
+        r"\b(?:script|scriptElement|scriptTag)\s*(?:\.\s*(?:text|textContent|innerText|innerHTML|src)|"
+        r"\[\s*['\"](?:text|textContent|innerText|innerHTML|src)['\"]\s*\])\s*=(?!=|>)"
+    ),
+    "script_import": re.compile(
+        r"\bimportScripts\s*\(|\bimport\s*\(\s*(?!['\"`])|"
+        r"(?:\bjQuery|(?<![\w$])\$)\s*\.\s*getScript\s*\("
+    ),
+    "script_import_candidate": re.compile(
+        r"(?:\bjQuery|(?<![\w$])\$)\s*\.\s*ajax\s*\(\s*\{[^}]{0,300}\bdataType\s*:\s*['\"]script['\"]"
+    ),
+    "script_alias_candidate": re.compile(
+        r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*document\s*\.\s*createElement\s*\(\s*['\"]script['\"]\s*\)\s*;"
+        r"[\s\S]{0,300}?\b\1\s*\.\s*(?:(?:text|textContent|innerText|innerHTML)\s*=(?!=|>)|(?:append|appendChild)\s*\()"
+    ),
     "url_attribute": re.compile(
         r"\.\s*(?:href|src|action|formAction)\s*=(?!=|>)|"
         r"\b(?:object|objectElement)\s*\.\s*(?:data|codeBase)\s*=(?!=|>)|"
@@ -147,7 +188,13 @@ SINK_KEYWORDS = {
         r"\.\s*setAttributeNS\s*\(\s*[^,]{0,120},\s*['\"](?:href|src|action|formaction|xlink:href|data)['\"]",
         re.I,
     ),
-    "navigation": re.compile(r"\b(?:(?:window|document)\.)?location\s*(?:\.\s*(?:href\s*=(?!=|>)|(?:assign|replace)\s*\()|=(?!=|>))|\b(?:window\.open|navigation\.navigate)\s*\("),
+    "navigation": re.compile(
+        r"\b(?:(?:window|document)\.)?location\s*(?:\.\s*(?:href\s*=(?!=|>)|(?:assign|replace)\s*\()|=(?!=|>))|"
+        r"\b(?:(?:window|document)\.)?location\s*\[\s*['\"]href['\"]\s*\]\s*=(?!=|>)|"
+        r"\b(?:window|document)\s*\[\s*['\"]location['\"]\s*\]"
+        r"\s*(?:\[\s*['\"]href['\"]\s*\]\s*)?=(?!=|>)|"
+        r"\b(?:window\.open|navigation\.navigate)\s*\("
+    ),
     "unqualified_open_candidate": re.compile(r"(?<![\w$.])open\s*\("),
     "eval": re.compile(
         r"(?<![\w$.])(?:eval|Function|execScript)\s*\(|"

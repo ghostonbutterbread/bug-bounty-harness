@@ -33,8 +33,8 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
 2. **Cold Surface Pass** — Read `prompts/hunter-loop-playbook.md`.
    Look at the app with fresh eyes. Browse, map endpoints, observe behavior.
    Avoid broad MapStore, ledger, or prior-lead reads until the agent has current observations.
-3. **Fresh Observations** — Aim to identify 3-5 fresh surfaces, flows, parameters, roles,
-   or assumptions from direct observation before following any existing leads.
+3. **Fresh Observations** — Record what the current surface actually shows;
+   a narrow flow need not produce a quota of observations.
 4. **Memory Overlay** — Now query prior state as needed:
    - `/hypothesis-ledger` only for the coordinator's private candidate count or an
      explicitly selected stale recovery; never preload another agent's live work.
@@ -55,6 +55,12 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
 5. Start or resume a target memory pack.
 6. Map one app area at a time through live interaction, then dispatch
    specialists on evidence-backed triggers.
+
+For a new-finding hunt, if historical leads start choosing targets instead of
+current app observations, load `references/freshness-and-memory.md` to re-ground
+the next target decision. Ordinary targeted fact, dedupe, and coverage reads do
+not trigger this reference. Attach a fresh current-run observation to a
+specialist follow-up or meaningful lead.
 
 ## Kanban Team Mode
 
@@ -199,22 +205,6 @@ not trustworthy.
 The scope/rate gate applies across all active agents. Treat the aggregate
 program traffic, owned-account mutation, and callback volume as one campaign,
 not as independent per-agent allowances.
-
-### Freshness And Memory Guard
-
-For a new-finding goal, a worker must attach at least one fresh current-run
-observation before it may create a specialist follow-up, label a lead
-meaningful, or use historical material as a target-selection reason. Valid
-fresh evidence includes a newly observed route/consumer, response differential,
-role or object boundary, parser/render behavior, or a reproducible browser/API
-state.
-
-MapStore reads are targeted `app-facts`, `dedupe`, or `coverage` queries after
-the current surface exists. Do not make `old-leads`, past findings, or broad
-MapStore ingestion the opening move. If two consecutive targets were chosen
-mainly from old state, or roughly 30-45 minutes pass without a fresh
-observation, pause historical retrieval and require three fresh observations
-before another old-lead pivot.
 
 Workers write exact probe history in their resolved canonical Attempts stream
 and may propose MapStore entries in their result. The coordinator or designated

@@ -171,17 +171,11 @@ entries or add one MapStore entry per transient attempt.
 
 ## Freshness Circuit Breaker
 
-For new-finding work, pause and return the card for a cold-surface pass when:
-
-- the task has no fresh observation tied to the current run;
-- two target choices were driven mainly by historical leads; or
-- roughly 30–45 minutes passed without a new route, behavior differential,
-  consumer, trust boundary, object boundary, parser/render observation, or
-  comparable signal.
-
-The recovery condition is three fresh current observations from the selected
-app/session, then a targeted `app-facts`, `dedupe`, or `coverage` lookup if
-needed. `old-leads` stays reserved for explicit retest/repass/triage work.
+For new-finding cards whose target choices are drifting toward historical leads
+instead of current observations, load `freshness-and-memory.md` for the reset
+decision before issuing another target-selection follow-up. A card still needs
+its own fresh current-run evidence; targeted `app-facts`, `dedupe`, and
+`coverage` queries remain available.
 
 ## Human Check-ins
 

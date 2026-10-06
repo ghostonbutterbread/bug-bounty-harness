@@ -50,3 +50,6 @@ def test_blind_lane_uses_the_same_confirmed_evidence_threshold() -> None:
         assert "bare collector hit" in text
         assert "Confirmed" in text
     assert "jumps straight to `Confirmed`" not in blind
+    assert "last-resort execution" not in blind
+    assert "proves script execution" not in blind
+    assert "Do not automatically resubmit to a staff queue" in blind

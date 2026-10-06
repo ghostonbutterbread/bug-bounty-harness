@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import sqlite3
+import sys
+import types
+from argparse import Namespace
 from pathlib import Path
 
 
@@ -353,3 +356,37 @@ def test_query_filters_account_and_run_attribution(tmp_path):
     assert result["rows"][0]["run_id"] == "run-1"
     assert result["rows"][0]["account_label"] == "qa-user"
     assert result["rows"][0]["proxy_port"] == 8081
+
+
+def test_index_lane_without_flow_path_returns_missing_file_before_open(monkeypatch, tmp_path):
+    module = load_proxy_store()
+    io = types.ModuleType("mitmproxy.io")
+    setattr(io, "FlowReader", object)
+    monkeypatch.setitem(sys.modules, "mitmproxy", types.ModuleType("mitmproxy"))
+    monkeypatch.setitem(sys.modules, "mitmproxy.io", io)
+    db = tmp_path / "proxy.sqlite"
+
+    result = module.index_lane(Namespace(
+        lane_root=str(tmp_path), lane="empty-lane", flow_file=None, db=str(db),
+        program=None, task=None, note=None,
+    ))
+
+    assert result == {"status": "missing-flow-file", "flow_file": "", "lane": "empty-lane"}
+    assert not db.exists()
+
+
+def test_index_lane_with_directory_flow_path_returns_missing_file(monkeypatch, tmp_path):
+    module = load_proxy_store()
+    io = types.ModuleType("mitmproxy.io")
+    setattr(io, "FlowReader", object)
+    monkeypatch.setitem(sys.modules, "mitmproxy", types.ModuleType("mitmproxy"))
+    monkeypatch.setitem(sys.modules, "mitmproxy.io", io)
+    db = tmp_path / "proxy.sqlite"
+
+    result = module.index_lane(Namespace(
+        lane_root=str(tmp_path), lane="directory-lane", flow_file=str(tmp_path), db=str(db),
+        program=None, task=None, note=None,
+    ))
+
+    assert result == {"status": "missing-flow-file", "flow_file": str(tmp_path), "lane": "directory-lane"}
+    assert not db.exists()

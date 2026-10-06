@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sqlite3
+import stat
 import sys
 import time
 from pathlib import Path
@@ -50,19 +51,54 @@ def scrub_user_site_for_mitmproxy() -> None:
     sys.path[:] = [entry for entry in sys.path if not entry.startswith(user_site)]
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
+def connect(db_path: Path, *, read_only: bool = False) -> sqlite3.Connection:
     default_store = db_path == DEFAULT_STORE
     db_path.parent.mkdir(parents=True, mode=0o700 if default_store else 0o777, exist_ok=True)
-    if default_store:
-        os.chmod(db_path.parent, 0o700)
-    # SQLite's own create inherits the caller's umask (often 022). Protect the
-    # existing or newly created store before SQLite can index full request packets.
-    fd = os.open(db_path, os.O_RDWR | os.O_CREAT, 0o600)
+    # Bind permission changes to the dedicated directory, never to a symlink
+    # target or a caller-supplied shared directory.
+    dir_fd = os.open(db_path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        os.fchmod(fd, 0o600)
+        if default_store:
+            os.fchmod(dir_fd, 0o700)
+        elif os.fstat(dir_fd).st_mode & 0o022:
+            raise PermissionError("Proxy store parent is group/world writable")
+
+        def secure_file(name: str, *, create: bool = False) -> None:
+            flags = os.O_RDWR if create else os.O_RDONLY
+            if create:
+                flags |= os.O_CREAT
+            try:
+                fd = os.open(name, flags | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
+            except FileNotFoundError:
+                if not create:
+                    return
+                raise
+            try:
+                mode = os.fstat(fd).st_mode
+                if not stat.S_ISREG(mode):
+                    raise OSError("Proxy store artifact is not a regular file")
+                # Do not make an existing read-only DB writable just to query it.
+                os.fchmod(fd, 0o400 if read_only and not mode & stat.S_IWUSR else 0o600)
+            finally:
+                os.close(fd)
+
+        secure_file(db_path.name, create=not read_only)
+        for suffix in ("-wal", "-shm"):
+            secure_file(db_path.name + suffix)
+        if read_only:
+            conn = sqlite3.connect(db_path.absolute().as_uri() + "?mode=ro", uri=True)
+        else:
+            conn = sqlite3.connect(db_path)
+        try:
+            # SQLite may create/open sidecars while connecting. Later WAL files
+            # inherit the already-private DB mode; verify that behavior in tests.
+            for suffix in ("-wal", "-shm"):
+                secure_file(db_path.name + suffix)
+        except BaseException:
+            conn.close()
+            raise
     finally:
-        os.close(fd)
-    conn = sqlite3.connect(db_path)
+        os.close(dir_fd)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -657,7 +693,7 @@ def query_requests(args: argparse.Namespace) -> dict[str, Any]:
         LIMIT ?
     """
     values.append(args.limit)
-    with connect(db_path) as conn:
+    with connect(db_path, read_only=True) as conn:
         rows = [dict(row) for row in conn.execute(sql, values).fetchall()]
     for row in rows:
         for key in ("query_names_json", "body_field_names_json", "tags_json"):
@@ -669,7 +705,7 @@ def lane_summary(args: argparse.Namespace) -> dict[str, Any]:
     db_path = Path(args.db).expanduser()
     if not db_path.exists():
         return {"status": "missing-db", "db": str(db_path), "lanes": []}
-    with connect(db_path) as conn:
+    with connect(db_path, read_only=True) as conn:
         rows = conn.execute(
             """
             SELECT lane, program, task, run_id, agent_id, account_label, proxy_server,
@@ -835,7 +871,7 @@ def export_request_packet(args: argparse.Namespace) -> dict[str, Any]:
         values.append(args.flow_uid)
     if not clauses:
         return {"status": "missing-selector", "db": str(db_path)}
-    with connect(db_path) as conn:
+    with connect(db_path, read_only=True) as conn:
         row = conn.execute(
             f"""
             SELECT p.*, r.lane, r.program, r.task

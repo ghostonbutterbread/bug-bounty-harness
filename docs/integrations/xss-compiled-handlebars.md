@@ -1,6 +1,6 @@
 # Compiled Handlebars XSS candidate integration dossier
 
-- **Status:** review-ready after non-code-token repair; no beta integration yet
+- **Status:** review-ready after non-code-token repair and beta reconciliation; no beta integration yet
 - **Owner:** Hermes
 - **Branch:** `fix/xss-compiled-handlebars-20261006`
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-compiled-handlebars`
@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-06
 - **Owning feature branch/ref:** `fix/xss-compiled-handlebars-20261006`
-- **Latest immutable recovery checkpoint:** `3c4964abede5478ff8e8675be7029755e2ad5138`
-- **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`, `b3f9653e879e2972808587e2a8b2950ce4cd482c`, `7ed87bd922cd5599013cd690b57824873fc77279`, `6be416fea8979b564075839452f5e1e68cb870c5`, `e6c3a92690e6b94775630d3b39ab9ddbedc58b76`, `3c4964abede5478ff8e8675be7029755e2ad5138`
+- **Latest immutable recovery checkpoint:** `7231cd861ccbb76f40a885f1b63fe086492f60a1`
+- **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`, `b3f9653e879e2972808587e2a8b2950ce4cd482c`, `7ed87bd922cd5599013cd690b57824873fc77279`, `6be416fea8979b564075839452f5e1e68cb870c5`, `e6c3a92690e6b94775630d3b39ab9ddbedc58b76`, `3c4964abede5478ff8e8675be7029755e2ad5138`, `eddd68f7cb062d01fb50fe54ccb3b04e442bb651`
 - **Inspiration:** Ryushe's empirical `globalV2.js` observation; local bounded bundle and synthetic regression fixtures. Seed: `Shared/skill_seeds/2026-10-06-xss-precompiled-handlebars-sink-gap.md`.
 
 ## Intent
@@ -23,7 +23,7 @@ Detect raw interpolations in compiled Handlebars output even when source syntax 
 ## Evidence and review
 
 - RED: first compiled-template fixture failed with zero raw candidates; cap regression then failed on false truncation.
-- GREEN: `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` — 307 passed after comment/string-token regressions (2026-10-06).
+- GREEN: `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` — 307 passed after comment/string-token regressions and again after merging fetched `origin/beta` (2026-10-06).
 - `git diff --check` — clean.
 - Local saved `globalV2.js` (~485 KB): 8 capped raw interpolation candidates; first offsets 207094, 212344, 214311, 215735; `framework_template_candidate` present and `sink_sites_truncated=true`. No live requests made.
 - Independent review: **blocked**. Fresh `git fetch origin beta` confirms `origin/beta` at `59e72403600c9e9035081ca32e7ac5c64f3bbd83`, with only the implementation and dossier commits unique to the feature. Independent rerun: `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` — 295 passed; `git diff --check origin/beta...HEAD` clean.
@@ -40,6 +40,7 @@ Detect raw interpolations in compiled Handlebars output even when source syntax 
 - Sixth independent gate: fresh `git fetch origin beta` confirms `59e72403600c9e9035081ca32e7ac5c64f3bbd83`; `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` passes 305; `git diff --check origin/beta...HEAD` clean. **Rejected:** a raw-shaped match wholly inside a block comment is emitted as a syntactic interpolation. Reproduce from the feature worktree with `from agents.xss_sink_sites import scan_sink_sites; s='x.template({0:function(x,t){var a,l=x.lookupProperty;return "<p>"/* +(null!=(a=l(t,"name"))?a:"") */ +"</p>"}});'; print([h for h in scan_sink_sites(s)['hits'] if h['signature']=='Handlebars.compiledRawInterpolation(candidate)'])`: result is one candidate at `[68,97)`, within the comment. Node execution of program `0` with `lookupProperty:(obj,key)=>obj[key]` and `name:'<img src=x onerror=alert(1)>'` returns `<p></p>`. `_compiled_raw_interpolations` searches raw text for the head; `_matching_delimiter` starts lexing inside the comment and `_direct_return_append` does not verify that the candidate head is code. Unlike an uncertain generated-value flow, commented text is not a syntactic interpolation at all. Add a negative regression for this exact case and reject comment/string token matches before requesting a new gate.
 - Repair: verify the matched `+` is a code token under the bounded lexical scan, excluding comment and string hits before assignment analysis. Reviewer comment case was RED then GREEN; an escaped-string fixture was added. Focused suite 307 passed, saved bundle still yields eight capped candidates at prior offsets. Seventh independent gate pending.
 - No integration performed. During the decision commit, an unrelated script-map revert advanced local and fetched `beta` from the reviewed base `59e72403600c9e9035081ca32e7ac5c64f3bbd83` to `b89b944821cc005708af7bd351c64dcf6e141056` (commits `23efb1d`, `b89b944`). The feature did not merge or reconcile those commits; the next gate must compare against the then-current beta and rerun checks before any integration.
+- Reconciliation: fetched `origin/beta` at `b89b944821cc005708af7bd351c64dcf6e141056`, merged it into this feature without conflict at `7231cd861ccbb76f40a885f1b63fe086492f60a1`, and reran focused tests: 307 passed. Current review must use the reconciled tip, not the pre-merge diff.
 
 ## Blockers and deferred work
 
@@ -48,10 +49,10 @@ Block release until a fresh independent review accepts non-code-token rejection.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/xss-compiled-handlebars-20261006`
-- **Latest immutable recovery checkpoint:** `3c4964abede5478ff8e8675be7029755e2ad5138` (review the later dossier-only tip too).
-- **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`, `b3f9653e879e2972808587e2a8b2950ce4cd482c`, `7ed87bd922cd5599013cd690b57824873fc77279`, `6be416fea8979b564075839452f5e1e68cb870c5`, `e6c3a92690e6b94775630d3b39ab9ddbedc58b76`, `3c4964abede5478ff8e8675be7029755e2ad5138`.
-- **Exact resume point:** review non-code-token repair, reconcile newer beta, and integrate only after independent acceptance.
-- **Working-tree state at handoff:** sixth-gate dossier-only decision committed; no implementation changes in this gate.
+- **Latest immutable recovery checkpoint:** `7231cd861ccbb76f40a885f1b63fe086492f60a1` (review the later dossier-only tip too).
+- **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`, `b3f9653e879e2972808587e2a8b2950ce4cd482c`, `7ed87bd922cd5599013cd690b57824873fc77279`, `6be416fea8979b564075839452f5e1e68cb870c5`, `e6c3a92690e6b94775630d3b39ab9ddbedc58b76`, `3c4964abede5478ff8e8675be7029755e2ad5138`, `eddd68f7cb062d01fb50fe54ccb3b04e442bb651`.
+- **Exact resume point:** review reconciled non-code-token repair and integrate only after independent acceptance.
+- **Working-tree state at handoff:** clean after reconciliation receipt commit.
 
 ## Decision gates
 

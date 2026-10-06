@@ -176,10 +176,3 @@ assume an ACL change is authorized.
 Raw DevTools forwarding is still useful for debugging, but it is awkward for
 manual CAPTCHA solving. This handoff server is preferred when Ryushe needs a
 simple remote browser view with click/type controls.
-
-## Scripts map
-
-- [`scripts/README.md`](scripts/README.md) — handoff UI and transport helpers,
-  invocation, receipt requirements, and cleanup boundaries.
-- For the owned browser and its task MITM before handoff, continue to
-  `/chromium-test`.

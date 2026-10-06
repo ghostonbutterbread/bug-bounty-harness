@@ -6,8 +6,8 @@
 - **Base commit:** `edd1865d12c5814fea3eeb57ffcf52f916ff2304`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-06
-- **Latest immutable recovery checkpoint:** none yet (set after implementation commit)
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `8921bf5e018da51454c4affa232ff9fb4bb5aca2`
+- **Feature implementation commit(s):** `8921bf5e018da51454c4affa232ff9fb4bb5aca2`
 - **Inspiration / canonical references:** `PC-20261006-035200-cc3d9b6a`, `skills/chromium-test/scripts/proxy_store.py:index_lane`.
 
 ## Intent and implemented contract
@@ -29,10 +29,10 @@ On current beta, `index-lane` without `--flow-file` and without lane state creat
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/proxy-store-absent-flow-20261006`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit implementation, record checkpoint, independent review, reconcile beta, integrate and verify.
-- **Working-tree state at handoff:** changes pending first commit.
+- **Latest immutable recovery checkpoint:** `8921bf5e018da51454c4affa232ff9fb4bb5aca2`
+- **Feature implementation commit(s):** `8921bf5e018da51454c4affa232ff9fb4bb5aca2`
+- **Exact resume point:** independent review, reconcile beta, integrate and verify.
+- **Working-tree state at handoff:** clean after dossier-only handoff commit.
 
 ## Decision gates
 

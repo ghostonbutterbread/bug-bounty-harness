@@ -110,7 +110,7 @@ def _sites() -> tuple[SiteRule, ...]:
         rule("Lit.unsafeHTML", "framework_raw_html", "html", r"\bunsafeHTML\s*\(", "unsafeHTML"),
         rule("Lit.unsafeSVG", "framework_raw_html", "html", r"\bunsafeSVG\s*\(", "unsafeSVG"),
         rule("Lit.unsafeStatic(template)", "framework_template_candidate", "candidate", r"\b(?:html|svg)\s*`[^`]{0,120}\$\{\s*unsafeStatic\s*\(", "unsafeStatic"),
-        rule("React.dangerouslySetInnerHTML", "framework_raw_html", "html", r"\bdangerouslySetInnerHTML\s*=", "dangerouslySetInnerHTML"),
+        rule("React.dangerouslySetInnerHTML", "framework_raw_html", "html", r"\bdangerouslySetInnerHTML\s*[:=]", "dangerouslySetInnerHTML"),
         rule("Vue.v-html", "framework_raw_html", "html", r"\bv-html\s*=", "v-html"),
         rule("Vue.compile", "framework_template_candidate", "candidate", r"\bVue\s*\.\s*compile\s*\(\s*(?!['\"`)]|null\b)(?:/\*[\s\S]{0,100}?\*/\s*)?[A-Za-z_$][\w$]*", "Vue", "compile"),
         rule("Alpine.x-html", "framework_raw_html", "html", r"\bx-html\s*=", "x-html"),

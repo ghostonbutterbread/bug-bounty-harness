@@ -46,6 +46,10 @@ SOURCE_MAP_RE = re.compile(r"//[@#]\s*sourceMappingURL=(?P<url>\S+)")
 IMPORT_RE = re.compile(r"\bimport\s*(?:\(|[^;\n]+from\s*)['\"]([^'\"]+)['\"]")
 SECRET_HINT_RE = re.compile(r"\b(api[_-]?key|secret|token|bearer|authorization|password|client[_-]?secret|private[_-]?key)\b", re.IGNORECASE)
 PARAM_NAME_RE = re.compile(
+    # Anchor at a token boundary. The greedy prefix class also matches base64, so an
+    # unanchored start backtracks catastrophically inside inline data: source maps
+    # (one 157KB run turned a 0.15s scan into 26+ minutes of CPU).
+    r"(?<![A-Za-z0-9_.:-])"
     r"['\"]?([A-Za-z0-9_.:-]*(?:"
     r"id|uuid|slug|token|csrf|state|nonce|redirect|return|next|url|uri|callback|"
     r"role|admin|permission|scope|tenant|team|org|workspace|project|design|owner|"

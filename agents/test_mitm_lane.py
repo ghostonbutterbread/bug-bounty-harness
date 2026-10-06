@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import importlib.machinery
 import importlib.util
+import json
 from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+import pytest
 
 
 def load_mitm_lane():
@@ -16,32 +21,39 @@ def load_mitm_lane():
     return module
 
 
-def test_index_store_passes_full_request_option(monkeypatch):
+def test_index_store_uses_mitmdump_runtime_when_checkout_lacks_mitmproxy(tmp_path):
+    if shutil.which("mitmdump") is None:
+        pytest.skip("offline system mitmdump runtime unavailable")
+    script = Path(__file__).resolve().parents[1] / "skills/chromium-test/scripts/mitm_lane.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--json", "--root", str(tmp_path),
+         "--lane", "absent", "index-store", "--db", str(tmp_path / "index.sqlite"),
+         "--flow-file", str(tmp_path / "missing.mitm"), "--no-full-requests"],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 2, result.stderr
+    assert json.loads(result.stdout)["status"] == "missing-flow-file"
+    assert not (tmp_path / "index.sqlite").exists()
+
+
+def test_index_store_passes_full_request_option(monkeypatch, tmp_path):
     module = load_mitm_lane()
     captured = {}
+    mitmdump = tmp_path / "mitmdump"
+    mitmdump.write_text(f"#!{sys.executable}\n")
+    monkeypatch.setattr(module.shutil, "which", lambda _: str(mitmdump))
 
-    class Loader:
-        def create_module(self, spec):
-            return None
+    def run(command, **_kwargs):
+        captured["command"] = command
+        return subprocess.CompletedProcess(command, 0, '{"status":"indexed"}', "")
 
-        def exec_module(self, fake_module):
-            def index_lane(args):
-                captured["store_full_requests"] = args.store_full_requests
-                return {"status": "indexed"}
-
-            fake_module.index_lane = index_lane
-
-    monkeypatch.setattr(
-        importlib.util,
-        "spec_from_file_location",
-        lambda name, _path: importlib.machinery.ModuleSpec(name, Loader()),
-    )
+    monkeypatch.setattr(module.subprocess, "run", run)
 
     result = module.index_store(
         argparse.Namespace(
-            db="/tmp/proxy.sqlite",
+            mitmdump=str(mitmdump), db=str(tmp_path / "proxy.sqlite"),
             lane="lane-a",
-            root="/tmp/lanes",
+            root=str(tmp_path / "lanes"),
             flow_file=None,
             program="demo",
             task="smoke",
@@ -51,4 +63,5 @@ def test_index_store_passes_full_request_option(monkeypatch):
     )
 
     assert result["status"] == "indexed"
-    assert captured["store_full_requests"] is True
+    assert captured["command"][0] == sys.executable
+    assert "--no-full-requests" not in captured["command"]

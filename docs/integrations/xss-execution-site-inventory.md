@@ -38,6 +38,8 @@ Ryu corrected the earlier category-count framing: enumerate **individual XSS exe
 
 - Review of `8e7d9eb` caught first/middle multi-parameter arrow shadowing (both block and expression bodies). Generalized bounded arrow parameter-list binding detection rather than special-casing one alias position; first/middle negatives and post-arrow positives now pass. Combined checkout-local suite: 316 passed; `git diff --check` clean. Independent final-tip review pending before beta integration.
 
+- Review of `fc1df8b` confirmed prior fixes but found object/class method parameters shadowing a script alias. Extended the bounded scope scanner to recognize method parameter lists in object/class bodies, with negative method writes and valid outer-resumption fixtures. The 316-test combined suite passes and `git diff --check` is clean. This remains a heuristic candidate, not JavaScript AST binding proof; unmodeled syntax and dynamic aliases require manual inspection. Independent final-tip review pending.
+
 ## Risks / deferred
 
 - Static signatures cannot prove an attacker-controlled source, CSP behavior, browser execution, or dynamic computed-property value. Bound regex complexity and output volume on minified bundles. Preserve source-map truncation indicators and original module provenance.

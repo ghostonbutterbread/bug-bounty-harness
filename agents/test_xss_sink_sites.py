@@ -158,10 +158,13 @@ def test_script_alias_stops_at_rebinding():
     middle_param = 'const s = document.createElement("script"); const render = (x, s, y) => { s.textContent = user; };'
     first_param_expression = 'const s = document.createElement("script"); const render = (s, x) => s.textContent = user;'
     middle_param_expression = 'const s = document.createElement("script"); const render = (x, s, y) => s.textContent = user;'
+    object_method = 'const s = document.createElement("script"); const o = { f(s) { s.textContent = user; } };'
+    class_method = 'const s = document.createElement("script"); class C { f(x, s) { s.textContent = user; } }'
     inner_reassignment = 'const s = document.createElement("script"); { s = document.createElement("div"); } s.textContent = user;'
     uninitialized = 'const s = document.createElement("script"); { let s; s.textContent = user; }'
     for snippet in (shadowed, reassigned, parameter, arrow, expression_arrow, first_param, middle_param,
-                    first_param_expression, middle_param_expression, inner_reassignment, uninitialized):
+                    first_param_expression, middle_param_expression, object_method, class_method,
+                    inner_reassignment, uninitialized):
         assert not any(site["family"] == "script_alias_candidate" for site in scan_sink_sites(snippet)["hits"])
 
 
@@ -171,6 +174,8 @@ def test_script_alias_resumes_after_inner_shadowing():
         'const s = document.createElement("script"); const render = s => s.textContent = ignored; s.textContent = user;',
         'const s = document.createElement("script"); const render = (s, x) => { s.textContent = ignored; }; s.textContent = user;',
         'const s = document.createElement("script"); const render = (x, s, y) => s.textContent = ignored; s.textContent = user;',
+        'const s = document.createElement("script"); const o = { f(s) { s.textContent = ignored; } }; s.textContent = user;',
+        'const s = document.createElement("script"); class C { f(s) { s.textContent = ignored; } } s.textContent = user;',
     )
     for snippet in snippets:
         sites = [site for site in scan_sink_sites(snippet)["hits"] if site["family"] == "script_alias_candidate"]

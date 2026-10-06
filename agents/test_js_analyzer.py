@@ -581,6 +581,42 @@ def test_inventory_keeps_extensionless_page_script_src(tmp_path: Path):
     assert seen == [page, "https://app.example.com/assets/runtime"]
 
 
+def test_inventory_rejects_out_of_scope_page_before_fetch(tmp_path: Path):
+    with patch.object(J, "http_get") as get:
+        with pytest.raises(SystemExit, match="outside --target-host scope"):
+            J.main([
+                "inventory", "demo", "--page", "https://other.example.net/account",
+                "--target-host", "example.com", "--output-root", str(tmp_path / "out"),
+                "--library-root", str(tmp_path / "library"),
+            ])
+    get.assert_not_called()
+
+
+def test_inventory_accepts_extensionless_explicit_js_input(tmp_path: Path):
+    source = tmp_path / "jsfiles.txt"
+    source.write_text("https://app.example.com/assets/runtime\n")
+    seen = []
+
+    def fake_get(url: str, timeout: int = 20):
+        seen.append(url)
+        return b'fetch("/api/account")', 200, "application/javascript"
+
+    with patch.object(J, "http_get", side_effect=fake_get):
+        assert J.main([
+            "inventory", "demo", "--input", str(source), "--target-host", "example.com",
+            "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
+            "--integration-index-root", str(tmp_path / "integrations"),
+        ]) == 0
+    assert seen == ["https://app.example.com/assets/runtime"]
+
+
+def test_inline_provenance_hint_retains_synthetic_script_identity(tmp_path: Path):
+    hint_path = tmp_path / "provenance.jsonl"
+    identity = "https://app.example.com/account#inline-script-1"
+    hint_path.write_text(json.dumps({"js_url": identity, "proxy_request_id": "req-1"}) + "\n")
+    assert J.load_provenance_hints(hint_path)[identity][0]["proxy_request_id"] == "req-1"
+
+
 def test_inventory_reuses_ledger_download_and_chunk_set(tmp_path: Path):
     input_file = tmp_path / "jsfiles.txt"
     input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")

@@ -901,9 +901,9 @@ def append_jsonl(path: Path, rows: Iterable[dict]) -> None:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
-# JavaScript URL suffixes worth inventorying. ".mjs"/".cjs" are ES/CommonJS
-# modules that a plain ".js" suffix test silently drops.
-JS_URL_SUFFIXES = (".js", ".mjs", ".cjs")
+# A supplied JS list can contain extensionless scripts, but not known non-JS
+# assets. Page script[src] references are direct evidence regardless of suffix.
+JS_URL_SUFFIXES = {"", ".js", ".mjs", ".cjs"}
 
 
 def iter_jsonl(path: Path) -> Iterator[dict]:
@@ -1039,6 +1039,9 @@ def load_provenance_hints(path: Path | None) -> dict[str, list[dict]]:
         normalized = normalize_url(raw_url)
         if not normalized:
             continue
+        fragment = urllib.parse.urlparse(raw_url).fragment
+        if re.fullmatch(r"inline-script-\d+", fragment):
+            normalized += f"#{fragment}"
         hints.setdefault(normalized, []).append(row)
     return hints
 
@@ -1794,6 +1797,8 @@ def command_inventory(args: argparse.Namespace) -> int:
 
     target_host = normalize_host_value(args.target_host) if args.target_host else None
     scope_hosts = build_scope_hosts(target_host=target_host, page=args.page)
+    if args.page and (not normalize_url(args.page) or not in_scope_url(args.page, scope_hosts)):
+        raise SystemExit("--page is outside --target-host scope or is not an HTTP URL")
 
     urls: list[str] = []
     page_urls: list[str] = []
@@ -1809,7 +1814,9 @@ def command_inventory(args: argparse.Namespace) -> int:
     normalized_urls = []
     for url in urls:
         normalized = normalize_url(url)
-        if normalized and (url in page_urls or normalized.lower().split("?", 1)[0].endswith(JS_URL_SUFFIXES)) and in_scope_url(normalized, scope_hosts):
+        if normalized and in_scope_url(normalized, scope_hosts) and (
+            url in page_urls or Path(urllib.parse.urlparse(normalized).path).suffix.lower() in JS_URL_SUFFIXES
+        ):
             normalized_urls.append(normalized)
     normalized_urls = dedupe(normalized_urls)
     if args.limit:

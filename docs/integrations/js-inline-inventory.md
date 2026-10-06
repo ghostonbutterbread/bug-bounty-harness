@@ -7,8 +7,8 @@
 - **Intended integration target:** `origin/beta` / `beta`
 - **Last updated:** 2026-10-06
 - **Owning feature branch/ref:** `feat/js-inline-inventory`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `777109d` (initial implementation; fixes follow)
+- **Feature implementation commit(s):** `777109d`
 - **Inspiration / canonical references:** Jason Haddix, Hackbots DEF CON 34 BBV Masterclass, 13:00–17:20 (tools mind map ~14:20); upstream JSLuice, jxscout, Waymore repositories and Chrome DevTools protocol.
 
 ## Intent
@@ -17,14 +17,14 @@ Close a deterministic JS acquisition miss: fetched HTML page scripts without a f
 
 ## Implemented contract
 
-`inventory --page` parses external script sources, including extensionless URLs, plus executable inline `script` elements. It sends inline bodies through existing content hash, signal, packet, metadata and provenance outputs under synthetic `#inline-script-N` identities. JSON/data script blocks are not treated as executable JS. The parser caps each inline body at 2 MiB of decoded text and inventories at most 100 inline scripts; page context records truncation. These synthetic identities must not be fetched as URLs. The JS skill and playbook prefer bounded CDP/proxy acquisition and optional external AST/archive tooling for other evidence families without claiming those tools are installed or integrated.
+`inventory --page` rejects out-of-scope page URLs before fetching, then parses external script sources, including extensionless URLs, plus executable inline `script` elements. `--input` accepts extensionless JS candidates while filtering known non-JS suffixes. It sends inline bodies through existing content hash, signal, packet, metadata and provenance outputs under synthetic `#inline-script-N` identities; provenance hints preserve those identities. JSON/data script blocks are not treated as executable JS. The parser caps each inline body at 2 MiB of decoded text and inventories at most 100 inline scripts; page context records truncation. These synthetic identities must not be fetched as URLs. The JS skill and playbook prefer bounded CDP/proxy acquisition and optional external AST/archive tooling for other evidence families without claiming those tools are installed or integrated.
 
 ## Evidence and review
 
-- Tests and commands: test-first failure for inline page flow and extensionless source; checkout-local `.venv/bin/python -m pytest agents/test_js_analyzer.py -q` -> 177 passed; `git diff --check` clean.
-- Independent review: pending.
+- Tests and commands: test-first failures for inline page flow, extensionless source, and three review defects; checkout-local `.venv/bin/python -m pytest agents/test_js_analyzer.py -q` -> 180 passed; `git diff --check` clean.
+- Independent review: first review requested three fixes: out-of-scope page, extensionless `--input`, and synthetic provenance hint. All three now patched; re-review pending.
 - Replay/cohort/fixture evidence: local mocked HTML/JS inputs only; no live target.
-- Merge/ancestry evidence: branch starts at fetched `origin/beta` `b89b944`.
+- Merge/ancestry evidence: branch starts at fetched `origin/beta` `b89b944`; latest fetched target `30482cb` has one small JS change requiring merge and checks.
 
 ## Blockers and deferred work
 
@@ -37,10 +37,10 @@ Close a deterministic JS acquisition miss: fetched HTML page scripts without a f
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/js-inline-inventory`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** independent review of the four-file diff, then fresh beta reconciliation/integration.
-- **Working-tree state at handoff:** intentionally uncommitted pending initial review/checkpoint.
+- **Latest immutable recovery checkpoint:** `777109d` (initial implementation; fixes follow)
+- **Feature implementation commit(s):** `777109d`
+- **Exact resume point:** commit reviewed fixes, merge current beta into feature, rerun focused suite, then independent re-review/integration.
+- **Working-tree state at handoff:** intentionally uncommitted review fixes pending checkpoint.
 
 ## Decision gates
 
@@ -51,3 +51,4 @@ Close a deterministic JS acquisition miss: fetched HTML page scripts without a f
 ## Decision record
 
 - 2026-10-06 — created at fetched beta with bounded inline/extensionless inventory and non-claims for other tools.
+- 2026-10-06 — independent review found scope, explicit input, and provenance-hint defects; repaired with regression tests; beta advanced to `30482cb`.

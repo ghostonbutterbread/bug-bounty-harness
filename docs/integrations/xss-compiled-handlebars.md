@@ -1,6 +1,6 @@
 # Compiled Handlebars XSS candidate integration dossier
 
-- **Status:** review-ready after repair; new independent gate pending
+- **Status:** blocked by fresh independent release gate; no beta integration
 - **Owner:** Hermes
 - **Branch:** `fix/xss-compiled-handlebars-20261006`
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-compiled-handlebars`
@@ -28,20 +28,21 @@ Detect raw interpolations in compiled Handlebars output even when source syntax 
 - Local saved `globalV2.js` (~485 KB): 8 capped raw interpolation candidates; first offsets 207094, 212344, 214311, 215735; `framework_template_candidate` present and `sink_sites_truncated=true`. No live requests made.
 - Independent review: **blocked**. Fresh `git fetch origin beta` confirms `origin/beta` at `59e72403600c9e9035081ca32e7ac5c64f3bbd83`, with only the implementation and dossier commits unique to the feature. Independent rerun: `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` — 295 passed; `git diff --check origin/beta...HEAD` clean.
 - Reviewer probes against `scan_sink_sites` demonstrated four false-positive classes: `+(null!=(a=s(l(t,"name")))?a:"")` with `s=e.escapeExpression` was labeled raw; a matching generic ternary **after** the compiled template was labeled Handlebars because `template({`/`lookupProperty` remained in the preceding 8 KB; and a malformed ternary `?b:""` was joined to a later `?a:""` suffix, producing one span across two expressions. A ternary passed as a function argument was also labeled a direct output append. These violate the stated raw/direct/context contract, not merely the acknowledged attacker-control uncertainty.
-- Repair: failing regression fixtures added for all four classes; balanced template-object and assignment-expression boundaries, return-append check, and escaped-helper alias exclusion now pass. Saved `globalV2.js` still yields eight capped candidates, first offsets unchanged. Second independent gate pending.
+- Repair: failing regression fixtures added for all four classes; balanced template-object and assignment-expression boundaries, return-append check, and escaped-helper alias exclusion now pass those fixtures. Saved `globalV2.js` still yields eight capped candidates, first offsets unchanged. A later gate found comment handling unsound (below).
+- Fresh independent gate: `git fetch origin beta` confirmed `59e72403600c9e9035081ca32e7ac5c64f3bbd83`; focused suite `python -m pytest agents/test_xss_sink_sites.py agents/test_js_analyzer.py -q` passed 299. Reviewer found a new direct-return false positive: `_direct_return_append` treats `return` in a JavaScript comment as a real return. Reproducer: `x.template({0:function(x,t){var a,l=x.lookupProperty;/* return */var buf="<p>"+(null!=(a=l(t,"name"))?a:"");return buf}});` yields `Handlebars.compiledRawInterpolation(candidate)` at offset 78 even though the append is in a local assignment, not a direct return. `scan_sink_sites` from `agents.xss_sink_sites` suffices to reproduce; filter hits by that signature. Conversely `+/*(*/(null!=(a=l(t,"name"))?a:"")` inside a legitimate return is missed because `_direct_return_append` counts parentheses inside a block comment. The repair's lexical boundary is not yet sound for comments; no merge.
 - No integration performed; beta remains at fetched base.
 
 ## Blockers and deferred work
 
-Block release until a fresh independent review accepts the repaired matcher and its tests. Other compiler versions and long/dynamic expression forms still require manual review. No live XSS proof is claimed.
+Block release until the comment-aware return/append boundary is repaired, regression fixtures cover both examples above, the focused suite passes, and a fresh independent review accepts the matcher. Other compiler versions and long/dynamic expression forms still require manual review. No live XSS proof is claimed.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/xss-compiled-handlebars-20261006`
 - **Latest immutable recovery checkpoint:** `b3f9653e879e2972808587e2a8b2950ce4cd482c` (review the later dossier-only tip too).
 - **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`, `b3f9653e879e2972808587e2a8b2950ce4cd482c`.
-- **Exact resume point:** review the repair commit against the rejected gate, then integrate to beta only if independently accepted.
-- **Working-tree state at handoff:** clean after review-decision commit.
+- **Exact resume point:** repair `_direct_return_append` to ignore comments, add positive/negative regression fixtures from the fresh independent gate, rerun focused suite, then request another independent gate; do not integrate yet.
+- **Working-tree state at handoff:** clean after this review-decision commit.
 
 ## Decision gates
 
@@ -54,3 +55,4 @@ Block release until a fresh independent review accepts the repaired matcher and 
 - 2026-10-06 — candidate matcher and regressions prepared for independent review.
 - 2026-10-06 — independent release gate **rejected**: escaped expression, post-template ternary, cross-expression suffix, and function-argument false positives reproduced. Retain feature and dossier for repair; no beta merge.
 - 2026-10-06 — repaired four reviewer-proven cases via balanced context and expression checks; 299 tests passed and saved bundle still routes candidate. Request a new independent gate.
+- 2026-10-06 — fresh independent release gate **rejected**: comment text contaminates direct-return depth/boundary, creating a false positive on `/* return */` before a local buffer assignment and a false negative on `/*(*/` in a direct return. Focused 299-test suite passes but lacks these cases; beta remains unchanged.

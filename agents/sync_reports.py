@@ -345,8 +345,10 @@ def _candidates_for_file(
         for block in heading_blocks:
             heading = re.match(r"(CONFIRMED|DORMANT_ACTIVE|DORMANT_HYPOTHETICAL)\]\s+\S", block)
             if not heading:
-                explicit_headings = []
-                break
+                raise ReviewTierDecisionRequired(
+                    "Unsupported Review Tier heading; use CONFIRMED, "
+                    "DORMANT_ACTIVE, or DORMANT_HYPOTHETICAL."
+                )
             tier = heading.group(1)
             for line in block.splitlines()[1:]:
                 field = FIELD_RE.match(line)

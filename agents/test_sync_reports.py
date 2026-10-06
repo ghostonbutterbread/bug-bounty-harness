@@ -164,6 +164,20 @@ class TestSyncReports(unittest.TestCase):
         with self.assertRaisesRegex(ReviewTierDecisionRequired, "heading count"):
             _candidates_for_file("test_program", "apk", hunter, self.report_path)
 
+    def test_misspelled_uppercase_heading_tier_is_not_inferred(self):
+        self.report_path.write_text(
+            "## [CONFIRMED] First read\n"
+            "File: src/first.py\nClass: idor\n"
+            "### Description\nReproduced reading another owned record.\n"
+            "\n## [CONFRIMED] Second read\n"
+            "File: src/second.py\nClass: idor\n"
+            "### Description\nReproduced reading another owned record.\n",
+            encoding="utf-8",
+        )
+        hunter = ManualHunter("test_program", lane="apk", storage_root=self.tmp / "storage-root")
+        with self.assertRaisesRegex(ReviewTierDecisionRequired, "Unsupported Review Tier heading"):
+            _candidates_for_file("test_program", "apk", hunter, self.report_path)
+
     def test_conflicting_structured_heading_and_field_are_rejected(self):
         self.report_path.write_text(
             "# Findings\n\n## [CONFIRMED] Cross-account record read\n"

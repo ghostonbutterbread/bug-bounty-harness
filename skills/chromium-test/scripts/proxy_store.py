@@ -51,7 +51,17 @@ def scrub_user_site_for_mitmproxy() -> None:
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    default_store = db_path == DEFAULT_STORE
+    db_path.parent.mkdir(parents=True, mode=0o700 if default_store else 0o777, exist_ok=True)
+    if default_store:
+        os.chmod(db_path.parent, 0o700)
+    # SQLite's own create inherits the caller's umask (often 022). Protect the
+    # existing or newly created store before SQLite can index full request packets.
+    fd = os.open(db_path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    finally:
+        os.close(fd)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn

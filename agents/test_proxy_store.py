@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sqlite3
+import stat
 import subprocess
 import sys
 import types
@@ -18,6 +20,27 @@ def load_proxy_store():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_connect_creates_and_repairs_private_default_store(tmp_path, monkeypatch):
+    module = load_proxy_store()
+    db = tmp_path / "proxy-store" / "proxy.sqlite"
+    monkeypatch.setattr(module, "DEFAULT_STORE", db)
+    previous_umask = os.umask(0o022)
+    try:
+        with module.connect(db) as conn:
+            module.init_db(conn)
+        assert stat.S_IMODE(db.parent.stat().st_mode) == 0o700
+        assert stat.S_IMODE(db.stat().st_mode) == 0o600
+
+        os.chmod(db.parent, 0o755)
+        os.chmod(db, 0o644)
+        with module.connect(db) as conn:
+            assert conn.execute("SELECT 1").fetchone()[0] == 1
+        assert stat.S_IMODE(db.parent.stat().st_mode) == 0o700
+        assert stat.S_IMODE(db.stat().st_mode) == 0o600
+    finally:
+        os.umask(previous_umask)
 
 
 def test_init_db_creates_core_tables(tmp_path):

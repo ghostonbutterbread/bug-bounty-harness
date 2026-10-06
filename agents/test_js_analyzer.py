@@ -1035,3 +1035,24 @@ def test_inventory_collects_mjs_and_cjs_modules(tmp_path: Path):
     assert "https://app.example.com/navigation.mjs" in urls
     assert "https://app.example.com/legacy.cjs" in urls
     assert "https://app.example.com/styles.css" not in urls
+
+def test_param_name_boundary_rejects_delimiter_qualified_duplicate():
+    """PARAM_NAME_RE anchors at a token boundary: the bare key is kept, the
+    `:`-delimited `this.`-qualified duplicate is not."""
+    snippet = 'switch(k){case"validation":this.validation=o[k];break;}'
+    keys = J.extract_signals(snippet, "https://app.example/app.js")["interesting_keys"]
+    assert "validation" in keys
+    assert "this.validation" not in keys
+
+
+def test_param_name_does_not_backtrack_on_inline_base64_source_map():
+    """Regression: the greedy prefix class also matches base64, so an unanchored
+    start backtracked quadratically inside an inline data: source map. Pre-fix this
+    took ~13s at 8KB and ~85min at the 157KB runs seen in real bundles."""
+    import time
+
+    blob = "QUFBQmlk" * (8000 // 8)
+    snippet = "var a=1;\n//# sourceMappingURL=data:application/json;charset=utf-8;base64," + blob + "\n"
+    start = time.monotonic()
+    J.extract_signals(snippet, "https://app.example/app.js")
+    assert time.monotonic() - start < 5.0

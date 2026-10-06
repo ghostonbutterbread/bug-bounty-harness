@@ -81,6 +81,8 @@ from agents.xss_sink_sites import SITE_RULES, scan_sink_sites
         ("unsafeSVG(value)", "Lit.unsafeSVG"),
         ("html`${unsafeStatic(value)}`", "Lit.unsafeStatic(template)"),
         ("<div dangerouslySetInnerHTML={{__html: value}} />", "React.dangerouslySetInnerHTML"),
+        # compiled/minified React emits the object-property form, not JSX `=`
+        ("{dangerouslySetInnerHTML:{__html:x}}", "React.dangerouslySetInnerHTML"),
         ("<div v-html=\"value\" />", "Vue.v-html"),
         ("Vue.compile(template)", "Vue.compile"),
         ("<div x-html=\"value\" />", "Alpine.x-html"),

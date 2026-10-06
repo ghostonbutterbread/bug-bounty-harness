@@ -17,6 +17,10 @@ if str(ROOT) not in sys.path:
 from browser_lifecycle import StartupDiagnostics, node_lock, owner_state, private_json, process_identity
 from chromium_test import resolve_mitm_ca_cert
 from mitm_chromium_profile import DEFAULT_CA_CERT, remove_matching_ca
+from proxy_store import (
+    DEFAULT_AGENT_PORT_MIN, DEFAULT_AGENT_PORT_MAX, DEFAULT_STORE,
+    TASK_PROXY_OVERFLOW_PORT_MIN, TASK_PROXY_OVERFLOW_PORT_MAX, active_lease_where,
+)
 
 LEASE = ROOT / "browser_profile_lease.py"
 CHROMIUM = ROOT / "chromium_test.py"
@@ -1338,8 +1342,23 @@ def start_proxy(c, args):
                 or row["state"] != "running" or not proxy_ready(row)):
             emit({"status": "proxy-conflict", "detail": "task listener unavailable or belongs to another request"}, 2)
         return row, False
-    port = next((p for p in range(8081, 8091) if not c.execute(
+    port = next((p for p in range(DEFAULT_AGENT_PORT_MIN, DEFAULT_AGENT_PORT_MAX + 1) if not c.execute(
         "select 1 from task_proxies where port=?", (p,)).fetchone() and not port_open(p)), None)
+    if port is None:
+        # An old custom standalone lease may predate the reserved overflow boundary.
+        blocked = set()
+        try:
+            if DEFAULT_STORE.exists():
+                with contextlib.closing(sqlite3.connect(f"{DEFAULT_STORE.as_uri()}?mode=ro", uri=True)) as leases:
+                    stamp = time.time()
+                    blocked = {row[0] for row in leases.execute(
+                        f"select proxy_port from proxy_leases where {active_lease_where(stamp)}", (stamp,))}
+        except sqlite3.Error:
+            c.rollback()
+            emit({"status": "proxy-unavailable", "detail": "standalone lease state unavailable"}, 2)
+        port = next((p for p in range(TASK_PROXY_OVERFLOW_PORT_MIN, TASK_PROXY_OVERFLOW_PORT_MAX + 1)
+                     if p not in blocked and not c.execute(
+                         "select 1 from task_proxies where port=?", (p,)).fetchone() and not port_open(p)), None)
     if port is None:
         c.rollback()
         emit({"status": "proxy-unavailable", "detail": "no task MITM port available"}, 2)

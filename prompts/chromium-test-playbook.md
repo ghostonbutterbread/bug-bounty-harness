@@ -265,7 +265,7 @@ Legacy Hoster proxy tools (not the security-browser default):
   ```bash
   bbh skills/chromium-test/scripts/hoster_mitm_lane.py --json ensure-default
   ```
-- `hoster:8081-8090` are leased task-specific agent MITM lanes.
+- `hoster:8081-8090` are standalone leased agent MITM lanes. Ports `8091-8095` are reserved for task-proxy overflow and are excluded even from custom Proxy Store leases.
 - `proxy_leases` is active state only. Release the row after indexing/cleanup.
 - Durable history belongs in indexed lane/request metadata: run id, agent id,
   account label, proxy host/port, transport, browser profile id, and session

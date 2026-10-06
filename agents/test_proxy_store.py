@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sqlite3
+import subprocess
 import sys
 import types
 from argparse import Namespace
@@ -240,6 +242,56 @@ def test_query_filters_method_and_param(tmp_path):
 
     assert result["count"] == 1
     assert result["rows"][0]["path_key"] == "/api/item"
+
+
+def test_lease_acquire_rejects_task_proxy_overflow_port(tmp_path):
+    module = load_proxy_store()
+    db = tmp_path / "proxy.sqlite"
+    args = type("Args", (), {
+        "db": str(db), "lease_id": None, "lane": None, "proxy_host": "hoster",
+        "proxy_server": None, "port": 8091, "port_min": 8081, "port_max": 8090,
+        "agent_id": "standalone", "run_id": "run", "program": "demo", "task": "test",
+        "account_label": "fixture", "runtime_host": "hoster", "ttl_seconds": 3600,
+        "note": None,
+    })()
+
+    result = module.lease_acquire(args)
+
+    assert result["status"] == "task-port-reserved"
+    assert result["proxy_port"] == 8091
+    assert not db.exists()
+
+
+def test_lease_acquire_rejects_task_proxy_overflow_at_cli(tmp_path):
+    script = Path(__file__).resolve().parents[1] / "skills/chromium-test/scripts/proxy_store.py"
+    db = tmp_path / "proxy.sqlite"
+
+    result = subprocess.run(
+        [sys.executable, str(script), "--db", str(db), "--json", "lease-acquire", "--port", "8091"],
+        capture_output=True, text=True, check=False,
+    )
+
+    assert result.returncode == 2
+    assert json.loads(result.stdout)["status"] == "task-port-reserved"
+    assert not db.exists()
+
+
+def test_lease_acquire_skips_task_proxy_overflow_in_custom_range(tmp_path):
+    module = load_proxy_store()
+    db = tmp_path / "proxy.sqlite"
+    args = type("Args", (), {
+        "db": str(db), "lease_id": None, "lane": None, "proxy_host": "hoster",
+        "proxy_server": None, "port": None, "port_min": 8091, "port_max": 8095,
+        "agent_id": "standalone", "run_id": "run", "program": "demo", "task": "test",
+        "account_label": "fixture", "runtime_host": "hoster", "ttl_seconds": 3600,
+        "note": None,
+    })()
+
+    result = module.lease_acquire(args)
+
+    assert result["status"] == "no-free-port"
+    with module.connect(db) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM proxy_leases").fetchone()[0] == 0
 
 
 def test_lease_acquire_skips_active_port_and_release_frees_it(tmp_path):

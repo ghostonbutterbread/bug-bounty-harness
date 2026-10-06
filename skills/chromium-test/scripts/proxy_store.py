@@ -22,6 +22,9 @@ DEFAULT_STORE = Path("~/.local/share/ghost/proxy-store/proxy_store.sqlite").expa
 DEFAULT_PROXY_HOST = "hoster"
 DEFAULT_AGENT_PORT_MIN = 8081
 DEFAULT_AGENT_PORT_MAX = 8090
+# Keep the bounded task-proxy overflow out of standalone/custom leases.
+TASK_PROXY_OVERFLOW_PORT_MIN = 8091
+TASK_PROXY_OVERFLOW_PORT_MAX = 8095
 SECRET_HEADER_NAMES = {
     "authorization",
     "cookie",
@@ -681,6 +684,8 @@ def lease_row(row: sqlite3.Row | None) -> dict[str, Any] | None:
 
 def lease_acquire(args: argparse.Namespace) -> dict[str, Any]:
     db_path = Path(args.db).expanduser()
+    if args.port and TASK_PROXY_OVERFLOW_PORT_MIN <= args.port <= TASK_PROXY_OVERFLOW_PORT_MAX:
+        return {"status": "task-port-reserved", "db": str(db_path), "proxy_port": args.port}
     now = time.time()
     expires_at = now + args.ttl_seconds if args.ttl_seconds else None
     proxy_host = args.proxy_host
@@ -689,6 +694,8 @@ def lease_acquire(args: argparse.Namespace) -> dict[str, Any]:
         init_db(conn)
         conn.execute("BEGIN IMMEDIATE")
         for port in requested_ports:
+            if TASK_PROXY_OVERFLOW_PORT_MIN <= port <= TASK_PROXY_OVERFLOW_PORT_MAX:
+                continue
             active = conn.execute(
                 f"SELECT * FROM proxy_leases WHERE proxy_port=? AND {active_lease_where(now)}",
                 (port, now),
@@ -957,7 +964,7 @@ def main() -> int:
             print(json.dumps(result["lease"], sort_keys=True))
         for row in result.get("rows", result.get("lanes", result.get("leases", []))):
             print(json.dumps(row, sort_keys=True))
-    return 0 if result.get("status") not in {"missing-flow-file", "missing-db", "missing-output", "missing-selector", "not-found"} else 2
+    return 0 if result.get("status") not in {"missing-flow-file", "missing-db", "missing-output", "missing-selector", "not-found", "task-port-reserved"} else 2
 
 
 if __name__ == "__main__":

@@ -286,6 +286,9 @@ status only when current testing gives you evidence.
 
 Lifecycle statuses:
 
+`confirmed` is a proof **tag**, not a lifecycle status: use `--tags confirmed`
+with a supported `--status` such as `active`, not `--status confirmed`.
+
 - `active`: default; still useful as a current observation or gadget.
 - `candidate`: observed or promising, but not proven reusable yet.
 - `defended`: a control was exercised and correctly enforced. This is a durable

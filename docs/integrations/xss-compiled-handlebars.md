@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-06
 - **Owning feature branch/ref:** `fix/xss-compiled-handlebars-20261006`
-- **Latest immutable recovery checkpoint:** none yet (commit pending)
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`
+- **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`
 - **Inspiration:** Ryushe's empirical `globalV2.js` observation; local bounded bundle and synthetic regression fixtures. Seed: `Shared/skill_seeds/2026-10-06-xss-precompiled-handlebars-sink-gap.md`.
 
 ## Intent
@@ -36,10 +36,10 @@ No blocker to static candidate coverage. This is intentionally not general Handl
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/xss-compiled-handlebars-20261006`
-- **Latest immutable recovery checkpoint:** pending implementation commit.
-- **Feature implementation commit(s):** pending.
+- **Latest immutable recovery checkpoint:** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196` (review the later dossier-only tip too).
+- **Feature implementation commit(s):** `9b3c64f4604dd7a2f0bb5d6eafb3c8b765b94196`.
 - **Exact resume point:** independent release review, then reconcile and integrate to beta if clean.
-- **Working-tree state at handoff:** pending commit.
+- **Working-tree state at handoff:** clean after dossier receipt commit.
 
 ## Decision gates
 

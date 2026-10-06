@@ -36,6 +36,8 @@ Ryu corrected the earlier category-count framing: enumerate **individual XSS exe
 - Final-tip review of `35a4379` verified prior three corrections but found two remaining alias-scope false positives: assignment to an outer binding inside a block was lost after that block, and an expression-bodied arrow parameter was not shadowed. The bounded scope tracker now marks the nearest actual binding on assignment and handles expression-bodied arrows through the terminating semicolon. Fixtures cover both negatives and valid sites after block/arrow scope; 117 site tests and 199 analyzer/policy tests pass, `git diff --check` clean.
 - After the alias fix at `51b23b0`, `origin/beta` advanced to `4939907` with non-overlapping papercut guidance/tests. Reconciled by merge `6879d5d2a0983d5f59974074e15a705c0aa2ee94`; the same 316 combined tests pass from this feature worktree, and `git diff --check` is clean. Next: final-tip independent review, then beta integration gate.
 
+- Review of `8e7d9eb` caught first/middle multi-parameter arrow shadowing (both block and expression bodies). Generalized bounded arrow parameter-list binding detection rather than special-casing one alias position; first/middle negatives and post-arrow positives now pass. Combined checkout-local suite: 316 passed; `git diff --check` clean. Independent final-tip review pending before beta integration.
+
 ## Risks / deferred
 
 - Static signatures cannot prove an attacker-controlled source, CSP behavior, browser execution, or dynamic computed-property value. Bound regex complexity and output volume on minified bundles. Preserve source-map truncation indicators and original module provenance.

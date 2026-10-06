@@ -173,8 +173,8 @@ def _script_alias_live(prefix: str, name: str) -> bool:
     """Track one bounded script binding across simple blocks and parameters."""
     alias = re.escape(name)
     events = re.compile(
-        rf"function(?:\s+[A-Za-z_$][\w$]*)?\s*\(([^)]{{0,120}})\)\s*\{{|"
-        rf"(?<![\w$])(\(?\s*{alias}\s*\)?)\s*=>\s*(\{{)?|"
+        rf"function(?:\s+[A-Za-z_$][\w$]*)?\s*\((?P<function_params>[^)]{{0,120}})\)\s*\{{|"
+        rf"(?<![\w$])(?:\((?P<arrow_params>[^()]{{0,120}})\)|(?P<arrow_single>[A-Za-z_$][\w$]*))\s*=>\s*(?P<arrow_block>\{{)?|"
         rf"\b(?:const|let|var)\s+{alias}\b|"
         rf"(?<![\w$.]){alias}\s*=(?!=|>)|[{{}};]"
     )
@@ -182,12 +182,14 @@ def _script_alias_live(prefix: str, name: str) -> bool:
     scopes = [[True, True, False]]
     for event in events.finditer(prefix):
         token = event.group()
-        if event.group(1) is not None:
-            params = re.findall(r"[A-Za-z_$][\w$]*", event.group(1))
+        if event.group("function_params") is not None:
+            params = re.findall(r"[A-Za-z_$][\w$]*", event.group("function_params"))
             shadowed = name in params
             scopes.append([scopes[-1][0] and not shadowed, shadowed, False])
-        elif event.group(2) is not None:
-            scopes.append([False, True, event.group(3) is None])
+        elif event.group("arrow_params") is not None or event.group("arrow_single") is not None:
+            params = re.findall(r"[A-Za-z_$][\w$]*", event.group("arrow_params") or event.group("arrow_single"))
+            shadowed = name in params
+            scopes.append([scopes[-1][0] and not shadowed, shadowed, event.group("arrow_block") is None])
         elif token == "{":
             scopes.append([scopes[-1][0], False, False])
         elif token == "}":

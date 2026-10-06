@@ -13,10 +13,10 @@ Ryu requested less policy prose. Reduce `skills/scripts/SKILL.md` to its trigger
 
 - Focused script-policy and XSS mapper tests: 40 passed; `git diff --check` clean. Skill is 12 lines including frontmatter (68 words).
 - Wider `pytest tests`: 183 passed, 1 skipped, 3 unchanged baseline failures (stale Hoster policy assertion, dependency pin expectation, unrelated old integration dossier command). No changed file is implicated.
-- Independent review: pending. Fresh beta reconciliation and integrated focused tests required before publishing.
+- Independent review: approved feature tip `041a0bd` with 40 focused tests and clean diff. Fetched `origin/beta` remains `28c8a27`, matching the branch base; integrated focused tests remain before publishing.
 
 ## Handoff and gates
 
 - Branch: `docs/trim-scripts-hunt-policy`; checkpoint: `22a32abb3642a1b1c1c73a9b6d1d7a2d24601a03`; worktree clean after dossier checkpoint.
-- Resume: independent review, merge beta with this temporary dossier retired, push beta, verify already-linked runtime skill content.
+- Resume: merge the approved feature into beta with this temporary dossier retired, push beta, verify already-linked runtime skill content.
 - Activation: update clean Hoster beta source only after reviewed publication; existing sessions retain loaded text. No main promotion.

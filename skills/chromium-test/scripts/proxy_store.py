@@ -51,18 +51,44 @@ def scrub_user_site_for_mitmproxy() -> None:
     sys.path[:] = [entry for entry in sys.path if not entry.startswith(user_site)]
 
 
-def connect(db_path: Path, *, read_only: bool = False) -> sqlite3.Connection:
-    default_store = db_path == DEFAULT_STORE
-    db_path.parent.mkdir(parents=True, mode=0o700 if default_store else 0o777, exist_ok=True)
-    # Bind permission changes to the dedicated directory, never to a symlink
-    # target or a caller-supplied shared directory.
-    dir_fd = os.open(db_path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+def _open_private_parent(parent: Path, *, default_store: bool) -> int:
+    """Open each path component without symlinks or replaceable ancestors."""
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    dir_fd = os.open("/", flags)
+    private_fence = False
     try:
+        for component in parent.parts[1:]:
+            mode = os.fstat(dir_fd).st_mode
+            # A 0700 ancestor makes deeper group-writable directories
+            # unreachable to other accounts; otherwise fail before traversal.
+            if mode & 0o022 and not private_fence:
+                raise PermissionError("Proxy store ancestor is group/world writable")
+            if not mode & 0o011:
+                private_fence = True
+            try:
+                child_fd = os.open(component, flags, dir_fd=dir_fd)
+            except FileNotFoundError:
+                os.mkdir(component, 0o700, dir_fd=dir_fd)
+                child_fd = os.open(component, flags, dir_fd=dir_fd)
+            os.close(dir_fd)
+            dir_fd = child_fd
         if default_store:
             os.fchmod(dir_fd, 0o700)
         elif os.fstat(dir_fd).st_mode & 0o022:
             raise PermissionError("Proxy store parent is group/world writable")
+        return dir_fd
+    except BaseException:
+        os.close(dir_fd)
+        raise
 
+
+def connect(db_path: Path, *, read_only: bool = False) -> sqlite3.Connection:
+    db_path = Path(os.path.abspath(db_path))
+    default_store = db_path == Path(os.path.abspath(DEFAULT_STORE))
+    # SQLite reopens by pathname. No component of that path may be replaceable
+    # by another account between the permission check and the SQLite open.
+    dir_fd = _open_private_parent(db_path.parent, default_store=default_store)
+    try:
         def secure_file(name: str, *, create: bool = False) -> None:
             flags = os.O_RDWR if create else os.O_RDONLY
             if create:

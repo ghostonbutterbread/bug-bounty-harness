@@ -169,6 +169,50 @@ def test_query_and_export_read_only_custom_database(tmp_path):
     assert stat.S_IMODE(db.stat().st_mode) == 0o400
 
 
+def test_connect_rejects_attacker_writable_ancestor(tmp_path, monkeypatch):
+    module = load_proxy_store()
+    shared = tmp_path / "shared"
+    parent = shared / "private"
+    parent.mkdir(parents=True, mode=0o700)
+    os.chmod(shared, 0o777)
+    db = parent / "proxy.sqlite"
+    # Scratch is deliberately private. Model otherwise traversable ancestors
+    # so this fixture represents the reviewer's attacker-accessible path.
+    private_ancestors = {
+        str(path) for path in shared.parents
+        if not (stat.S_IMODE(path.stat().st_mode) & 0o011)
+    }
+    real_fstat = os.fstat
+
+    def publicly_traversable_fstat(fd):
+        result = real_fstat(fd)
+        if os.readlink(f"/proc/self/fd/{fd}") in private_ancestors:
+            return os.stat_result((result.st_mode | 0o055, *result[1:]))
+        return result
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(module.os, "fstat", publicly_traversable_fstat)
+        with pytest.raises(PermissionError, match="writable"):
+            module.connect(db)
+    assert not db.exists()
+
+
+def test_connect_refuses_intermediate_default_symlink_without_chmod(tmp_path, monkeypatch):
+    module = load_proxy_store()
+    actual = tmp_path / "shared"
+    dedicated = actual / "proxy-store"
+    dedicated.mkdir(parents=True, mode=0o755)
+    os.chmod(dedicated, 0o755)
+    alias = tmp_path / "alias"
+    alias.symlink_to(actual, target_is_directory=True)
+    db = alias / "proxy-store" / "proxy_store.sqlite"
+    monkeypatch.setattr(module, "DEFAULT_STORE", db)
+    with pytest.raises(OSError):
+        module.connect(db)
+    assert stat.S_IMODE(dedicated.stat().st_mode) == 0o755
+    assert not (dedicated / "proxy_store.sqlite").exists()
+
+
 def test_init_db_creates_core_tables(tmp_path):
     module = load_proxy_store()
     db = tmp_path / "proxy.sqlite"

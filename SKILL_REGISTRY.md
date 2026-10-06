@@ -57,6 +57,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 
 | Skill | Command | Playbook |
 |-------|---------|----------|
+| **scripts** | `/scripts` with a selected vulnerability-class skill | `skills/scripts/SKILL.md`; interpretation of hunt-script output |
 | **xss** | `/xss {program}` | Router to `reflected-xss`, `stored-xss`, and `dom-xss` |
 | **reflected-xss** | `/reflected-xss {target_url}` | `skills/reflected-xss/SKILL.md` |
 | **stored-xss** | `/stored-xss {program} {write-and-render-context}` | `skills/stored-xss/SKILL.md` |

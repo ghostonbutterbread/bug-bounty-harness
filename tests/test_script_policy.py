@@ -115,11 +115,11 @@ def test_hunt_script_policy_loads_with_class_and_bounds_output() -> None:
     manager = " ".join(POLICY.read_text(encoding="utf-8").lower().split())
     assert "name: scripts" in policy
     assert "load `/scripts` alongside the selected vulnerability-class skill" in policy
-    assert "only the inputs and patterns it actually examined" in policy
-    assert "while a longer script handles its mechanical pass" in policy
-    assert "application-specific questions in the selected vulnerability class" in policy
-    assert "for a short script" in policy
-    assert "program rules and `general-security-testing-policy` / `live-testing-policy`" in policy
+    assert "script output is non-exhaustive" in policy
+    assert "only what the script checked" in policy
+    assert "while a longer script runs" in policy
+    assert "application-specific cases in that vulnerability class" in policy
+    assert "reconcile both before judging coverage" in policy
     assert "for scripts used in a bbh vulnerability hunt, load `/scripts`" in router
     assert "find runnable scripts in that skill and its index" in router
     assert "| **scripts** |" in registry

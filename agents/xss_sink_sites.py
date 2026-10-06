@@ -214,21 +214,31 @@ def _matching_delimiter(text: str, opened: int, left: str, right: str, limit: in
 def _direct_return_append(text: str, template_start: int, begin: int) -> bool:
     previous_return = -1
     depth = 0
+    brace_depth = 0
     for index, char in _js_code_chars(text, template_start, begin):
+        if char == "{":
+            brace_depth += 1
+            continue
+        if char == "}":
+            brace_depth -= 1
+            if brace_depth < 2:
+                previous_return = -1
+            continue
         if (char == "r" and text.startswith("return", index)
+                and brace_depth == 2
                 and (index == 0 or not (text[index - 1].isalnum() or text[index - 1] in "_$"))
                 and (index + 6 == len(text) or not (text[index + 6].isalnum() or text[index + 6] in "_$"))):
             previous_return = index
             depth = 0
         elif previous_return < 0 or index < previous_return + len("return"):
             continue
-        elif char in "([{":
+        elif char in "([":
             depth += 1
-        elif char in ")]}":
+        elif char in ")]":
             depth -= 1
         elif char == ";" and depth == 0:
             previous_return = -1
-    return previous_return >= 0 and depth == 0
+    return previous_return >= 0 and brace_depth == 2 and depth == 0
 
 def _compiled_raw_interpolations(text: str, per_rule: int) -> tuple[list[dict], bool]:
     """Bounded Handlebars precompile hint, not proof of a controlled HTML value."""

@@ -208,6 +208,13 @@ def test_compiled_raw_candidate_ignores_delimiters_in_comment():
     assert "Handlebars.compiledRawInterpolation(candidate)" in {
         site["signature"] for site in scan_sink_sites(snippet)["hits"]}
 
+def test_compiled_raw_candidate_excludes_discarded_nested_function_return():
+    snippet = ('x.template({0:function(x,t){var a,l=x.lookupProperty;'
+               'return "<p>"+(function(){return "<b>"+'
+               '(null!=(a=l(t,"name"))?a:"")},"</p>")}});')
+    assert not any(site["signature"] == "Handlebars.compiledRawInterpolation(candidate)"
+                   for site in scan_sink_sites(snippet)["hits"])
+
 
 def test_script_alias_stops_at_rebinding():
     shadowed = 'const s = document.createElement("script"); { const s = document.createElement("div"); s.textContent = user; }'

@@ -77,6 +77,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **js** | `/js {analyze|generate|deep|offline-fanout} {program-or-url}` | `prompts/js-playbook.md`; tool map routes to `/jsluice` for local AST parsing |
 | **jsluice** | `/jsluice {local-js-file}` | `skills/jsluice/SKILL.md`; upstream `urls`, `secrets`, `tree`, `query`, and `format` modes; `urls` can emit request-shape leads |
 | **patch-analysis** | `/patch-analysis {upstream-repository-or-component}` | `skills/patch-analysis/SKILL.md` |
+| **technique-discovery** | `/technique-discovery [class] [--program program] [--stack component]` | `skills/technique-discovery/SKILL.md` |
 | **vulnerability-patch-research** | `/vulnerability-patch-research {component} {version} {reachable-feature}` | `skills/vulnerability-patch-research/SKILL.md`; disposable local proof reference in `references/` |
 | **credential-exposure-validation** | `/credential-exposure-validation {program} {panel-or-source}` | `skills/credential-exposure-validation/SKILL.md` |
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |

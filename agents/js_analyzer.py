@@ -1973,8 +1973,6 @@ def command_inventory(args: argparse.Namespace) -> int:
                 if source_map_sha256 and source_map_path:
                     source_map_artifact_path = str(source_map_path)
                     source_map_modules, source_map_modules_with_content = parse_source_map(source_map_body)
-                    if not source_map_modules:
-                        source_map_status = "invalid" if source_map_status != "cached" else "cached_invalid"
         chunks = chunk_text(text, args.chunk_size, args.chunk_overlap)
         chunk_set_key, chunk_manifest_path, chunk_rows, reused_chunks = write_chunk_set(
             chunks_root=library_chunks_dir,

@@ -1,14 +1,14 @@
 # Bidirectional XSS path review integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes (bugfix profile)
 - **Branch:** `docs/xss-bidirectional-paths`
 - **Base commit:** `48ed0e44b89284e3437f03c0beef691783c1eb7a`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-07
 - **Owning feature branch/ref:** `docs/xss-bidirectional-paths`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `88c6b05`
+- **Feature implementation commit(s):** `88c6b05`
 - **Inspiration / canonical references:** XSS router, source-acquisition reference, impact-fit delivery lens, JS sink-site inventory.
 
 ## Intent
@@ -22,7 +22,7 @@ The router explicitly supports tracing from either end. The existing source-acqu
 ## Evidence and review
 
 - Tests and commands: focused text-contract assertions PASS; `git diff --check` PASS. The available `policy_lint.py` validates the separate AI Policies repository, not BBH skill files; no applicable BBH policy linter was found.
-- Independent review: pending.
+- Independent review: read-only reviewer found no issues in the two XSS skill files; no live target action.
 - Replay/cohort/fixture evidence: not applicable to prose-only guidance.
 - Merge/ancestry evidence: branch begins at fetched `origin/beta` SHA above.
 
@@ -33,10 +33,10 @@ None identified. Hoster rollout is a separate activation decision; no stable pro
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/xss-bidirectional-paths`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** verify alignment, run checks, independent review, then beta integration.
-- **Working-tree state at handoff:** intentionally uncommitted during implementation.
+- **Latest immutable recovery checkpoint:** `88c6b05`
+- **Feature implementation commit(s):** `88c6b05`
+- **Exact resume point:** reconcile fetched beta, merge with dossier removed from beta, run post-merge checks.
+- **Working-tree state at handoff:** clean after this handoff update is committed.
 
 ## Decision gates
 
@@ -47,3 +47,4 @@ None identified. Hoster rollout is a separate activation decision; no stable pro
 ## Decision record
 
 - 2026-10-07 — created from user-approved bidirectional and ingress-specific coverage direction.
+- 2026-10-07 — independent review accepted the focused XSS change without findings; beta integration approved, Hoster activation separately gated.

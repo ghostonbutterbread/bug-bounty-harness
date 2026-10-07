@@ -1,10 +1,10 @@
 # XSS Source Acquisition and Sink-Census Decisions
 
 Load this reference from the XSS router when a confirmed sink has no currently
-reachable controlled source, a sink census needs prioritization, or a sanitizer
-or impact clue could change that ranking. The router owns the missing-fixture /
-server-constrained / no-source decision; do not reclassify a missing fixture as
-an exhausted or false-positive lane here.
+reachable controlled source, a sink census needs coverage or prioritization,
+or a sanitizer or impact clue could change that ranking. The router owns the
+missing-fixture / server-constrained / no-source decision; do not reclassify a
+missing fixture as an exhausted or false-positive lane here.
 
 ## Prioritize a path, not a sink count
 
@@ -23,6 +23,25 @@ an exhausted or false-positive lane here.
 A static inventory discovers candidates but does not prove that a user-controlled
 source reaches them. Preserve the specific source-to-sink question and a
 reopening condition instead of repeating a larger census.
+
+## Reconcile sink groups without collapsing input paths
+
+Group repeated sites when they share a downstream consumer or rendering helper;
+this saves repeated analysis of that piece, not testing of every route into it.
+Keep each distinct input/entry route as a separate path through its request
+filter, validation, encoding, storage and decode stages. Two writers of the same
+backend field may have different transforms or WAF treatment; the same value in
+a page and an email may have different renderers or CSP. A group-level negative
+does not close an untested ingress or consumer.
+
+For a distinct path, retain the input route and control, meaningful transforms,
+consumer/render context, evidence, and disposition: connected, constrained or
+fixed, not live in the tested context, missing a source/prerequisite, or
+unexamined. Scope each negative to the route, source, and consumer tested.
+At a meaningful handoff, distinguish raw inventory hits from reviewed
+consumer groups and ingress paths, and name unexamined paths and inventory
+limits (including capped or missing assets). This is coverage accounting, not
+a fixed percentage, new Attempt shape, or demand to payload-test every hit.
 
 ## Sanitizer evidence
 

@@ -5,19 +5,19 @@ description: Use when testing Cross-Site Scripting or routing XSS work into refl
 
 # XSS Router
 
-Classify the controlled source and its render consumer, then load the matching
-lane. Explore context-matched parser and sanitizer differentials while keeping
-impact, ownership, rate, cleanup, and human-visible effects within the inherited
-live-testing boundary. A blocked payload is evidence about a boundary, not a
-verdict on a plausible XSS path.
+Classify the observed source or sink and its render consumer, then load the
+matching lane as the path becomes clear. Explore context-matched parser and
+sanitizer differentials while keeping impact, ownership, rate, cleanup, and
+human-visible effects within the inherited live-testing boundary. A blocked
+payload is evidence about a boundary, not a verdict on a plausible XSS path.
 
 ## Entry and lane selection
 
 Read `general-security-testing-policy` and `live-testing-policy` before live
 action. For a new hunt, use the former's
 `references/opening-and-knowledge.md` for scope and cold-start guidance rather
-than repeating that procedure here. Observe the current input and render context
-with an inert marker or an appropriate browser/source trace before querying
+than repeating that procedure here. Observe the current input or consumer and
+render context with an inert marker or an appropriate browser/source trace before querying
 prior work; then retrieve only memory relevant to that observed surface. A
 narrow or already warm vector need not produce a quota of unrelated findings.
 
@@ -57,9 +57,16 @@ The parent XSS agent owns synthesis, execution choices, and hypothesis closure.
 
 ## Investigate the path
 
-1. Identify the controlled source, its consumer and render context. Compare raw
-   response and browser behavior when client-side processing could change it.
-2. Use an inert marker or source trace to distinguish reflection, persistence,
+Start from a controlled input **or** a plausible sink; trace toward the missing
+end and switch direction when evidence suggests a better route. Ask how another
+user could encounter the value, but do not use a missing delivery path as a gate
+against exploring a promising sink. Keep self-only execution and source-starved
+sinks as chain leads with their missing link and reopening condition.
+
+1. Identify the observed source or sink, its possible feeders and consumers, and
+   the render context. Compare raw response and browser behavior when client-side
+   processing could change it.
+2. Use an inert marker or source/sink trace to distinguish reflection, persistence,
    DOM flow, a later consumer, and a defense transform. Query prior state for
    that concrete path; do not let an old lead choose the target by default.
 3. Choose the next distinct context-matched discriminator. Use
@@ -71,10 +78,11 @@ The parent XSS agent owns synthesis, execution choices, and hypothesis closure.
 5. Use the selected lane for browser proof, later-consumer checks, cleanup, and
    report shape. Preserve the residual question and exact stop boundary.
 
-For a route cluster or `/hybrid`/`/hunter-loop` run, map the source-to-sink path
-before increasing payload volume. An inventory or static sink label is a lead,
-not a taint trace or browser proof. Do not mark a route complete from raw HTTP
-when browser routing, challenge behavior, or framework rendering matters.
+For a route cluster or `/hybrid`/`/hunter-loop` run, investigate source-to-sink
+paths from either end before increasing payload volume. An inventory or static
+sink label is a lead, not a taint trace or browser proof. Do not mark a route
+complete from raw HTTP when browser routing, challenge behavior, or framework
+rendering matters.
 
 **Pressure state:** `cold` means a context-appropriate discovery pass has not
 established a plausible XSS path; `warm` means controlled input reflects,
@@ -105,15 +113,17 @@ question, not an automatic negative. Classify the blocker:
 | No attacker-controlled source reaches this consumer | Record the evidenced negative for that path; reconsider if source or consumer evidence changes. |
 
 The first two are open work, not `exhausted`. Do not call a client-only regex a
-server constraint. For prioritization, sanitizer configuration, an existing
-impact amplifier, and the condition to rerun a sink census, load
-`references/source-acquisition.md` when those questions arise.
+server constraint. For sink-group coverage, distinct ingress paths,
+prioritization, sanitizer configuration, an existing impact amplifier, and the
+condition to rerun a sink census, load `references/source-acquisition.md` when
+those questions arise.
 
 Load `/bb-script-rules` when running a sink census. XSS-specific render
 consumers to inspect in the observed stack include raw-HTML helpers, URL
-navigation, legacy bundles, microfrontends, and bootstrap data. Track
-unexamined source-to-sink paths instead of treating the ranked sink list as
-coverage.
+navigation, legacy bundles, microfrontends, and bootstrap data. Group common
+downstream consumers for review, but keep distinct input routes and their
+defenses separate. Track unexamined paths instead of treating the ranked sink
+list as coverage.
 
 ## Discovery tools, when they answer the next question
 

@@ -1,6 +1,6 @@
 # Prior-work stop-sign refinement integration dossier
 
-- **Status:** feature
+- **Status:** review-ready (local beta integration only; remote release blocked)
 - **Owner:** Hermes
 - **Branch / owning ref:** `fix/prior-work-stop-sign`
 - **Base commit:** `7fb2e51c88c95270d3de40bc357fd89cac880488`
@@ -22,7 +22,7 @@ Keep closed findings out of normal hunt selection, but permit a compact exact fi
 
 - `python -m pytest -q agents/test_finding_visibility.py agents/test_me_ledger.py agents/test_ledger_v2.py agents/test_manual_hunter.py tests/test_ledger_skill_visibility.py`: 65 passed, 21 subtests; `git diff --check` clean.
 - Neighbor alignment: `agents/index.md` cold surface; `/ledger` owns retrieval; `/hunter-loop` and `/focused-recon` route normal hunts; `/manual-hunter` owns operator submission status. No change to exact FID command for explicitly scoped work.
-- Independent review: pending.
+- Independent review: approved diff `beta` `7fb2e51` → `fix/prior-work-stop-sign` `86cdb66`, including compact aggregate booleans, no FID/report/proof, stop-sign guidance, and 65 passing tests/21 subtests. No blocking issue.
 
 ## Blockers and deferred work
 
@@ -34,7 +34,7 @@ Keep closed findings out of normal hunt selection, but permit a compact exact fi
 - **Owning feature branch/ref:** `fix/prior-work-stop-sign`
 - **Latest immutable recovery checkpoint:** `fc4007177311c0f4a6ec898e97f866f81a523a9c`
 - **Feature implementation commit(s):** `fc4007177311c0f4a6ec898e97f866f81a523a9c`
-- **Exact resume point:** reconcile independent review, then hold remote beta publication pending Ryu's visibility/default decision.
+- **Exact resume point:** merge reviewed correction into clean local beta and verify it replaces the earlier local candidate; hold remote beta push pending Ryu's visibility/default decision.
 - **Working-tree state at handoff:** clean after the dossier checkpoint commit.
 
 ## Decision gates
@@ -45,4 +45,4 @@ Keep closed findings out of normal hunt selection, but permit a compact exact fi
 
 ## Decision record
 
-- 2026-10-07 — scope corrected from 'inspiration/adjacent ideas' to stop-sign dedupe; beta remote publication held.
+- 2026-10-07 — scope corrected from 'inspiration/adjacent ideas' to stop-sign dedupe; independent review approved local correction. Remote beta publication held pending owner decision on default visibility.

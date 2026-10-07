@@ -21,6 +21,16 @@ render context with an inert marker or an appropriate browser/source trace befor
 prior work; then retrieve only memory relevant to that observed surface. A
 narrow or already warm vector need not produce a quota of unrelated findings.
 
+**Breadth runs need a consumer.** Surface-first observation above is about not
+letting a stale lead pick the target; it is not a reason for a sweep to ignore
+its own program's warm backlog. A census that only adds leads without a
+follow-up consumer can strand actionable work. When planning a breadth pass over
+a program that already has warm, unresolved XSS leads, decide deliberately
+whether this run adds coverage or drains the backlog, and say which. `leads`
+owns cross-run reconciliation and `lead-followup`; `hypothesis-ledger` owns
+stale and reclaimable owner work. This is guidance for run planning, not a
+gate on probing.
+
 Load `injection-testing-policy` when an input, parser, sanitizer, or render sink
 is plausible. Load `waf-live-policy` when filtering, normalization, challenge,
 or an edge/origin difference becomes the next question.
@@ -99,7 +109,9 @@ open while the callback is unresolved; pursue other hypotheses without retiring
 it. Keep pressure on `warm`/`hot` vectors with non-equivalent families until the
 boundary is understood, another consumer branches, or inherited safety/stop
 rules apply. `exhausted` requires evidence for the path examined; do not call a
-missing owned fixture or unexplored consumer exhausted.
+missing owned fixture or unexplored consumer exhausted. For the non-payload axes
+a vector can still be varied along, and for recording an exhaustion claim a
+reader can falsify, load `references/continuation-dimensions.md`.
 
 ## Missing source and sink census
 
@@ -110,13 +122,13 @@ question, not an automatic negative. Classify the blocker:
 | --- | --- |
 | An authorized source exists but needs an owned account, field, object, or session | `account-testing-policy`; name the missing artifact and reopening condition. |
 | A source exists but the server constrains its value space | `injection-testing-policy` or `waf-live-policy`; characterize the actual server boundary. |
-| No attacker-controlled source reaches this consumer | Record the evidenced negative for that path; reconsider if source or consumer evidence changes. |
+| No attacker-controlled source reaches this consumer | Before recording the negative, check the writer inventory in `references/source-acquisition.md`; state which link cannot exist. Reconsider if source or consumer evidence changes. |
 
 The first two are open work, not `exhausted`. Do not call a client-only regex a
-server constraint. For sink-group coverage, distinct ingress paths,
-prioritization, sanitizer configuration, an existing impact amplifier, and the
-condition to rerun a sink census, load `references/source-acquisition.md` when
-those questions arise.
+server constraint. For sink-group and distinct ingress-path coverage, finding
+writers, stack-matched parameter discovery, prioritization, sanitizer posture,
+impact amplifiers, or census refresh decisions, load
+`references/source-acquisition.md` when those questions arise.
 
 Load `/bb-script-rules` when running a sink census. XSS-specific render
 consumers to inspect in the observed stack include raw-HTML helpers, URL

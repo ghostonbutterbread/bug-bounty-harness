@@ -492,13 +492,38 @@ def resolve_library_root(args: argparse.Namespace) -> tuple[Path, dict]:
     }
 
 
+# Attribution/identification headers required by some programs on every
+# request. Set once from --header so both fetch helpers carry it; empty means
+# send nothing extra.
+EXTRA_HTTP_HEADERS: dict[str, str] = {}
+
+
+def set_extra_http_headers(values: list[str] | None) -> None:
+    """Parse repeatable "Name: value" CLI headers into EXTRA_HTTP_HEADERS."""
+    EXTRA_HTTP_HEADERS.clear()
+    for raw in values or []:
+        name, separator, value = str(raw).partition(":")
+        name, value = name.strip(), value.strip()
+        if not separator or not name or not value:
+            raise ValueError(f"expected 'Name: value' header, got {raw!r}")
+        if any(c in name + value for c in "\r\n"):
+            raise ValueError(f"header must not contain CR/LF: {raw!r}")
+        EXTRA_HTTP_HEADERS[name] = value
+
+
+def _request_headers(accept: str) -> dict[str, str]:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+        "Accept": accept,
+    }
+    headers.update(EXTRA_HTTP_HEADERS)
+    return headers
+
+
 def http_get(url: str, timeout: int = 20) -> tuple[bytes, int | None, str]:
     req = urllib.request.Request(
         url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
-            "Accept": "*/*",
-        },
+        headers=_request_headers("*/*"),
     )
     try:
         with urllib.request.build_opener(NoRedirectHandler()).open(req, timeout=timeout) as resp:
@@ -520,10 +545,7 @@ def http_get_limited(url: str, *, timeout: int, max_bytes: int) -> tuple[bytes, 
     """Fetch one artifact without allowing an unbounded source-map download."""
     req = urllib.request.Request(
         url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
-            "Accept": "application/json, */*",
-        },
+        headers=_request_headers("application/json, */*"),
     )
     try:
         opener = urllib.request.build_opener(NoRedirectHandler())
@@ -1781,6 +1803,10 @@ def command_inventory(args: argparse.Namespace) -> int:
         raise SystemExit("chunk overlap must be non-negative and smaller than chunk size")
     if args.source_map_max_packets < 0 or args.source_map_max_expanded_bytes < 0:
         raise SystemExit("source-map packet and expanded-byte limits must be non-negative")
+    try:
+        set_extra_http_headers(getattr(args, "header", None))
+    except ValueError as exc:
+        raise SystemExit(f"invalid --header: {exc}")
     run_id = args.run_id or f"js-{utc_stamp()}"
     root, library_root, integration_index_root, config_summary = resolve_inventory_paths(args, run_id)
     provenance_input = Path(args.provenance_input).expanduser() if args.provenance_input else None
@@ -2193,6 +2219,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="For exact URL aliases already mapped to an existing cached artifact, skip signal extraction, chunking, packet generation, metadata, provenance, and DB updates",
     )
     inv.add_argument("--limit", type=int, help="Maximum JS URLs to download")
+    inv.add_argument(
+        "--header",
+        action="append",
+        metavar="NAME: VALUE",
+        help="Extra request header sent with every JS/page/source-map fetch; "
+             "repeatable. Use for program-mandated attribution headers.",
+    )
     inv.add_argument("--timeout", type=int, default=20)
     inv.add_argument("--delay", type=float, default=0.0, help="Delay between JS downloads")
     inv.add_argument(

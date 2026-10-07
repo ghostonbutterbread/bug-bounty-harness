@@ -508,7 +508,7 @@ def cmd_prior_work(args: argparse.Namespace) -> int:
     if not file_name:
         raise ValueError("file is required")
     class_name = _normalize_class_name(args.class_name)
-    matches: list[dict[str, Any]] = []
+    confirmed = submitted = duplicate = False
     for finding in ledger_list(
         args.program,
         lane=args.lane,
@@ -523,22 +523,17 @@ def cmd_prior_work(args: argparse.Namespace) -> int:
         ):
             continue
         submission = normalize_submission(finding.get("submission"))
-        confirmed = is_confirmed_finding(finding)
-        submitted = submission["state"] == "submitted"
-        duplicate = submission.get("result") == "duplicate"
-        if confirmed or submitted or duplicate:
-            matches.append({
-                "fid": finding.get("fid"),
-                "confirmed": confirmed,
-                "submitted": submitted,
-                "duplicate": duplicate,
-            })
+        confirmed |= is_confirmed_finding(finding)
+        submitted |= submission["state"] == "submitted"
+        duplicate |= submission.get("result") == "duplicate"
     print(json.dumps({
         "program": _normalize_program(args.program),
         "file": file_name,
         "class_name": class_name,
-        "known_prior_work": bool(matches),
-        "matches": matches,
+        "known_prior_work": confirmed or submitted or duplicate,
+        "confirmed": confirmed,
+        "submitted": submitted,
+        "duplicate": duplicate,
     }, indent=2))
     return 0
 

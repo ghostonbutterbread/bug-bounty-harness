@@ -59,12 +59,16 @@ bbh agents/me_ledger.py prior-work --program {program} \
   --file <exact-ledger-file-or-URL> --class-name <vuln-class>
 ```
 
-The reply contains only matching FIDs and confirmed/submitted/duplicate flags.
-When the same vulnerability proof is already confirmed or submitted, avoid
-repeating it and choose the next distinct question. A match does **not** close
-the entire route, class, role, or downstream consumer; a miss means only that
-this exact file/class pair has no recorded prior proof. For an actual FID,
-request the full finding only when exact dedupe, retest, or reporting requires it.
+The reply is a yes/no for recorded prior work plus confirmed/submitted/duplicate
+flags—no FID, report, proof, or vulnerability narrative. In an ordinary new-
+finding hunt, a positive answer is a **stop sign for that file/class line of
+investigation**: do not repeat or deepen the known vulnerability, and choose
+fresh work from current app observations instead. Do not use the result as a
+springboard for chaining or adjacent variants of that finding. It does not
+establish that unrelated vulnerability classes or independently observed
+surfaces are closed. A miss means only that this exact file/class pair has no
+recorded prior proof, not that the idea is globally novel. Review a full FID
+only for an explicitly requested retest, extension, status, or report task.
 
 The default `list` response excludes confirmed, submitted, and dropped findings
 (including platform duplicates). Do not preload raw `ledger.json`, historical

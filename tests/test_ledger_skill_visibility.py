@@ -10,7 +10,11 @@ def test_ledger_skill_routes_work_selection_through_filtered_list() -> None:
     assert "bbh agents/me_ledger.py prior-work --program {program}" in skill
     assert "bbh agents/me_ledger.py get --program {program}" in skill
     hunter_loop = (root / "skills/hunter-loop/SKILL.md").read_text(encoding="utf-8")
-    assert "`prior-work` check before repeating" in hunter_loop
+    assert "`prior-work` check. A positive" in hunter_loop
+    assert "retest/extension requires an explicit user request" in hunter_loop
+    assert "no FID, report, proof, or vulnerability narrative" in skill
+    focused_recon = (root / "skills/focused-recon/SKILL.md").read_text(encoding="utf-8")
+    assert "not as a queue of" in focused_recon
     assert "`check` below is instead a targeted file/class dedupe lookup" in skill
     assert "--include-closed" in skill
     assert "Do not preload raw `ledger.json`" in skill

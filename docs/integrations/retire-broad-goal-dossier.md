@@ -1,6 +1,6 @@
 # Retire merged broad-goal dossier — integration dossier
 
-- **Status:** review-ready (tests green; independent review pending)
+- **Status:** review-ready (independent review accepted; beta merge pending)
 - **Owner:** Hermes Agent, Kanban `t_8ed0b321`
 - **Branch:** `fix/retire-broad-goal-dossier`
 - **Base commit:** `f4196f7b0798cbddad390b585466fa4843ab0ad2`
@@ -26,23 +26,23 @@ Remove a completed, branch-local handoff dossier accidentally retained on beta. 
 - Focused: `PYTHONPATH=. python3 -m unittest tests/test_skill_command_lane_safety.py -q` — 2 passed.
 - Full isolated suite: `PYTHONPATH=. python3 -m unittest discover -s tests -q` — 129 run, 1 skipped, no failures.
 - Reference-impact audit: the only remaining path reference is this branch-local dossier; no live registry, launcher, skill, or test consumer depends on the removed file. The stale `BUGFIXES.md` entry is removed.
-- Independent review: pending.
+- Independent review: **ACCEPT** on committed range `f4196f7..4377a70`, conditional on excluding this temporary dossier from the integrated beta tree; reviewer independently reran focused 2/2 and isolated full 129 run/1 skipped/0 failures.
 - Merge/ancestry: file exists on beta, not stable `master`; the owning feature's Kanban card is done.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** independent review and beta post-merge suite.
+- **Missing test or evidence:** beta post-merge suite.
 - **Command / fixture / environment needed:** repository checkout with task branch first on `PYTHONPATH`.
-- **Trigger to run it:** after the independently reviewed feature commit and after beta integration.
+- **Trigger to run it:** immediately after clean beta integration.
 - **Why it blocks integration, activation, or promotion:** beta currently has a red full suite; Technique Discovery must not merge on a red baseline.
-- **Next completion step / successor reference:** commit and obtain independent review, merge fix into beta, remove this branch-local dossier from beta, and rerun the integrated suite.
+- **Next completion step / successor reference:** merge fix into beta, exclude this branch-local dossier in the same integration, and rerun the integrated suite.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/retire-broad-goal-dossier`
 - **Latest immutable recovery checkpoint:** `50f084c7d02e2b22c7a3393144be0c3712b1e537`
 - **Feature implementation commit(s):** `50f084c7d02e2b22c7a3393144be0c3712b1e537`
-- **Exact resume point:** obtain independent read-only review of `f4196f7b0798cbddad390b585466fa4843ab0ad2..fix/retire-broad-goal-dossier`; if accepted, merge into clean beta excluding this temporary dossier and rerun suite.
+- **Exact resume point:** reviewed range accepted; merge into clean beta excluding this temporary dossier and rerun suite.
 - **Working-tree state at handoff:** clean after dossier-only handoff commit.
 
 ## Decision gates
@@ -55,3 +55,4 @@ Remove a completed, branch-local handoff dossier accidentally retained on beta. 
 
 - 2026-10-07 — isolated beta-based fix opened; focused RED reproduced.
 - 2026-10-07 — `50f084c7d02e2b22c7a3393144be0c3712b1e537` removes only stale handoff and resolved defect note; focused 2 green, full 129 run/1 skipped/0 failed. Independent review pending.
+- 2026-10-07 — independent reviewer accepted the committed fix, conditional on removing this branch-local dossier at integration.

@@ -51,7 +51,9 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    high/medium vulnerability lists, MapStore `old-leads`, or `#do-not-retest`
    entries as target-selection input for new-finding goals. Use them only for
    dedupe, coverage, safety, rebound ideas, or explicitly requested
-   revalidation/extension after a current surface exists.
+   revalidation/extension after a current surface exists. For a selected
+   file/class pair, use `/ledger`'s compact `prior-work` check before repeating
+   an apparent prior proof; do not treat a match as closure of adjacent angles.
 5. Start or resume a target memory pack.
 6. Map one app area at a time through live interaction, then dispatch
    specialists on evidence-backed triggers.

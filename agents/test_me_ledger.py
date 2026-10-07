@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -254,6 +255,93 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             self.assertEqual(args.func(args), 0)
         self.assertEqual(json.loads(stdout.getvalue()), {"exists": False, "fid": "D99", "finding": None})
         mock_get.assert_called_once()
+
+    @patch("agents.me_ledger.ledger_list")
+    def test_prior_work_returns_only_exact_pair_dispositions(self, mock_list) -> None:
+        mock_list.return_value = [
+            {"fid": "D01", "file": "src/flow.js", "class_name": "idor", "review_tier": "CONFIRMED",
+             "description": "private proof"},
+            {"fid": "D02", "file": "src/flow.js", "class_name": "idor", "submission": {"state": "submitted",
+             "report": "H1-123", "result": "duplicate"}, "poc": "private payload"},
+            {"fid": "D03", "file": "src/flow.js", "class_name": "idor", "status": "active"},
+            {"fid": "D04", "file": "src/flow.js", "class_name": "xss", "submission": {"state": "submitted"}},
+            {"fid": "D05", "file": "src/other.js", "class_name": "idor", "status": "confirmed"},
+            {"fid": "D06", "file": "src/flow.js", "class_name": "idor", "current": {"review_tier": "CONFIRMED"}},
+            {"fid": "D07", "file": "src/flow.js", "class_name": "idor", "submission": {"result": "duplicate"}},
+        ]
+        args = me_ledger.build_parser().parse_args([
+            "prior-work", "--program", "demo", "--family", "web_bounty", "--lane", "web",
+            "--root", "/tmp/me-root", "--file", "./src\\flow.js", "--class-name", " IDOR ",
+        ])
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            self.assertEqual(args.func(args), 0)
+        self.assertEqual(json.loads(stdout.getvalue()), {
+            "program": "demo", "file": "src/flow.js", "class_name": "idor", "known_prior_work": True,
+            "matches": [
+                {"fid": "D01", "confirmed": True, "submitted": False, "duplicate": False},
+                {"fid": "D02", "confirmed": False, "submitted": True, "duplicate": True},
+                {"fid": "D06", "confirmed": True, "submitted": False, "duplicate": False},
+                {"fid": "D07", "confirmed": False, "submitted": False, "duplicate": True},
+            ],
+        })
+        mock_list.assert_called_once_with("demo", lane="web", family="web_bounty", root_override="/tmp/me-root")
+
+    @patch("agents.me_ledger.ledger_list", return_value=[])
+    def test_prior_work_miss_is_not_claimed_as_global_novelty(self, mock_list) -> None:
+        args = me_ledger.build_parser().parse_args([
+            "prior-work", "--program", "demo", "--file", "src/flow.js", "--class-name", "idor",
+        ])
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            self.assertEqual(args.func(args), 0)
+        self.assertEqual(json.loads(stdout.getvalue())["known_prior_work"], False)
+        self.assertEqual(json.loads(stdout.getvalue())["matches"], [])
+        mock_list.assert_called_once()
+
+    def test_prior_work_reads_canonical_ledger_without_report_content(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            is_new, fid = ledger_adapter.ledger_add(
+                "demo", {
+                    "file": "src/flow.js", "class_name": "idor", "type": "cross-account object read",
+                    "review_tier": "CONFIRMED", "submission": {"state": "submitted", "report": "H1-123"},
+                    "description": "private proof must not enter the prior-work response",
+                }, "snapshot-1", "v1", "run-1", "test-agent",
+                lane="web", family="web_bounty", root_override=root,
+            )
+            self.assertTrue(is_new)
+            args = me_ledger.build_parser().parse_args([
+                "prior-work", "--program", "demo", "--family", "web_bounty", "--lane", "web",
+                "--root", root, "--file", "src/flow.js", "--class-name", "idor",
+            ])
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(args.func(args), 0)
+            response = json.loads(stdout.getvalue())
+            self.assertEqual(response["matches"], [
+                {"fid": fid, "confirmed": True, "submitted": True, "duplicate": False}
+            ])
+            self.assertNotIn("private proof", stdout.getvalue())
+            self.assertNotIn("H1-123", stdout.getvalue())
+
+            _, normalized_fid = ledger_adapter.ledger_add(
+                "demo", {
+                    "file": "src/render.js", "class_name": "dom_xss", "type": "stored render",
+                    "review_tier": "CONFIRMED",
+                }, "snapshot-1", "v1", "run-2", "test-agent",
+                lane="web", family="web_bounty", root_override=root,
+            )
+            args = me_ledger.build_parser().parse_args([
+                "prior-work", "--program", "demo", "--family", "web_bounty", "--lane", "web",
+                "--root", root, "--file", "src/render.js", "--class-name", "dom_xss",
+            ])
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(args.func(args), 0)
+            self.assertEqual(json.loads(stdout.getvalue())["matches"], [
+                {"fid": normalized_fid, "confirmed": True, "submitted": False, "duplicate": False}
+            ])
+            self.assertEqual(json.loads(stdout.getvalue())["class_name"], "dom-xss")
 
     @patch("agents.me_ledger._default_run_id", return_value="run-1")
     @patch(

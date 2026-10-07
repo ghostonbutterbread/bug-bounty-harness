@@ -35,17 +35,22 @@ def submission_state(finding: dict[str, Any]) -> str:
     return normalize_submission(finding.get("submission")).get("state", "not_submitted")
 
 
+def is_confirmed_finding(finding: dict[str, Any]) -> bool:
+    """Recognize both top-level and current v2 proof status."""
+    current = finding.get("current")
+    fields = [finding, current] if isinstance(current, dict) else [finding]
+    return any(
+        str(field.get("status") or "").strip().lower() == "confirmed"
+        or str(field.get("review_tier") or field.get("tier") or "").strip().upper() == "CONFIRMED"
+        for field in fields
+    )
+
+
 def is_closed_finding(finding: dict[str, Any]) -> bool:
     """True when a finding is visible for lookup/dedupe, not default new work."""
-    status = str(finding.get("status") or "").strip().lower()
-    current = finding.get("current")
-    current_status = str(current.get("status") or "").strip().lower() if isinstance(current, dict) else ""
-    review_tier = str(finding.get("review_tier") or finding.get("tier") or "").strip().upper()
     submission = normalize_submission(finding.get("submission"))
     return (
-        status == "confirmed"
-        or current_status == "confirmed"
-        or review_tier == "CONFIRMED"
+        is_confirmed_finding(finding)
         or submission["state"] != "not_submitted"
         or submission.get("result") == "duplicate"
     )

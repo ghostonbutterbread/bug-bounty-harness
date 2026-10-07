@@ -6,8 +6,8 @@
 - **Base commit:** `52fc788c13f49be54746b44fd436cef1954f6e22`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-07
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `d0d8d8db28a6e3ad759679be06bd831034a41dcc` (implementation); reconciled tip `467af2c`.
+- **Feature implementation commit(s):** `d0d8d8db28a6e3ad759679be06bd831034a41dcc`
 - **Inspiration / canonical references:** BBH ledger skill, `agents/finding_visibility.py`, `agents/me_ledger.py`, manual-hunter submission guidance; Kanban `t_0b4cc1f7`.
 
 ## Intent
@@ -23,7 +23,7 @@ The ledger skill now gives the default filtered list command and names explicit 
 - Tests: `python -m pytest -q agents/test_finding_visibility.py agents/test_me_ledger.py tests/test_ledger_skill_visibility.py` → 14 passed, 8 subtests passed; `git diff --check` clean; `python agents/me_ledger.py get --help` shows exact-FID command.
 - Policy neighbors: `agents/index.md` says cold current surface/no broad prior findings; `skills/manual-hunter/SKILL.md` owns the submission record; `skills/ledger/SKILL.md` owns read guidance. No competing route found.
 - Independent review: initial review found duplicate result without submitted state visible by default and a missing exact-FID route; both corrected and tested. Re-review pending.
-- Merge/ancestry: feature based on `52fc788` beta; selected `beta` advanced to `b4b8592` with unrelated SSRF guidance. Reconcile before final review/integration.
+- **Merge/ancestry:** feature reconciled by merge with selected `beta` at `b4b8592` (unrelated SSRF guidance); focused tests passed again on reconciled tip `467af2c`.
 
 ## Blockers and deferred work
 
@@ -34,10 +34,10 @@ The ledger skill now gives the default filtered list command and names explicit 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/ledger-open-default`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** review diff and focused tests, commit, independently review, integrate to beta, verify projection.
-- **Working-tree state at handoff:** intentionally uncommitted while implementing.
+- **Latest immutable recovery checkpoint:** `d0d8d8db28a6e3ad759679be06bd831034a41dcc` (implementation); reconciled tip `467af2c`.
+- **Feature implementation commit(s):** `d0d8d8db28a6e3ad759679be06bd831034a41dcc`
+- **Exact resume point:** independent re-review of reconciled tip, then integration to beta, focused checks and projection/read-back.
+- **Working-tree state at handoff:** clean after the dossier checkpoint commit below.
 
 ## Decision gates
 

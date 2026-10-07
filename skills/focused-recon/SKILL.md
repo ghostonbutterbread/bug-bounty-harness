@@ -34,7 +34,9 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    surface patterns from the raw data before following existing leads.
 4. **Memory Overlay** — Now query MapStore, prior focused maps, and previous
    handoffs for the hosts, routes, and patterns discovered in the cold pass.
-   Use them for dedupe, coverage, and rebound ideas.
+   Use them for current app facts, dedupe, and coverage—not as a queue of
+   confirmed-finding extensions. `/ledger` owns the compact prior-work check
+   for a selected file/class; a positive result ends that line in a normal hunt.
 5. Write all focused recon output under
    `~/Shared/web_bounty/<program>/web/recon/map/`.
 6. Use GF-style lenses to build lane queues, then map one target packet deeply

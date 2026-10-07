@@ -278,12 +278,7 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             self.assertEqual(args.func(args), 0)
         self.assertEqual(json.loads(stdout.getvalue()), {
             "program": "demo", "file": "src/flow.js", "class_name": "idor", "known_prior_work": True,
-            "matches": [
-                {"fid": "D01", "confirmed": True, "submitted": False, "duplicate": False},
-                {"fid": "D02", "confirmed": False, "submitted": True, "duplicate": True},
-                {"fid": "D06", "confirmed": True, "submitted": False, "duplicate": False},
-                {"fid": "D07", "confirmed": False, "submitted": False, "duplicate": True},
-            ],
+            "confirmed": True, "submitted": True, "duplicate": True,
         })
         mock_list.assert_called_once_with("demo", lane="web", family="web_bounty", root_override="/tmp/me-root")
 
@@ -295,8 +290,9 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
         stdout = io.StringIO()
         with redirect_stdout(stdout):
             self.assertEqual(args.func(args), 0)
-        self.assertEqual(json.loads(stdout.getvalue())["known_prior_work"], False)
-        self.assertEqual(json.loads(stdout.getvalue())["matches"], [])
+        response = json.loads(stdout.getvalue())
+        self.assertEqual(response["known_prior_work"], False)
+        self.assertEqual((response["confirmed"], response["submitted"], response["duplicate"]), (False, False, False))
         mock_list.assert_called_once()
 
     def test_prior_work_reads_canonical_ledger_without_report_content(self) -> None:
@@ -318,9 +314,11 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             with redirect_stdout(stdout):
                 self.assertEqual(args.func(args), 0)
             response = json.loads(stdout.getvalue())
-            self.assertEqual(response["matches"], [
-                {"fid": fid, "confirmed": True, "submitted": True, "duplicate": False}
-            ])
+            self.assertEqual(response, {
+                "program": "demo", "file": "src/flow.js", "class_name": "idor",
+                "known_prior_work": True, "confirmed": True, "submitted": True, "duplicate": False,
+            })
+            self.assertNotIn(fid, stdout.getvalue())
             self.assertNotIn("private proof", stdout.getvalue())
             self.assertNotIn("H1-123", stdout.getvalue())
 
@@ -338,10 +336,11 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             stdout = io.StringIO()
             with redirect_stdout(stdout):
                 self.assertEqual(args.func(args), 0)
-            self.assertEqual(json.loads(stdout.getvalue())["matches"], [
-                {"fid": normalized_fid, "confirmed": True, "submitted": False, "duplicate": False}
-            ])
-            self.assertEqual(json.loads(stdout.getvalue())["class_name"], "dom-xss")
+            self.assertEqual(json.loads(stdout.getvalue()), {
+                "program": "demo", "file": "src/render.js", "class_name": "dom-xss",
+                "known_prior_work": True, "confirmed": True, "submitted": False, "duplicate": False,
+            })
+            self.assertNotIn(normalized_fid, stdout.getvalue())
 
     @patch("agents.me_ledger._default_run_id", return_value="run-1")
     @patch(

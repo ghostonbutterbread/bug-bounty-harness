@@ -49,11 +49,13 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    - `/map-store` for the URL, host, surface, and relevant vuln class
    Do not use prior confirmed findings, old report drafts, manual findings,
    high/medium vulnerability lists, MapStore `old-leads`, or `#do-not-retest`
-   entries as target-selection input for new-finding goals. Use them only for
-   dedupe, coverage, safety, rebound ideas, or explicitly requested
-   revalidation/extension after a current surface exists. For a selected
-   file/class pair, use `/ledger`'s compact `prior-work` check before repeating
-   an apparent prior proof; do not treat a match as closure of adjacent angles.
+   entries as target-selection input for new-finding goals. Use prior findings
+   only for bounded dedupe, coverage, or safety after selecting a current
+   surface; retest/extension requires an explicit user request. For a selected
+   file/class pair, use `/ledger`'s compact `prior-work` check. A positive
+   answer stops that line of investigation in an ordinary hunt; select fresh
+   work from current app observations, not a variation or chain of the known
+   finding.
 5. Start or resume a target memory pack.
 6. Map one app area at a time through live interaction, then dispatch
    specialists on evidence-backed triggers.

@@ -46,11 +46,13 @@ trees, run Tree-sitter queries, or format JS. Upstream documentation lives at
    accepts remote URL arguments and can make requests if given one; keep this
    pass offline. For large bundles, keep output on disk and review bounded rows
    rather than piping the whole stream into an agent prompt.
-4. Preserve raw JSONL locally with the inventory URL/hash/provenance and cite
-   selected records in the `/js` review. Redact usable secrets from shared notes
-   and route complete credential evidence through the owning validation skill.
-   Do not silently merge parser output into inventory metadata or call a match
-   a verified endpoint.
+4. Preserve JSONL from `urls`, `secrets`, or `query` locally; `tree` and `format`
+   produce text, so keep their output as text if needed. Tie any retained output
+   to the inventory URL/hash/provenance and cite selected records or text spans
+   in the `/js` review. Redact usable secrets from shared notes and route
+   complete credential evidence through the owning validation skill. Do not
+   silently merge parser output into inventory metadata or call a match a
+   verified endpoint.
 
 ## Interpretation
 

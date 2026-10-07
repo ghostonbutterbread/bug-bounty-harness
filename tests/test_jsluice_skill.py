@@ -13,6 +13,8 @@ def test_js_tool_map_routes_to_registered_jsluice_skill() -> None:
     assert "**JSLuice**" in js
     assert "Load `/jsluice`" in js
     assert "skills/jsluice/SKILL.md" in registry
+    assert "`urls`, `secrets`, `tree`, `query`, and `format` modes" in registry
+    assert "`urls` can emit request-shape leads" in registry
     assert "load `/jsluice`" in playbook
     assert "jsluice urls" not in js  # Tool details belong to the focused skill.
 
@@ -27,5 +29,6 @@ def test_jsluice_skill_has_local_modes_and_proof_limits() -> None:
     for field in ("artifact_path", "sha256", "run_id", "provenance"):
         assert field in skill
     assert "never an HTTP URL" in skill
+    assert "`tree` and `format`\n   produce text" in skill
     assert "not proof of a sink or vulnerability" in skill
     assert "BBH wrapper" in skill

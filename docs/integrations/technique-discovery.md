@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-07
 - **Owning feature branch/ref:** `feat/technique-discovery`
-- **Latest immutable recovery checkpoint:** `944184efa00c1e2647a612e28c228327ccfb7fbd`
-- **Feature implementation commit(s):** `944184efa00c1e2647a612e28c228327ccfb7fbd`
+- **Latest immutable recovery checkpoint:** `507a57bf37e45c742d1a93cc7adee5fb0a353077`
+- **Feature implementation commit(s):** `944184efa00c1e2647a612e28c228327ccfb7fbd`, `507a57bf37e45c742d1a93cc7adee5fb0a353077`
 - **Inspiration / canonical references:** Ryushe's Technique Discovery discussion and reviewed seed `/home/ryushe/Shared/skill_seeds/2026-10-05-technique-discovery.md`; current BBH `skills/bug-goals/SKILL.md`, `SKILL_REGISTRY.md`.
 
 ## Intent
@@ -37,14 +37,14 @@ Create an explicitly invoked, standalone research workflow for application-led a
 - **Command / fixture / environment needed:** resolve the unrelated tracked legacy dossier/test scan in its owning change, then use a clean beta integration worktree, fresh fetch and focused/full tests with checkout-first `PYTHONPATH`.
 - **Trigger to run it:** independent review passes and unrelated dirty root-beta work is safely resolved by its owner.
 - **Why it blocks integration, activation, or promotion:** the current full suite is red on baseline and root beta holds an unrelated tracked modification; do not merge around/overwrite it. Live skill projection requires a separate activation decision.
-- **Next completion step / successor reference:** commit reviewer fixes and obtain a fresh independent review; address the pre-existing suite failure as an independently owned fix and reconcile beta cleanliness before merge.
+- **Next completion step / successor reference:** obtain a fresh independent review of `507a57bf37e45c742d1a93cc7adee5fb0a353077`; address the pre-existing suite failure as an independently owned fix and reconcile beta cleanliness before merge.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/technique-discovery`
-- **Latest immutable recovery checkpoint:** `944184efa00c1e2647a612e28c228327ccfb7fbd`
-- **Feature implementation commit(s):** `944184efa00c1e2647a612e28c228327ccfb7fbd`
-- **Exact resume point:** commit the reviewer fixes, then seek fresh independent review of the new exact tip. Do not claim a green full suite or merge while the baseline test and root-beta dirt remain.
+- **Latest immutable recovery checkpoint:** `507a57bf37e45c742d1a93cc7adee5fb0a353077`
+- **Feature implementation commit(s):** `944184efa00c1e2647a612e28c228327ccfb7fbd`, `507a57bf37e45c742d1a93cc7adee5fb0a353077`
+- **Exact resume point:** seek fresh independent review of corrected implementation `507a57bf37e45c742d1a93cc7adee5fb0a353077` (tip includes a later dossier-only handoff commit). Do not claim a green full suite or merge while the baseline test and root-beta dirt remain.
 - **Working-tree state at handoff:** clean after committing the reviewer fixes and final handoff.
 
 ## Decision gates
@@ -58,3 +58,4 @@ Create an explicitly invoked, standalone research workflow for application-led a
 - 2026-10-07 — created isolated feature from fetched `origin/beta`; focused test RED then skill/registry implementation.
 - 2026-10-07 — committed implementation as `944184efa00c1e2647a612e28c228327ccfb7fbd`; full suite baseline failure and root-beta dirt remain integration blockers.
 - 2026-10-07 — review blocked on invocation syntax and untrusted source retrieval; amended skill, registry and tests, plus Program Docs routing. Focused 12 green; full 137 has only inherited failure.
+- 2026-10-07 — reviewer fixes committed at `507a57bf37e45c742d1a93cc7adee5fb0a353077`; awaiting independent re-review.

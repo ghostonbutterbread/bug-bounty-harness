@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-07
 - **Owning feature branch/ref:** `feat/technique-discovery`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `944184efa00c1e2647a612e28c228327ccfb7fbd`
+- **Feature implementation commit(s):** `944184efa00c1e2647a612e28c228327ccfb7fbd`
 - **Inspiration / canonical references:** Ryushe's Technique Discovery discussion and reviewed seed `/home/ryushe/Shared/skill_seeds/2026-10-05-technique-discovery.md`; current BBH `skills/bug-goals/SKILL.md`, `SKILL_REGISTRY.md`.
 
 ## Intent
@@ -42,10 +42,10 @@ Create an explicitly invoked, standalone research workflow for application-led a
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/technique-discovery`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** review diff, commit feature, seek independent review. Do not claim a green full suite or merge while the baseline test and root-beta dirt remain.
-- **Working-tree state at handoff:** intentionally uncommitted while implementing.
+- **Latest immutable recovery checkpoint:** `944184efa00c1e2647a612e28c228327ccfb7fbd`
+- **Feature implementation commit(s):** `944184efa00c1e2647a612e28c228327ccfb7fbd`
+- **Exact resume point:** seek independent review of committed range `f4196f7b0798cbddad390b585466fa4843ab0ad2..feat/technique-discovery` (tip includes a later dossier-only handoff commit). Do not claim a green full suite or merge while the baseline test and root-beta dirt remain.
+- **Working-tree state at handoff:** clean after this dossier-only handoff commit.
 
 ## Decision gates
 
@@ -56,3 +56,4 @@ Create an explicitly invoked, standalone research workflow for application-led a
 ## Decision record
 
 - 2026-10-07 — created isolated feature from fetched `origin/beta`; focused test RED then skill/registry implementation.
+- 2026-10-07 — committed implementation as `944184efa00c1e2647a612e28c228327ccfb7fbd`; full suite baseline failure and root-beta dirt remain integration blockers.

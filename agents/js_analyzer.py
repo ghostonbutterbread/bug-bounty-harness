@@ -753,6 +753,15 @@ def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = No
     }
 
 
+def is_source_map_body(body: bytes) -> bool:
+    """Accept only a versioned map document, including maps with no sources."""
+    try:
+        document = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    return isinstance(document, dict) and document.get("version") == 3 and isinstance(document.get("sources"), list)
+
+
 def parse_source_map(body: bytes) -> tuple[list[dict], int]:
     """Return source-map module rows while keeping malformed maps non-fatal."""
     try:
@@ -1630,9 +1639,14 @@ def load_source_map_from_ledger(ledger: dict, *, url: str, source_maps_dir: Path
     if not isinstance(sha, str) or not sha:
         return None
     artifact_path = source_maps_dir / f"{sha}.map"
-    if not artifact_path.exists() or hashlib.sha256(artifact_path.read_bytes()).hexdigest() != sha:
+    if not artifact_path.exists():
         return None
-    return artifact_path.read_bytes(), sha, artifact_path
+    body = artifact_path.read_bytes()
+    status = entry.get("status")
+    if (hashlib.sha256(body).hexdigest() != sha or not isinstance(status, int)
+            or not 200 <= status < 300 or not is_source_map_body(body)):
+        return None
+    return body, sha, artifact_path
 
 
 def update_ledger_source_map(
@@ -1936,8 +1950,10 @@ def command_inventory(args: argparse.Namespace) -> int:
                     if source_map_too_large:
                         source_map_status = "too_large"
                         source_maps_too_large += 1
-                    elif not source_map_body:
+                    elif not source_map_body or not (source_map_status_code and 200 <= source_map_status_code < 300):
                         source_map_status = "fetch_failed"
+                    elif not is_source_map_body(source_map_body):
+                        source_map_status = "invalid"
                     else:
                         source_map_sha256 = hashlib.sha256(source_map_body).hexdigest()
                         source_map_path = source_maps_dir / f"{source_map_sha256}.map"

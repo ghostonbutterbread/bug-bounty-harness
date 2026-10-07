@@ -1,13 +1,13 @@
 # Compact prior-work lookup integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes
 - **Branch / owning ref:** `feat/prior-work-lookup`
 - **Base commit:** `815fcc9746835930dc9a653c0f63a63e66bfe938`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-07
-- **Latest immutable recovery checkpoint:** `32a3f9154e57db6bd06e90fe270679c0cd0a7737`
-- **Feature implementation commit(s):** `32a3f9154e57db6bd06e90fe270679c0cd0a7737`
+- **Latest immutable recovery checkpoint:** `7b5bd30a987a3569fe1c74addcad84e990f11f39`
+- **Feature implementation commit(s):** `32a3f9154e57db6bd06e90fe270679c0cd0a7737`, `7b5bd30a987a3569fe1c74addcad84e990f11f39`
 - **Inspiration / canonical references:** Ryu's request for a bounded 'have we already confirmed/submitted this?' question after the default closed-finding exclusion; task `t_7818be03`.
 
 ## Intent
@@ -23,7 +23,7 @@ Avoid repeated proof without turning submitted findings into the default target 
 - `python -m pytest -q agents/test_finding_visibility.py agents/test_me_ledger.py agents/test_ledger_v2.py agents/test_manual_hunter.py tests/test_ledger_skill_visibility.py`: 65 passed, 21 subtests after review correction; `git diff --check` clean.
 - Real canonical-ledger integration test with a temporary storage root verifies submitted/confirmed flags, underscore-to-hyphen class normalization, and no private proof/report reference in the reply.
 - Neighbor alignment: `agents/index.md` and `skills/hunter-loop/SKILL.md` prohibit broad historical target selection; `skills/ledger/SKILL.md` owns retrieval; `skills/manual-hunter/SKILL.md` owns operator submission state.
-- Independent review: first review found a false negative for `dom_xss` versus canonical `dom-xss`; normalized query and stored class per Bounty Core's convention and added a real-ledger regression. Re-review pending.
+- Independent review: initial review found a false negative for `dom_xss` versus canonical `dom-xss`; normalized query and stored class per Bounty Core's convention and added a real-ledger regression. Independent re-review approved diff `beta` `815fcc9` → feature `7b5bd30`; reviewer reran 65 tests, 21 subtests and `git diff --check`.
 
 ## Blockers and deferred work
 
@@ -33,9 +33,9 @@ Avoid repeated proof without turning submitted findings into the default target 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/prior-work-lookup`
-- **Latest immutable recovery checkpoint:** `32a3f9154e57db6bd06e90fe270679c0cd0a7737`
-- **Feature implementation commit(s):** `32a3f9154e57db6bd06e90fe270679c0cd0a7737`
-- **Exact resume point:** reconcile independent review, compare to fresh beta, then integrate and verify local projection.
+- **Latest immutable recovery checkpoint:** `7b5bd30a987a3569fe1c74addcad84e990f11f39`
+- **Feature implementation commit(s):** `32a3f9154e57db6bd06e90fe270679c0cd0a7737`, `7b5bd30a987a3569fe1c74addcad84e990f11f39`
+- **Exact resume point:** merge reviewed feature into clean current `beta`, remove this temporary dossier on target, rerun focused checks, verify local skill/CLI projection, then push/read back `origin/beta`.
 - **Working-tree state at handoff:** clean after this dossier checkpoint commit.
 
 ## Decision gates
@@ -46,4 +46,4 @@ Avoid repeated proof without turning submitted findings into the default target 
 
 ## Decision record
 
-- 2026-10-07 — created compact exact-match query, review pending.
+- 2026-10-07 — initial exact-match query created; review false negative corrected and independently approved for beta. Exact pair match remains a prior-work signal, not semantic equivalence or route-wide closure; no main promotion or Hoster rollout.

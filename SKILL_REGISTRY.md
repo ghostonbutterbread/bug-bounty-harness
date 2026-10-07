@@ -74,7 +74,8 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **parameter-mining** | `/parameter-mining {program}` | `prompts/parameter-mining-playbook.md` |
 | **create-wordlists** | `/create-wordlists {program}` | `prompts/create-wordlists-playbook.md` |
 | **use-wordlists** | `/use-wordlists {program}` | `prompts/use-wordlists-playbook.md` |
-| **js** | `/js {analyze|generate|deep|offline-fanout} {program-or-url}` | `prompts/js-playbook.md`; deep review uses native subagent fanout |
+| **js** | `/js {analyze|generate|deep|offline-fanout} {program-or-url}` | `prompts/js-playbook.md`; tool map routes to `/jsluice` for local AST parsing |
+| **jsluice** | `/jsluice {local-js-file}` | `skills/jsluice/SKILL.md`; upstream `urls`, `secrets`, `tree`, `query`, and `format` modes; `urls` can emit request-shape leads |
 | **patch-analysis** | `/patch-analysis {upstream-repository-or-component}` | `skills/patch-analysis/SKILL.md` |
 | **vulnerability-patch-research** | `/vulnerability-patch-research {component} {version} {reachable-feature}` | `skills/vulnerability-patch-research/SKILL.md`; disposable local proof reference in `references/` |
 | **credential-exposure-validation** | `/credential-exposure-validation {program} {panel-or-source}` | `skills/credential-exposure-validation/SKILL.md` |

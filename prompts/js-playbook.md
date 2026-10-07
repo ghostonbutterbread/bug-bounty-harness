@@ -323,11 +323,13 @@ to manually sample a large JS list. Keep discovery and parsing separate:
   into inventory. Do not confuse an archived URL with a live endpoint, or use
   Waymore's default response-download mode unintentionally. Extension-only
   filters miss extensionless scripts.
-- For already downloaded JS, JSLuice `urls <local-file>` is a useful optional
-  AST-based complement to this helper's bounded regex seeds. Keep its output
-  keyed to the existing content hash and page provenance; computed `EXPR`
-  values are leads, not replayable request contracts. Do not let a parser fetch
-  targets on its own or mark missing matches as negative evidence.
+- For already downloaded JS, load `/jsluice` when the upstream CLI is
+  available. Its local-file `urls` mode provides AST-based URL/request leads
+  complementary to this helper's bounded regex seeds; `secrets` and focused
+  tree queries are separate modes. Keep results tied to the existing content
+  hash and page provenance. Computed `EXPR` values are not replayable request
+  contracts; missing matches are not negative evidence. The focused skill owns
+  the offline input and output-handling details.
 - jxscout is a separate proxy-integrated option, not a silent dependency of
   inventory. Its OSS edition reports maintenance/coverage caveats, and its
   licensed Pro edition is distinct. Chunk prefetch and map retrieval make

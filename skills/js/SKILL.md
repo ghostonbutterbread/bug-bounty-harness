@@ -19,6 +19,15 @@ Use `/js` for deterministic JavaScript inventory and agent-led deep review.
   bounded local packets out to native subagents, then verify and synthesize the
   results. It never calls a repository-specific team runner.
 
+## Tool Map
+
+- **BBH JS inventory** (`agents/js_analyzer.py inventory`): acquire, hash,
+  deduplicate, extract cheap signals, and create bounded review packets.
+- **JSLuice** (upstream CLI): parse selected local JS with a syntax tree for
+  URL/path and request-shape leads, secret signals, or focused tree queries.
+  Load `/jsluice` for modes, commands, offline input and evidence handling.
+  It does not prove a sink or vulnerability and is not a BBH wrapper.
+
 ## Workflow
 
 1. Read the canonical playbook at
@@ -32,9 +41,9 @@ Use `/js` for deterministic JavaScript inventory and agent-led deep review.
    executable inline scripts and extensionless `script[src]` assets; an inline
    artifact's `#inline-script-N` identity is not a URL to fetch. Prefer scoped
    browser/proxy observations for lazy chunks, Waymore URL-only discovery for
-   historical candidates. Use the JSLuice procedure below for AST-derived
-   request leads from selected local files when the tool is installed. Inventory
-   also retrieves a bounded source map for every in-scope bundle with a
+   historical candidates. Use `/jsluice` for AST-derived leads from selected
+   local files when the upstream tool is installed. Inventory also retrieves a
+   bounded source map for every in-scope bundle with a
    `sourceMappingURL`, inventories all original module names, and creates
    module-level packets from embedded source text. Start source-map review from
    `source_map_modules.jsonl` and
@@ -82,21 +91,6 @@ syntax, extracts bounded regex seeds, chunks source, and indexes artifacts.
 Review candidate flows in the bounded source with page context, including
 framework behavior, dynamic construction, and semantic dataflow. For script-run
 coverage judgment, load `/bb-script-rules`.
-
-### JSLuice (upstream tool, no BBH wrapper)
-
-For selected downloaded JS artifacts, use BishopFox's `jsluice` directly when
-it is installed. Find local paths and their URL/SHA/provenance in the inventory
-run's `metadata.jsonl`; check `command -v jsluice`, then run
-`jsluice urls "$LOCAL_JS_FILE"` for AST-derived URL/path and request leads.
-Use `jsluice secrets "$LOCAL_JS_FILE"` only when reviewing secret signals.
-Pass **local files**, not HTTP URLs: JSLuice accepts remote inputs, which would
-make this an acquisition step rather than offline analysis. Choose a bounded set
-of files and retain their inventory URL, content hash, and page/flow provenance
-with any reviewed lead. If the tool is unavailable, continue packet review;
-do not install it as part of the inventory. Computed `EXPR`
-patterns are not replayable request contracts, missing matches are not negative
-evidence, and JSLuice does not establish a dangerous sink or vulnerability.
 
 ## Analysis Lenses
 

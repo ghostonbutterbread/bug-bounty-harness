@@ -61,7 +61,15 @@ A sanitizer hit or WAF/filter block on an XSS vector is signal, not an independe
 - Sanitizer behavior: load `xss-technology-research` and `xss-payload-engineering` to map the observed transform and choose sanitizer-/parser-matched candidates.
 - WAF/filter behavior: load `waf-live-policy` to classify the control, then return its evidence to the XSS candidate queue.
 
-Continue with non-equivalent, context-matched families until the relevant defense/parser boundary is understood or an inherited safety or stop boundary applies.
+When distinct probes meet similar resistance, ask whether the observed stack,
+response differences, or relevant prior notes could explain the control and
+change the next discriminator. If so, use `xss-technology-research` for that
+specific question and test the resulting source, command, consumer, or payload
+hypothesis; if not, keep probing non-equivalent, context-matched families. Do
+not require a vendor fingerprint before probing, or mistake passing a filter
+for execution in the claimed browser/consumer. Continue until the relevant
+defense/parser boundary is understood or an inherited safety or stop boundary
+applies.
 
 The parent XSS agent owns synthesis, execution choices, and hypothesis closure.
 

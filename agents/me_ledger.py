@@ -339,6 +339,22 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_get(args: argparse.Namespace) -> int:
+    """Return one explicitly named finding, including closed findings."""
+    fid = str(args.fid).strip()
+    if not fid:
+        raise ValueError("finding fid is required")
+    finding = ledger_get(
+        args.program,
+        fid,
+        lane=args.lane,
+        family=args.family,
+        root_override=_root_override(args),
+    )
+    print(json.dumps({"exists": finding is not None, "fid": fid, "finding": finding}, indent=2))
+    return 0
+
+
 def cmd_add(args: argparse.Namespace) -> int:
     root_override = _root_override(args)
     snapshot = _resolve_snapshot(
@@ -571,6 +587,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_arguments(check_parser)
     check_parser.add_argument("--snapshot")
     check_parser.set_defaults(func=cmd_check)
+
+    get_parser = subparsers.add_parser("get", help="Look up one finding by FID, including closed findings")
+    _add_common_arguments(get_parser, include_file=False, include_class=False)
+    get_parser.add_argument("--fid", required=True)
+    get_parser.set_defaults(func=cmd_get)
 
     add_parser = subparsers.add_parser("add", help="Add a finding to the ledger")
     _add_common_arguments(add_parser)

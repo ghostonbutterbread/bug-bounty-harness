@@ -213,6 +213,7 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             {"fid": "D02", "status": "confirmed"},
             {"fid": "D03", "submission": {"state": "submitted"}},
             {"fid": "D04", "submission": {"state": "dropped", "result": "duplicate"}},
+            {"fid": "D05", "submission": {"state": "not_submitted", "result": "duplicate"}},
         ]
         mock_list.return_value = findings
         args = argparse.Namespace(
@@ -228,7 +229,31 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
         stdout = io.StringIO()
         with redirect_stdout(stdout):
             self.assertEqual(me_ledger.cmd_list(args), 0)
-        self.assertEqual([item["fid"] for item in json.loads(stdout.getvalue())["findings"]], ["D01", "D02", "D03", "D04"])
+        self.assertEqual([item["fid"] for item in json.loads(stdout.getvalue())["findings"]], ["D01", "D02", "D03", "D04", "D05"])
+
+    @patch("agents.me_ledger.ledger_get")
+    def test_get_by_fid_returns_exact_closed_finding_without_listing(self, mock_get) -> None:
+        finding = {"fid": "D05", "submission": {"state": "not_submitted", "result": "duplicate"}}
+        mock_get.return_value = finding
+        args = me_ledger.build_parser().parse_args([
+            "get", "--program", "demo", "--family", "web_bounty", "--lane", "web", "--fid", "D05"
+        ])
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            self.assertEqual(args.func(args), 0)
+        self.assertEqual(json.loads(stdout.getvalue()), {"exists": True, "fid": "D05", "finding": finding})
+        mock_get.assert_called_once_with("demo", "D05", lane="web", family="web_bounty", root_override=None)
+
+    @patch("agents.me_ledger.ledger_get", return_value=None)
+    def test_get_by_fid_reports_missing(self, mock_get) -> None:
+        args = me_ledger.build_parser().parse_args([
+            "get", "--program", "demo", "--family", "web_bounty", "--lane", "web", "--fid", "D99"
+        ])
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            self.assertEqual(args.func(args), 0)
+        self.assertEqual(json.loads(stdout.getvalue()), {"exists": False, "fid": "D99", "finding": None})
+        mock_get.assert_called_once()
 
     @patch("agents.me_ledger._default_run_id", return_value="run-1")
     @patch(

@@ -37,7 +37,28 @@ status, or to hand-edit generated ledgers.
 
 3. Before taking a surface or class, inspect only the relevant coverage, shared
    brain, active claim, and run-control state. Do not select work merely because
-   prior findings exist.
+   prior findings exist. If a finding list is needed for work selection, use the
+   filtered query below rather than reading the raw ledger or report directory.
+
+## Finding visibility
+
+Default work selection sees only open findings:
+
+```bash
+bbh agents/me_ledger.py list --program {program} \
+  --family <web_bounty|binaries> --lane <web|api|apk|exe|mac>
+```
+
+Confirmed, submitted, and dropped findings (including platform duplicates) are
+excluded from this response. Do not preload raw `ledger.json`, historical
+reports, or an all-findings view into an agent's next-work context. For an
+explicit exact-FID request, use `bbh agents/me_ledger.py get --program {program}
+--family <web_bounty|binaries> --lane <web|api|apk|exe|mac> --fid <FID>`;
+`check` below is instead a targeted file/class dedupe lookup. For an explicit
+status, retest, portfolio, or past-report request, add `--include-closed` to the
+list command. Submission status is operator-reported via
+`manual_hunter.py --set-submission`; do not infer it from a draft or a confirmed
+finding.
 
 ## Canonical Locations
 

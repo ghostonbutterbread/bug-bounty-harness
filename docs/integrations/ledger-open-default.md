@@ -1,0 +1,50 @@
+# Ledger open-default routing integration dossier
+
+- **Status:** feature
+- **Owner:** Hermes
+- **Branch / owning ref:** `fix/ledger-open-default`
+- **Base commit:** `52fc788c13f49be54746b44fd436cef1954f6e22`
+- **Intended integration target:** `beta`
+- **Last updated:** 2026-10-07
+- **Latest immutable recovery checkpoint:** none yet
+- **Feature implementation commit(s):** none yet
+- **Inspiration / canonical references:** BBH ledger skill, `agents/finding_visibility.py`, `agents/me_ledger.py`, manual-hunter submission guidance; Kanban `t_0b4cc1f7`.
+
+## Intent
+
+Keep submitted, duplicate, dropped, and confirmed findings out of default hunt-selection context while preserving explicit dedupe, status, retest, and historical review access. The beta CLI already filters its default list, but the runtime ledger skill only describes the raw canonical path and does not route list consumers to the filter.
+
+## Implemented contract
+
+The ledger skill now gives the default filtered list command and names explicit `--include-closed` access. Raw ledger/report bulk loading is not a default work-selection source. A new exact-FID `me_ledger.py get --fid` route returns one named entry without bulk-list exposure; `check` remains the file/class dedupe path. The list filter now excludes duplicate outcomes even if an older or inconsistent record still has `submission.state=not_submitted`. Operator-supplied submission status remains required. This is guidance, not a security access-control boundary against an agent able to read files.
+
+## Evidence and review
+
+- Tests: `python -m pytest -q agents/test_finding_visibility.py agents/test_me_ledger.py tests/test_ledger_skill_visibility.py` → 14 passed, 8 subtests passed; `git diff --check` clean; `python agents/me_ledger.py get --help` shows exact-FID command.
+- Policy neighbors: `agents/index.md` says cold current surface/no broad prior findings; `skills/manual-hunter/SKILL.md` owns the submission record; `skills/ledger/SKILL.md` owns read guidance. No competing route found.
+- Independent review: initial review found duplicate result without submitted state visible by default and a missing exact-FID route; both corrected and tested. Re-review pending.
+- Merge/ancestry: feature based on `52fc788` beta; selected `beta` advanced to `b4b8592` with unrelated SSRF guidance. Reconcile before final review/integration.
+
+## Blockers and deferred work
+
+- Raw file access is not technically prevented by a filtered CLI. This task changes the default agent guidance, not filesystem permissions or arbitrary-agent access.
+- Existing submission records require operator updates; unrecorded platform outcomes cannot be inferred.
+- Activation requires beta integration and skill projection/read-back; until then the feature worktree is not runtime guidance.
+
+## Interruption / resume handoff
+
+- **Owning feature branch/ref:** `fix/ledger-open-default`
+- **Latest immutable recovery checkpoint:** none yet
+- **Feature implementation commit(s):** none yet
+- **Exact resume point:** review diff and focused tests, commit, independently review, integrate to beta, verify projection.
+- **Working-tree state at handoff:** intentionally uncommitted while implementing.
+
+## Decision gates
+
+- **Integration gate:** focused tests, policy alignment, independent review, clean target and merged checks.
+- **Activation / cohort gate:** read-back projected skill from selected beta source and a fresh consumer load.
+- **Promotion gate:** no main promotion requested.
+
+## Decision record
+
+- 2026-10-07 — created scoped routing refinement; release pending.

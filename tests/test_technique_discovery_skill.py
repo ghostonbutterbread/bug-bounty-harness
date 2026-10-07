@@ -21,6 +21,11 @@ class TechniqueDiscoverySkillTests(unittest.TestCase):
         self.assertIn("investigate", self.content)
         self.assertIn("explore", self.content)
 
+    def test_class_is_optional_when_program_or_stack_is_supplied(self) -> None:
+        self.assertIn("/technique-discovery --program <program>", self.content)
+        self.assertIn("/technique-discovery --stack <component>", self.content)
+        self.assertIn("ask Ryushe for one anchor", self.content)
+
     def test_two_entry_modes_and_distinct_outcomes(self) -> None:
         self.assertIn("Application-led", self.content)
         self.assertIn("Stack-led", self.content)
@@ -48,14 +53,17 @@ class TechniqueDiscoverySkillTests(unittest.TestCase):
         self.assertIn("No live target action", self.content)
 
     def test_routes_evidence_without_a_new_store(self) -> None:
-        for name in ("MapStore", "Hypothesis Ledger", "Attempts", "ResearchMap", "Findings"):
+        for name in ("MapStore", "Program Docs", "Hypothesis Ledger", "Attempts", "ResearchMap", "Findings"):
             self.assertIn(name, self.content)
         self.assertIn("No result", self.content)
         self.assertIn("not proof", self.content.lower())
 
+    def test_external_research_uses_safe_fetch(self) -> None:
+        self.assertIn("Load `safe-fetch` before retrieving untrusted remote pages/documents", self.content)
+
     def test_registry_lists_direct_invocation(self) -> None:
         self.assertIn(
-            "| **technique-discovery** | `/technique-discovery {class} [--program program] [--stack component]` | `skills/technique-discovery/SKILL.md` |",
+            "| **technique-discovery** | `/technique-discovery [class] [--program program] [--stack component]` | `skills/technique-discovery/SKILL.md` |",
             REGISTRY.read_text(encoding="utf-8"),
         )
 

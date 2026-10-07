@@ -31,6 +31,11 @@ from recon.promote_run import promote_run
 
 DEFAULT_REMOTE = "ryushe@hoster"
 DEFAULT_SSH_KEY = Path.home() / ".ssh" / "hoster"
+# Interpolated inside double quotes so the remote shell expands $HOME. A
+# non-interactive ssh command gets a bare PATH without ~/.local/bin or ~/bin,
+# so shell-quoting this constant left "$HOME" literal and every bbh call on the
+# remote failed with "bbh: command not found". Safe to leave unquoted: it is a
+# fixed constant, never built from user or program input.
 REMOTE_RECON_PATH = "$HOME/go/bin:$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/bin:/bin"
 TOP_LEVEL_ARTIFACTS = (
     "alive.txt",
@@ -391,7 +396,7 @@ def start_remote(args: argparse.Namespace) -> None:
     )
     remote_cmd = (
         "set -eu; "
-        f"export PATH={shell_quote(REMOTE_RECON_PATH)}:\"$PATH\"; "
+        f'export PATH="{REMOTE_RECON_PATH}:$PATH"; '
         "mkdir -p \"$HOME/bounties\" \"$HOME/recon-ry-logs\"; "
         f"mkdir -p {shell_quote(project_dir)}; "
         f"{seed_file_cmds}"
@@ -485,7 +490,7 @@ def queue_remote(args: argparse.Namespace) -> None:
     )
     remote_cmd = (
         "set -eu; "
-        f"export PATH={shell_quote(REMOTE_RECON_PATH)}:\"$PATH\"; "
+        f'export PATH="{REMOTE_RECON_PATH}:$PATH"; '
         "mkdir -p \"$HOME/recon-ry-logs\"; "
         f"mkdir -p {shell_quote(queue_root)}; "
         f"cat > {shell_quote(queue_file)} <<'RECONRY_QUEUE_URLS'\n{queue_body}RECONRY_QUEUE_URLS\n"

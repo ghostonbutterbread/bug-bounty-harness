@@ -6,8 +6,8 @@
 - **Base commit:** `7fb2e51c88c95270d3de40bc357fd89cac880488`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-07
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `fc4007177311c0f4a6ec898e97f866f81a523a9c`
+- **Feature implementation commit(s):** `fc4007177311c0f4a6ec898e97f866f81a523a9c`
 - **Inspiration / canonical references:** Ryu clarified in the same Discord thread that normal hunts must not spend time deepening confirmed/submitted findings; task `t_7818be03`.
 
 ## Intent
@@ -32,10 +32,10 @@ Keep closed findings out of normal hunt selection, but permit a compact exact fi
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/prior-work-stop-sign`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** review, verify, integrate local beta only if reconciled; ask for release/visibility decision before push.
-- **Working-tree state at handoff:** intentionally uncommitted during implementation.
+- **Latest immutable recovery checkpoint:** `fc4007177311c0f4a6ec898e97f866f81a523a9c`
+- **Feature implementation commit(s):** `fc4007177311c0f4a6ec898e97f866f81a523a9c`
+- **Exact resume point:** reconcile independent review, then hold remote beta publication pending Ryu's visibility/default decision.
+- **Working-tree state at handoff:** clean after the dossier checkpoint commit.
 
 ## Decision gates
 

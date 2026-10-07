@@ -20,10 +20,10 @@ Avoid repeated proof without turning submitted findings into the default target 
 
 ## Evidence and review
 
-- `python -m pytest -q agents/test_finding_visibility.py agents/test_me_ledger.py agents/test_ledger_v2.py tests/test_ledger_skill_visibility.py`: 32 passed, 8 subtests; `git diff --check` clean.
-- Real canonical-ledger integration test with a temporary storage root verifies submitted/confirmed flags and no private proof/report reference in the reply.
+- `python -m pytest -q agents/test_finding_visibility.py agents/test_me_ledger.py agents/test_ledger_v2.py agents/test_manual_hunter.py tests/test_ledger_skill_visibility.py`: 65 passed, 21 subtests after review correction; `git diff --check` clean.
+- Real canonical-ledger integration test with a temporary storage root verifies submitted/confirmed flags, underscore-to-hyphen class normalization, and no private proof/report reference in the reply.
 - Neighbor alignment: `agents/index.md` and `skills/hunter-loop/SKILL.md` prohibit broad historical target selection; `skills/ledger/SKILL.md` owns retrieval; `skills/manual-hunter/SKILL.md` owns operator submission state.
-- Independent review: pending.
+- Independent review: first review found a false negative for `dom_xss` versus canonical `dom-xss`; normalized query and stored class per Bounty Core's convention and added a real-ledger regression. Re-review pending.
 
 ## Blockers and deferred work
 

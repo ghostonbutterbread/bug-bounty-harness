@@ -49,7 +49,9 @@ def _normalize_relpath(value: str) -> str:
 
 
 def _normalize_class_name(value: str) -> str:
-    text = str(value or "").strip().lower()
+    text = str(value or "").strip().lower().replace("_", "-")
+    while "--" in text:
+        text = text.replace("--", "-")
     if not text:
         raise ValueError("class name is required")
     return text
@@ -513,9 +515,11 @@ def cmd_prior_work(args: argparse.Namespace) -> int:
         family=args.family,
         root_override=_root_override(args),
     ):
+        stored_class = str(finding.get("class_name") or "").strip()
         if (
             _normalize_relpath(finding.get("file")) != file_name
-            or str(finding.get("class_name") or "").strip().lower() != class_name
+            or not stored_class
+            or _normalize_class_name(stored_class) != class_name
         ):
             continue
         submission = normalize_submission(finding.get("submission"))

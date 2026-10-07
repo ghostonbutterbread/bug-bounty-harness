@@ -324,6 +324,25 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             self.assertNotIn("private proof", stdout.getvalue())
             self.assertNotIn("H1-123", stdout.getvalue())
 
+            _, normalized_fid = ledger_adapter.ledger_add(
+                "demo", {
+                    "file": "src/render.js", "class_name": "dom_xss", "type": "stored render",
+                    "review_tier": "CONFIRMED",
+                }, "snapshot-1", "v1", "run-2", "test-agent",
+                lane="web", family="web_bounty", root_override=root,
+            )
+            args = me_ledger.build_parser().parse_args([
+                "prior-work", "--program", "demo", "--family", "web_bounty", "--lane", "web",
+                "--root", root, "--file", "src/render.js", "--class-name", "dom_xss",
+            ])
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(args.func(args), 0)
+            self.assertEqual(json.loads(stdout.getvalue())["matches"], [
+                {"fid": normalized_fid, "confirmed": True, "submitted": False, "duplicate": False}
+            ])
+            self.assertEqual(json.loads(stdout.getvalue())["class_name"], "dom-xss")
+
     @patch("agents.me_ledger._default_run_id", return_value="run-1")
     @patch(
         "agents.me_ledger._resolve_snapshot",

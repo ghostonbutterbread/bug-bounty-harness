@@ -1,0 +1,9 @@
+# Hoster BBH runtime clean-publication candidate
+
+- Branch/worktree: `fix/hoster-runtime-clean-publication` at `/home/ryushe/projects/bbh-hoster-runtime-clean-publication` on Hoster.
+- Base and target: selected `beta` at `48ed0e44b89284e3437f03c0beef691783c1eb7a`. Merge only from the clean `beta` integration checkout.
+- Objective: enable the reviewed ledger prior-work stop sign on Hoster without losing the active runtime's generic JS/Recon behavior and usable XSS methods. Source remains the published beta; transplanted files contain only generic functionality and guidance. The original dirty checkout and draft reconciliation branches remain untouched and are not publication ancestors.
+- Contract: normal hunts do not repeat or deepen confirmed/submitted vulnerabilities; targeted exact-pair prior-work returns status flags only. Recon-Ry expands the remote PATH; JS fetches can carry authorized attribution headers through primary and source-map fetches; XSS methods remain bounded by prior-work and live-testing policy.
+- Evidence: the sanitized transplanted diff passed 283 focused tests, 21 subtests, 1 skipped from this clean worktree's venv; `git diff --check` clean. Added XSS/JS lines contain no target names, private corpus ranking/counts, or case claims. This branch has published beta as its only ancestor; independent review, merge, publication, and runtime verification remain pending.
+- Activation boundary: no Hoster launcher or skill links change before approved beta integration/push and managed security-profile projection. Existing running agents may retain earlier loaded instructions; new sessions will resolve the new source after projection.
+- Next: obtain independent review, then merge into beta from the clean integration checkout, publish, perform profile dry-run/apply/no-op verification, and smoke the live dispatcher and skill links. Preserve the donor checkout.

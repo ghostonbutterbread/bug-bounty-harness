@@ -66,10 +66,11 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    parent backlog.
 9. Include the selected policy chain, one BBH lane, evidence pointers, exact
    stop condition, and account/browser lane only when required in every child
-   packet. For writing **or editing** a finding's `EVIDENCE.md`, `REPORT.md`,
-   `SUBMISSION.md`, or reviewer PoC, load `security-reporting` before the edit,
-   including when the task is only to condense a named section. A scoped revision
-   does not authorize changes elsewhere in the artifact or packet.
+   packet. Before creating or editing the final `SUBMISSION.md`, load
+   `security-reporting`, including for a named-section condensation; preserve
+   every unrequested region. `EVIDENCE.md` and the rough `REPORT.md` remain
+   working evidence/drafts, not final-submission formatting assignments. PoC
+   editing follows `triager-first-poc-authoring` and its execution boundary.
    When security testing needs a browser, use `/chromium-test` and request it
    through `browser_provisioner.py` on the browser node. Its default `--proxy
    mitm` starts a task-owned listener, imports its CA before Chrome starts, and

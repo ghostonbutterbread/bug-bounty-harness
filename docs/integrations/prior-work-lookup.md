@@ -6,8 +6,8 @@
 - **Base commit:** `815fcc9746835930dc9a653c0f63a63e66bfe938`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-07
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `32a3f9154e57db6bd06e90fe270679c0cd0a7737`
+- **Feature implementation commit(s):** `32a3f9154e57db6bd06e90fe270679c0cd0a7737`
 - **Inspiration / canonical references:** Ryu's request for a bounded 'have we already confirmed/submitted this?' question after the default closed-finding exclusion; task `t_7818be03`.
 
 ## Intent
@@ -33,10 +33,10 @@ Avoid repeated proof without turning submitted findings into the default target 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/prior-work-lookup`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit, independent review, reconcile beta, integrate and verify local projection.
-- **Working-tree state at handoff:** intentionally uncommitted during implementation.
+- **Latest immutable recovery checkpoint:** `32a3f9154e57db6bd06e90fe270679c0cd0a7737`
+- **Feature implementation commit(s):** `32a3f9154e57db6bd06e90fe270679c0cd0a7737`
+- **Exact resume point:** reconcile independent review, compare to fresh beta, then integrate and verify local projection.
+- **Working-tree state at handoff:** clean after this dossier checkpoint commit.
 
 ## Decision gates
 

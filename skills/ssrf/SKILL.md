@@ -52,9 +52,11 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    - allowlist, hostname, IP, redirect, or URL parser filtering -> `references/technique-packs/parser-redirect.md`
    - cloud metadata or internal protocol reachability -> `references/technique-packs/metadata-scheme.md`
    - approved DNS rebinding or validation/connection resolution differential -> `references/technique-packs/dns-rebinding.md`
-8. The four technique packs collectively cover blind/async fetchers, parser,
-   address, DNS, redirect, scheme, cloud/container, request-shape, and
-   protocol-boundary families. Load the pack that matches observed behavior;
+   - confirmed GET-only fetch when downstream POST or action is the question -> `references/technique-packs/get-to-post.md`
+8. The baseline, parser, metadata, and DNS packs cover blind/async fetchers,
+   parser, address, DNS, redirect, scheme, cloud/container, request-shape, and
+   protocol-boundary families; the GET-to-POST pack narrows the method boundary.
+   Load the pack that matches observed behavior;
    do not repeat the short idea seeds as a ceiling.
 9. Read `prompts/ssrf-playbook.md` only for deep review, stuck
    analysis, or report writing.

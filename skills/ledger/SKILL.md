@@ -49,8 +49,25 @@ bbh agents/me_ledger.py list --program {program} \
   --family <web_bounty|binaries> --lane <web|api|apk|exe|mac>
 ```
 
-Confirmed, submitted, and dropped findings (including platform duplicates) are
-excluded from this response. Do not preload raw `ledger.json`, historical
+After choosing a current surface and vulnerability class, ask whether that
+**exact file/class pair** already has confirmed or submitted work, without
+loading its report:
+
+```bash
+bbh agents/me_ledger.py prior-work --program {program} \
+  --family <web_bounty|binaries> --lane <web|api|apk|exe|mac> \
+  --file <exact-ledger-file-or-URL> --class-name <vuln-class>
+```
+
+The reply contains only matching FIDs and confirmed/submitted/duplicate flags.
+When the same vulnerability proof is already confirmed or submitted, avoid
+repeating it and choose the next distinct question. A match does **not** close
+the entire route, class, role, or downstream consumer; a miss means only that
+this exact file/class pair has no recorded prior proof. For an actual FID,
+request the full finding only when exact dedupe, retest, or reporting requires it.
+
+The default `list` response excludes confirmed, submitted, and dropped findings
+(including platform duplicates). Do not preload raw `ledger.json`, historical
 reports, or an all-findings view into an agent's next-work context. For an
 explicit exact-FID request, use `bbh agents/me_ledger.py get --program {program}
 --family <web_bounty|binaries> --lane <web|api|apk|exe|mac> --fid <FID>`;

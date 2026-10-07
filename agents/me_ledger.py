@@ -17,7 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agents.coverage_store import CoverageStore
-from agents.finding_visibility import visible_for_default_work
+from agents.finding_visibility import is_confirmed_finding, normalize_submission, visible_for_default_work
 from agents.ledger import ledger_add, ledger_check, ledger_get, ledger_list, ledger_path
 from agents.snapshot_identity import get_snapshot_identity
 from agents.storage_resolver import resolve_storage
@@ -500,6 +500,45 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_prior_work(args: argparse.Namespace) -> int:
+    """Answer an exact file/class prior-proof question without exposing reports."""
+    file_name = _normalize_relpath(args.file)
+    if not file_name:
+        raise ValueError("file is required")
+    class_name = _normalize_class_name(args.class_name)
+    matches: list[dict[str, Any]] = []
+    for finding in ledger_list(
+        args.program,
+        lane=args.lane,
+        family=args.family,
+        root_override=_root_override(args),
+    ):
+        if (
+            _normalize_relpath(finding.get("file")) != file_name
+            or str(finding.get("class_name") or "").strip().lower() != class_name
+        ):
+            continue
+        submission = normalize_submission(finding.get("submission"))
+        confirmed = is_confirmed_finding(finding)
+        submitted = submission["state"] == "submitted"
+        duplicate = submission.get("result") == "duplicate"
+        if confirmed or submitted or duplicate:
+            matches.append({
+                "fid": finding.get("fid"),
+                "confirmed": confirmed,
+                "submitted": submitted,
+                "duplicate": duplicate,
+            })
+    print(json.dumps({
+        "program": _normalize_program(args.program),
+        "file": file_name,
+        "class_name": class_name,
+        "known_prior_work": bool(matches),
+        "matches": matches,
+    }, indent=2))
+    return 0
+
+
 def cmd_unexplored(args: argparse.Namespace) -> int:
     root_override = _root_override(args)
     all_candidates = _load_shared_brain_candidates(
@@ -629,6 +668,10 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser.add_argument("--version", dest="version_label")
     list_parser.add_argument("--include-closed", action="store_true", help="Include confirmed, submitted, and dropped findings.")
     list_parser.set_defaults(func=cmd_list)
+
+    prior_parser = subparsers.add_parser("prior-work", help="Ask if this exact file/class has confirmed or submitted work")
+    _add_common_arguments(prior_parser)
+    prior_parser.set_defaults(func=cmd_prior_work)
 
     unexplored_parser = subparsers.add_parser("unexplored", help="List unexplored surfaces by class")
     _add_common_arguments(unexplored_parser, include_file=False, include_class=False, include_root=False)

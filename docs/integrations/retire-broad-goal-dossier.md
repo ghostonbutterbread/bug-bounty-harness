@@ -1,14 +1,14 @@
 # Retire merged broad-goal dossier — integration dossier
 
-- **Status:** feature (tests green; review pending)
+- **Status:** review-ready (tests green; independent review pending)
 - **Owner:** Hermes Agent, Kanban `t_8ed0b321`
 - **Branch:** `fix/retire-broad-goal-dossier`
 - **Base commit:** `f4196f7b0798cbddad390b585466fa4843ab0ad2`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-07
 - **Owning feature branch/ref:** `fix/retire-broad-goal-dossier`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `50f084c7d02e2b22c7a3393144be0c3712b1e537`
+- **Feature implementation commit(s):** `50f084c7d02e2b22c7a3393144be0c3712b1e537`
 - **Inspiration / canonical references:** completed Kanban `t_fbef4b24`; BBH branch-local dossier lifecycle; `tests/test_skill_command_lane_safety.py`.
 
 ## Intent
@@ -40,10 +40,10 @@ Remove a completed, branch-local handoff dossier accidentally retained on beta. 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/retire-broad-goal-dossier`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** inspect diff, commit and obtain independent review; keep deletion branch-scoped until accepted.
-- **Working-tree state at handoff:** intentionally uncommitted while implementing.
+- **Latest immutable recovery checkpoint:** `50f084c7d02e2b22c7a3393144be0c3712b1e537`
+- **Feature implementation commit(s):** `50f084c7d02e2b22c7a3393144be0c3712b1e537`
+- **Exact resume point:** obtain independent read-only review of `f4196f7b0798cbddad390b585466fa4843ab0ad2..fix/retire-broad-goal-dossier`; if accepted, merge into clean beta excluding this temporary dossier and rerun suite.
+- **Working-tree state at handoff:** clean after dossier-only handoff commit.
 
 ## Decision gates
 
@@ -54,3 +54,4 @@ Remove a completed, branch-local handoff dossier accidentally retained on beta. 
 ## Decision record
 
 - 2026-10-07 — isolated beta-based fix opened; focused RED reproduced.
+- 2026-10-07 — `50f084c7d02e2b22c7a3393144be0c3712b1e537` removes only stale handoff and resolved defect note; focused 2 green, full 129 run/1 skipped/0 failed. Independent review pending.

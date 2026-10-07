@@ -1,189 +1,70 @@
 ---
 name: js
-description: Use when analyzing JavaScript bundles, source maps, endpoints, secrets signals, source-to-sink flows, or generating JS-derived wordlist and vuln-lane handoffs.
+description: Use when collecting or hunting JavaScript for application behavior and security leads.
 ---
 
-# JavaScript Analysis
+# JavaScript Router
 
-Use `/js` for deterministic JavaScript inventory and agent-led deep review.
+Use `/js` to choose between acquiring JavaScript evidence and interpreting it. An
+unqualified request such as "hunt the JavaScript", "dig into the JS", or "look
+at the JS for vulnerabilities" means **run the adaptive `/js-hunt` workflow**;
+the operator need not name a vulnerability class. If the inventory is missing,
+`/js-hunt` calls `/js-pull` first. Explicit collection-only requests stop after
+`/js-pull` has produced a usable corpus.
 
-## Modes
+## Intent Routes
 
-- `analyze` - inspect JavaScript for endpoints, params, auth/storage behavior,
-  source maps, source-to-sink flows, secrets signals, and framework clues.
-- `generate` - turn reviewed JavaScript evidence into route, parameter,
-  wordlist, and vuln-lane handoffs.
-- `deep` - spend the task budget on selected chunks instead of scanning a huge
-  JS list shallowly.
-- `offline-fanout` - after inventory, have the active parent agent directly fan
-  bounded local packets out to native subagents, then verify and synthesize the
-  results. It never calls a repository-specific team runner.
+- **Pull / collect / inventory** -> load `/js-pull`. Keep the existing
+  `agents/js_analyzer.py inventory` acquisition, hashing, source-map, chunk,
+  provenance, and packet workflow. Collection is not a vulnerability review.
+- **Hunt / analyze / review / dig deep** -> load `/js-hunt`. Its default broad
+  behavior map, evidence-selected deep trace, and synthesis produce supported
+  leads and specialist handoffs, not just extracted strings.
+- **Focused hunt** -> load `/js-hunt` with `--focus endpoints`, `--focus params`,
+  `--focus secrets`, `--focus application-logic`, or `--focus dataflows` (or the
+  equivalent natural-language request). Focus biases review, not scope or proof
+  standards. Keep peripheral vision for strong adjacent evidence.
+- **Generate wordlists** -> first review the JS-derived routes/fields through
+  `/js-hunt` when they have not been interpreted, then load `/create-wordlists`;
+  execution remains with `/use-wordlists` or `/fuzz`.
+
+Legacy `analyze` maps to hunt; `deep` and `offline-fanout` are effort/execution
+choices **within** hunt, not rival pipelines. Legacy `generate` maps to the
+reviewed candidate handoff above. See `prompts/js-playbook.md` for detailed
+existing mechanics; `skills/js/references/offline-fanout.md` governs native
+subagent execution when packet volume warrants it. Do not invoke the legacy
+`agents/js_offline_campaign.py` unless explicitly requested.
 
 ## Tool Map
 
 - **BBH JS inventory** (`agents/js_analyzer.py inventory`): acquire, hash,
-  deduplicate, extract cheap signals, and create bounded review packets.
-- **JSLuice** (upstream CLI): parse selected local JS with a syntax tree for
-  URL/path and request-shape leads, secret signals, or focused tree queries.
-  Load `/jsluice` for modes, commands, offline input and evidence handling.
-  It does not prove a sink or vulnerability and is not a BBH wrapper.
+  deduplicate, extract cheap signals, and create bounded review packets; owned
+  by `/js-pull`.
+- **JSLuice** (upstream CLI): AST-derived URL/request-shape or secret leads from
+  selected local artifacts. Load `/jsluice` for commands and offline handling;
+  parser matches do not prove endpoints or vulnerabilities.
+- **Native subagents**: optional bounded packet reviews under `/js-hunt`. The
+  parent verifies evidence and synthesizes; no fixed all-class team runner.
 
-## Workflow
+## Shared Boundaries
 
-1. Read the canonical playbook at
-   `prompts/js-playbook.md`.
-2. Resolve inputs from a page URL, `aggregated/jsfiles.txt`, proxy history,
-   recon output, Wayback, or source maps. Use `--target-host` as the scope hint;
-   it accepts a host, domain, or URL and stores non-matching extracted URLs as
-   external context instead of test targets.
-3. Use `agents/js_analyzer.py inventory` to download, hash, dedupe, cheaply
-   parse, and chunk JavaScript into agent packets. `--page` also inventories
-   executable inline scripts and extensionless `script[src]` assets; an inline
-   artifact's `#inline-script-N` identity is not a URL to fetch. Prefer scoped
-   browser/proxy observations for lazy chunks, Waymore URL-only discovery for
-   historical candidates. Use `/jsluice` for AST-derived leads from selected
-   local files when the upstream tool is installed. Inventory also retrieves a
-   bounded source map for every in-scope bundle with a
-   `sourceMappingURL`, inventories all original module names, and creates
-   module-level packets from embedded source text. Start source-map review from
-   `source_map_modules.jsonl` and
-   `source_map_packets/`, not from a raw map pasted into a prompt.
-4. For natural-language requests such as "dig into the JS", "vuln test the JS",
-   "run JS deep", or "look at the JS for vulnerabilities", inspect the
-   inventory manifest, metadata, packet index, and source-map module index, then
-   use the active agent's native delegation tool directly when there are enough
-   independent packets to justify fanout. Start with bounded general-map and
-   anomaly workers; do not invoke a repository-specific team wrapper or
-   recreate a fixed team matrix in another script. Use the active CLI's native
-   subagent mechanism and prefer the current fast sibling of the parent model's
-   generation for these high-volume workers. Model selection belongs to the
-   active CLI/runtime: ask its native model selector or advertised model list
-   for the fast option in the parent's family/generation rather than guessing
-   or hardcoding model names in BBH. If the CLI cannot select one per task, use
-   its configured worker model or inherit the parent, and do not claim cheaper
-   routing unless it occurred.
-   The parent model must read the workers' cited evidence and synthesize their
-   reports before dispatching only the specialist follow-ups justified by the
-   first wave.
-5. Deep-review selected packets with page/flow context. Require function-level
-   tracing: source value, transforms/checks, callers/callees, sink/request/DOM
-   effect, controllability, and missing proof.
-6. Correlate JS with provenance and proxy evidence when available: page URL or
-   document URL that loaded the script, page context, initiator/referrer, Ryushe
-   proxy or agent proxy request references, and nearby scoped API requests.
-7. Treat provenance/metadata JSONL as the durable evidence logs and
-   `js_info.sqlite` as the query/index layer for provenance, JS files,
-   URL aliases, packets, chunks, artifact paths, and reviewed observations.
-   Prefer DB lookups during analysis, but keep citations tied to JSONL rows and
-   packet paths.
-8. Record coverage through `/url-ingest`, write surface observations to
-   `/map-store` (URL-anchored, tagged with vuln-class prefixes), and write
-   durable notes/handoffs.
-9. Send generated candidates to `/create-wordlists`, `/use-wordlists`, `/fuzz`,
-   or vuln-specific skills such as `/xss`, `/ssrf`, `/sqli`, and `/idor`.
-   Route a complete exposed username/password pair with in-scope provenance to
+Before any target fetch or browser interaction, apply the program rules and the
+normal `general-security-testing-policy` / `live-testing-policy` chain; load
+`resource-safety-policy` for local artifact processing. For script-run coverage
+judgment, load `/bb-script-rules`. Offline JS review never authorizes a live
+probe. Third-party URLs in scoped JS are read-only context, not targetable scope.
+
+Keep the evidence chain `page/flow -> JS URL -> sha256 -> packet/module ->
+behavior -> related request -> next discriminator`. A regex/AST hit, source-map
+name, hidden feature, client-side permission check, or public-looking key is a
+lead, not proof of reachability, server enforcement, or impact. Missing signals
+never establish absence. Keep raw bundles on disk; pass bounded packets to
+agents. Preserve provenance and coverage distinctions between inventory, deep
+review, and separately validated live behavior.
+
+Class skills own their validation after a concrete handoff. For example,
+route a concrete workflow lead to `/business-logic`; send an observed request to
+`/analyze-endpoint` before `/idor`, `/access-control`, `/xss`, or other scoped
+specialist testing.
+Route a complete exposed username/password pair with in-scope provenance to
    `/credential-exposure-validation`; do not turn it into a wordlist candidate.
-
-## JavaScript Inventory Mechanics
-
-`agents/js_analyzer.py inventory` collects, hashes, deduplicates, parses known
-syntax, extracts bounded regex seeds, chunks source, and indexes artifacts.
-Review candidate flows in the bounded source with page context, including
-framework behavior, dynamic construction, and semantic dataflow. For script-run
-coverage judgment, load `/bb-script-rules`.
-
-## Analysis Lenses
-
-Use `/js` as the routing layer for JavaScript evidence. Pick one or more lenses
-before deep review, then load the owning skill when a packet produces a concrete
-lead:
-
-- `general-map`: routes, requests, params, page context, provenance, and notes.
-- `secrets`: usable keys, tokens, GitHub/cloud/service identifiers, and leak
-  pivots; generic secret words are low value.
-- `dom-xss`: source-to-sink traces from URL/storage/message/form/bootstrap state
-  into DOM writes, script creation, navigation, or eval-like sinks.
-- `access-control` / `idor`: role, permission, tenant, team, workspace, brand,
-  design, folder, invite, group, and owner IDs.
-- `business-logic`: workflow state, feature gates, entitlement checks, install
-  flows, share/publish/import/export controls, and unsafe client assumptions;
-  route a concrete workflow lead to `/business-logic`.
-- `ssrf-import`: URL importers, preview/fetch resolvers, webhooks, media loaders,
-  embeds, favicon fetches, and server-side URL resolution hints.
-- `auth-ato`: login, reset, invite, OAuth/SSO, captcha/risk scoring, session,
-  recovery, and identity-binding flows.
-- `payment`: checkout, coupon, invoice, subscription, refund, entitlement, plan,
-  and billing parameter flows.
-- `request-shape`: request builders, GraphQL operations, API clients, headers,
-  content types, and proxy-observed request contracts.
-
-For a broad review, run the general map first, then split workers by broad
-attack-surface category. Do not ask one worker to deeply analyze every lens
-across every packet.
-
-For offline fanout, the parent constructs a direct native-subagent batch from
-the inventory rather than calling a repository team wrapper. Start with broad
-general-map and classless-anomaly packets, grouped so each worker receives a
-bounded independent artifact set and exact local paths. After the parent checks
-those reports against packet citations, dispatch only useful broad follow-up
-categories. Category workers may cover related lenses together—for example,
-client-side trust includes DOM/postMessage/storage/workers, while
-auth-account-tenant includes ATO, access control, IDOR, roles, tenants, and
-owned objects. Use narrow per-lens workers only for a deliberate high-budget
-follow-up, not as a fixed matrix.
-
-Use the classifier as an accelerator, not a boundary: classifier signals decide
-which packet/category combinations start first, but missing signals do not
-prove a vulnerability class is irrelevant. Include a classless anomaly lane
-when budget allows; it should look for surprising trust assumptions, rare
-modules, dead routes, debug/admin hints, custom parsers, strange state
-machines, and other weirdness that does not fit the known categories.
-
-The offline fanout path must stay offline. It reads local JS packets and
-provenance, and emits findings,
-MapStore gadget candidates, or live-validation hypotheses. Live validation is a
-separate handoff through the normal live-testing policy.
-
-`agents/js_offline_campaign.py` is a legacy explicit planning adapter, not the
-runner for `/js deep`; do not invoke it unless the operator specifically asks
-for that legacy campaign artifact.
-
-For offline fanout, treat MapStore as lazy retrieval instead of prompt baggage:
-agents should query it only when current packet evidence gives a concrete URL,
-surface, field, or tag set. Missing MapStore context means a lead is
-unlinked/new-to-current-index, not automatically globally novel. Workers return
-proposed durable observations in their individual reports. The
-parent verifies and serializes accepted rows to
-`native_fanout/mapstore_candidates.jsonl`; a later synthesis/promoter pass
-dedupes and promotes selected entries into durable MapStore.
-
-Do not paste huge bundles into prompts. Store raw JS locally, pass bounded
-packets to agents, and treat regex hits as leads until impact is verified.
-When scoped JavaScript references third-party URLs, treat those URLs as
-read-only context. Agents may open public pages to understand title,
-description, parameters, and integration purpose, but must not fuzz, mutate,
-replay, authenticate against, or otherwise test the third-party host unless it
-is explicitly in scope.
-Also look for hidden or non-rendered state consumed by JavaScript, such as
-hidden inputs, `data-*` attributes, inline bootstrap JSON, hydration globals,
-disabled controls, and feature flags. These are mapping leads until verified
-against page HTML/source or proxy-observed responses.
-Do not analyze JS as a detached file when provenance exists. Prefer the chain:
-JS packet lead -> page/flow that loaded it -> related proxy requests ->
-`/analyze-endpoint` request contract -> bounded owned-account test.
-The provenance shape is:
-`page/flow -> js_url -> sha256 -> chunk_set -> packet -> extracted endpoints -> related proxy requests -> notes/leads`.
-
-Downloaded JavaScript is content-addressed under
-`/mnt/bounty/<program>/web/recon/js/_library/`. Check the ledger before
-redownloading; reuse existing URL aliases, file hashes, and chunk sets unless a
-fresh fetch is explicitly requested.
-`--target-host` accepts a URL, host, or parent domain. It controls which JS URLs
-are downloaded and which extracted endpoints count as in-scope; other extracted
-URLs are still stored as external integration/context artifacts.
-Provenance is stored beside it as append-only JSONL plus a generated SQLite
-index:
-`/mnt/bounty/<program>/web/recon/js/_library/metadata.jsonl`
-`/mnt/bounty/<program>/web/recon/js/_library/provenance.jsonl`
-`/mnt/bounty/<program>/web/recon/js/_library/observations.jsonl`
-`/mnt/bounty/<program>/web/recon/js/_library/js_info.sqlite`

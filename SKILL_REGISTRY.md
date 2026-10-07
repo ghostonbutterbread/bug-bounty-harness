@@ -74,7 +74,9 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **parameter-mining** | `/parameter-mining {program}` | `prompts/parameter-mining-playbook.md` |
 | **create-wordlists** | `/create-wordlists {program}` | `prompts/create-wordlists-playbook.md` |
 | **use-wordlists** | `/use-wordlists {program}` | `prompts/use-wordlists-playbook.md` |
-| **js** | `/js {analyze|generate|deep|offline-fanout} {program-or-url}` | `prompts/js-playbook.md`; tool map routes to `/jsluice` for local AST parsing |
+| **js** | `/js {pull|hunt [--focus endpoints|params|secrets|application-logic|dataflows]} {program-or-url}` | `skills/js/SKILL.md` router; legacy analyze/deep/generate remain supported |
+| **js-pull** | `/js-pull {program-or-url}` | `skills/js-pull/SKILL.md`; existing inventory and provenance mechanics in `prompts/js-playbook.md` |
+| **js-hunt** | `/js-hunt {program-or-run-root} [--focus area]` | `skills/js-hunt/SKILL.md`; broad behavioral map, selected deep trace, evidence-backed handoff |
 | **jsluice** | `/jsluice {local-js-file}` | `skills/jsluice/SKILL.md`; upstream `urls`, `secrets`, `tree`, `query`, and `format` modes; `urls` can emit request-shape leads |
 | **patch-analysis** | `/patch-analysis {upstream-repository-or-component}` | `skills/patch-analysis/SKILL.md` |
 | **technique-discovery** | `/technique-discovery [class] [--program program] [--stack component]` | `skills/technique-discovery/SKILL.md` |

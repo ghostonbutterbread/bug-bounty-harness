@@ -1,7 +1,9 @@
 # JavaScript Offline Fanout
 
-Use this reference when Ryushe asks to "dig into the JS", "vuln test the JS",
-"run JS deep", or otherwise spend agent budget on local JavaScript artifacts.
+Use this reference from `/js-hunt` when the inventory has enough independent
+packets for native-subagent review. An unqualified "hunt the JavaScript" runs
+the adaptive methodology whether or not fanout is warranted; this reference
+only owns the optional offline execution strategy.
 
 The purpose is broad offline depth: download once, review locally with native
 subagents, synthesize in the parent model, and hand only selected hypotheses to

@@ -1,5 +1,17 @@
 # JavaScript Analysis Playbook
 
+## User-facing route
+
+`/js` routes explicit acquisition to `/js-pull` and broad or focused review to
+`/js-hunt`. An unqualified "hunt the JavaScript" means the complete adaptive
+behavior-map -> prioritize -> deep-trace -> evidence-handoff workflow in
+`skills/js-hunt/SKILL.md`; if there is no suitable inventory, pull first.
+`--focus endpoints|params|secrets|application-logic|dataflows` biases the same
+workflow rather than creating separate tools or claiming review of other areas.
+The existing acquisition and provenance mechanics below remain canonical.
+`deep` controls depth and `offline-fanout` controls optional native-subagent
+execution inside a hunt; neither is a competing investigation method.
+
 ## Purpose
 
 Analyze JavaScript deeply without wasting agent context on collection, dedupe,
@@ -100,10 +112,13 @@ Available lenses:
   headers, content types, body schemas, and proxy-observed request contracts.
   Hand concrete requests to `/analyze-endpoint` before vuln-lane testing.
 
-General review order:
+General review order (the behavioral map and evidence rules live in `/js-hunt`):
 
-1. Run `general-map` to classify packet families and choose lenses.
-2. Split specialist workers by lens and packet family.
+1. Run `general-map` and classless anomaly review to understand feature and
+   packet families before choosing a vulnerability class.
+2. Prioritize app-specific behaviors and select only evidence-supported broad
+   follow-up categories; split workers when packets are independent and the
+   budget warrants it.
 3. Each worker writes concise findings with source JS URL, SHA, packet path,
    trace, controllability, provenance/proxy links, confidence, and next skill.
 4. The main agent merges results into dated notes/handoffs and routes only
@@ -371,8 +386,9 @@ download when the artifact is already present.
 
 ## Offline Fanout Campaign
 
-Use offline fanout when the user wants a deep JavaScript vulnerability review
-and the inventory run has enough packets to justify multi-agent review.
+Use offline fanout as the execution strategy for `/js-hunt` when its inventory
+has enough independent packets to justify multi-agent review; a generic hunt
+does not require fanout for a small corpus.
 
 After inventory completes, the parent reads `<js-run-root>/manifest.json`,
 `metadata.jsonl`, `packets.jsonl`, and, when present,
@@ -455,7 +471,9 @@ starts from the selected hypothesis queue and follows `live-testing-policy`.
 
 ## Agent Deep Review
 
-Agents consume packet files, not raw program-wide bundle lists.
+Agents consume packet files, not raw program-wide bundle lists. The default
+behavior-first transaction, ranking, evidence ladder, and focused hunt modes
+belong to `/js-hunt`; the questions below provide detailed review prompts.
 
 Review goals per packet:
 

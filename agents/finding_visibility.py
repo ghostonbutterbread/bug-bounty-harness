@@ -41,7 +41,14 @@ def is_closed_finding(finding: dict[str, Any]) -> bool:
     current = finding.get("current")
     current_status = str(current.get("status") or "").strip().lower() if isinstance(current, dict) else ""
     review_tier = str(finding.get("review_tier") or finding.get("tier") or "").strip().upper()
-    return status == "confirmed" or current_status == "confirmed" or review_tier == "CONFIRMED" or submission_state(finding) != "not_submitted"
+    submission = normalize_submission(finding.get("submission"))
+    return (
+        status == "confirmed"
+        or current_status == "confirmed"
+        or review_tier == "CONFIRMED"
+        or submission["state"] != "not_submitted"
+        or submission.get("result") == "duplicate"
+    )
 
 
 def visible_for_default_work(findings: list[dict[str, Any]], *, include_closed: bool = False) -> list[dict[str, Any]]:

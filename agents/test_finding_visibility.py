@@ -19,9 +19,12 @@ def test_default_work_excludes_confirmed_and_submission_closed_findings() -> Non
         {"fid": "D02", "status": "confirmed"},
         {"fid": "D03", "submission": {"state": "submitted"}},
         {"fid": "D04", "submission": {"state": "dropped", "result": "duplicate"}},
+        {"fid": "D05", "submission": {"state": "not_submitted", "result": "duplicate"}},
+        {"fid": "D06", "submission": {"state": "not_submitted", "result": "valid"}},
     ]
 
-    assert [item["fid"] for item in visible_for_default_work(findings)] == ["D01"]
-    assert [item["fid"] for item in visible_for_default_work(findings, include_closed=True)] == ["D01", "D02", "D03", "D04"]
+    assert [item["fid"] for item in visible_for_default_work(findings)] == ["D01", "D06"]
+    assert [item["fid"] for item in visible_for_default_work(findings, include_closed=True)] == ["D01", "D02", "D03", "D04", "D05", "D06"]
     assert is_closed_finding(findings[1]) is True
     assert is_closed_finding(findings[2]) is True
+    assert is_closed_finding(findings[4]) is True

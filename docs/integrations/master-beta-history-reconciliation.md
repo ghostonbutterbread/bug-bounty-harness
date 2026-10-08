@@ -6,10 +6,10 @@
 - **Worktree:** `/home/ryushe/worktrees/bbh-master-history-reconcile-20261007`
 - **Base commit:** `60a27386f531d32460e2175b017176e22de04597`
 - **Intended integration target:** `beta`
-- **Last updated:** 2026-10-07
+- **Last updated:** 2026-10-08
 - **Owning feature branch/ref:** `chore/reconcile-master-history`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `25dcaeeccdb7a719d497330cf3d8a19f9356ce23`
+- **Feature implementation commit(s):** `25dcaeeccdb7a719d497330cf3d8a19f9356ce23` (merge commit)
 - **Inspiration / canonical references:** user-authorized BBH stable-to-beta reconciliation; independent source-map/merge reviews.
 
 ## Intent
@@ -32,15 +32,15 @@ Merge `origin/master` into a beta-based feature worktree. The four overlapping f
 - **Command / fixture:** focused JS tests from isolated worktree, broader beta suite, remote ancestry check after beta push.
 - **Trigger:** after conflict resolution, before any beta integration or publication.
 - **Why it blocks integration/promotion:** overlap could discard beta's newer fetch, packet and sink behavior.
-- **Next completion step:** commit this tested beta-preserving merge on feature branch, independently review, then integrate into beta; do not claim stable-release readiness.
+- **Next completion step:** independently review feature merge `25dcaee`, then integrate into beta if approved; do not claim stable-release readiness.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `chore/reconcile-master-history`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `25dcaeeccdb7a719d497330cf3d8a19f9356ce23`
+- **Feature implementation commit(s):** `25dcaeeccdb7a719d497330cf3d8a19f9356ce23` (merge commit)
 - **Exact resume point:** independently review feature merge commit and tests; reconcile with fetched beta before integration.
-- **Working-tree state at handoff:** merge in progress, resolved paths staged, dossier update unstaged pending merge commit.
+- **Working-tree state at handoff:** clean after dossier checkpoint.
 
 ## Decision gates
 
@@ -52,3 +52,4 @@ Merge `origin/master` into a beta-based feature worktree. The four overlapping f
 
 - 2026-10-07 — isolated beta-based feature worktree created for master history reconciliation.
 - 2026-10-07 — merged master in feature branch with beta's four conflict files retained; staged product tree unchanged. Focused JS tests passed; broader tests include one pre-existing AGENTS wording failure and full-suite timeout.
+- 2026-10-08 — recorded immutable merge checkpoint `25dcaee`; post-merge independent review pending.

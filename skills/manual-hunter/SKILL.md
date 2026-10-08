@@ -11,7 +11,14 @@ Add your own manual security findings to the Ghost pipeline.
 Before any ingest, the finding must pass the claim-time classification gate:
 name the protected resource or capability obtained and the observation that
 demonstrates it; a status code or error string alone is a signal, not a
-finding — label it Informational and keep testing. When the finding passes, apply `impact-fit-policy` to state the demonstrated capability and observation, ingest it promptly, then load `security-reporting`. The reporting-enabled FID packet holds a create-only `EVIDENCE.md` scaffold and ledger-derived rough `REPORT.md`; fill the former with the actual proof and references and revise the latter as the boundary is understood. A scaffold alone is not proof. If only the ledger entry can be produced now, note `evidence: pending` and reconcile the evidence before preparing a submission. Keep one FID and one current file at each stage; never treat a duplicate note or a generated report as a ready submission.
+finding — label it Informational and keep testing. For ambiguous application
+logic, compare the normal intended flow and a plausible benign explanation
+against the observed behavior; verify with an owned or otherwise authorized
+fixture that the attacker gains a capability the application means to withhold.
+If the claimed boundary remains unproven, pursue the next meaningful
+discriminator as a hypothesis or lead rather than dismissing the idea or
+promoting it to a finding; do not delay capture of an independently demonstrated
+exploit while clarifying product intent or a separate consequence. When the finding passes, apply `impact-fit-policy` to state the demonstrated capability and observation, ingest it promptly, then load `security-reporting`. The reporting-enabled FID packet holds a create-only `EVIDENCE.md` scaffold and ledger-derived rough `REPORT.md`; fill the former with the actual proof and references and revise the latter as the boundary is understood. A scaffold alone is not proof. If only the ledger entry can be produced now, note `evidence: pending` and reconcile the evidence before preparing a submission. Keep one FID and one current file at each stage; never treat a duplicate note or a generated report as a ready submission.
 The named capability and observation feed the note's `Impact` and
 `Severity Rationale` fields; a rationale without a demonstrated capability
 behind it does not pass the gate.

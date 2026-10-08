@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import re
 import shutil
@@ -233,7 +234,12 @@ def observation_slug(
     pieces = [descriptor] if scope == URL_SCOPE else [surface, descriptor]
     if title and run_id:
         pieces.append(run_id)
-    return slugify(" ".join(piece for piece in pieces if piece), fallback="observation")
+    slug = slugify(" ".join(piece for piece in pieces if piece), fallback="observation")
+    if len(slug) > 200:
+        # Leave room for collision suffixes and distinguish titles with the same prefix.
+        digest = hashlib.sha256(slug.encode("ascii")).hexdigest()[:12]
+        slug = f"{slug[:187].rstrip('-')}-{digest}"
+    return slug
 
 
 def normalize_status(value: str | None, *, default: str = ACTIVE_STATUS) -> str:

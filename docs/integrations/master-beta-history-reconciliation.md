@@ -22,7 +22,7 @@ Merge `origin/master` into a beta-based feature worktree. The four overlapping f
 
 ## Evidence and review
 
-- Tests and commands: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD" python3 -m pytest -q -p no:cacheprovider agents/test_js_analyzer.py tests/test_jsluice_skill.py`: 187 passed. `... tests`: 201 passed, 1 skipped, 1 failed (`test_hoster_script_authority_uses_current_capability_not_machine_lists` expects obsolete AGENTS wording already absent on beta); full `tests agents` run timed out after 420 seconds without receipt. Stage tree equals beta + temporary dossier; `git diff --check` passed.
+- Tests and commands: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD" python3 -m pytest -q -p no:cacheprovider agents/test_js_analyzer.py tests/test_jsluice_skill.py`: 187 passed. `... tests/test_bbh_launcher.py tests/test_runtime_dependencies.py`: 16 passed. `... tests`: 201 passed, 1 skipped, 1 failed (`test_hoster_script_authority_uses_current_capability_not_machine_lists` expects obsolete AGENTS wording already absent on beta). Full `tests agents` run timed out after 420 seconds without receipt; browser-provisioner test file also timed out after eight passing cases in 180 seconds. Stage tree equals beta + temporary dossier; `git diff --check` passed.
 - Independent review: two read-only audits found no master-only source-map behavior and recommended beta semantic resolution; post-merge review pending.
 - Merge/ancestry evidence: `origin/master` `5e7aecf` and `origin/beta` `60a2738` diverge 3/924; merge-tree reports four JS conflicts; `git cherry` marks first two master commits patch-equivalent.
 

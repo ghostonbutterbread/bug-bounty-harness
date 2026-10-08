@@ -848,7 +848,7 @@ def write_source_map_modules(
     rows: list[dict] = []
     packets: list[dict] = []
     module_dir = source_maps_dir / source_map_sha256 / "modules"
-    packet_dir = root / "source_map_packets" / record.sha256[:16]
+    packet_dir = root / "source_map_packets" / record.sha256[:16] / source_map_sha256 / hashlib.sha256(record.url.encode("utf-8")).hexdigest()
     packeted_modules = 0
     expanded_bytes = 0
     truncated_modules = 0
@@ -1874,7 +1874,7 @@ def command_inventory(args: argparse.Namespace) -> int:
     source_map_packet_budgets: list[dict] = []
     external_integration_rows: list[ExternalIntegration] = []
     provenance_rows: list[JsProvenance] = []
-    provenance_rows_by_sha: dict[str, list[dict]] = {}
+    provenance_rows_by_url: dict[str, list[dict]] = {}
     reused_downloads = 0
     reused_chunk_sets = 0
     skipped_cached_urls = 0
@@ -1939,8 +1939,14 @@ def command_inventory(args: argparse.Namespace) -> int:
                 )
                 if cached_source_map:
                     source_map_body, source_map_sha256, source_map_path = cached_source_map
-                    source_map_status = "cached"
-                    source_maps_reused += 1
+                    if len(source_map_body) > args.source_map_max_bytes:
+                        source_map_status = "too_large"
+                        source_maps_too_large += 1
+                        source_map_sha256 = ""
+                        source_map_path = None
+                    else:
+                        source_map_status = "cached"
+                        source_maps_reused += 1
                 else:
                     source_map_body, source_map_status_code, _source_map_content_type, source_map_too_large = http_get_limited(
                         signals["source_map"],
@@ -2045,7 +2051,7 @@ def command_inventory(args: argparse.Namespace) -> int:
             hints=provenance_hints.get(url, []),
         )
         provenance_rows.extend(record_provenance_rows)
-        provenance_rows_by_sha.setdefault(digest, []).extend(asdict(row) for row in record_provenance_rows)
+        provenance_rows_by_url.setdefault(url, []).extend(asdict(row) for row in record_provenance_rows)
         now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         for external_url in record.external_endpoints:
             host = url_host(external_url)
@@ -2084,7 +2090,7 @@ def command_inventory(args: argparse.Namespace) -> int:
             end = int(chunk_row["byte_end"])
             chunk_path = Path(str(chunk_row["chunk_path"]))
             chunk = chunk_path.read_text(encoding="utf-8", errors="ignore")
-            packet_path = packets_dir / f"{digest[:16]}-{chunk_index + 1:03d}.md"
+            packet_path = packets_dir / f"{digest[:16]}-{hashlib.sha256(url.encode('utf-8')).hexdigest()}-{chunk_index + 1:03d}.md"
             write_text_atomic(packet_path, build_packet(record, chunk_index, start, end, chunk))
             packet_rows.append({
                 "url": url,
@@ -2111,8 +2117,8 @@ def command_inventory(args: argparse.Namespace) -> int:
             record=record,
             run_id=run_id,
             target_host=",".join(scope_hosts),
-            packet_rows=packet_rows_by_sha.get(record.sha256, []),
-            provenance_rows=provenance_rows_by_sha.get(record.sha256, []),
+            packet_rows=[row for row in packet_rows_by_sha.get(record.sha256, []) if row.get("url") == record.url],
+            provenance_rows=provenance_rows_by_url.get(record.url, []),
             library_root=library_root,
             generated_at=generated_at,
         )

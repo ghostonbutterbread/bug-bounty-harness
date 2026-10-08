@@ -67,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "search":
         tags = ["lead"] + ([args.vuln_class] if args.vuln_class else [])
         for lead in store.query(tags=tags, statuses=args.status.split(",")):
-            print(f"{lead['status']}\t{lead.get('surface','')}\t{lead.get('title','')}\t{lead['path']}")
+            print(f"{lead['status']}\t{lead.get('surface','')}\t{lead.get('title','')}\t{lead.get('path','')}")
         return 0
     if args.status not in VALID_LEAD_STATUSES:
         raise ValueError(f"invalid lead status: {args.status}; use one of {sorted(VALID_LEAD_STATUSES)}")

@@ -20,6 +20,7 @@ def test_js_routes_broad_and_focused_hunts_without_losing_legacy_entrypoints() -
     assert "**JSLuice**" in router and "Load `/jsluice`" in router
     assert "skills/js-pull/SKILL.md" in registry
     assert "skills/js-hunt/SKILL.md" in registry
+    assert "legacy analyze/deep/offline-fanout/generate remain supported" in registry
 
 
 def test_pull_preserves_existing_inventory_and_scope_contract() -> None:

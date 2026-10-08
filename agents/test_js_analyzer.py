@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from unittest.mock import patch
+import hashlib
 import json
 import os
 import sqlite3
@@ -740,6 +741,65 @@ def test_inventory_unpacks_in_scope_source_map_into_module_packets(tmp_path: Pat
     assert source_map_artifacts == 1
 
 
+def test_inventory_does_not_store_or_count_source_map_error_body(tmp_path: Path):
+    input_file = tmp_path / "jsfiles.txt"
+    input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
+    body = b"<Error><Code>AccessDenied</Code></Error>"
+    common = ["inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+              "--library-root", str(tmp_path / "library")]
+    with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(
+        J, "http_get_limited", return_value=(body, 403, "application/xml", False)
+    ):
+        assert J.main(common + ["--output-root", str(tmp_path / "run1"), "--run-id", "map-error-1"]) == 0
+        assert J.main(common + ["--output-root", str(tmp_path / "run2"), "--run-id", "map-error-2"]) == 0
+    for name in ("run1", "run2"):
+        metadata = [json.loads(line) for line in (tmp_path / name / "metadata.jsonl").read_text().splitlines()]
+        manifest = json.loads((tmp_path / name / "manifest.json").read_text())
+        assert metadata[0]["source_map_status"] == "fetch_failed"
+        assert manifest["source_maps_downloaded"] == 0
+        assert manifest["source_maps_reused"] == 0
+    assert list((tmp_path / "library" / "sourcemaps").glob("*.map")) == []
+    assert json.loads((tmp_path / "library" / "ledger.json").read_text()).get("source_maps", {}) == {}
+
+
+def test_inventory_rejects_successful_non_map_body(tmp_path: Path):
+    input_file = tmp_path / "jsfiles.txt"
+    input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
+    with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(
+        J, "http_get_limited", return_value=(b"{\"message\":\"AccessDenied\"}", 200, "application/json", False)
+    ):
+        assert J.main(["inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+                       "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
+                       "--run-id", "invalid-map"]) == 0
+    metadata = [json.loads(line) for line in (tmp_path / "out" / "metadata.jsonl").read_text().splitlines()]
+    manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
+    assert metadata[0]["source_map_status"] == "invalid"
+    assert manifest["source_maps_downloaded"] == 0
+    assert list((tmp_path / "library" / "sourcemaps").glob("*.map")) == []
+
+
+
+def test_inventory_accepts_empty_source_map_and_reuses_it(tmp_path: Path):
+    input_file = tmp_path / "jsfiles.txt"
+    input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
+    map_body = json.dumps({"version": 3, "sources": []}).encode()
+    common = ["inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+              "--library-root", str(tmp_path / "library")]
+    with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(
+        J, "http_get_limited", return_value=(map_body, 200, "application/json", False)
+    ) as limited:
+        assert J.main(common + ["--output-root", str(tmp_path / "run1"), "--run-id", "empty-map-1"]) == 0
+        assert J.main(common + ["--output-root", str(tmp_path / "run2"), "--run-id", "empty-map-2"]) == 0
+    assert limited.call_count == 1
+    for name, expected_status, downloaded, reused in (("run1", "downloaded", 1, 0), ("run2", "cached", 0, 1)):
+        metadata = [json.loads(line) for line in (tmp_path / name / "metadata.jsonl").read_text().splitlines()]
+        manifest = json.loads((tmp_path / name / "manifest.json").read_text())
+        assert metadata[0]["source_map_status"] == expected_status
+        assert metadata[0]["source_map_module_count"] == 0
+        assert manifest["source_maps_downloaded"] == downloaded
+        assert manifest["source_maps_reused"] == reused
+
+
 def test_inventory_records_too_large_source_map_without_reading_it(tmp_path: Path):
     input_file = tmp_path / "jsfiles.txt"
     input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
@@ -791,6 +851,35 @@ def test_inventory_reuses_cached_source_map(tmp_path: Path):
     manifest = json.loads((tmp_path / "run2" / "manifest.json").read_text())
     assert metadata[0]["source_map_status"] == "cached"
     assert manifest["source_maps_reused"] == 1
+
+
+def test_inventory_refetches_legacy_cached_error_body(tmp_path: Path):
+    input_file = tmp_path / "jsfiles.txt"
+    input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
+    map_url = "https://app.example.com/static/app.js.map"
+    valid_map = json.dumps({"version": 3, "sources": ["src/app.ts"]}).encode()
+    common = ["inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+              "--library-root", str(tmp_path / "library")]
+    with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(
+        J, "http_get_limited", return_value=(valid_map, 200, "application/json", False)
+    ) as limited:
+        assert J.main(common + ["--output-root", str(tmp_path / "run1"), "--run-id", "cache-seed"]) == 0
+        error_body = b"<Error>AccessDenied</Error>"
+        error_sha = hashlib.sha256(error_body).hexdigest()
+        (tmp_path / "library" / "sourcemaps" / f"{error_sha}.map").write_bytes(error_body)
+        ledger_path = tmp_path / "library" / "ledger.json"
+        ledger = json.loads(ledger_path.read_text())
+        ledger["source_maps"][map_url]["sha256"] = error_sha
+        ledger["source_maps"][map_url]["status"] = 403
+        ledger_path.write_text(json.dumps(ledger))
+        assert J.main(common + ["--output-root", str(tmp_path / "run2"), "--run-id", "cache-refetch"]) == 0
+    assert limited.call_count == 2
+    metadata = [json.loads(line) for line in (tmp_path / "run2" / "metadata.jsonl").read_text().splitlines()]
+    manifest = json.loads((tmp_path / "run2" / "manifest.json").read_text())
+    assert metadata[0]["source_map_status"] == "downloaded"
+    assert metadata[0]["source_map_module_count"] == 1
+    assert manifest["source_maps_reused"] == 0
+    assert manifest["source_maps_downloaded"] == 1
 
 
 def test_inventory_can_skip_cached_url_processing(tmp_path: Path):

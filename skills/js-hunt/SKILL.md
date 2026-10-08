@@ -21,19 +21,46 @@ claim exhaustive coverage from a scanner. Collection mechanics belong to
   page/flow, bundle-family, route-cluster, or module packets, not a giant prompt.
 - **Scope the queue from recorded coverage, not from run names.** Content-review
   state lives in sha256-keyed `js_observations` in the library's
-  `js_info.sqlite`; `/js-pull` owns writing it. It answers "has this *content*
-  been read", while `/url-ingest` owns per-lane URL/parameter *testing* state —
-  different questions, so consult both. Selecting run roots by name prefix
-  resembles a currency filter but is not one, and can silently drop whole
-  in-scope hosts while the totals still look large; group by host and state
-  per-host reviewed/unreviewed counts before calling a queue scoped.
+  `js_info.sqlite`; `/js-pull` owns writing it and defines the status vocabulary.
+  An observation records **depth**, not completion. `/url-ingest` owns per-lane
+  URL/parameter *testing* state — a different question, so consult both.
+  Selecting run roots by name prefix resembles a currency filter but is not one,
+  and can silently drop whole in-scope hosts while the totals still look large;
+  group by host and state per-host never-observed, shallow/unknown, and
+  deep-claimed counts before
+  calling a queue scoped. Use the following two **disjoint** content queues;
+  multiple observations may exist for a hash, so a shallow row must not put a
+  hash with a deep claim in both queues:
 
   ```sql
-  -- unreviewed content (qualify a.js_url, else SQLite reports an ambiguous column)
-  SELECT a.js_url, a.sha256 FROM js_url_aliases a
-  LEFT JOIN js_observations o ON o.sha256 = a.sha256
-  WHERE o.sha256 IS NULL;
+  -- tier 1: no observations for this content
+  SELECT DISTINCT a.js_url, a.sha256 FROM js_url_aliases a
+  WHERE NOT EXISTS (SELECT 1 FROM js_observations o WHERE o.sha256 = a.sha256);
+
+  -- tier 2: observed, but no deep-review status claim (evidence unchecked)
+  -- includes swept, triaged, legacy observed, and unrecognized statuses
+  SELECT DISTINCT a.js_url, a.sha256 FROM js_url_aliases a
+  WHERE EXISTS (SELECT 1 FROM js_observations o WHERE o.sha256 = a.sha256)
+    AND NOT EXISTS (
+      SELECT 1 FROM js_observations o WHERE o.sha256 = a.sha256
+        AND o.status IN ('deep_reviewed', 'exhausted')
+    );
   ```
+  Audit unrecognized statuses **independently** of those two queues: a hash may
+  have both a deep claim and an unknown-status observation, so the tier 2 query
+  alone cannot reveal every legacy/unknown row.
+
+  ```sql
+  SELECT DISTINCT a.js_url, a.sha256, o.status FROM js_url_aliases a
+  JOIN js_observations o ON o.sha256 = a.sha256
+  WHERE o.status IS NULL OR o.status NOT IN
+    ('swept', 'triaged', 'deep_reviewed', 'exhausted');
+  ```
+  Inspect evidence behind `deep_reviewed`/`exhausted` before excluding that
+  content from a **specific lens/flow** queue; these content-level queries are
+  coarse status summaries, not evidence checks. Exclusion from tier 2 is not
+  verification of complete coverage across features or lenses. Reconcile
+  unknown statuses; do not count them as completed coverage.
 - Default **broad hunt**: survey all meaningful application-owned feature
   families represented in the inventory, including a classless anomaly pass.
   Rank then deep-review selected flows. When inventory is too large, declare

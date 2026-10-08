@@ -76,9 +76,26 @@ leads if available; its output is not an endpoint contract.
   Rows carry `sha256`, `js_url`, `packet_path`, `lens`, `run_id`, `agent_id`,
   `title`, `summary`, `status`, `confidence`, `evidence[]`, `next_action`;
   `observation_id` is derived from row identity, so re-submitting upserts rather
-  than duplicating. Keying on sha256 is what makes a re-pull cheap to reason
-  about: unchanged bytes keep their hash and stay reviewed, while changed bytes
-  get a new hash with no observation and correctly reappear as unreviewed.
+  than duplicating. An observation is a **depth claim, not a done flag**; set
+  `status` explicitly (the writer currently defaults omitted status to
+  `observed` and does not validate it):
+
+  - `swept`: deterministic extraction, regex, or cluster triage only; code not read.
+  - `triaged`: skimmed for relevance and routed; no function-level trace.
+  - `deep_reviewed`: code read at function level; behavior or source-to-consumer
+    trace attempted and supported by evidence pointers.
+  - `exhausted`: deep review with a defensible bounded conclusion for the stated
+    lens/flow, not a claim that the whole app or chunk can never yield a lead.
+
+  Record the **lowest honest depth**; cite inspected functions/packets for deep
+  claims rather than counting worker self-reports as proof. Older `observed` or
+  other unrecognized statuses remain unfinished until their evidence is checked;
+  do not silently reinterpret or rewrite the append-only record. Distinct
+  observations may cover different lenses of the same hash: one deep review is
+  not proof that every lens/flow was exhausted. Keying on sha256 makes a re-pull
+  cheap to reason about: unchanged bytes retain their observations at their
+  recorded depth, while changed bytes get a new hash with no observation and
+  reappear as unobserved. Deep claims may also be reopened on new evidence.
   Content addressing also means a chunk resurfacing at a rotated URL adds an
   alias row, not a second copy.
 - If the user requested only collection, report the artifact root, counts from

@@ -1,6 +1,6 @@
 # JS source-map evidence bounds — branch-local integration dossier
 
-- **Status:** cache-cap review blocker repaired and locally verified; independent rereview pending; not merged or pushed
+- **Status:** independent rereview approved safe subset for beta integration; not merged or pushed
 - **Owner:** Hermes bugfix subagent
 - **Branch / owning ref:** `fix/js-source-map-evidence-bounds-20261008`
 - **Worktree:** `/home/ryushe/worktrees/bbh-source-map-safe-subset-20261008`
@@ -8,7 +8,7 @@
 - **Intended integration target:** `beta` (`origin/beta` fetched at the same SHA)
 - **Last updated:** 2026-10-08
 - **Latest immutable recovery checkpoint before this repair:** `322af58613657efaf12e878b1f8e3c9a9177f705` (dossier-only successor to implementation `3995a4b`); cache-cap repair is committed with this updated dossier at the current feature-branch tip
-- **Feature implementation commit(s):** `3995a4bc2722d2d73a3583429a0a0b4437e366d5`
+- **Feature implementation commit(s):** `3995a4bc2722d2d73a3583429a0a0b4437e366d5`, `07772853e34da19505723ed370457b5a3067665e`
 - **Inspiration:** separable packet/provenance/cached-cap repairs from blocked `fix/js-source-map-flow-20261008` (`5214852`); its directive parser, regex, scanner and directive tests are deliberately excluded.
 
 ## Intent and implemented contract
@@ -21,6 +21,7 @@ For byte-identical JS bundles at different URLs, bundle packets use URL-hashed n
 - Cache-cap review repair RED→GREEN: extended the existing lowered-cap two-run fixture before production changes. RED failed because `is_source_map_body` was called on the oversized cached map (and the instrumented file reader would have observed an unbounded read). GREEN: validator not called, one `read(11)` for cap 10, one initial download and no second map fetch, `too_large`/counter 1, reuse 0, empty SHA/path and zero module rows. `python -m pytest agents/test_js_analyzer.py::test_cached_source_map_obeys_lowered_byte_cap_without_refetch -q`: 1 passed.
 - `python -m pytest agents/test_js_analyzer.py -q`: 194 passed after repair.
 - `python -m pytest agents/test_xss_sink_sites.py agents/test_js_offline_campaign.py tests/test_js_hunt_skill.py tests/test_jsluice_skill.py -q`: 146 passed after repair.
+- Independent rereview approved the complete safe-subset diff against fetched beta `5315259`: 340 targeted and adjacent tests passed; exact-cap accepted, one-byte-over rejected before hash/JSON, invalid within-cap cache still follows validation/refetch; packet/provenance ownership and unchanged directive extraction verified. `git diff --check` clean. The broader repository suite is not claimed green.
 - Bounded call-site search found only `command_inventory`; no other loader caller needs the new required cap. `git diff 5315259 -- agents/js_analyzer.py` contains no `SOURCE_MAP_RE`, `extract_signals`, or scanner hunk; `git diff --check` clean. Earlier bounded reference search found metadata packet consumers in analyzer's metadata/SQLite writer and the tested JS skill guidance; no fixed packet filename consumer.
 - Review changed paths only: `agents/js_analyzer.py`, `agents/test_js_analyzer.py`, this temporary dossier. Check negative evidence, per-URL ownership and unchanged directive extraction; rerun both suite commands above and inspect `git diff 5315259..HEAD` before any beta merge.
 - Integration lineage: feature branch starts at current fetched beta tip `5315259`; no push/merge authorized.
@@ -34,8 +35,9 @@ For byte-identical JS bundles at different URLs, bundle packets use URL-hashed n
 
 ## Decision gates and handoff
 
-- **Integration:** independent review of task diff and receipts; selected beta may advance and then needs deliberate reconciliation/retest. Remove this dossier from the beta integration tree on accepted merge; do not merge/push here.
+- **Integration:** independently approved for beta; fetch beta anew, reconcile/retest if it advanced, then merge from the clean beta integration worktree and remove this dossier in the same integration operation. Do not treat this as stable promotion or runtime activation.
 - **Activation/promotion:** not requested; no runtime activation or stable promotion implied.
 - **Exact resume point:** review original implementation checkpoint `3995a4bc2722d2d73a3583429a0a0b4437e366d5`, the dossier checkpoint `322af58613657efaf12e878b1f8e3c9a9177f705`, and the subsequent local cache-cap repair at current feature-branch tip; inspect the complete committed diff and rerun owning/adjacent suites before any integration decision. Parent agent owns independent rereview and integration; this subtask does not push or merge.
 - **Working tree at handoff:** expected clean after local commit.
 - **2026-10-08 decision:** retain only packet identity, metadata/provenance ownership and cached-cap behavior; explicitly reject directive changes from blocked branch.
+- **2026-10-08 decision:** independent rereview GO for the bounded safe subset after pre-parse cache cap repair; beta integration permitted subject to fresh-ref and post-merge checks. Full suite/runtime qualification, directive-parser redesign and stable snapshot promotion remain separate.

@@ -2,24 +2,63 @@
 name: waf
 description: Use when detecting, fingerprinting, or bypassing WAF blocks, rate limits, payload filtering, blocked probes, CDN security rules, or application firewall behavior during testing.
 ---
-# WAF Interceptor Skill
+# WAF Skill
 
-Auto-detect and bypass WAF blocks in any harness.
+A WAF block is a question about the control and the protected consumer, not a
+reason to rotate generic payloads. This skill owns the adaptive loop and optional
+interceptor mechanics. It does not prove the underlying vulnerability class.
 
-A WAF is an attack surface with known weaknesses, not a wall — fingerprint the family, use documented bypass patterns from this skill, and apply creative payloads rather than generic rotation.
+For live filtering load `waf-live-policy` and the inherited scope, rate,
+challenge, and stop rules. Load `blocker-first-analysis` to locate the blocker,
+`hypothesis-expansion-policy` to deepen or defer it, and `bypass` for generic
+parser questions. For a plausible XSS path whose next obstacle is filtering,
+load `xss-waf-evasion` after the XSS lane and `xss-payload-engineering`.
 
-Load `blocker-first-analysis` when classifying the blocker type; `hypothesis-expansion-policy` when deepening or deferring the line; `bypass` for generic sanitizer/parser techniques. For observed live filtering, apply `waf-live-policy` and the inherited scope and rate boundaries before choosing probes.
+## Adaptive blocker loop
 
-## Required Preflight
+1. **Baseline:** Preserve one clean, in-scope request and the smallest
+   one-variable change that reproducibly blocks. Record request representation,
+   client/session, route, response signatures, and a green control for transient
+   challenge windows. A bare 403, vendor banner, or changed status is not yet a
+   classified WAF rule. Stop or slow as `waf-live-policy` requires.
+2. **Locate the control:** Compare edge/CDN, bot/rate, origin application
+   validation, sanitizer, and later browser processing. Ask which bytes the
+   control inspected, which transformations it applied, and whether the
+   relevant attacker-controlled source ever crossed it. Use a matched rule ID
+   or logs when available; a vendor fingerprint is a lead, not a rule guarantee.
+   An unknown control remains a behavior-first comparison, not a reason to
+   guess a vendor trick.
+3. **Retrieve narrowly:** Once the route/control is concrete, query MapStore
+   `app-facts`/`dedupe` for this app's observed behavior, then ResearchMap for
+   portable mechanisms matching the vendor *and* request component, parser,
+   transform, or consumer. The current surface chooses the query; old cards do
+   not choose a new target. Read relevant program notes only for that question.
+4. **Sufficiency gate:** Do the observations and retrieved knowledge explain a
+   *plausible way past this blocker* that still matters to the downstream
+   consumer? State what the control likely sees, what the origin/browser would
+   see instead, the transport or configuration precondition, a negative control,
+   and the predicted outcome. If yes, construct that candidate. If not, do
+   bounded, fingerprint-led source research (`technology-research`; for XSS use
+   `xss-technology-research`) before another family. Compare upstream docs,
+   source, and relevant research with observed conditions; no local card or
+   search result is not a negative target finding. When research remains thin,
+   return to a distinct empirical discriminator rather than stalling or spraying.
+5. **Test and learn:** Change one causal factor where feasible, keep a green
+   control, and compare block → actual origin behavior → class-specific consumer
+   proof. A 200/challenge change alone is not a bypass proof. If blocked,
+   update the model and choose a non-equivalent mechanism; if accepted, verify
+   the intended value and postcondition before claiming success. Record exact
+   probes via the class lane's Attempts contract and durable app facts in
+   MapStore, with sanitized evidence pointers. Promote one portable, source-cited
+   mechanism to ResearchMap only after its recognition signal, preconditions,
+   smallest check, caveats, and review meet the existing card-admission rules.
 
-Read the relevant notes for the concrete surface when they exist:
+A card is a hypothesis accelerator, not a prerequisite or an exhaustive bypass
+bank. Vendor-specific tricks belong in reviewed, condition-matched ResearchMap
+cards; target outcomes belong in MapStore. For XSS-specific candidate grammar,
+consumer proof, and source pointers, load `xss-waf-evasion`.
 
-1. `notes/summary.md`
-2. `notes/observations.md`
-3. `checklist.md` (WAF items only)
-4. `todo.md` (WAF items only)
-
-## Primary Harness
+## Optional interceptor harness
 
 Use `agents/bypass_harness.py` when you need a CLI entrypoint and want `agents/waf_interceptor.py` engaged automatically. Use `agents/waf_interceptor.py` directly only when embedding the interceptor into a custom harness or a narrow manual repro.
 
@@ -107,16 +146,16 @@ resp = await waf.wrap_async(client, "GET", url, resp)
 | PerimeterX | Body: `px-captcha`, `pxi.pub` |
 | DataDome | Body/header: `datadome` |
 
-## Bypass Techniques
+## Interceptor mutation limits
 
-Each WAF has a tailored bypass list, followed by generic fallbacks:
-
-- **Delay**: Rate limit evasion (`delay: N` seconds)
-- **User-Agent rotation**: Chrome, iPhone, Googlebot, Bingbot
-- **Header injection**: `X-Forwarded-For`, `CF-IPCountry`, `True-Client-IP`
-- **Path case variation**: lower / UPPER / rAnDoM
-- **Path prefix tricks**: `//`, `/%2e`, etc.
-- **Cookie passthrough**: Preserve WAF session cookies on retry
+The interceptor offers fixed vendor-labelled and generic retries (delay,
+headers, path representations, cookies, and query-value obfuscation). Those are
+*tool capabilities*, not a per-vendor proof or an exhaustive XSS payload
+engine. Select a mode only when its mutation tests the observed control; do not
+use retry volume, forged client-IP headers, or bot-profile rotation as an
+unexplained default. `tier2` changes query values; it does not automatically
+handle JSON/body encoding, the application's parser, or browser execution.
+An edge pass must be checked against the origin and class-specific consumer.
 
 ## Output Files
 
@@ -166,11 +205,18 @@ waf.print_summary()
 - **WAF Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/waf/findings.md`
 - **WAF Artifacts:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/waf/`
 
-## Workflow
+## Harness use after the decision loop
 
-1. Complete the required preflight reads in shared state order.
-2. Read `prompts/waf-playbook.md`.
-3. Use `agents/bypass_harness.py` for CLI-driven testing or `agents/waf_interceptor.py` directly inside a custom flow.
-4. Record raw blocks and bypasses in the WAF artifact directory.
-5. Write findings to `agent_shared/findings/waf/findings.md`.
-6. Update WAF entries in `checklist.md`, `todo.md`, and relevant notes.
+1. Establish and classify the blocker with the adaptive loop above; apply the
+   live-testing policy chain before any probe. Read relevant existing notes for
+   this *selected* surface, not as a broad cold-start target selector.
+2. Consult `prompts/waf-playbook.md` only when its trigger/lane answers the
+   current question. The harness does not implement an XSS-specific bypass mode;
+   use the selected XSS lane and `xss-waf-evasion` for that consumer.
+3. If the chosen mutation is supported, use `agents/bypass_harness.py` or embed
+   `agents/waf_interceptor.py` for a narrow comparison. Do not interpret its
+   `bypass_success` counter as class-specific exploit proof.
+4. Store exact attempts in the owning class lane. Record stable control facts and
+   evidence pointers in MapStore and follow the finding/report owner when a
+   verified impact exists. Avoid treating the interceptor logs as a parallel
+   canonical WAF findings ledger.

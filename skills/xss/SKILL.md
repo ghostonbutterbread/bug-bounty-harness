@@ -16,8 +16,8 @@ payload is evidence about a boundary, not a verdict on a plausible XSS path.
 Read `general-security-testing-policy` and `live-testing-policy` before live
 action. For a new hunt, use the former's
 `references/opening-and-knowledge.md` for scope and cold-start guidance rather
-than repeating that procedure here. Observe the current input or consumer and
-render context with an inert marker or an appropriate browser/source trace before querying
+than repeating that procedure here. Observe the current input and render context
+with an inert marker, or trace a plausible consumer from its sink before querying
 prior work; then retrieve only memory relevant to that observed surface. A
 narrow or already warm vector need not produce a quota of unrelated findings.
 
@@ -59,7 +59,7 @@ and a reflected value may become dangerous only after client-side parsing.
 A sanitizer hit or WAF/filter block on an XSS vector is signal, not an independent failed XSS attempt. When a controllable value has a plausible executable consumer, keep pressure on that same vector:
 
 - Sanitizer behavior: load `xss-technology-research` and `xss-payload-engineering` to map the observed transform and choose sanitizer-/parser-matched candidates.
-- WAF/filter behavior: load `waf-live-policy` to classify the control, then return its evidence to the XSS candidate queue.
+- WAF/filter behavior: load `waf-live-policy` to classify the control, then return its evidence to the XSS candidate queue. Once a plausible consumer and reproducible filter differential exist, load `waf` plus `xss-waf-evasion` for the adaptive card → research → candidate → proof loop; a vendor label alone is not a bypass plan.
 
 When distinct probes meet similar resistance, ask whether the observed stack,
 response differences, or relevant prior notes could explain the control and

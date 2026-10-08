@@ -59,7 +59,11 @@ until the responsible parser, transform, or consumer boundary is understood.
 
 - Load `waf-live-policy` when filtering, normalization, challenge, or an edge
   differential becomes the interesting boundary. Classify the boundary before
-  choosing a materially distinct representation.
+  choosing a materially distinct representation. If a plausible XSS consumer
+  remains and bypass construction is now the question, load `waf` for its
+  baseline → control → cards/research loop and `xss-waf-evasion` for the
+  filter-to-executable-consumer reasoning. Neither the interceptor nor a vendor
+  card substitutes for browser proof.
 - Load `xss-technology-research` when an observed stack or defense fingerprint
   could change the candidate queue.
 - Return to `xss-lifecycle` when a controlled value gains a later consumer or a

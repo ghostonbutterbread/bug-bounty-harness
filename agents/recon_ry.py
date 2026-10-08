@@ -254,9 +254,20 @@ def build_remote_seed_files(program: str, seed_url: str, *, allow_unscoped: bool
     except Exception:
         validator = None
     if validator and not validator.is_empty():
+        # A wildcard exclusion covering a whole root must not become an enum
+        # input merely because the inclusive scope also lists that root.
+        denied_roots = [
+            raw[2:].lower() for entry in getattr(validator, "_out_of_scope", [])
+            if (raw := clean_scope_value(getattr(entry, "raw", ""))).startswith("*.")
+        ]
         for entry in getattr(validator, "_entries", []):
             raw = clean_scope_value(getattr(entry, "raw", ""))
             if not raw:
+                continue
+            if raw.startswith("*.") and any(
+                raw[2:].lower() == denied or raw[2:].lower().endswith("." + denied)
+                for denied in denied_roots
+            ):
                 continue
             if getattr(entry, "entry_type", "") == "url_pattern" or raw.startswith(("http://", "https://")):
                 urls.append(raw)
@@ -344,7 +355,9 @@ def start_remote(args: argparse.Namespace) -> None:
     # that contains only tools with verified header forwarding.
     effective_profile = "exact-urls-header" if auth_seed and args.profile == "exact-urls" else args.profile
     profile_flag = f"--{effective_profile}" if effective_profile in {"full", "subs", "fast", "urls", "params", "dork", "dir", "exact-urls"} else f"--profile {effective_profile}"
-    credential_material = bool(args.auth or args.auth_seed_file or args.cookie)
+    # Any manually supplied header may carry authentication, including custom
+    # names that the wrapper cannot classify. Never fan it out to saved siblings.
+    credential_material = bool(args.auth or args.auth_seed_file or args.header or args.cookie)
     if credential_material or args.profile == "exact-urls":
         # Exact-host mode must never seed sibling scope entries into its project.
         seed_files = {

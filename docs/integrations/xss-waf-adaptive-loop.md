@@ -6,8 +6,8 @@
 - **Base commit:** `4b0fb836dd2622523c03640297cbe98416b50f3a`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-08
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commits:** none yet
+- **Latest immutable recovery checkpoint:** `15a38ce9a15adb5ae3b0c1a6de1608629cd3bdb2`
+- **Feature implementation commits:** `15a38ce9a15adb5ae3b0c1a6de1608629cd3bdb2`
 - **Inspiration:** Discord thread 1557545732226031677, request 1557824476916359200; Hoster Hollister XSS handoff read-only; existing BBH XSS/WAF policy and ResearchMap/MapStore contracts.
 
 ## Intent and success criteria
@@ -43,10 +43,10 @@ None identified. Live target testing is out of scope and not an integration gate
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/xss-waf-adaptive-loop`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commits:** none yet
-- **Exact resume point:** author skill content and focused tests, run checks, commit, independently review, then integrate into beta.
-- **Working-tree state at handoff:** intentionally uncommitted draft (this dossier).
+- **Latest immutable recovery checkpoint:** `15a38ce9a15adb5ae3b0c1a6de1608629cd3bdb2`
+- **Feature implementation commits:** `15a38ce9a15adb5ae3b0c1a6de1608629cd3bdb2`
+- **Exact resume point:** obtain independent review of the committed range against base `4b0fb83`, address blockers and re-review if needed, then integrate into beta.
+- **Working-tree state at handoff:** clean after dossier-only checkpoint commit.
 
 ## Decision gates
 
@@ -57,3 +57,4 @@ None identified. Live target testing is out of scope and not an integration gate
 ## Decision record
 
 - 2026-10-08 — isolated feature from fetched beta; outlined boundaries before editing skill owners.
+- 2026-10-08 — implemented and exercised adaptive skill workflow; focused XSS suite 147 passed; implementation checkpoint `15a38ce9a15adb5ae3b0c1a6de1608629cd3bdb2` awaits independent review.

@@ -50,6 +50,10 @@ def test_non_secret_auth_prose_and_seed_filename_are_accepted(tmp_path, monkeypa
     ("auth_refresh_hint", "tokens=synthetic-secret-value"),
     ("auth_seed_ref", "auth-seed:/synthetic/seed.json?accessToken=synthetic-secret-value"),
     ("auth_seed_ref", "auth-seed:/synthetic/seed.json?sessionCookie=synthetic-secret-value"),
+    ("notes", 'passwords["primary"] = "synthetic-value"'),
+    ("source", 'tokens["access"] = "synthetic-value"'),
+    ("auth_refresh_hint", 'headers["Cookie"] = "sid=synthetic-value"'),
+    ("auth_seed_ref", 'auth-seed:/synthetic/ref?headers["Authorization"]=synthetic-value'),
 ])
 def test_non_secret_fields_still_reject_credential_values(field, value):
     module = load_inventory_module()

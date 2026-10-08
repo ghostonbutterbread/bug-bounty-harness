@@ -7,6 +7,13 @@ description: "Use when testing access, parser, encoding, WAF, redirect, LFI, SSR
 
 Use the unified bypass workflow when a target URL, endpoint, or parameter looks protected by access control, parser validation, filtering, WAF rules, allowlists, or brittle normalization.
 
+If the acting obstacle is an observed WAF, CDN security rule, bot/challenge,
+or application payload filter, use `waf` for its measured-control, app-facts,
+sufficiency, focused-research, and controlled-comparison loop. Return here for
+broader parser/access-bypass questions and to the selected vulnerability lane
+for downstream proof. A bare `403` on another user's resource is not a WAF
+candidate or authorization to run `403` bypasses.
+
 ## Invocation
 
 ```text
@@ -40,6 +47,10 @@ For error responses, load `/error-triage` first when the correct next step depen
 - Mutator: `agents/payload_mutator.py`
 - WAF helper: `agents/waf_interceptor.py`
 - Findings: `$HARNESS_SHARED_BASE/{program}/ghost/bypass/`
+
+The harness and interceptor contain automatic retries that are not an
+end-to-end `--rps`-bounded one-candidate probe. Do not run them for a narrow
+live WAF comparison; use `waf`'s controlled path and `waf-live-policy`.
 
 ## Bypass Types
 

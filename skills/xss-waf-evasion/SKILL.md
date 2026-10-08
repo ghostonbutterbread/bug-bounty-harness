@@ -14,75 +14,60 @@ filter bypass** to **a value the actual consumer can execute**. It does not turn
 a filter hit into a warm vector without a plausible consumer, nor does it claim
 that a WAF protects a DOM-only source that never crosses it.
 
-## Entry packet
+## XSS handoff from the shared loop
 
-Use an inert marker and a clean/blocked differential to assemble only what is
-observed; leave unknowns explicit:
+`waf` owns the baseline, acting-control classification, `map-store`
+`app-facts`/`dedupe` and relevant ResearchMap retrieval, sufficiency gate,
+focused research trigger, controlled comparison, and learning destinations.
+Do not repeat that loop here. Carry its observed control/representation
+differential into this XSS-only packet; leave unknowns explicit:
 
 ```text
 attacker-controlled source and request representation
-plausible sink, HTML/attribute/URL/script/JSON/DOM grammar, later consumer
-control location and evidence (edge, bot/rate, origin filter, sanitizer, unknown)
-blocked and surviving primitives; exact bytes before/after known transforms
-route, component, content type/charset, session, browser/CSP
-who sends the request and who encounters the output
+plausible sink and HTML/attribute/URL/script/JSON/DOM grammar; later consumer
+surviving primitives, exact value before/after sanitizer, decoder or reparse
+browser, framework, delivered CSP, and who sends/encounters the result
 ```
 
-Do not confuse an origin reject-on-match filter with a sanitizer that rewrites
-markup. Distinguish a vendor header from a matched rule and a temporary
-challenge from a payload decision; compare with a green control. If the layer
-is unclear, return to `waf` / `waf-live-policy` for classification rather than
-inventing vendor behavior.
+A reject-on-match filter differs from a sanitizer that rewrites output; a DOM-only
+source not crossing the WAF belongs in `dom-xss`, not a WAF bypass. If the layer
+is still unclear, return to `waf` rather than assigning a vendor trick.
 
-## Retrieval and sufficiency loop
+## Class-specific candidate and proof
 
-1. **Query current app facts:** Once this surface is chosen, use `map-store`
-   `app-facts`/`dedupe` for this URL, route, and defense. Query portable
-   ResearchMap cards by observed WAF/control *plus* inspected component,
-   decoder, renderer, or sink; read only matching cards. Vendor identity alone
-   is not a card match. See `xss-technology-research` for the bounded research
-   packet and reviewed card promotion; source leads live in
-   `references/vendor-and-mechanism-sources.md`.
-2. **Ask sufficiency:** Is there enough evidence to build a **plausible bypass
-   of this blocker** that remains meaningful in the actual XSS consumer? Write
-   one causal sentence: “control inspects representation A; origin or browser
-   interprets B because stage C; the same victim-reachable flow can carry it.”
-   Name a checkable precondition, expected negative control, and contrary
-   observation. This is permission to *test a hypothesis*, never success proof.
-3. **If no:** Research the concrete difference, not “vendor X bypasses.”
-   Compare vendor/upstream documentation, implementation or rule version,
-   parser standards, relevant papers, and the local ResearchMap; use the
-   approved safe-fetch path. Distinguish source-reported behavior from observed
-   target facts. If research still leaves no candidate, run the smallest
-   distinct inert discriminator or preserve the missing prerequisite and return
-   to the XSS lane; an empty search does not close the path.
-4. **If yes:** Compose the smallest context-matched candidate from the
-   surviving grammar and an observed stage difference. Keep the original
-   blocked request, one changed causal feature, and a green/negative control.
-   Use `xss-payload-engineering` for candidate queues and its
+1. **Apply `waf`'s sufficiency gate to XSS:** A plausible bypass of the
+   current blocker also needs a path from the altered representation to an
+   executable parser in the real flow. Write one causal sentence: what the
+   control sees, what the origin/browser interprets differently, and why the
+   actual victim flow could carry it. The shared reference
+   `skills/waf/references/core-mechanisms.md` answers general inspection and
+   policy questions; `references/technique-questions.md` asks XSS parser and
+   delivery questions. Neither is a payload bank.
+2. **If no:** Name the missing XSS-specific consumer, sanitizer/reparse,
+   framework, or browser/CSP prerequisite. Use `xss-technology-research` and
+   `references/vendor-and-mechanism-sources.md` for focused XSS research;
+   return any missing *general WAF* mechanism to `waf`'s focused-research
+   branch. Distinguish source-reported possibilities from this target's facts.
+3. **If yes:** Use `xss-payload-engineering` to compose a context-matched
+   candidate from surviving grammar and an evidenced stage difference. Its
    `skills/xss-payload-engineering/references/parser-stage-character-variants.md`
-   for encoding rules (load that skill-local reference with `skill_view`).
-   Use `references/technique-questions.md` here to select an ingress/control
-   question, not as a payload bank. If a tool emits many strings, reduce to
-   distinct hypotheses before live use.
-5. **Compare four gates:** (a) the changed representation passes the same
-   control, (b) the intended value reaches the origin or client source, (c) it
-   reaches the claimed executable sink after transformations, and (d) it
-   executes in the stated browser/consumer under delivered CSP. A 200 or
-   reflected string proves none of the later gates. Then separately ask whether
-   the *victim's actual request and delivery path* can carry the representation;
-   a tester-chosen transport may prove only a self-only primitive. The parent
-   XSS lane owns classification of self-only, later-consumer and cross-user
-   impact; do not rebuild that policy here.
-6. **Learn and iterate:** If a gate fails, record the first divergence and
-   choose another causal family only while the warm/hot path and inherited
-   safety boundary justify it. Exact live probes use `attempt-recording-policy`
-   and the XSS lane; stable target observations plus sanitized pointers go to
-   MapStore. A reusable, source-cited mechanism becomes **one** ResearchMap
-   card only after `xss-technology-research`'s admission review states its
-   recognition signal, preconditions, smallest check, caveats, and status.
-   Keep untested ideas in the current hypothesis; never auto-promote a search
-   hit or a site-specific payload to a portable card.
+   explains character/encoding prerequisites (load with `skill_view`). Return
+   the candidate and one negative control to `waf` for a controlled comparison;
+   do not turn tool-generated strings into a live sweep.
+4. **Compare four gates:** (a) changed representation passes the same control,
+   (b) intended value reaches the origin or client source, (c) it reaches the
+   claimed executable sink after transformations, and (d) it executes in the
+   stated browser/consumer under delivered CSP. A 200 or reflected string does
+   not establish later gates. Separately ask whether the *victim's actual request
+   and delivery path* can carry the representation; a tester-chosen transport
+   may support only self-only execution. The parent XSS lane owns later-consumer
+   and cross-user classification, not this overlay or the WAF counter.
+5. **Return evidence:** Name the first failed gate and remaining uncertainty.
+   Exact probes belong in the XSS lane's Attempts writer; stable target facts
+   and sanitized evidence pointers in MapStore; reviewed portable mechanisms
+   in ResearchMap under `xss-technology-research`'s admission rule. Keep
+   untested ideas as hypotheses; never auto-promote a search hit or a
+   site-specific payload to a portable card.
 
 ## Pitfalls and verification
 
@@ -90,7 +75,8 @@ inventing vendor behavior.
   an executable parser; an HTML entity in plain text does not itself create a
   tag in the same parse. A vendor-labelled retry is not a browser result.
 - Body charset, parameter shape, and content-type changes matter only where the
-  origin accepts them **and** the claimed victim can make that same request.
+  origin accepts them **and** the claimed victim can make that same request;
+  shared WAF questions belong in `waf`, browser interpretation here.
 - A currently valid vendor card may not match a different deployment's rules,
   exceptions, or version. Unknown WAFs follow the same measured loop.
 - Complete this overlay with a compact packet: baseline/block signature,

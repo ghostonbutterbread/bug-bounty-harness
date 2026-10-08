@@ -12,6 +12,9 @@ TECHNIQUES = ROOT / "skills/xss-waf-evasion/references/technique-questions.md"
 SOURCES = ROOT / "skills/xss-waf-evasion/references/vendor-and-mechanism-sources.md"
 PLAYBOOK = ROOT / "prompts/waf-playbook.md"
 PARSER_REFERENCE = ROOT / "skills/xss-payload-engineering/references/parser-stage-character-variants.md"
+SHARED_MECHANISMS = ROOT / "skills/waf/references/core-mechanisms.md"
+BYPASS = ROOT / "skills/bypass/SKILL.md"
+BYPASS_PLAYBOOK = ROOT / "prompts/bypass-playbook.md"
 
 
 def test_general_waf_loop_starts_with_measured_control_not_vendor_rotation() -> None:
@@ -98,3 +101,52 @@ def test_unknown_vendor_uses_generic_mechanism_and_parser_reference_resolves() -
     assert "Match a vendor only when" in waf
     assert PARSER_REFERENCE.is_file()
     assert "skills/xss-payload-engineering/references/parser-stage-character-variants.md" in overlay
+
+
+def test_shared_waf_reference_is_conditional_and_loaded_from_general_loop() -> None:
+    waf = WAF.read_text(encoding="utf-8")
+    assert SHARED_MECHANISMS.is_file()
+    shared = SHARED_MECHANISMS.read_text(encoding="utf-8")
+    assert "references/core-mechanisms.md" in waf
+    for question in (
+        "inspection surface", "decoding and normalization", "routing and body representation",
+        "policy exceptions", "time, client, and challenge",
+    ):
+        assert question in shared.lower()
+    for evidence in ("Recognition signal", "Precondition", "Negative control", "Counter-explanation"):
+        assert evidence in shared
+    assert "not a guaranteed bypass" in shared
+    assert "https://docs.aws.amazon.com/waf/" in shared
+    assert "https://developers.cloudflare.com/waf/" in shared
+
+
+def test_xss_overlay_delegates_research_loop_and_keeps_xss_proof() -> None:
+    overlay = OVERLAY.read_text(encoding="utf-8")
+    sources = SOURCES.read_text(encoding="utf-8")
+    assert "`waf` owns" in overlay
+    assert "`waf`'s sufficiency gate" in overlay
+    assert "HTML/attribute/URL/script/JSON/DOM grammar" in overlay
+    assert "sanitizer" in overlay and "reparse" in overlay
+    assert "four gates" in overlay and "victim's actual request" in overlay
+    assert "prompts/waf-playbook.md" not in overlay
+    assert "Cloudflare:" not in sources and "Fastly:" not in sources
+    assert "WHATWG HTML parsing" in sources and "DOMPurify" in sources
+    assert "`waf`" in BYPASS.read_text(encoding="utf-8")
+    assert "`waf`" in BYPASS_PLAYBOOK.read_text(encoding="utf-8")
+
+
+def test_coverage_negative_control_uses_known_blocked_value() -> None:
+    shared = SHARED_MECHANISMS.read_text(encoding="utf-8")
+    section = shared.split("### Inspection surface and component coverage", 1)[1].split("### Decoding and normalization order", 1)[0]
+    assert "inert markers" in section  # trace what the origin consumes
+    negative = section.split("**Negative control:**", 1)[1].split("**Counter-explanation:**", 1)[0]
+    assert "known-blocked value" in negative
+    assert "marker" not in negative
+
+
+def test_bypass_playbook_excludes_waf_from_generic_batch_step() -> None:
+    playbook = BYPASS_PLAYBOOK.read_text(encoding="utf-8")
+    step = playbook.split("4. ", 1)[1].split("5. Compare against baseline", 1)[0]
+    assert "observed WAF/filter" in step
+    assert "controlled comparison" in step
+    assert "small batch" in step and "non-WAF" in step

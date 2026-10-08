@@ -21,8 +21,8 @@ The skill and playbook use `tailscale exit-node list --filter=USA` to discover l
 
 ## Evidence and review
 
-- Tests and commands: local `tailscale set --help`, `tailscale exit-node list --filter=USA`, `tailscale get exit-node`, `mullvad status`, `mullvad lockdown-mode get`, `mullvad auto-connect get`, `curl -4 https://ip.me`, and Mullvad JSON check read-only; static assertions after review fixes passed (7/7) and `git diff --check` passed.
-- Independent review: changes requested on `6894c9b` for false-positive egress proof, standalone auto-connect startup behavior, and stale dossier. Fixes applied; re-review pending.
+- Tests and commands: read-only local CLI checks with `tailscale set --help`, `tailscale exit-node list --filter=USA`, `tailscale get exit-node`, `mullvad status`, `mullvad lockdown-mode get`, `mullvad auto-connect get`, `curl -4fsS --max-time 10 https://ip.me`, and `curl -4fsS --max-time 10 https://am.i.mullvad.net/json`; `git diff --check` passed. Manual static inspection confirmed the new selector, hostname match, startup policy and rollback; no durable automated assertion suite was added.
+- Independent review: first review requested egress proof, auto-connect, and dossier corrections. Re-review confirmed the behavior and requested removal of an untraceable numerical assertion count; corrected here.
 - Replay/cohort/fixture evidence: live routing switch deliberately not exercised; existing standalone Mullvad tunnel remains connected.
 - Merge/ancestry evidence: pending.
 

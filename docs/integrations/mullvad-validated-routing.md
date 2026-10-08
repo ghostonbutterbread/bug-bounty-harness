@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-08
 - **Owning feature branch/ref:** `docs/mullvad-validated-routing`
-- **Latest immutable recovery checkpoint:** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`
-- **Feature implementation commit(s):** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`
+- **Latest immutable recovery checkpoint:** `f1f23f6778acfdca15861280589e65067edc672c`
+- **Feature implementation commit(s):** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`, `f1f23f6778acfdca15861280589e65067edc672c`
 - **Inspiration / canonical references:** Kanban parent t_aaff5b3b, attachment `routing-model-validation.md`; existing beta Mullvad docs; Tailscale exit-node, Mullvad exit-node and CLI official docs.
 
 ## Intent
@@ -34,8 +34,8 @@ Close the gap between beta's existing Tailscale-first/standalone-fallback prose 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/mullvad-validated-routing`
-- **Latest immutable recovery checkpoint:** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`
-- **Feature implementation commit(s):** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`; the tip after this dossier-only handoff commit is later.
+- **Latest immutable recovery checkpoint:** `f1f23f6778acfdca15861280589e65067edc672c`
+- **Feature implementation commit(s):** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`, `f1f23f6778acfdca15861280589e65067edc672c`; the tip after this dossier-only handoff commit is later.
 - **Exact resume point:** independently review the committed diff against `origin/beta`; integrate into a clean current beta only after acceptance and remove this dossier from integration target.
 - **Working-tree state at handoff:** clean after the dossier-only checkpoint commit.
 
@@ -47,4 +47,4 @@ Close the gap between beta's existing Tailscale-first/standalone-fallback prose 
 
 ## Decision record
 
-- 2026-10-08 — Created docs refinement from reviewed beta; first independent review identified LAN-only control gap; revised preflight to require independent recovery and post-selection verification. Earlier implementation checkpoint `f489b728bcc2a6a5186c2233cc713b3195eaf97f`; corrected implementation commit to be recorded after commit. No production change.
+- 2026-10-08 — Created docs refinement from reviewed beta; first independent review identified LAN-only control gap; revised preflight to require independent recovery and post-selection verification in correction `f1f23f6778acfdca15861280589e65067edc672c`. No production change.

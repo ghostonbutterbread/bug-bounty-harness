@@ -5,8 +5,8 @@ description: Use when detecting, fingerprinting, or bypassing WAF blocks, rate l
 # WAF Skill
 
 A WAF block is a question about the control and the protected consumer, not a
-reason to rotate generic payloads. This skill owns the adaptive reasoning loop;
-it does not prove the underlying vulnerability class.
+reason to rotate generic payloads. This skill owns the reusable bypass-research
+loop across vulnerability classes; it does not prove the underlying class.
 
 For live filtering load `waf-live-policy` and the inherited scope, rate,
 challenge, and stop rules. Load `blocker-first-analysis` to locate the blocker,
@@ -39,7 +39,10 @@ load `xss-waf-evasion` after the XSS lane and `xss-payload-engineering`.
    *plausible way past this blocker* that still matters to the downstream
    consumer? State what the control likely sees, what the origin/browser would
    see instead, the transport or configuration precondition, a negative control,
-   and the predicted outcome. If yes, construct that candidate. If not, do
+   and the predicted outcome. If yes, construct that candidate. If not, name
+   the missing mechanism first: read `references/core-mechanisms.md` on demand
+   (with `skill_view(name='waf', file_path='references/core-mechanisms.md')`)
+   for a conditional inspection/representation/control question, then do
    bounded, fingerprint-led source research (`technology-research`; for XSS use
    `xss-technology-research`) before another family. Compare upstream docs,
    source, and relevant research with observed conditions; no local card or
@@ -49,16 +52,19 @@ load `xss-waf-evasion` after the XSS lane and `xss-payload-engineering`.
    control, and compare block → actual origin behavior → class-specific consumer
    proof. A 200/challenge change alone is not a bypass proof. If blocked,
    update the model and choose a non-equivalent mechanism; if accepted, verify
-   the intended value and postcondition before claiming success. Record exact
+   the intended value before handing the result to the owning class lane for
+   its postcondition and impact proof. Record exact
    probes via the class lane's Attempts contract and durable app facts in
    MapStore, with sanitized evidence pointers. Promote one portable, source-cited
    mechanism to ResearchMap only after its recognition signal, preconditions,
    smallest check, caveats, and review meet the existing card-admission rules.
 
 A card is a hypothesis accelerator, not a prerequisite or an exhaustive bypass
-bank. Vendor-specific tricks belong in reviewed, condition-matched ResearchMap
-cards; target outcomes belong in MapStore. For XSS-specific candidate grammar,
-consumer proof, and source pointers, load `xss-waf-evasion`.
+bank. The on-demand shared reference is not a payload list or deployed-rule
+claim; use it to ask a discriminating question only after the current blocker
+is observed. Vendor-specific tricks belong in reviewed, condition-matched
+ResearchMap cards; target outcomes belong in MapStore. For XSS-specific
+candidate grammar, consumer proof, and source pointers, load `xss-waf-evasion`.
 
 ## Tool boundary: controlled comparison, not automatic retries
 

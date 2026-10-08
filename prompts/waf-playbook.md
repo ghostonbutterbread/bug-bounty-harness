@@ -42,6 +42,9 @@ that are not all governed by `--rps`; they are **not** a bounded one-variable
 probe. Use controlled requests through the owning lane until selective,
 aggregate-rate-governed retries are implemented and verified. Follow
 `waf-live-policy` for scope, rate, challenge, stop, and claim boundaries.
+For conditional shared inspection, normalization, routing, exception, and
+client/challenge questions, load the on-demand `skills/waf/references/core-mechanisms.md`
+through `waf`; XSS browser/sanitizer questions stay in `xss-waf-evasion`.
 
 ## Verify and record
 

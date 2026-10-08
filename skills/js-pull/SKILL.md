@@ -16,6 +16,21 @@ contracts); do not create a second downloader or copy bundles into prompts.
 1. Resolve a page URL, scope-checked `aggregated/jsfiles.txt`, proxy/recon
    references, or a prior run. Check the `_library/` URL/hash ledger first:
    reuse present artifacts unless freshness is deliberately requested.
+   JS acquisition is cheap relative to its value, so bias toward re-pulling.
+   Apply an **age edge: re-pull any artifact whose `last_seen` is older than the
+   staleness window regardless of whether its URL is still mapped.** Seven days
+   is the default window; a program may set its own. When the operator asks for
+   a full re-pull of everything rather than a refresh of the current set, use
+   `--refresh` and ignore the cache entirely. Derive the stale subset instead of
+   refetching wholesale when only part of the corpus has aged:
+
+   ```sql
+   -- stale artifacts to re-pull; feed the URLs to inventory --input
+   -- strftime keeps the Z-suffixed ISO-8601 comparison exact; bare datetime()
+   -- yields a space separator that mis-sorts on same-date boundaries
+   SELECT DISTINCT js_url FROM js_url_aliases
+   WHERE last_seen < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-7 days');
+   ```
 2. Apply program scope and the normal live-testing policy before any download;
    inventory fetches and source-map retrieval are network requests. Use
    `--target-host` to constrain what is fetched. Extracted third-party URLs are
@@ -55,6 +70,17 @@ leads if available; its output is not an endpoint contract.
   page or flow coverage gaps. Inventory completion means artifacts are ready,
   **not a finding** and not `deep_reviewed` coverage. Load `/bb-script-rules`
   for script-run coverage judgment.
+- **Record coverage in the index, keyed by content.**
+  `bbh agents/js_analyzer.py observe <program> --input <rows.jsonl>` appends
+  review rows to `_library/observations.jsonl` and rebuilds `js_observations`.
+  Rows carry `sha256`, `js_url`, `packet_path`, `lens`, `run_id`, `agent_id`,
+  `title`, `summary`, `status`, `confidence`, `evidence[]`, `next_action`;
+  `observation_id` is derived from row identity, so re-submitting upserts rather
+  than duplicating. Keying on sha256 is what makes a re-pull cheap to reason
+  about: unchanged bytes keep their hash and stay reviewed, while changed bytes
+  get a new hash with no observation and correctly reappear as unreviewed.
+  Content addressing also means a chunk resurfacing at a rotated URL adds an
+  alias row, not a second copy.
 - If the user requested only collection, report the artifact root, counts from
   the manifest, provenance quality, and gaps. Otherwise load `/js-hunt` with
   the run root; do not silently stop at a list of URLs or strings.

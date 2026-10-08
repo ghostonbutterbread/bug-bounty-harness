@@ -1,43 +1,65 @@
-# Mullvad via Tailscale: exit-node playbook
+# Mullvad egress: Tailscale first, standalone fallback
 
-## Goal and boundary
+## How the traffic flows
 
-Manage the Mullvad VPN add-on through Tailscale for West Coast exit selection and rotation. This is network-path management, not permission to evade target rules, rate limits, bans, explicit anti-VPN policy, or WAF enforcement after noisy testing. Pause target traffic while routing changes and resume only after the new public egress is verified.
+```text
+Preferred (host has Tailscale Mullvad access):
+Agent/browser -> host Tailscale client -> selected West Coast
+Mullvad exit node -> public internet (Mullvad public IP)
 
-## One-time migration from the standalone Mullvad app
+Fallback (Tailscale exit unavailable/not allowed on host):
+Agent/browser -> host standalone Mullvad tunnel -> selected
+West Coast Mullvad relay -> public internet (Mullvad public IP)
 
-1. On **each host** that will use an exit, confirm Tailscale is connected, the Mullvad add-on is enabled for that device, and a desired West Coast Mullvad node appears in `tailscale exit-node list --filter=USA`. `tailscale status` alone means tailnet connectivity, **not** VPN egress.
-2. Check `mullvad status`, `mullvad lockdown-mode get`, and `mullvad auto-connect get`; record the current settings. If the standalone app is connected, arrange a safe operator/console recovery path first: disconnecting its tunnel can briefly expose normal ISP egress or interrupt the remote session. Mullvad's "block connections without VPN" setting can prevent the migration; don't silently turn a privacy control off. If auto-connect is on, agree with Ryushe to turn it off for a persistent migration (`mullvad auto-connect set off`), so the old tunnel does not reclaim routing after restart. Do not silently change either setting.
-3. Stop target traffic. For the planned handoff, run `mullvad disconnect`, then immediately `tailscale set --exit-node=<listed-west-coast-mullvad-hostname>` on that host. This is a **one-time handoff**, not a step in each later rotation. Do not routinely stop Tailscale or use standalone Mullvad relay commands.
-4. Run all verification below before resuming. If Tailscale cannot establish a verified exit, keep target traffic stopped; with operator access, clear a failed Tailscale exit selection if necessary (`tailscale set --exit-node=`), reconnect the standalone VPN (`mullvad connect --wait`), verify its public exit, and restore the recorded auto-connect preference if it was changed. Never silently continue over an ISP route.
-
-Do not execute this initial disconnection unattended on a host whose control plane depends on the current VPN. When Tailscale is not connected or no authorized Mullvad node appears, resolve the device/add-on prerequisite first rather than selecting an arbitrary regular exit.
-
-## Select or rotate (after migration)
-
-```bash
-tailscale get exit-node
-tailscale exit-node list --filter=USA
-tailscale set --exit-node=us-sea-wg-001.mullvad.ts.net   # example; choose from the live list
+Tailscale online WITHOUT a selected exit node:
+Tailnet peer traffic uses Tailscale; ordinary internet traffic
+uses the host's other default route. This is NOT VPN egress proof.
 ```
 
-`tailscale exit-node list` also works; `--filter=USA` expands the country listing. Inspect the city column. Prefer Seattle, an Oregon city if listed, Los Angeles, San Jose, or San Francisco; rotate to another listed host in the same city or between those cities. Oregon is not guaranteed to be available. The `100.x` column is the node's tailnet IP, not its public Mullvad exit IP; use the hostname when MagicDNS is enabled, otherwise its listed tailnet IP. Avoid `auto:any` because it need not honor the West Coast or Mullvad restriction. Ask Ryushe before choosing a non-West-Coast fallback.
+The Mullvad app and the Tailscale Mullvad add-on are alternative VPN managers on each host. Keep the tailnet connected, but use one **verified** Mullvad internet-egress path at a time. The exit node routes internet-bound traffic through Mullvad; the `100.x` tailnet address shown by Tailscale is not the public egress address. On Linux, `tailscale set --exit-node=<listed-hostname-or-tailnet-IP>` selects the exit. Hostname selection requires MagicDNS; use its listed Tailscale IP otherwise.
 
-For a connectivity blocker: capture the exact symptom; retry a normal request two or three times; distinguish DNS/proxy/browser issues from VPN routing; then change one host and verify. Do not cycle exits during active payload testing.
+## Choose the path on each host
 
-## Verify after every selection
+1. Inspect `tailscale status`, `tailscale get exit-node`, `tailscale exit-node list --filter=USA`, `mullvad status`, `mullvad auto-connect get`, and `mullvad lockdown-mode get`. Tailscale must be running, the device authorized for the Mullvad add-on, and a listed WA/OR/CA Mullvad exit available to prefer it. Do not choose a normal tailnet exit, `auto:any`, or an out-of-region node as a silent substitute.
+2. If Tailscale is missing, inaccessible, unauthorized, or has no usable West Coast Mullvad exit, keep/use the **standalone Mullvad CLI**. Do not disconnect a working standalone VPN while just checking capabilities. If neither path works, stop target traffic rather than using the ISP route.
+3. On a host with running agents/browsers/proxies, or one reached remotely, assess disruption and arrange a recovery path before changing its network. The operator's belief that no agents are active is not a substitute for checking. A VPN handoff can affect network sessions; do not kill agents or services as a shortcut.
+
+## One-time move from standalone Mullvad to Tailscale
+
+1. Record the current Mullvad relay/public IP, auto-connect and lockdown settings; confirm the desired **listed** West Coast Tailscale Mullvad exit and control/recovery path. Mullvad's "block connections without VPN" setting can prevent switching; do not silently turn it off. Pause target traffic.
+2. If the standalone auto-connect is on, deliberately set it off with `mullvad auto-connect set off` for this migration (record the previous value for rollback). Then run `mullvad disconnect` followed promptly by `tailscale set --exit-node=<listed-west-coast-mullvad-hostname>`; no repeated standalone disconnect on subsequent Tailscale rotations. Disconnection can briefly expose ISP egress or interrupt remote control: do not do it unattended on a host that depends on the existing route.
+3. Run the Tailscale verification below *before* resuming work. A selected exit alone is not proof; if the check fails, stop traffic, clear the selected Tailscale exit (`tailscale set --exit-node=`), reconnect standalone Mullvad (`mullvad connect --wait`), restore the prior auto-connect preference, and verify Mullvad egress. Do not claim Tailscale activation if rollback happened.
+
+## Tailscale rotation (preferred once migrated)
 
 ```bash
+tailscale exit-node list --filter=USA
+tailscale set --exit-node=us-sea-wg-001.mullvad.ts.net   # example; choose live WA/OR/CA entry
 mullvad status
 tailscale get exit-node
 curl -4fsS --max-time 10 https://ip.me
 curl -4fsS --max-time 10 https://am.i.mullvad.net/json
 ```
 
-Confirm `mullvad status` shows the standalone VPN disconnected after migration, the selected Tailscale node is the intended Mullvad host, and the observed public IPv4 differs from the normal ISP address. Mullvad's JSON must report `mullvad_exit_ip: true` **and** `mullvad_exit_ip_hostname` matching the selected host's short relay name (for example `us-sea-wg-001`). Record public IPs before and after rotation; a host change need not guarantee a new public IP, so **check** rather than assume. A selected-node preference or Mullvad IP check alone cannot prove Tailscale routing while the standalone VPN is connected. If a proxy is configured, ensure the checks measure the actual egress host/path used by target traffic; check IPv6 separately (`curl -6fsS --max-time 10 https://ip.me`) when applicable. If verification fails, stop rather than testing from an unverified route.
+Select a *different* listed host within Seattle, an available Oregon city, Los Angeles, San Jose or San Francisco for a rotation. Check standalone `mullvad status` is disconnected; selected Tailscale host matches the intended exit; the observed public IP is not the normal ISP IP; and the JSON reports `mullvad_exit_ip: true` plus `mullvad_exit_ip_hostname` matching the chosen host's short name. Compare previous/new public IPs rather than assuming they change. If IPv6 is relevant, test `curl -6fsS --max-time 10 https://ip.me`. If an HTTP proxy is in use, verify the egress from the machine/path carrying the target traffic, not an unrelated local proxy.
 
-For a scoped failure, check `getent hosts <host>` and one low-noise `curl -I --max-time 15 https://<in-scope-host>/` or one browser reload. If the original request is retry-safe, retry it once; if still blocked, record that rotation did not fix it rather than cycling indefinitely. Do not paste cookies, tokens, or private URLs into chat.
+## Standalone CLI fallback / rotation
 
-## Evidence / stop
+If Tailscale is installed and an exit had been selected, first clear it with `tailscale set --exit-node=`. Do not stop the tailnet. When Tailscale is absent or has no exit selection, skip this step.
 
-Record previous node and public IP, exact symptom, chosen city/host and command, new selected node and public IP/Mullvad check, scoped retest, and next action. Stop and ask Ryushe if the target forbids VPNs, the issue appears to be an account/application ban, the workflow is state-changing, or three changes fail to restore connectivity.
+```bash
+mullvad relay list
+mullvad relay set location us sea  # example; choose a listed WA/OR/CA relay
+mullvad connect --wait
+mullvad status
+curl -4fsS --max-time 10 https://ip.me
+curl -4fsS --max-time 10 https://am.i.mullvad.net/json
+```
+
+If already connected, use `mullvad relay set location <listed-west-coast-location> && mullvad reconnect --wait` for a new city/relay. Verify `mullvad status` connected, no Tailscale exit selected (when Tailscale is installed), and the public IP/Mullvad JSON confirm the VPN. Restore the previously recorded auto-connect preference if this fallback is recovering a failed migration.
+
+## Scoped connectivity recovery
+
+Preserve the exact DNS, browser, or proxy symptom. After two or three normal retries, distinguish a VPN path problem from local proxy/DNS configuration, then change one exit and verify. Retest one low-noise in-scope request (`getent hosts <host>` and a suitable `curl -I --max-time 15 https://<in-scope-host>/` or one browser reload). If still failing, record the result rather than cycling indefinitely.
+
+Record previous/new manager and relay, city, public IP, exact symptom, command, verification, scoped retest and next action. Never rotate to evade target rules, rate limits, account bans, WAF enforcement, or explicit anti-VPN restrictions. Ask Ryushe before leaving the US West Coast, risking state-changing work, or after three failed changes. Never paste cookies, tokens or private URLs into chat.

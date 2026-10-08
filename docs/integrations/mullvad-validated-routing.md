@@ -1,6 +1,6 @@
 # Mullvad validated-routing documentation integration dossier
 
-- **Status:** review-ready locally; not integrated or activated
+- **Status:** re-review required after first independent review blocker; not integrated or activated
 - **Owner:** Hermes / Kanban t_38097d65
 - **Branch:** `docs/mullvad-validated-routing`
 - **Base commit:** `866523ceea889bf2560c22af6c09b88692baebd2` (`origin/beta` at creation)
@@ -21,8 +21,8 @@ Close the gap between beta's existing Tailscale-first/standalone-fallback prose 
 
 ## Evidence and review
 
-- Tests and commands: `python3 ../check_mullvad_docs.py` passed 13 focused contract assertions; `git diff --check` and staged diff check passed; `git diff --stat` inspected for the two docs and dossier. The test script is scratch-only and not part of the feature commit.
-- Independent review: pending, focused on safe sequencing, CLI syntax, host-specific snapshot wording, and non-claims.
+- Tests and commands: `python3 ../check_mullvad_docs.py` passed 14 focused contract assertions; `git diff --check` and staged diff check passed; `git diff --stat` inspected for the two docs and dossier. The test script is scratch-only and not part of the feature commit.
+- Independent review: first read-only review found that pre-switch LAN SSH could be mistaken for a recovery path surviving exit selection. The playbook/skill now require an out-of-band console or control/rollback proven with the selected exit, and explicitly stop on LAN SSH as sole pre-switch control. Re-review of the corrected tip is pending.
 - Replay/cohort/fixture evidence: parent read-only report; no privileged network tests in this docs task.
 - Merge/ancestry evidence: feature based on current fetched `origin/beta` above; integration not performed.
 
@@ -47,4 +47,4 @@ Close the gap between beta's existing Tailscale-first/standalone-fallback prose 
 
 ## Decision record
 
-- 2026-10-08 — Created docs refinement from reviewed beta; focused assertions and whitespace checks pass; implementation checkpoint `f489b728bcc2a6a5186c2233cc713b3195eaf97f`; no production change.
+- 2026-10-08 — Created docs refinement from reviewed beta; first independent review identified LAN-only control gap; revised preflight to require independent recovery and post-selection verification. Earlier implementation checkpoint `f489b728bcc2a6a5186c2233cc713b3195eaf97f`; corrected implementation commit to be recorded after commit. No production change.

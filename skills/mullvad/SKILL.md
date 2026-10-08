@@ -15,7 +15,7 @@ Use this skill for VPN setup, West Coast exit selection/rotation, or scoped netw
 
 Stay in US West Coast cities (WA, OR, CA); inspect the **live** exit list or Mullvad relay list rather than relying on a fixed hostname. Ask Ryushe before leaving that region. Do not use `auto:any`: it need not choose a West Coast Mullvad exit.
 
-Before a remote handoff, read the playbook's preflight gate: verify `tailscale set` privilege, independent console/LAN control, a safe window and workload-specific checks; capture route, policy rules, DNS, egress and both managers' settings. Exit-node LAN access can preserve remote SSH while permitting LAN DNS outside the VPN, so decide and verify that tradeoff explicitly. Do not infer a completed disconnect from a hung Mullvad command or public DNS health from direct-IP HTTPS.
+Before a remote handoff, read the playbook's preflight gate: verify `tailscale set` privilege, out-of-band console or recovery proven to survive exit selection, a safe window and workload-specific checks; capture route, policy rules, DNS, egress and both managers' settings. Pre-switch LAN SSH alone is not proof of recovery; an exit with LAN access disabled can sever it. Exit-node LAN access can preserve remote SSH while permitting LAN DNS outside the VPN, so decide and verify that tradeoff explicitly. Do not infer a completed disconnect from a hung Mullvad command or public DNS health from direct-IP HTTPS.
 
 ## Startup follows the selected manager
 

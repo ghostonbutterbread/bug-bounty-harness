@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-07
 - **Owning feature branch/ref:** `bug-bounty-harness/t_c21f1f78-implement-js-router-and-adaptive-js-hunt`
-- **Latest immutable recovery checkpoint:** `7ee99f76508f70f1ef9781b6384a9f7d5b44987a`
-- **Feature implementation commit(s):** `7ee99f76508f70f1ef9781b6384a9f7d5b44987a`; registry discoverability correction pending commit
+- **Latest immutable recovery checkpoint:** `0438b783757b7ac527e326df852cbe6d11fcb34e`
+- **Feature implementation commit(s):** `7ee99f76508f70f1ef9781b6384a9f7d5b44987a`, `0438b783757b7ac527e326df852cbe6d11fcb34e`
 - **Inspiration / canonical references:** Discord #skills thread `1557540441786949763`; existing `skills/js/SKILL.md`, `prompts/js-playbook.md`, `skills/js/references/offline-fanout.md`.
 
 ## Intent
@@ -42,7 +42,7 @@ No new parser, downloader, live target test, or fixed class team was added.
   is absent from unmodified `origin/beta` `AGENTS.md`. The test and guidance
   have no feature diff; this is a pre-existing mismatch, not waived correctness
   for the JS paths.
-- Independent review: a fresh read-only reviewer checked implementation commit `7ee99f76508f70f1ef9781b6384a9f7d5b44987a`, reran focused 10/10 and suite excluding unrelated baseline 205 passed/1 skipped. Verdict: methodology sound, integration held for stale dossier checkpoint (major) and registry missing legacy offline-fanout mode (minor). Both addressed in this follow-up; fresh verdict on corrected tree pending.
+- Independent review: a fresh read-only reviewer checked implementation commit `7ee99f76508f70f1ef9781b6384a9f7d5b44987a`, reran focused 10/10 and suite excluding unrelated baseline 205 passed/1 skipped. Verdict: methodology sound, integration held for stale dossier checkpoint (major) and registry missing legacy offline-fanout mode (minor). Both addressed in `0438b783757b7ac527e326df852cbe6d11fcb34e`; fresh verdict on corrected tree pending.
 - Replay/cohort/fixture evidence: offline source-only examples; no live target action.
 - Merge/ancestry evidence: pending.
 
@@ -58,12 +58,12 @@ part of this task.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `bug-bounty-harness/t_c21f1f78-implement-js-router-and-adaptive-js-hunt`
-- **Latest immutable recovery checkpoint:** `7ee99f76508f70f1ef9781b6384a9f7d5b44987a` (implementation commit; branch tip will contain a later review-follow-up commit)
-- **Feature implementation commit(s):** `7ee99f76508f70f1ef9781b6384a9f7d5b44987a`; registry follow-up pending commit
-- **Exact resume point:** commit the registry/dossier correction, rerun focused
-  and full isolated checks, obtain a fresh independent verdict on the
-  corrected commit, then decide beta integration from a clean current target.
-- **Working-tree state at handoff:** review corrections uncommitted during active work; after checkpoint, verify clean state.
+- **Latest immutable recovery checkpoint:** `0438b783757b7ac527e326df852cbe6d11fcb34e` (includes registry correction; branch tip has a later dossier-only commit)
+- **Feature implementation commit(s):** `7ee99f76508f70f1ef9781b6384a9f7d5b44987a`, `0438b783757b7ac527e326df852cbe6d11fcb34e`
+- **Exact resume point:** obtain fresh independent verdict on the corrected
+  commit and its dossier-only handoff tip, then decide beta integration from a
+  clean current target.
+- **Working-tree state at handoff:** clean after dossier-only commit.
 
 ## Decision gates
 

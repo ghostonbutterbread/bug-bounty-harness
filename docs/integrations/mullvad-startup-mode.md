@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-08
 - **Owning feature branch/ref:** `docs/mullvad-startup-mode`
-- **Latest immutable recovery checkpoint:** `92b422c2d2f661d2a949d05c2c04a36914bec551`
-- **Feature implementation commit(s):** `92b422c2d2f661d2a949d05c2c04a36914bec551`
+- **Latest immutable recovery checkpoint:** `687eaccad3688983d171dd99131f266ec167a6f1`
+- **Feature implementation commit(s):** `92b422c2d2f661d2a949d05c2c04a36914bec551`, `687eaccad3688983d171dd99131f266ec167a6f1`
 - **Canonical references:** `skills/mullvad/SKILL.md`, `prompts/mullvad-playbook.md`; official Tailscale `tailscaled` and CLI docs and Mullvad CLI auto-connect documentation.
 
 ## Intent
@@ -25,7 +25,7 @@ Address the boot-time split-owner ambiguity: selecting a Tailscale Mullvad exit 
 ## Evidence and review
 
 - Tests and commands: `git diff --check`; focused 15 skill/playbook startup assertions; local CLI `tailscale set --help`, `mullvad auto-connect --help`; read-only systemd checks on Ghost and Hoster (both tailscaled enabled/active; standalone Mullvad still connected, daemon auto-connect on; no Tailscale exit selected).
-- Independent review: changes requested at `45b81fa39b3b255ca51207340fbc6a28fd195d7d` (fallback auto-connect conflict and stale dossier tense); corrections await re-review.
+- Independent review: changes requested at `45b81fa39b3b255ca51207340fbc6a28fd195d7d` (fallback auto-connect conflict and stale dossier tense); narrow re-review of `687eaccad3688983d171dd99131f266ec167a6f1` confirmed the behavior fix and requested only this dossier checkpoint correction. Final dossier-only re-review pending.
 - Live reboot/exit-node evidence: deferred; do not reboot active hosts just for proof.
 - Merge/ancestry evidence: implementation commit and base checked before review; this branch-local dossier is planned for exclusion from the beta merge.
 
@@ -40,10 +40,10 @@ Address the boot-time split-owner ambiguity: selecting a Tailscale Mullvad exit 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/mullvad-startup-mode`
-- **Latest immutable recovery checkpoint:** `92b422c2d2f661d2a949d05c2c04a36914bec551`
-- **Feature implementation commit(s):** `92b422c2d2f661d2a949d05c2c04a36914bec551`
+- **Latest immutable recovery checkpoint:** `687eaccad3688983d171dd99131f266ec167a6f1`
+- **Feature implementation commit(s):** `92b422c2d2f661d2a949d05c2c04a36914bec551`, `687eaccad3688983d171dd99131f266ec167a6f1`
 - **Exact resume point:** validate the exact diff against adjacent owner guidance; independent review; beta merge excluding this dossier; verify projections on both hosts.
-- **Working-tree state at handoff:** implementation commit `92b422c`; the branch-local dossier was separately committed in `45b81fa`. This correction will be another dossier-inclusive branch checkpoint.
+- **Working-tree state at handoff:** implementation commits `92b422c` and `687eacc` are committed; the branch-local dossier was first committed at `45b81fa` and corrected in the current dossier-only checkpoint. No skill/playbook edits remain uncommitted.
 
 ## Decision gates
 
@@ -53,4 +53,4 @@ Address the boot-time split-owner ambiguity: selecting a Tailscale Mullvad exit 
 
 ## Decision record
 
-- 2026-10-08 — Ryu requested Tailscale startup and mode-specific Mullvad auto-connect rule; authored canonical skill/playbook branch from beta. Live routes deliberately unchanged.
+- 2026-10-08 — Ryu requested Tailscale startup and mode-specific Mullvad auto-connect rule; authored canonical skill/playbook branch from beta. A later live handoff attempt was rolled back; both hosts remain on standalone Mullvad pending privilege and daemon/DNS repair.

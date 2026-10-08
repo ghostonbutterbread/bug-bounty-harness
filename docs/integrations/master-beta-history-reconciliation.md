@@ -8,8 +8,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-08
 - **Owning feature branch/ref:** `chore/reconcile-master-history`
-- **Latest immutable recovery checkpoint:** `25dcaeeccdb7a719d497330cf3d8a19f9356ce23`
-- **Feature implementation commit(s):** `25dcaeeccdb7a719d497330cf3d8a19f9356ce23` (merge commit)
+- **Latest immutable recovery checkpoint:** `a4202b8f7f0abd4ce79e1ad798221406c6329b82`
+- **Feature implementation commit(s):** `25dcaeeccdb7a719d497330cf3d8a19f9356ce23` (master history), `a4202b8f7f0abd4ce79e1ad798221406c6329b82` (current beta sync)
 - **Inspiration / canonical references:** user-authorized BBH stable-to-beta reconciliation; independent source-map/merge reviews.
 
 ## Intent
@@ -22,24 +22,24 @@ Merge `origin/master` into a beta-based feature worktree. The four overlapping f
 
 ## Evidence and review
 
-- Tests and commands: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD" python3 -m pytest -q -p no:cacheprovider agents/test_js_analyzer.py tests/test_jsluice_skill.py`: 187 passed. `... tests/test_bbh_launcher.py tests/test_runtime_dependencies.py`: 16 passed. `... tests`: 201 passed, 1 skipped, 1 failed (`test_hoster_script_authority_uses_current_capability_not_machine_lists` expects obsolete AGENTS wording already absent on beta). Full `tests agents` run timed out after 420 seconds without receipt; browser-provisioner test file also timed out after eight passing cases in 180 seconds. Stage tree equals beta + temporary dossier; `git diff --check` passed.
-- Independent review: two read-only audits found no master-only source-map behavior and recommended beta semantic resolution; post-merge review pending.
-- Merge/ancestry evidence: `origin/master` `5e7aecf` and `origin/beta` `60a2738` diverge 3/924; merge-tree reports four JS conflicts; `git cherry` marks first two master commits patch-equivalent.
+- Tests and commands: Before current-beta sync, focused JS/skill tests 187 passed; launcher/dependency tests 16 passed; broader `tests` returned 201 passed, 1 skipped, 1 pre-existing AGENTS wording failure. Full `tests agents` timed out without receipt; browser-provisioner test file timed out. After clean merge of updated beta `1c48ae7`, `tests -k 'not hoster_script_authority_uses_current_capability_not_machine_lists'`: 201 passed, 1 skipped, 1 deselected; focused source-map tests 9 passed and JSLuice skill tests 2 passed. Combined JS run timed out after 120 seconds with no final receipt. All product files remain byte-for-byte identical to current beta; no new behavior is introduced by history reconciliation.
+- Independent review: two read-only audits found no master-only source-map behavior; post-merge review approved history-only beta integration conditional on current-beta reconciliation, temporary dossier retirement, and explicit baseline-failure waiver. Refreshed-tip review pending.
+- Merge/ancestry evidence: `origin/master` `5e7aecf` and initial beta `60a2738` diverged 3/924; `git cherry` marks first two master commits patch-equivalent. Beta advanced to `1c48ae7` with later source-map repair; feature merge `a4202b8` includes it cleanly. Diff from current beta is only this temporary dossier.
 
 ## Blockers and deferred work
 
-- **Missing evidence:** independent post-merge review and post-beta-integration check. The test-suite failure and full-suite timeout require separate stable-release disposition; full stable release compatibility check remains outside this branch.
+- **Missing evidence:** refreshed-tip review and post-beta-integration test/read-back. The pre-existing test-suite failure and full-suite timeout explicitly block stable promotion but are waived for this tree-identical history-only beta integration, not for a release.
 - **Command / fixture:** focused JS tests from isolated worktree, broader beta suite, remote ancestry check after beta push.
 - **Trigger:** after conflict resolution, before any beta integration or publication.
 - **Why it blocks integration/promotion:** overlap could discard beta's newer fetch, packet and sink behavior.
-- **Next completion step:** independently review feature merge `25dcaee`, then integrate into beta if approved; do not claim stable-release readiness.
+- **Next completion step:** review refreshed feature tip, then integrate into beta if approved; do not claim stable-release readiness.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `chore/reconcile-master-history`
-- **Latest immutable recovery checkpoint:** `25dcaeeccdb7a719d497330cf3d8a19f9356ce23`
-- **Feature implementation commit(s):** `25dcaeeccdb7a719d497330cf3d8a19f9356ce23` (merge commit)
-- **Exact resume point:** independently review feature merge commit and tests; reconcile with fetched beta before integration.
+- **Latest immutable recovery checkpoint:** `a4202b8f7f0abd4ce79e1ad798221406c6329b82`
+- **Feature implementation commit(s):** `25dcaeeccdb7a719d497330cf3d8a19f9356ce23` (master history), `a4202b8f7f0abd4ce79e1ad798221406c6329b82` (current beta sync)
+- **Exact resume point:** review refreshed feature tip and tests; fetch beta again before integration.
 - **Working-tree state at handoff:** clean after dossier checkpoint.
 
 ## Decision gates
@@ -53,3 +53,4 @@ Merge `origin/master` into a beta-based feature worktree. The four overlapping f
 - 2026-10-07 — isolated beta-based feature worktree created for master history reconciliation.
 - 2026-10-07 — merged master in feature branch with beta's four conflict files retained; staged product tree unchanged. Focused JS tests passed; broader tests include one pre-existing AGENTS wording failure and full-suite timeout.
 - 2026-10-08 — recorded immutable merge checkpoint `25dcaee`; post-merge independent review pending.
+- 2026-10-08 — independent review accepted history-only beta integration with waiver limited to unchanged-tree baseline AGENTS test failure; merged advancing beta `1c48ae7` and reran focused and broad tests. Stable promotion remains blocked.

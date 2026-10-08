@@ -344,6 +344,12 @@ def rate_limit_conf_body(rate_limit_rps: float, timeout: int) -> str:
 def start_remote(args: argparse.Namespace) -> None:
     validate_start_scope(args.program, args.url, allow_unscoped=args.allow_unscoped)
     validate_profile_scope(args.program, args.profile)
+    # Recon-Ry's non-exact profiles can discover sibling hosts. Their manual
+    # headers are not gated by RECON_RY_AUTH_HOST, so a single URL seed is not
+    # sufficient to constrain credential delivery.
+    credential_material = bool(args.auth or args.auth_seed_file or args.header or args.cookie)
+    if credential_material and args.profile != "exact-urls":
+        raise SystemExit("credentialed recon requires --profile exact-urls; wider profiles can send headers to discovered hosts")
     project_dir = args.remote_project or f"/home/ryushe/bounties/{safe_slug(args.program)}"
     url_part = f" --url {shell_quote(args.url)}" if args.url else ""
     verbose = " -vv" if args.very_verbose else " -v"
@@ -355,11 +361,8 @@ def start_remote(args: argparse.Namespace) -> None:
     # that contains only tools with verified header forwarding.
     effective_profile = "exact-urls-header" if auth_seed and args.profile == "exact-urls" else args.profile
     profile_flag = f"--{effective_profile}" if effective_profile in {"full", "subs", "fast", "urls", "params", "dork", "dir", "exact-urls"} else f"--profile {effective_profile}"
-    # Any manually supplied header may carry authentication, including custom
-    # names that the wrapper cannot classify. Never fan it out to saved siblings.
-    credential_material = bool(args.auth or args.auth_seed_file or args.header or args.cookie)
-    if credential_material or args.profile == "exact-urls":
-        # Exact-host mode must never seed sibling scope entries into its project.
+    # Exact-host mode must never seed sibling scope entries into its project.
+    if args.profile == "exact-urls":
         seed_files = {
             "urls.txt": args.url.strip() + "\n",
             "wild.txt": "",

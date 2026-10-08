@@ -207,6 +207,21 @@ class TestMapStore:
         assert "URL: https://app.com/login" in content
         assert "#csrf" in content
 
+    def test_long_titles_keep_distinct_bounded_observation_directories(self, store: MapStore):
+        store.init()
+        common = "Descriptive observation title " + "repeated words " * 30
+        titles = [common + "first", common + "second"]
+        paths = [
+            store.write(
+                url="https://app.com/login", surface="xss", body="Observed.\n",
+                title=title, run_id="run-1",
+            )
+            for title in titles
+        ]
+        assert paths[0] != paths[1]
+        assert all(path.exists() and len(path.parent.name.encode("utf-8")) <= 255 for path in paths)
+        assert {entry["title"] for entry in store.query(tags=[])} == set(titles)
+
     def test_write_url_scope_projects_a_receipt_to_url_ingest(self, store: MapStore):
         store.init()
         path = store.write(

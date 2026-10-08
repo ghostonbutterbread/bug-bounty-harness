@@ -1,6 +1,6 @@
 # Master-to-beta history reconciliation dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes
 - **Branch:** `chore/reconcile-master-history`
 - **Worktree:** `/home/ryushe/worktrees/bbh-master-history-reconcile-20261007`
@@ -18,29 +18,29 @@ Make the published `master` history reachable from ongoing `beta` without losing
 
 ## Implemented contract
 
-Merge `origin/master` into a beta-based feature worktree. Four overlapping files (`agents/js_analyzer.py`, `agents/test_js_analyzer.py`, `prompts/js-playbook.md`, `skills/js/SKILL.md`) must retain beta's reviewed newer behavior. Verify the resolved tree against beta, run focused and broad checks, independently review, then integrate into a clean current beta worktree. Stable (`master`) promotion is separate and requires its own release gate.
+Merge `origin/master` into a beta-based feature worktree. The four overlapping files (`agents/js_analyzer.py`, `agents/test_js_analyzer.py`, `prompts/js-playbook.md`, `skills/js/SKILL.md`) retain beta's newer behavior. The resulting staged tree matches the beta tree plus this temporary dossier; no product path changes. Stable (`master`) promotion is separate and requires its own release gate.
 
 ## Evidence and review
 
-- Tests and commands: pending merged-tree focused/full tests.
+- Tests and commands: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD" python3 -m pytest -q -p no:cacheprovider agents/test_js_analyzer.py tests/test_jsluice_skill.py`: 187 passed. `... tests`: 201 passed, 1 skipped, 1 failed (`test_hoster_script_authority_uses_current_capability_not_machine_lists` expects obsolete AGENTS wording already absent on beta); full `tests agents` run timed out after 420 seconds without receipt. Stage tree equals beta + temporary dossier; `git diff --check` passed.
 - Independent review: two read-only audits found no master-only source-map behavior and recommended beta semantic resolution; post-merge review pending.
 - Merge/ancestry evidence: `origin/master` `5e7aecf` and `origin/beta` `60a2738` diverge 3/924; merge-tree reports four JS conflicts; `git cherry` marks first two master commits patch-equivalent.
 
 ## Blockers and deferred work
 
-- **Missing evidence:** post-merge test receipt and independent review; full stable release compatibility check remains outside this branch.
+- **Missing evidence:** independent post-merge review and post-beta-integration check. The test-suite failure and full-suite timeout require separate stable-release disposition; full stable release compatibility check remains outside this branch.
 - **Command / fixture:** focused JS tests from isolated worktree, broader beta suite, remote ancestry check after beta push.
 - **Trigger:** after conflict resolution, before any beta integration or publication.
 - **Why it blocks integration/promotion:** overlap could discard beta's newer fetch, packet and sink behavior.
-- **Next completion step:** perform non-committing merge on this branch and inspect conflicts.
+- **Next completion step:** commit this tested beta-preserving merge on feature branch, independently review, then integrate into beta; do not claim stable-release readiness.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `chore/reconcile-master-history`
 - **Latest immutable recovery checkpoint:** none yet
 - **Feature implementation commit(s):** none yet
-- **Exact resume point:** merge master, preserve beta behavior, test, review, integrate into beta.
-- **Working-tree state at handoff:** dossier only, no merge begun.
+- **Exact resume point:** independently review feature merge commit and tests; reconcile with fetched beta before integration.
+- **Working-tree state at handoff:** merge in progress, resolved paths staged, dossier update unstaged pending merge commit.
 
 ## Decision gates
 
@@ -51,3 +51,4 @@ Merge `origin/master` into a beta-based feature worktree. Four overlapping files
 ## Decision record
 
 - 2026-10-07 — isolated beta-based feature worktree created for master history reconciliation.
+- 2026-10-07 — merged master in feature branch with beta's four conflict files retained; staged product tree unchanged. Focused JS tests passed; broader tests include one pre-existing AGENTS wording failure and full-suite timeout.

@@ -19,6 +19,21 @@ claim exhaustive coverage from a scanner. Collection mechanics belong to
   `manifest.json`, `metadata.jsonl`, `packets.jsonl`, page/JS provenance,
   source-map module index, and completed packet paths. Work in bounded
   page/flow, bundle-family, route-cluster, or module packets, not a giant prompt.
+- **Scope the queue from recorded coverage, not from run names.** Content-review
+  state lives in sha256-keyed `js_observations` in the library's
+  `js_info.sqlite`; `/js-pull` owns writing it. It answers "has this *content*
+  been read", while `/url-ingest` owns per-lane URL/parameter *testing* state —
+  different questions, so consult both. Selecting run roots by name prefix
+  resembles a currency filter but is not one, and can silently drop whole
+  in-scope hosts while the totals still look large; group by host and state
+  per-host reviewed/unreviewed counts before calling a queue scoped.
+
+  ```sql
+  -- unreviewed content (qualify a.js_url, else SQLite reports an ambiguous column)
+  SELECT a.js_url, a.sha256 FROM js_url_aliases a
+  LEFT JOIN js_observations o ON o.sha256 = a.sha256
+  WHERE o.sha256 IS NULL;
+  ```
 - Default **broad hunt**: survey all meaningful application-owned feature
   families represented in the inventory, including a classless anomaly pass.
   Rank then deep-review selected flows. When inventory is too large, declare
@@ -111,7 +126,9 @@ Output three bounded sections:
 3. **Coverage and handoffs:** reviewed and unreviewed bundle/flow families,
    truncated maps or missing runtime evidence, candidate wordlists/contracts,
    and separate scoped live-validation hypotheses. Mark `/url-ingest` inventory
-   versus `deep_reviewed` only for what was actually reviewed. Send useful
+   versus `deep_reviewed` only for what was actually reviewed, and record
+   per-chunk content coverage through `js_analyzer.py observe`; coverage stated
+   only in synthesis prose is not queryable and gets re-done. Send useful
    verified observations through `/map-store` and durable notes, not raw bundle
    dumps; dedupe run-local proposals before promoting.
 

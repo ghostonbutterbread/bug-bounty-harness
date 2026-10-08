@@ -16,19 +16,19 @@ Tailnet peer traffic uses Tailscale; ordinary internet traffic
 uses the host's other default route. This is NOT VPN egress proof.
 ```
 
-The Mullvad app and the Tailscale Mullvad add-on are alternative VPN managers on each host. Keep the tailnet connected, but use one **verified** Mullvad internet-egress path at a time. The exit node routes internet-bound traffic through Mullvad; the `100.x` tailnet address shown by Tailscale is not the public egress address. On Linux, `tailscale set --exit-node=<listed-hostname-or-tailnet-IP>` selects the exit. Hostname selection requires MagicDNS; use its listed Tailscale IP otherwise.
+The Mullvad app and the Tailscale Mullvad add-on are alternative VPN managers on each host. Keep the tailnet connected, but use one **verified** Mullvad internet-egress path at a time. The exit node routes internet-bound traffic through Mullvad; the `100.x` tailnet address shown by Tailscale is not the public egress address. On Linux, `tailscale set --exit-node=<listed-hostname-or-tailnet-IP>` selects the exit. Use the exact listed hostname; if it is not accepted, use that same node's listed Tailscale IP.
 
 ## Choose the path on each host
 
-1. Inspect `tailscale status`, `tailscale get exit-node`, `tailscale exit-node list --filter=USA`, `mullvad status`, `mullvad auto-connect get`, and `mullvad lockdown-mode get`. Tailscale must be running, the device authorized for the Mullvad add-on, and a listed WA/OR/CA Mullvad exit available to prefer it. Do not choose a normal tailnet exit, `auto:any`, or an out-of-region node as a silent substitute.
-2. If Tailscale is missing, inaccessible, unauthorized, or has no usable West Coast Mullvad exit, keep/use the **standalone Mullvad CLI**. Do not disconnect a working standalone VPN while just checking capabilities. If neither path works, stop target traffic rather than using the ISP route.
+1. Inspect `tailscale status`, `tailscale get exit-node`, `tailscale exit-node list --filter=USA`, `mullvad status -v`, `mullvad auto-connect get`, and `mullvad lockdown-mode get`. If the Mullvad GUI/app is present, inspect its **separate GUI Auto-connect** setting too; the daemon CLI setting does not control it. Tailscale must be running, the device authorized for the Mullvad add-on, and a listed WA/OR/CA Mullvad exit available to prefer it. Do not choose a normal tailnet exit, `auto:any`, or an out-of-region node as a silent substitute.
+2. If Tailscale is absent, unauthorized, or has no usable West Coast Mullvad exit, keep/use the **standalone Mullvad CLI** only after checking that no Tailscale exit is selected. Do not disconnect a working standalone VPN while just checking capabilities. If Tailscale is installed but its CLI/daemon is inaccessible and a previous selection cannot be inspected/cleared, stop target traffic and restore Tailscale inspection or obtain operator recovery; do not assume the old selection is gone. If neither path works, stop rather than using the ISP route.
 3. On a host with running agents/browsers/proxies, or one reached remotely, assess disruption and arrange a recovery path before changing its network. The operator's belief that no agents are active is not a substitute for checking. A VPN handoff can affect network sessions; do not kill agents or services as a shortcut.
 
 ## One-time move from standalone Mullvad to Tailscale
 
-1. Record the current Mullvad relay/public IP, auto-connect and lockdown settings; confirm the desired **listed** West Coast Tailscale Mullvad exit and control/recovery path. Mullvad's "block connections without VPN" setting can prevent switching; do not silently turn it off. Pause target traffic.
-2. If the standalone auto-connect is on, deliberately set it off with `mullvad auto-connect set off` for this migration (record the previous value for rollback). Then run `mullvad disconnect` followed promptly by `tailscale set --exit-node=<listed-west-coast-mullvad-hostname>`; no repeated standalone disconnect on subsequent Tailscale rotations. Disconnection can briefly expose ISP egress or interrupt remote control: do not do it unattended on a host that depends on the existing route.
-3. Run the Tailscale verification below *before* resuming work. A selected exit alone is not proof; if the check fails, stop traffic, clear the selected Tailscale exit (`tailscale set --exit-node=`), reconnect standalone Mullvad (`mullvad connect --wait`), restore the prior auto-connect preference, and verify Mullvad egress. Do not claim Tailscale activation if rollback happened.
+1. Record the current Mullvad relay/public IP, **daemon and GUI Auto-connect** (where app is installed), and lockdown settings; confirm the desired **listed** West Coast Tailscale Mullvad exit and control/recovery path. Mullvad's "block connections without VPN" setting can prevent switching; do not silently turn it off. Pause target traffic.
+2. Obtain Ryushe's explicit decision before changing either Auto-connect setting or lockdown behavior. If approved, disable any enabled standalone auto-connect path for a persistent migration: daemon setting with `mullvad auto-connect set off`, GUI setting through its own UI where present. Record prior values for rollback. Then run `mullvad disconnect --wait` followed promptly by `tailscale set --exit-node=<listed-west-coast-mullvad-hostname>`; no repeated standalone disconnect on subsequent Tailscale rotations. Disconnection can briefly expose ISP egress or interrupt remote control: do not do it unattended on a host that depends on the existing route.
+3. Run the Tailscale verification below *before* resuming work. A selected exit alone is not proof; if the check fails, stop traffic, clear the selected Tailscale exit (`tailscale set --exit-node=`) **and confirm it is clear** with `tailscale get exit-node`, reconnect standalone Mullvad (`mullvad connect --wait`), restore the prior approved Auto-connect preferences, and verify Mullvad egress. If clearing/verifying the exit is impossible, stop for operator recovery rather than enabling a second ambiguous route. Do not claim Tailscale activation if rollback happened.
 
 ## Tailscale rotation (preferred once migrated)
 
@@ -45,18 +45,18 @@ Select a *different* listed host within Seattle, an available Oregon city, Los A
 
 ## Standalone CLI fallback / rotation
 
-If Tailscale is installed and an exit had been selected, first clear it with `tailscale set --exit-node=`. Do not stop the tailnet. When Tailscale is absent or has no exit selection, skip this step.
+If Tailscale is installed and reachable, read `tailscale get exit-node`; if an exit is selected, clear it with `tailscale set --exit-node=` and **read back an empty selection** before connecting the standalone VPN. Keep the tailnet online. When Tailscale is absent and no selection could have been stored, skip this step. When Tailscale is installed but its CLI/daemon is inaccessible, do not guess that an old exit will stay inactive: stop target traffic and restore control of Tailscale or arrange operator recovery to clear/verify its selection before a fallback change.
 
 ```bash
 mullvad relay list
 mullvad relay set location us sea  # example; choose a listed WA/OR/CA relay
 mullvad connect --wait
-mullvad status
+mullvad status -v
 curl -4fsS --max-time 10 https://ip.me
 curl -4fsS --max-time 10 https://am.i.mullvad.net/json
 ```
 
-If already connected, use `mullvad relay set location <listed-west-coast-location> && mullvad reconnect --wait` for a new city/relay. Verify `mullvad status` connected, no Tailscale exit selected (when Tailscale is installed), and the public IP/Mullvad JSON confirm the VPN. Restore the previously recorded auto-connect preference if this fallback is recovering a failed migration.
+If already connected, use `mullvad relay set location <listed-west-coast-location> && mullvad reconnect --wait` for a new city/relay. Verify `mullvad status -v` shows the **actual connected relay** and visible location in WA, OR, or CA matching the choice, no Tailscale exit is selected (when Tailscale is installed and inspectable), and the public IP/Mullvad JSON confirm the VPN. Restore the previously recorded Auto-connect preferences if this fallback is recovering a failed migration.
 
 ## Scoped connectivity recovery
 

@@ -1,6 +1,6 @@
 # Mullvad validated-routing documentation integration dossier
 
-- **Status:** re-review required after first independent review blocker; not integrated or activated
+- **Status:** reviewed remote-recovery fix; beta review discrepancy correction pending re-review, not integrated or activated
 - **Owner:** Hermes / Kanban t_38097d65
 - **Branch:** `docs/mullvad-validated-routing`
 - **Base commit:** `866523ceea889bf2560c22af6c09b88692baebd2` (`origin/beta` at creation)
@@ -21,8 +21,8 @@ Close the gap between beta's existing Tailscale-first/standalone-fallback prose 
 
 ## Evidence and review
 
-- Tests and commands: `python3 ../check_mullvad_docs.py` passed 14 focused contract assertions; `git diff --check` and staged diff check passed; `git diff --stat` inspected for the two docs and dossier. The test script is scratch-only and not part of the feature commit.
-- Independent review: first read-only review found that pre-switch LAN SSH could be mistaken for a recovery path surviving exit selection. The playbook/skill now require an out-of-band console or control/rollback proven with the selected exit, and explicitly stop on LAN SSH as sole pre-switch control. Re-review of the corrected tip is pending.
+- Tests and commands: `python3 ../check_mullvad_docs.py` passed 15 focused contract assertions after the saved/effective exit discrepancy change; `git diff --check` and staged diff check passed. The test script is scratch-only and not part of the feature commit.
+- Independent review: first read-only review found that pre-switch LAN SSH could be mistaken for a recovery path surviving exit selection. The playbook/skill now require an out-of-band console or control/rollback proven with the selected exit, and explicitly stop on LAN SSH as sole pre-switch control. Second review approved this correction at `e9fc7a25575b6b3f50a4f0877ecbb63f95efeaeb`. Subsequent beta routing review t_b055a9d0 found Hoster's saved ExitNodeID versus ineffective RouteAll; that snapshot correction needs a new focused review.
 - Replay/cohort/fixture evidence: parent read-only report; no privileged network tests in this docs task.
 - Merge/ancestry evidence: feature based on current fetched `origin/beta` above; integration not performed.
 
@@ -36,7 +36,7 @@ Close the gap between beta's existing Tailscale-first/standalone-fallback prose 
 - **Owning feature branch/ref:** `docs/mullvad-validated-routing`
 - **Latest immutable recovery checkpoint:** `f1f23f6778acfdca15861280589e65067edc672c`
 - **Feature implementation commit(s):** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`, `f1f23f6778acfdca15861280589e65067edc672c`; the tip after this dossier-only handoff commit is later.
-- **Exact resume point:** independently review the committed diff against `origin/beta`; integrate into a clean current beta only after acceptance and remove this dossier from integration target.
+- **Exact resume point:** re-review the saved/effective exit discrepancy wording against `origin/beta`; integrate into a clean current beta only after acceptance and remove this dossier from integration target.
 - **Working-tree state at handoff:** clean after the dossier-only checkpoint commit.
 
 ## Decision gates

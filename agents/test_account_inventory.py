@@ -45,11 +45,21 @@ def test_non_secret_auth_prose_and_seed_filename_are_accepted(tmp_path, monkeypa
     ("source", "Cookie: sid=synthetic-session-value"),
     ("notes", '{"access_token": "synthetic-secret-value"}'),
     ("auth_refresh_hint", '{"client_secret": "synthetic-secret-value"}'),
+    ("notes", "refreshToken=synthetic-secret-value"),
+    ("notes", "clientSecret: synthetic-secret-value"),
+    ("auth_refresh_hint", "tokens=synthetic-secret-value"),
+    ("auth_seed_ref", "auth-seed:/synthetic/seed.json?accessToken=synthetic-secret-value"),
+    ("auth_seed_ref", "auth-seed:/synthetic/seed.json?sessionCookie=synthetic-secret-value"),
 ])
 def test_non_secret_fields_still_reject_credential_values(field, value):
     module = load_inventory_module()
     with pytest.raises(SystemExit, match="refusing to store possible secret material"):
         module.reject_secretish({field: value})
+
+
+def test_auth_vocabulary_in_plain_prose_is_not_an_assignment():
+    module = load_inventory_module()
+    module.reject_secretish({"notes": "The bearer of this note does not store credentials."})
 
 
 def test_all_account_consumers_use_one_normalized_program_inventory_path(tmp_path, monkeypatch):

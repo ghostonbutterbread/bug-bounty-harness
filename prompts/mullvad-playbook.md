@@ -1,100 +1,42 @@
-# Mullvad Relay Switching Playbook
+# Mullvad via Tailscale: exit-node playbook
 
-## Goal
+## Goal and boundary
 
-Recover scoped bug bounty connectivity when the current Mullvad exit path is likely causing DNS failures, page-load timeouts, resets, or exit-node blocking.
+Manage the Mullvad VPN add-on through Tailscale for West Coast exit selection and rotation. This is network-path management, not permission to evade target rules, rate limits, bans, explicit anti-VPN policy, or WAF enforcement after noisy testing. Pause target traffic while routing changes and resume only after the new public egress is verified.
 
-This playbook is not a bypass policy. It does not authorize evading target rules, rate limits, or enforcement after noisy testing.
+## One-time migration from the standalone Mullvad app
 
-## Decision Tree
+1. On **each host** that will use an exit, confirm Tailscale is connected, the Mullvad add-on is enabled for that device, and a desired West Coast Mullvad node appears in `tailscale exit-node list --filter=USA`. `tailscale status` alone means tailnet connectivity, **not** VPN egress.
+2. Check `mullvad status` and `mullvad lockdown-mode get`. If the standalone app is connected, arrange a safe operator/console recovery path first: disconnecting its tunnel can briefly expose normal ISP egress or interrupt the remote session. Mullvad's "block connections without VPN" setting can prevent the migration; don't silently turn a privacy control off. Coordinate its deliberate change with Ryushe before proceeding if enabled.
+3. Stop target traffic. For the planned handoff, run `mullvad disconnect`, then immediately `tailscale set --exit-node=<listed-west-coast-mullvad-hostname>` on that host. This is a **one-time handoff**, not a step in each later rotation. Do not routinely stop Tailscale or use standalone Mullvad relay commands.
+4. Run all verification below before resuming. If Tailscale cannot establish a verified exit, keep target traffic stopped; with operator access, clear a failed Tailscale exit selection if necessary (`tailscale set --exit-node=`), then reconnect the standalone VPN (`mullvad connect`) and verify its public exit. Never silently continue over an ISP route.
 
-1. Confirm the target and action are in scope.
-2. Retry the exact load/request two or three times with normal spacing.
-3. Check whether the problem is local, proxy, VPN, or target-side.
-4. Switch one relay city or host.
-5. Verify with status, DNS, and a low-noise request.
-6. Continue only if the symptom resolves.
+Do not execute this initial disconnection unattended on a host whose control plane depends on the current VPN. When Tailscale is not connected or no authorized Mullvad node appears, resolve the device/add-on prerequisite first rather than selecting an arbitrary regular exit.
 
-## Pre-Switch Checks
-
-Run:
+## Select or rotate (after migration)
 
 ```bash
-mullvad status
-mullvad relay get
+tailscale get exit-node
+tailscale exit-node list --filter=USA
+tailscale set --exit-node=us-sea-wg-001.mullvad.ts.net   # example; choose from the live list
 ```
 
-Then check the specific failure class:
+`tailscale exit-node list` also works; `--filter=USA` expands the country listing. Inspect the city column. Prefer Seattle, an Oregon city if listed, Los Angeles, San Jose, or San Francisco; rotate to another listed host in the same city or between those cities. Oregon is not guaranteed to be available. The `100.x` column is the node's tailnet IP, not its public Mullvad exit IP; use the hostname when MagicDNS is enabled, otherwise its listed tailnet IP. Avoid `auto:any` because it need not honor the West Coast or Mullvad restriction. Ask Ryushe before choosing a non-West-Coast fallback.
 
-- DNS issue: `getent hosts <host>`
-- page does not load: browser error text, proxy status, or `curl -I --max-time 15 <url>`
-- suspected exit-IP block: same host fails immediately from current relay before application behavior is reached
+For a connectivity blocker: capture the exact symptom; retry a normal request two or three times; distinguish DNS/proxy/browser issues from VPN routing; then change one host and verify. Do not cycle exits during active payload testing.
 
-If Caido or browser proxy settings changed recently, fix proxy configuration before rotating VPN relays.
-
-## Relay Order
-
-Stay West Coast by default:
-
-1. Seattle: `mullvad relay set location us sea && mullvad reconnect --wait`
-2. Los Angeles: `mullvad relay set location us lax && mullvad reconnect --wait`
-3. San Jose: `mullvad relay set location us sjc && mullvad reconnect --wait`
-
-Nearby fallback:
-
-1. Phoenix: `mullvad relay set location us phx && mullvad reconnect --wait`
-2. Denver: `mullvad relay set location us den && mullvad reconnect --wait`
-3. Vancouver: `mullvad relay set location ca van && mullvad reconnect --wait`
-
-Use city-level switching first. Use host-level switching only when a city works but one specific relay appears bad.
-
-Example host-level switches:
+## Verify after every selection
 
 ```bash
-mullvad relay set location us sea us-sea-wg-401 && mullvad reconnect --wait
-mullvad relay set location us lax us-lax-wg-409 && mullvad reconnect --wait
-mullvad relay set location us sjc us-sjc-wg-501 && mullvad reconnect --wait
+tailscale get exit-node
+curl -4fsS --max-time 10 https://ip.me
+curl -4fsS --max-time 10 https://am.i.mullvad.net/json
 ```
 
-Refresh available relays when commands fail because a relay hostname no longer exists:
+Confirm the selected node is the intended Mullvad host, the observed public IPv4 differs from the normal ISP address, and Mullvad's JSON reports `mullvad_exit_ip: true`. Record public IPs before and after rotation; a host change need not guarantee a new public IP, so **check** rather than assume. A selected-node preference alone is insufficient. If a proxy is configured, ensure the checks measure the route of the traffic being tested; check IPv6 separately (`curl -6fsS --max-time 10 https://ip.me`) when applicable. If verification fails, stop rather than testing from an unverified route.
 
-```bash
-mullvad relay update
-mullvad relay list
-```
+For a scoped failure, check `getent hosts <host>` and one low-noise `curl -I --max-time 15 https://<in-scope-host>/` or one browser reload. If the original request is retry-safe, retry it once; if still blocked, record that rotation did not fix it rather than cycling indefinitely. Do not paste cookies, tokens, or private URLs into chat.
 
-## Verification After Switch
+## Evidence / stop
 
-Use the smallest checks that answer whether routing recovered:
-
-```bash
-mullvad status
-getent hosts <host>
-curl -I --max-time 15 <url>
-```
-
-For browser work, reload one in-scope page once. Do not immediately resume high-volume probing.
-
-After connectivity recovers, return the resume point to the agent that encountered the blocker. That agent retries the specific blocked action once when retry-safe, then continues its task if it succeeds; if it still fails, record that the relay refresh did not resolve the blocker rather than cycling relays.
-
-## Notes Format
-
-```text
-Mullvad relay switch:
-Prior status:
-Prior relay:
-Symptom:
-New relay command:
-New status:
-Verification:
-Result:
-Next action:
-```
-
-## Guardrails
-
-- Do not rotate relays to bypass target rate limits, bans, account restrictions, or explicit anti-VPN policy.
-- Do not use non-West-Coast regions unless the West Coast ladder fails and Ryushe approves wider fallback.
-- Do not disconnect Mullvad to test without VPN unless Ryushe asks.
-- Do not run destructive or state-changing workflow tests immediately after a relay change; verify basic connectivity first.
-- Stop after three failed relay changes and report the network symptom instead of cycling indefinitely.
+Record previous node and public IP, exact symptom, chosen city/host and command, new selected node and public IP/Mullvad check, scoped retest, and next action. Stop and ask Ryushe if the target forbids VPNs, the issue appears to be an account/application ban, the workflow is state-changing, or three changes fail to restore connectivity.

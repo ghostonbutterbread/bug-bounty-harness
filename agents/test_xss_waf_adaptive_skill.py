@@ -10,6 +10,8 @@ PAYLOAD = ROOT / "skills/xss-payload-engineering/SKILL.md"
 OVERLAY = ROOT / "skills/xss-waf-evasion/SKILL.md"
 TECHNIQUES = ROOT / "skills/xss-waf-evasion/references/technique-questions.md"
 SOURCES = ROOT / "skills/xss-waf-evasion/references/vendor-and-mechanism-sources.md"
+PLAYBOOK = ROOT / "prompts/waf-playbook.md"
+PARSER_REFERENCE = ROOT / "skills/xss-payload-engineering/references/parser-stage-character-variants.md"
 
 
 def test_general_waf_loop_starts_with_measured_control_not_vendor_rotation() -> None:
@@ -31,7 +33,8 @@ def test_general_waf_loop_starts_with_measured_control_not_vendor_rotation() -> 
     assert "no local card or" in text
     assert "class-specific consumer" in text
     assert "200/challenge change alone is not a bypass proof" in text
-    assert "bypass_success` counter as class-specific exploit proof" in text
+    assert "Its `bypass_success` counter" in text
+    assert "neither an Attempts replacement nor" in text
     assert "Load `xss-waf-evasion`" not in text  # conditional, not universal WAF load
 
 
@@ -71,3 +74,27 @@ def test_references_are_packaged_conditional_and_source_linked() -> None:
     urls = re.findall(r"\]\((https://[^)]+)\)", sources)
     assert len(urls) >= 20
     assert len(urls) == len(set(urls))
+
+
+def test_live_harness_is_not_misdescribed_as_bounded_one_variable_probe() -> None:
+    waf = WAF.read_text(encoding="utf-8")
+    playbook = PLAYBOOK.read_text(encoding="utf-8")
+    assert "--rps` setting does **not** govern every inner retry" in waf
+    assert "Do **not** launch either" in waf
+    assert "**not** a bounded one-variable" in playbook
+    assert "Do not exhaust generic Tier 1/Tier 2" in playbook
+    assert "bbh agents/bypass_harness.py --target" not in waf
+    assert "bypass_harness.py --target" not in playbook
+    assert "A different origin response" in playbook
+    assert "not by itself confirmed" in playbook
+    assert "owning lane's `attempt-recording-policy` writer" in playbook
+    assert "not a parallel canonical Attempts or Findings ledger" in playbook
+
+
+def test_unknown_vendor_uses_generic_mechanism_and_parser_reference_resolves() -> None:
+    waf = WAF.read_text(encoding="utf-8")
+    overlay = OVERLAY.read_text(encoding="utf-8")
+    assert "an unknown vendor does not exclude a generic" in waf
+    assert "Match a vendor only when" in waf
+    assert PARSER_REFERENCE.is_file()
+    assert "skills/xss-payload-engineering/references/parser-stage-character-variants.md" in overlay

@@ -59,8 +59,9 @@ inventing vendor behavior.
 4. **If yes:** Compose the smallest context-matched candidate from the
    surviving grammar and an observed stage difference. Keep the original
    blocked request, one changed causal feature, and a green/negative control.
-   Use `xss-payload-engineering` for candidate queues and
-   `references/parser-stage-character-variants.md` there for encoding rules.
+   Use `xss-payload-engineering` for candidate queues and its
+   `skills/xss-payload-engineering/references/parser-stage-character-variants.md`
+   for encoding rules (load that skill-local reference with `skill_view`).
    Use `references/technique-questions.md` here to select an ingress/control
    question, not as a payload bank. If a tool emits many strings, reduce to
    distinct hypotheses before live use.

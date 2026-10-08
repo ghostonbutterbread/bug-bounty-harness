@@ -5,8 +5,8 @@ description: Use when detecting, fingerprinting, or bypassing WAF blocks, rate l
 # WAF Skill
 
 A WAF block is a question about the control and the protected consumer, not a
-reason to rotate generic payloads. This skill owns the adaptive loop and optional
-interceptor mechanics. It does not prove the underlying vulnerability class.
+reason to rotate generic payloads. This skill owns the adaptive reasoning loop;
+it does not prove the underlying vulnerability class.
 
 For live filtering load `waf-live-policy` and the inherited scope, rate,
 challenge, and stop rules. Load `blocker-first-analysis` to locate the blocker,
@@ -30,9 +30,11 @@ load `xss-waf-evasion` after the XSS lane and `xss-payload-engineering`.
    guess a vendor trick.
 3. **Retrieve narrowly:** Once the route/control is concrete, query MapStore
    `app-facts`/`dedupe` for this app's observed behavior, then ResearchMap for
-   portable mechanisms matching the vendor *and* request component, parser,
-   transform, or consumer. The current surface chooses the query; old cards do
-   not choose a new target. Read relevant program notes only for that question.
+   portable mechanisms matching the observed request component, parser,
+   transform, or consumer. Match a vendor only when its identity and relevant
+   configuration are evidenced; an unknown vendor does not exclude a generic
+   mechanism card. The current surface chooses the query; old cards do not
+   choose a new target. Read relevant program notes only for that question.
 4. **Sufficiency gate:** Do the observations and retrieved knowledge explain a
    *plausible way past this blocker* that still matters to the downstream
    consumer? State what the control likely sees, what the origin/browser would
@@ -58,165 +60,27 @@ bank. Vendor-specific tricks belong in reviewed, condition-matched ResearchMap
 cards; target outcomes belong in MapStore. For XSS-specific candidate grammar,
 consumer proof, and source pointers, load `xss-waf-evasion`.
 
-## Optional interceptor harness
+## Tool boundary: controlled comparison, not automatic retries
 
-Use `agents/bypass_harness.py` when you need a CLI entrypoint and want `agents/waf_interceptor.py` engaged automatically. Use `agents/waf_interceptor.py` directly only when embedding the interceptor into a custom harness or a narrow manual repro.
+Use the selected vulnerability lane's approved request/proxy/browser workflow to
+send a controlled comparison; record each deliberate baseline and mutation with
+`attempt-recording-policy`. Read the repository-root `prompts/waf-playbook.md`
+for the classification questions and evidence gates, not as a payload schedule.
 
-```bash
-bbh agents/bypass_harness.py --target https://target.com/admin --type 403 \
-  --program target --concurrency 5 --rps 1
-```
+`agents/bypass_harness.py` and `agents/waf_interceptor.py` are existing **batch
+mutation and retry** tools, not single-candidate XSS comparators. The harness's
+403 mode can fan out over headers, paths, methods, and protocol; a blocked
+request can then trigger vendor and generic retries in the interceptor. Its
+`--rps` setting does **not** govern every inner retry. Do **not** launch either
+automatic retry path for a narrow live probe or cite `--rps` as an end-to-end
+rate bound. Keep them inactive for scoped live WAF/XSS continuation until their
+selection and aggregate request pacing have been reviewed and verified under
+`waf-live-policy`. This documentation gate does not fix their runtime behavior
+or override another class's explicitly authorized harness workflow.
 
-## Module
-
-`agents/waf_interceptor.py`
-
-## Mode Matrix
-
-| Mode | Use When | What It Does |
-|------|----------|--------------|
-| `fingerprint` | You need to identify the blocking layer first | Detects likely WAF family from responses |
-| `tier1` | Plain requests are blocked but payloads are simple | Retries with delays, header rotation, cookies, and path tricks |
-| `tier2` | Payload-carrying requests are blocked after Tier 1 | Obfuscates query values in addition to Tier 1 bypasses |
-| `wrap` | Another harness already made the request | Reuses the existing response and only retries if blocked |
-
-## Primary Commands
-
-```bash
-# WAF-aware 403 probing
-bbh agents/bypass_harness.py --target https://target.com/admin --type 403 \
-  --program target --concurrency 5 --rps 1
-
-# WAF-aware SSRF probing
-bbh agents/bypass_harness.py --target https://target.com/fetch?url=x --type ssrf \
-  --param url --program target --concurrency 5 --rps 1
-```
-
-## CLI Notes
-
-### `agents/bypass_harness.py`
-
-| Option | Description |
-|--------|-------------|
-| `--target`, `-t` | Target URL (required) |
-| `--type`, `-T` | Bypass type such as `403`, `ssrf`, `idor`, or `race` |
-| `--param`, `-p` | Parameter name for injection-driven types |
-| `--program` | Program name for shared storage |
-| `--output-dir`, `-o` | Override raw artifact directory |
-| `--timeout` | Request timeout in seconds |
-| `--concurrency`, `-c` | Max parallel requests |
-| `--rps` | Requests per second |
-| `--verbose`, `-v` | Verbose debug output |
-| `--quiet`, `-q` | Show hits only |
-
-## Direct Interface
-
-## Quick Start
-
-```python
-from agents.waf_interceptor import WAFInterceptor
-
-# Sync (uses requests)
-waf = WAFInterceptor(target="https://target.com", program="acme")
-resp = waf.get("/admin")
-resp = waf.post("/api/login", json={"user": "test"})
-
-# Async (pass existing httpx.AsyncClient)
-resp = await waf.aget("/admin", client=client)
-
-# Wrap an already-made response (zero-cost if not blocked)
-resp = await waf.wrap_async(client, "GET", url, resp)
-```
-
-## Supported WAFs (13 types)
-
-| WAF | Detection Method |
-|---|---|
-| Akamai | Body: `AkamaiGHost`, `Reference #`, `AS-DOS-CID` |
-| Cloudflare | Body: `Ray ID:`, `cf-ray` header, `Checking your browser` |
-| AWS WAF / CloudFront | Body: `Generated by cloudfront`, `X-Cache: Error` header |
-| Imperva / Incapsula | Body: `Incapsula incident ID`, `incap_ses` cookie |
-| F5 BIG-IP | Body: `TS=4b63`, `support ID`, `BIGipServer` cookie |
-| Sucuri | Body: `Sucuri WebSite Firewall`, `sucuri-waf` header |
-| Wordfence | Body: `generated by Wordfence`, `wordfence.com` |
-| ModSecurity | Body: `ModSecurity`, `mod_security` |
-| FortiWeb | Body: `FortiWeb`, `Attack ID:` |
-| Citrix NetScaler | Body: `Netscaler`, `NSC_` cookie |
-| DDoS-Guard | Body: `DDoS protection by`, `ddos-guard` |
-| PerimeterX | Body: `px-captcha`, `pxi.pub` |
-| DataDome | Body/header: `datadome` |
-
-## Interceptor mutation limits
-
-The interceptor offers fixed vendor-labelled and generic retries (delay,
-headers, path representations, cookies, and query-value obfuscation). Those are
-*tool capabilities*, not a per-vendor proof or an exhaustive XSS payload
-engine. Select a mode only when its mutation tests the observed control; do not
-use retry volume, forged client-IP headers, or bot-profile rotation as an
-unexplained default. `tier2` changes query values; it does not automatically
-handle JSON/body encoding, the application's parser, or browser execution.
-An edge pass must be checked against the origin and class-specific consumer.
-
-## Output Files
-
-```
-~/Shared/bounty_recon/{program}/agent_shared/findings/waf/
-├── blocks_log.txt    # Every WAF block: WAF name, method, path, status, evidence
-├── bypasses_log.txt  # Every successful bypass: technique + result status
-└── summary.json      # Running stats: total_requests, waf_blocks, bypass_success, bypass_fail
-```
-
-## Integration in bypass_harness.py
-
-Already integrated. All `_get()` calls in `BypassOrchestrator` automatically:
-1. Make the normal request
-2. Check for WAF block with `detect_waf()`
-3. If blocked → retry with `wrap_async()` until bypass succeeds or list exhausted
-4. Log all blocks and bypasses to the WAF output directory
-
-## Standalone Detection
-
-```python
-from agents.waf_interceptor import WAFInterceptor
-import httpx
-
-resp = httpx.get("https://target.com/admin")
-waf_name = WAFInterceptor.fingerprint(resp)
-print(waf_name)  # "Cloudflare" | "Akamai" | None
-```
-
-## Stats
-
-```python
-waf = WAFInterceptor(target=..., program=...)
-# ... make requests ...
-waf.print_summary()
-# [WAF Interceptor Summary]
-#   Total requests : 150
-#   WAF blocks     : 12 (8.0%)
-#   Bypasses OK    : 9 (75.0%)
-#   Bypasses fail  : 3
-```
-
-## Files
-
-- **Playbook:** `prompts/waf-playbook.md`
-- **Shared Root:** `$HARNESS_SHARED_BASE/{program}/agent_shared/`
-- **WAF Findings:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/waf/findings.md`
-- **WAF Artifacts:** `$HARNESS_SHARED_BASE/{program}/agent_shared/findings/waf/`
-
-## Harness use after the decision loop
-
-1. Establish and classify the blocker with the adaptive loop above; apply the
-   live-testing policy chain before any probe. Read relevant existing notes for
-   this *selected* surface, not as a broad cold-start target selector.
-2. Consult `prompts/waf-playbook.md` only when its trigger/lane answers the
-   current question. The harness does not implement an XSS-specific bypass mode;
-   use the selected XSS lane and `xss-waf-evasion` for that consumer.
-3. If the chosen mutation is supported, use `agents/bypass_harness.py` or embed
-   `agents/waf_interceptor.py` for a narrow comparison. Do not interpret its
-   `bypass_success` counter as class-specific exploit proof.
-4. Store exact attempts in the owning class lane. Record stable control facts and
-   evidence pointers in MapStore and follow the finding/report owner when a
-   verified impact exists. Avoid treating the interceptor logs as a parallel
-   canonical WAF findings ledger.
+For offline review of an already captured response, the interceptor's
+`WAFInterceptor.fingerprint(response)` may supply a *vendor-family clue*, not a
+matched rule or exploit verdict. Its `bypass_success` counter and WAF log files
+reflect response-level heuristics; they are neither an Attempts replacement nor
+proof of origin delivery, browser execution, or cross-user impact. The owning
+class lane determines findings and reporting.

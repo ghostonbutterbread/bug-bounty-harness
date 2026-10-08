@@ -1,6 +1,6 @@
 # Tailscale Mullvad exits integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes
 - **Branch:** `docs/tailscale-mullvad-exit-nodes`
 - **Base commit:** `adcaedc0d2ee5cb6f96522a60d0e30ed9e143543`
@@ -22,9 +22,9 @@ The skill and playbook use `tailscale exit-node list --filter=USA` to discover l
 ## Evidence and review
 
 - Tests and commands: read-only local CLI checks with `tailscale set --help`, `tailscale exit-node list --filter=USA`, `tailscale get exit-node`, `mullvad status`, `mullvad lockdown-mode get`, `mullvad auto-connect get`, `curl -4fsS --max-time 10 https://ip.me`, and `curl -4fsS --max-time 10 https://am.i.mullvad.net/json`; `git diff --check` passed. Manual static inspection confirmed the new selector, hostname match, startup policy and rollback; no durable automated assertion suite was added.
-- Independent review: first review requested egress proof, auto-connect, and dossier corrections. Re-review confirmed the behavior and requested removal of an untraceable numerical assertion count; corrected here.
+- Independent review: first review requested egress proof, auto-connect, and dossier corrections. Re-review confirmed behavior but asked to remove an untraceable numerical test claim. Narrow final re-review approved `8842cee` after that correction, found clean worktree and `git diff --check` pass.
 - Replay/cohort/fixture evidence: live routing switch deliberately not exercised; existing standalone Mullvad tunnel remains connected.
-- Merge/ancestry evidence: pending.
+- Merge/ancestry evidence: fetched `origin/beta` at `adcaedc0`; reviewed feature tip `8842cee` is based on that commit; beta integration pending.
 
 ## Blockers and deferred work
 
@@ -44,10 +44,11 @@ The skill and playbook use `tailscale exit-node list --filter=USA` to discover l
 
 ## Decision gates
 
-- **Integration gate:** static checks and independent review.
+- **Integration gate:** passed static/document checks and independent review; merge approved for `beta`.
 - **Activation / cohort gate:** beta skill projection verified separately; live VPN handoff deferred.
 - **Promotion gate:** no stable promotion requested.
 
 ## Decision record
 
-- 2026-10-08 — Created feature branch at fetched beta; committed the skill, playbook, and this dossier as `6894c9b`. Independent review requested three corrections; applied them in the same branch, pending re-review and beta integration.
+- 2026-10-08 — Created feature branch at fetched beta; committed the skill, playbook, and this dossier as `6894c9b`. Independent review requested three corrections; applied in `e0ebdac` and committed dossier in `0885502`.
+- 2026-10-08 — Removed an untraceable numerical test claim in `8842cee`; independent narrow re-review approved the reviewed tip. Merge into `beta` with dossier removed from integration, then verify runtime projection; live VPN migration remains deferred.

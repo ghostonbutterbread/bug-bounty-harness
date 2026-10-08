@@ -13,6 +13,112 @@ import pytest
 from agents import js_analyzer as J
 
 
+@pytest.mark.parametrize("shared_map_body", [False, True])
+def test_identical_bundles_at_distinct_urls_preserve_source_map_packets(tmp_path: Path, shared_map_body: bool):
+    urls = ["https://app.example.com/one/app.js", "https://app.example.com/two/app.js"]
+    source = tmp_path / "urls.txt"
+    source.write_text("\n".join(urls) + "\n")
+    maps = {url + ".map": json.dumps({"version": 3, "sources": ["src/app.ts"],
+             "sourcesContent": [f"export const origin = '{urls[0] if shared_map_body else url}';"]}).encode() for url in urls}
+
+    def fetch_map(url: str, *, timeout: int, max_bytes: int):
+        return maps[url], 200, "application/json", False
+
+    with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(J, "http_get_limited", side_effect=fetch_map):
+        assert J.main(["inventory", "demo", "--input", str(source), "--target-host", "example.com", "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "lib"), "--integration-index-root", str(tmp_path / "integrations")]) == 0
+    rows = J.read_jsonl(tmp_path / "out" / "source_map_modules.jsonl")
+    metadata = J.read_jsonl(tmp_path / "out" / "metadata.jsonl")
+    packets = J.read_jsonl(tmp_path / "out" / "packets.jsonl")
+    assert len(rows) == 2
+    assert len({row["packet_paths"][0] for row in rows}) == 2
+    for row in rows:
+        packet = Path(row["packet_paths"][0]).read_text()
+        assert f"- Bundle URL: {row['bundle_url']}\n" in packet
+        assert f"export const origin = '{urls[0] if shared_map_body else row['bundle_url']}';" in packet
+        own = next(item for item in metadata if item["url"] == row["bundle_url"])
+        assert row["packet_paths"][0] in own["packet_paths"]
+        assert row["packet_paths"][0] in own["artifact_links"]["packets"]
+        assert all(other["bundle_url"] == own["url"] or other["packet_paths"][0] not in own["packet_paths"] for other in rows)
+        assert any(item["url"] == own["url"] and item["packet_path"] == row["packet_paths"][0] for item in packets)
+
+
+def test_identical_bundles_keep_bundle_packets_and_metadata_url_specific(tmp_path: Path):
+    urls = ["https://app.example.com/one/app.js", "https://app.example.com/two/app.js"]
+    source = tmp_path / "urls.txt"
+    source.write_text("\n".join(urls) + "\n")
+    with patch.object(J, "http_get", return_value=(b"const same = true;", 200, "application/javascript")):
+        assert J.main(["inventory", "demo", "--input", str(source), "--target-host", "example.com", "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "lib"), "--integration-index-root", str(tmp_path / "integrations")]) == 0
+    metadata = J.read_jsonl(tmp_path / "out" / "metadata.jsonl")
+    packets = J.read_jsonl(tmp_path / "out" / "packets.jsonl")
+    assert [row["url"] for row in metadata] == urls
+    assert metadata[0]["sha256"] == metadata[1]["sha256"]
+    assert len({packet["packet_path"] for packet in packets}) == len(packets)
+    for row in metadata:
+        own = [packet["packet_path"] for packet in packets if packet["url"] == row["url"]]
+        assert row["packet_paths"] == own
+        assert f"- URL: {row['url']}\n" in Path(own[0]).read_text()
+
+
+def test_identical_bundles_keep_metadata_provenance_url_specific(tmp_path: Path):
+    urls = ["https://app.example.com/one/app.js", "https://app.example.com/two/app.js"]
+    source = tmp_path / "urls.txt"
+    source.write_text("\n".join(urls) + "\n")
+    hints = tmp_path / "hints.jsonl"
+    hints.write_text("\n".join(json.dumps({"js_url": url, "page_url": f"https://app.example.com/page-{i}", "proxy_request_id": f"req-{i}"}) for i, url in enumerate(urls)) + "\n")
+    with patch.object(J, "http_get", return_value=(b"const same = true;", 200, "application/javascript")):
+        assert J.main(["inventory", "demo", "--input", str(source), "--target-host", "example.com", "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "lib"), "--integration-index-root", str(tmp_path / "integrations"), "--provenance-input", str(hints)]) == 0
+    metadata = J.read_jsonl(tmp_path / "out" / "metadata.jsonl")
+    assert len(J.read_jsonl(tmp_path / "out" / "js_provenance.jsonl")) == 2
+    for i, row in enumerate(metadata):
+        assert row["provenance"]["row_count"] == 1
+        assert row["provenance"]["page_urls"] == [f"https://app.example.com/page-{i}"]
+        assert row["provenance"]["proxy_request_ids"] == [f"req-{i}"]
+
+
+def test_cached_source_map_obeys_lowered_byte_cap_without_refetch(tmp_path: Path):
+    source = tmp_path / "urls.txt"
+    source.write_text("https://app.example.com/app.js\n")
+    body = json.dumps({"version": 3, "sources": ["src/app.ts"], "sourcesContent": ["export const long = '" + "x" * 100 + "';"]}).encode()
+    common = ["inventory", "demo", "--input", str(source), "--target-host", "example.com", "--library-root", str(tmp_path / "lib"), "--integration-index-root", str(tmp_path / "integrations")]
+    map_reads = []
+    real_open = Path.open
+
+    class TrackedMapFile:
+        def __init__(self, file):
+            self.file = file
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return self.file.__exit__(*args)
+
+        def read(self, size=-1):
+            map_reads.append(size)
+            return self.file.read(size)
+
+    def track_map_open(path, *args, **kwargs):
+        file = real_open(path, *args, **kwargs)
+        return TrackedMapFile(file) if path.suffix == ".map" else file
+
+    with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(J, "http_get_limited", return_value=(body, 200, "application/json", False)) as fetch:
+        assert J.main(common + ["--output-root", str(tmp_path / "first"), "--run-id", "first"]) == 0
+        with patch.object(Path, "open", track_map_open), patch.object(J, "is_source_map_body", wraps=J.is_source_map_body) as validate_map:
+            assert J.main(common + ["--output-root", str(tmp_path / "second"), "--run-id", "second", "--source-map-max-bytes", "10"]) == 0
+        validate_map.assert_not_called()
+    assert map_reads == [11]
+    assert fetch.call_count == 1
+    metadata = J.read_jsonl(tmp_path / "second" / "metadata.jsonl")[0]
+    manifest = json.loads((tmp_path / "second" / "manifest.json").read_text())
+    assert metadata["source_map_status"] == "too_large"
+    assert metadata["source_map_sha256"] == ""
+    assert metadata["source_map_artifact_path"] == ""
+    assert metadata["source_map_module_count"] == 0
+    assert J.read_jsonl(tmp_path / "second" / "source_map_modules.jsonl") == []
+    assert manifest["source_maps_reused"] == 0
+    assert manifest["source_maps_too_large"] == 1
+
+
 def test_default_inventory_paths_use_mounted_bounty_program_js_root():
     root, library, integrations, summary = J.resolve_inventory_paths(Namespace(program="demo", config=None, output_root=None, library_root=None, integration_index_root=None), "run-1")
 

@@ -256,10 +256,10 @@ def build_remote_seed_files(program: str, seed_url: str, *, allow_unscoped: bool
     if validator and not validator.is_empty():
         # A wildcard exclusion covering a whole root must not become an enum
         # input merely because the inclusive scope also lists that root.
-        denied_roots = [
-            raw[2:].lower() for entry in getattr(validator, "_out_of_scope", [])
-            if (raw := clean_scope_value(getattr(entry, "raw", ""))).startswith("*.")
-        ]
+        denied_lines, _ = recon_scope_file_lines([
+            getattr(entry, "raw", "") for entry in getattr(validator, "_out_of_scope", [])
+        ])
+        denied_roots = [line[2:] for line in denied_lines if line.startswith("*.")]
         for entry in getattr(validator, "_entries", []):
             raw = clean_scope_value(getattr(entry, "raw", ""))
             if not raw:

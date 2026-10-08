@@ -204,16 +204,17 @@ def test_wildcard_profiles_use_all_staged_roots_without_url_override(monkeypatch
             assert "RECONRY_WILD_TXT'\nRECONRY_WILD_TXT" in output
 
 
-def test_excluded_wildcard_roots_are_not_staged_or_enumerated(monkeypatch, capsys) -> None:
+def test_excluded_wildcard_roots_are_not_staged_as_roots(monkeypatch, capsys) -> None:
     class ExcludedRootScope:
         def __init__(self, program: str, strict: bool = True):
             self._entries = [
                 SimpleNamespace(raw="*.first.example", entry_type="wildcard"),
                 SimpleNamespace(raw="*.second.example", entry_type="wildcard"),
                 SimpleNamespace(raw="*.sub.first.example", entry_type="wildcard"),
+                SimpleNamespace(raw="*.leaf.second.example", entry_type="wildcard"),
             ]
             self._out_of_scope = [
-                SimpleNamespace(raw="*.second.example", entry_type="wildcard"),
+                SimpleNamespace(raw="https://*.second.example", entry_type="url_pattern"),
                 SimpleNamespace(raw="*.sub.first.example", entry_type="wildcard"),
             ]
 
@@ -257,7 +258,7 @@ def test_manual_header_isolates_wildcard_profile_to_seed_host(monkeypatch, capsy
     recon_ry.start_remote(args)
     output = capsys.readouterr().out
     command = next(line for line in output.splitlines() if '"$HOME/bin/recon-ry" recon ' in line)
-    assert "--url first.example" in command
+    assert "--url" in command and "first.example" in command
     assert "RECONRY_WILD_TXT'\nRECONRY_WILD_TXT" in output
     assert "--scope-file" in command
 

@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-08
 - **Owning feature branch/ref:** `docs/tailscale-preferred-mullvad-fallback`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `3d504547aa06fce3f643f43bfdb2763bab0a8d5f`
+- **Feature implementation commit(s):** `eea5ae2bf95b7d6e610c28e276fdb1078c0ea735`, `3d504547aa06fce3f643f43bfdb2763bab0a8d5f`
 - **Inspiration / canonical references:** Ryushe Discord request 1557872090361765991; Tailscale official Mullvad exit and exit-node docs; live Tailscale/Mullvad CLI help and host preflights.
 
 ## Intent
@@ -21,8 +21,8 @@ The skill and playbook distinguish tailnet connectivity from internet exit routi
 
 ## Evidence and review
 
-- Tests and commands: local and Hoster read-only `tailscale status`, `tailscale get exit-node`, `tailscale exit-node list --filter=USA`, `mullvad status`, `mullvad auto-connect get`, `mullvad lockdown-mode get`, plus official docs and local `mullvad relay set location --help`. Ad-hoc source checks for manager selection, fallback, verification, diagram and rollback passed; `git diff --check` passed. No durable automated suite added.
-- Independent review: pending.
+- Tests and commands: local and Hoster read-only `tailscale status`, `tailscale get exit-node`, `tailscale exit-node list --filter=USA`, `mullvad status -v`, `mullvad auto-connect get`, `mullvad lockdown-mode get`, plus official docs and local `mullvad relay set location --help`. Ad-hoc source checks for manager selection, fallback, verification, diagram and rollback passed; review-fix source checks and `git diff --check` passed. No durable automated suite added.
+- Independent review: initial review requested GUI Auto-connect handling/approval, fail-closed inaccessible-Tailscale fallback, verbose connected relay proof, dossier consistency, and removal of an incorrect MagicDNS prerequisite. Corrections in `3d50454`; narrow re-review pending.
 - Live host state: both hosts currently standalone Mullvad connected; Tailscale online but no exit selected. Hoster shows active browser/agent/proxy processes despite initial assumption of no active agents. Live handoff deferred until controls and workload impact are assessed.
 - Merge/ancestry evidence: pending.
 
@@ -37,10 +37,10 @@ The skill and playbook distinguish tailnet connectivity from internet exit routi
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/tailscale-preferred-mullvad-fallback`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** static checks, independent review, merge and projection; then per-host migration if safe.
-- **Working-tree state at handoff:** initially uncommitted.
+- **Latest immutable recovery checkpoint:** `3d504547aa06fce3f643f43bfdb2763bab0a8d5f`
+- **Feature implementation commit(s):** `eea5ae2bf95b7d6e610c28e276fdb1078c0ea735`, `3d504547aa06fce3f643f43bfdb2763bab0a8d5f`
+- **Exact resume point:** narrow independent re-review of `3d50454` and dossier, then merge and runtime projection; per-host migration only after operator decision and safe workload/control-plane window.
+- **Working-tree state at handoff:** clean after this dossier commit; implementation commits reachable.
 
 ## Decision gates
 
@@ -51,3 +51,4 @@ The skill and playbook distinguish tailnet connectivity from internet exit routi
 ## Decision record
 
 - 2026-10-08 — Began from fetched beta; Hoster workload assumption contradicted by active browser and task MITM services, so no Hoster route switch until assessed.
+- 2026-10-08 — Committed skill/playbook/dossier in `eea5ae2`; independent review requested four safety and accuracy corrections. Corrected in `3d50454`, updated dossier; live VPN unchanged.

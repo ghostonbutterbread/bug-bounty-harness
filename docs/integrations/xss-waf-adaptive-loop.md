@@ -38,8 +38,9 @@ filter signal to it. No live-target probe, data schema or runtime code changed.
 - New WAF/XSS contract checks: five tests in `agents/test_xss_waf_adaptive_skill.py`, included in the 157; cover tool pacing guidance, playbook claim/record boundaries, unknown vendor cards and parser reference resolution.
 - Baseline note: one pre-existing `test_xss_skill_clarity.py` assertion failed on clean beta because the router said “input or consumer and render context”; this branch's equivalent wording restores the tested phrase while preserving sink-first discovery, and the full XSS suite passes.
 - Frontmatter/reference validation: YAML loaded and both linked references exist; 46 unique source links; `git diff --check` clean.
-- Independent first review of `4b0fb83..029f923`: blocked on broad harness guidance (P1), playbook proof/record drift (P2), unknown-vendor card wording (P2), and a cross-skill reference (P3). Corrected in this feature branch; independent re-review of the corrected commit pending.
-- Merge/ancestry evidence: pending.
+- Independent first review of `4b0fb83..029f923`: blocked on broad harness guidance (P1), playbook proof/record drift (P2), unknown-vendor card wording (P2), and a cross-skill reference (P3). Corrected in this feature branch.
+- Fresh independent re-review of `4b0fb836dd2622523c03640297cbe98416b50f3a..e56e8e2014547a5c6f055e9af2024921a62c3c19`: **PASS**, four prior blockers resolved and no new correctness, safety, or routing findings. Reviewer independently ran the isolated focused command, 157 passed; `git diff --check` clean. No live target tested.
+- Merge/ancestry evidence: pending beta integration; dossier is feature-branch-only and must be excluded from the merge.
 
 ## Blockers and deferred work
 
@@ -56,7 +57,7 @@ target claims.
 - **Owning feature branch/ref:** `docs/xss-waf-adaptive-loop`
 - **Latest immutable recovery checkpoint:** `50354c35c221a00bdadb07abff0a2892e4f38d92`
 - **Feature implementation commits:** `15a38ce9a15adb5ae3b0c1a6de1608629cd3bdb2`, `50354c35c221a00bdadb07abff0a2892e4f38d92`
-- **Exact resume point:** obtain fresh independent review of the corrected range against base `4b0fb83`, then integrate into beta only if blockers are cleared.
+- **Exact resume point:** fresh review passed at `e56e8e2`; merge this reviewed feature into clean, current `beta`, exclude this branch-local dossier, run beta checks, push and verify the configured skill projection. Stable/main promotion remains separate.
 - **Working-tree state at handoff:** clean after dossier-only handoff commit; the branch tip includes this later dossier update.
 
 ## Decision gates
@@ -71,3 +72,4 @@ target claims.
 - 2026-10-08 — implemented and exercised adaptive skill workflow; focused XSS suite 147 passed; implementation checkpoint `15a38ce9a15adb5ae3b0c1a6de1608629cd3bdb2` awaits independent review.
 - 2026-10-08 — first review blocked unsafe harness recommendation and playbook proof drift; removed live automatic-retry recipe, aligned proof/record ownership and references, added regressions; corrected focused suite 157 passed; re-review pending.
 - 2026-10-08 — corrected implementation checkpoint `50354c35c221a00bdadb07abff0a2892e4f38d92` ready for independent re-review.
+- 2026-10-08 — fresh independent re-review passed at `e56e8e2`; all four blockers resolved, 157 focused tests repeated; beta integration is next.

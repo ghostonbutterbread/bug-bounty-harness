@@ -1,12 +1,12 @@
 # JavaScript hunt methodology integration dossier
 
-- **Status:** blocked (implementation reviewed; beta integration owned by another task)
+- **Status:** reviewed, authorized for beta integration and runtime skill sync
 - **Owner:** Hermes
 - **Branch:** `bug-bounty-harness/t_c21f1f78-implement-js-router-and-adaptive-js-hunt`
 - **Worktree:** `/home/ryushe/projects/bug_bounty_harness/.worktrees/t_c21f1f78`
 - **Base commit:** `60a27386f531d32460e2175b017176e22de04597` (`origin/beta` after fetch)
 - **Intended integration target:** `beta`
-- **Last updated:** 2026-10-07
+- **Last updated:** 2026-10-08
 - **Owning feature branch/ref:** `bug-bounty-harness/t_c21f1f78-implement-js-router-and-adaptive-js-hunt`
 - **Latest immutable recovery checkpoint:** `0438b783757b7ac527e326df852cbe6d11fcb34e`
 - **Feature implementation commit(s):** `7ee99f76508f70f1ef9781b6384a9f7d5b44987a`, `0438b783757b7ac527e326df852cbe6d11fcb34e`
@@ -52,30 +52,32 @@ The unfiltered suite's Hoster guidance assertion is a known unrelated
 baseline failure. Do not change protected `AGENTS.md` or unrelated tests on
 this feature. A separate owner should reconcile the guidance/test and rerun
 `python3 -m pytest tests/test_hoster_script_authority.py -q` before claiming
-the **whole** suite passes. No beta runtime activation or main promotion is
-part of this task.
+the **whole** suite passes. Skill projection/sync is authorized, but no
+unrelated process restart or main promotion is part of this task.
 
-Concurrent task `t_4f42599d` owns BBH master→beta history reconciliation. Do
-not merge or push beta from this feature while that task is active; its final
-beta ref may differ from the preflight base. This feature may publish only its
-own review/backup branch until integration is free.
+Task `t_4f42599d` finished its master→beta history reconciliation at
+`a797adee748e17f2bbfb517b7cf385eb281a71b6`. Ryushe subsequently
+authorized this feature's merge, push, and skill sync. Re-fetch and test against
+the current beta before publication; this authorization is not main promotion.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `bug-bounty-harness/t_c21f1f78-implement-js-router-and-adaptive-js-hunt`
 - **Latest immutable recovery checkpoint:** `0438b783757b7ac527e326df852cbe6d11fcb34e` (includes registry correction; branch tip has a later dossier-only commit)
 - **Feature implementation commit(s):** `7ee99f76508f70f1ef9781b6384a9f7d5b44987a`, `0438b783757b7ac527e326df852cbe6d11fcb34e`
-- **Exact resume point:** after `t_4f42599d` finishes, fetch final `origin/beta`,
-  preflight the feature from a clean beta checkout with the dossier excluded,
-  rerun focused and bounded full tests, verify the staged code tree, then merge
-  only from an authorized clean beta integration worktree. No stable promotion
-  or runtime activation is authorized here.
+- **Exact resume point:** fetch final `origin/beta`, preflight from a clean beta
+  checkout with this dossier excluded, rerun focused and bounded full tests,
+  verify the staged code tree, then merge/push from that beta worktree. Inspect
+  configured skill projections and dry-run before sync; verify each selected
+  runtime after applying. Stable promotion is not authorized here.
 - **Working-tree state at handoff:** clean after dossier-only commit.
 
 ## Decision gates
 
 - **Integration gate:** focused and full isolated tests, independent review, clean current beta integration tree.
-- **Activation / cohort gate:** no runtime activation without separate decision.
+- **Activation / cohort gate:** user authorized skill sync in this task; verify
+  the selected beta checkout and projection per destination before calling it
+  active, and do not restart unrelated running sessions.
 - **Promotion gate:** main only on explicit user direction.
 
 ## Decision record
@@ -83,3 +85,4 @@ own review/backup branch until integration is free.
 - 2026-10-07 — created beta-based scoped feature after user approval.
 - 2026-10-07 — independent review of the first implementation commit held integration for two handoff/discoverability corrections; corrected branch awaits re-review.
 - 2026-10-07 — re-review accepted corrected tip; isolated beta `1c48ae7` preflight passed. Integration deferred to avoid racing the active master→beta reconciliation owner.
+- 2026-10-08 — parent reconciliation completed at beta `a797ade`; user authorized merge, push, and skill sync; integration and runtime receipts pending.

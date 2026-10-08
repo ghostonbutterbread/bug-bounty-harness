@@ -42,7 +42,7 @@ DEFAULT_CONFIG_PATHS = (
 URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
 PATH_RE = re.compile(r"['\"](?P<path>/(?:api|v\d|graphql|gql|rest|backend|auth|oauth|login|admin|user|account|billing|checkout)[^'\"<>\s]{0,180})['\"]", re.IGNORECASE)
 PARAM_RE = re.compile(r"[?&]([A-Za-z0-9_.:-]{2,80})=")
-SOURCE_MAP_RE = re.compile(r"//[@#]\s*sourceMappingURL=(?P<url>\S+)")
+SOURCE_MAP_RE = re.compile(r"[@#]\s*sourceMappingURL=(?P<url>\S+)")
 IMPORT_RE = re.compile(r"\bimport\s*(?:\(|[^;\n]+from\s*)['\"]([^'\"]+)['\"]")
 SECRET_HINT_RE = re.compile(r"\b(api[_-]?key|secret|token|bearer|authorization|password|client[_-]?secret|private[_-]?key)\b", re.IGNORECASE)
 PARAM_NAME_RE = re.compile(
@@ -685,6 +685,92 @@ def collect_from_page(page_url: str, page_context: str, scope_hosts: list[str]) 
     return dedupe(js_urls), page_records, inline_bodies
 
 
+def last_source_map_directive(text: str) -> str:
+    """Find directives in actual comments within the bounded bundle tail."""
+    text = text[-3000:]
+    found = ""
+    i = 0
+    regex_allowed = True
+    control_keyword = False
+    parens: list[bool] = []
+    while i < len(text):
+        char = text[i]
+        if char.isspace():
+            i += 1
+            continue
+        if char in "'\"`":
+            quote = char
+            i += 1
+            while i < len(text):
+                if text[i] == "\\":
+                    i += 2
+                elif text[i] == quote:
+                    i += 1
+                    break
+                else:
+                    i += 1
+            regex_allowed = False
+            control_keyword = False
+            continue
+        if char == "/" and i + 1 < len(text) and text[i + 1] in ("/", "*"):
+            if text[i + 1] == "/":
+                end = text.find("\n", i + 2)
+                end = len(text) if end < 0 else end
+            else:
+                end = text.find("*/", i + 2)
+                end = len(text) if end < 0 else end
+            directive = SOURCE_MAP_RE.match(text[i + 2:end].lstrip())
+            if directive:
+                found = directive.group("url")
+            i = end if text[i + 1] == "/" or end == len(text) else end + 2
+            continue
+        if char == "/" and regex_allowed:
+            i += 1
+            in_class = False
+            while i < len(text):
+                if text[i] == "\\":
+                    i += 2
+                elif text[i] == "[":
+                    in_class = True
+                    i += 1
+                elif text[i] == "]" and in_class:
+                    in_class = False
+                    i += 1
+                elif text[i] == "/" and not in_class:
+                    i += 1
+                    break
+                else:
+                    i += 1
+            regex_allowed = False
+            continue
+        if char.isalpha() or char in "_$":
+            end = i + 1
+            while end < len(text) and (text[end].isalnum() or text[end] in "_$"):
+                end += 1
+            word = text[i:end]
+            control_keyword = word in {"if", "while", "for", "with", "switch", "catch"}
+            regex_allowed = word in {"return", "throw", "case", "else", "delete", "void", "typeof", "yield", "await"}
+            i = end
+            continue
+        if char.isdigit():
+            i += 1
+            while i < len(text) and (text[i].isalnum() or text[i] in "._"):
+                i += 1
+            regex_allowed = False
+            control_keyword = False
+            continue
+        if char == "(":
+            parens.append(control_keyword)
+            regex_allowed = True
+        elif char == ")":
+            regex_allowed = parens.pop() if parens else False
+        else:
+            regex_allowed = char not in "].}"
+        control_keyword = False
+        i += 1
+    return found
+
+
 def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = None) -> dict:
     endpoints = set()
     for match in URL_RE.findall(text):
@@ -703,9 +789,9 @@ def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = No
         params.update(name for name, _ in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
 
     source_map = ""
-    sm = SOURCE_MAP_RE.search(text[-3000:])
-    if sm:
-        source_map = normalize_url(sm.group("url"), base_url) or ""
+    directive = last_source_map_directive(text)
+    if directive:
+        source_map = normalize_url(directive, base_url) or ""
 
     secret_hints = sorted(set(m.group(1).lower() for m in SECRET_HINT_RE.finditer(text)))[:50]
     sources = sorted(name for name, pattern in SOURCE_KEYWORDS.items() if pattern.search(text))
@@ -848,7 +934,7 @@ def write_source_map_modules(
     rows: list[dict] = []
     packets: list[dict] = []
     module_dir = source_maps_dir / source_map_sha256 / "modules"
-    packet_dir = root / "source_map_packets" / record.sha256[:16]
+    packet_dir = root / "source_map_packets" / record.sha256[:16] / source_map_sha256 / hashlib.sha256(record.url.encode("utf-8")).hexdigest()
     packeted_modules = 0
     expanded_bytes = 0
     truncated_modules = 0
@@ -1631,7 +1717,9 @@ def load_body_from_ledger(
     return body, sha, artifact_path
 
 
-def load_source_map_from_ledger(ledger: dict, *, url: str, source_maps_dir: Path) -> tuple[bytes, str, Path] | None:
+def load_source_map_from_ledger(
+    ledger: dict, *, url: str, source_maps_dir: Path, max_bytes: int,
+) -> tuple[bytes | None, str, Path] | None:
     entry = ledger.get("source_maps", {}).get(url)
     if not isinstance(entry, dict):
         return None
@@ -1641,7 +1729,10 @@ def load_source_map_from_ledger(ledger: dict, *, url: str, source_maps_dir: Path
     artifact_path = source_maps_dir / f"{sha}.map"
     if not artifact_path.exists():
         return None
-    body = artifact_path.read_bytes()
+    with artifact_path.open("rb") as file:
+        body = file.read(max_bytes + 1)
+    if len(body) > max_bytes:
+        return None, sha, artifact_path  # Present but oversized: do not parse or refetch.
     status = entry.get("status")
     if (hashlib.sha256(body).hexdigest() != sha or not isinstance(status, int)
             or not 200 <= status < 300 or not is_source_map_body(body)):
@@ -1874,7 +1965,7 @@ def command_inventory(args: argparse.Namespace) -> int:
     source_map_packet_budgets: list[dict] = []
     external_integration_rows: list[ExternalIntegration] = []
     provenance_rows: list[JsProvenance] = []
-    provenance_rows_by_sha: dict[str, list[dict]] = {}
+    provenance_rows_by_url: dict[str, list[dict]] = {}
     reused_downloads = 0
     reused_chunk_sets = 0
     skipped_cached_urls = 0
@@ -1936,11 +2027,18 @@ def command_inventory(args: argparse.Namespace) -> int:
                     ledger,
                     url=signals["source_map"],
                     source_maps_dir=source_maps_dir,
+                    max_bytes=args.source_map_max_bytes,
                 )
                 if cached_source_map:
                     source_map_body, source_map_sha256, source_map_path = cached_source_map
-                    source_map_status = "cached"
-                    source_maps_reused += 1
+                    if source_map_body is None:
+                        source_map_status = "too_large"
+                        source_maps_too_large += 1
+                        source_map_sha256 = ""
+                        source_map_path = None
+                    else:
+                        source_map_status = "cached"
+                        source_maps_reused += 1
                 else:
                     source_map_body, source_map_status_code, _source_map_content_type, source_map_too_large = http_get_limited(
                         signals["source_map"],
@@ -1970,7 +2068,7 @@ def command_inventory(args: argparse.Namespace) -> int:
                         )
                         source_map_status = "downloaded"
                         source_maps_downloaded += 1
-                if source_map_sha256 and source_map_path:
+                if source_map_sha256 and source_map_path and source_map_body is not None:
                     source_map_artifact_path = str(source_map_path)
                     source_map_modules, source_map_modules_with_content = parse_source_map(source_map_body)
         chunks = chunk_text(text, args.chunk_size, args.chunk_overlap)
@@ -2045,7 +2143,7 @@ def command_inventory(args: argparse.Namespace) -> int:
             hints=provenance_hints.get(url, []),
         )
         provenance_rows.extend(record_provenance_rows)
-        provenance_rows_by_sha.setdefault(digest, []).extend(asdict(row) for row in record_provenance_rows)
+        provenance_rows_by_url.setdefault(url, []).extend(asdict(row) for row in record_provenance_rows)
         now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         for external_url in record.external_endpoints:
             host = url_host(external_url)
@@ -2084,7 +2182,7 @@ def command_inventory(args: argparse.Namespace) -> int:
             end = int(chunk_row["byte_end"])
             chunk_path = Path(str(chunk_row["chunk_path"]))
             chunk = chunk_path.read_text(encoding="utf-8", errors="ignore")
-            packet_path = packets_dir / f"{digest[:16]}-{chunk_index + 1:03d}.md"
+            packet_path = packets_dir / f"{digest[:16]}-{hashlib.sha256(url.encode('utf-8')).hexdigest()}-{chunk_index + 1:03d}.md"
             write_text_atomic(packet_path, build_packet(record, chunk_index, start, end, chunk))
             packet_rows.append({
                 "url": url,
@@ -2111,8 +2209,8 @@ def command_inventory(args: argparse.Namespace) -> int:
             record=record,
             run_id=run_id,
             target_host=",".join(scope_hosts),
-            packet_rows=packet_rows_by_sha.get(record.sha256, []),
-            provenance_rows=provenance_rows_by_sha.get(record.sha256, []),
+            packet_rows=[row for row in packet_rows_by_sha.get(record.sha256, []) if row.get("url") == record.url],
+            provenance_rows=provenance_rows_by_url.get(record.url, []),
             library_root=library_root,
             generated_at=generated_at,
         )

@@ -1,14 +1,14 @@
 # Mullvad validated-routing documentation integration dossier
 
-- **Status:** feature; local verification pending independent review
+- **Status:** review-ready locally; not integrated or activated
 - **Owner:** Hermes / Kanban t_38097d65
 - **Branch:** `docs/mullvad-validated-routing`
 - **Base commit:** `866523ceea889bf2560c22af6c09b88692baebd2` (`origin/beta` at creation)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-08
 - **Owning feature branch/ref:** `docs/mullvad-validated-routing`
-- **Latest immutable recovery checkpoint:** none yet; commit the implementation before handoff
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`
+- **Feature implementation commit(s):** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`
 - **Inspiration / canonical references:** Kanban parent t_aaff5b3b, attachment `routing-model-validation.md`; existing beta Mullvad docs; Tailscale exit-node, Mullvad exit-node and CLI official docs.
 
 ## Intent
@@ -21,7 +21,7 @@ Close the gap between beta's existing Tailscale-first/standalone-fallback prose 
 
 ## Evidence and review
 
-- Tests and commands: pending `git diff --check`, focused contract assertions, `git diff origin/beta -- skills/mullvad/SKILL.md prompts/mullvad-playbook.md`.
+- Tests and commands: `python3 ../check_mullvad_docs.py` passed 13 focused contract assertions; `git diff --check` and staged diff check passed; `git diff --stat` inspected for the two docs and dossier. The test script is scratch-only and not part of the feature commit.
 - Independent review: pending, focused on safe sequencing, CLI syntax, host-specific snapshot wording, and non-claims.
 - Replay/cohort/fixture evidence: parent read-only report; no privileged network tests in this docs task.
 - Merge/ancestry evidence: feature based on current fetched `origin/beta` above; integration not performed.
@@ -34,10 +34,10 @@ Close the gap between beta's existing Tailscale-first/standalone-fallback prose 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/mullvad-validated-routing`
-- **Latest immutable recovery checkpoint:** none yet; replace after verified commit
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** run focused checks, commit docs and dossier, obtain independent read-only review; integrate into beta only after acceptance and remove this dossier from integration target.
-- **Working-tree state at handoff:** intentionally uncommitted while authoring; commit before handoff.
+- **Latest immutable recovery checkpoint:** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`
+- **Feature implementation commit(s):** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`; the tip after this dossier-only handoff commit is later.
+- **Exact resume point:** independently review the committed diff against `origin/beta`; integrate into a clean current beta only after acceptance and remove this dossier from integration target.
+- **Working-tree state at handoff:** clean after the dossier-only checkpoint commit.
 
 ## Decision gates
 
@@ -47,4 +47,4 @@ Close the gap between beta's existing Tailscale-first/standalone-fallback prose 
 
 ## Decision record
 
-- 2026-10-08 — Created docs refinement from reviewed beta; no production change.
+- 2026-10-08 — Created docs refinement from reviewed beta; focused assertions and whitespace checks pass; implementation checkpoint `f489b728bcc2a6a5186c2233cc713b3195eaf97f`; no production change.

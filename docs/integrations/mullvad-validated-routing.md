@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-08
 - **Owning feature branch/ref:** `docs/mullvad-validated-routing`
-- **Latest immutable recovery checkpoint:** `f1f23f6778acfdca15861280589e65067edc672c`
-- **Feature implementation commit(s):** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`, `f1f23f6778acfdca15861280589e65067edc672c`
+- **Latest immutable recovery checkpoint:** `cc7903a014e027a90725bdaacd5a593e016fe678`
+- **Feature implementation commit(s):** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`, `f1f23f6778acfdca15861280589e65067edc672c`, `cc7903a014e027a90725bdaacd5a593e016fe678`
 - **Inspiration / canonical references:** Kanban parent t_aaff5b3b, attachment `routing-model-validation.md`; existing beta Mullvad docs; Tailscale exit-node, Mullvad exit-node and CLI official docs.
 
 ## Intent
@@ -34,8 +34,8 @@ Close the gap between beta's existing Tailscale-first/standalone-fallback prose 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/mullvad-validated-routing`
-- **Latest immutable recovery checkpoint:** `f1f23f6778acfdca15861280589e65067edc672c`
-- **Feature implementation commit(s):** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`, `f1f23f6778acfdca15861280589e65067edc672c`; the tip after this dossier-only handoff commit is later.
+- **Latest immutable recovery checkpoint:** `cc7903a014e027a90725bdaacd5a593e016fe678`
+- **Feature implementation commit(s):** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`, `f1f23f6778acfdca15861280589e65067edc672c`, `cc7903a014e027a90725bdaacd5a593e016fe678`; the tip after this dossier-only handoff commit is later.
 - **Exact resume point:** re-review the saved/effective exit discrepancy wording against `origin/beta`; integrate into a clean current beta only after acceptance and remove this dossier from integration target.
 - **Working-tree state at handoff:** clean after the dossier-only checkpoint commit.
 

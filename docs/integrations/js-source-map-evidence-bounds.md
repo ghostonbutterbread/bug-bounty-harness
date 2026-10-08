@@ -7,8 +7,8 @@
 - **Fetched base commit:** `53152595838d7add9d6b552d0b79770878126605`
 - **Intended integration target:** `beta` (`origin/beta` fetched at the same SHA)
 - **Last updated:** 2026-10-08
-- **Latest immutable recovery checkpoint:** pending task commit; see branch tip after commit
-- **Feature implementation commit(s):** pending task commit
+- **Latest immutable recovery checkpoint:** `3995a4bc2722d2d73a3583429a0a0b4437e366d5` (reachable from this branch)
+- **Feature implementation commit(s):** `3995a4bc2722d2d73a3583429a0a0b4437e366d5`
 - **Inspiration:** separable packet/provenance/cached-cap repairs from blocked `fix/js-source-map-flow-20261008` (`5214852`); its directive parser, regex, scanner and directive tests are deliberately excluded.
 
 ## Intent and implemented contract
@@ -35,6 +35,6 @@ For byte-identical JS bundles at different URLs, bundle packets use URL-hashed n
 
 - **Integration:** independent review of task diff and receipts; selected beta may advance and then needs deliberate reconciliation/retest. Remove this dossier from the beta integration tree on accepted merge; do not merge/push here.
 - **Activation/promotion:** not requested; no runtime activation or stable promotion implied.
-- **Exact resume point:** after task commit, inspect its staged/committed diff and rerun owning/adjacent suites; independent reviewer may then integrate into `beta` if current and approved.
+- **Exact resume point:** review implementation checkpoint `3995a4bc2722d2d73a3583429a0a0b4437e366d5` plus this dossier-only successor commit, inspect committed diff and rerun owning/adjacent suites; independent reviewer may then integrate into `beta` if current and approved.
 - **Working tree at handoff:** expected clean after local commit.
 - **2026-10-08 decision:** retain only packet identity, metadata/provenance ownership and cached-cap behavior; explicitly reject directive changes from blocked branch.

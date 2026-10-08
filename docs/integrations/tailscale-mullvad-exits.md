@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-08
 - **Owning feature branch/ref:** `docs/tailscale-mullvad-exit-nodes`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `e0ebdac6954b4d239e9423e0e4da992883eeee38`
+- **Feature implementation commit(s):** `6894c9ba46ee8c4ba50a3764cf9c9caed2fbc7b7`, `e0ebdac6954b4d239e9423e0e4da992883eeee38`
 - **Inspiration / canonical references:** Ryushe's Discord thread 1557863033424977999; Tailscale Mullvad exit-node and CLI documentation; Mullvad connection-check API.
 
 ## Intent
@@ -21,15 +21,15 @@ The skill and playbook use `tailscale exit-node list --filter=USA` to discover l
 
 ## Evidence and review
 
-- Tests and commands: local `tailscale set --help`, `tailscale exit-node list --filter=USA`, `tailscale get exit-node`, `mullvad status`, `mullvad lockdown-mode get`, `curl -4 https://ip.me`, and Mullvad JSON check read-only; static assertions for both documents passed (7/7) and `git diff --check` passed. Independent diff review pending.
-- Independent review: pending.
+- Tests and commands: local `tailscale set --help`, `tailscale exit-node list --filter=USA`, `tailscale get exit-node`, `mullvad status`, `mullvad lockdown-mode get`, `mullvad auto-connect get`, `curl -4 https://ip.me`, and Mullvad JSON check read-only; static assertions after review fixes passed (7/7) and `git diff --check` passed.
+- Independent review: changes requested on `6894c9b` for false-positive egress proof, standalone auto-connect startup behavior, and stale dossier. Fixes applied; re-review pending.
 - Replay/cohort/fixture evidence: live routing switch deliberately not exercised; existing standalone Mullvad tunnel remains connected.
 - Merge/ancestry evidence: pending.
 
 ## Blockers and deferred work
 
 - **Missing test or evidence:** live one-time handoff and subsequent Tailscale exit rotation.
-- **Command / fixture / environment needed:** operator access to host and planned pause of target traffic; `mullvad disconnect`, `tailscale set --exit-node=<listed-host>`, public IPv4/Mullvad check.
+- **Command / fixture / environment needed:** operator access to host and planned pause of target traffic; inspect/agree on `mullvad auto-connect get`, then `mullvad disconnect`, `tailscale set --exit-node=<listed-host>`, check standalone status, public IPv4, and matching Mullvad exit hostname.
 - **Trigger to run it:** Ryushe schedules a migration window with recovery access.
 - **Why it blocks integration, activation, or promotion:** does not block documentation integration; blocks claiming that the live host is using a Tailscale-managed exit.
 - **Next completion step / successor reference:** perform planned switch and verify egress on each intended host.
@@ -37,10 +37,10 @@ The skill and playbook use `tailscale exit-node list --filter=USA` to discover l
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/tailscale-mullvad-exit-nodes`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** run static checks, independent review, merge to beta, verify live projection; do not switch VPN without recovery path.
-- **Working-tree state at handoff:** intentionally uncommitted until first verification.
+- **Latest immutable recovery checkpoint:** `e0ebdac6954b4d239e9423e0e4da992883eeee38`
+- **Feature implementation commit(s):** `6894c9ba46ee8c4ba50a3764cf9c9caed2fbc7b7`, `e0ebdac6954b4d239e9423e0e4da992883eeee38`
+- **Exact resume point:** obtain independent re-review, merge to beta, verify live projection; do not switch VPN without recovery path.
+- **Working-tree state at handoff:** clean after dossier-only commit; live VPN unchanged.
 
 ## Decision gates
 
@@ -50,4 +50,4 @@ The skill and playbook use `tailscale exit-node list --filter=USA` to discover l
 
 ## Decision record
 
-- 2026-10-08 — Created feature branch at fetched beta and updated the skill/playbook only.
+- 2026-10-08 — Created feature branch at fetched beta; committed the skill, playbook, and this dossier as `6894c9b`. Independent review requested three corrections; applied them in the same branch, pending re-review and beta integration.

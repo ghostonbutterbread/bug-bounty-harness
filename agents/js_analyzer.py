@@ -42,7 +42,7 @@ DEFAULT_CONFIG_PATHS = (
 URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
 PATH_RE = re.compile(r"['\"](?P<path>/(?:api|v\d|graphql|gql|rest|backend|auth|oauth|login|admin|user|account|billing|checkout)[^'\"<>\s]{0,180})['\"]", re.IGNORECASE)
 PARAM_RE = re.compile(r"[?&]([A-Za-z0-9_.:-]{2,80})=")
-SOURCE_MAP_RE = re.compile(r"//[@#]\s*sourceMappingURL=(?P<url>\S+)")
+SOURCE_MAP_RE = re.compile(r"[@#]\s*sourceMappingURL=(?P<url>\S+)")
 IMPORT_RE = re.compile(r"\bimport\s*(?:\(|[^;\n]+from\s*)['\"]([^'\"]+)['\"]")
 SECRET_HINT_RE = re.compile(r"\b(api[_-]?key|secret|token|bearer|authorization|password|client[_-]?secret|private[_-]?key)\b", re.IGNORECASE)
 PARAM_NAME_RE = re.compile(
@@ -685,6 +685,92 @@ def collect_from_page(page_url: str, page_context: str, scope_hosts: list[str]) 
     return dedupe(js_urls), page_records, inline_bodies
 
 
+def last_source_map_directive(text: str) -> str:
+    """Find directives in actual comments within the bounded bundle tail."""
+    text = text[-3000:]
+    found = ""
+    i = 0
+    regex_allowed = True
+    control_keyword = False
+    parens: list[bool] = []
+    while i < len(text):
+        char = text[i]
+        if char.isspace():
+            i += 1
+            continue
+        if char in "'\"`":
+            quote = char
+            i += 1
+            while i < len(text):
+                if text[i] == "\\":
+                    i += 2
+                elif text[i] == quote:
+                    i += 1
+                    break
+                else:
+                    i += 1
+            regex_allowed = False
+            control_keyword = False
+            continue
+        if char == "/" and i + 1 < len(text) and text[i + 1] in ("/", "*"):
+            if text[i + 1] == "/":
+                end = text.find("\n", i + 2)
+                end = len(text) if end < 0 else end
+            else:
+                end = text.find("*/", i + 2)
+                end = len(text) if end < 0 else end
+            directive = SOURCE_MAP_RE.match(text[i + 2:end].lstrip())
+            if directive:
+                found = directive.group("url")
+            i = end if text[i + 1] == "/" or end == len(text) else end + 2
+            continue
+        if char == "/" and regex_allowed:
+            i += 1
+            in_class = False
+            while i < len(text):
+                if text[i] == "\\":
+                    i += 2
+                elif text[i] == "[":
+                    in_class = True
+                    i += 1
+                elif text[i] == "]" and in_class:
+                    in_class = False
+                    i += 1
+                elif text[i] == "/" and not in_class:
+                    i += 1
+                    break
+                else:
+                    i += 1
+            regex_allowed = False
+            continue
+        if char.isalpha() or char in "_$":
+            end = i + 1
+            while end < len(text) and (text[end].isalnum() or text[end] in "_$"):
+                end += 1
+            word = text[i:end]
+            control_keyword = word in {"if", "while", "for", "with", "switch", "catch"}
+            regex_allowed = word in {"return", "throw", "case", "else", "delete", "void", "typeof", "yield", "await"}
+            i = end
+            continue
+        if char.isdigit():
+            i += 1
+            while i < len(text) and (text[i].isalnum() or text[i] in "._"):
+                i += 1
+            regex_allowed = False
+            control_keyword = False
+            continue
+        if char == "(":
+            parens.append(control_keyword)
+            regex_allowed = True
+        elif char == ")":
+            regex_allowed = parens.pop() if parens else False
+        else:
+            regex_allowed = char not in "].}"
+        control_keyword = False
+        i += 1
+    return found
+
+
 def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = None) -> dict:
     endpoints = set()
     for match in URL_RE.findall(text):
@@ -703,9 +789,9 @@ def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = No
         params.update(name for name, _ in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
 
     source_map = ""
-    sm = SOURCE_MAP_RE.search(text[-3000:])
-    if sm:
-        source_map = normalize_url(sm.group("url"), base_url) or ""
+    directive = last_source_map_directive(text)
+    if directive:
+        source_map = normalize_url(directive, base_url) or ""
 
     secret_hints = sorted(set(m.group(1).lower() for m in SECRET_HINT_RE.finditer(text)))[:50]
     sources = sorted(name for name, pattern in SOURCE_KEYWORDS.items() if pattern.search(text))

@@ -398,6 +398,39 @@ def test_extract_signals_accepts_legacy_source_map_directive():
     assert signals["source_map"] == "https://app.example.com/static/legacy.js.map"
 
 
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("const value = 1;\n/*# sourceMappingURL=block.js.map */", "block.js.map"),
+        ("//# sourceMappingURL=first.js.map\n//# sourceMappingURL=last.js.map", "last.js.map"),
+        ("//# sourceMappingURL=first.js.map\n/*# sourceMappingURL=last.js.map */", "last.js.map"),
+        ("if (ready) /[//]/.test(value); //# sourceMappingURL=regex.js.map", "regex.js.map"),
+        ("if (ready) /[//# sourceMappingURL=decoy.js.map]/.test(value); //# sourceMappingURL=real.js.map", "real.js.map"),
+        ("if (ready) work(); else /[//]/.test(value); //# sourceMappingURL=real.js.map", "real.js.map"),
+        ("if (ready) work(); else /[//# sourceMappingURL=fake.js.map]/.test(value); //# sourceMappingURL=real.js.map", "real.js.map"),
+    ],
+)
+def test_extract_signals_uses_last_applicable_source_map_directive(body: str, expected: str):
+    signals = J.extract_signals(body, "https://app.example.com/static/app.js")
+    assert signals["source_map"] == f"https://app.example.com/static/{expected}"
+
+
+@pytest.mark.parametrize("decoy", [
+    "const text = '//# sourceMappingURL=fake.js.map';",
+    "const text = `/*# sourceMappingURL=fake.js.map */`;",
+    "if (ready) /[//# sourceMappingURL=fake.js.map]/.test(value);",
+    "if (ready) work(); else /[//# sourceMappingURL=fake.js.map]/.test(value);",
+    "if (ready) /[//]/.test(value); const text = '/*# sourceMappingURL=fake.js.map */';",
+])
+def test_extract_signals_ignores_source_map_directive_decoys(decoy: str):
+    assert J.extract_signals(decoy, "https://app.example.com/app.js")["source_map"] == ""
+
+
+def test_extract_signals_does_not_select_quoted_later_directive():
+    body = "//# sourceMappingURL=real.js.map\nconst text = '//# sourceMappingURL=fake.js.map';"
+    assert J.extract_signals(body, "https://app.example.com/app.js")["source_map"] == "https://app.example.com/real.js.map"
+
+
 def test_extract_signals_splits_in_scope_and_external_endpoints():
     text = """
     const internal = "https://static.canva.com/app.js";
@@ -847,6 +880,45 @@ def test_inventory_unpacks_in_scope_source_map_into_module_packets(tmp_path: Pat
     assert source_map_artifacts == 1
 
 
+def test_identical_bundle_bodies_with_distinct_maps_keep_distinct_packets(tmp_path: Path):
+    urls = ["https://app.example.com/one/app.js", "https://app.example.com/two/app.js"]
+    input_file = tmp_path / "jsfiles.txt"
+    input_file.write_text("\n".join(urls) + "\n", encoding="utf-8")
+    bundle = b"//# sourceMappingURL=app.js.map\n"
+    map_bodies = {
+        "https://app.example.com/one/app.js.map": json.dumps({
+            "version": 3, "sources": ["src/one.ts"], "sourcesContent": ["export const one = 1;"]
+        }).encode(),
+        "https://app.example.com/two/app.js.map": json.dumps({
+            "version": 3, "sources": ["src/two.ts"], "sourcesContent": ["export const two = 2;"]
+        }).encode(),
+    }
+
+    def fake_limited(url: str, *, timeout: int, max_bytes: int):
+        return map_bodies[url], 200, "application/json", False
+
+    with patch.object(J, "http_get", return_value=(bundle, 200, "application/javascript")), patch.object(
+        J, "http_get_limited", side_effect=fake_limited
+    ):
+        assert J.main([
+            "inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+            "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "library"),
+            "--run-id", "same-bundle-distinct-maps",
+        ]) == 0
+
+    modules = [json.loads(line) for line in (tmp_path / "out" / "source_map_modules.jsonl").read_text().splitlines()]
+    assert len(modules) == 2
+    assert {row["bundle_url"]: row["source_label"] for row in modules} == {
+        urls[0]: "src/one.ts", urls[1]: "src/two.ts"
+    }
+    packet_paths = [Path(row["packet_paths"][0]) for row in modules]
+    assert packet_paths[0] != packet_paths[1], "distinct maps must not claim the same packet path"
+    for row, packet_path in zip(modules, packet_paths):
+        packet = packet_path.read_text(encoding="utf-8")
+        assert row["bundle_url"] in packet
+        assert row["source_label"] in packet
+
+
 def test_inventory_does_not_store_or_count_source_map_error_body(tmp_path: Path):
     input_file = tmp_path / "jsfiles.txt"
     input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
@@ -957,6 +1029,30 @@ def test_inventory_reuses_cached_source_map(tmp_path: Path):
     manifest = json.loads((tmp_path / "run2" / "manifest.json").read_text())
     assert metadata[0]["source_map_status"] == "cached"
     assert manifest["source_maps_reused"] == 1
+
+
+def test_inventory_rejects_cached_source_map_after_byte_cap_is_lowered(tmp_path: Path):
+    input_file = tmp_path / "jsfiles.txt"
+    input_file.write_text("https://app.example.com/static/app.js\n", encoding="utf-8")
+    map_body = json.dumps({
+        "version": 3, "sources": ["src/app.ts"], "sourcesContent": ["export const app = 1;"]
+    }).encode()
+    common = ["inventory", "demo", "--input", str(input_file), "--target-host", "example.com",
+              "--library-root", str(tmp_path / "library")]
+    with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(
+        J, "http_get_limited", return_value=(map_body, 200, "application/json", False)
+    ) as limited:
+        assert J.main(common + ["--output-root", str(tmp_path / "first"), "--run-id", "seed-map"]) == 0
+        assert J.main(common + ["--output-root", str(tmp_path / "second"), "--run-id", "lower-cap",
+                                "--source-map-max-bytes", "10"]) == 0
+    assert limited.call_count == 1, "cached over-limit map must not be fetched again"
+    metadata = [json.loads(line) for line in (tmp_path / "second" / "metadata.jsonl").read_text().splitlines()]
+    manifest = json.loads((tmp_path / "second" / "manifest.json").read_text())
+    assert metadata[0]["source_map_status"] == "too_large"
+    assert metadata[0]["source_map_packet_count"] == 0
+    assert manifest["source_maps_too_large"] == 1
+    assert manifest["source_maps_reused"] == 0
+    assert not (tmp_path / "second" / "source_map_packets").exists()
 
 
 def test_inventory_refetches_legacy_cached_error_body(tmp_path: Path):

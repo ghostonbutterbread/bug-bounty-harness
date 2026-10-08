@@ -1,6 +1,6 @@
 # JavaScript hunt methodology integration dossier
 
-- **Status:** feature (independent review follow-up)
+- **Status:** blocked (implementation reviewed; beta integration owned by another task)
 - **Owner:** Hermes
 - **Branch:** `bug-bounty-harness/t_c21f1f78-implement-js-router-and-adaptive-js-hunt`
 - **Worktree:** `/home/ryushe/projects/bug_bounty_harness/.worktrees/t_c21f1f78`
@@ -42,9 +42,9 @@ No new parser, downloader, live target test, or fixed class team was added.
   is absent from unmodified `origin/beta` `AGENTS.md`. The test and guidance
   have no feature diff; this is a pre-existing mismatch, not waived correctness
   for the JS paths.
-- Independent review: a fresh read-only reviewer checked implementation commit `7ee99f76508f70f1ef9781b6384a9f7d5b44987a`, reran focused 10/10 and suite excluding unrelated baseline 205 passed/1 skipped. Verdict: methodology sound, integration held for stale dossier checkpoint (major) and registry missing legacy offline-fanout mode (minor). Both addressed in `0438b783757b7ac527e326df852cbe6d11fcb34e`; fresh verdict on corrected tree pending.
+- Independent review: a fresh read-only reviewer checked implementation commit `7ee99f76508f70f1ef9781b6384a9f7d5b44987a`, reran focused 10/10 and suite excluding unrelated baseline 205 passed/1 skipped. The initial dossier/registry blockers were corrected in `0438b783757b7ac527e326df852cbe6d11fcb34e`; independent re-review ACCEPTED exact tip `fa751cf4bcba6849a9fe056e192f5c6682bdd7f2` with no new material findings, focused 10/10 and 205 passed/1 skipped plus 167 subtests on the bounded suite.
 - Replay/cohort/fixture evidence: offline source-only examples; no live target action.
-- Merge/ancestry evidence: pending.
+- Merge/ancestry evidence: fetched `origin/beta` `1c48ae7c30a2f21370befcbd60284c1c4f01ba41` after the source-map accounting repair. An isolated detached no-commit merge had no conflict; with the branch-local dossier excluded, its staged code tree was `5731562baeab28e6f01c1925f8fa78570943d5eb`. On that combined tree `python3 -m pytest tests -q --ignore=tests/test_hoster_script_authority.py` returned 205 passed/1 skipped/167 subtests; `python3 -m pytest agents/test_js_analyzer.py -q` returned 189 passed. Preflight was aborted and its worktree removed, not integrated. Re-fetch and repeat against the final beta ref before merging.
 
 ## Blockers and deferred work
 
@@ -55,14 +55,21 @@ this feature. A separate owner should reconcile the guidance/test and rerun
 the **whole** suite passes. No beta runtime activation or main promotion is
 part of this task.
 
+Concurrent task `t_4f42599d` owns BBH master→beta history reconciliation. Do
+not merge or push beta from this feature while that task is active; its final
+beta ref may differ from the preflight base. This feature may publish only its
+own review/backup branch until integration is free.
+
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `bug-bounty-harness/t_c21f1f78-implement-js-router-and-adaptive-js-hunt`
 - **Latest immutable recovery checkpoint:** `0438b783757b7ac527e326df852cbe6d11fcb34e` (includes registry correction; branch tip has a later dossier-only commit)
 - **Feature implementation commit(s):** `7ee99f76508f70f1ef9781b6384a9f7d5b44987a`, `0438b783757b7ac527e326df852cbe6d11fcb34e`
-- **Exact resume point:** obtain fresh independent verdict on the corrected
-  commit and its dossier-only handoff tip, then decide beta integration from a
-  clean current target.
+- **Exact resume point:** after `t_4f42599d` finishes, fetch final `origin/beta`,
+  preflight the feature from a clean beta checkout with the dossier excluded,
+  rerun focused and bounded full tests, verify the staged code tree, then merge
+  only from an authorized clean beta integration worktree. No stable promotion
+  or runtime activation is authorized here.
 - **Working-tree state at handoff:** clean after dossier-only commit.
 
 ## Decision gates
@@ -75,3 +82,4 @@ part of this task.
 
 - 2026-10-07 — created beta-based scoped feature after user approval.
 - 2026-10-07 — independent review of the first implementation commit held integration for two handoff/discoverability corrections; corrected branch awaits re-review.
+- 2026-10-07 — re-review accepted corrected tip; isolated beta `1c48ae7` preflight passed. Integration deferred to avoid racing the active master→beta reconciliation owner.

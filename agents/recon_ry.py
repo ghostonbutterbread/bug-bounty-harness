@@ -455,6 +455,8 @@ def queue_remote(args: argparse.Namespace) -> None:
     """Run exact-host recon sequentially for a file of scoped root URLs."""
     if args.profile != "exact-urls":
         raise SystemExit("queue currently supports only --profile exact-urls")
+    if args.auth or args.auth_seed_file or args.header or args.cookie:
+        raise SystemExit("queue cannot share credentials across hosts; use single-host start --profile exact-urls")
     source = Path(args.url_file).expanduser()
     if not source.is_file():
         raise SystemExit(f"URL file not found: {source}")
@@ -482,13 +484,6 @@ def queue_remote(args: argparse.Namespace) -> None:
     queue_root = args.remote_project or f"/home/ryushe/bounties/{safe_slug(args.program)}/exact-url-queue"
     queue_file = f"{queue_root}/queue_urls.txt"
     rate_conf = rate_limit_conf_body(args.rate_limit_rps, args.timeout)
-    auth_seed, auth_summary = resolve_auth_seed(args)
-    effective_profile = "exact-urls-header" if auth_seed else "exact-urls"
-    profile_flag = f"--{effective_profile}" if effective_profile == "exact-urls" else f"--profile {effective_profile}"
-    remote_auth_seed = stage_remote_auth_seed(args, queue_root, auth_seed, auth_summary)
-    auth_file_cmds, _ = remote_auth_seed_commands(queue_root, auth_seed, auth_summary, dry_run=True) if args.dry_run else ("", "")
-    auth_env = f"env RECON_RY_AUTH_SEED={shell_quote(remote_auth_seed)} RECON_RY_AUTH_HOST=\"$target_host\" " if remote_auth_seed else ""
-    auth_arg = f" --auth-seed {shell_quote(remote_auth_seed)}" if remote_auth_seed else ""
     queue_body = "\n".join(targets) + "\n"
     worker = (
         "set -eu\n"
@@ -503,7 +498,7 @@ def queue_remote(args: argparse.Namespace) -> None:
         "  : > \"$project/wild.txt\"\n"
         "  cp \"$queue_root/rate_limit.conf\" \"$project/rate_limit.conf\"\n"
         "  item_log=\"$HOME/recon-ry-logs/queue-$(date -u +%Y%m%dT%H%M%SZ)-$target_host.log\"\n"
-        f"  {auth_env}\"$HOME/bin/recon-ry\" recon {profile_flag} --project \"$project\" --url \"$target_url\"{auth_arg} -v > \"$item_log\" 2>&1\n"
+        "  \"$HOME/bin/recon-ry\" recon --exact-urls --project \"$project\" --url \"$target_url\" -v > \"$item_log\" 2>&1\n"
         "  echo '[*] recon complete; aggregating run into Recon Bus' >> \"$item_log\"\n"
         f"  bbh scripts/recon_bus.py promote-run {shell_quote(args.program)} --run-root \"$project\" --no-probe >> \"$item_log\" 2>&1\n"
         "  printf 'completed target=%s log=%s\\n' \"$target_url\" \"$item_log\"\n"
@@ -515,13 +510,12 @@ def queue_remote(args: argparse.Namespace) -> None:
         "mkdir -p \"$HOME/recon-ry-logs\"; "
         f"mkdir -p {shell_quote(queue_root)}; "
         f"cat > {shell_quote(queue_file)} <<'RECONRY_QUEUE_URLS'\n{queue_body}RECONRY_QUEUE_URLS\n"
-        f"{auth_file_cmds}"
         f"cat > {shell_quote(queue_root + '/rate_limit.conf')} <<'RECONRY_RATE_LIMIT'\n{rate_conf}RECONRY_RATE_LIMIT\n"
         f"master_log=\"$HOME/recon-ry-logs/{safe_slug(args.program)}-exact-url-queue-$(date -u +%Y%m%dT%H%M%SZ).log\"; "
         "bbh --root; bbh --print-command scripts/recon_bus.py; "
         f"nohup bash -c {shell_quote(worker)} > \"$master_log\" 2>&1 & "
-        "printf 'pid=%s\\nlog=%s\\nqueue=%s\\ntargets=%s\\nauth=%s\\n' \"$!\" \"$master_log\" "
-        f"{shell_quote(queue_root)} {shell_quote(str(len(targets)))} {shell_quote(str(auth_summary.get('status', 'disabled')))}"
+        "printf 'pid=%s\\nlog=%s\\nqueue=%s\\ntargets=%s\\nauth=disabled\\n' \"$!\" \"$master_log\" "
+        f"{shell_quote(queue_root)} {shell_quote(str(len(targets)))}"
     )
     if args.dry_run:
         print(remote_cmd)

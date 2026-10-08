@@ -331,6 +331,25 @@ def test_queue_dry_run_uses_one_exact_url_at_a_time(tmp_path: Path, capsys) -> N
     assert "while IFS= read -r target_url" in output
 
 
+@pytest.mark.parametrize("auth_args", [
+    ["--header", "Authorization: Bearer synthetic"],
+    ["--auth-header", "X-Test-Identity: synthetic"],
+    ["--cookie", "sid=synthetic"],
+    ["--auth", "blue"],
+    ["--auth-seed-file", "/nonexistent/synthetic.json"],
+])
+def test_queue_rejects_shared_auth_before_resolving_or_staging(tmp_path: Path, auth_args, capsys) -> None:
+    urls = tmp_path / "targets.txt"
+    urls.write_text("https://first.example\nhttps://second.example\n", encoding="utf-8")
+    args = recon_ry.build_parser().parse_args(
+        ["queue", "demo", "--url-file", str(urls), "--profile", "exact-urls",
+         "--allow-unscoped", "--dry-run", *auth_args]
+    )
+    with pytest.raises(SystemExit, match="single-host start"):
+        recon_ry.queue_remote(args)
+    assert "$HOME/bin/recon-ry" not in capsys.readouterr().out
+
+
 def test_start_and_queue_timeout_default_to_unlimited() -> None:
     parser = recon_ry.build_parser()
     start = parser.parse_args(["start", "demo", "--url", "https://example.com"])

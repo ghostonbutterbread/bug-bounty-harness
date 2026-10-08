@@ -80,14 +80,39 @@ def test_cached_source_map_obeys_lowered_byte_cap_without_refetch(tmp_path: Path
     source.write_text("https://app.example.com/app.js\n")
     body = json.dumps({"version": 3, "sources": ["src/app.ts"], "sourcesContent": ["export const long = '" + "x" * 100 + "';"]}).encode()
     common = ["inventory", "demo", "--input", str(source), "--target-host", "example.com", "--library-root", str(tmp_path / "lib"), "--integration-index-root", str(tmp_path / "integrations")]
+    map_reads = []
+    real_open = Path.open
+
+    class TrackedMapFile:
+        def __init__(self, file):
+            self.file = file
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return self.file.__exit__(*args)
+
+        def read(self, size=-1):
+            map_reads.append(size)
+            return self.file.read(size)
+
+    def track_map_open(path, *args, **kwargs):
+        file = real_open(path, *args, **kwargs)
+        return TrackedMapFile(file) if path.suffix == ".map" else file
+
     with patch.object(J, "http_get", return_value=(b"//# sourceMappingURL=app.js.map\n", 200, "application/javascript")), patch.object(J, "http_get_limited", return_value=(body, 200, "application/json", False)) as fetch:
         assert J.main(common + ["--output-root", str(tmp_path / "first"), "--run-id", "first"]) == 0
-        assert J.main(common + ["--output-root", str(tmp_path / "second"), "--run-id", "second", "--source-map-max-bytes", "10"]) == 0
+        with patch.object(Path, "open", track_map_open), patch.object(J, "is_source_map_body", wraps=J.is_source_map_body) as validate_map:
+            assert J.main(common + ["--output-root", str(tmp_path / "second"), "--run-id", "second", "--source-map-max-bytes", "10"]) == 0
+        validate_map.assert_not_called()
+    assert map_reads == [11]
     assert fetch.call_count == 1
     metadata = J.read_jsonl(tmp_path / "second" / "metadata.jsonl")[0]
     manifest = json.loads((tmp_path / "second" / "manifest.json").read_text())
     assert metadata["source_map_status"] == "too_large"
     assert metadata["source_map_sha256"] == ""
+    assert metadata["source_map_artifact_path"] == ""
     assert metadata["source_map_module_count"] == 0
     assert J.read_jsonl(tmp_path / "second" / "source_map_modules.jsonl") == []
     assert manifest["source_maps_reused"] == 0

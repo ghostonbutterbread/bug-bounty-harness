@@ -1631,7 +1631,9 @@ def load_body_from_ledger(
     return body, sha, artifact_path
 
 
-def load_source_map_from_ledger(ledger: dict, *, url: str, source_maps_dir: Path) -> tuple[bytes, str, Path] | None:
+def load_source_map_from_ledger(
+    ledger: dict, *, url: str, source_maps_dir: Path, max_bytes: int,
+) -> tuple[bytes | None, str, Path] | None:
     entry = ledger.get("source_maps", {}).get(url)
     if not isinstance(entry, dict):
         return None
@@ -1641,7 +1643,10 @@ def load_source_map_from_ledger(ledger: dict, *, url: str, source_maps_dir: Path
     artifact_path = source_maps_dir / f"{sha}.map"
     if not artifact_path.exists():
         return None
-    body = artifact_path.read_bytes()
+    with artifact_path.open("rb") as file:
+        body = file.read(max_bytes + 1)
+    if len(body) > max_bytes:
+        return None, sha, artifact_path  # Present but oversized: do not parse or refetch.
     status = entry.get("status")
     if (hashlib.sha256(body).hexdigest() != sha or not isinstance(status, int)
             or not 200 <= status < 300 or not is_source_map_body(body)):
@@ -1936,10 +1941,11 @@ def command_inventory(args: argparse.Namespace) -> int:
                     ledger,
                     url=signals["source_map"],
                     source_maps_dir=source_maps_dir,
+                    max_bytes=args.source_map_max_bytes,
                 )
                 if cached_source_map:
                     source_map_body, source_map_sha256, source_map_path = cached_source_map
-                    if len(source_map_body) > args.source_map_max_bytes:
+                    if source_map_body is None:
                         source_map_status = "too_large"
                         source_maps_too_large += 1
                         source_map_sha256 = ""
@@ -1976,7 +1982,7 @@ def command_inventory(args: argparse.Namespace) -> int:
                         )
                         source_map_status = "downloaded"
                         source_maps_downloaded += 1
-                if source_map_sha256 and source_map_path:
+                if source_map_sha256 and source_map_path and source_map_body is not None:
                     source_map_artifact_path = str(source_map_path)
                     source_map_modules, source_map_modules_with_content = parse_source_map(source_map_body)
         chunks = chunk_text(text, args.chunk_size, args.chunk_overlap)

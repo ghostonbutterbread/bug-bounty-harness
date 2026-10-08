@@ -24,6 +24,12 @@ The Mullvad app and the Tailscale Mullvad add-on are alternative VPN managers on
 2. If Tailscale is absent, unauthorized, or has no usable West Coast Mullvad exit, keep/use the **standalone Mullvad CLI** only after checking that no Tailscale exit is selected. Do not disconnect a working standalone VPN while just checking capabilities. If Tailscale is installed but its CLI/daemon is inaccessible and a previous selection cannot be inspected/cleared, stop target traffic and restore Tailscale inspection or obtain operator recovery; do not assume the old selection is gone. If neither path works, stop rather than using the ISP route.
 3. On a host with running agents/browsers/proxies, or one reached remotely, assess disruption and arrange a recovery path before changing its network. The operator's belief that no agents are active is not a substitute for checking. A VPN handoff can affect network sessions; do not kill agents or services as a shortcut.
 
+## Preflight gate for a remote handoff
+
+Before changing either manager, capture `tailscale debug prefs` (or `tailscale get exit-node`), `mullvad status -v`, daemon/GUI Auto-connect, lockdown mode, `ip -4 route`, `ip -4 rule`, `ip -4 route get 1.1.1.1`, `resolvectl status`, DNS resolution, public egress, and health of each affected browser, agent, proxy, container and service. Check IPv6 routing/egress when available. A main-table ISP default does not prove ISP egress if a Mullvad policy route currently wins; conversely, an active Tailscale peer connection does not prove a Mullvad internet route. Confirm that the operator can run `tailscale set` on this host **before** disconnecting Mullvad; a privilege error is a stop, not a reason to proceed with half the handoff.
+
+For a remote host, require an independent, tested console or LAN control path, a safe workload change window, and a rehearsed rollback that does not depend on the route being changed. Test another client's SSH to the host, not merely the host's `tailscale ping` to a peer. Tailscale's `--exit-node-allow-lan-access` preference may need to be enabled to preserve LAN SSH and DNS after selecting an exit; inspect `tailscale debug prefs` and decide explicitly before changing it. Allowing LAN access may let LAN DNS leave the VPN, so verify resolver scope and obtain a privacy/control decision rather than assuming it is harmless. Do not silently change lockdown, DNS ownership, firewall, or service startup. If DNS is already broken or the Mullvad daemon hangs during disconnect, repair those prerequisites with privileged local control before retrying; a timeout is not proof of disconnection.
+
 ## One-time move from standalone Mullvad to Tailscale
 
 1. Record the current Mullvad relay/public IP, **daemon and GUI Auto-connect** (where app is installed), and lockdown settings; confirm the desired **listed** West Coast Tailscale Mullvad exit and control/recovery path. Mullvad's "block connections without VPN" setting can prevent switching; do not silently turn it off. Pause target traffic.
@@ -42,6 +48,17 @@ curl -4fsS --max-time 10 https://am.i.mullvad.net/json
 ```
 
 Select a *different* listed host within Seattle, an available Oregon city, Los Angeles, San Jose or San Francisco for a rotation. Check standalone `mullvad status` is disconnected; selected Tailscale host matches the intended exit; the observed public IP is not the normal ISP IP; and the JSON reports `mullvad_exit_ip: true` plus `mullvad_exit_ip_hostname` matching the chosen host's short name. Compare previous/new public IPs rather than assuming they change. If IPv6 is relevant, test `curl -6fsS --max-time 10 https://ip.me`. If an HTTP proxy is in use, verify the egress from the machine/path carrying the target traffic, not an unrelated local proxy.
+
+Verify routes, resolver, and the remote control path as well as the public IP:
+
+```bash
+ip -4 rule; ip -4 route; ip -4 route get 1.1.1.1
+resolvectl status
+getent ahostsv4 am.i.mullvad.net
+tailscale get exit-node; mullvad status -v; mullvad auto-connect get
+```
+
+On the independent client, retest SSH/LAN and any required Tailscale access; on the host, check a tailnet/MagicDNS name and public DNS separately. If public hostname lookup fails, a successful direct-IP HTTPS call does **not** clear the DNS failure. Check IPv6 route and public egress when the host supports it, and review DNS scope/leak behavior instead of treating a `resolvectl` display as conclusive proof. Verify each affected workload from its actual path before resuming it. A selected exit, peer ping, or one host-level curl is insufficient on its own.
 
 ## Standalone CLI fallback / rotation
 
@@ -63,6 +80,12 @@ If already connected, use `mullvad relay set location <listed-west-coast-locatio
 ## Boot/restart checks
 
 The existing Tailscale client preference for a **specific** selected West Coast Mullvad exit is meant to survive a service restart; a running tailnet without a working selected exit is not Mullvad egress. Before enabling/starting a `tailscaled` service, check its existing system/user owners to avoid a competing manager. On systemd Linux, require enabled/active `tailscaled` for Tailscale mode; check `tailscale status`, `tailscale get exit-node`, and the actual public egress again after a scheduled boot/restart, before scoped work. For standalone mode, check daemon auto-connect on, the connected West Coast relay (`mullvad status -v`), no Tailscale exit selected, and the actual public egress. These are **post-boot checks**, not a claim of an OS-level kill switch; boot-time or outage traffic may otherwise use the ISP. Do not reboot an active host only to prove persistence; if the checks fail, hold target traffic and repair the chosen mode or recover a verified fallback.
+
+## Failure and rollback boundary
+
+Failover is **manual**, not an automatic host policy: no automatic fallback agent, OS kill switch, fail-closed boot path, or outage/failure-injection test has been validated here. On a failed Tailscale exit, DNS, route, remote-control, or workload check, pause scoped traffic; one bounded retry with another *listed* West Coast exit is reasonable only when control remains stable. Otherwise use the explicit standalone rollback above: clear and read back the exit **first**, restore daemon auto-connect on, connect and verify Mullvad, then recheck routes, DNS, remote access and affected workloads. If clearing the exit fails, do not layer both managers; recover from the independent console. If standalone also fails, hold traffic instead of accepting ISP egress. A new automatic failover or kill-switch policy needs an explicit decision and controlled failure tests before documentation may claim it works.
+
+Current host-specific gates (read-only validation on 2026-10-08; recheck live state before acting): Ghost's unprivileged `tailscale set` was denied, requiring a local privileged operator grant or approved equivalent. Hoster's prior Mullvad disconnect hung while resetting DNS, public hostname resolution failed, and active browser/MITM/agent work requires a safe window plus independent access. Both hosts were still standalone Seattle Mullvad with daemon auto-connect on and no Tailscale exit selected at that validation. These are blockers, not steps to bypass by restarting daemons or switching DNS mid-session without the operator's change plan.
 
 ## Scoped connectivity recovery
 

@@ -351,6 +351,11 @@ def start_remote(args: argparse.Namespace) -> None:
             "urls.txt": args.url.strip() + "\n",
             "wild.txt": "",
         }
+    if args.profile in {"full", "subs", "fast"} and seed_files["wild.txt"].strip():
+        # Recon-Ry prefers --url over wild.txt for subdomain enumeration.
+        # Keep the URL for BBH scope validation, but let the staged wildcard
+        # roots drive the remote enumeration instead of silently using one.
+        url_part = ""
     # recon-ry filters tool input, constrains the crawler and filters promoted
     # artifacts when given an explicit scope. Derive it from the same saved
     # scope that gates this launch so the remote run cannot drift wider.

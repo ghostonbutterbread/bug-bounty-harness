@@ -163,6 +163,47 @@ def test_start_dry_run_uses_hoster_wrapper(capsys) -> None:
     assert 'export PATH="$HOME/go/bin:$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/bin:/bin:$PATH"' in output
 
 
+def test_wildcard_profiles_use_all_staged_roots_without_url_override(monkeypatch, capsys) -> None:
+    class MultiRootScope:
+        def __init__(self, program: str, strict: bool = True):
+            self._entries = [
+                SimpleNamespace(raw="*.first.example", entry_type="wildcard"),
+                SimpleNamespace(raw="*.second.example", entry_type="wildcard"),
+            ]
+            self._out_of_scope = []
+
+        def is_empty(self) -> bool:
+            return False
+
+        def validate_or_fail(self, _url: str) -> None:
+            return None
+
+    monkeypatch.setattr(recon_ry, "ScopeValidator", MultiRootScope)
+    for profile in ("full", "subs", "fast"):
+        args = recon_ry.build_parser().parse_args(
+            ["start", "demo", "--url", "first.example", "--profile", profile, "--dry-run"]
+        )
+        recon_ry.start_remote(args)
+        output = capsys.readouterr().out
+        assert "first.example\nsecond.example\nRECONRY_WILD_TXT" in output
+        command = next(line for line in output.splitlines() if '"$HOME/bin/recon-ry" recon ' in line)
+        assert f"--{profile}" in command
+        assert "--url" not in command
+        assert "--scope-file" in command
+
+    for profile in ("exact-urls", "urls"):
+        args = recon_ry.build_parser().parse_args(
+            ["start", "demo", "--url", "first.example", "--profile", profile, "--dry-run"]
+        )
+        recon_ry.start_remote(args)
+        output = capsys.readouterr().out
+        command = next(line for line in output.splitlines() if '"$HOME/bin/recon-ry" recon ' in line)
+        assert "--url " in command and "first.example" in command
+        assert "--scope-file" in command
+        if profile == "exact-urls":
+            assert "RECONRY_WILD_TXT'\nRECONRY_WILD_TXT" in output
+
+
 def test_start_dry_run_uses_exact_urls_flag(capsys) -> None:
     parser = recon_ry.build_parser()
     args = parser.parse_args(
@@ -182,6 +223,8 @@ def test_start_dry_run_uses_exact_urls_flag(capsys) -> None:
 
     output = capsys.readouterr().out
     assert '"$HOME/bin/recon-ry" recon --exact-urls' in output
+    command = next(line for line in output.splitlines() if '"$HOME/bin/recon-ry" recon ' in line)
+    assert "--url " in command and "https://app.example.com" in command
     assert "--full" not in output
     assert "--subs" not in output
 

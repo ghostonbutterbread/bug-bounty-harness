@@ -17,7 +17,7 @@ Keep `agents/leads.py search` listing all MapStore results even when an older le
 
 - RED: `python3 -m pytest -q agents/test_leads_cli.py -k legacy` failed with `KeyError: 'path'` at the search printer on the missing-path fixture.
 - GREEN: `python -m pytest -q agents/test_leads_cli.py agents/test_map_store.py agents/test_leads_skill.py` → 75 passed in 214.76s. `git diff --check` clean.
-- Independent review: pending.
+- Independent review: PASS on `7a9bb2b` and its follow-up dossier commit `313a334`; reviewer reran the focused leads tests (4 passed) and `git diff --check` (clean). Nonblocking stale handoff line corrected here.
 - Merge / ancestry evidence: pending.
 
 ## Blockers and deferred work
@@ -29,8 +29,8 @@ None expected. Integration requires focused tests and independent review. Runtim
 - **Owning feature branch/ref:** `fix/papercut-leads-missing-path`
 - **Latest immutable recovery checkpoint:** `7a9bb2b`
 - **Feature implementation commit(s):** `7a9bb2b`
-- **Exact resume point:** Independent review of `7a9bb2b` plus dossier follow-up, then merge to beta after integration checks.
-- **Working-tree state at handoff:** implementation committed; this evidence update awaits a dossier-only commit.
+- **Exact resume point:** Merge reviewed fix to the current beta after integration checks; remove this temporary dossier on the integration target.
+- **Working-tree state at handoff:** clean after this dossier correction is committed.
 
 ## Decision gates
 
@@ -41,3 +41,4 @@ None expected. Integration requires focused tests and independent review. Runtim
 ## Decision record
 
 - 2026-10-08 — Current beta reproduces report with a missing-path query row; scoped search-printer repair and regression prepared.
+- 2026-10-08 — Independent review PASS; accept for beta integration after correcting stale handoff text.

@@ -6,8 +6,8 @@
 - **Base commit:** `4b0fb836dd2622523c03640297cbe98416b50f3a`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-08
-- **Latest immutable recovery checkpoint:** `15a38ce9a15adb5ae3b0c1a6de1608629cd3bdb2`
-- **Feature implementation commits:** `15a38ce9a15adb5ae3b0c1a6de1608629cd3bdb2`
+- **Latest immutable recovery checkpoint:** `50354c35c221a00bdadb07abff0a2892e4f38d92`
+- **Feature implementation commits:** `15a38ce9a15adb5ae3b0c1a6de1608629cd3bdb2`, `50354c35c221a00bdadb07abff0a2892e4f38d92`
 - **Inspiration:** Discord thread 1557545732226031677, request 1557824476916359200; Hoster Hollister XSS handoff read-only; existing BBH XSS/WAF policy and ResearchMap/MapStore contracts.
 
 ## Intent and success criteria
@@ -54,10 +54,10 @@ target claims.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/xss-waf-adaptive-loop`
-- **Latest immutable recovery checkpoint:** `15a38ce9a15adb5ae3b0c1a6de1608629cd3bdb2`
-- **Feature implementation commits:** `15a38ce9a15adb5ae3b0c1a6de1608629cd3bdb2`
-- **Exact resume point:** commit the corrected feature, obtain fresh independent review of the corrected range against base `4b0fb83`, then integrate into beta only if blockers are cleared.
-- **Working-tree state at handoff:** corrected skill/playbook/test changes in this worktree, awaiting checkpoint commit.
+- **Latest immutable recovery checkpoint:** `50354c35c221a00bdadb07abff0a2892e4f38d92`
+- **Feature implementation commits:** `15a38ce9a15adb5ae3b0c1a6de1608629cd3bdb2`, `50354c35c221a00bdadb07abff0a2892e4f38d92`
+- **Exact resume point:** obtain fresh independent review of the corrected range against base `4b0fb83`, then integrate into beta only if blockers are cleared.
+- **Working-tree state at handoff:** clean after dossier-only handoff commit; the branch tip includes this later dossier update.
 
 ## Decision gates
 
@@ -70,3 +70,4 @@ target claims.
 - 2026-10-08 — isolated feature from fetched beta; outlined boundaries before editing skill owners.
 - 2026-10-08 — implemented and exercised adaptive skill workflow; focused XSS suite 147 passed; implementation checkpoint `15a38ce9a15adb5ae3b0c1a6de1608629cd3bdb2` awaits independent review.
 - 2026-10-08 — first review blocked unsafe harness recommendation and playbook proof drift; removed live automatic-retry recipe, aligned proof/record ownership and references, added regressions; corrected focused suite 157 passed; re-review pending.
+- 2026-10-08 — corrected implementation checkpoint `50354c35c221a00bdadb07abff0a2892e4f38d92` ready for independent re-review.

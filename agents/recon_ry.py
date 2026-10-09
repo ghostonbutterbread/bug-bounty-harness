@@ -254,9 +254,20 @@ def build_remote_seed_files(program: str, seed_url: str, *, allow_unscoped: bool
     except Exception:
         validator = None
     if validator and not validator.is_empty():
+        # A wildcard exclusion covering a whole root must not become an enum
+        # input merely because the inclusive scope also lists that root.
+        denied_lines, _ = recon_scope_file_lines([
+            getattr(entry, "raw", "") for entry in getattr(validator, "_out_of_scope", [])
+        ])
+        denied_roots = [line[2:] for line in denied_lines if line.startswith("*.")]
         for entry in getattr(validator, "_entries", []):
             raw = clean_scope_value(getattr(entry, "raw", ""))
             if not raw:
+                continue
+            if raw.startswith("*.") and any(
+                raw[2:].lower() == denied or raw[2:].lower().endswith("." + denied)
+                for denied in denied_roots
+            ):
                 continue
             if getattr(entry, "entry_type", "") == "url_pattern" or raw.startswith(("http://", "https://")):
                 urls.append(raw)
@@ -333,36 +344,53 @@ def rate_limit_conf_body(rate_limit_rps: float, timeout: int) -> str:
 def start_remote(args: argparse.Namespace) -> None:
     validate_start_scope(args.program, args.url, allow_unscoped=args.allow_unscoped)
     validate_profile_scope(args.program, args.profile)
+    # Recon-Ry's non-exact profiles can discover sibling hosts. Their manual
+    # headers are not gated by RECON_RY_AUTH_HOST, so a single URL seed is not
+    # sufficient to constrain credential delivery.
+    credential_material = bool(args.auth or args.auth_seed_file or args.header or args.cookie)
+    if credential_material and args.profile != "exact-urls":
+        raise SystemExit("credentialed recon requires --profile exact-urls; wider profiles can send headers to discovered hosts")
     project_dir = args.remote_project or f"/home/ryushe/bounties/{safe_slug(args.program)}"
     url_part = f" --url {shell_quote(args.url)}" if args.url else ""
     verbose = " -vv" if args.very_verbose else " -v"
     rate_conf = rate_limit_conf_body(args.rate_limit_rps, args.timeout)
     seed_files = build_remote_seed_files(args.program, args.url, allow_unscoped=args.allow_unscoped)
+    if args.profile in {"full", "subs", "fast", "urls"} and not seed_files["wild.txt"].strip():
+        # Do not fall back to --url enumeration when the only saved wildcard
+        # roots were excluded; an exact seed host does not authorize its subtree.
+        if not ScopeValidator(program=args.program, strict=True).is_empty():
+            raise SystemExit(f"Profile {args.profile!r} has no eligible wildcard roots; use --profile exact-urls")
     auth_seed, auth_summary = resolve_auth_seed(args)
     # EyeWitness and hakrawler do not accept arbitrary HTTP headers. When a
     # header-bearing seed is supplied, use the equivalent exact-host profile
     # that contains only tools with verified header forwarding.
     effective_profile = "exact-urls-header" if auth_seed and args.profile == "exact-urls" else args.profile
     profile_flag = f"--{effective_profile}" if effective_profile in {"full", "subs", "fast", "urls", "params", "dork", "dir", "exact-urls"} else f"--profile {effective_profile}"
-    credential_material = bool(args.auth or args.auth_seed_file or args.cookie)
-    if credential_material or args.profile == "exact-urls":
-        # Exact-host mode must never seed sibling scope entries into its project.
+    # Exact-host mode must never seed sibling scope entries into its project.
+    if args.profile == "exact-urls":
         seed_files = {
             "urls.txt": args.url.strip() + "\n",
             "wild.txt": "",
         }
+    if args.profile in {"full", "subs", "fast"} and seed_files["wild.txt"].strip():
+        # Recon-Ry prefers --url over wild.txt for subdomain enumeration.
+        # Keep the URL for BBH scope validation, but let the staged wildcard
+        # roots drive the remote enumeration instead of silently using one.
+        url_part = ""
     # recon-ry filters tool input, constrains the crawler and filters promoted
     # artifacts when given an explicit scope. Derive it from the same saved
     # scope that gates this launch so the remote run cannot drift wider.
     scope_arg = ""
     scope_files: dict[str, str] = {}
     deferred_scope: list[str] = []
-    if not args.allow_unscoped:
-        scope_files, deferred_scope = build_remote_scope_files(args.program)
-        if scope_files:
-            scope_arg = f" --scope-file {shell_quote(project_dir + '/_scope/in-scope-hosts.txt')}"
-            if "_scope/out-of-scope-hosts.txt" in scope_files:
-                scope_arg += f" --out-scope-file {shell_quote(project_dir + '/_scope/out-of-scope-hosts.txt')}"
+    scope_files, deferred_scope = build_remote_scope_files(args.program)
+    if not scope_files and args.profile in {"full", "subs", "fast", "urls"}:
+        if not ScopeValidator(program=args.program, strict=True).is_empty():
+            raise SystemExit("saved scope has no usable host filter for wildcard recon; use --profile exact-urls")
+    if scope_files:
+        scope_arg = f" --scope-file {shell_quote(project_dir + '/_scope/in-scope-hosts.txt')}"
+        if "_scope/out-of-scope-hosts.txt" in scope_files:
+            scope_arg += f" --out-scope-file {shell_quote(project_dir + '/_scope/out-of-scope-hosts.txt')}"
     seed_files = {**seed_files, **scope_files}
     remote_auth_seed = stage_remote_auth_seed(args, project_dir, auth_seed, auth_summary)
     auth_file_cmds, _ = remote_auth_seed_commands(project_dir, auth_seed, auth_summary, dry_run=True) if args.dry_run else ("", "")
@@ -434,6 +462,8 @@ def queue_remote(args: argparse.Namespace) -> None:
     """Run exact-host recon sequentially for a file of scoped root URLs."""
     if args.profile != "exact-urls":
         raise SystemExit("queue currently supports only --profile exact-urls")
+    if args.auth or args.auth_seed_file or args.header or args.cookie:
+        raise SystemExit("queue cannot share credentials across hosts; use single-host start --profile exact-urls")
     source = Path(args.url_file).expanduser()
     if not source.is_file():
         raise SystemExit(f"URL file not found: {source}")
@@ -461,13 +491,6 @@ def queue_remote(args: argparse.Namespace) -> None:
     queue_root = args.remote_project or f"/home/ryushe/bounties/{safe_slug(args.program)}/exact-url-queue"
     queue_file = f"{queue_root}/queue_urls.txt"
     rate_conf = rate_limit_conf_body(args.rate_limit_rps, args.timeout)
-    auth_seed, auth_summary = resolve_auth_seed(args)
-    effective_profile = "exact-urls-header" if auth_seed else "exact-urls"
-    profile_flag = f"--{effective_profile}" if effective_profile == "exact-urls" else f"--profile {effective_profile}"
-    remote_auth_seed = stage_remote_auth_seed(args, queue_root, auth_seed, auth_summary)
-    auth_file_cmds, _ = remote_auth_seed_commands(queue_root, auth_seed, auth_summary, dry_run=True) if args.dry_run else ("", "")
-    auth_env = f"env RECON_RY_AUTH_SEED={shell_quote(remote_auth_seed)} RECON_RY_AUTH_HOST=\"$target_host\" " if remote_auth_seed else ""
-    auth_arg = f" --auth-seed {shell_quote(remote_auth_seed)}" if remote_auth_seed else ""
     queue_body = "\n".join(targets) + "\n"
     worker = (
         "set -eu\n"
@@ -482,7 +505,7 @@ def queue_remote(args: argparse.Namespace) -> None:
         "  : > \"$project/wild.txt\"\n"
         "  cp \"$queue_root/rate_limit.conf\" \"$project/rate_limit.conf\"\n"
         "  item_log=\"$HOME/recon-ry-logs/queue-$(date -u +%Y%m%dT%H%M%SZ)-$target_host.log\"\n"
-        f"  {auth_env}\"$HOME/bin/recon-ry\" recon {profile_flag} --project \"$project\" --url \"$target_url\"{auth_arg} -v > \"$item_log\" 2>&1\n"
+        "  \"$HOME/bin/recon-ry\" recon --exact-urls --project \"$project\" --url \"$target_url\" -v > \"$item_log\" 2>&1\n"
         "  echo '[*] recon complete; aggregating run into Recon Bus' >> \"$item_log\"\n"
         f"  bbh scripts/recon_bus.py promote-run {shell_quote(args.program)} --run-root \"$project\" --no-probe >> \"$item_log\" 2>&1\n"
         "  printf 'completed target=%s log=%s\\n' \"$target_url\" \"$item_log\"\n"
@@ -494,13 +517,12 @@ def queue_remote(args: argparse.Namespace) -> None:
         "mkdir -p \"$HOME/recon-ry-logs\"; "
         f"mkdir -p {shell_quote(queue_root)}; "
         f"cat > {shell_quote(queue_file)} <<'RECONRY_QUEUE_URLS'\n{queue_body}RECONRY_QUEUE_URLS\n"
-        f"{auth_file_cmds}"
         f"cat > {shell_quote(queue_root + '/rate_limit.conf')} <<'RECONRY_RATE_LIMIT'\n{rate_conf}RECONRY_RATE_LIMIT\n"
         f"master_log=\"$HOME/recon-ry-logs/{safe_slug(args.program)}-exact-url-queue-$(date -u +%Y%m%dT%H%M%SZ).log\"; "
         "bbh --root; bbh --print-command scripts/recon_bus.py; "
         f"nohup bash -c {shell_quote(worker)} > \"$master_log\" 2>&1 & "
-        "printf 'pid=%s\\nlog=%s\\nqueue=%s\\ntargets=%s\\nauth=%s\\n' \"$!\" \"$master_log\" "
-        f"{shell_quote(queue_root)} {shell_quote(str(len(targets)))} {shell_quote(str(auth_summary.get('status', 'disabled')))}"
+        "printf 'pid=%s\\nlog=%s\\nqueue=%s\\ntargets=%s\\nauth=disabled\\n' \"$!\" \"$master_log\" "
+        f"{shell_quote(queue_root)} {shell_quote(str(len(targets)))}"
     )
     if args.dry_run:
         print(remote_cmd)
@@ -678,7 +700,7 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--ssh-key", default=str(DEFAULT_SSH_KEY))
     start_parser.add_argument("--rate-limit-rps", type=float, default=2.0, help="Project-local recon-ry rate limit written before start.")
     start_parser.add_argument("--timeout", type=int, default=0, help="Per-tool timeout written to rate_limit.conf (0 disables the timeout).")
-    start_parser.add_argument("--allow-unscoped", action="store_true", help="Bypass saved-scope fail-closed check after explicit approval.")
+    start_parser.add_argument("--allow-unscoped", action="store_true", help="Permit an approved target only when no saved scope exists; saved filters and exclusions still apply.")
     start_parser.add_argument("--auth", help="Resolve an owned account alias or PwnFox color through account-management, such as blue.")
     start_parser.add_argument("--auth-seed-file", help="Use an explicit locked-down auth seed JSON file.")
     start_parser.add_argument("--header", "--auth-header", dest="header", action="append", help="Header for supported HTTP tools; repeatable. Redacted from dry-run output. --auth-header is a compatibility alias.")
@@ -696,11 +718,11 @@ def build_parser() -> argparse.ArgumentParser:
     queue_parser.add_argument("--ssh-key", default=str(DEFAULT_SSH_KEY))
     queue_parser.add_argument("--rate-limit-rps", type=float, default=2.0, help="Aggregate sequential queue rate limit in requests per second.")
     queue_parser.add_argument("--timeout", type=int, default=0, help="Per-tool timeout written to each queued project (0 disables the timeout).")
-    queue_parser.add_argument("--allow-unscoped", action="store_true")
-    queue_parser.add_argument("--auth", help="Resolve an owned account alias or PwnFox color through account-management.")
-    queue_parser.add_argument("--auth-seed-file", help="Use an explicit locked-down auth seed JSON file.")
-    queue_parser.add_argument("--header", "--auth-header", dest="header", action="append", help="Header for supported HTTP tools; repeatable. --auth-header is a compatibility alias.")
-    queue_parser.add_argument("--cookie", action="append", help="Manual Cookie header value for supported HTTP tools; repeatable.")
+    queue_parser.add_argument("--allow-unscoped", action="store_true", help="Permit approved targets only when no saved scope exists; never override saved scope.")
+    queue_parser.add_argument("--auth", help="Unsupported in multi-host queue; use single-host start --profile exact-urls.")
+    queue_parser.add_argument("--auth-seed-file", help="Unsupported in multi-host queue; use single-host start --profile exact-urls.")
+    queue_parser.add_argument("--header", "--auth-header", dest="header", action="append", help="Unsupported in multi-host queue; use single-host start --profile exact-urls.")
+    queue_parser.add_argument("--cookie", action="append", help="Unsupported in multi-host queue; use single-host start --profile exact-urls.")
     queue_parser.add_argument("--dry-run", action="store_true")
     queue_parser.set_defaults(func=queue_remote)
 

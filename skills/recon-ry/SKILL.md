@@ -34,14 +34,18 @@ The start command fails closed if saved scope is missing or the URL is out of sc
 Authenticated runs are opt-in:
 
 ```bash
-bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile urls --auth blue
+bbh agents/recon_ry.py start <program> --url <one-scoped-origin> --profile exact-urls --auth blue
 ```
 
 `--auth <alias-or-color>` resolves through `/account-management` and PwnFox
 metadata, stages a locked-down auth seed on Hoster, and only passes auth to
-supported active HTTP tools. Manual `--auth-seed-file`, repeatable `--header`,
-and `--cookie` are available for approved one-off testing; `--auth-header`
-remains a compatibility alias. Raw values must not be pasted into chat or
+supported active HTTP tools. Credentialed starts require `--profile exact-urls`;
+credentialed multi-host `queue` is refused rather than sharing a seed across
+hosts. Manual `--auth-seed-file`, repeatable `--header`, and `--cookie` are
+available for approved single-host testing; `--auth-header` remains a
+compatibility alias. The header-capable profile omits tools without verified
+header forwarding (including EyeWitness); its filters are not a universal
+request-level egress guarantee. Raw values must not be pasted into chat or
 committed. Dry-run output is redacted.
 
 Before launch, the wrapper stages recon seed files into the remote project:

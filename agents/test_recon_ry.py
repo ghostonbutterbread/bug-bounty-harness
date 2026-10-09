@@ -5,6 +5,8 @@ import subprocess
 from types import SimpleNamespace
 from pathlib import Path
 
+import pytest
+
 from agents import recon_ry
 
 
@@ -163,6 +165,176 @@ def test_start_dry_run_uses_hoster_wrapper(capsys) -> None:
     assert 'export PATH="$HOME/go/bin:$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/bin:/bin:$PATH"' in output
 
 
+def test_wildcard_profiles_use_all_staged_roots_without_url_override(monkeypatch, capsys) -> None:
+    class MultiRootScope:
+        def __init__(self, program: str, strict: bool = True):
+            self._entries = [
+                SimpleNamespace(raw="*.first.example", entry_type="wildcard"),
+                SimpleNamespace(raw="*.second.example", entry_type="wildcard"),
+            ]
+            self._out_of_scope = []
+
+        def is_empty(self) -> bool:
+            return False
+
+        def validate_or_fail(self, _url: str) -> None:
+            return None
+
+    monkeypatch.setattr(recon_ry, "ScopeValidator", MultiRootScope)
+    for profile in ("full", "subs", "fast"):
+        args = recon_ry.build_parser().parse_args(
+            ["start", "demo", "--url", "first.example", "--profile", profile, "--dry-run"]
+        )
+        recon_ry.start_remote(args)
+        output = capsys.readouterr().out
+        assert "first.example\nsecond.example\nRECONRY_WILD_TXT" in output
+        command = next(line for line in output.splitlines() if '"$HOME/bin/recon-ry" recon ' in line)
+        assert f"--{profile}" in command
+        assert "--url" not in command
+        assert "--scope-file" in command
+
+    for profile in ("exact-urls", "urls"):
+        args = recon_ry.build_parser().parse_args(
+            ["start", "demo", "--url", "first.example", "--profile", profile, "--dry-run"]
+        )
+        recon_ry.start_remote(args)
+        output = capsys.readouterr().out
+        command = next(line for line in output.splitlines() if '"$HOME/bin/recon-ry" recon ' in line)
+        assert "--url " in command and "first.example" in command
+        assert "--scope-file" in command
+        if profile == "exact-urls":
+            assert "RECONRY_WILD_TXT'\nRECONRY_WILD_TXT" in output
+
+
+def test_allow_unscoped_does_not_drop_saved_exclusion_filter(monkeypatch, capsys) -> None:
+    class SavedScope:
+        def __init__(self, program: str, strict: bool = True):
+            self._entries = [
+                SimpleNamespace(raw="*.first.example", entry_type="wildcard"),
+                SimpleNamespace(raw="*.second.example", entry_type="wildcard"),
+            ]
+            self._out_of_scope = [
+                SimpleNamespace(raw="*.blocked.first.example", entry_type="wildcard"),
+            ]
+
+        def is_empty(self) -> bool:
+            return False
+
+        def validate_or_fail(self, url: str) -> None:
+            assert url == "first.example"
+
+    monkeypatch.setattr(recon_ry, "ScopeValidator", SavedScope)
+    args = recon_ry.build_parser().parse_args(
+        ["start", "demo", "--url", "first.example", "--profile", "full", "--allow-unscoped", "--dry-run"]
+    )
+    recon_ry.start_remote(args)
+    output = capsys.readouterr().out
+    command = next(line for line in output.splitlines() if '"$HOME/bin/recon-ry" recon ' in line)
+    assert "--url" not in command
+    assert "--scope-file" in command
+    assert "--out-scope-file" in command
+    assert "*.blocked.first.example" in output
+
+
+def test_wildcard_start_rejects_unrepresentable_saved_host_filter(monkeypatch, capsys) -> None:
+    class SavedScope:
+        def __init__(self, program: str, strict: bool = True):
+            self._entries = [SimpleNamespace(raw="*.first.example", entry_type="wildcard")]
+            self._out_of_scope = []
+
+        def is_empty(self) -> bool:
+            return False
+
+        def validate_or_fail(self, url: str) -> None:
+            assert url == "first.example"
+
+    monkeypatch.setattr(recon_ry, "ScopeValidator", SavedScope)
+    monkeypatch.setattr(recon_ry, "build_remote_scope_files", lambda _program: ({}, ["unrepresentable"]))
+    args = recon_ry.build_parser().parse_args(
+        ["start", "demo", "--url", "first.example", "--profile", "full", "--allow-unscoped", "--dry-run"]
+    )
+    with pytest.raises(SystemExit, match="no usable host filter"):
+        recon_ry.start_remote(args)
+    assert "$HOME/bin/recon-ry" not in capsys.readouterr().out
+
+
+def test_excluded_wildcard_roots_are_not_staged_as_roots(monkeypatch, capsys) -> None:
+    class ExcludedRootScope:
+        def __init__(self, program: str, strict: bool = True):
+            self._entries = [
+                SimpleNamespace(raw="*.first.example", entry_type="wildcard"),
+                SimpleNamespace(raw="*.second.example", entry_type="wildcard"),
+                SimpleNamespace(raw="*.sub.first.example", entry_type="wildcard"),
+                SimpleNamespace(raw="*.leaf.second.example", entry_type="wildcard"),
+            ]
+            self._out_of_scope = [
+                SimpleNamespace(raw="https://*.second.example", entry_type="url_pattern"),
+                SimpleNamespace(raw="*.sub.first.example", entry_type="wildcard"),
+            ]
+
+        def is_empty(self) -> bool:
+            return False
+
+        def validate_or_fail(self, _url: str) -> None:
+            return None
+
+    monkeypatch.setattr(recon_ry, "ScopeValidator", ExcludedRootScope)
+    args = recon_ry.build_parser().parse_args(
+        ["start", "demo", "--url", "first.example", "--profile", "subs", "--dry-run"]
+    )
+    recon_ry.start_remote(args)
+    output = capsys.readouterr().out
+    wild_body = output.split("RECONRY_WILD_TXT'\n", 1)[1].split("RECONRY_WILD_TXT", 1)[0]
+    assert wild_body == "first.example\n"
+    assert "--out-scope-file" in output
+
+
+@pytest.mark.parametrize("profile", ["full", "subs", "fast", "urls"])
+@pytest.mark.parametrize("allow_unscoped", [False, True])
+def test_wildcard_profile_rejects_when_all_saved_wildcards_are_excluded(
+    monkeypatch, capsys, profile, allow_unscoped
+) -> None:
+    class ExactHostAndExcludedWildcard:
+        def __init__(self, program: str, strict: bool = True):
+            self._entries = [
+                SimpleNamespace(raw="first.example", entry_type="domain"),
+                SimpleNamespace(raw="*.second.example", entry_type="wildcard"),
+            ]
+            self._out_of_scope = [SimpleNamespace(raw="*.second.example", entry_type="wildcard")]
+
+        def is_empty(self) -> bool:
+            return False
+
+        def validate_or_fail(self, url: str) -> None:
+            assert url == "first.example"
+
+    monkeypatch.setattr(recon_ry, "ScopeValidator", ExactHostAndExcludedWildcard)
+    flags = ["--allow-unscoped"] if allow_unscoped else []
+    args = recon_ry.build_parser().parse_args(
+        ["start", "demo", "--url", "first.example", "--profile", profile, "--dry-run", *flags]
+    )
+    with pytest.raises(SystemExit, match="no eligible wildcard roots"):
+        recon_ry.start_remote(args)
+    assert "$HOME/bin/recon-ry" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("profile", ["full", "subs", "fast", "urls", "params", "dork", "dir"])
+@pytest.mark.parametrize("auth_args", [
+    ["--header", "X-Test-Identity: synthetic"],
+    ["--cookie", "sid=synthetic"],
+    ["--auth", "blue"],
+    ["--auth-seed-file", "/nonexistent/synthetic.json"],
+])
+def test_credentialed_start_rejects_non_exact_profile_before_staging(profile, auth_args, capsys) -> None:
+    args = recon_ry.build_parser().parse_args(
+        ["start", "demo", "--url", "first.example", "--profile", profile,
+         "--dry-run", "--allow-unscoped", *auth_args]
+    )
+    with pytest.raises(SystemExit, match="exact-urls"):
+        recon_ry.start_remote(args)
+    assert "$HOME/bin/recon-ry" not in capsys.readouterr().out
+
+
 def test_start_dry_run_uses_exact_urls_flag(capsys) -> None:
     parser = recon_ry.build_parser()
     args = parser.parse_args(
@@ -182,6 +354,8 @@ def test_start_dry_run_uses_exact_urls_flag(capsys) -> None:
 
     output = capsys.readouterr().out
     assert '"$HOME/bin/recon-ry" recon --exact-urls' in output
+    command = next(line for line in output.splitlines() if '"$HOME/bin/recon-ry" recon ' in line)
+    assert "--url " in command and "https://app.example.com" in command
     assert "--full" not in output
     assert "--subs" not in output
 
@@ -238,6 +412,25 @@ def test_queue_dry_run_uses_one_exact_url_at_a_time(tmp_path: Path, capsys) -> N
     assert "while IFS= read -r target_url" in output
 
 
+@pytest.mark.parametrize("auth_args", [
+    ["--header", "Authorization: Bearer synthetic"],
+    ["--auth-header", "X-Test-Identity: synthetic"],
+    ["--cookie", "sid=synthetic"],
+    ["--auth", "blue"],
+    ["--auth-seed-file", "/nonexistent/synthetic.json"],
+])
+def test_queue_rejects_shared_auth_before_resolving_or_staging(tmp_path: Path, auth_args, capsys) -> None:
+    urls = tmp_path / "targets.txt"
+    urls.write_text("https://first.example\nhttps://second.example\n", encoding="utf-8")
+    args = recon_ry.build_parser().parse_args(
+        ["queue", "demo", "--url-file", str(urls), "--profile", "exact-urls",
+         "--allow-unscoped", "--dry-run", *auth_args]
+    )
+    with pytest.raises(SystemExit, match="single-host start"):
+        recon_ry.queue_remote(args)
+    assert "$HOME/bin/recon-ry" not in capsys.readouterr().out
+
+
 def test_start_and_queue_timeout_default_to_unlimited() -> None:
     parser = recon_ry.build_parser()
     start = parser.parse_args(["start", "demo", "--url", "https://example.com"])
@@ -280,7 +473,7 @@ def test_start_dry_run_stages_manual_auth_without_leaking_values(capsys) -> None
             "--url",
             "https://example.com",
             "--profile",
-            "urls",
+            "exact-urls",
             "--dry-run",
             "--allow-unscoped",
             "--auth-header",
@@ -303,30 +496,21 @@ def test_start_dry_run_stages_manual_auth_without_leaking_values(capsys) -> None
     assert "SECRET_COOKIE" not in output
 
 
-def test_start_dry_run_custom_headers_preserve_saved_scope_seeds(monkeypatch, capsys) -> None:
+def test_start_dry_run_custom_headers_isolate_saved_scope_seeds(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         recon_ry,
         "build_remote_seed_files",
         lambda *_args, **_kwargs: {
             "urls.txt": "https://example.com\nhttps://api.example.com\n",
-            "wild.txt": "example.com\n",
+            "wild.txt": "example.com\nsecond.example\n",
         },
     )
     parser = recon_ry.build_parser()
     args = parser.parse_args(
         [
-            "start",
-            "demo",
-            "--url",
-            "https://example.com",
-            "--profile",
-            "urls",
-            "--dry-run",
-            "--allow-unscoped",
-            "--header",
-            "Authorization: Bearer ***",
-            "--header",
-            "X-Program-Researcher: ryushe",
+            "start", "demo", "--url", "https://example.com", "--profile", "exact-urls",
+            "--dry-run", "--allow-unscoped", "--header", "Authorization: Bearer ***",
+            "--header", "X-Program-Researcher: ryushe",
         ]
     )
 
@@ -334,9 +518,12 @@ def test_start_dry_run_custom_headers_preserve_saved_scope_seeds(monkeypatch, ca
 
     output = capsys.readouterr().out
     assert "https://example.com" in output
-    assert "https://api.example.com" in output
+    assert "https://api.example.com" not in output
+    assert "second.example" not in output
     assert "cat > '/home/ryushe/bounties/demo/wild.txt'" in output
-    assert "'RECONRY_WILD_TXT'\nexample.com\nRECONRY_WILD_TXT" in output
+    assert "'RECONRY_WILD_TXT'\nRECONRY_WILD_TXT" in output
+    command = next(line for line in output.splitlines() if '"$HOME/bin/recon-ry" recon ' in line)
+    assert "--url " in command and "https://example.com" in command
     assert "Authorization" in output
     assert "X-Program-Researcher" in output
 
@@ -371,7 +558,7 @@ def test_start_dry_run_uses_explicit_auth_seed_metadata_only(tmp_path: Path, cap
             "--url",
             "https://example.com",
             "--profile",
-            "urls",
+            "exact-urls",
             "--dry-run",
             "--allow-unscoped",
             "--auth-seed-file",

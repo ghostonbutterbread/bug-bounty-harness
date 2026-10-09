@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from inventory_paths import inventory_path, program_key
 
@@ -33,6 +35,14 @@ FORBIDDEN_HINTS = (
     "private key",
     "reset link",
     "recovery code",
+)
+SECRET_VALUE_PATTERN = re.compile(
+    r"\b[a-z0-9_-]*(?:passwords?|passwds?|cookies?|tokens?|secrets?|api[_-]?keys?|"
+    r"private[_\s-]?keys?|reset[_\s-]?links?|recovery[_\s-]?codes?|authorization)[a-z0-9_-]*\b(?:\s*\[[^\]]*\])*[\"']?\s*[:=]\s*[\"']?\S+"
+    r"|\bheaders?(?:\s*\[[^\]]*\])+\s*[:=]\s*\S+|\bheaders?\s*=\s*\S+|\bheaders?[\"']?\s*:\s*[\{\[]"
+    r"|\bbearer\s+(?!of\b)\S+"
+    r"|-----BEGIN [A-Z ]*PRIVATE KEY-----",
+    re.IGNORECASE,
 )
 
 PWNFOX_CONFIG = {
@@ -165,10 +175,13 @@ def reject_secretish(values: dict[str, Any]) -> None:
         if value is None:
             continue
         text = str(value).lower()
-        if key in {"notes", "source"}:
-            # These can contain natural language. Still catch obvious credential blobs.
-            pass
-        if any(hint in text for hint in FORBIDDEN_HINTS):
+        # Prose and seed *references* may name auth concepts or .tokens.json
+        # without containing credentials. Reject actual assignment/header forms.
+        if key in {"notes", "source", "auth_refresh_hint", "auth_seed_ref"}:
+            secretish = bool(SECRET_VALUE_PATTERN.search(unquote(text)))
+        else:
+            secretish = any(hint in text for hint in FORBIDDEN_HINTS)
+        if secretish:
             raise SystemExit(f"refusing to store possible secret material in field {key!r}")
 
 

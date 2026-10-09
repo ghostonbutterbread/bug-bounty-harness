@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 
 def load_inventory_module():
     root = Path(__file__).resolve().parents[1]
@@ -20,6 +22,65 @@ def load_module(name: str, script: Path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_non_secret_auth_prose_and_seed_filename_are_accepted(tmp_path, monkeypatch):
+    module = load_inventory_module()
+    monkeypatch.setenv("HARNESS_SHARED_BASE", str(tmp_path / "shared"))
+    assert module.main([
+        "add-account", "demo", "--alias", "blue",
+        "--auth-seed-ref", "auth-seed:/synthetic/sessions.tokens.json",
+        "--auth-refresh-hint", "The access token is handled elsewhere; public client ID is non-secret.",
+        "--notes", "No cookies are stored here; refresh through the approved browser.",
+    ]) == 0
+    account = module.load_inventory("demo")["accounts"][0]
+    assert account["auth_seed_ref"].endswith("sessions.tokens.json")
+    assert "access token" in account["auth_refresh_hint"]
+
+
+@pytest.mark.parametrize("field,value", [
+    ("notes", "password=synthetic-secret-value"),
+    ("auth_refresh_hint", "Authorization: Bearer synthetic-credential-value"),
+    ("auth_seed_ref", "auth-seed:/synthetic/seed.json?token=synthetic-secret-value"),
+    ("source", "Cookie: sid=synthetic-session-value"),
+    ("notes", '{"access_token": "synthetic-secret-value"}'),
+    ("auth_refresh_hint", '{"client_secret": "synthetic-secret-value"}'),
+    ("notes", "refreshToken=synthetic-secret-value"),
+    ("notes", "clientSecret: synthetic-secret-value"),
+    ("auth_refresh_hint", "tokens=synthetic-secret-value"),
+    ("auth_seed_ref", "auth-seed:/synthetic/seed.json?accessToken=synthetic-secret-value"),
+    ("auth_seed_ref", "auth-seed:/synthetic/seed.json?sessionCookie=synthetic-secret-value"),
+    ("notes", 'passwords["primary"] = "synthetic-value"'),
+    ("source", 'tokens["access"] = "synthetic-value"'),
+    ("auth_refresh_hint", 'headers["Cookie"] = "sid=synthetic-value"'),
+    ("auth_seed_ref", 'auth-seed:/synthetic/ref?headers["Authorization"]=synthetic-value'),
+    ("notes", 'cookies["sid"]["value"] = "synthetic-value"'),
+    ("auth_seed_ref", "auth-seed:/synthetic/seed.json?token[]=synthetic-value"),
+    ("auth_seed_ref", "auth-seed:/synthetic/seed.json?token%5B%5D=synthetic-value"),
+    ("notes", 'headers = {"Authorization": "Basic synthetic-value"}'),
+    ("notes", 'Authorization = "Basic synthetic-value"'),
+    ("auth_refresh_hint", "authorization=synthetic-value"),
+    ("auth_seed_ref", "auth-seed:/synthetic/seed.json?Authorization=synthetic-value"),
+    ("notes", 'authorization["default"] = "Basic synthetic-value"'),
+    ("auth_seed_ref", "auth-seed:/synthetic/seed.json?authorization%5Bdefault%5D=synthetic-value"),
+    ("notes", 'headers = [("Authorization", "Basic synthetic-value")]'),
+    ("notes", '{"headers":[{"name":"Authorization","value":"Basic synthetic-value"}]}'),
+    ("notes", '{"headers":[["Authorization","Basic synthetic-value"]]}'),
+    ("auth_refresh_hint", '{"headers":{"Authorization":"Basic synthetic-value"}}'),
+    ("notes", "secret_access_key=synthetic-value"),
+    ("source", "password_value=synthetic-value"),
+    ("auth_refresh_hint", "api_key_value=synthetic-value"),
+    ("auth_seed_ref", "auth-seed:/synthetic/seed.json?token_value=synthetic-value"),
+])
+def test_non_secret_fields_still_reject_credential_values(field, value):
+    module = load_inventory_module()
+    with pytest.raises(SystemExit, match="refusing to store possible secret material"):
+        module.reject_secretish({field: value})
+
+
+def test_auth_vocabulary_in_plain_prose_is_not_an_assignment():
+    module = load_inventory_module()
+    module.reject_secretish({"notes": "The bearer of this note does not store credentials."})
 
 
 def test_all_account_consumers_use_one_normalized_program_inventory_path(tmp_path, monkeypatch):

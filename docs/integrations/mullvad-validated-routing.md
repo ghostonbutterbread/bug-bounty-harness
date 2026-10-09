@@ -1,6 +1,6 @@
 # Mullvad validated-routing documentation integration dossier
 
-- **Status:** final discrepancy/DNS-reset correction pending independent re-review; not integrated or activated by this task
+- **Status:** implementation independently re-reviewed at `bd14e713b4178fe4b8af34a7e99f13db7245f124`; accepted for beta integration, host activation still gated
 - **Owner:** Hermes / Kanban t_38097d65
 - **Branch:** `docs/mullvad-validated-routing`
 - **Base commit:** `866523ceea889bf2560c22af6c09b88692baebd2` (`origin/beta` at creation)
@@ -22,7 +22,7 @@ Close the gap between beta's existing Tailscale-first/standalone-fallback prose 
 ## Evidence and review
 
 - Tests and commands: `python3 ../check_mullvad_docs.py` passed 20 focused contract assertions on `bd14e713b4178fe4b8af34a7e99f13db7245f124`; `git diff --check` and staged diff check passed. The test script is scratch-only and not part of the feature commit.
-- Independent review: the early review found LAN-only control insufficient; the revised gate requires independent recovery. A later read-only review found rollback trusted only `tailscale get exit-node` despite Hoster's saved-versus-effective discrepancy and flagged stale dossier claims. `bd14e713b4178fe4b8af34a7e99f13db7245f124` adds the saved/effective/status/route gate and corrects the DNS-reset and dynamic exit guidance; it needs exact-head re-review. This dossier updates the stale Hoster claim.
+- Independent review: the early review found LAN-only control insufficient; the revised gate requires independent recovery. A later read-only review found rollback trusted only `tailscale get exit-node` despite Hoster's saved-versus-effective discrepancy and flagged stale dossier claims. `bd14e713b4178fe4b8af34a7e99f13db7245f124` adds the saved/effective/status/route gate and corrects the DNS-reset and dynamic exit guidance; a fresh read-only review independently passed this exact implementation against `origin/beta` `866523ceea889bf2560c22af6c09b88692baebd2`. The dossier's temporary uncommitted-state warning was resolved by committing handoff `b0e4ed56c34b2e9e7880234931baa7eb216f493a` before this acceptance update. Host migration/failover is untested.
 - Replay/cohort/fixture evidence: parent read-only report; no privileged network tests in this docs task.
 - Merge/ancestry evidence: feature based on current fetched `origin/beta` above; integration not performed.
 
@@ -36,8 +36,8 @@ Close the gap between beta's existing Tailscale-first/standalone-fallback prose 
 - **Owning feature branch/ref:** `docs/mullvad-validated-routing`
 - **Latest immutable recovery checkpoint:** `bd14e713b4178fe4b8af34a7e99f13db7245f124`
 - **Feature implementation commit(s):** `f489b728bcc2a6a5186c2233cc713b3195eaf97f`, `f1f23f6778acfdca15861280589e65067edc672c`, `cc7903a014e027a90725bdaacd5a593e016fe678`, `bd14e713b4178fe4b8af34a7e99f13db7245f124`; the tip after this dossier-only handoff commit is later.
-- **Exact resume point:** independently re-review the corrected rollback/DNS-reset wording at `bd14e713b4178fe4b8af34a7e99f13db7245f124` against fetched `origin/beta`; integrate into a clean current beta only after acceptance and remove this dossier from integration target.
-- **Working-tree state at handoff:** clean after the dossier-only checkpoint commit.
+- **Exact resume point:** integrate reviewed implementation `bd14e713b4178fe4b8af34a7e99f13db7245f124` into a clean current beta; remove this branch-local dossier from integration target.
+- **Working-tree state at handoff:** clean after the next dossier-only acceptance commit.
 
 ## Decision gates
 
@@ -47,4 +47,4 @@ Close the gap between beta's existing Tailscale-first/standalone-fallback prose 
 
 ## Decision record
 
-- 2026-10-08 — Created docs refinement from reviewed beta; first independent review identified LAN-only control gap; revised preflight to require independent recovery and post-selection verification in correction `f1f23f6778acfdca15861280589e65067edc672c`. No production change.
+- 2026-10-08 — Created docs refinement from reviewed beta; first independent review identified LAN-only control gap; revised preflight to require independent recovery and post-selection verification in correction `f1f23f6778acfdca15861280589e65067edc672c`. A later independent review of `bd14e713b4178fe4b8af34a7e99f13db7245f124` accepted the saved/effective rollback, patient DNS reset, dynamic exit and host-snapshot corrections for beta documentation. Host migration and automatic failover remain unverified; activation is separate.

@@ -1,12 +1,12 @@
 # Account inventory false secret-match repair
 
-- **Status:** security re-review pending
+- **Status:** security review passed; integration pending
 - **Owner:** Hermes bugfix
 - **Branch / owning ref:** `fix/papercut-account-inventory-secret-shape`
 - **Base commit:** `4e005929127d05785e704847bc80486cbd0c6297`
 - **Intended integration target:** `beta`
-- **Latest immutable recovery checkpoint:** `9bf3696` (JSON header arrays; key-suffix follow-up pending)
-- **Feature implementation commit(s):** `e6bd8cf`, `b329b73`, `06d85f0`, `37b5b38`, `02f95e6`, `dce1c47`, `9bf3696` (key-suffix follow-up pending)
+- **Latest immutable recovery checkpoint:** `30965bf` (key-suffix fix, independently security-reviewed)
+- **Feature implementation commit(s):** `e6bd8cf`, `b329b73`, `06d85f0`, `37b5b38`, `02f95e6`, `dce1c47`, `9bf3696`, `30965bf`
 - **Inspiration:** `PC-20261006-183024-3c2fa227`, `PC-20261006-190941-bdadb001`
 
 ## Intent and implemented contract
@@ -17,20 +17,20 @@ For only `notes`, `source`, `auth_refresh_hint`, and `auth_seed_ref`, allow non-
 
 - RED: synthetic `add-account` rejected `.tokens.json` before saving; new JSON `access_token` and `client_secret` cases failed against initial shape pattern.
 - GREEN: `python3 -m pytest -q agents/test_account_inventory.py` → 15 passed; test uses sandbox `HARNESS_SHARED_BASE` and synthetic values only.
-- Independent reviews found camelCase/plural, indexed, percent-encoded, Authorization, and JSON header-container assignments. The latest full-diff review found suffixed secret keys (`secret_access_key`, `password_value`, `api_key_value`, `token_value`) accepted. Four synthetic regressions failed before the key-suffix fix; `agents/test_account_inventory.py` now has 42 passing tests. Further independent re-review pending.
+- Independent reviews found camelCase/plural, indexed, percent-encoded, Authorization, and JSON header-container assignments. The latest full-diff review found suffixed secret keys (`secret_access_key`, `password_value`, `api_key_value`, `token_value`) accepted. Four synthetic regressions failed before the key-suffix fix; `agents/test_account_inventory.py` now has 42 passing tests. Independent final review at `30965bf` verified all four plus ten neighboring assignments rejected, benign prose and `.tokens.json` accepted, 42 tests and diff check passed. Its only blocker was this stale checkpoint record, now corrected.
 - Merge / ancestry evidence: pending.
 
 ## Blockers and deferred work
 
-Security re-review required before integration. Assignment-like prose such as "password: not stored" remains conservatively rejected rather than risking low-entropy credential values. The guard is heuristic, not a sanitizer; stable promotion and runtime activation not requested.
+Assignment-like prose such as "password: not stored" remains conservatively rejected rather than risking low-entropy credential values. The guard is heuristic, not a sanitizer; stable promotion and runtime activation not requested.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/papercut-account-inventory-secret-shape`
-- **Latest immutable recovery checkpoint:** `9bf3696` (JSON header arrays; key-suffix follow-up pending)
-- **Feature implementation commit(s):** `e6bd8cf`, `b329b73`, `06d85f0`, `37b5b38`, `02f95e6`, `dce1c47`, `9bf3696` (key-suffix follow-up pending)
-- **Exact resume point:** Independently re-review key-suffix coverage against fetched beta, rerun focused suite, integrate only if safe.
-- **Working-tree state at handoff:** clean after key-suffix follow-up commit.
+- **Latest immutable recovery checkpoint:** `30965bf` (key-suffix fix, independently security-reviewed)
+- **Feature implementation commit(s):** `e6bd8cf`, `b329b73`, `06d85f0`, `37b5b38`, `02f95e6`, `dce1c47`, `9bf3696`, `30965bf`
+- **Exact resume point:** Check latest beta and integrate reviewed feature after this dossier-only correction; remove dossier from beta in the merge operation and rerun focused tests.
+- **Working-tree state at handoff:** clean after dossier-only release-record commit.
 
 ## Decision gates
 

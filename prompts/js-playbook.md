@@ -39,16 +39,18 @@ interpretation and security reasoning.
 - prioritize depth over breadth
 - chunk by page, bundle family, source map/module boundary, route cluster, or
   stable byte windows
-- spawn bounded specialist agents only when chunks are independent and the user
-  wants the budget spent on this task
+- trace selected flows deeply; delegate by complementary role, with at most
+  three active JS-review subagents when independent packets justify it
 
 `offline-fanout`:
 
 - use when Ryushe says "dig into the JS", "vuln test the JS", "run JS deep",
   or similar language that implies broad local review
 - consume an existing `js_analyzer.py inventory` run
-- have the active parent directly spawn bounded native subagents: mapper and
-  anomaly workers first, then only evidence-selected follow-up categories
+- have the active parent directly spawn at most three complementary roles:
+  mapper and classless anomaly reviewer first, then a focused tracer only for
+  evidence-selected transactions or dataflows; assign additional packets to a
+  returning role or inspect them in the parent, not one worker per class
 - use the active CLI's native subagents and ask its native model selector or
   advertised model list for the fast option in the parent's family/generation;
   keep model names out of BBH and fall back to the configured worker or parent
@@ -116,9 +118,10 @@ General review order (the behavioral map and evidence rules live in `/js-hunt`):
 
 1. Run `general-map` and classless anomaly review to understand feature and
    packet families before choosing a vulnerability class.
-2. Prioritize app-specific behaviors and select only evidence-supported broad
-   follow-up categories; split workers when packets are independent and the
-   budget warrants it.
+2. Prioritize app-specific behaviors and select evidence-supported transactions
+   or dataflows for focused tracing. Reuse the three complementary review roles
+   over bounded independent packets; the parent covers gaps without adding a
+   worker per category.
 3. Each worker writes concise findings with source JS URL, SHA, packet path,
    trace, controllability, provenance/proxy links, confidence, and next skill.
 4. The main agent merges results into dated notes/handoffs and routes only
@@ -418,11 +421,12 @@ advertised model list; do not guess or encode a provider/model name in BBH. If
 the CLI cannot make that selection, use its configured worker model or inherited
 parent and do not describe the run as lower-cost unless that routing occurred.
 
-The parent model verifies the first-wave citations, merges duplicate signals,
-and only then dispatches useful broad follow-up categories such as client-side
-trust, auth/account/tenant, API/request contracts, import/export/fetch/media,
-commerce/feature logic, or secrets/config/integrations. The parent owns final
-synthesis and any separate live-validation handoff.
+The parent verifies first-wave citations and merges duplicate signals. It may
+then assign a focused transaction/dataflow trace as the third role, or reuse a
+freed slot for another bounded packet; do not dispatch broad follow-up teams
+by vulnerability class. Keep no more than three active JS-review subagents for
+this run. The parent owns coverage, synthesis, and any separate live-validation
+handoff.
 
 Use a simple run-local handoff layout so worker evidence survives context
 compression without requiring a team runner:
@@ -432,8 +436,8 @@ compression without requiring a team runner:
 ├── mapstore_candidates.jsonl
 ├── synthesis.md
 └── reports/
-    ├── general-map-01.json
-    └── anomaly-01.json
+    ├── surface-map-01.json
+    └── anomaly-review-01.json
 ```
 
 Give each worker a unique report path; do not have parallel workers append to a

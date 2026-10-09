@@ -22,13 +22,19 @@ tasks through its native delegation capability.
   Do not encode provider or model names in BBH. If that CLI cannot make the
   selection, use its configured worker model or inherit the parent without
   claiming a cheaper route.
-- Offline agents should fan out by broad attack-surface category by default.
-  Use the old narrow lens matrix only when Ryushe intentionally chooses that
-  spend.
+- Delegate by complementary **review role**, not vulnerability class or one
+  subagent per packet. Default to at most three active JS-review subagents in
+  the run: surface/behavior map, classless anomaly review, and one focused
+  transaction/dataflow tracer when evidence warrants it. The parent owns
+  packet allocation and synthesis; reuse a role across bounded packets or
+  inspect remaining packets directly. Do not multiply roles when volume grows.
+  Count other active JS-review workers against the same three slots and release
+  a slot before a follow-up. Narrow specialist follow-up belongs to a separate
+  policy-governed validation task, not an enlarged offline team.
 - Live requests are not allowed in the offline campaign.
-- Category agents stay in their broad family but report narrower specialist
-  follow-up needs in a peripheral-vision field.
-- Always include a classless anomaly lane when budget allows.
+- Role workers keep peripheral vision and report narrower specialist follow-up
+  needs without spawning a class-specific worker for each lead.
+- Include a classless anomaly pass in the first wave when delegating.
 - Promote outputs into findings, MapStore gadget candidates, endpoint handoffs,
   or live-validation hypotheses.
 - Treat MapStore as lazy retrieval, not prompt baggage. Query it when current
@@ -52,50 +58,33 @@ tasks through its native delegation capability.
    paths by page, bundle family, route cluster, or source-map boundary. Keep each
    worker's input bounded and independent; do not paste full bundles into
    prompts.
-3. Call the active agent's native delegation tool with a first-wave batch:
-   one or more general-map workers plus a classless anomaly worker. Each task
-   packet includes exact local paths, relevant provenance rows, the offline-only
-   boundary, and a structured output contract requiring cited evidence,
-   confidence, missing proof, and suggested follow-up category.
+3. If independent packets justify delegation, dispatch a first wave with at
+   most two complementary roles: surface/behavior mapper and classless anomaly
+   reviewer. Divide packets between them; the parent reviews uncovered packets
+   or gives a role another bounded packet after it returns. Each task includes
+   exact local paths, provenance, the offline-only boundary, and a structured
+   output contract requiring cited evidence, confidence, missing proof, and
+   suggested follow-up.
 4. Let the active CLI apply its native model routing. Ask its model selector or
    advertised model list for the current fast sibling of the parent model's
    family/generation. Never guess or hardcode the name; when selection is not
    available, use the configured worker or inherited parent and report that
    fallback honestly.
-5. The parent model reads the returned reports, checks cited packet/function
-   evidence, merges duplicates, and rejects unsupported regex-only claims.
-6. Dispatch a second native batch only for categories supported by stage-one
-   evidence. Keep the classless anomaly lane in the first wave so classifier
-   misses do not become exclusions.
-7. The parent synthesizes selected results into findings, MapStore candidates,
-   endpoint/request-shape handoffs, wordlists, or policy-governed
-   live-validation hypotheses. Native workers remain offline throughout.
+5. The parent checks cited packet/function evidence, merges duplicates, and
+   rejects unsupported regex-only claims.
+6. For a selected transaction or dataflow requiring depth, assign a focused
+   tracer as the third role, or recycle a freed slot. Do not dispatch a batch
+   per attack class. The parent retains coverage ownership and performs any
+   remaining synthesis itself.
+7. Synthesize selected results into findings, MapStore candidates, endpoint/
+   request-shape handoffs, wordlists, or policy-governed live hypotheses.
+   Native workers remain offline throughout.
 
-Default native fanout uses broad task categories:
-
-- `js-general-map`: planner and JavaScript surface map
-- `js-client-side-trust`: DOM, postMessage, storage, workers, browser trust
-- `js-auth-account-tenant`: auth, ATO, access control, IDOR, tenants
-- `js-api-request-contracts`: API clients, request shape, GraphQL, headers,
-  parser/normalization
-- `js-import-export-fetch-media`: uploads, imports, exports, URL fetchers,
-  webhooks, media/file flows
-- `js-commerce-feature-logic`: payment, entitlements, feature gates, cache,
-  workflow state
-- `js-secrets-config-integrations`: usable secrets, config, external pivots
-- `js-anomaly-hunter`: classless weirdness and missed assumptions
-
-Use narrow lens workers only for deliberate high-budget follow-up
-(`js-dom-xss`, `js-idor`, `js-payment`, etc.); do not eagerly create the old
-fixed matrix.
-
-## Modes
-
-- `quick`: a small general-map/anomaly batch, then at most the strongest
-  evidence-selected follow-up.
-- `look`: general map, anomaly, and common evidence-selected categories.
-- `deep`: bounded first-wave fanout followed by all justified broad categories.
-- `full`: same staged shape as `deep`, with a larger explicitly approved budget.
+The three complementary roles are `js-surface-map`, `js-anomaly-review`, and
+`js-focused-trace` (only when warranted). Assign each a distinct packet and
+output path; a role can cover multiple related features over successive bounded
+assignments. `quick`, `look`, `deep`, and `full` adjust review depth and packet
+coverage, not the number of worker roles or the three-active-worker limit.
 
 ## Expected Outputs
 
@@ -106,8 +95,8 @@ Native fanout outputs live under:
 ├── mapstore_candidates.jsonl
 ├── synthesis.md
 └── reports/
-    ├── general-map-01.json
-    └── anomaly-01.json
+    ├── surface-map-01.json
+    └── anomaly-review-01.json
 ```
 
 Give each worker a unique report path. Parallel workers do not append to a

@@ -5,8 +5,8 @@
 - **Branch / owning ref:** `fix/papercut-account-inventory-secret-shape`
 - **Base commit:** `4e005929127d05785e704847bc80486cbd0c6297`
 - **Intended integration target:** `beta`
-- **Latest immutable recovery checkpoint:** `02f95e6` (plain authorization assignments; indexed/container follow-up pending)
-- **Feature implementation commit(s):** `e6bd8cf`, `b329b73`, `06d85f0`, `37b5b38`, `02f95e6` (indexed/container follow-up pending)
+- **Latest immutable recovery checkpoint:** `dce1c47` (indexed auth/header containers; JSON-header follow-up pending)
+- **Feature implementation commit(s):** `e6bd8cf`, `b329b73`, `06d85f0`, `37b5b38`, `02f95e6`, `dce1c47` (JSON-header follow-up pending)
 - **Inspiration:** `PC-20261006-183024-3c2fa227`, `PC-20261006-190941-bdadb001`
 
 ## Intent and implemented contract
@@ -17,7 +17,7 @@ For only `notes`, `source`, `auth_refresh_hint`, and `auth_seed_ref`, allow non-
 
 - RED: synthetic `add-account` rejected `.tokens.json` before saving; new JSON `access_token` and `client_secret` cases failed against initial shape pattern.
 - GREEN: `python3 -m pytest -q agents/test_account_inventory.py` → 15 passed; test uses sandbox `HARNESS_SHARED_BASE` and synthetic values only.
-- Independent review: initial review BLOCK found camelCase/plural assignments; second found indexed assignments; third found nested/empty brackets and percent-encoded query assignments. Post-reconciliation reviews found plain `Authorization = "Basic ..."`, then `authorization["default"] = ...`, encoded indexed authorization, and `headers = [(...)]` accepted in relaxed fields. Follow-ups cover each reported synthetic class with a shared indexed-key grammar and header container assignments. Each new case was RED before its fix; `agents/test_account_inventory.py` now has 35 passing synthetic tests. Further independent re-review pending.
+- Independent review: first reviews found camelCase/plural, indexed, nested/empty bracket, and percent-encoded query assignments; post-reconciliation reviews found plain then indexed Authorization assignments and list-valued headers. The final release review found JSON header arrays (`{"headers":[...]}`) still accepted. Follow-ups cover each reported synthetic class, including quoted JSON header container keys. Each new case was RED before its fix; `agents/test_account_inventory.py` now has 38 passing synthetic tests. Further independent re-review pending.
 - Merge / ancestry evidence: pending.
 
 ## Blockers and deferred work
@@ -27,10 +27,10 @@ Security re-review required before integration. Assignment-like prose such as "p
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/papercut-account-inventory-secret-shape`
-- **Latest immutable recovery checkpoint:** `02f95e6` (plain authorization assignments; indexed/container follow-up pending)
-- **Feature implementation commit(s):** `e6bd8cf`, `b329b73`, `06d85f0`, `37b5b38`, `02f95e6` (indexed/container follow-up pending)
-- **Exact resume point:** Independently re-review indexed authorization and header-container coverage against current beta, rerun focused suite, integrate only if safe.
-- **Working-tree state at handoff:** clean after indexed-authorization/header-container follow-up commit.
+- **Latest immutable recovery checkpoint:** `dce1c47` (indexed auth/header containers; JSON-header follow-up pending)
+- **Feature implementation commit(s):** `e6bd8cf`, `b329b73`, `06d85f0`, `37b5b38`, `02f95e6`, `dce1c47` (JSON-header follow-up pending)
+- **Exact resume point:** Independently re-review JSON header container coverage against current beta, rerun focused suite, integrate only if safe.
+- **Working-tree state at handoff:** clean after JSON-header follow-up commit.
 
 ## Decision gates
 
@@ -46,3 +46,4 @@ Security re-review required before integration. Assignment-like prose such as "p
 - 2026-10-08 — Third reviewer found repeated/empty indexes and encoded query brackets bypassed; follow-up checks percent-decoded values and repeated indexing, and rejects header-map literals.
 - 2026-10-08 — Post-reconciliation reviewer found plain `Authorization =` assignments passed; follow-up matches `:` and `=` assignment syntax in relaxed fields.
 - 2026-10-08 — Re-review found indexed authorization and list-valued header assignments; follow-up unifies authorization with indexed secret keys and rejects header container assignments.
+- 2026-10-08 — Final release review found quoted JSON `headers` keys with array values bypassed; follow-up rejects JSON header containers in the four relaxed fields.

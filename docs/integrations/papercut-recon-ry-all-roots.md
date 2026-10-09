@@ -1,12 +1,12 @@
 # Recon-Ry staged wildcard roots repair
 
-- **Status:** review-ready after saved-scope filter follow-up
+- **Status:** local security review passed; beta integration pending
 - **Owner:** Hermes bugfix
 - **Branch / owning ref:** `fix/papercut-recon-ry-all-roots`
 - **Base commit:** `4e005929127d05785e704847bc80486cbd0c6297`
 - **Intended integration target:** `beta`
-- **Latest immutable recovery checkpoint:** `fed8921` (reference-impact correction; scope-filter follow-up pending)
-- **Feature implementation commit(s):** `4c72c9f`, `30970bd`, `93559a8`, `cf5a37d`, `e987f59`, `305ae9d`, `fed8921` (scope-filter follow-up pending)
+- **Latest immutable recovery checkpoint:** `924c370` (saved-scope filter fix; later handoff-only commit updates parser help/dossier)
+- **Feature implementation commit(s):** `4c72c9f`, `30970bd`, `93559a8`, `cf5a37d`, `e987f59`, `305ae9d`, `fed8921`, `924c370`
 - **Inspiration:** `PC-20261006-231217-41f204eb`
 
 ## Intent and implemented contract
@@ -17,7 +17,7 @@ BBH still requires and validates `start --url` against saved scope, stages all e
 
 - RED: Synthetic two-root dry-run test failed because the generated core command contained `--url first.example`, which core `src/stages.sh` prefers over `wild.txt`.
 - GREEN before security follow-up: `python3 -m pytest -q agents/test_recon_ry.py agents/test_scope_seed_files.py` → 20 passed. Verifies multiple roots staged, scope files preserved, exact/URL-only profiles keep URL, and existing unscoped behavior.
-- Independent review: first reviews found manual-header isolation and fully excluded wildcard-root staging gaps. A second found that an empty `wild.txt` still permits `full` to discover sibling hosts. A third found `queue` reused one auth seed across every queued host (and `queue --cookie` crashed). A fourth found that, when all saved wildcard roots are excluded, an exact-host `--url` still falls back to out-of-scope subdomain enumeration. The post-reconciliation release review found `--allow-unscoped` suppressed a saved exclusion filter while all wildcard roots were staged. Follow-ups reject credentialed non-exact `start`, all credentialed `queue` requests, wildcard-dependent starts without eligible roots, and any saved wildcard scope that cannot yield a host filter; `--allow-unscoped` never disables a saved filter. Each new synthetic regression was RED before its guard, then the focused suite was GREEN: `python3 -m pytest -q agents/test_recon_ry.py agents/test_scope_seed_files.py tests/test_recon_ry_scope_files.py` → 69 passed, 1 skipped. Independent re-review required after this latest follow-up.
+- Independent review: first reviews found manual-header isolation and fully excluded wildcard-root staging gaps. A second found that an empty `wild.txt` still permits `full` to discover sibling hosts. A third found `queue` reused one auth seed across every queued host (and `queue --cookie` crashed). A fourth found that, when all saved wildcard roots are excluded, an exact-host `--url` still falls back to out-of-scope subdomain enumeration. The post-reconciliation release review found `--allow-unscoped` suppressed a saved exclusion filter while all wildcard roots were staged. Follow-ups reject credentialed non-exact `start`, all credentialed `queue` requests, wildcard-dependent starts without eligible roots, and any saved wildcard scope that cannot yield a host filter; `--allow-unscoped` never disables a saved filter. Each new synthetic regression was RED before its guard. Independent security re-review of `924c370` reproduced the old failure at `9ce7b69` and confirmed saved allow/deny filters, approved unsaved URL fallback, eligible and fully excluded roots, and credential guards. Focused suite: `python3 -m pytest -q agents/test_recon_ry.py agents/test_scope_seed_files.py tests/test_recon_ry_scope_files.py` → 69 passed, 1 skipped. Reviewer requested only handoff/parser-help corrections, made after the reviewed code checkpoint.
 - Reference-impact audit: `skills/recon-ry/SKILL.md`, `prompts/recon-ry-playbook.md`, and the queue parser still advertised credentialed `urls` or shared-header queue behavior. Updated examples and help to the exact-host start contract; bounded repository search found no other credentialed wrapper command examples. Recheck after beta integration.
 - Merge / ancestry evidence: pending.
 
@@ -28,10 +28,10 @@ The accepted review applies to the tested local wrapper; exact-urls-header core 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/papercut-recon-ry-all-roots`
-- **Latest immutable recovery checkpoint:** `fed8921` (reference-impact correction; scope-filter follow-up pending)
-- **Feature implementation commit(s):** `4c72c9f`, `30970bd`, `93559a8`, `cf5a37d`, `e987f59`, `305ae9d`, `fed8921` (scope-filter follow-up pending)
-- **Exact resume point:** Re-review the saved-scope filter follow-up, reconcile any advanced beta, rerun focused checks, and integrate if safe.
-- **Working-tree state at handoff:** clean after follow-up commit.
+- **Latest immutable recovery checkpoint:** `924c370` (saved-scope filter fix; later handoff-only commit updates parser help/dossier)
+- **Feature implementation commit(s):** `4c72c9f`, `30970bd`, `93559a8`, `cf5a37d`, `e987f59`, `305ae9d`, `fed8921`, `924c370`
+- **Exact resume point:** Fetch beta, verify final tip/ancestry and focused tests, then integrate from a clean beta checkout. Keep Hoster activation deferred.
+- **Working-tree state at handoff:** clean after handoff/parser-help commit (checkpoint `924c370` is its parent).
 
 ## Decision gates
 

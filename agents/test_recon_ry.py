@@ -206,6 +206,58 @@ def test_wildcard_profiles_use_all_staged_roots_without_url_override(monkeypatch
             assert "RECONRY_WILD_TXT'\nRECONRY_WILD_TXT" in output
 
 
+def test_allow_unscoped_does_not_drop_saved_exclusion_filter(monkeypatch, capsys) -> None:
+    class SavedScope:
+        def __init__(self, program: str, strict: bool = True):
+            self._entries = [
+                SimpleNamespace(raw="*.first.example", entry_type="wildcard"),
+                SimpleNamespace(raw="*.second.example", entry_type="wildcard"),
+            ]
+            self._out_of_scope = [
+                SimpleNamespace(raw="*.blocked.first.example", entry_type="wildcard"),
+            ]
+
+        def is_empty(self) -> bool:
+            return False
+
+        def validate_or_fail(self, url: str) -> None:
+            assert url == "first.example"
+
+    monkeypatch.setattr(recon_ry, "ScopeValidator", SavedScope)
+    args = recon_ry.build_parser().parse_args(
+        ["start", "demo", "--url", "first.example", "--profile", "full", "--allow-unscoped", "--dry-run"]
+    )
+    recon_ry.start_remote(args)
+    output = capsys.readouterr().out
+    command = next(line for line in output.splitlines() if '"$HOME/bin/recon-ry" recon ' in line)
+    assert "--url" not in command
+    assert "--scope-file" in command
+    assert "--out-scope-file" in command
+    assert "*.blocked.first.example" in output
+
+
+def test_wildcard_start_rejects_unrepresentable_saved_host_filter(monkeypatch, capsys) -> None:
+    class SavedScope:
+        def __init__(self, program: str, strict: bool = True):
+            self._entries = [SimpleNamespace(raw="*.first.example", entry_type="wildcard")]
+            self._out_of_scope = []
+
+        def is_empty(self) -> bool:
+            return False
+
+        def validate_or_fail(self, url: str) -> None:
+            assert url == "first.example"
+
+    monkeypatch.setattr(recon_ry, "ScopeValidator", SavedScope)
+    monkeypatch.setattr(recon_ry, "build_remote_scope_files", lambda _program: ({}, ["unrepresentable"]))
+    args = recon_ry.build_parser().parse_args(
+        ["start", "demo", "--url", "first.example", "--profile", "full", "--allow-unscoped", "--dry-run"]
+    )
+    with pytest.raises(SystemExit, match="no usable host filter"):
+        recon_ry.start_remote(args)
+    assert "$HOME/bin/recon-ry" not in capsys.readouterr().out
+
+
 def test_excluded_wildcard_roots_are_not_staged_as_roots(monkeypatch, capsys) -> None:
     class ExcludedRootScope:
         def __init__(self, program: str, strict: bool = True):

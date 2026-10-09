@@ -33,7 +33,7 @@ The wrapper enforces saved scope before starting:
 
 - if no saved scope exists for the program, it stops
 - if the seed URL is not in scope, it stops
-- `--allow-unscoped` is only for explicit Ryushe-approved exceptions
+- `--allow-unscoped` is only for explicit Ryushe-approved runs with no saved scope; it never disables an existing saved host filter or exclusion
 
 ### Exact URL-Only Scope
 

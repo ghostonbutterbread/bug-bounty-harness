@@ -383,12 +383,14 @@ def start_remote(args: argparse.Namespace) -> None:
     scope_arg = ""
     scope_files: dict[str, str] = {}
     deferred_scope: list[str] = []
-    if not args.allow_unscoped:
-        scope_files, deferred_scope = build_remote_scope_files(args.program)
-        if scope_files:
-            scope_arg = f" --scope-file {shell_quote(project_dir + '/_scope/in-scope-hosts.txt')}"
-            if "_scope/out-of-scope-hosts.txt" in scope_files:
-                scope_arg += f" --out-scope-file {shell_quote(project_dir + '/_scope/out-of-scope-hosts.txt')}"
+    scope_files, deferred_scope = build_remote_scope_files(args.program)
+    if not scope_files and args.profile in {"full", "subs", "fast", "urls"}:
+        if not ScopeValidator(program=args.program, strict=True).is_empty():
+            raise SystemExit("saved scope has no usable host filter for wildcard recon; use --profile exact-urls")
+    if scope_files:
+        scope_arg = f" --scope-file {shell_quote(project_dir + '/_scope/in-scope-hosts.txt')}"
+        if "_scope/out-of-scope-hosts.txt" in scope_files:
+            scope_arg += f" --out-scope-file {shell_quote(project_dir + '/_scope/out-of-scope-hosts.txt')}"
     seed_files = {**seed_files, **scope_files}
     remote_auth_seed = stage_remote_auth_seed(args, project_dir, auth_seed, auth_summary)
     auth_file_cmds, _ = remote_auth_seed_commands(project_dir, auth_seed, auth_summary, dry_run=True) if args.dry_run else ("", "")

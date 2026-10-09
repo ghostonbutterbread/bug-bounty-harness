@@ -24,7 +24,7 @@ class SecurityReportingSkillTests(unittest.TestCase):
             "## Technical details", "## How to reproduce", "**Prerequisites:**", "**PoC:**",
             "**Manual replay:**", "malicious request", "observed response", "Never cite, link, name",
             "REPORT.md", "FINALIZED.md", "poc-tooling-policy", "triager-first-poc-authoring",
-            "`poc.<ext>`", "full, absolute paths", "SUBMISSION.md`",
+            "`poc.<ext>`", "full, absolute **Report** path", "PoC: inline curl", "SUBMISSION.md`",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)

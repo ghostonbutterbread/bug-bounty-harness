@@ -171,12 +171,14 @@ seen in scoped JS as read-only context, never automatic test targets.
 
 For a small run, the parent can inspect bounded packets itself. For independent
 packets, use the native fanout in `skills/js/references/offline-fanout.md`:
-first-wave general-map and anomaly workers, parent verification, then only
-justified broad follow-ups. Store each worker report separately under
-`native_fanout/`; the parent checks cited functions and merges duplicates. No
-fixed all-class team, no repository-specific team runner, and no live validation
-inside this offline pass. `deep` means more evidence-selected tracing;
-`offline-fanout` names the optional execution strategy, not another method.
+role-based surface map and anomaly review, then a focused tracer only when
+warranted, with at most three active JS-review subagents. The parent allocates
+bounded packets, verifies cited functions, merges duplicates, and covers gaps
+without spawning one worker per vulnerability class. Store each worker report
+separately under `native_fanout/`. No repository-specific team runner and no
+live validation inside this offline pass. `deep` means more evidence-selected
+tracing; `offline-fanout` names the optional execution strategy, not another
+method.
 
 ### Example handoff (illustrative, not a finding)
 

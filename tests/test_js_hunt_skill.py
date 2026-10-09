@@ -65,6 +65,10 @@ def test_hunt_is_adaptive_and_evidence_led_not_a_class_matrix() -> None:
     assert "live validation" in hunt.lower()
     assert "`/js-hunt`" in playbook
     assert "`/js-hunt`" in fanout
+    assert "three complementary review roles" in playbook
+    assert "no more than three active JS-review subagents" in playbook
+    assert "select only evidence-supported broad follow-up categories" not in " ".join(playbook.split())
+    assert "at most three active JS-review subagents" in fanout
 
 
 def test_hunt_handoff_names_evidence_and_separate_validation() -> None:

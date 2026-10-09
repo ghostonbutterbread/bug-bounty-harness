@@ -52,14 +52,14 @@ fingerprinting, parameter/JS discovery, directory discovery, secret scanning,
 URL ranking, and EyeWitness. URL-bearing outputs are filtered back to the exact
 seed host. Run it once per exact scoped host.
 
-The wrapper writes `<remote-project>/rate_limit.conf` before launch. Default is conservative: `--rate-limit-rps 2`, `--timeout 300`. Increase only when the program policy allows it.
+The wrapper writes `<remote-project>/rate_limit.conf` before launch. Default is conservative: `--rate-limit-rps 2`; `--timeout 0` disables the per-tool timeout. Set tighter limits when the program policy requires them, and increase request rate only when allowed.
 
 Authenticated recon is opt-in and should use the existing account resolver:
 
 ```bash
 bbh agents/recon_ry.py start <program> \
-  --url <scoped-domain-or-url> \
-  --profile urls \
+  --url <one-scoped-origin> \
+  --profile exact-urls \
   --auth blue
 ```
 
@@ -68,9 +68,13 @@ bbh agents/recon_ry.py start <program> \
 account inventory permits it, stages a `0600` auth seed under the remote
 project's `.auth/` directory, and sets `RECON_RY_AUTH_SEED` for recon-ry.
 Manual `--auth-seed-file`, repeatable `--header`, and `--cookie` are for approved
-one-off testing only. `--auth-header` remains a compatibility alias for
-`--header`. Dry-run output must show only redacted metadata such as cookie count
-and header names.
+single-host testing only. Credentialed `start` requires `--profile exact-urls`;
+credentialed `queue` is rejected so one auth seed cannot cross queued hosts.
+`--auth-header` remains a compatibility alias for `--header`. Dry-run output
+must show only redacted metadata such as cookie count and header names. The
+wrapper selects Recon-Ry's `exact-urls-header` profile when a seed is present;
+it excludes top-level tools without verified header forwarding (including
+EyeWitness), but does not prove request-level host confinement for every tool.
 
 Auth-capable recon-ry stages:
 
@@ -87,11 +91,13 @@ Auth does not apply to passive sources or network/service discovery:
   uro, js file normalization, dorking, and local secret scanning
 - DNS/IP enrichment, naabu, and nmap/service enrichment
 
-When account-resolved auth, an auth seed, or cookies are enabled, the wrapper
-narrows staged seed files to the approved `--url` target instead of the whole
-saved-scope wildcard set. Repeatable `--header` values—including Authorization
-and program attribution headers—do not alter `urls.txt` or `wild.txt`; they are
-forwarded to supported HTTP tools across the already validated program scope.
+For credentialed starts the wrapper narrows staged seeds to the approved
+`--url` target, leaves `wild.txt` empty, and does not run wildcard-dependent
+profiles. Repeatable `--header` values—including Authorization and program
+attribution headers—are treated as credentials regardless of their names.
+Unauthenticated `full`, `subs`, and `fast` runs enumerate eligible staged
+wildcard roots; if every saved root was excluded, the wrapper refuses to
+fall back to subdomain enumeration from an exact URL.
 
 The wrapper also exports the common Hoster recon tool paths before starting
 `recon-ry`, including `~/go/bin`, `~/.local/bin`, and `~/bin`. This is required

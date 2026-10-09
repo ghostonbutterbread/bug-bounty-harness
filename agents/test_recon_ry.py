@@ -237,6 +237,35 @@ def test_excluded_wildcard_roots_are_not_staged_as_roots(monkeypatch, capsys) ->
     assert "--out-scope-file" in output
 
 
+@pytest.mark.parametrize("profile", ["full", "subs", "fast", "urls"])
+@pytest.mark.parametrize("allow_unscoped", [False, True])
+def test_wildcard_profile_rejects_when_all_saved_wildcards_are_excluded(
+    monkeypatch, capsys, profile, allow_unscoped
+) -> None:
+    class ExactHostAndExcludedWildcard:
+        def __init__(self, program: str, strict: bool = True):
+            self._entries = [
+                SimpleNamespace(raw="first.example", entry_type="domain"),
+                SimpleNamespace(raw="*.second.example", entry_type="wildcard"),
+            ]
+            self._out_of_scope = [SimpleNamespace(raw="*.second.example", entry_type="wildcard")]
+
+        def is_empty(self) -> bool:
+            return False
+
+        def validate_or_fail(self, url: str) -> None:
+            assert url == "first.example"
+
+    monkeypatch.setattr(recon_ry, "ScopeValidator", ExactHostAndExcludedWildcard)
+    flags = ["--allow-unscoped"] if allow_unscoped else []
+    args = recon_ry.build_parser().parse_args(
+        ["start", "demo", "--url", "first.example", "--profile", profile, "--dry-run", *flags]
+    )
+    with pytest.raises(SystemExit, match="no eligible wildcard roots"):
+        recon_ry.start_remote(args)
+    assert "$HOME/bin/recon-ry" not in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("profile", ["full", "subs", "fast", "urls", "params", "dork", "dir"])
 @pytest.mark.parametrize("auth_args", [
     ["--header", "X-Test-Identity: synthetic"],

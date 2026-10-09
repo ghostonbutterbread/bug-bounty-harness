@@ -355,6 +355,11 @@ def start_remote(args: argparse.Namespace) -> None:
     verbose = " -vv" if args.very_verbose else " -v"
     rate_conf = rate_limit_conf_body(args.rate_limit_rps, args.timeout)
     seed_files = build_remote_seed_files(args.program, args.url, allow_unscoped=args.allow_unscoped)
+    if args.profile in {"full", "subs", "fast", "urls"} and not seed_files["wild.txt"].strip():
+        # Do not fall back to --url enumeration when the only saved wildcard
+        # roots were excluded; an exact seed host does not authorize its subtree.
+        if not ScopeValidator(program=args.program, strict=True).is_empty():
+            raise SystemExit(f"Profile {args.profile!r} has no eligible wildcard roots; use --profile exact-urls")
     auth_seed, auth_summary = resolve_auth_seed(args)
     # EyeWitness and hakrawler do not accept arbitrary HTTP headers. When a
     # header-bearing seed is supplied, use the equivalent exact-host profile

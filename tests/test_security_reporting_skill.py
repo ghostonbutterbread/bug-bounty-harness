@@ -43,6 +43,18 @@ class SecurityReportingSkillTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)
 
+    def test_cross_origin_replay_names_full_url_and_judge_checks_it(self):
+        text = SKILL.read_text(encoding="utf-8")
+        for marker in (
+            "Cross-origin request identity is a required reporting contract",
+            "full URL including scheme and authority",
+            "never let a relative path imply it still targets the previous host",
+            "same-origin follow-up may use a relative path",
+            "explicit full URLs at cross-origin steps",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
     def test_poc_author_and_reporter_are_distinct(self):
         text = SKILL.read_text(encoding="utf-8")
         for marker in (

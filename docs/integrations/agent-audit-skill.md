@@ -1,0 +1,11 @@
+# Agent run audit skill integration
+
+Status: independently reviewed and accepted for beta. Owner: Hermes. Canonical path: `docs/integrations/agent-audit-skill.md`. Supersedes: none. Implementation commits: `5591c844fa93757a37af30b31344777a2bbb8272`, `1d97f42ab4b8763628397a8dcd16385058b3d451`.
+
+- Intent: move BBH agent-run audit judgment out of Attempts and into a dedicated discoverable skill. Prior behavior had only a short route in `agents/index.md` and procedural prose in the shared Attempts policy.
+- Branch: `feat/agent-audit-skill`, base `origin/beta` at `ccfef29e7b3717ad14007251a492ae9e2eabf857`, intended merge target `beta`.
+- Contract: `/agent-audit <program> <run-id-or-handoff>` is read-only guidance, not a CLI runner. It reconciles agent/session traces, delegated handoffs, task-proxy traffic, Attempts, canonical promotions and cleanup; it reports uncertainty and keeps secrets out of the receipt. Shared `attempt-recording-policy` points at the BBH owner without duplicating procedure.
+- Boundaries: no target request or state-changing run audit. No durable raw audit store; a separately authorized post-audit Bounty Note may contain only a sanitized human handoff. A real run audit requires a specified run and accessible artifacts, neither supplied in this task.
+- Evidence: BBH `python3 -m pytest -q tests/test_agent_audit_skill.py agents/test_attempts.py tests/test_skill_command_lane_safety.py tests/test_migrated_skill_commands.py` passed (15 tests, 59 subtests) after the custom-family-root regression; `git diff --check` passed. AI Policies lint and focused policy suite passed (33 tests).
+- Review: initial independent review found custom-root omission, family default, private-ledger access, and an optional write under a read-only label. Those were corrected. Re-review caught that Core does not normalize an arbitrary custom family root. Guidance now requires the recorded base or lane root; a regression proves wrong family-root reads are empty while base and lane-root reads find the run. Final narrow independent re-review: PASS, no actionable blocker.
+- Decision: accepted for beta, subject to clean integration and post-merge checks. Remove this temporary dossier in integration; stable promotion is separate.

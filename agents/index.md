@@ -48,11 +48,10 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    ResearchMap supplies portable mechanisms only when their recognition signals
    match that model or a current observation. Read
    `docs/attempt-recording-contract.md` before writing Attempts: they are not a
-   general live-observation log. To audit an agent run, use its run ID to
-   reconcile session/subagent traces (when retained), handoffs and tool/proxy
-   evidence with `agents.attempts.read_attempt_bucket` and linked MapStore,
-   Notes, and Findings. Attempts cover deliberate target tests, not the entire
-   agent decision or action history; report missing trace dimensions explicitly.
+   general live-observation log. For an audit of what an agent actually did,
+   load `/agent-audit` with the program and run/handoff identity; it reconciles
+   transcripts, handoffs, task-proxy evidence, Attempts, promotions, and cleanup
+   without treating any one store as a complete action history.
 6. For shared evidence, storage, projections, or secret-reference work, read
    `docs/bounty-core-evidence-and-secrets-workstream.md`: Bounty Core owns
    generic primitives; BBH modules own their domain semantics; raw evidence has

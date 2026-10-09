@@ -61,6 +61,9 @@ def test_non_secret_auth_prose_and_seed_filename_are_accepted(tmp_path, monkeypa
     ("notes", 'Authorization = "Basic synthetic-value"'),
     ("auth_refresh_hint", "authorization=synthetic-value"),
     ("auth_seed_ref", "auth-seed:/synthetic/seed.json?Authorization=synthetic-value"),
+    ("notes", 'authorization["default"] = "Basic synthetic-value"'),
+    ("auth_seed_ref", "auth-seed:/synthetic/seed.json?authorization%5Bdefault%5D=synthetic-value"),
+    ("notes", 'headers = [("Authorization", "Basic synthetic-value")]'),
 ])
 def test_non_secret_fields_still_reject_credential_values(field, value):
     module = load_inventory_module()

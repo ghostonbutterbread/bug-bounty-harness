@@ -38,9 +38,9 @@ FORBIDDEN_HINTS = (
 )
 SECRET_VALUE_PATTERN = re.compile(
     r"\b[a-z0-9_-]*(?:passwords?|passwds?|cookies?|tokens?|secrets?|api[_-]?keys?|"
-    r"private[_\s-]?keys?|reset[_\s-]?links?|recovery[_\s-]?codes?)\b(?:\s*\[[^\]]*\])*[\"']?\s*[:=]\s*[\"']?\S+"
-    r"|\bheaders?(?:\s*\[[^\]]*\])+\s*[:=]\s*\S+|\bheaders?\s*[:=]\s*\{"
-    r"|\bauthorization\b[\"']?\s*[:=]\s*[\"']?\S+|\bbearer\s+(?!of\b)\S+"
+    r"private[_\s-]?keys?|reset[_\s-]?links?|recovery[_\s-]?codes?|authorization)\b(?:\s*\[[^\]]*\])*[\"']?\s*[:=]\s*[\"']?\S+"
+    r"|\bheaders?(?:\s*\[[^\]]*\])+\s*[:=]\s*\S+|\bheaders?\s*=\s*\S+|\bheaders?\s*:\s*[\{\[]"
+    r"|\bbearer\s+(?!of\b)\S+"
     r"|-----BEGIN [A-Z ]*PRIVATE KEY-----",
     re.IGNORECASE,
 )

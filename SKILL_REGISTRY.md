@@ -149,7 +149,6 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **ledger** | `/ledger {program}` | `skills/ledger/SKILL.md` |
 | **agent-audit** | `/agent-audit {program} {run-id-or-handoff}` (read-only audit guidance; no standalone runner) | `skills/agent-audit/SKILL.md`; reconcile run traces, target actions, Attempts, promotions, and cleanup |
 | **security-reporting** | `/security-reporting` (report-writing guidance; no standalone runner) | `skills/security-reporting/SKILL.md` |
-| **bug-bounty-triage** | `/bug-bounty-triage {program} {FID-or-report}` (readiness and escalation; no standalone runner) | `skills/bug-bounty-triage/SKILL.md`; `security-reporting` owns the final report |
 
 ---
 

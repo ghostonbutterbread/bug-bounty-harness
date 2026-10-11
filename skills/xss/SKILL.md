@@ -149,7 +149,8 @@ writers, stack-matched parameter discovery, prioritization, sanitizer posture,
 impact amplifiers, or census refresh decisions, load
 `references/source-acquisition.md` when those questions arise.
 
-Load `/bb-script-rules` when running a source or sink census. XSS-specific render
+Load `/bb-script-rules` when running a sink census; the same rule applies to a
+source census. XSS-specific render
 consumers to inspect in the observed stack include raw-HTML helpers, URL
 navigation, legacy bundles, microfrontends, and bootstrap data. Group common
 downstream consumers for review, but keep distinct input routes and their

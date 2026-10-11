@@ -43,7 +43,7 @@ Rules:
   and a route-bound parameter corpus; proximity/name overlap is not a flow.
 - **Mutates:** Inventory artifacts only; the JS analyzer can fetch scoped JS and
   source maps under its normal controls. This module itself sends no requests.
-- **Verification:** `python3 -m pytest -q agents/test_xss_source_sites.py
+- **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest -q agents/test_xss_source_sites.py
   agents/test_xss_source_integration.py agents/test_js_analyzer.py` from an
   isolated repository worktree.
 - **Coverage:** Non-exhaustive, per-rule/asset capped static seeds. Some request

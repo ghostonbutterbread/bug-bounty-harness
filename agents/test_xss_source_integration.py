@@ -18,6 +18,7 @@ def test_inventory_persists_named_input_and_pairs_review_sites(tmp_path: Path):
                        "--integration-index-root", str(tmp_path / "integrations")]) == 0
     metadata = J.read_jsonl(tmp_path / "out" / "metadata.jsonl")[0]
     assert any(site["name"] == "giftMessage" for site in metadata["source_sites"])
+    assert "giftMessage" in metadata["interesting_keys"]
     assert metadata["signal_counts"]["source_sites"] >= 1
     assert metadata["sink_sites"]
     packet = Path(metadata["packet_paths"][0]).read_text()
@@ -25,6 +26,15 @@ def test_inventory_persists_named_input_and_pairs_review_sites(tmp_path: Path):
     assert "not proven" in packet.lower() or "not a proven" in packet.lower()
     manifest = json.loads((tmp_path / "out" / "manifest.json").read_text())
     assert manifest["source_site_hits"] >= 1
+
+
+def test_outbound_form_field_is_vocabulary_not_ingress():
+    signals = J.extract_signals(
+        "fd.append('gift-card-number', value); searchParams.set('q', value)",
+        "https://app.example.com/app.js", scope_hosts=["example.com"],
+    )
+    assert {"gift-card-number", "q"} <= set(signals["interesting_keys"])
+    assert not signals["source_sites"]
 
 
 def test_source_map_module_exposes_named_input_with_bundle_provenance(tmp_path: Path):
@@ -42,3 +52,22 @@ def test_source_map_module_exposes_named_input_with_bundle_provenance(tmp_path: 
     assert row["bundle_url"] == "https://app.example.com/app.js"
     assert any(site["name"] == "invoiceTitle" for site in row["source_sites"])
     assert "invoiceTitle" in Path(row["packet_paths"][0]).read_text()
+
+
+def test_source_map_packet_discloses_named_input_cap(tmp_path: Path):
+    record = J.JsRecord(url="https://app.example.com/bundle.js", status=200,
+                        content_type="application/javascript", byte_count=0,
+                        sha256="a" * 64, artifact_path="",
+                        source_map="https://app.example.com/bundle.js.map")
+    content = ";".join(f"searchParams.get('input{i:02d}')" for i in range(90))
+    rows, _, _ = J.write_source_map_modules(
+        root=tmp_path, source_maps_dir=tmp_path / "maps", record=record,
+        source_map_sha256="b" * 64,
+        modules=[{"source_index": 0, "source": "src/app.ts", "source_root": "",
+                  "source_label": "src/app.ts", "has_content": True, "content": content}],
+        chunk_size=10000, chunk_overlap=100, module_limit=1,
+        max_packets=10, max_expanded_bytes=100000,
+    )
+    assert rows[0]["source_sites_truncated"] is True
+    packet = Path(rows[0]["packet_paths"][0]).read_text()
+    assert "Named input sites truncated: True" in packet

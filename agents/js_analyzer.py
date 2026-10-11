@@ -60,6 +60,10 @@ PARAM_NAME_RE = re.compile(
     r")[A-Za-z0-9_.:-]*)['\"]?\s*[:=]",
     re.IGNORECASE,
 )
+OUTBOUND_FIELD_RE = re.compile(
+    r"\b(?:formData|fd|searchParams|queryParams|urlParams|urlSearchParams|usp|qs|sp)"
+    r"\s*\.\s*(?:append|set)\s*\(\s*['\"]([A-Za-z0-9_.\-\[\]]{1,64})['\"]\s*,"
+)
 GRAPHQL_RE = re.compile(r"\b(?:query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)")
 ROUTE_RE = re.compile(r"\b(?:path|route|url|href|to)\s*[:=]\s*['\"]([^'\"]{2,180})['\"]", re.IGNORECASE)
 PATH_PARAM_RE = re.compile(r":([A-Za-z_][A-Za-z0-9_]*)")
@@ -805,6 +809,11 @@ def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = No
                    {site["family"] for site in site_scan["hits"] if site["signature"] == "Handlebars.compiledRawInterpolation(candidate)"})
     flow_hints = sorted(name for name, pattern in FLOW_HINTS.items() if pattern.search(text))
     interesting_keys = set(PARAM_NAME_RE.findall(text))
+    # Outbound request/form writers provide candidate field vocabulary, not
+    # evidence that the client reads a controlled value from that field.
+    interesting_keys.update(OUTBOUND_FIELD_RE.findall(text))
+    interesting_keys.update(site["name"] for site in source_site_scan["hits"]
+                            if site["family"] in {"url_param", "route_param", "form_field", "cookie", "web_storage", "dom_data"})
     graphql_operations = sorted(set(GRAPHQL_RE.findall(text)))[:100]
     route_hints = sorted(
         hint for hint in set(ROUTE_RE.findall(text))
@@ -885,7 +894,7 @@ def parse_source_map(body: bytes) -> tuple[list[dict], int]:
     return rows, content_count
 
 
-def build_source_map_packet(*, record: JsRecord, source_map_sha256: str, module: dict, sink_sites: list[dict], source_sites: list[dict], chunk_index: int, chunk_count: int, start: int, end: int, chunk: str) -> str:
+def build_source_map_packet(*, record: JsRecord, source_map_sha256: str, module: dict, sink_sites: list[dict], source_sites: list[dict], source_sites_truncated: bool, chunk_index: int, chunk_count: int, start: int, end: int, chunk: str) -> str:
     nearby_sites = [site for site in sink_sites if start <= site["start"] < end]
     nearby_sources = [site for site in source_sites if start <= site["start"] < end]
     lines = [
@@ -899,6 +908,7 @@ def build_source_map_packet(*, record: JsRecord, source_map_sha256: str, module:
         f"- Source map SHA256: {source_map_sha256}",
         f"- Original module: {module['source_label'] or module['source_index']}",
         f"- Source-map module index: {module['source_index']}",
+        f"- Named input sites truncated: {source_sites_truncated}",
         f"- Module byte range: {start}-{end}",
         f"- Page context: {record.page_context or 'unknown'}",
         "",
@@ -972,7 +982,7 @@ def write_source_map_modules(
                 packet_dir.mkdir(parents=True, exist_ok=True)
                 for chunk_index, (start, end, chunk) in enumerate(chunks):
                     packet_path = packet_dir / f"{module['source_index']:05d}-{chunk_index + 1:03d}.md"
-                    write_text_atomic(packet_path, build_source_map_packet(record=record, source_map_sha256=source_map_sha256, module=module, sink_sites=row["sink_sites"], source_sites=row["source_sites"], chunk_index=chunk_index, chunk_count=len(chunks), start=start, end=end, chunk=chunk))
+                    write_text_atomic(packet_path, build_source_map_packet(record=record, source_map_sha256=source_map_sha256, module=module, sink_sites=row["sink_sites"], source_sites=row["source_sites"], source_sites_truncated=row["source_sites_truncated"], chunk_index=chunk_index, chunk_count=len(chunks), start=start, end=end, chunk=chunk))
                     row["packet_paths"].append(str(packet_path))
                     packets.append({"url": record.url, "sha256": record.sha256, "artifact_kind": "source_map_module", "source_map_sha256": source_map_sha256, "source_index": module["source_index"], "source_label": module["source_label"], "chunk_index": chunk_index, "chunk_count": len(chunks), "chunk_path": str(module_path), "packet_path": str(packet_path), "byte_start": start, "byte_end": end})
                 packeted_modules += 1

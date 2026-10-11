@@ -10,6 +10,9 @@ from agents.xss_source_sites import SOURCE_RULES, scan_source_sites
     ("snippet", "signature", "name"),
     [
         ("const q = searchParams.get('searchTerm')", "URLSearchParams-receiver.get(NAME)", "searchTerm"),
+        ("const q = query.get('campaignId')", "URLSearchParams-receiver.get(NAME)", "campaignId"),
+        ("const q = searchParams.get('q')", "URLSearchParams-receiver.get(NAME)", "q"),
+        ("const q = urlSearchParams.get('campaignId')", "URLSearchParams-receiver.get(NAME)", "campaignId"),
         ("var v = queryParams.getAll('facet')", "URLSearchParams-receiver.get(NAME)", "facet"),
         ("if (sp.has('urlRoot')) {}", "URLSearchParams-receiver.get(NAME)", "urlRoot"),
         ("new URLSearchParams(window.location.search).get('email')",
@@ -58,7 +61,6 @@ def test_cookie_and_storage_sources(snippet, signature, name):
         ("v = el.getAttribute('data-cat-identifier')", "getAttribute(data-NAME)", "cat-identifier"),
         ("const s = params.storeId", "route-params.NAME", "storeId"),
         ("map.forEach(params.get('label'))", "URLSearchParams-receiver.get(NAME)", "label"),
-        ("fd.append('gift-card-number', num)", "FormData.append(NAME)", "gift-card-number"),
         ("formData.get('productCaption')", "FormData.get(NAME)", "productCaption"),
         ("new FormData(form).getAll('lineItems')", "FormData.get(NAME)", "lineItems"),
         ("window.addEventListener('message', handler)", "message-listener", "message-listener"),
@@ -94,6 +96,18 @@ def test_assignment_not_read():
     # el.dataset.state = 'x' is a WRITE, not a source read
     result = scan_source_sites("el.dataset.state = value")
     assert not [h for h in result["hits"] if h["signature"] == "dataset.NAME-read"]
+
+
+@pytest.mark.parametrize("text", [
+    "const url = window.location.search; headers.get('Authorization')",
+    "window.location.search && headers.get('Authorization')",
+    "location.hash = 'fixed'",
+    "window.location.hash += '#fixed'",
+    "URLSearchParams.append('note', value)",
+    "fd.append('gift-card-number', num)",
+])
+def test_unrelated_getter_and_writes_are_not_ingress_sites(text):
+    assert not scan_source_sites(text)["hits"]
 
 
 def test_offsets_and_bounds():

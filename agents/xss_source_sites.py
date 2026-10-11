@@ -31,7 +31,7 @@ def rule(signature: str, family: str, tier: str, pattern: str, *needles: str,
     return SiteRule(signature, family, tier, re.compile(pattern, flags), needles, name_group)
 
 
-_NAME = r"[A-Za-z0-9_.\-\[\]]{2,64}"
+_NAME = r"[A-Za-z0-9_.\-\[\]]{1,64}"
 # Receivers that plausibly hold a URLSearchParams-like object.
 _QS_RECV = r"(?:searchParams|queryParams|urlParams|urlSearchParams|params|usp|qs|sp|query)"
 
@@ -43,9 +43,6 @@ SOURCE_RULES: tuple[SiteRule, ...] = tuple([
     rule("new URLSearchParams(...).get(NAME)", "url_param", "url",
          rf"new\s+URLSearchParams\s*\([^)]{{0,160}}\)\s*(?:;?[^;]{{0,80}}?)?\.\s*(?:get|getAll|has)\(\s*['\"]({_NAME})['\"]\s*\)",
          "new URLSearchParams", name_group=1),
-    rule("search=assigned-then-get(NAME)", "url_param", "url",
-         rf"location\.search[^;]{{0,200}}?\.\s*(?:get|getAll|has)\(\s*['\"]({_NAME})['\"]\s*\)",
-         "location.search", name_group=1),
     rule("legacy-getQueryString(NAME)", "url_param", "url",
          rf"\b(?:getQueryString|getQueryParam|getParameter|getUrlParam|getParam)\(\s*['\"]({_NAME})['\"]\s*\)",
          "get", name_group=1, flags=re.IGNORECASE),
@@ -58,7 +55,8 @@ SOURCE_RULES: tuple[SiteRule, ...] = tuple([
 
     # -- URL fragment ----------------------------------------------------------
     rule("location.hash-read", "url_fragment", "url",
-         r"location\s*\.\s*hash\b", "location", "hash", name_group=0),
+         r"location\s*\.\s*hash\b(?!\s*(?:[+\-*/%&|^?]?=(?!=|>)|\+\+|--))",
+         "location", "hash", name_group=0),
 
     # -- cookies ----------------------------------------------------------------
     rule("Cookies.get(NAME)", "cookie", "cookie",
@@ -90,9 +88,6 @@ SOURCE_RULES: tuple[SiteRule, ...] = tuple([
          "params", name_group=1),
 
     # -- form data -----------------------------------------------------------------
-    rule("FormData.append(NAME)", "form_field", "form",
-         rf"\.\s*append\s*\(\s*['\"]({_NAME})['\"]\s*,",
-         ".append(", name_group=1),
     rule("FormData.get(NAME)", "form_field", "form",
          rf"(?:\b(?:formData|fd)|new\s+FormData\s*\([^)]{{0,120}}\))\s*\.\s*(?:get|getAll|has)\(\s*['\"]({_NAME})['\"]\s*\)",
          "FormData", name_group=1),
@@ -109,7 +104,7 @@ SOURCE_RULES: tuple[SiteRule, ...] = tuple([
 
 _NEEDLE_FREE = frozenset(r.signature for r in SOURCE_RULES if not r.needles)
 # Receivers can appear under several names; search each as its own anchor.
-_QS_ANCHORS = ("searchParams", "queryParams", "urlParams", "params", "usp", "qs", "sp")
+_QS_ANCHORS = ("searchParams", "queryParams", "urlParams", "urlSearchParams", "params", "usp", "qs", "sp", "query")
 _QS_RULE = "URLSearchParams-receiver.get(NAME)"
 
 

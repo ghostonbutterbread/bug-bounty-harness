@@ -42,6 +42,19 @@ def test_xss_record_and_proof_contract_has_one_owner() -> None:
     assert "Typical XSS pressure ladder" not in text
 
 
+def test_xss_pairs_named_inputs_and_sinks_without_rigid_census_gate() -> None:
+    router = XSS.read_text(encoding="utf-8")
+    reference = SOURCE.read_text(encoding="utf-8")
+    script_map = (ROOT / "skills/xss/scripts/README.md").read_text(encoding="utf-8")
+    assert "source_sites" in router and "sink_sites" in router
+    assert "parameter-mining" in router and "recon_bus.py query" in reference
+    assert "params.txt" in reference and "name-only" in reference
+    assert "untested" in reference and "truncated" in reference
+    assert "not a taint trace" in reference
+    assert "xss_source_sites.py" in script_map
+    assert "Do not delay investigation of an existing source-to-sink path" in router
+
+
 def test_blind_lane_uses_the_same_confirmed_evidence_threshold() -> None:
     router = XSS.read_text(encoding="utf-8")
     blind = BLIND.read_text(encoding="utf-8")

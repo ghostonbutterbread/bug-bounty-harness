@@ -24,6 +24,39 @@ A static inventory discovers candidates but does not prove that a user-controlle
 source reaches them. Preserve the specific source-to-sink question and a
 reopening condition instead of repeating a larger census.
 
+## Pair input locations with consumers
+
+For a route cluster or corpus breadth pass, collect both sides without imposing
+a source-first or sink-first order. Reuse current JS inventory before fetching
+more: `metadata.jsonl` has per-bundle `source_sites`, `sink_sites`, ordinary
+`params`, and page/provenance pointers; `source_map_modules.jsonl` has named
+sites in retained original modules. A zero or capped hit count is not coverage:
+check `source_sites_truncated`, `sink_sites_truncated`, and the manifest's
+source/sink capped-artifact counts. An older inventory predating the source
+pass must be reanalyzed before using it as a named-source denominator.
+
+Load `parameter-mining` for observed request/body/GraphQL/form fields and the
+existing proxy/JS handoff. Resolve the aggregate with
+`bbh scripts/recon_bus.py query <program> --artifact params --format path`;
+inspect its shape before use. Some `params.txt` files contain parameterized
+URLs (preserve scoped host, route, and key); others contain **name-only** entries
+(candidate vocabulary, no route or accepted-input claim). Historical or
+third-party URLs, generated fuzz names, and tool guesses do not prove a live
+source. Correlate JS names with the relevant route/request builder and
+parameter artifacts by provenance, not a global string intersection. Follow
+stored/API response fields back to their writable endpoint or object field;
+a query parameter is only one possible writer.
+
+Diff the route-and-field candidates against prior parameter-specific test
+coverage (`url-ingest`) before selecting untested named inputs. Use an inert
+canary on the actual name and observe the response/browser consumer. A shared
+bundle, common name, or short source-to-sink distance is **not a taint trace**.
+If the path is still unclear, retain its missing writer/consumer edge and
+trigger; do not mark the sink group or route exhausted. A scoped exhaustion
+claim names the tested ingress paths and render consumers and notes missing,
+truncated, legacy, or source-map-only inputs rather than dividing a raw source
+count by a raw sink count. A strong current path does not wait for a full census.
+
 ## Reconcile sink groups without collapsing input paths
 
 Group repeated sites when they share a downstream consumer or rendering helper;

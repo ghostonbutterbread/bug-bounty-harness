@@ -19,6 +19,10 @@ from agents.xss_source_sites import SOURCE_RULES, scan_source_sites
         ("id = getQueryString('orderId')", "legacy-getQueryString(NAME)", "orderId"),
         ("cat = getQueryParam('categoryId')", "legacy-getQueryString(NAME)", "categoryId"),
         ("store = getParameter('storeId')", "legacy-getQueryString(NAME)", "storeId"),
+        ("router.query.giftMessage", "router-query.NAME", "giftMessage"),
+        ("route.query['giftMessage']", "router-query.NAME", "giftMessage"),
+        ("req.query.coupon", "router-query.NAME", "coupon"),
+        ("useSearchParams().get('previewTitle')", "useSearchParams().get(NAME)", "previewTitle"),
         ("if (window.location.hash) {}", "location.hash-read", "location.hash-read"),
     ],
 )
@@ -55,6 +59,8 @@ def test_cookie_and_storage_sources(snippet, signature, name):
         ("const s = params.storeId", "route-params.NAME", "storeId"),
         ("map.forEach(params.get('label'))", "URLSearchParams-receiver.get(NAME)", "label"),
         ("fd.append('gift-card-number', num)", "FormData.append(NAME)", "gift-card-number"),
+        ("formData.get('productCaption')", "FormData.get(NAME)", "productCaption"),
+        ("new FormData(form).getAll('lineItems')", "FormData.get(NAME)", "lineItems"),
         ("window.addEventListener('message', handler)", "message-listener", "message-listener"),
         ("if (window.name) {}", "window.name-read", "window.name-read"),
     ],
@@ -107,6 +113,13 @@ def test_truncation_flag():
     result = scan_source_sites(text, per_rule=3)
     assert result["truncated"] is True
     assert len(result["hits"]) <= 3
+
+
+def test_default_budget_retains_later_named_fields():
+    text = ";".join(f"searchParams.get('input{i:02d}')" for i in range(20))
+    result = scan_source_sites(text)
+    assert {f"input{i:02d}" for i in range(20)} <= {site["name"] for site in result["hits"]}
+    assert not result["truncated"]
 
 
 def test_rule_table_shape():

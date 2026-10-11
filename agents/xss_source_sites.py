@@ -49,6 +49,12 @@ SOURCE_RULES: tuple[SiteRule, ...] = tuple([
     rule("legacy-getQueryString(NAME)", "url_param", "url",
          rf"\b(?:getQueryString|getQueryParam|getParameter|getUrlParam|getParam)\(\s*['\"]({_NAME})['\"]\s*\)",
          "get", name_group=1, flags=re.IGNORECASE),
+    rule("router-query.NAME", "url_param", "url",
+         rf"\b(?:route|router|req)\s*\.\s*query\s*(?:\.\s*|\[\s*['\"])({_NAME})(?:['\"]\s*\])?",
+         ".query", name_group=1),
+    rule("useSearchParams().get(NAME)", "url_param", "url",
+         rf"\buseSearchParams\s*\(\s*\)\s*\.\s*(?:get|getAll|has)\(\s*['\"]({_NAME})['\"]\s*\)",
+         "useSearchParams", name_group=1),
 
     # -- URL fragment ----------------------------------------------------------
     rule("location.hash-read", "url_fragment", "url",
@@ -87,6 +93,9 @@ SOURCE_RULES: tuple[SiteRule, ...] = tuple([
     rule("FormData.append(NAME)", "form_field", "form",
          rf"\.\s*append\s*\(\s*['\"]({_NAME})['\"]\s*,",
          ".append(", name_group=1),
+    rule("FormData.get(NAME)", "form_field", "form",
+         rf"(?:\b(?:formData|fd)|new\s+FormData\s*\([^)]{{0,120}}\))\s*\.\s*(?:get|getAll|has)\(\s*['\"]({_NAME})['\"]\s*\)",
+         "FormData", name_group=1),
 
     # -- postMessage ------------------------------------------------------------------
     rule("message-listener", "postmessage", "postmessage",
@@ -104,7 +113,7 @@ _QS_ANCHORS = ("searchParams", "queryParams", "urlParams", "params", "usp", "qs"
 _QS_RULE = "URLSearchParams-receiver.get(NAME)"
 
 
-def scan_source_sites(text: str, *, max_hits: int = 200, per_rule: int = 12) -> dict:
+def scan_source_sites(text: str, *, max_hits: int = 300, per_rule: int = 64) -> dict:
     """Find bounded named-source offsets in one artifact. Offsets are Unicode
     character indices. Mirrors :func:`agents.xss_sink_sites.scan_sink_sites`."""
     if max_hits < 1 or per_rule < 1:
@@ -116,6 +125,8 @@ def scan_source_sites(text: str, *, max_hits: int = 200, per_rule: int = 12) -> 
             if not any(anchor in text for anchor in _QS_ANCHORS):
                 continue
             anchors: tuple[str, ...] = _QS_ANCHORS
+        elif item.signature == "FormData.get(NAME)":
+            anchors = ("FormData", "formData", "fd")
         elif item.signature not in _NEEDLE_FREE and not all(needle in text for needle in item.needles):
             continue
         elif item.signature == "location.hash-read":

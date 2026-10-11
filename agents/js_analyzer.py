@@ -885,8 +885,9 @@ def parse_source_map(body: bytes) -> tuple[list[dict], int]:
     return rows, content_count
 
 
-def build_source_map_packet(*, record: JsRecord, source_map_sha256: str, module: dict, sink_sites: list[dict], chunk_index: int, chunk_count: int, start: int, end: int, chunk: str) -> str:
+def build_source_map_packet(*, record: JsRecord, source_map_sha256: str, module: dict, sink_sites: list[dict], source_sites: list[dict], chunk_index: int, chunk_count: int, start: int, end: int, chunk: str) -> str:
     nearby_sites = [site for site in sink_sites if start <= site["start"] < end]
+    nearby_sources = [site for site in source_sites if start <= site["start"] < end]
     lines = [
         f"# Source-Map Module Review Packet {chunk_index + 1}/{chunk_count}",
         "",
@@ -908,6 +909,11 @@ def build_source_map_packet(*, record: JsRecord, source_map_sha256: str, module:
         "- Correlate leads to the bundle URL/SHA and page or proxy provenance before any live-validation handoff.",
         "",
     ]
+    if nearby_sources:
+        lines.extend(["## Named Input Review Sites", "",
+                      "These are candidate inputs, not proven controllable values or source-to-sink flows."])
+        lines.extend(f"- {site['name']} [{site['family']}] at char {site['start']}" for site in nearby_sources)
+        lines.append("")
     if nearby_sites:
         lines.extend(["## Individual XSS Sink Review Sites", "",
                       "Character offsets refer to the complete embedded source module; these are static review seeds."])
@@ -946,7 +952,7 @@ def write_source_map_modules(
     expanded_bytes = 0
     truncated_modules = 0
     for module in modules:
-        row = {"bundle_url": record.url, "bundle_sha256": record.sha256, "source_map": record.source_map, "source_map_sha256": source_map_sha256, "source_index": module["source_index"], "source": module["source"], "source_root": module["source_root"], "source_label": module["source_label"], "has_content": module["has_content"], "module_path": "", "packet_paths": [], "packet_status": "no_content", "sink_sites": [], "sink_sites_truncated": False}
+        row = {"bundle_url": record.url, "bundle_sha256": record.sha256, "source_map": record.source_map, "source_map_sha256": source_map_sha256, "source_index": module["source_index"], "source": module["source"], "source_root": module["source_root"], "source_label": module["source_label"], "has_content": module["has_content"], "module_path": "", "packet_paths": [], "packet_status": "no_content", "sink_sites": [], "sink_sites_truncated": False, "source_sites": [], "source_sites_truncated": False}
         if module["has_content"]:
             chunks = chunk_text(module["content"], chunk_size, chunk_overlap)
             content_bytes = len(module["content"].encode("utf-8"))
@@ -960,10 +966,13 @@ def write_source_map_modules(
                 module_site_scan = scan_sink_sites(module["content"])
                 row["sink_sites"] = module_site_scan["hits"]
                 row["sink_sites_truncated"] = module_site_scan["truncated"]
+                module_source_scan = scan_source_sites(module["content"])
+                row["source_sites"] = module_source_scan["hits"]
+                row["source_sites_truncated"] = module_source_scan["truncated"]
                 packet_dir.mkdir(parents=True, exist_ok=True)
                 for chunk_index, (start, end, chunk) in enumerate(chunks):
                     packet_path = packet_dir / f"{module['source_index']:05d}-{chunk_index + 1:03d}.md"
-                    write_text_atomic(packet_path, build_source_map_packet(record=record, source_map_sha256=source_map_sha256, module=module, sink_sites=row["sink_sites"], chunk_index=chunk_index, chunk_count=len(chunks), start=start, end=end, chunk=chunk))
+                    write_text_atomic(packet_path, build_source_map_packet(record=record, source_map_sha256=source_map_sha256, module=module, sink_sites=row["sink_sites"], source_sites=row["source_sites"], chunk_index=chunk_index, chunk_count=len(chunks), start=start, end=end, chunk=chunk))
                     row["packet_paths"].append(str(packet_path))
                     packets.append({"url": record.url, "sha256": record.sha256, "artifact_kind": "source_map_module", "source_map_sha256": source_map_sha256, "source_index": module["source_index"], "source_label": module["source_label"], "chunk_index": chunk_index, "chunk_count": len(chunks), "chunk_path": str(module_path), "packet_path": str(packet_path), "byte_start": start, "byte_end": end})
                 packeted_modules += 1
@@ -1288,6 +1297,7 @@ def build_metadata_row(
             "sources": len(record.sources),
             "sinks": len(record.sinks),
             "sink_sites": len(record.sink_sites),
+            "source_sites": len(record.source_sites),
             "flow_hints": len(record.flow_hints),
             "interesting_keys": len(record.interesting_keys),
             "graphql_operations": len(record.graphql_operations),
@@ -1835,6 +1845,7 @@ def write_chunk_set(
 
 def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk: str) -> str:
     nearby_sites = [site for site in record.sink_sites if start <= site["start"] < end]
+    nearby_sources = [site for site in record.source_sites if start <= site["start"] < end]
     lines = [
         f"# JS Deep Review Packet {chunk_index + 1}/{record.chunk_count}",
         "",
@@ -1850,6 +1861,7 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
         f"- External integration/reference endpoints: {len(record.external_endpoints)}",
         f"- Sources: {', '.join(record.sources) or 'none detected'}",
         f"- Sinks: {', '.join(record.sinks) or 'none detected'}",
+        f"- Named input sites in this chunk: {len(nearby_sources)} (capped bundle scan: {record.source_sites_truncated})",
         f"- Individual sink sites in this chunk: {len(nearby_sites)} (capped bundle scan: {record.sink_sites_truncated})",
         f"- Flow hints: {', '.join(record.flow_hints) or 'none detected'}",
         f"- Interesting keys: {', '.join(record.interesting_keys[:40]) or 'none detected'}",
@@ -1882,6 +1894,10 @@ def build_packet(record: JsRecord, chunk_index: int, start: int, end: int, chunk
         "",
     ]
     lines.extend(f"- {endpoint}" for endpoint in record.in_scope_endpoints[:80])
+    if nearby_sources:
+        lines.extend(["", "## Named Input Review Sites", "",
+                      "Character offsets refer to the complete downloaded bundle. These are candidate inputs, not proven controllable values or source-to-sink flows."])
+        lines.extend(f"- {site['name']} [{site['family']}] at char {site['start']}" for site in nearby_sources)
     if nearby_sites:
         lines.extend(["", "## Individual XSS Sink Review Sites", "",
                       "Character offsets refer to the complete downloaded bundle, not this chunk. These are static review seeds, not proven source-to-sink flows."])
@@ -2115,6 +2131,8 @@ def command_inventory(args: argparse.Namespace) -> int:
             sinks=signals["sinks"],
             sink_sites=signals["sink_sites"],
             sink_sites_truncated=signals["sink_sites_truncated"],
+            source_sites=signals["source_sites"],
+            source_sites_truncated=signals["source_sites_truncated"],
             flow_hints=signals["flow_hints"],
             interesting_keys=signals["interesting_keys"],
             graphql_operations=signals["graphql_operations"],
@@ -2261,6 +2279,8 @@ def command_inventory(args: argparse.Namespace) -> int:
         "source_map_packet_budgets": source_map_packet_budgets,
         "sink_site_hits": sum(len(record.sink_sites) for record in records) + sum(len(row["sink_sites"]) for row in source_map_module_rows),
         "sink_site_capped_artifacts": sum(record.sink_sites_truncated for record in records) + sum(row["sink_sites_truncated"] for row in source_map_module_rows),
+        "source_site_hits": sum(len(record.source_sites) for record in records) + sum(len(row["source_sites"]) for row in source_map_module_rows),
+        "source_site_capped_artifacts": sum(record.source_sites_truncated for record in records) + sum(row["source_sites_truncated"] for row in source_map_module_rows),
         "packets": len(packet_rows),
         "external_integrations": len(external_integration_rows),
         "outputs": {

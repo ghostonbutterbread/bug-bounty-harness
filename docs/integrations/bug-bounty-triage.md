@@ -22,21 +22,21 @@ Bring upstream's evidence-led validation, readiness, escalation, and concise tri
 ## Evidence and review
 
 - Tests: `python3 -m pytest -q tests/test_bug_bounty_triage_skill.py tests/test_security_reporting_skill.py tests/test_reporting_markdown.py` (11 passed, 50 subtests); `python3 -m pytest -q tests --ignore=tests/test_hoster_script_authority.py` (216 passed, 1 skipped, 173 subtests); `git diff --check` passed. The unfiltered suite has one pre-existing `test_hoster_script_authority.py` failure (missing legacy `AGENTS.md` phrase), reproduced on unchanged beta.
-- Independent review: initial REVISE (missing FID handoff and ambiguous report ownership), both corrected with focused regression checks; corrected revision awaiting re-review.
+- Independent review: initial REVISE (missing FID handoff and ambiguous report ownership); fresh read-only re-review of implementation `f47d2dc` and dossier-only tip `9c13de8` returned PASS with no new blocker.
 - Fixture/live evidence: static-only; no target requested and no live validation performed.
 - Merge/ancestry evidence: pending current-beta preflight.
 
 ## Blockers and deferred work
 
 - Local activation needs a reviewed beta merge and profile-scoped skill projection; upstream was intentionally not forked publicly. No live report exemplar is available without a named finding and owned scope.
-- No missing correctness evidence is currently known; review and full-suite results remain pending.
+- No missing correctness evidence is currently known. Unfiltered suite remains red solely for the identical pre-existing Hoster authority test failure; targeted and remaining tests pass. No live finding exemplar exists without a named program/FID.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/triage-report-adaptation`
 - **Latest immutable recovery checkpoint:** `f47d2dccb0c65a3ba6b94ac1e434ef3d8a406f0f`
 - **Feature implementation commits:** `f47d2dccb0c65a3ba6b94ac1e434ef3d8a406f0f`
-- **Exact resume point:** receive independent re-review of corrected implementation `f47d2dc`, preflight against current beta, then integrate and activate only if all gates pass.
+- **Exact resume point:** preflight against current beta, integrate reviewed files while excluding this dossier, then verify source push and runtime activation.
 - **Working-tree state at handoff:** clean after this dossier-only checkpoint commit.
 
 ## Decision gates
@@ -48,3 +48,4 @@ Bring upstream's evidence-led validation, readiness, escalation, and concise tri
 ## Decision record
 
 - 2026-10-11 - opened internal adaptation from the MIT upstream at the recorded commit.
+- 2026-10-11 - review PASS after the FID and submission-authorship corrections; beta integration approved subject to clean preflight.

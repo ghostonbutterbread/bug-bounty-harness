@@ -42,12 +42,16 @@ Use a UTC run id such as `parameter-mining-20260618T203000Z`.
 ```
 
 `queue/` files are run artifacts, not canonical lane lists. The canonical flat
-pool is still `web/recon/aggregated/params.txt`. Prefer dynamic filters such as
-GF over persistent lane-specific packs:
+pool is still `web/recon/aggregated/params.txt`. First inspect its shape: some
+programs use parameterized URLs, others use bare parameter names. Apply dynamic
+URL filters such as GF only to URL-shaped, scoped records, never to bare names
+as though they were tested endpoints:
 
 ```bash
-cat ~/Shared/web_bounty/<program>/web/recon/aggregated/params.txt | gf xss
-cat ~/Shared/web_bounty/<program>/web/recon/aggregated/params.txt | gf ssrf
+params_path="$(bbh scripts/recon_bus.py query <program> --artifact params --format path)"
+# Only if the resolved corpus contains scoped URL records:
+gf xss < "$params_path"
+gf ssrf < "$params_path"
 ```
 
 Use queued files only when a campaign needs reproducible evidence, long-running
@@ -63,7 +67,9 @@ Read the aggregate recon directory first:
 
 Use these files when present:
 
-- `params.txt` and `params_raw.txt` for already parameterized URLs
+- `params.txt` and `params_raw.txt` for parameterized URLs when URL-shaped
+- For name-only `params.txt`, retain names as vocabulary and find their actual
+  routes in JS `source_sites`, request builders, proxy observations, or forms
 - `urls.txt` and `alive.txt` for endpoint patterns that may accept hidden params
 - `jsfiles.txt` for JavaScript inventory handoff
 - `dirs.txt` for route nouns and app vocabulary

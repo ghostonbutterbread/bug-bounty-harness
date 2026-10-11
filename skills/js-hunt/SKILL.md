@@ -19,6 +19,9 @@ claim exhaustive coverage from a scanner. Collection mechanics belong to
   `manifest.json`, `metadata.jsonl`, `packets.jsonl`, page/JS provenance,
   source-map module index, and completed packet paths. Work in bounded
   page/flow, bundle-family, route-cluster, or module packets, not a giant prompt.
+  Read `source_sites` beside `sink_sites` in bundle and source-map module rows;
+  account for truncated/capped sites before declaring a source or sink absent.
+  A shared file or nearby offset is a review lead, not a proven data-flow edge.
 - **Scope the queue from recorded coverage, not from run names.** Content-review
   state lives in sha256-keyed `js_observations` in the library's
   `js_info.sqlite`; `/js-pull` owns writing it and defines the status vocabulary.

@@ -30,6 +30,26 @@ Rules:
   configs, or other secrets into mapper artifacts.
 - Keep live use scope-aware, low-rate, and tied to owned accounts/resources.
 
+## `agents/xss_source_sites.py` (JS inventory pass)
+
+- **Purpose:** Bounded static named-input review sites in the same JS artifacts
+  scanned for sinks; not a standalone live scanner or proof of attacker control.
+- **Runner:** `bbh agents/js_analyzer.py inventory <program> --input <js-url-list>
+  --target-host <scoped-host>` via `/js`. The analyzer calls
+  `scan_source_sites` on retained bundles and packetized source-map modules.
+- **Outputs:** `source_sites` plus `source_sites_truncated` in `metadata.jsonl`
+  and `source_map_modules.jsonl`; named sites in the matching review packets;
+  counts and caps in `manifest.json`. Compare them with the sibling `sink_sites`
+  and a route-bound parameter corpus; proximity/name overlap is not a flow.
+- **Mutates:** Inventory artifacts only; the JS analyzer can fetch scoped JS and
+  source maps under its normal controls. This module itself sends no requests.
+- **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest -q agents/test_xss_source_sites.py
+  agents/test_xss_source_integration.py agents/test_js_analyzer.py` from an
+  isolated repository worktree.
+- **Coverage:** Non-exhaustive, per-rule/asset capped static seeds. Some request
+  body fields, dynamic keys, and backend writers require `/parameter-mining`
+  and manual trace rather than this scanner.
+
 ## `xss_canary_mapper.py`
 
 - **Purpose:** Plan inert canaries, scan saved or bounded live responses, and

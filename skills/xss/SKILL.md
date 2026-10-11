@@ -102,6 +102,17 @@ sink label is a lead, not a taint trace or browser proof. Do not mark a route
 complete from raw HTTP when browser routing, challenge behavior, or framework
 rendering matters.
 
+For a breadth pass, inventory **both** named input locations/fields and render
+sites in the same JS corpus (`source_sites` and `sink_sites`), and reconcile the
+program's parameter artifacts with the relevant route or writer. Start with the
+stronger observed end; do not delay an existing controlled path for a full
+census. Probe actual named fields on name-keyed renderers rather than declaring
+coverage from random canary parameter names. A source/sink match by name, file,
+or proximity is a review lead; trace the value through its caller, request,
+response, and transforms before claiming an edge. Load `parameter-mining` for
+source-attributed candidates and `references/source-acquisition.md` for the
+paired inventory and scoped exhaustion decision.
+
 **Pressure state:** `cold` means a context-appropriate discovery pass has not
 established a plausible XSS path; `warm` means controlled input reflects,
 persists, reaches a relevant DOM/renderer, or meets a transform with a plausible
@@ -138,7 +149,8 @@ writers, stack-matched parameter discovery, prioritization, sanitizer posture,
 impact amplifiers, or census refresh decisions, load
 `references/source-acquisition.md` when those questions arise.
 
-Load `/bb-script-rules` when running a sink census. XSS-specific render
+Load `/bb-script-rules` when running a sink census; the same rule applies to a
+source census. XSS-specific render
 consumers to inspect in the observed stack include raw-HTML helpers, URL
 navigation, legacy bundles, microfrontends, and bootstrap data. Group common
 downstream consumers for review, but keep distinct input routes and their
@@ -159,8 +171,10 @@ use `--offline`/`plan`/`scan` for artifact-only work. For static bundle census,
 load `js` and run
 `bbh agents/js_analyzer.py inventory <program> --input <js-url-list> --target-host <in-scope-host>`.
 Inventory analysis is static, but collection may download uncached scoped JS URLs
-and source maps; apply scope and rate controls. Sink labels are non-exhaustive;
-see `docs/xss-sink-inventory.md` for categories and limits. Select tool detail
+and source maps; apply scope and rate controls. Inspect `source_sites` alongside
+`sink_sites` in `metadata.jsonl`, `source_map_modules.jsonl`, and review packets;
+both are bounded, non-exhaustive seeds. See `docs/xss-sink-inventory.md` for
+sink categories and limits. Select tool detail
 only when its question arises rather than preloading every scanner.
 
 For context-specific payload seeds, use
@@ -194,5 +208,6 @@ per-probe record; the selected XSS lane owns its proof and report shape.
   canaries from selected input artifacts to observed reflections; its sink
   classifications are non-exhaustive leads, not browser proof.
 - `bbh agents/js_analyzer.py inventory` — use through `/js` for a static JS and
-  source-map sink census. The inventory supplies review leads, not verified
+  source-map named-source and sink census (`agents/xss_source_sites.py` and
+  `agents/xss_sink_sites.py`). The inventory supplies review leads, not verified
   source-to-sink paths; see `docs/xss-sink-inventory.md` for coverage limits.

@@ -22,12 +22,15 @@ This skill is a router and evidence combiner. It does not replace `/js`,
 3. Read current aggregate state through Recon Bus, for example:
    `bbh scripts/recon_bus.py query <program> --artifact params --format path`.
    The query resolves `$HARNESS_SHARED_BASE`; do not construct or search for an
-   aggregate path from cwd.
+   aggregate path from cwd. Inspect its shape: some programs store parameterized
+   URLs in `params.txt`, others store name-only vocabulary. A name-only entry
+   has no route or proof of an accepted input.
 4. Check `/url-ingest brief <program>` and existing lane coverage before
    assigning agents or fuzzing.
 5. Load `/js` for JavaScript-derived parameters.
-6. Prefer dynamic filters over permanent lane packs. Use GF or another pattern
-   matcher as a pipe over `aggregated/params.txt` when the lane is known.
+6. Prefer dynamic filters over permanent lane packs. Use GF as a pipe over
+   URL-shaped `params.txt` only; correlate name-only candidates with scoped
+   routes, JS request builders, and proxy observations first.
 7. Load `/fuzz` and `/use-wordlists` before any active parameter probing.
 
 ## Canonical Sources
@@ -37,6 +40,9 @@ Prefer source-attributed ingestion from:
 - aggregate recon files: `urls.txt`, `params_raw.txt`, `params.txt`,
   `jsfiles.txt`, `dirs.txt`, `alive.txt`
 - JavaScript inventory and generated observations
+- `source_sites` and `source_map_modules.jsonl` from the current JS inventory:
+  named getter/field sites with bundle/module provenance and truncation flags;
+  compare with sibling `sink_sites`, but proximity is not a data-flow edge
 - centralized proxy stores and Ryushe proxy shape summaries
 - `/analyze-endpoint` request contracts and `parameters.json`
 - Dalfox, Arjun, kxss, ParamSpider, LinkFinder, Katana, hakrawler, and similar
@@ -72,7 +78,8 @@ Each run should produce:
 
 Do not treat generated lane files as canonical. `aggregated/params.txt` remains
 the flat global pool; GF, Dalfox, kxss, Arjun, and custom matchers should act as
-dynamic filters over that pool unless a run needs a reproducible queue artifact.
+dynamic filters over its URL-shaped records unless a run needs a reproducible
+queue artifact. Bare names are candidate vocabulary, not runnable URLs.
 
 ## Candidate Fields
 

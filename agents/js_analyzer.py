@@ -28,8 +28,10 @@ from typing import Iterable, Iterator
 
 if __package__:
     from .xss_sink_sites import scan_sink_sites
+    from .xss_source_sites import scan_source_sites
 else:
     from xss_sink_sites import scan_sink_sites
+    from xss_source_sites import scan_source_sites
 
 
 SHARED_WEB_BASE = Path("/mnt/bounty")
@@ -323,6 +325,8 @@ class JsRecord:
     sinks: list[str] = field(default_factory=list)
     sink_sites: list[dict] = field(default_factory=list)
     sink_sites_truncated: bool = False
+    source_sites: list[dict] = field(default_factory=list)
+    source_sites_truncated: bool = False
     flow_hints: list[str] = field(default_factory=list)
     interesting_keys: list[str] = field(default_factory=list)
     graphql_operations: list[str] = field(default_factory=list)
@@ -796,6 +800,7 @@ def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = No
     secret_hints = sorted(set(m.group(1).lower() for m in SECRET_HINT_RE.finditer(text)))[:50]
     sources = sorted(name for name, pattern in SOURCE_KEYWORDS.items() if pattern.search(text))
     site_scan = scan_sink_sites(text)
+    source_site_scan = scan_source_sites(text)
     sinks = sorted({name for name, pattern in SINK_KEYWORDS.items() if pattern.search(text)} |
                    {site["family"] for site in site_scan["hits"] if site["signature"] == "Handlebars.compiledRawInterpolation(candidate)"})
     flow_hints = sorted(name for name, pattern in FLOW_HINTS.items() if pattern.search(text))
@@ -830,6 +835,8 @@ def extract_signals(text: str, base_url: str, scope_hosts: list[str] | None = No
         "sinks": sinks,
         "sink_sites": site_scan["hits"],
         "sink_sites_truncated": site_scan["truncated"],
+        "source_sites": source_site_scan["hits"],
+        "source_sites_truncated": source_site_scan["truncated"],
         "flow_hints": flow_hints,
         "interesting_keys": sorted(interesting_keys)[:300],
         "graphql_operations": graphql_operations,

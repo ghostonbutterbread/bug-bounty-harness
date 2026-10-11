@@ -48,7 +48,7 @@ SOURCE_RULES: tuple[SiteRule, ...] = tuple([
          "get", name_group=1, flags=re.IGNORECASE),
     rule("router-query.NAME", "url_param", "url",
          rf"\b(?:route|router|req)\s*\.\s*query\s*(?:\.\s*|\[\s*['\"])({_NAME})(?:['\"]\s*\])?",
-         ".query", name_group=1),
+         "query", name_group=1),
     rule("useSearchParams().get(NAME)", "url_param", "url",
          rf"\buseSearchParams\s*\(\s*\)\s*\.\s*(?:get|getAll|has)\(\s*['\"]({_NAME})['\"]\s*\)",
          "useSearchParams", name_group=1),
@@ -106,7 +106,7 @@ _NEEDLE_FREE = frozenset(r.signature for r in SOURCE_RULES if not r.needles)
 # Receivers can appear under several names; search each as its own anchor.
 _QS_ANCHORS = ("searchParams", "queryParams", "urlParams", "urlSearchParams", "params", "usp", "qs", "sp", "query")
 _QS_RULE = "URLSearchParams-receiver.get(NAME)"
-_QS_SUFFIX_RE = re.compile(r"\s{0,16}\.\s{0,16}(?:get|getAll|has)\s{0,16}\(")
+_QS_SUFFIX_RE = re.compile(r"\s*\.\s*(?:get|getAll|has)\s*\(")
 
 
 def scan_source_sites(text: str, *, max_hits: int = 300, per_rule: int = 64) -> dict:
@@ -126,7 +126,7 @@ def scan_source_sites(text: str, *, max_hits: int = 300, per_rule: int = 64) -> 
         elif item.signature not in _NEEDLE_FREE and not all(needle in text for needle in item.needles):
             continue
         elif item.signature == "location.hash-read":
-            anchors = ("location.hash",)
+            anchors = ("hash",)
         else:
             anchors = (max(item.needles, key=len),)
         seen: set[tuple[int, int]] = set()

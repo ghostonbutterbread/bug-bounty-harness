@@ -23,10 +23,13 @@ from agents.xss_source_sites import SOURCE_RULES, scan_source_sites
         ("cat = getQueryParam('categoryId')", "legacy-getQueryString(NAME)", "categoryId"),
         ("store = getParameter('storeId')", "legacy-getQueryString(NAME)", "storeId"),
         ("router.query.giftMessage", "router-query.NAME", "giftMessage"),
+        ("route . query . giftMessage", "router-query.NAME", "giftMessage"),
         ("route.query['giftMessage']", "router-query.NAME", "giftMessage"),
         ("req.query.coupon", "router-query.NAME", "coupon"),
         ("useSearchParams().get('previewTitle')", "useSearchParams().get(NAME)", "previewTitle"),
         ("if (window.location.hash) {}", "location.hash-read", "location.hash-read"),
+        ("if (window.location . hash) {}", "location.hash-read", "location.hash-read"),
+        ("searchParams                    .get('longGap')", "URLSearchParams-receiver.get(NAME)", "longGap"),
     ],
 )
 def test_url_and_fragment_sources(snippet, signature, name):

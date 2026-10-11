@@ -1,14 +1,14 @@
 # Upstream triage adaptation integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes; Kanban `t_16b9d4f5`
 - **Branch / owning ref:** `feat/triage-report-adaptation`
 - **Worktree:** `/home/ryushe/worktrees/bbh-triage-report-adaptation`
 - **Base commit:** `46f2b9a105e8e0d8eeb01537b3361560f1b3b27a`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-11
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commits:** none yet
+- **Latest immutable recovery checkpoint:** `f47d2dccb0c65a3ba6b94ac1e434ef3d8a406f0f`
+- **Feature implementation commits:** `f47d2dccb0c65a3ba6b94ac1e434ef3d8a406f0f`
 - **Source:** Sequester-AG/bug-bounty-triage at `9684e1bfc876e841f9c789f0b258902b43d461e4`, MIT; copy of license retained.
 
 ## Intent
@@ -34,10 +34,10 @@ Bring upstream's evidence-led validation, readiness, escalation, and concise tri
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/triage-report-adaptation`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commits:** none yet
-- **Exact resume point:** complete adapted skill/tests, independent review, beta compatibility checks, then decide merge/activation.
-- **Working-tree state at handoff:** currently uncommitted feature edits, to be committed before intentional pause.
+- **Latest immutable recovery checkpoint:** `f47d2dccb0c65a3ba6b94ac1e434ef3d8a406f0f`
+- **Feature implementation commits:** `f47d2dccb0c65a3ba6b94ac1e434ef3d8a406f0f`
+- **Exact resume point:** receive independent re-review of corrected implementation `f47d2dc`, preflight against current beta, then integrate and activate only if all gates pass.
+- **Working-tree state at handoff:** clean after this dossier-only checkpoint commit.
 
 ## Decision gates
 

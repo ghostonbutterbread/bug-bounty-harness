@@ -41,7 +41,7 @@ SOURCE_RULES: tuple[SiteRule, ...] = tuple([
          rf"(?<![A-Za-z0-9_$]){ _QS_RECV }\s*\.\s*(?:get|getAll|has)\(\s*['\"]({_NAME})['\"]\s*\)",
          ".get(", name_group=1),
     rule("new URLSearchParams(...).get(NAME)", "url_param", "url",
-         rf"new\s+URLSearchParams\s*\([^)]{{0,160}}\)\s*(?:;?[^;]{{0,80}}?)?\.\s*(?:get|getAll|has)\(\s*['\"]({_NAME})['\"]\s*\)",
+         rf"new\s+URLSearchParams\s*\([^)]{{0,160}}\)\s*\.\s*(?:get|getAll|has)\(\s*['\"]({_NAME})['\"]\s*\)",
          "new URLSearchParams", name_group=1),
     rule("legacy-getQueryString(NAME)", "url_param", "url",
          rf"\b(?:getQueryString|getQueryParam|getParameter|getUrlParam|getParam)\(\s*['\"]({_NAME})['\"]\s*\)",
@@ -55,7 +55,7 @@ SOURCE_RULES: tuple[SiteRule, ...] = tuple([
 
     # -- URL fragment ----------------------------------------------------------
     rule("location.hash-read", "url_fragment", "url",
-         r"location\s*\.\s*hash\b(?!\s*(?:[+\-*/%&|^?]?=(?!=|>)|\+\+|--))",
+         r"location\s*\.\s*hash\b(?!\s*(?:(?:&&|\|\||\?\?|[+\-*/%&|^?])?=(?!=|>)|\+\+|--))",
          "location", "hash", name_group=0),
 
     # -- cookies ----------------------------------------------------------------
@@ -106,6 +106,7 @@ _NEEDLE_FREE = frozenset(r.signature for r in SOURCE_RULES if not r.needles)
 # Receivers can appear under several names; search each as its own anchor.
 _QS_ANCHORS = ("searchParams", "queryParams", "urlParams", "urlSearchParams", "params", "usp", "qs", "sp", "query")
 _QS_RULE = "URLSearchParams-receiver.get(NAME)"
+_QS_SUFFIX_RE = re.compile(r"\s{0,16}\.\s{0,16}(?:get|getAll|has)\s{0,16}\(")
 
 
 def scan_source_sites(text: str, *, max_hits: int = 300, per_rule: int = 64) -> dict:
@@ -133,6 +134,9 @@ def scan_source_sites(text: str, *, max_hits: int = 300, per_rule: int = 64) -> 
         for anchor in anchors:
             position = 0
             while (position := text.find(anchor, position)) != -1:
+                if item.signature == _QS_RULE and not _QS_SUFFIX_RE.match(text, position + len(anchor)):
+                    position += len(anchor)
+                    continue
                 windows += 1
                 if windows > 10_000:
                     truncated = True

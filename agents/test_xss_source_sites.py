@@ -101,8 +101,12 @@ def test_assignment_not_read():
 @pytest.mark.parametrize("text", [
     "const url = window.location.search; headers.get('Authorization')",
     "window.location.search && headers.get('Authorization')",
+    "new URLSearchParams(location.search); unrelated.get('notQuery')",
     "location.hash = 'fixed'",
     "window.location.hash += '#fixed'",
+    "location.hash &&= value",
+    "location.hash ||= value",
+    "location.hash ??= value",
     "URLSearchParams.append('note', value)",
     "fd.append('gift-card-number', num)",
 ])
@@ -133,6 +137,13 @@ def test_default_budget_retains_later_named_fields():
     text = ";".join(f"searchParams.get('input{i:02d}')" for i in range(20))
     result = scan_source_sites(text)
     assert {f"input{i:02d}" for i in range(20)} <= {site["name"] for site in result["hits"]}
+    assert not result["truncated"]
+
+
+def test_incidental_short_receiver_tokens_do_not_hide_later_named_input():
+    text = ("sp " * 10_001) + "sp.get('lateParam')"
+    result = scan_source_sites(text)
+    assert "lateParam" in {site["name"] for site in result["hits"]}
     assert not result["truncated"]
 
 

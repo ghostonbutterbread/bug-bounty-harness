@@ -32,8 +32,11 @@ more: `metadata.jsonl` has per-bundle `source_sites`, `sink_sites`, ordinary
 `params`, and page/provenance pointers; `source_map_modules.jsonl` has named
 sites in retained original modules. A zero or capped hit count is not coverage:
 check `source_sites_truncated`, `sink_sites_truncated`, and the manifest's
-source/sink capped-artifact counts. An older inventory predating the source
-pass must be reanalyzed before using it as a named-source denominator.
+source/sink capped-artifact counts. Also inspect each source-map module's
+`packet_status`: `truncated_by_budget` and other unpacketized modules have no
+site list to inspect, even when their per-site truncation flag is false.
+An older inventory predating the source pass must be reanalyzed before using
+it as a named-source denominator.
 
 Load `parameter-mining` for observed request/body/GraphQL/form fields and the
 existing proxy/JS handoff. Resolve the aggregate with

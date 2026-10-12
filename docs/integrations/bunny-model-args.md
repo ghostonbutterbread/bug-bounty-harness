@@ -1,14 +1,14 @@
 # Bunny model arguments integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes / Kanban `t_32c13336`
 - **Branch:** `feat/bunny-model-args`
 - **Base commit:** `05ad56b7f17dd3d013ce0f76ec6363b307407009`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-12
 - **Owning feature branch/ref:** `feat/bunny-model-args`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `0e2bc513077549a1a5860079a7c366b9cc5eb98e`
+- **Feature implementation commit(s):** `0e2bc513077549a1a5860079a7c366b9cc5eb98e`
 - **Inspiration / canonical references:** Discord thread `1559275839219306567`; `skills/bunny/SKILL.md` and `tests/test_bunny_skill.py`; Hermes native delegation and CLI model routing.
 
 ## Intent
@@ -37,10 +37,10 @@ Accept mode (`multi`, `offhand`) and run-local worker model/provider arguments t
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/bunny-model-args`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** review skill and test changes, then integrate beta.
-- **Working-tree state at handoff:** uncommitted task-owned skill/test/dossier changes.
+- **Latest immutable recovery checkpoint:** `0e2bc513077549a1a5860079a7c366b9cc5eb98e`
+- **Feature implementation commit(s):** `0e2bc513077549a1a5860079a7c366b9cc5eb98e`
+- **Exact resume point:** review implementation commit and this later dossier-only handoff commit, then integrate beta.
+- **Working-tree state at handoff:** clean after dossier-only commit.
 
 ## Decision gates
 
@@ -51,3 +51,4 @@ Accept mode (`multi`, `offhand`) and run-local worker model/provider arguments t
 ## Decision record
 
 - 2026-10-12 — created task and dedicated worktree from current beta.
+- 2026-10-12 — implementation checkpoint `0e2bc513077549a1a5860079a7c366b9cc5eb98e`; focused skill tests and read-only provider startup smoke passed.

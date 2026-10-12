@@ -52,6 +52,11 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    load `/agent-audit` with the program and run/handoff identity; it reconciles
    transcripts, handoffs, task-proxy evidence, Attempts, promotions, and cleanup
    without treating any one store as a complete action history.
+   For a chosen live surface/class, use `bbh agents/me_ledger.py surface-brief`
+   to see mapped-but-untested, blocked, stale, and scoped reviewed state. Mapper
+   runs register inventory through `surface-discover`; after testing, agents use
+   `surface-assess` with evidence refs. This denominator/coordination index does
+   not replace Attempts, MapStore, URL Ingest, or static file coverage.
 6. For shared evidence, storage, projections, or secret-reference work, read
    `docs/bounty-core-evidence-and-secrets-workstream.md`: Bounty Core owns
    generic primitives; BBH modules own their domain semantics; raw evidence has

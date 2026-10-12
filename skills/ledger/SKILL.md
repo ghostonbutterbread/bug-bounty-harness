@@ -87,7 +87,8 @@ finding.
 ~/Shared/{family}/{program}/{lane}/
 ├── ledgers/ledger.json          # canonical v2 dedupe ledger
 ├── ledgers/findings.jsonl       # append-only finding stream, when present
-├── ledgers/coverage.json        # reviewed surface/class state
+├── ledgers/coverage.json        # indexed source-file/class snapshot state
+├── ledgers/surface_coverage.sqlite # live surface/class inventory and review state
 ├── ledgers/shared_brain/        # indexed target context
 ├── context/                     # target profile and handoff
 ├── notes/                       # timeline, hypotheses, handoffs, FAQ
@@ -148,8 +149,67 @@ bbh agents/me_ledger.py cover \
 ```
 
 Completion: the relevant command reports the selected lane and updates the
-pipeline; never edit `ledger.json`, `coverage.json`, or generated indexes by
-hand.
+pipeline; never edit canonical ledgers or generated indexes by hand.
+
+### Live application coverage (all vulnerability classes)
+
+`coverage.json` and `me_ledger.py cover` require a shared-brain source-file
+snapshot. They cannot track a live WCS action, GraphQL argument, role/object
+comparison, fetcher input, or workflow transition without an indexed file. For
+those, use the separate lane-local `ledgers/surface_coverage.sqlite` through
+`me_ledger.py surface-*`. Do not call `cover` with a URL that is not in the
+shared-brain file index.
+
+After choosing a current surface or a bounded mapping run, query the matching
+class/host rather than broadly preloading historical findings:
+
+```bash
+bbh agents/me_ledger.py surface-brief --program {program} \
+  --family web_bounty --lane web --class-name xss --host app.example
+```
+
+Register discovered inventory with a stable semantic surface key, optional
+input/consumer, source reference, and mapper run ID. Supply `--class-name` only
+when that class is a relevant question; an unclassified surface stays visible
+in the brief's inventory count, not spuriously untested for every class.
+
+```bash
+bbh agents/me_ledger.py surface-discover --program {program} \
+  --family web_bounty --lane web --kind graphql_argument --host api.example \
+  --surface-key Checkout.placeOrder --input-key comment --consumer order-preview \
+  --class-name xss --source-ref recon/api/operations.jsonl --run-id <mapper-run> \
+  --fingerprint <source-or-bundle-version>
+```
+
+For bulk mapper output, use `--input-jsonl <file>` with one JSON object per
+surface, e.g. `{"kind":"graphql_argument","host":"api.example",
+"surface_key":"Checkout.placeOrder","input_key":"comment",
+"class_names":["xss"],"source_ref":"recon/api/operations.jsonl",
+"run_id":"map-1","fingerprint":"schema-v1"}`. Source-derived discovery is
+*untested*, never application-behavior proof. The mapper must still name its
+discovery method and limits in its run artifact: an absent row does not prove a
+surface absent. Repeated imports preserve reviewed state; a changed nonempty
+fingerprint displays old assessments as `stale` without deleting evidence.
+
+After deliberate review, the agent explicitly assesses the exact returned
+surface ID/class and links non-secret Attempt or MapStore IDs:
+
+```bash
+bbh agents/me_ledger.py surface-assess --program {program} \
+  --family web_bounty --lane web --surface-id S-... --class-name xss \
+  --status blocked --reason 'owned order fixture missing' \
+  --reopen-when 'owned fixture available' --evidence-ref A-...
+```
+
+Statuses are `untested` (discovery), `in_progress`, `blocked`, and `exhausted`;
+`stale` is a read-time version mismatch. Class-specific pressure such as XSS
+`warm` can be attached with `--pressure`, but is not a universal status. For
+`exhausted`, pass `--boundary` (the exact tested path/consumer) and at least
+one `--axis` (repeatable) plus evidence; sibling inputs and other classes stay
+open. An Attempt or finding does **not** automatically close coverage. Attempts
+retain payload history, MapStore facts, Hypotheses private reasoning, Leads open
+public questions, URL Ingest URL queues, and Findings proof/dedupe; this index
+holds only mapped-vs-tested state and pointers.
 
 ## Durable Hunt Notes
 

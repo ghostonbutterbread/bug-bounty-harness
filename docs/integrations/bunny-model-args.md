@@ -1,6 +1,6 @@
 # Bunny model arguments integration dossier
 
-- **Status:** review-ready
+- **Status:** accepted for beta integration
 - **Owner:** Hermes / Kanban `t_32c13336`
 - **Branch:** `feat/bunny-model-args`
 - **Base commit:** `05ad56b7f17dd3d013ce0f76ec6363b307407009`
@@ -22,7 +22,7 @@ Accept mode (`multi`, `offhand`) and run-local worker model/provider arguments t
 ## Evidence and review
 
 - Tests and commands: `python3 -m unittest tests.test_bunny_skill -v` (8 pass); `git diff --check` (pass); Hermes provider-qualified startup resolver returned `StartupModelRoute(model='gpt-6-sol', provider='openai-codex')` with a hypothetical ZAI current provider. One interactive `hermes -m gpt-6-sol --provider openai-codex --cli` returned `/status` `Model: gpt-6-sol (openai-codex)`, `Approvals: smart`, and `READY`; exited 0. A second owned PTY at PID 256611 reported the same route/approval mode, returned `CHECKPOINT observation=none next=steer`, accepted a second bounded instruction on the same PTY and returned `STEER_ACK`, then exited 0. No tools or target traffic.
-- Independent review: `70eefac6dd68fa7d733640ff64631f44538fdad0` BLOCK on inherited YOLO/off approvals, incomplete interactive process/checkpoint/slot lifecycle, and overstated evidence; guidance and dossier revised, fresh verdict pending.
+- Independent review: `70eefac6dd68fa7d733640ff64631f44538fdad0` BLOCK on inherited YOLO/off approvals, incomplete interactive process/checkpoint/slot lifecycle, and overstated evidence. Fresh read-only review of `08904323a06823fc87b048ed1e064db8808671de` returned PASS: focused suite 8/8, clean diff, effective approval status, PTY ownership and multi-cap, offhand final-only, and bounded evidence claims.
 - Replay/cohort/fixture evidence: read-only worker transport smoke above; no live cross-provider Bunny campaign or target action. Source audit: `delegate_task` resolves one config-derived credential bundle per batch, with no model-facing per-task override; a provider pin resolves the provider's own credential bundle.
 - Merge/ancestry evidence: feature reconciled with then-current beta `cfdc9ddf0d54516e3bd369b6d8edb72ae024a4c1` via `70eefac6dd68fa7d733640ff64631f44538fdad0`; expected feature delta remains Bunny skills, test, and dossier only.
 
@@ -32,14 +32,14 @@ Accept mode (`multi`, `offhand`) and run-local worker model/provider arguments t
 - **Command / fixture / environment needed:** an authorized campaign with explicit cross-provider model selection, only when the owner invokes Bunny for target work.
 - **Trigger to run it:** future authorized Bunny invocation specifying a different provider/model.
 - **Why it blocks integration, activation, or promotion:** not an integration blocker for skill guidance; no target authorization was requested here.
-- **Next completion step / successor reference:** obtain a fresh verdict on corrected tip, integrate beta, verify projected skill.
+- **Next completion step / successor reference:** integrate reviewed skill changes into beta while excluding this branch-local dossier; verify pushed beta and projected skill.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/bunny-model-args`
 - **Latest immutable recovery checkpoint:** `ad388a3c1fdee5a74f4f596b4547286660dc3407`
 - **Feature implementation commit(s):** `0e2bc513077549a1a5860079a7c366b9cc5eb98e`, `ad388a3c1fdee5a74f4f596b4547286660dc3407`
-- **Exact resume point:** review corrected implementation checkpoint and this later dossier-only handoff commit, then integrate beta.
+- **Exact resume point:** integrate accepted feature from reviewed `08904323a06823fc87b048ed1e064db8808671de` with this decision-record-only successor commit; exclude dossier from beta.
 - **Working-tree state at handoff:** clean after dossier-only commit.
 
 ## Decision gates
@@ -54,3 +54,4 @@ Accept mode (`multi`, `offhand`) and run-local worker model/provider arguments t
 - 2026-10-12 — implementation checkpoint `0e2bc513077549a1a5860079a7c366b9cc5eb98e`; focused skill tests and read-only provider startup smoke passed.
 - 2026-10-12 — reconciled feature with `cfdc9ddf0d54516e3bd369b6d8edb72ae024a4c1`; reviewer blocked approval/lifecycle/evidence claims on `70eefac6dd68fa7d733640ff64631f44538fdad0`; corrected guidance and ran a two-turn PTY smoke.
 - 2026-10-12 — review correction checkpoint `ad388a3c1fdee5a74f4f596b4547286660dc3407`; fresh verdict pending.
+- 2026-10-12 — fresh independent review PASS on `08904323a06823fc87b048ed1e064db8808671de`; accepted beta integration, with live cross-provider campaign evidence deferred until authorized invocation.

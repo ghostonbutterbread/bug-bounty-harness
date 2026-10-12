@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-12
 - **Owning feature branch/ref:** `feat/surface-coverage-index-t31601ec4`
-- **Latest immutable recovery checkpoint:** `5b76e9974a144407cb1f9ab8d0774ebe8dab3314`
-- **Feature implementation commit(s):** `5b76e9974a144407cb1f9ab8d0774ebe8dab3314`, `f2c853e8b181b5410739e0acdf0b105ab5634e4c`
+- **Latest immutable recovery checkpoint:** `26c2a372265f95f91226ad8371b01d85632c9f09`
+- **Feature implementation commit(s):** `5b76e9974a144407cb1f9ab8d0774ebe8dab3314`, `f2c853e8b181b5410739e0acdf0b105ab5634e4c`, `26c2a372265f95f91226ad8371b01d85632c9f09`
 - **Inspiration / canonical references:** Hoster Hollister XSS agent coverage audit; `agents/coverage_store.py`, `agents/url_ingest.py`, `agents/attempts.py`, and the ledger/MapStore skills.
 
 ## Intent
@@ -36,8 +36,8 @@ Implemented: lane-local `ledgers/surface_coverage.sqlite`; stable surface/class 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/surface-coverage-index-t31601ec4`
-- **Latest immutable recovery checkpoint:** `5b76e9974a144407cb1f9ab8d0774ebe8dab3314`
-- **Feature implementation commit(s):** `5b76e9974a144407cb1f9ab8d0774ebe8dab3314`, `f2c853e8b181b5410739e0acdf0b105ab5634e4c`
+- **Latest immutable recovery checkpoint:** `26c2a372265f95f91226ad8371b01d85632c9f09`
+- **Feature implementation commit(s):** `5b76e9974a144407cb1f9ab8d0774ebe8dab3314`, `f2c853e8b181b5410739e0acdf0b105ab5634e4c`, `26c2a372265f95f91226ad8371b01d85632c9f09`
 - **Exact resume point:** independent review of current diff and tests, then reconcile current beta and integrate if approved.
 - **Working-tree state at handoff:** implementation and test-first evidence completed; checkpoint commit precedes review.
 

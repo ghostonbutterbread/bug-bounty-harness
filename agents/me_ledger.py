@@ -501,21 +501,7 @@ def cmd_surface_discover(args: argparse.Namespace) -> int:
                  "class_names": [args.class_name] if args.class_name else [],
                  "source_ref": args.source_ref, "run_id": args.run_id,
                  "fingerprint": args.fingerprint}]
-    surface_ids = []
-    for line_number, row in enumerate(rows, 1):
-        classes = row.get("class_names", [])
-        if not isinstance(classes, list) or any(not isinstance(value, str) for value in classes):
-            raise ValueError(f"inventory line {line_number}: class_names must be a list of strings")
-        for class_name in classes or [None]:
-            surface_id = store.discover(
-                kind=row.get("kind", ""), host=row.get("host", ""),
-                surface_key=row.get("surface_key", ""), input_key=row.get("input_key", ""),
-                consumer=row.get("consumer", ""), class_name=class_name,
-                source_ref=row.get("source_ref", ""), run_id=row.get("run_id", ""),
-                fingerprint=row.get("fingerprint", ""),
-            )
-            if surface_id not in surface_ids:
-                surface_ids.append(surface_id)
+    surface_ids = store.discover_many(rows)
     print(json.dumps({"discovered": len(surface_ids), "surface_ids": surface_ids,
                       "coverage_path": str(store.path)}, indent=2))
     return 0
@@ -534,7 +520,8 @@ def cmd_surface_assess(args: argparse.Namespace) -> int:
 
 def cmd_surface_brief(args: argparse.Namespace) -> int:
     print(json.dumps(_surface_store(args).brief(class_name=args.class_name,
-                                                host=args.host, limit=args.limit), indent=2))
+                                                host=args.host, limit=args.limit,
+                                                offset=args.offset), indent=2))
     return 0
 
 
@@ -761,6 +748,7 @@ def build_parser() -> argparse.ArgumentParser:
     brief_parser.add_argument("--class-name")
     brief_parser.add_argument("--host")
     brief_parser.add_argument("--limit", type=int, default=50)
+    brief_parser.add_argument("--offset", type=int, default=0, help="Page offset; follow next_offset until null")
     brief_parser.set_defaults(func=cmd_surface_brief)
 
     history_parser = subparsers.add_parser("surface-history", help="Bounded assessment history for one mapped surface/class")

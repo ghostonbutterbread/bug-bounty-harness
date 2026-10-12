@@ -21,8 +21,8 @@ Implemented: lane-local `ledgers/surface_coverage.sqlite`; stable surface/class 
 
 ## Evidence and review
 
-- Tests and commands: red/green `agents/test_surface_coverage.py` (missing module, CLI, unclassified inventory, attribution and history failures observed); `python3 -m pytest agents/test_surface_coverage.py agents/test_me_ledger.py agents/test_coverage_store.py agents/test_attempts.py agents/test_manual_hunter.py -q` => 77 passed, 21 subtests passed. `python3 -m pytest tests/test_script_policy.py -q` => 25 passed. CLI smoke in isolated scratch: discover => one untested row, assess blocked => persisted history with evidence pointer.
-- Independent review: pending.
+- Tests and commands: red/green `agents/test_surface_coverage.py` (missing module, CLI, unclassified inventory, attribution and history failures observed); `python3 -m pytest agents/test_surface_coverage.py agents/test_me_ledger.py agents/test_coverage_store.py agents/test_attempts.py agents/test_manual_hunter.py -q` => 82 passed, 26 subtests passed after review repairs. `python3 -m pytest tests/test_script_policy.py -q` => 25 passed. CLI smoke in isolated scratch: discover => one untested row, assess blocked => persisted history with evidence pointer.
+- Independent review: first pass requested four repairs: older known fingerprints restoring exhausted, >200 questions not enumerable, partial bulk imports, and common auth-material acceptance. Test-first repairs made for each; re-review pending.
 - Replay/cohort/fixture evidence: isolated temporary storage fixtures; no Hoster writes.
 - Merge/ancestry evidence: pending.
 
@@ -30,6 +30,7 @@ Implemented: lane-local `ledgers/surface_coverage.sqlite`; stable surface/class 
 
 - Automatic adapters for each individual mapper output are deferred: mapper schemas differ and imports must not convert source-derived hints to tested claims. Trigger: review one concrete inventory producer and add its adapter with a fixture and provenance test.
 - Hoster activation is separate from beta integration. Trigger: explicit lane rollout; verify deployed checkout and a fresh `bbh` consumer before claiming active use.
+- Fingerprints are opaque and unordered. Previously observed older versions are rejected, but a never-seen obsolete fingerprint cannot be detected without upstream ordering. Trigger: a mapper that provides an authoritative monotonic version; add a version contract and test before using it to determine freshness.
 - Adjacent `agents/test_sync_reports.py` has two canonical report-title assertion failures on both this feature and a clean `origin/beta` worktree at `05ad56b`. They are pre-existing and unrelated to this patch; no report pipeline code changed. Trigger for their repair: a separate report-output defect task. Remaining 57 sync/URL tests pass in this feature worktree.
 
 ## Interruption / resume handoff

@@ -190,6 +190,9 @@ surface, e.g. `{"kind":"graphql_argument","host":"api.example",
 discovery method and limits in its run artifact: an absent row does not prove a
 surface absent. Repeated imports preserve reviewed state; a changed nonempty
 fingerprint displays old assessments as `stale` without deleting evidence.
+Known older fingerprints cannot reverse a newer observed fingerprint. A novel
+fingerprint has no inherent order, so mapper owners must import current runs;
+an unseen obsolete artifact cannot be recognized from its hash alone.
 
 After deliberate review, the agent explicitly assesses the exact returned
 surface ID/class and links non-secret Attempt or MapStore IDs:
@@ -210,6 +213,12 @@ open. An Attempt or finding does **not** automatically close coverage. Attempts
 retain payload history, MapStore facts, Hypotheses private reasoning, Leads open
 public questions, URL Ingest URL queues, and Findings proof/dedupe; this index
 holds only mapped-vs-tested state and pointers.
+Follow `next_offset` in `surface-brief` with `--offset <next_offset>` until it
+is null; `--limit` (1–200) bounds each page, while `total` and `counts` describe
+all matching class questions. Bulk JSONL imports are atomic: a malformed row
+leaves no partial discovery. Use opaque, non-secret IDs and sanitized short
+explanations only; the writer rejects common authentication material patterns,
+but cannot prove arbitrary prose is secret-free.
 
 ## Durable Hunt Notes
 

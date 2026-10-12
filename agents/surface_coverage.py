@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,12 +24,15 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _plain(value: str, label: str, *, required: bool = False) -> str:
+def _plain(value: Any, label: str, *, required: bool = False) -> str:
     text = str(value or "").strip()
     if required and not text:
         raise ValueError(f"{label} is required")
     if any(c in text for c in ("?", "#", "\n", "\r")):
         raise ValueError(f"{label} must be a stable, non-secret identifier, not a query, fragment, or raw request")
+    if (re.search(r"\b(?:bearer|authorization|set-cookie|cookie)\s*[:= ]\s*\S+", text, re.I)
+            or re.search(r"\b(?:token|password|api[_-]?key|secret)\s*[:=]\s*\S+", text, re.I)):
+        raise ValueError(f"{label} must not contain authentication material; use an opaque evidence ID")
     return text
 
 
@@ -61,6 +65,10 @@ class SurfaceCoverageStore:
                 updated_at TEXT NOT NULL, PRIMARY KEY(surface_id, class_name)
             );
             CREATE INDEX IF NOT EXISTS coverage_by_class ON assessments(class_name, status);
+            CREATE TABLE IF NOT EXISTS previous_fingerprints (
+                surface_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+                PRIMARY KEY(surface_id, fingerprint)
+            );
             CREATE TABLE IF NOT EXISTS assessment_history (
                 event_id INTEGER PRIMARY KEY AUTOINCREMENT, surface_id TEXT NOT NULL,
                 class_name TEXT NOT NULL, status TEXT NOT NULL, pressure TEXT NOT NULL,
@@ -77,30 +85,58 @@ class SurfaceCoverageStore:
     def discover(self, *, kind: str, host: str, surface_key: str, source_ref: str, run_id: str,
                  class_name: str | None = None, input_key: str = "", consumer: str = "",
                  fingerprint: str = "") -> str:
-        identity = {
-            "kind": _plain(kind, "kind", required=True),
-            "host": _plain(host, "host", required=True).lower(),
-            "surface_key": _plain(surface_key, "surface_key", required=True),
-            "input_key": _plain(input_key, "input_key"),
-            "consumer": _plain(consumer, "consumer"),
-        }
-        source_ref = _plain(source_ref, "source_ref", required=True)
-        run_id = _plain(run_id, "run_id", required=True)
-        fingerprint = _plain(fingerprint, "fingerprint")
-        class_name = _plain(class_name or "", "class_name").lower()
-        surface_id = "S-" + hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:24]
-        timestamp = _now()
+        return self.discover_many([dict(kind=kind, host=host, surface_key=surface_key,
+                                        source_ref=source_ref, run_id=run_id, class_name=class_name,
+                                        input_key=input_key, consumer=consumer, fingerprint=fingerprint)])[0]
+
+    def discover_many(self, rows: list[dict[str, Any]]) -> list[str]:
+        """Import a mapper batch atomically; invalid later rows roll back earlier ones."""
+        ids = []
+        seen_ids: set[str] = set()
         with self._connect() as db:
-            db.execute("""INSERT INTO surfaces(id,kind,host,surface_key,input_key,consumer,source_ref,run_id,fingerprint,first_seen,last_seen)
-                          VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
-                          source_ref=excluded.source_ref,run_id=excluded.run_id,
-                          fingerprint=CASE WHEN excluded.fingerprint != '' THEN excluded.fingerprint ELSE surfaces.fingerprint END,
-                          last_seen=excluded.last_seen""",
-                       (surface_id, *identity.values(), source_ref, run_id, fingerprint, timestamp, timestamp))
-            if class_name:
-                db.execute("""INSERT OR IGNORE INTO assessments(surface_id,class_name,updated_at)
-                              VALUES(?,?,?)""", (surface_id, class_name, timestamp))
-        return surface_id
+            for line_number, row in enumerate(rows, 1):
+                try:
+                    identity = {
+                        "kind": _plain(row.get("kind"), "kind", required=True),
+                        "host": _plain(row.get("host"), "host", required=True).lower(),
+                        "surface_key": _plain(row.get("surface_key"), "surface_key", required=True),
+                        "input_key": _plain(row.get("input_key"), "input_key"),
+                        "consumer": _plain(row.get("consumer"), "consumer"),
+                    }
+                    source_ref = _plain(row.get("source_ref"), "source_ref", required=True)
+                    run_id = _plain(row.get("run_id"), "run_id", required=True)
+                    fingerprint = _plain(row.get("fingerprint"), "fingerprint")
+                    classes = row.get("class_names", [row.get("class_name")])
+                    if not isinstance(classes, list) or any(value is not None and not isinstance(value, str) for value in classes):
+                        raise ValueError("class_names must be a list of strings")
+                    class_names = [_plain(value or "", "class_name").lower() for value in classes]
+                    surface_id = "S-" + hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:24]
+                    timestamp = _now()
+                    previous = db.execute("SELECT fingerprint FROM surfaces WHERE id=?", (surface_id,)).fetchone()
+                    if previous and fingerprint and fingerprint != previous["fingerprint"]:
+                        seen = db.execute("SELECT 1 FROM previous_fingerprints WHERE surface_id=? AND fingerprint=?",
+                                          (surface_id, fingerprint)).fetchone()
+                        if seen:
+                            raise ValueError("older fingerprint cannot replace current mapped version")
+                        if previous["fingerprint"]:
+                            db.execute("INSERT OR IGNORE INTO previous_fingerprints(surface_id,fingerprint) VALUES(?,?)",
+                                       (surface_id, previous["fingerprint"]))
+                    db.execute("""INSERT INTO surfaces(id,kind,host,surface_key,input_key,consumer,source_ref,run_id,fingerprint,first_seen,last_seen)
+                                  VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+                                  source_ref=excluded.source_ref,run_id=excluded.run_id,
+                                  fingerprint=CASE WHEN excluded.fingerprint != '' THEN excluded.fingerprint ELSE surfaces.fingerprint END,
+                                  last_seen=excluded.last_seen""",
+                               (surface_id, *identity.values(), source_ref, run_id, fingerprint, timestamp, timestamp))
+                    for class_name in class_names:
+                        if class_name:
+                            db.execute("""INSERT OR IGNORE INTO assessments(surface_id,class_name,updated_at)
+                                          VALUES(?,?,?)""", (surface_id, class_name, timestamp))
+                    if surface_id not in seen_ids:
+                        seen_ids.add(surface_id)
+                        ids.append(surface_id)
+                except ValueError as exc:
+                    raise ValueError(f"inventory line {line_number}: {exc}") from exc
+        return ids
 
     def assess(self, surface_id: str, *, class_name: str, status: str, evidence_refs: list[str],
                reason: str, pressure: str = "", boundary: str = "", axes: list[str] | None = None,
@@ -156,12 +192,16 @@ class SurfaceCoverageStore:
         return [{**dict(row), "axes": json.loads(row["axes_json"]),
                  "evidence_refs": json.loads(row["evidence_json"])} for row in reversed(rows)]
 
-    def brief(self, *, class_name: str | None = None, host: str | None = None, limit: int = 50) -> dict[str, Any]:
+    def brief(self, *, class_name: str | None = None, host: str | None = None,
+              limit: int = 50, offset: int = 0) -> dict[str, Any]:
         if not 1 <= limit <= 200:
             raise ValueError("limit must be between 1 and 200")
+        if offset < 0:
+            raise ValueError("offset must be nonnegative")
         if not self.path.exists():
             return {"counts": {}, "items": [], "total": 0, "unclassified_surfaces": 0,
-                    "mapped_kinds": {}, "coverage_path": str(self.path)}
+                    "mapped_kinds": {}, "coverage_path": str(self.path),
+                    "offset": offset, "next_offset": None}
         filters = []
         values = []
         if class_name:
@@ -171,11 +211,21 @@ class SurfaceCoverageStore:
             filters.append("s.host=?")
             values.append(_plain(host, "host").lower())
         where = " WHERE " + " AND ".join(filters) if filters else ""
+        questions = """WITH questions AS (SELECT s.*,a.class_name,a.status,a.pressure,a.reason,a.boundary,
+                       a.axes_json,a.evidence_json,a.reopen_when,a.assessed_fingerprint,a.agent,
+                       a.assessment_run_id,a.updated_at,
+                       CASE WHEN a.status != 'untested' AND s.fingerprint != ''
+                                 AND a.assessed_fingerprint != s.fingerprint THEN 'stale'
+                            ELSE a.status END AS review_status
+                       FROM assessments a JOIN surfaces s ON s.id=a.surface_id""" + where + ") "
         with self._connect() as db:
-            rows = db.execute("""SELECT s.*,a.class_name,a.status,a.pressure,a.reason,a.boundary,
-                              a.axes_json,a.evidence_json,a.reopen_when,a.assessed_fingerprint,a.agent,
-                              a.assessment_run_id,a.updated_at
-                              FROM assessments a JOIN surfaces s ON s.id=a.surface_id""" + where, values).fetchall()
+            counts = {row["review_status"]: row["n"] for row in db.execute(
+                questions + "SELECT review_status, COUNT(*) AS n FROM questions GROUP BY review_status", values)}
+            rows = db.execute(questions + """SELECT * FROM questions ORDER BY
+                              CASE review_status WHEN 'blocked' THEN 0 WHEN 'stale' THEN 1
+                              WHEN 'in_progress' THEN 2 WHEN 'untested' THEN 3 ELSE 4 END,
+                              host,surface_key,input_key,class_name,id LIMIT ? OFFSET ?""",
+                              [*values, limit, offset]).fetchall()
             host_filter = " WHERE s.host=?" if host else ""
             host_values = [_plain(host, "host").lower()] if host else []
             kinds = db.execute("SELECT s.kind, COUNT(*) AS n FROM surfaces s" + host_filter +
@@ -183,22 +233,19 @@ class SurfaceCoverageStore:
             unclassified = db.execute("""SELECT COUNT(*) FROM surfaces s WHERE NOT EXISTS
                                       (SELECT 1 FROM assessments a WHERE a.surface_id=s.id)""" +
                                       (" AND s.host=?" if host else ""), host_values).fetchone()[0]
-        counts: dict[str, int] = {}
         items = []
         for row in rows:
             item = dict(row)
-            prior = item["status"]
-            if prior != "untested" and item["fingerprint"] and item["assessed_fingerprint"] != item["fingerprint"]:
-                item["status"] = "stale"
-                item["prior_status"] = prior
-            status = item["status"]
-            counts[status] = counts.get(status, 0) + 1
+            if item["review_status"] == "stale":
+                item["prior_status"] = item["status"]
+            item["status"] = item.pop("review_status")
             item["surface_id"] = item.pop("id")
             item["axes"] = json.loads(item.pop("axes_json"))
             item["evidence_refs"] = json.loads(item.pop("evidence_json"))
             items.append(item)
-        items.sort(key=lambda item: (ORDER[item["status"]], item["host"], item["surface_key"], item["input_key"], item["class_name"]))
-        return {"counts": counts, "items": items[:limit], "total": len(items),
+        total = sum(counts.values())
+        return {"counts": counts, "items": items, "total": total,
                 "unclassified_surfaces": unclassified,
                 "mapped_kinds": {row["kind"]: row["n"] for row in kinds},
-                "coverage_path": str(self.path)}
+                "coverage_path": str(self.path), "offset": offset,
+                "next_offset": offset + len(items) if offset + len(items) < total else None}

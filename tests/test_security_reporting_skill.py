@@ -73,6 +73,12 @@ class SecurityReportingSkillTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)
 
+    def test_inline_curl_does_not_require_triager_authoring_skill(self):
+        text = SKILL.read_text(encoding="utf-8")
+        self.assertIn("For a simple inline `curl`, the PoC author does not need to load `triager-first-poc-authoring`", text)
+        self.assertIn("For a standalone or scripted PoC, the PoC author loads `triager-first-poc-authoring`", text)
+        self.assertNotIn("The PoC author loads `poc-tooling-policy` and `triager-first-poc-authoring`", text)
+
 
 if __name__ == "__main__":
     unittest.main()

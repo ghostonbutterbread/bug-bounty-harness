@@ -1,14 +1,14 @@
 # Bunny model arguments integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes / Kanban `t_32c13336`
 - **Branch:** `feat/bunny-model-args`
 - **Base commit:** `05ad56b7f17dd3d013ce0f76ec6363b307407009`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-12
 - **Owning feature branch/ref:** `feat/bunny-model-args`
-- **Latest immutable recovery checkpoint:** `0e2bc513077549a1a5860079a7c366b9cc5eb98e`
-- **Feature implementation commit(s):** `0e2bc513077549a1a5860079a7c366b9cc5eb98e`
+- **Latest immutable recovery checkpoint:** `ad388a3c1fdee5a74f4f596b4547286660dc3407`
+- **Feature implementation commit(s):** `0e2bc513077549a1a5860079a7c366b9cc5eb98e`, `ad388a3c1fdee5a74f4f596b4547286660dc3407`
 - **Inspiration / canonical references:** Discord thread `1559275839219306567`; `skills/bunny/SKILL.md` and `tests/test_bunny_skill.py`; Hermes native delegation and CLI model routing.
 
 ## Intent
@@ -37,10 +37,10 @@ Accept mode (`multi`, `offhand`) and run-local worker model/provider arguments t
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/bunny-model-args`
-- **Latest immutable recovery checkpoint:** `0e2bc513077549a1a5860079a7c366b9cc5eb98e`
-- **Feature implementation commit(s):** `0e2bc513077549a1a5860079a7c366b9cc5eb98e`
-- **Exact resume point:** commit review corrections and dossier, obtain a fresh independent verdict, then integrate beta.
-- **Working-tree state at handoff:** task-owned review corrections pending commit.
+- **Latest immutable recovery checkpoint:** `ad388a3c1fdee5a74f4f596b4547286660dc3407`
+- **Feature implementation commit(s):** `0e2bc513077549a1a5860079a7c366b9cc5eb98e`, `ad388a3c1fdee5a74f4f596b4547286660dc3407`
+- **Exact resume point:** review corrected implementation checkpoint and this later dossier-only handoff commit, then integrate beta.
+- **Working-tree state at handoff:** clean after dossier-only commit.
 
 ## Decision gates
 
@@ -53,3 +53,4 @@ Accept mode (`multi`, `offhand`) and run-local worker model/provider arguments t
 - 2026-10-12 — created task and dedicated worktree from current beta.
 - 2026-10-12 — implementation checkpoint `0e2bc513077549a1a5860079a7c366b9cc5eb98e`; focused skill tests and read-only provider startup smoke passed.
 - 2026-10-12 — reconciled feature with `cfdc9ddf0d54516e3bd369b6d8edb72ae024a4c1`; reviewer blocked approval/lifecycle/evidence claims on `70eefac6dd68fa7d733640ff64631f44538fdad0`; corrected guidance and ran a two-turn PTY smoke.
+- 2026-10-12 — review correction checkpoint `ad388a3c1fdee5a74f4f596b4547286660dc3407`; fresh verdict pending.

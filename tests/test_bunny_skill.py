@@ -54,6 +54,14 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("interactive worker route in `bunny`", collaborative)
         self.assertIn("successive bounded segments", collaborative)
         self.assertIn("do not use approval-bypassing one-shot", collaborative)
+        self.assertIn("real PTY", router)
+        self.assertIn("Approvals: manual", router)
+        self.assertIn("Approvals: smart", router)
+        self.assertIn("without `YOLO bypass active`", router)
+        self.assertIn("same owned PTY", collaborative)
+        self.assertIn("not `delegate_task` steer/stop", collaborative)
+        self.assertIn("pending approval", collaborative)
+        self.assertIn("final-result-only", OFFHAND.read_text(encoding="utf-8"))
 
     def test_multi_program_is_depth_first_with_bounded_workers(self):
         router = ROUTER.read_text(encoding="utf-8")
@@ -78,6 +86,7 @@ class BunnySkillTests(unittest.TestCase):
             "not** a timer, deadline, or reason to move on",
             "close a program only on evidence-backed grounds",
             "three active subagents total",
+            "interactive CLI workers count",
             "including multiple workers in one program",
             "free a slot only after confirming that worker has stopped",
             "reporters all count",

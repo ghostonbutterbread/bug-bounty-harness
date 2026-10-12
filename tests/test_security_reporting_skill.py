@@ -78,6 +78,9 @@ class SecurityReportingSkillTests(unittest.TestCase):
         self.assertIn("For a simple inline `curl`, the PoC author does not need to load `triager-first-poc-authoring`", text)
         self.assertIn("For a standalone or scripted PoC, the PoC author loads `triager-first-poc-authoring`", text)
         self.assertNotIn("The PoC author loads `poc-tooling-policy` and `triager-first-poc-authoring`", text)
+        entry = (ROOT / "agents/index.md").read_text(encoding="utf-8")
+        self.assertIn("Standalone or scripted PoC editing follows `triager-first-poc-authoring`", entry)
+        self.assertIn("a simple inline `curl` does not load that authoring skill", entry)
 
 
 if __name__ == "__main__":

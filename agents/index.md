@@ -73,7 +73,9 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    `security-reporting`, including for a named-section condensation; preserve
    every unrequested region. `EVIDENCE.md` and the rough `REPORT.md` remain
    working evidence/drafts, not final-submission formatting assignments. PoC
-   editing follows `triager-first-poc-authoring` and its execution boundary.
+   creation follows `poc-tooling-policy`. Standalone or scripted PoC editing follows `triager-first-poc-authoring`;
+   a simple inline `curl` does not load that authoring skill. Live execution
+   remains governed by the policy chain above.
    When security testing needs a browser, use `/chromium-test` and request it
    through `browser_provisioner.py` on the browser node. Its default `--proxy
    mitm` starts a task-owned listener, imports its CA before Chrome starts, and

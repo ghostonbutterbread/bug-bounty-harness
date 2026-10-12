@@ -1,7 +1,7 @@
 ---
 name: bunny
 description: Use when Ryushe invokes Bunny's campaign orchestration.
-version: 0.2.0
+version: 0.3.0
 author: Ryushe, Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -20,6 +20,14 @@ Bunny is an **opt-in** BBH campaign mode. A coordinator owns the program map, wo
 - **Collaborative with `multi`:** Load `bunny-collaborative`; it selects its coordinator-only `bunny-multi` overlay. `multi` is a parameter, not an offhand mode or a `/goal`-specific route. If Ryushe combines `multi` and offhand, clarify which mode to use before dispatch rather than silently combining them.
 - **Explicit: offhand.** Only when Ryushe selects offhand/dispatch-and-collect, load `bunny-offhand` in the coordinator. Its ordinary workers receive scoped tasks and applicable security policies, **not** a Bunny mode skill or collaboration contract.
 - A mode change occurs at an evidence checkpoint, after reconciling the current worker and surface lease. Do not silently fall back from collaborative to offhand when a transport or worker skill is unavailable; report the limitation and seek a workable collaborative channel or an explicit mode change.
+
+## Invocation arguments and worker model
+
+Mode and model are independent arguments, in either order: `Bunny multi model <provider>:<model-id> <objective>` and `Bunny model <model-id> <objective>` are examples. A clear model ID or configured alias immediately after Bunny (or `multi`) also counts without the `model` keyword; mode words are not model IDs. Do not consume a program name or objective as a model. Resolve ambiguity before dispatch, and retain the `multi` + offhand conflict above. An explicit `provider` argument or a provider-qualified model selects that provider; otherwise resolve the model through the current harness's configured model/provider catalog and authenticated accounts, not a Bunny-maintained vendor list.
+
+The model choice applies to **workers** (recon, hunter, verifier, reporter) for this Bunny run; the coordinator keeps its own model. Without a model argument, workers use the parent's *active* model/provider route; check for any preconfigured delegation override before relying on native inheritance. With one, prefer the same authenticated provider as the parent if it actually serves that model; if a different provider is required, use that provider's own configured credentials and endpoint—never borrow the parent's credential or endpoint. If the model/provider pair is ambiguous, unavailable, or unauthenticated, ask for a provider or report the blocker; do not silently spawn on the wrong model. Do not change global configuration to route one campaign.
+
+Use a worker-spawn mechanism that really applies the selected model/provider to each worker and verify the effective model and provider before live work. In Hermes, model-facing `delegate_task` has no per-worker model/provider argument: a model string in a task packet does not switch the child. For a requested override, use a native per-worker override if the running harness provides one; otherwise start an owned interactive Hermes worker in a real PTY with invocation-scoped `--model <resolved-model> --provider <resolved-provider>` and the same bounded packet/mode contract. On Hermes, inspect the worker's `/status` for the expected model/provider and `Approvals: manual` or `Approvals: smart` without `YOLO bypass active`; an interactive process can inherit bypass settings from its parent. Require a real PTY and verify this approval gate before any live action. Do not use approval-bypassing one-shot for live testing. Record the worker/process ID and confirm its exit before releasing its surface or any worker slot. If the requested route, approval gate, or suitable worker transport cannot be verified, stop before target actions instead of changing modes or falling back to the parent model.
 
 ## Shared boundaries
 

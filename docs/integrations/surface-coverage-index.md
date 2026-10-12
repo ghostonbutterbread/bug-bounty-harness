@@ -8,7 +8,7 @@
 - **Last updated:** 2026-10-12
 - **Owning feature branch/ref:** `feat/surface-coverage-index-t31601ec4`
 - **Latest immutable recovery checkpoint:** `5b76e9974a144407cb1f9ab8d0774ebe8dab3314`
-- **Feature implementation commit(s):** `5b76e9974a144407cb1f9ab8d0774ebe8dab3314`
+- **Feature implementation commit(s):** `5b76e9974a144407cb1f9ab8d0774ebe8dab3314`, `f2c853e8b181b5410739e0acdf0b105ab5634e4c`
 - **Inspiration / canonical references:** Hoster Hollister XSS agent coverage audit; `agents/coverage_store.py`, `agents/url_ingest.py`, `agents/attempts.py`, and the ledger/MapStore skills.
 
 ## Intent
@@ -21,8 +21,8 @@ Implemented: lane-local `ledgers/surface_coverage.sqlite`; stable surface/class 
 
 ## Evidence and review
 
-- Tests and commands: red/green `agents/test_surface_coverage.py` (missing module, CLI, unclassified inventory, attribution and history failures observed); `python3 -m pytest agents/test_surface_coverage.py agents/test_me_ledger.py agents/test_coverage_store.py agents/test_attempts.py agents/test_manual_hunter.py -q` => 82 passed, 26 subtests passed after review repairs. `python3 -m pytest tests/test_script_policy.py -q` => 25 passed. CLI smoke in isolated scratch: discover => one untested row, assess blocked => persisted history with evidence pointer.
-- Independent review: first pass requested four repairs: older known fingerprints restoring exhausted, >200 questions not enumerable, partial bulk imports, and common auth-material acceptance. Test-first repairs made for each; re-review pending.
+- Tests and commands: red/green `agents/test_surface_coverage.py` (initial contract and each review repair); `python3 -m pytest agents/test_surface_coverage.py agents/test_me_ledger.py agents/test_coverage_store.py agents/test_attempts.py agents/test_manual_hunter.py tests/test_script_policy.py -q` => 108 passed, 30 subtests passed. CLI smoke in isolated scratch: discover => one untested row, assess blocked => persisted history with evidence pointer; the CLI assessment now requires the observed `--expected-fingerprint`.
+- Independent review: first pass requested four repairs: older known fingerprints restoring exhausted, >200 questions not enumerable, partial bulk imports, and common auth-material acceptance. Re-review verified those cases but found a stale-assessment race (no caller-supplied fingerprint) and further named secret patterns. Test-first repairs require `--expected-fingerprint` and reject these forms; final re-review pending.
 - Replay/cohort/fixture evidence: isolated temporary storage fixtures; no Hoster writes.
 - Merge/ancestry evidence: pending.
 
@@ -37,7 +37,7 @@ Implemented: lane-local `ledgers/surface_coverage.sqlite`; stable surface/class 
 
 - **Owning feature branch/ref:** `feat/surface-coverage-index-t31601ec4`
 - **Latest immutable recovery checkpoint:** `5b76e9974a144407cb1f9ab8d0774ebe8dab3314`
-- **Feature implementation commit(s):** `5b76e9974a144407cb1f9ab8d0774ebe8dab3314`
+- **Feature implementation commit(s):** `5b76e9974a144407cb1f9ab8d0774ebe8dab3314`, `f2c853e8b181b5410739e0acdf0b105ab5634e4c`
 - **Exact resume point:** independent review of current diff and tests, then reconcile current beta and integrate if approved.
 - **Working-tree state at handoff:** implementation and test-first evidence completed; checkpoint commit precedes review.
 

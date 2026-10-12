@@ -30,8 +30,9 @@ def _plain(value: Any, label: str, *, required: bool = False) -> str:
         raise ValueError(f"{label} is required")
     if any(c in text for c in ("?", "#", "\n", "\r")):
         raise ValueError(f"{label} must be a stable, non-secret identifier, not a query, fragment, or raw request")
-    if (re.search(r"\b(?:bearer|authorization|set-cookie|cookie)\s*[:= ]\s*\S+", text, re.I)
-            or re.search(r"\b(?:token|password|api[_-]?key|secret)\s*[:=]\s*\S+", text, re.I)):
+    if (re.search(r"\b(?:bearer|authorization|set-cookie|cookie)(?:\s+|\s*[:=]\s*)\S+", text, re.I)
+            or re.search(r"\b(?:(?:access|refresh|client)[_-])?(?:token|secret)\s*[:=]\s*\S+", text, re.I)
+            or re.search(r"\b(?:password|api[_-]?key)\s*[:=]\s*\S+", text, re.I)):
         raise ValueError(f"{label} must not contain authentication material; use an opaque evidence ID")
     return text
 
@@ -138,11 +139,13 @@ class SurfaceCoverageStore:
                     raise ValueError(f"inventory line {line_number}: {exc}") from exc
         return ids
 
-    def assess(self, surface_id: str, *, class_name: str, status: str, evidence_refs: list[str],
+    def assess(self, surface_id: str, *, class_name: str, status: str, expected_fingerprint: str,
+               evidence_refs: list[str],
                reason: str, pressure: str = "", boundary: str = "", axes: list[str] | None = None,
                reopen_when: str = "", agent: str = "", run_id: str = "") -> dict[str, Any]:
         surface_id = _plain(surface_id, "surface_id", required=True)
         class_name = _plain(class_name, "class_name", required=True).lower()
+        expected_fingerprint = _plain(expected_fingerprint, "expected_fingerprint")
         if status not in STATES - {"untested"}:
             raise ValueError("status must be in_progress, blocked, or exhausted")
         reason = _plain(reason, "reason", required=True)
@@ -167,6 +170,8 @@ class SurfaceCoverageStore:
                                     (surface_id, class_name)).fetchone()
             if row is None or assessment is None:
                 raise ValueError("surface/class question not discovered")
+            if row["fingerprint"] != expected_fingerprint:
+                raise ValueError("mapped fingerprint changed; review the current surface before assessment")
             db.execute("""UPDATE assessments SET status=?,pressure=?,reason=?,boundary=?,axes_json=?,
                           evidence_json=?,reopen_when=?,assessed_fingerprint=?,agent=?,assessment_run_id=?,updated_at=?
                           WHERE surface_id=? AND class_name=?""",

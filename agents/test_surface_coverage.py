@@ -25,6 +25,10 @@ class SurfaceCoverageTests(unittest.TestCase):
             source_ref="recon/wcs/actions.jsonl", run_id="mapper-1", fingerprint=fingerprint,
         )
 
+    def assess(self, surface_id: str, **kwargs):
+        kwargs.setdefault("expected_fingerprint", "bundle-v1")
+        return self.store.assess(surface_id, **kwargs)
+
     def test_discovery_creates_untested_class_without_static_file_index(self) -> None:
         surface_id = self.discover()
         result = self.store.brief(class_name="xss")
@@ -35,7 +39,7 @@ class SurfaceCoverageTests(unittest.TestCase):
 
     def test_rediscovery_is_idempotent_and_does_not_erase_assessment(self) -> None:
         surface_id = self.discover()
-        self.store.assess(surface_id, class_name="xss", status="in_progress", pressure="warm",
+        self.assess(surface_id, class_name="xss", status="in_progress", pressure="warm",
                           evidence_refs=["A-123"], reason="input reaches a renderer",
                           agent="pi", run_id="xss-run-1")
         self.assertEqual(self.discover(), surface_id)
@@ -50,7 +54,7 @@ class SurfaceCoverageTests(unittest.TestCase):
         first = self.discover()
         self.discover(input_key="orgName")
         self.discover(class_name="idor")
-        self.store.assess(first, class_name="xss", status="exhausted", evidence_refs=["A-123"],
+        self.assess(first, class_name="xss", status="exhausted", evidence_refs=["A-123"],
                           reason="attribute encoding verified", boundary="state attribute in account view",
                           axes=["quote", "entity", "browser render"])
         self.assertEqual(self.store.brief(class_name="xss")["counts"], {"untested": 1, "exhausted": 1})
@@ -59,14 +63,14 @@ class SurfaceCoverageTests(unittest.TestCase):
     def test_blocked_requires_wake_condition_and_exhaustion_requires_boundary(self) -> None:
         surface_id = self.discover()
         with self.assertRaisesRegex(ValueError, "reopen"):
-            self.store.assess(surface_id, class_name="xss", status="blocked", evidence_refs=["A-123"], reason="fixture missing")
+            self.assess(surface_id, class_name="xss", status="blocked", evidence_refs=["A-123"], reason="fixture missing")
         with self.assertRaisesRegex(ValueError, "boundary"):
-            self.store.assess(surface_id, class_name="xss", status="exhausted", evidence_refs=["A-123"], reason="tested")
+            self.assess(surface_id, class_name="xss", status="exhausted", evidence_refs=["A-123"], reason="tested")
         self.assertEqual(self.store.brief(class_name="xss")["counts"], {"untested": 1})
 
     def test_new_fingerprint_reopens_old_assessment_without_erasing_evidence(self) -> None:
         surface_id = self.discover()
-        self.store.assess(surface_id, class_name="xss", status="exhausted", evidence_refs=["A-123"],
+        self.assess(surface_id, class_name="xss", status="exhausted", evidence_refs=["A-123"],
                           reason="tested", boundary="one render path", axes=["quote"])
         self.discover(fingerprint="bundle-v2")
         item = self.store.brief(class_name="xss")["items"][0]
@@ -77,18 +81,27 @@ class SurfaceCoverageTests(unittest.TestCase):
 
     def test_older_known_fingerprint_cannot_restore_exhausted_state(self) -> None:
         surface_id = self.discover()
-        self.store.assess(surface_id, class_name="xss", status="exhausted", evidence_refs=["A-123"],
+        self.assess(surface_id, class_name="xss", status="exhausted", evidence_refs=["A-123"],
                           reason="tested", boundary="one render path", axes=["quote"])
         self.discover(fingerprint="bundle-v2")
         with self.assertRaisesRegex(ValueError, "older fingerprint"):
             self.discover(fingerprint="bundle-v1")
         self.assertEqual(self.store.brief(class_name="xss")["items"][0]["status"], "stale")
 
+    def test_assess_rejects_review_of_obsolete_fingerprint(self) -> None:
+        surface_id = self.discover()
+        self.discover(fingerprint="bundle-v2")
+        with self.assertRaisesRegex(ValueError, "fingerprint"):
+            self.assess(surface_id, class_name="xss", status="exhausted",
+                              expected_fingerprint="bundle-v1", evidence_refs=["A-123"],
+                              reason="reviewed old bundle", boundary="account render", axes=["quote"])
+        self.assertEqual(self.store.brief(class_name="xss")["counts"], {"untested": 1})
+
     def test_reassessment_preserves_prior_evidence_in_history(self) -> None:
         surface_id = self.discover()
-        self.store.assess(surface_id, class_name="xss", status="blocked", evidence_refs=["A-1"],
+        self.assess(surface_id, class_name="xss", status="blocked", evidence_refs=["A-1"],
                           reason="fixture missing", reopen_when="fixture available")
-        self.store.assess(surface_id, class_name="xss", status="in_progress", evidence_refs=["A-2"],
+        self.assess(surface_id, class_name="xss", status="in_progress", evidence_refs=["A-2"],
                           reason="fixture now available", pressure="warm")
         self.assertEqual(self.store.brief(class_name="xss")["items"][0]["evidence_refs"], ["A-2"])
         history = self.store.history(surface_id, class_name="xss")
@@ -98,7 +111,7 @@ class SurfaceCoverageTests(unittest.TestCase):
     def test_brief_limits_items_but_counts_all_and_keeps_blocked_open(self) -> None:
         first = self.discover()
         self.discover(input_key="orgName")
-        self.store.assess(first, class_name="xss", status="blocked", evidence_refs=["A-123"],
+        self.assess(first, class_name="xss", status="blocked", evidence_refs=["A-123"],
                           reason="needs owned fixture", reopen_when="fixture available")
         result = self.store.brief(class_name="xss", limit=1)
         self.assertEqual(result["counts"], {"blocked": 1, "untested": 1})
@@ -128,7 +141,7 @@ class SurfaceCoverageTests(unittest.TestCase):
     def test_refuses_payload_or_secret_bearing_evidence_reference(self) -> None:
         surface_id = self.discover()
         with self.assertRaises(ValueError):
-            self.store.assess(surface_id, class_name="xss", status="in_progress",
+            self.assess(surface_id, class_name="xss", status="in_progress",
                               evidence_refs=["https://shop.example/?token=secret"], reason="test")
         self.assertEqual(self.store.brief(class_name="xss")["counts"], {"untested": 1})
 
@@ -136,16 +149,18 @@ class SurfaceCoverageTests(unittest.TestCase):
         surface_id = self.discover()
         for field in ("reference", "reason"):
             with self.subTest(field=field), self.assertRaises(ValueError):
-                self.store.assess(surface_id, class_name="xss", status="in_progress",
+                self.assess(surface_id, class_name="xss", status="in_progress",
                                   evidence_refs=["Bearer sensitive-value"] if field == "reference" else ["A-123"],
                                   reason="Bearer sensitive-value" if field == "reason" else "review in progress")
         self.assertEqual(self.store.brief(class_name="xss")["counts"], {"untested": 1})
 
     def test_refuses_named_secret_values_in_assessment_text(self) -> None:
         surface_id = self.discover()
-        for secret_text in ("token=sensitive-value", "password: sensitive-value", "api_key=sensitive-value"):
+        for secret_text in ("token=sensitive-value", "password: sensitive-value", "api_key=sensitive-value",
+                            "Bearer\tsensitive-value", "access_token=sensitive-value",
+                            "refresh_token=sensitive-value", "client_secret=sensitive-value"):
             with self.subTest(secret_text=secret_text), self.assertRaises(ValueError):
-                self.store.assess(surface_id, class_name="xss", status="in_progress",
+                self.assess(surface_id, class_name="xss", status="in_progress",
                                   evidence_refs=["A-123"], reason=secret_text)
         self.assertEqual(self.store.brief(class_name="xss")["counts"], {"untested": 1})
 
@@ -186,6 +201,7 @@ class SurfaceCoverageTests(unittest.TestCase):
         self.assertEqual(len(invoke("surface-brief", *common, "--limit", "1", "--offset", "1")["items"]), 1)
         surface_id = imported["surface_ids"][0]
         invoke("surface-assess", *common, "--surface-id", surface_id, "--class-name", "xss",
+               "--expected-fingerprint", "schema-v1",
                "--status", "blocked", "--reason", "need owned order", "--reopen-when", "fixture available",
                "--evidence-ref", "A-123")
         self.assertEqual(invoke("surface-brief", *common, "--class-name", "xss")["counts"], {"blocked": 1})

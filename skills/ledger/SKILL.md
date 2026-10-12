@@ -200,6 +200,7 @@ surface ID/class and links non-secret Attempt or MapStore IDs:
 ```bash
 bbh agents/me_ledger.py surface-assess --program {program} \
   --family web_bounty --lane web --surface-id S-... --class-name xss \
+  --expected-fingerprint 'schema-v1' \
   --status blocked --reason 'owned order fixture missing' \
   --reopen-when 'owned fixture available' --evidence-ref A-...
 ```
@@ -207,6 +208,9 @@ bbh agents/me_ledger.py surface-assess --program {program} \
 Statuses are `untested` (discovery), `in_progress`, `blocked`, and `exhausted`;
 `stale` is a read-time version mismatch. Class-specific pressure such as XSS
 `warm` can be attached with `--pressure`, but is not a universal status. For
+an unversioned inventory pass `--expected-fingerprint ''`; this proves no
+version match beyond the current empty value. A changed fingerprint rejects
+assessment based on an older map even if its evidence is otherwise valid. For
 `exhausted`, pass `--boundary` (the exact tested path/consumer) and at least
 one `--axis` (repeatable) plus evidence; sibling inputs and other classes stay
 open. An Attempt or finding does **not** automatically close coverage. Attempts

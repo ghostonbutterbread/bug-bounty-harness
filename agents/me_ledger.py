@@ -510,6 +510,7 @@ def cmd_surface_discover(args: argparse.Namespace) -> int:
 def cmd_surface_assess(args: argparse.Namespace) -> int:
     store = _surface_store(args)
     result = store.assess(args.surface_id, class_name=args.class_name, status=args.status,
+                          expected_fingerprint=args.expected_fingerprint,
                           evidence_refs=args.evidence_ref, reason=args.reason,
                           pressure=args.pressure, boundary=args.boundary,
                           axes=args.axis, reopen_when=args.reopen_when,
@@ -733,6 +734,8 @@ def build_parser() -> argparse.ArgumentParser:
     assess_parser.add_argument("--surface-id", required=True)
     assess_parser.add_argument("--class-name", required=True)
     assess_parser.add_argument("--status", required=True, choices=("in_progress", "blocked", "exhausted"))
+    assess_parser.add_argument("--expected-fingerprint", required=True,
+                               help="Fingerprint shown by surface-brief for the version actually reviewed; use '' only for unversioned inventory")
     assess_parser.add_argument("--evidence-ref", action="append", default=[], help="Opaque Attempt or MapStore reference; repeatable")
     assess_parser.add_argument("--reason", required=True)
     assess_parser.add_argument("--pressure", default="", help="Optional class-specific state, e.g. XSS warm")

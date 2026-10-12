@@ -33,6 +33,28 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("aggregate", router)
         self.assertIn("do not automatically submit externally", router)
 
+    def test_mode_and_model_arguments_are_composable_and_worker_scoped(self):
+        router = ROUTER.read_text(encoding="utf-8")
+        collaborative = COLLABORATIVE.read_text(encoding="utf-8")
+        for phrase in (
+            "Bunny multi model <provider>:<model-id>",
+            "Bunny model <model-id>",
+            "mode words are not model IDs",
+            "coordinator keeps its own model",
+            "same authenticated provider as the parent",
+            "verify the effective model and provider before live work",
+            "never borrow the parent's credential or endpoint",
+            "Do not change global configuration",
+            "do not silently spawn on the wrong model",
+        ):
+            self.assertIn(phrase, router)
+        self.assertIn("no per-worker model/provider argument", collaborative)
+        self.assertIn("--model", router)
+        self.assertIn("--provider", router)
+        self.assertIn("interactive worker route in `bunny`", collaborative)
+        self.assertIn("successive bounded segments", collaborative)
+        self.assertIn("do not use approval-bypassing one-shot", collaborative)
+
     def test_multi_program_is_depth_first_with_bounded_workers(self):
         router = ROUTER.read_text(encoding="utf-8")
         collaborative = COLLABORATIVE.read_text(encoding="utf-8")

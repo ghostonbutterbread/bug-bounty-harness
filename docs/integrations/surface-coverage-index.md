@@ -1,6 +1,6 @@
 # Cross-class surface coverage integration dossier
 
-- **Status:** feature
+- **Status:** independently approved for beta integration
 - **Owner:** Hermes / Ryushe
 - **Branch:** `feat/surface-coverage-index-t31601ec4`
 - **Base commit:** `05ad56b7f17dd3d013ce0f76ec6363b307407009` (`origin/beta`)
@@ -22,9 +22,9 @@ Implemented: lane-local `ledgers/surface_coverage.sqlite`; stable surface/class 
 ## Evidence and review
 
 - Tests and commands: red/green `agents/test_surface_coverage.py` (initial contract and each review repair); `python3 -m pytest agents/test_surface_coverage.py agents/test_me_ledger.py agents/test_coverage_store.py agents/test_attempts.py agents/test_manual_hunter.py tests/test_script_policy.py -q` => 108 passed, 30 subtests passed. CLI smoke in isolated scratch: discover => one untested row, assess blocked => persisted history with evidence pointer; the CLI assessment now requires the observed `--expected-fingerprint`.
-- Independent review: first pass requested four repairs: older known fingerprints restoring exhausted, >200 questions not enumerable, partial bulk imports, and common auth-material acceptance. Re-review verified those cases but found a stale-assessment race (no caller-supplied fingerprint) and further named secret patterns. Test-first repairs require `--expected-fingerprint` and reject these forms; final re-review pending.
+- Independent review: first pass requested four repairs: older known fingerprints restoring exhausted, >200 questions not enumerable, partial bulk imports, and common auth-material acceptance. Re-review verified those cases but found a stale-assessment race (no caller-supplied fingerprint) and further named secret patterns. Final independent re-review approved the fingerprint fence and secret checks; no actionable code blocker. Reviewer reran 108 tests / 30 subtests and security-reporting skill tests (6 passed / 50 subtests).
 - Replay/cohort/fixture evidence: isolated temporary storage fixtures; no Hoster writes.
-- Merge/ancestry evidence: pending.
+- Merge/ancestry evidence: pending clean beta reconciliation and post-merge checks.
 
 ## Blockers and deferred work
 
@@ -38,7 +38,7 @@ Implemented: lane-local `ledgers/surface_coverage.sqlite`; stable surface/class 
 - **Owning feature branch/ref:** `feat/surface-coverage-index-t31601ec4`
 - **Latest immutable recovery checkpoint:** `26c2a372265f95f91226ad8371b01d85632c9f09`
 - **Feature implementation commit(s):** `5b76e9974a144407cb1f9ab8d0774ebe8dab3314`, `f2c853e8b181b5410739e0acdf0b105ab5634e4c`, `26c2a372265f95f91226ad8371b01d85632c9f09`
-- **Exact resume point:** independent review of current diff and tests, then reconcile current beta and integrate if approved.
+- **Exact resume point:** reconcile local beta to fetched `origin/beta`, integrate the approved feature, retire this dossier from beta, run post-merge checks, and verify any push read-back.
 - **Working-tree state at handoff:** implementation and test-first evidence completed; checkpoint commit precedes review.
 
 ## Decision gates
@@ -50,3 +50,4 @@ Implemented: lane-local `ledgers/surface_coverage.sqlite`; stable surface/class 
 ## Decision record
 
 - 2026-10-12 — created isolated feature from fetched beta; chose generic BBH surface/class semantics rather than overloading static-file coverage.
+- 2026-10-12 — independent re-review approved the reviewed feature after two test-first repair rounds. Accept for beta only; no Hoster activation or stable promotion. Unordered unseen fingerprints remain an explicit mapper-version limitation; the assessed version is now compared at write time.

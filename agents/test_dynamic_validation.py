@@ -470,6 +470,48 @@ def test_report_ingest_accepts_registered_fid_packet_paths(tmp_path: Path) -> No
     assert ingest_report_task("canva", fid="D01", **kwargs).report_path == final
 
 
+def test_report_ingest_accepts_ledger_bound_descriptive_packet(tmp_path: Path) -> None:
+    storage = _storage(tmp_path)
+    packet = storage.reports_root / "D01-owned-authorization-bypass"
+    packet.mkdir(parents=True)
+    evidence = packet / "EVIDENCE.md"
+    evidence.write_text("# Owned proof\n", encoding="utf-8")
+    finding = _finding(evidence_path=str(evidence), report_dir=str(packet))
+    _write_ledger(storage, finding)
+    kwargs = {"family": "binaries", "lane": "exe", "root_override": tmp_path}
+    assert ingest_report_task("canva", report_path=evidence, **kwargs).fid == "D01"
+    final = packet / "example-authorization-D01.md"
+    final.write_text("# Final\n", encoding="utf-8")
+    finding["report_path"] = str(final)
+    _write_ledger(storage, finding)
+    assert ingest_report_task("canva", report_path=final, **kwargs).report_path == final
+
+    unrelated = storage.reports_root / "D01-wrong-slug"
+    unrelated.mkdir()
+    misplaced = unrelated / final.name
+    misplaced.write_text("# Wrong packet\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="report_path must be under"):
+        ingest_report_task("canva", report_path=misplaced, **kwargs)
+
+
+def test_lifecycle_ingest_reads_descriptive_packet_from_ledger(tmp_path: Path) -> None:
+    storage = _storage(tmp_path)
+    packet = storage.reports_root / "D01-owned-authorization-bypass"
+    packet.mkdir(parents=True)
+    evidence = packet / "EVIDENCE.md"
+    evidence.write_text("# Owned proof\n", encoding="utf-8")
+    finding = _finding(evidence_path=str(evidence), report_dir=str(packet))
+    _write_ledger(storage, finding)
+    kwargs = {"family": "binaries", "lane": "exe", "root_override": tmp_path}
+    tasks = ingest_lifecycle_tasks("canva", "dormant", **kwargs)
+    assert [(task.fid, task.report_path) for task in tasks] == [("D01", evidence)]
+    final = packet / "example-authorization-D01.md"
+    final.write_text("# Reviewed\n", encoding="utf-8")
+    finding["report_path"] = str(final)
+    _write_ledger(storage, finding)
+    assert [(task.fid, task.report_path) for task in ingest_lifecycle_tasks("canva", "dormant", **kwargs)] == [("D01", final)]
+
+
 def test_lifecycle_ingest_includes_evidence_only_packet_and_final(tmp_path: Path) -> None:
     storage = _storage(tmp_path)
     packet = storage.reports_root / "D01"

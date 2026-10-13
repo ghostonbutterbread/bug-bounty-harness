@@ -40,6 +40,18 @@ def _normalize_report_path(value: Any) -> Path | None:
     return Path(str(value)).expanduser().resolve(strict=False)
 
 
+def _ledger_packet(reports_root: Path, finding: dict[str, Any]) -> Path | None:
+    fid = str(finding.get("fid") or "").strip()
+    if not fid:
+        return None
+    packet = Path(str(finding.get("report_dir") or reports_root / fid)).expanduser()
+    if (packet.parent != reports_root
+            or not (packet.name == fid or packet.name.startswith(f"{fid}-"))
+            or packet.is_symlink()):
+        return None
+    return packet.resolve(strict=False)
+
+
 def _finding_review_tier(finding: dict[str, Any]) -> str:
     current = finding.get("current")
     if isinstance(current, dict):
@@ -191,8 +203,9 @@ def load_finding_by_report_path(
     )
     for finding in findings:
         fid = str(finding.get("fid") or "").strip()
-        packet = storage.reports_root / fid
-        if fid and not packet.is_symlink() and resolved.parent == storage.reports_root.resolve(strict=False) / fid:
+        packet = _ledger_packet(storage.reports_root, finding)
+        source = Path(report_path).expanduser()
+        if packet is not None and not source.is_symlink() and resolved.parent == packet:
             if resolved.name == "EVIDENCE.md" or resolved.name.endswith(f"-{fid}.md"):
                 field = "evidence_path" if resolved.name == "EVIDENCE.md" else "report_path"
                 if resolved.is_file() and _normalize_report_path(finding.get(field)) == resolved:
@@ -408,15 +421,16 @@ def ingest_lifecycle_tasks(
     ):
         fid = str(finding.get("fid") or "").strip()
         evidence = _normalize_report_path(finding.get("evidence_path"))
-        packet = storage.reports_root.resolve(strict=False) / fid
-        if (not fid or lifecycle_for_finding(finding) != lifecycle or evidence is None
+        packet = _ledger_packet(storage.reports_root, finding)
+        if (packet is None or lifecycle_for_finding(finding) != lifecycle or evidence is None
                 or evidence != packet / "EVIDENCE.md" or not evidence.is_file()
-                or (storage.reports_root / fid).is_symlink()):
+                or Path(str(finding.get("evidence_path"))).is_symlink()):
             continue
         selected = dict(finding)
         selected["status"] = lifecycle
         report = _normalize_report_path(selected.get("report_path"))
-        if report is not None and (report.parent != packet or not report.is_file()):
+        if report is not None and (report.parent != packet or not report.is_file()
+                                   or Path(str(selected.get("report_path"))).is_symlink()):
             selected.pop("report_path", None)
         tasks.append(_finding_to_task(
             selected, program=program, family=resolved_family, lane=resolved_lane,

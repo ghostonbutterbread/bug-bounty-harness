@@ -19,6 +19,7 @@ from agents.manual_hunter import (
     main,
 )
 from agents.shared_brain import build_index, save_index
+from agents.finding_report import register
 from agents.storage_resolver import resolve_storage
 from bounty_core.ledger import patch_finding_by_fid
 
@@ -186,6 +187,47 @@ class ManualHunterTests(unittest.TestCase):
             finding["submission"],
             {"state": "dropped", "report": "H1-123", "result": "duplicate"},
         )
+
+    def test_operator_submission_follows_frozen_packet_without_moving_evidence(self) -> None:
+        note_path = self.tmp / "finding.md"
+        note_path.write_text(
+            "Title: SQLite injection via exposed IPC port\n"
+            "Class: native-module-abuse\n"
+            "File: .webpack/renderer/preload.js:4\n"
+            "Description: Owned fixture reached SQLite execution.\n",
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note_path)]), 0)
+        finding = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        packet = Path(finding["report_dir"])
+        self.assertEqual(packet.name, "D01-sqlite-injection-via-exposed-ipc-port")
+        evidence = packet / "EVIDENCE.md"
+        self.assertTrue(evidence.is_file())
+        report = packet / "app-example-sqlite-injection-D01.md"
+        report.write_text("# Controlled fixture\n\nOne physical paragraph line.\n", encoding="utf-8")
+        self.assertEqual(register(self.program, "D01", report, lane="apk")["report_path"], str(report))
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--set-submission", "D01",
+                                   "--submission-state", "submitted"]), 0)
+        submitted = self._storage().reports_root / "submitted" / "index.md"
+        self.assertIn("D01", submitted.read_text(encoding="utf-8"))
+        categories = list((self._storage().reports_root / "categories").glob("*/index.md"))
+        self.assertTrue(any("D01" in path.read_text(encoding="utf-8") for path in categories))
+        high = self._storage().reports_root / "severity" / "high" / "index.md"
+        self.assertIn("D01", high.read_text(encoding="utf-8"))
+        self.assertTrue(evidence.is_file())
+        self.assertEqual(report.parent, packet)
+        self.assertFalse((self._storage().reports_root / "daily").exists())
+        self.assertFalse((self._storage().reports_root / "raw").exists())
+        after = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        self.assertEqual(after["report_path"], str(report))
+        self.assertEqual(after["report_dir"], str(packet))
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--set-submission", "D01",
+                                   "--submission-state", "not_submitted"]), 0)
+        self.assertNotIn("D01", submitted.read_text(encoding="utf-8"))
+        self.assertTrue(report.is_file())
 
     def test_edit_finding_corrects_content_and_refreshes_report_without_new_fid(self) -> None:
         note = self.tmp / "finding.md"

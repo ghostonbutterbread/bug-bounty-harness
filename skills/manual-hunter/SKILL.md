@@ -15,7 +15,7 @@ finding — label it Informational and keep testing. For ambiguous logic,
 compare the observed behavior with the normal flow and a plausible benign
 explanation before asserting the claimed boundary. If unresolved, keep testing
 it as a hypothesis or lead; ingest any independently demonstrated exploit
-promptly. When the finding passes, apply `impact-fit-policy` to state the demonstrated capability and observation, ingest it promptly, then load `security-reporting`. The reporting-enabled FID packet holds a create-only `EVIDENCE.md` scaffold and ledger-derived rough `REPORT.md`; fill the former with the actual proof and references and revise the latter as the boundary is understood. A scaffold alone is not proof. If only the ledger entry can be produced now, note `evidence: pending` and reconcile the evidence before preparing a submission. Keep one FID and one current file at each stage; never treat a duplicate note or a generated report as a ready submission.
+promptly. When the finding passes, apply `impact-fit-policy` to state the demonstrated capability and observation, ingest it promptly, then load `security-reporting`. The FID packet holds a create-only `EVIDENCE.md` scaffold; fill it with actual proof and references, then invoke the separate `bunny-report-and-triage` skill for the one FID-named final report. A scaffold alone is not proof. If only the ledger entry can be produced now, note `evidence: pending` and reconcile the evidence before calling a report ready. New findings do not need `REPORT.md` or `SUBMISSION.md`; preserve those files in older packets.
 The named capability and observation feed the note's `Impact` and
 `Severity Rationale` fields; a rationale without a demonstrated capability
 behind it does not pass the gate.
@@ -84,7 +84,7 @@ Drop markdown notes here. They will be ingested on the next run.
 
 1. Parses the finding from your input.
 2. Deduplicates against the ledger.
-3. If new: adds to the ledger, updates the right report, and marks coverage when possible.
+3. If new: adds to the ledger, seeds `EVIDENCE.md`, and marks coverage when possible; the Bunny report follows populated evidence.
 4. If duplicate: shows the overlapping finding; with `--link-duplicate-comment`, appends the note to that finding's comment ledger.
 
 ## Add evidence to an existing finding
@@ -119,4 +119,4 @@ bbh agents/manual_hunter.py <program> --lane <lane> \
 # correction.json: {"description":"Corrected observed behavior","impact":"Verified owned-resource impact"}
 ```
 
-The canonical ledger is patched by FID and generated reports/indexes refresh. Hand-edited reports are preserved by the report writer: review the returned report path and update a preserved report separately so its narrative agrees with the corrected ledger. Do not hand-edit `ledger.json`, invent facts, or use this command to set platform submission outcomes (`--set-submission` owns those).
+The canonical ledger is patched by FID and navigation refreshes without rewriting the Bunny report or create-only Evidence Report. Reconcile the corrected claim in `EVIDENCE.md` and the existing final report separately; do not silently regenerate it. Do not hand-edit `ledger.json`, invent facts, or use this command to set platform submission outcomes (`--set-submission` owns those).

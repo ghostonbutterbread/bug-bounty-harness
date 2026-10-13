@@ -74,10 +74,11 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    parent backlog.
 9. Include the selected policy chain, one BBH lane, evidence pointers, exact
    stop condition, and account/browser lane only when required in every child
-   packet. Before creating or editing the final `SUBMISSION.md`, load
-   `security-reporting`, including for a named-section condensation; preserve
-   every unrequested region. `EVIDENCE.md` and the rough `REPORT.md` remain
-   working evidence/drafts, not final-submission formatting assignments. PoC
+   packet. After recording a proven FID, fill `EVIDENCE.md` and load
+   `security-reporting` for the handoff to the standalone `bunny-report-and-triage`
+   skill. Its FID-named report is the one final artifact; do not generate a
+   rough `REPORT.md` or a competing `SUBMISSION.md` for new findings. Preserve
+   older packet files and every unrequested region in a targeted revision. PoC
    creation follows `poc-tooling-policy`. Standalone or scripted PoC editing follows `triager-first-poc-authoring`;
    a simple inline `curl` does not load that authoring skill. Live execution
    remains governed by the policy chain above.

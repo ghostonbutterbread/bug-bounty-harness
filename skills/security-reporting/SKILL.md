@@ -1,10 +1,14 @@
 ---
 name: security-reporting
-description: Route a verified BBH finding from its ledger FID and Evidence Report to the standalone Bunny final-report skill.
-version: 2.0.0
+description: Deprecated compatibility redirect for BBH finding reporting; load the standalone bunny-report-and-triage skill for a populated FID Evidence Report.
+version: 2.1.0
 ---
 
-# BBH Finding Reporting Handoff
+# DEPRECATED as a report-writing entry point
+
+**Do not use this skill to draft `REPORT.md` or `SUBMISSION.md`.** After impact-fit and ledger/FID capture, populate `reports/<FID>/EVIDENCE.md` with decisive sanitized proof, then **load `bunny-report-and-triage` directly** for the final FID-named report. If Bunny is not installed, stop; do not fall back to the old writer. The remaining guidance is a compatibility reference for evidence safety, independent review, report-path registration, and historical packet preservation.
+
+## BBH finding reporting compatibility handoff
 
 This is the canonical **BBH handoff**, not a second report writer. The separate `bunny-report-and-triage` skill owns triage, the reviewer-facing report, and its PoC presentation. A prepared file is not a platform submission. Follow program rules and the applicable live-testing policies separately; loading a reporting skill grants no live-testing authority.
 

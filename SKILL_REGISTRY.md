@@ -148,7 +148,8 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **leads** | `/leads <program> [--class <vuln-class>]`; `agents/leads.py {create|search|update-status}` | `skills/leads/SKILL.md` |
 | **ledger** | `/ledger {program}` | `skills/ledger/SKILL.md` |
 | **agent-audit** | `/agent-audit {program} {run-id-or-handoff}` (read-only audit guidance; no standalone runner) | `skills/agent-audit/SKILL.md`; reconcile run traces, target actions, Attempts, promotions, and cleanup |
-| **security-reporting** | `/security-reporting` (report-writing guidance; no standalone runner) | `skills/security-reporting/SKILL.md` |
+| **bunny-report-and-triage** | Load the installed standalone fork directly after a populated FID `EVIDENCE.md` (one FID-named final, report-only by default) | External skill; not copied into BBH `skills/` |
+| **security-reporting** | Deprecated compatibility redirect, not a report writer; load `bunny-report-and-triage` instead | `skills/security-reporting/SKILL.md` |
 
 ---
 

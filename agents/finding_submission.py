@@ -3,7 +3,7 @@
 
 import sys
 
-MESSAGE = "SUBMISSION.md generation is retired. Use the standalone Bunny FID report via security-reporting and register it with agents/finding_report.py; historical files are preserved."
+MESSAGE = "SUBMISSION.md generation is retired. After populated FID EVIDENCE.md, load the standalone bunny-report-and-triage skill directly and register its reviewed final report with agents/finding_report.py; historical files are preserved."
 
 
 def prepare_submission(*args, **kwargs):

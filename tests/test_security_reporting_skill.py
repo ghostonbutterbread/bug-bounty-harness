@@ -6,10 +6,11 @@ SKILL = ROOT / "skills" / "security-reporting" / "SKILL.md"
 
 
 class SecurityReportingSkillTests(unittest.TestCase):
-    def test_single_owner_and_bunny_routes(self):
+    def test_direct_bunny_routes_and_deprecated_fallback(self):
         text = SKILL.read_text(encoding="utf-8")
         self.assertIn("name: security-reporting", text)
-        self.assertIn("canonical **BBH handoff**", text)
+        self.assertIn("DEPRECATED", text.split("#", 1)[-1][:350])
+        self.assertIn("load `bunny-report-and-triage` directly", text)
         for path in (
             "skills/manual-hunter/SKILL.md",
             "skills/bunny/SKILL.md",
@@ -18,8 +19,16 @@ class SecurityReportingSkillTests(unittest.TestCase):
             "agents/index.md",
         ):
             with self.subTest(path=path):
-                self.assertIn("security-reporting", (ROOT / path).read_text(encoding="utf-8"))
-        self.assertIn("skills/security-reporting/SKILL.md", (ROOT / "SKILL_REGISTRY.md").read_text())
+                route = (ROOT / path).read_text(encoding="utf-8")
+                self.assertIn("bunny-report-and-triage", route)
+                self.assertNotIn("`security-reporting`", route)
+        registry = (ROOT / "SKILL_REGISTRY.md").read_text(encoding="utf-8")
+        self.assertIn("**security-reporting**", registry)
+        self.assertIn("deprecated compatibility redirect", registry.lower())
+        self.assertIn("**bunny-report-and-triage**", registry)
+        self.assertIn("standalone fork", registry)
+        self.assertIn("bunny-report-and-triage", (ROOT / "agents/finding_submission.py").read_text())
+        self.assertNotIn("via security-reporting", (ROOT / "agents/finding_submission.py").read_text())
 
     def test_evidence_only_and_one_final_bunny_file(self):
         text = SKILL.read_text(encoding="utf-8")

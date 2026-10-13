@@ -31,6 +31,11 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+try:
+    from agents.scope_seed_files import optional_host_variants
+except ModuleNotFoundError:
+    from scope_seed_files import optional_host_variants
+
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
@@ -262,12 +267,13 @@ class ScopeValidator:
                     # Annotations are whitespace-delimited; bare :: may be IPv6
                     # compression or part of a URL and must remain intact.
                     line = re.split(r"\s+::(?:\s+|$)", line, maxsplit=1)[0].strip()
-                    entry = _ScopeEntry(line)
-                    if entry.entry_type != "comment":
-                        if is_out_of_scope:
-                            self._out_of_scope.append(entry)
-                        else:
-                            self._entries.append(entry)
+                    for variant in optional_host_variants(line):
+                        entry = _ScopeEntry(variant)
+                        if entry.entry_type != "comment":
+                            if is_out_of_scope:
+                                self._out_of_scope.append(entry)
+                            else:
+                                self._entries.append(entry)
         except (OSError, PermissionError) as e:
             print(f"[scope_validator] Warning: could not read {path}: {e}")
 
@@ -277,13 +283,14 @@ class ScopeValidator:
 
     def add_domain(self, domain: str, is_out_of_scope: bool = False) -> None:
         """Manually add a domain or pattern to scope."""
-        entry = _ScopeEntry(domain.strip())
-        if entry.entry_type == "comment":
-            return
-        if is_out_of_scope:
-            self._out_of_scope.append(entry)
-        else:
-            self._entries.append(entry)
+        for variant in optional_host_variants(domain.strip()):
+            entry = _ScopeEntry(variant)
+            if entry.entry_type == "comment":
+                continue
+            if is_out_of_scope:
+                self._out_of_scope.append(entry)
+            else:
+                self._entries.append(entry)
 
     def add_domains(self, domains: list[str], is_out_of_scope: bool = False) -> None:
         """Add multiple domains at once."""

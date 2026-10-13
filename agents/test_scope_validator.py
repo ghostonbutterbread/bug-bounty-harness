@@ -104,3 +104,17 @@ def test_scope_validator_is_out_of_scope_only_for_explicit_exclusions() -> None:
     assert validator.is_in_scope("example.com") is True
     assert validator.is_out_of_scope("blocked.example.com") is True
     assert validator.is_out_of_scope("unknown.example.com") is False
+
+
+def test_optional_host_variants_are_consistent_for_allow_and_exclusion(tmp_path: Path) -> None:
+    scope_dir = tmp_path / "scopes" / "synthetic"
+    scope_dir.mkdir(parents=True)
+    (scope_dir / "in-scope.txt").write_text("api(-eu1)?.example.com\n*.site(-eu1)?.example.net\n")
+    (scope_dir / "out-of-scope.txt").write_text("*.blocked(-eu1)?.site.example.net\n")
+    validator = ScopeValidator("synthetic")
+
+    for host in ("api.example.com", "api-eu1.example.com", "sub.site.example.net", "sub.site-eu1.example.net"):
+        assert validator.is_in_scope(host)
+    for host in ("x.blocked.site.example.net", "x.blocked-eu1.site.example.net"):
+        assert not validator.is_in_scope(host)
+    assert not validator.is_in_scope("other.example.com")

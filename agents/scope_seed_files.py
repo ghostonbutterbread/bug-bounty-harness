@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import re
-from ipaddress import ip_network
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 from urllib.parse import urlparse
 
 _OPT_GROUP_RE = re.compile(r"\(([^()]+)\)\?")
 _DNS_SCOPE_RE = re.compile(r"^(?:\*\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$")
-_IPV4_CIDR_RE = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?$")
+
 
 
 def clean_scope_value(value: str) -> str:
@@ -62,16 +62,38 @@ def _expand_optional_groups(value: str) -> list[str]:
 
 
 def is_dns_scope_value(value: str) -> bool:
-    """True for entries recon-ry can parse: hosts, ``*.host`` wildcards, IPv4/CIDR."""
+    """True for recon-ry host rules: DNS, wildcard DNS, IPs or CIDRs."""
     v = value.strip().lower()
     if not v or _OPT_GROUP_RE.search(v):
         return False
-    if _IPV4_CIDR_RE.fullmatch(v):
+    if "/" in v:
         try:
-            return ip_network(v, strict=False).version == 4
+            ip_network(v, strict=False)
+            return True
         except ValueError:
             return False
-    return bool(_DNS_SCOPE_RE.match(v))
+    try:
+        ip_address(v.strip("[]"))
+        return True
+    except ValueError:
+        pass
+    if v.startswith("*."):
+        try:
+            ip_address(v[2:])
+            return False
+        except ValueError:
+            pass
+    if re.fullmatch(r"[\d.]+", v) or len(v) > 255:
+        return False
+    return bool(_DNS_SCOPE_RE.fullmatch(v)) and all(len(label) <= 63 for label in v.removeprefix("*.").split("."))
+
+
+def optional_host_variants(value: str) -> list[str]:
+    """Expand only host-only optional groups that produce valid exact hosts."""
+    if value.startswith(("http://", "https://")) or not _OPT_GROUP_RE.search(value):
+        return [value]
+    variants = _expand_optional_groups(value)
+    return variants if all(is_dns_scope_value(variant) for variant in variants) else [value]
 
 
 def recon_seed_lines(domains: set[str] | list[str], urls: set[str] | list[str]) -> tuple[list[str], list[str]]:
@@ -91,7 +113,7 @@ def recon_seed_lines(domains: set[str] | list[str], urls: set[str] | list[str]) 
         if not value:
             continue
         if wildcard_base(value):
-            for variant in _expand_optional_groups(value):
+            for variant in optional_host_variants(value):
                 base = wildcard_base(variant)
                 if base and is_dns_scope_value(base):
                     wild_lines.append(base)
@@ -105,7 +127,7 @@ def recon_seed_lines(domains: set[str] | list[str], urls: set[str] | list[str]) 
             continue
         # Non-DNS entries (program category labels such as "customer portal")
         # are not hosts recon-ry can seed; skip them rather than emit junk.
-        for variant in _expand_optional_groups(value):
+        for variant in optional_host_variants(value):
             if is_dns_scope_value(variant):
                 url_lines.append(host_from_scope_value(variant) or variant)
 
@@ -148,11 +170,10 @@ def recon_scope_file_lines(values: set[str] | list[str]) -> tuple[list[str], lis
                 scope_lines.append(host)
             continue
         # Expand regex-style optional groups into concrete wildcard hosts.
-        expanded = _expand_optional_groups(value) if _OPT_GROUP_RE.search(value) else [value]
-        for variant in expanded:
+        for variant in optional_host_variants(value):
             if is_dns_scope_value(variant):
                 # Bare hosts, wildcards, IPs and CIDRs pass through as written.
-                scope_lines.append(variant.lower())
+                scope_lines.append(str(ip_network(variant, strict=False)) if "/" in variant else variant.lower())
             else:
                 # Program category labels are not hosts recon-ry can scope;
                 # defer them rather than writing entries it will reject.

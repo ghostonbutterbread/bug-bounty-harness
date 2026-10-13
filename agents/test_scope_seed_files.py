@@ -69,6 +69,10 @@ def test_is_dns_scope_value() -> None:
     assert scope_seed_files.is_dns_scope_value("192.0.2.0/24")
     assert not scope_seed_files.is_dns_scope_value("999.999.999.999")
     assert not scope_seed_files.is_dns_scope_value("192.0.2.0/33")
+    assert scope_seed_files.is_dns_scope_value("2001:db8::1")
+    assert scope_seed_files.is_dns_scope_value("2001:db8::1/32")
+    assert not scope_seed_files.is_dns_scope_value("*.192.0.2.1")
+    assert not scope_seed_files.is_dns_scope_value("a" * 64 + ".example.com")
     assert not scope_seed_files.is_dns_scope_value("customer portal")
     assert not scope_seed_files.is_dns_scope_value("*.site(-eu1)?.example.com")
 
@@ -90,3 +94,12 @@ def test_optional_exact_host_expands_without_widening() -> None:
     urls, wild = scope_seed_files.recon_seed_lines({"api(-eu1)?.example.com"}, set())
     assert urls == ["api.example.com", "api-eu1.example.com"]
     assert wild == []
+
+
+def test_host_bit_cidr_is_canonical_in_allow_and_deny_scope() -> None:
+    allowed, deferred = scope_seed_files.recon_scope_file_lines(["192.0.2.1/24"])
+    denied, _ = scope_seed_files.recon_scope_file_lines(["192.0.2.99/24"])
+    assert allowed == denied == ["192.0.2.0/24"]
+    assert deferred == []
+    ipv6, _ = scope_seed_files.recon_scope_file_lines(["2001:db8::1/32", "2001:db8::1"])
+    assert ipv6 == ["2001:db8::/32", "2001:db8::1"]

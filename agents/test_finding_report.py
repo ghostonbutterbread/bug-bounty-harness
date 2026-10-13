@@ -1,5 +1,8 @@
 """Integration contract for registering a Bunny report without writing its body."""
 
+import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,6 +31,11 @@ class BunnyReportRegistrationTests(unittest.TestCase):
         self.fid = added["finding"]["fid"]
         self.packet = self.layout.reports_root / self.fid
 
+    def test_provider_pin_is_accepted_evidence_only_revision(self):
+        manifest = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text(encoding="utf-8")
+        self.assertIn("9968eeb58ca902549097d8941875b0e01cfe0af2", manifest)
+        self.assertNotIn("54ac5e8261edd313c815adde17d4fbb64fb4727d", manifest)
+
     def test_register_exact_fid_report_preserves_body_and_evidence(self):
         evidence = self.packet / "EVIDENCE.md"
         before = evidence.read_bytes()
@@ -49,6 +57,21 @@ class BunnyReportRegistrationTests(unittest.TestCase):
         )
         navigation = (self.layout.reports_root / "confirmed.md").read_text()
         self.assertIn(f"[[{self.fid}/{report.stem}|{self.fid}]]", navigation)
+
+    def test_cli_registers_existing_file_from_isolated_packet(self):
+        report = self.packet / f"app-example-xss-{self.fid}.md"
+        report.write_text("# Copy-paste-ready fixture\n", encoding="utf-8")
+        command = [sys.executable, str(Path(__file__).with_name("finding_report.py")),
+                   self.program, self.fid, "--lane", "web", "--report", str(report),
+                   "--storage-root", str(self.root)]
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["report_path"], str(report))
+        self.assertEqual(report.read_text(encoding="utf-8"), "# Copy-paste-ready fixture\n")
+        self.assertFalse((self.packet / "REPORT.md").exists())
+        self.assertFalse((self.packet / "SUBMISSION.md").exists())
+        self.assertEqual(ledger_get(self.program, self.fid, family="web_bounty",
+                                    lane="web", root_override=self.root)["report_path"], str(report))
 
     def test_registration_rejects_wrong_fid_and_outside_packet(self):
         report = self.packet / f"app-example-xss-{self.fid}.md"

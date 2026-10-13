@@ -32,7 +32,7 @@ Use for profile-picture, avatar, profile-image, account-photo, and image URL imp
 
 1. Map the profile-picture flow: local upload, remote URL import, crop/resize, profile render locations, storage/CDN object, and update/delete behavior.
 2. Build a sequential child-agent queue from observed capabilities:
-   - local upload or transformed bytes -> upload/parser lane
+   - local upload, transformed bytes, filename/metadata, storage, or retrieval question -> `upload-surface` to trace the file lifecycle and select the concrete specialist; keep `/pfp` as the avatar coordinator, not a prerequisite for other uploads
    - URL fetch/import -> `/ssrf`
    - filename, metadata, URL, error, or render surface -> `/xss`
    - object ownership, profile image IDs, storage keys, or update/delete endpoints -> `/idor`

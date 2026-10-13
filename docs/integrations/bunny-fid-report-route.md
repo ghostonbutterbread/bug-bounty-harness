@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-12
 - **Owning feature branch/ref:** `bug-bounty-harness/t_66f0802d-replace-canonical-bbh-final-report-route`
-- **Latest immutable recovery checkpoint:** `66d8176`
-- **Feature implementation commit(s):** `66d8176` (policy checkpoint only; runtime still legacy)
+- **Latest immutable recovery checkpoint:** `741319b`
+- **Feature implementation commit(s):** `66d8176` (policy), `741319b` (BBH evidence-only implementation)
 - **Inspiration / canonical references:** Ryu's correction in the current thread; BBH `security-reporting`, `manual-hunter`, `agents/index.md`; standalone `ghostonbutterbread/bunny-report-and-triage` fork; Bounty Core finding packet and navigation contracts.
 
 ## Intent
@@ -22,13 +22,13 @@ Implementation: BBH adapter uses Bounty Core `packet_mode=evidence_only` for upd
 ## Evidence and review
 
 - Tests and commands: BBH synthetic tests against local Bounty Core feature checkout `0a966b7`: 147 passed, 51 subtests across ingestion, edit, sync, base-team, CLI, dynamic validation, and policy. `pytest -q agents tests` reaches unrelated suites but has two historical assertion failures now updated; root-level `pytest` cannot collect `test_catalog.py` without an unrelated `bac_checks` module.
-- Independent review: Bounty Core reviewer pending; BBH review pending.
+- Independent review: provider review returned REVISE on `0a966b7`: a symlinked FID packet can escape reports root before failure, and an untrusted report_path may point to another FID, including a legacy deletion path. Bounty Core fix in progress on provider feature branch; BBH reviewer pending. Do not pin/merge the uncorrected provider.
 - Replay/cohort/fixture evidence: synthetic packet ingest, report registration, and legacy artifact preservation covered; installed immutable provenance pending.
 - Merge/ancestry evidence: feature worktree fast-forwarded to fetched `origin/beta` at `9632b60`.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** publish/review Bounty Core provider `0a966b7` to an immutable reachable SHA, pin BBH, install from that pin, complete broader regression and independent review.
+- **Missing test or evidence:** security repair and independent re-review of Bounty Core provider; publish an accepted immutable SHA, pin BBH, install from that pin, complete broader regression and BBH review.
 - **Command / fixture / environment needed:** local provider test suite, BBH checkout-local installer and synthetic fixture tests using the installed distribution (not PYTHONPATH).
 - **Trigger to run it:** independent provider acceptance and published immutable beta SHA.
 - **Why it blocks integration, activation, or promotion:** a local PYTHONPATH proof does not validate an installed dependency or reachable pin.
@@ -37,10 +37,10 @@ Implementation: BBH adapter uses Bounty Core `packet_mode=evidence_only` for upd
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `bug-bounty-harness/t_66f0802d-replace-canonical-bbh-final-report-route`
-- **Latest immutable recovery checkpoint:** `66d8176`
-- **Feature implementation commit(s):** `66d8176` (policy checkpoint only; runtime still legacy)
-- **Exact resume point:** finish policy tests; await provider API, implement BBH adapter and final report registration.
-- **Working-tree state at handoff:** intentionally uncommitted implementation in progress.
+- **Latest immutable recovery checkpoint:** `741319b`
+- **Feature implementation commit(s):** `66d8176` (policy), `741319b` (BBH evidence-only implementation)
+- **Exact resume point:** await provider security repair/re-review and BBH review; then publish provider beta, pin and install BBH, verify, integrate.
+- **Working-tree state at handoff:** clean after review-blocker dossier checkpoint.
 
 ## Decision gates
 

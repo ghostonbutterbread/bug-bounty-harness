@@ -6,6 +6,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -229,6 +230,50 @@ class ManualHunterTests(unittest.TestCase):
                                    "--submission-state", "not_submitted"]), 0)
         self.assertFalse(submitted.exists())
         self.assertTrue(report.is_file())
+
+    def test_cli_packet_lifecycle_keeps_stable_path_and_submission_view(self) -> None:
+        note = self.tmp / "owned-finding.md"
+        note.write_text(
+            "Title: SQLite injection via exposed IPC port\n"
+            "Class: native-module-abuse\nSeverity: HIGH\n"
+            "File: .webpack/renderer/preload.js:4\n"
+            "Description: Controlled fixture reaches SQLite.\n",
+            encoding="utf-8",
+        )
+
+        def cli(module: str, *args: str) -> dict[str, object] | None:
+            result = subprocess.run([sys.executable, "-m", module, self.program, *args],
+                                    capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+            return json.loads(result.stdout) if module == "agents.finding_report" else None
+
+        cli("agents.manual_hunter", "--lane", "apk", "--from-file", str(note))
+        finding = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        self.assertEqual(finding["fid"], "D01")
+        packet = Path(finding["report_dir"])
+        self.assertEqual(packet.name, "D01-sqlite-injection-via-exposed-ipc-port")
+        evidence = packet / "EVIDENCE.md"
+        evidence_before = evidence.read_bytes()
+        final = packet / "app-example-sqlite-D01.md"
+        final.write_text("# Fixture report\n\nOne paragraph on one physical line.\n", encoding="utf-8")
+        final_before = final.read_bytes()
+        receipt = cli("agents.finding_report", "D01", "--lane", "apk", "--report", str(final),
+                      "--storage-root", str(self.home / "Shared"))
+        self.assertIsNotNone(receipt)
+        self.assertEqual(receipt["report_path"], str(final))
+        cli("agents.manual_hunter", "--lane", "apk", "--set-submission", "D01",
+            "--submission-state", "submitted")
+        submitted = self._storage().reports_root / "submitted" / "index.md"
+        self.assertIn("D01", submitted.read_text(encoding="utf-8"))
+        cli("agents.manual_hunter", "--lane", "apk", "--set-submission", "D01",
+            "--submission-state", "dropped")
+        self.assertFalse(submitted.exists())
+        after = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        self.assertEqual(after["report_dir"], str(packet))
+        self.assertEqual(after["report_path"], str(final))
+        self.assertEqual(evidence.read_bytes(), evidence_before)
+        self.assertEqual(final.read_bytes(), final_before)
+        self.assertFalse((self._storage().reports_root / "daily").exists())
 
     def test_edit_finding_corrects_content_and_refreshes_report_without_new_fid(self) -> None:
         note = self.tmp / "finding.md"

@@ -224,15 +224,6 @@ selected `analyze-endpoint` contract path; field/header shape and confidence;
 response and state effect; comparison/diff/explanation status; and concrete
 handoff evidence.
 
-When the run is a bounded inventory, register the discovered operations/fields
-in `/ledger`'s `me_ledger.py surface-discover` (the JSONL import accepts
-`kind`, `host`, `surface_key`, optional `input_key`/`consumer`, `class_names`,
-`source_ref`, `run_id`, and optional `fingerprint`). Only nominate vulnerability
-classes supported by the mapped context; the remaining items stay unclassified.
-Discovery means `untested`, never a negative or server-side proof. Keep the
-mapper's source/method/limits in its own run artifact so a missing operation is
-not mistaken for evidence of absence.
-
 Use `analyze-endpoint` as the canonical selected-operation contract writer.
 Preserve source evidence and task-MITM replay evidence as separate records even
 when they describe the same operation. When the run discovers reusable scoped

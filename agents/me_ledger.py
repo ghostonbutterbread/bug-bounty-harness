@@ -21,7 +21,6 @@ from agents.finding_visibility import is_confirmed_finding, normalize_submission
 from agents.ledger import ledger_add, ledger_check, ledger_get, ledger_list, ledger_path, update_team_finding
 from agents.snapshot_identity import get_snapshot_identity
 from agents.storage_resolver import resolve_storage
-from agents.surface_coverage import SurfaceCoverageStore
 from bounty_core.finding import normalize_severity
 
 DEFAULT_AGENT = os.environ.get("ME_AGENT") or "codex"
@@ -481,66 +480,6 @@ def cmd_cover(args: argparse.Namespace) -> int:
     return 0
 
 
-def _surface_store(args: argparse.Namespace) -> SurfaceCoverageStore:
-    return SurfaceCoverageStore(args.program, family=args.family, lane=args.lane,
-                                root_override=_root_override(args))
-
-
-def cmd_surface_discover(args: argparse.Namespace) -> int:
-    """Register mapped surfaces; no attempt or finding implies review state."""
-    store = _surface_store(args)
-    if args.input_jsonl:
-        rows = []
-        with Path(args.input_jsonl).open(encoding="utf-8") as handle:
-            for line_number, line in enumerate(handle, 1):
-                if not line.strip():
-                    continue
-                try:
-                    row = json.loads(line)
-                    if not isinstance(row, dict):
-                        raise ValueError("expected JSON object")
-                    rows.append(row)
-                except ValueError as exc:
-                    raise ValueError(f"inventory line {line_number}: {exc}") from exc
-    else:
-        rows = [{"kind": args.kind, "host": args.host, "surface_key": args.surface_key,
-                 "input_key": args.input_key, "consumer": args.consumer,
-                 "class_names": [args.class_name] if args.class_name else [],
-                 "source_ref": args.source_ref, "run_id": args.run_id,
-                 "fingerprint": args.fingerprint}]
-    surface_ids = store.discover_many(rows)
-    print(json.dumps({"discovered": len(surface_ids), "surface_ids": surface_ids,
-                      "coverage_path": str(store.path)}, indent=2))
-    return 0
-
-
-def cmd_surface_assess(args: argparse.Namespace) -> int:
-    store = _surface_store(args)
-    result = store.assess(args.surface_id, class_name=args.class_name, status=args.status,
-                          expected_fingerprint=args.expected_fingerprint,
-                          evidence_refs=args.evidence_ref, reason=args.reason,
-                          pressure=args.pressure, boundary=args.boundary,
-                          axes=args.axis, reopen_when=args.reopen_when,
-                          agent=args.agent, run_id=args.run_id or _default_run_id())
-    print(json.dumps({**result, "coverage_path": str(store.path)}, indent=2))
-    return 0
-
-
-def cmd_surface_brief(args: argparse.Namespace) -> int:
-    print(json.dumps(_surface_store(args).brief(class_name=args.class_name,
-                                                host=args.host, limit=args.limit,
-                                                offset=args.offset), indent=2))
-    return 0
-
-
-def cmd_surface_history(args: argparse.Namespace) -> int:
-    events = _surface_store(args).history(args.surface_id, class_name=args.class_name,
-                                          limit=args.limit)
-    print(json.dumps({"surface_id": args.surface_id, "class_name": args.class_name,
-                      "events": events}, indent=2))
-    return 0
-
-
 def cmd_list(args: argparse.Namespace) -> int:
     root_override = _root_override(args)
     findings = visible_for_default_work(
@@ -728,45 +667,6 @@ def build_parser() -> argparse.ArgumentParser:
     cover_parser.add_argument("--agent", default=DEFAULT_AGENT)
     cover_parser.add_argument("--version", dest="version_label")
     cover_parser.set_defaults(func=cmd_cover)
-
-    discover_parser = subparsers.add_parser("surface-discover", help="Register mapped live surfaces and relevant class questions")
-    _add_common_arguments(discover_parser, include_file=False, include_class=False)
-    discover_parser.add_argument("--input-jsonl", help="Inventory rows with class_names; no review status is inferred")
-    for name in ("kind", "host", "surface-key", "input-key", "consumer", "class-name", "source-ref", "run-id", "fingerprint"):
-        discover_parser.add_argument("--" + name)
-    discover_parser.set_defaults(func=cmd_surface_discover)
-
-    assess_parser = subparsers.add_parser("surface-assess", help="Record an evidence-backed review of one surface/class")
-    _add_common_arguments(assess_parser, include_file=False, include_class=False)
-    assess_parser.add_argument("--surface-id", required=True)
-    assess_parser.add_argument("--class-name", required=True)
-    assess_parser.add_argument("--status", required=True, choices=("in_progress", "blocked", "exhausted"))
-    assess_parser.add_argument("--expected-fingerprint", required=True,
-                               help="Fingerprint shown by surface-brief for the version actually reviewed; use '' only for unversioned inventory")
-    assess_parser.add_argument("--evidence-ref", action="append", default=[], help="Opaque Attempt or MapStore reference; repeatable")
-    assess_parser.add_argument("--reason", required=True)
-    assess_parser.add_argument("--pressure", default="", help="Optional class-specific state, e.g. XSS warm")
-    assess_parser.add_argument("--boundary", default="", help="Exact scoped conclusion, required for exhausted")
-    assess_parser.add_argument("--axis", action="append", default=[], help="Tested dimension, required for exhausted; repeatable")
-    assess_parser.add_argument("--reopen-when", default="", help="Required for blocked")
-    assess_parser.add_argument("--agent", default=DEFAULT_AGENT)
-    assess_parser.add_argument("--run-id", help="Assessment run identity; defaults to UTC timestamp")
-    assess_parser.set_defaults(func=cmd_surface_assess)
-
-    brief_parser = subparsers.add_parser("surface-brief", help="Bounded mapped-versus-tested class coverage")
-    _add_common_arguments(brief_parser, include_file=False, include_class=False)
-    brief_parser.add_argument("--class-name")
-    brief_parser.add_argument("--host")
-    brief_parser.add_argument("--limit", type=int, default=50)
-    brief_parser.add_argument("--offset", type=int, default=0, help="Page offset; follow next_offset until null")
-    brief_parser.set_defaults(func=cmd_surface_brief)
-
-    history_parser = subparsers.add_parser("surface-history", help="Bounded assessment history for one mapped surface/class")
-    _add_common_arguments(history_parser, include_file=False, include_class=False)
-    history_parser.add_argument("--surface-id", required=True)
-    history_parser.add_argument("--class-name", required=True)
-    history_parser.add_argument("--limit", type=int, default=50)
-    history_parser.set_defaults(func=cmd_surface_history)
 
     list_parser = subparsers.add_parser("list", help="List current findings")
     _add_common_arguments(list_parser, include_file=False, include_class=False)

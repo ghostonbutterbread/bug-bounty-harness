@@ -188,15 +188,6 @@ transforms, browser result, later-consumer question, cleanup state, and
 sanitized Attempts/MapStore pointers. `attempt-recording-policy` owns the
 per-probe record; the selected XSS lane owns its proof and report shape.
 
-For a selected route/action/input/consumer, query `/ledger`'s
-`me_ledger.py surface-brief --class-name xss` after current-surface observation.
-Register newly mapped paths through `surface-discover` as untested; after
-meaningful testing, use `surface-assess` with representative Attempt/MapStore
-references. Keep `cold/warm/hot/pending` as XSS-specific `--pressure` detail;
-the cross-class coverage status says whether this exact path is still open,
-blocked, exhausted, or stale. Do not infer whole-app exhaustion from an absent
-row, one denied payload, or a mapped-but-unreviewed sink.
-
 - `Confirmed`: browser or equivalent execution evidence for the controlled
   payload in the claimed consumer.
 - `Likely`: strong source-to-executable-context evidence but execution proof is

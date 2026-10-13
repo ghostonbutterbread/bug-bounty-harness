@@ -76,13 +76,18 @@ narrative and handoff.
 ## Workflow
 
 1. Map the AI feature, execution identity, model-visible inputs, tools/actions,
-   object IDs, memory, output sinks, and evidence sources.
-2. Watch for signals: reflection, errors, internal hostnames, tool calls,
+   object IDs, memory, output sinks, and evidence sources. Ask the agent what it
+   can read and do, but corroborate its claims with observed app/tool behavior.
+2. Find a feed path: who can write content, which role's AI can read it, and
+   which normal task causes ingestion. Use the current application-map slice and
+   targeted `/map-store` facts; do not require an exhaustive map or infer AI
+   ingestion from a writable field alone. See **Feed-Path Discovery** below.
+3. Watch for signals: reflection, errors, internal hostnames, tool calls,
    callbacks, IDs, changed output sinks, auth context, state changes, blocked
    validations, or scanner summaries.
-3. Build a 2-4 item hypothesis queue from the signals.
-4. Choose the smallest next proof for the strongest hypothesis.
-5. Execute the safest observable probe first: dry-run, preview, owned object,
+4. Build a 2-4 item hypothesis queue from the signals.
+5. Choose the smallest next proof for the strongest hypothesis.
+6. Execute the safest observable probe first: dry-run, preview, owned object,
    fake canary, callback, or PortSwigger lab objective.
 7. Verify with evidence. Model claims are weak; prefer proxy requests,
    callback hits, backend logs, UI/state deltas, rendered output, tool
@@ -90,6 +95,25 @@ narrative and handoff.
 8. Classify the block or signal, then mutate, keep pressure, pivot, or kill the
    hypothesis based on that reason.
 9. Hand off to the narrow skill when a concrete vulnerability class emerges.
+
+### Feed-Path Discovery
+
+For a plausible indirect path, record `writer role -> writable field/object ->
+reader role -> ordinary AI trigger -> model-visible content -> output/tool role`.
+Mark unobserved links **unknown**, not proven. A share link or query parameter
+is a candidate only if it actually reaches that reader's AI context.
+
+While mapping, write observed, reusable writable-source facts to `/map-store`
+with `user-writable`, including the field, writer role, potential reader, and
+evidence pointer. Query `ai-feed-source` for previously verified paths, but
+check the current map for untagged candidates too. With approved owned roles
+and resources, use a harmless marker in the source and the reader's natural AI
+task to verify ingestion. Add `ai-feed-source` only after model-visible
+consumption is evidenced; record the reader role, exact trigger, and evidence
+pointer. A marker in a summary proves ingestion, not instruction-following or
+an unauthorized action. Route the verified path to `/indirect-injection`, then
+to the relevant output-sink or tool/action skill; apply the linked safety gates
+to every downstream effect.
 
 ### Output-Sink And Indirect-Chain Rule
 

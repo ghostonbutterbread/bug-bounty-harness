@@ -9,6 +9,7 @@ from typing import Any
 
 from agents.ledger import read_team_findings
 from agents.storage_resolver import REPORT_STATES, resolve_family_lane, resolve_storage
+from bounty_core.reports import lifecycle_for_finding
 
 from .models import ValidationTask
 
@@ -408,11 +409,12 @@ def ingest_lifecycle_tasks(
         fid = str(finding.get("fid") or "").strip()
         evidence = _normalize_report_path(finding.get("evidence_path"))
         packet = storage.reports_root.resolve(strict=False) / fid
-        if (not fid or _finding_status(finding) != lifecycle or evidence is None
+        if (not fid or lifecycle_for_finding(finding) != lifecycle or evidence is None
                 or evidence != packet / "EVIDENCE.md" or not evidence.is_file()
                 or (storage.reports_root / fid).is_symlink()):
             continue
         selected = dict(finding)
+        selected["status"] = lifecycle
         report = _normalize_report_path(selected.get("report_path"))
         if report is not None and (report.parent != packet or not report.is_file()):
             selected.pop("report_path", None)

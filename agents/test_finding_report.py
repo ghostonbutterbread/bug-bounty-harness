@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from agents.finding_report import register
-from bounty_core.ledger import add_finding, ledger_get
+from bounty_core.ledger import add_finding, ledger_get, patch_finding_by_fid
 from bounty_core.storage import resolve_storage
 
 
@@ -45,8 +45,9 @@ class BunnyReportRegistrationTests(unittest.TestCase):
             self.program, self.fid, report, lane="web", storage_root=self.root,
         )
         self.assertEqual(result["report_path"], str(report))
-        self.assertFalse(result["ready"])
-        self.assertFalse(result["submitted"])
+        self.assertIsNone(result["submission_state"])
+        self.assertNotIn("ready", result)
+        self.assertNotIn("submitted", result)
         self.assertEqual(report.read_text(encoding="utf-8"), "# Verified owned fixture\n")
         self.assertEqual(evidence.read_bytes(), before)
         self.assertFalse((self.packet / "REPORT.md").exists())
@@ -57,6 +58,20 @@ class BunnyReportRegistrationTests(unittest.TestCase):
         )
         navigation = (self.layout.reports_root / "confirmed.md").read_text()
         self.assertIn(f"[[{self.fid}/{report.stem}|{self.fid}]]", navigation)
+
+    def test_registration_receipt_preserves_existing_submitted_state(self):
+        report = self.packet / f"app-example-xss-{self.fid}.md"
+        report.write_text("# historical final\n", encoding="utf-8")
+        patch_finding_by_fid(
+            self.program, self.fid, {"submission": {"state": "submitted"}},
+            family="web_bounty", lane="web", root_override=self.root,
+            packet_mode="evidence_only", write_report=False,
+        )
+        result = register(self.program, self.fid, report, lane="web", storage_root=self.root)
+        self.assertEqual(result["submission_state"], "submitted")
+        self.assertEqual(ledger_get(self.program, self.fid, family="web_bounty",
+                                    lane="web", root_override=self.root)["submission"]["state"], "submitted")
+        self.assertEqual(report.read_text(encoding="utf-8"), "# historical final\n")
 
     def test_cli_registers_existing_file_from_isolated_packet(self):
         report = self.packet / f"app-example-xss-{self.fid}.md"

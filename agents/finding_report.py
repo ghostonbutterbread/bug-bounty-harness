@@ -25,9 +25,11 @@ def register(
     )
     if finding is None:
         raise ValueError(f"no finding found for {program}/{lane}/{fid}")
+    submission = finding.get("submission") or {}
+    state = submission.get("state") if isinstance(submission, dict) else None
     return {"fid": finding["fid"], "report_path": finding["report_path"],
-            "evidence_path": finding.get("evidence_path"), "ready": False,
-            "submitted": False}
+            "evidence_path": finding.get("evidence_path"),
+            "submission_state": state}
 
 
 def main(argv: list[str] | None = None) -> int:

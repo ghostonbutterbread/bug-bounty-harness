@@ -481,6 +481,13 @@ def test_lifecycle_ingest_includes_evidence_only_packet_and_final(tmp_path: Path
     kwargs = {"family": "binaries", "lane": "exe", "root_override": tmp_path}
     tasks = ingest_lifecycle_tasks("canva", "confirmed", **kwargs)
     assert [(task.fid, task.report_path) for task in tasks] == [("D01", evidence)]
+    finding["status"] = "active"  # Core's CONFIRMED review tier wins over active status.
+    _write_ledger(storage, finding)
+    tasks = ingest_lifecycle_tasks("canva", "confirmed", **kwargs)
+    assert [(task.fid, task.status, task.report_path) for task in tasks] == [
+        ("D01", "confirmed", evidence)
+    ]
+    assert ingest_lifecycle_tasks("canva", "active", **kwargs) == []
     final = packet / "example-bridge-D01.md"
     final.write_text("# reviewed report\n", encoding="utf-8")
     finding["report_path"] = str(final)

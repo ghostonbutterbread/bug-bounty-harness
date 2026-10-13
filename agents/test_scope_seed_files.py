@@ -73,6 +73,7 @@ def test_is_dns_scope_value() -> None:
     assert scope_seed_files.is_dns_scope_value("2001:db8::1/32")
     assert not scope_seed_files.is_dns_scope_value("*.192.0.2.1")
     assert not scope_seed_files.is_dns_scope_value("a" * 64 + ".example.com")
+    assert not scope_seed_files.is_dns_scope_value("a" * 63 + "." + "b" * 63 + "." + "c" * 63 + "." + "d" * 62)
     assert not scope_seed_files.is_dns_scope_value("customer portal")
     assert not scope_seed_files.is_dns_scope_value("*.site(-eu1)?.example.com")
 
@@ -103,3 +104,16 @@ def test_host_bit_cidr_is_canonical_in_allow_and_deny_scope() -> None:
     assert deferred == []
     ipv6, _ = scope_seed_files.recon_scope_file_lines(["2001:db8::1/32", "2001:db8::1"])
     assert ipv6 == ["2001:db8::/32", "2001:db8::1"]
+
+
+def test_invalid_long_host_is_deferred_including_root_url() -> None:
+    long_host = "a" * 63 + "." + "b" * 63 + "." + "c" * 63 + "." + "d" * 62
+    lines, deferred = scope_seed_files.recon_scope_file_lines([long_host, f"https://{long_host}/"])
+    assert lines == []
+    assert deferred == [long_host, f"https://{long_host}"]
+
+
+def test_ipv6_seed_is_not_truncated_and_cidr_is_not_a_url_seed() -> None:
+    urls, wild = scope_seed_files.recon_seed_lines({"2001:db8::1", "2001:db8::1/32"}, set())
+    assert urls == ["[2001:db8::1]"]
+    assert wild == []

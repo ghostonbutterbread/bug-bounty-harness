@@ -28,6 +28,11 @@ def host_from_scope_value(value: str) -> str:
         return ""
     if value.startswith(("http://", "https://")):
         return (urlparse(value).hostname or "").lower()
+    try:
+        address = ip_address(value.strip("[]"))
+        return f"[{address}]" if address.version == 6 else str(address)
+    except ValueError:
+        pass
     return value.split("/", 1)[0].split(":", 1)[0].lower()
 
 
@@ -83,7 +88,7 @@ def is_dns_scope_value(value: str) -> bool:
             return False
         except ValueError:
             pass
-    if re.fullmatch(r"[\d.]+", v) or len(v) > 255:
+    if re.fullmatch(r"[\d.]+", v) or len(v.removeprefix("*.")) > 253:
         return False
     return bool(_DNS_SCOPE_RE.fullmatch(v)) and all(len(label) <= 63 for label in v.removeprefix("*.").split("."))
 
@@ -128,7 +133,7 @@ def recon_seed_lines(domains: set[str] | list[str], urls: set[str] | list[str]) 
         # Non-DNS entries (program category labels such as "customer portal")
         # are not hosts recon-ry can seed; skip them rather than emit junk.
         for variant in optional_host_variants(value):
-            if is_dns_scope_value(variant):
+            if is_dns_scope_value(variant) and "/" not in variant:
                 url_lines.append(host_from_scope_value(variant) or variant)
 
     return _dedupe(url_lines), _dedupe(wild_lines)
@@ -166,8 +171,10 @@ def recon_scope_file_lines(values: set[str] | list[str]) -> tuple[list[str], lis
                 deferred.append(value)
                 continue
             host = (parsed.hostname or "").lower()
-            if host:
+            if host and is_dns_scope_value(host):
                 scope_lines.append(host)
+            else:
+                deferred.append(value)
             continue
         # Expand regex-style optional groups into concrete wildcard hosts.
         for variant in optional_host_variants(value):

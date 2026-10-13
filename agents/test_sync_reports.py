@@ -507,6 +507,23 @@ class TestSyncReports(unittest.TestCase):
         self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], self.tmp / "storage-root")
         hunter.ledger.update.assert_not_called()
 
+    def test_discover_report_files_ignores_registered_packet_artifacts(self):
+        reports_root = self.tmp / "reports"
+        packet = reports_root / "D01-owned-xss"
+        packet.mkdir(parents=True)
+        (packet / "EVIDENCE.md").write_text("# Owned proof\n", encoding="utf-8")
+        (packet / "app-example-xss-D01.md").write_text("# Final submission\n", encoding="utf-8")
+        legacy = reports_root / "D02"
+        legacy.mkdir()
+        (legacy / "REPORT.md").write_text("# Historical report\n", encoding="utf-8")
+        submitted = reports_root / "submitted" / "index.md"
+        submitted.parent.mkdir()
+        submitted.write_text("<!-- generated: bounty-core-report-navigation -->\n# Submitted\n", encoding="utf-8")
+        raw = reports_root / "raw" / "finding.md"
+        raw.parent.mkdir()
+        raw.write_text("# Candidate input\n", encoding="utf-8")
+        self.assertEqual(discover_report_files(reports_root), [self.report_path, raw])
+
     def test_discover_report_files_excludes_generated_output_but_keeps_raw_reports(self):
         reports_root = self.tmp / "canonical-reports"
         nav_files = [

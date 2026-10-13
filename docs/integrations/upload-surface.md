@@ -1,14 +1,14 @@
 # Upload-surface integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes / t_b1f7c842
 - **Branch:** `feat/upload-surface-router-tb1f7c842`
 - **Base commit:** `8725814f1fb5ff40d40992d0a5fbb9bca56815ba`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-13
 - **Owning feature branch/ref:** `feat/upload-surface-router-tb1f7c842`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `919171b09989f4f3fba208bcf90d891e9242ec65`
+- **Feature implementation commit(s):** `919171b09989f4f3fba208bcf90d891e9242ec65`
 - **Inspiration / canonical references:** `~/Shared/skill_seeds/2026-10-13-upload-surface.md` (runtime block only); `skills/pfp/SKILL.md`.
 
 ## Intent
@@ -32,10 +32,10 @@ None known. No live-target test is authorized or needed for a text-only router; 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/upload-surface-router-tb1f7c842`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit changed files, independently review the commit, then reconcile into beta and project with Aiskillsync.
-- **Working-tree state at handoff:** intentionally uncommitted (new dossier and implementation in progress).
+- **Latest immutable recovery checkpoint:** `919171b09989f4f3fba208bcf90d891e9242ec65`
+- **Feature implementation commit(s):** `919171b09989f4f3fba208bcf90d891e9242ec65`
+- **Exact resume point:** independently review implementation commit, reconcile into beta, and project with Aiskillsync. Current branch tip will include a later dossier-only handoff commit.
+- **Working-tree state at handoff:** clean after dossier-only commit.
 
 ## Decision gates
 
@@ -46,3 +46,4 @@ None known. No live-target test is authorized or needed for a text-only router; 
 ## Decision record
 
 - 2026-10-13 — created feature from current `origin/beta`; configured sync source is the separate `bbh-beta-integration` checkout, to update after beta push without touching unrelated worktrees.
+- 2026-10-13 — implementation committed as `919171b09989f4f3fba208bcf90d891e9242ec65`; four focused offline tests passed; awaiting independent review.

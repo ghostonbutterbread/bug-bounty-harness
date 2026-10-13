@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-13
 - **Owning feature branch/ref:** `feat/upload-surface-router-tb1f7c842`
-- **Latest immutable recovery checkpoint:** `919171b09989f4f3fba208bcf90d891e9242ec65`
-- **Feature implementation commit(s):** `919171b09989f4f3fba208bcf90d891e9242ec65`
+- **Latest immutable recovery checkpoint:** `68b20940b44de2cf5536a45ffabc750c78df1689`
+- **Feature implementation commit(s):** `919171b09989f4f3fba208bcf90d891e9242ec65`, `68b20940b44de2cf5536a45ffabc750c78df1689`
 - **Inspiration / canonical references:** `~/Shared/skill_seeds/2026-10-13-upload-surface.md` (runtime block only); `skills/pfp/SKILL.md`.
 
 ## Intent
@@ -22,7 +22,7 @@ Promote the researched upload-surface lifecycle router into BBH and connect the 
 ## Evidence and review
 
 - Tests and commands: `PYTHONPATH=$PWD python3 -m unittest discover -s tests -p 'test_upload_surface_skill.py' -v` (4 passed); `git diff --check` (passed). YAML/frontmatter and citation/source equality checked in a separate read-only Python check.
-- Independent review: pending.
+- Independent review: initial read-only review blocked on over-specific #311998 endpoint attribution. Narrowed to report's internal-system conclusion in `68b20940b44de2cf5536a45ffabc750c78df1689`; fresh review pending.
 - Merge/ancestry evidence: feature based on fetched `origin/beta` 8725814.
 
 ## Blockers and deferred work
@@ -32,8 +32,8 @@ None known. No live-target test is authorized or needed for a text-only router; 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/upload-surface-router-tb1f7c842`
-- **Latest immutable recovery checkpoint:** `919171b09989f4f3fba208bcf90d891e9242ec65`
-- **Feature implementation commit(s):** `919171b09989f4f3fba208bcf90d891e9242ec65`
+- **Latest immutable recovery checkpoint:** `68b20940b44de2cf5536a45ffabc750c78df1689`
+- **Feature implementation commit(s):** `919171b09989f4f3fba208bcf90d891e9242ec65`, `68b20940b44de2cf5536a45ffabc750c78df1689`
 - **Exact resume point:** independently review implementation commit, reconcile into beta, and project with Aiskillsync. Current branch tip will include a later dossier-only handoff commit.
 - **Working-tree state at handoff:** clean after dossier-only commit.
 
@@ -47,3 +47,4 @@ None known. No live-target test is authorized or needed for a text-only router; 
 
 - 2026-10-13 — created feature from current `origin/beta`; configured sync source is the separate `bbh-beta-integration` checkout, to update after beta push without touching unrelated worktrees.
 - 2026-10-13 — implementation committed as `919171b09989f4f3fba208bcf90d891e9242ec65`; four focused offline tests passed; awaiting independent review.
+- 2026-10-13 — review blocker fixed in `68b20940b44de2cf5536a45ffabc750c78df1689`; four focused and one command-safety test passed on corrected tree; independent re-review required before beta integration.

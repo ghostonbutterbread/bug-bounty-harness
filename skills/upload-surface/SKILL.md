@@ -21,7 +21,7 @@ For each material entry point, make a short lineage packet:
 
 `producer and owner → controlled components (bytes / extension / multipart Content-Type / filename / metadata / archive entries / URL / object key) → validator and canonicalization order → storage location and ACL → transformer or delayed worker → reference and retrieval response → browser/server consumer → cleanup`.
 
-Include original versus derived artifacts (thumbnail, crop, OCR, transcript, extracted contents, PDF, export, email), raw response versus rendered view, and any change in content type, disposition, origin, permissions, or access token. Observe both upload-time and retrieval-time behavior. The Uppy HackerOne report ultimately located its SVG execution issue at the serving endpoint rather than the upload widget: name the actual failing trust boundary, not merely the first UI touched.[3]
+Include original versus derived artifacts (thumbnail, crop, OCR, transcript, extracted contents, PDF, export, email), raw response versus rendered view, and any change in content type, disposition, origin, permissions, or access token. Observe both upload-time and retrieval-time behavior. The Uppy HackerOne report attributed the SVG issue to the affected site's internal systems rather than Uppy itself: name the actual failing trust boundary, not merely the first UI touched.[3]
 
 ## Mechanism map and routes
 

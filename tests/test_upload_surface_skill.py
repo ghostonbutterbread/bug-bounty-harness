@@ -18,6 +18,7 @@ class UploadSurfaceSkillTests(unittest.TestCase):
         pfp = PFP.read_text(encoding="utf-8")
         self.assertTrue(skill.startswith("---\nname: upload-surface\n"))
         self.assertIn("neither skill is a universal prerequisite", skill)
+        self.assertIn("affected site's internal systems rather than Uppy itself", skill)
         self.assertIn("`upload-surface` to trace the file lifecycle", pfp)
         self.assertIn("URL fetch/import -> `/ssrf`", pfp)
         self.assertIn("object ownership, profile image IDs", pfp)

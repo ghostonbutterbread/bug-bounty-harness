@@ -21,17 +21,17 @@ Implementation: BBH adapter uses Bounty Core `packet_mode=evidence_only` for upd
 
 ## Evidence and review
 
-- Tests and commands: provider `beta` `9968eeb58ca902549097d8941875b0e01cfe0af2` published/read back after 165 passing provider tests and independent ACCEPT. BBH checkout-local `./setup.sh --install-python-deps` installed that exact SHA; `direct_url.json` shows the pinned commit and the `.venv` module path. Installed BBH tests: 148 passed/51 subtests in route suite, plus 52 passing ledger/reporter/chainer compatibility tests; standalone registration CLI synthetic round-trip passed. Root-level `pytest` cannot collect unrelated `test_catalog.py` without its `bac_checks` module.
+- Tests and commands: provider `beta` `9968eeb58ca902549097d8941875b0e01cfe0af2` published/read back after 165 passing provider tests and independent ACCEPT. BBH checkout-local `./setup.sh --install-python-deps` installed that exact SHA; `direct_url.json` shows the pinned commit and the `.venv` module path. Installed BBH tests: 148 passed/51 subtests in route suite, 52 passing ledger/reporter/chainer compatibility tests, and 194 passing dynamic-validation/dormant tests after lifecycle fix; standalone registration CLI synthetic round-trip passed. Root-level `pytest` cannot collect unrelated `test_catalog.py` without its `bac_checks` module.
 - Independent review: provider initial REVISE security findings repaired in `7810622b`; fresh independent rereview ACCEPT with adversarial probes and 165 passing tests. BBH read-only review of the pre-reconciliation feature is pending; a post-pin review is required before consumer beta merge.
 - Replay/cohort/fixture evidence: synthetic packet ingest, report registration, and legacy artifact preservation covered using installed pinned provider; no live target used.
 - Merge/ancestry evidence: BBH feature base `9632b60`; merged fetched `origin/beta` revert `9f31d8b` into feature without retaining its removed surface-coverage workflow. Provider remote beta read back at `9968eeb58ca902549097d8941875b0e01cfe0af2`.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** final BBH independent review of the reconciled installed-dependency feature and verification that the external standalone Bunny skill is available at activation.
-- **Command / fixture / environment needed:** review current BBH diff/dossier, installed `.venv/bin/python -m pytest ...` and real CLI synthetic packet; later load the standalone Bunny skill in the selected runtime.
-- **Trigger to run it:** now for BBH release review; external skill availability check before runtime activation.
-- **Why it blocks integration, activation, or promotion:** independent consumer acceptance is required before beta integration; beta publication alone cannot prove the runtime skill is installed.
+- **Missing test or evidence:** final BBH independent review and standalone Bunny fork acceptance. Its current feature skill still names `REPORT.md`/`SUBMISSION.md` as input and is not published/installed; EVIDENCE.md input support, fork review/publication, and a synthetic report-only output smoke are required before activating this reporting route.
+- **Command / fixture / environment needed:** review BBH diff/dossier and installed `.venv/bin/python -m pytest ...`; from an isolated populated `reports/<FID>/EVIDENCE.md`, load the published standalone Bunny skill, author one report-only output and confirm no other packet files changed.
+- **Trigger to run it:** BBH review now; fork-specific smoke after the revised fork main is published and installed in the selected skill runtime.
+- **Why it blocks integration, activation, or promotion:** BBH beta needs independent consumer acceptance; a BBH beta merge alone cannot prove the external skill accepts EVIDENCE.md or is installed. Treat publication and runtime activation separately.
 - **Next completion step / successor reference:** BBH review and any narrow fixes, beta merge/test/push/read-back, then separate runtime skill activation.
 
 ## Interruption / resume handoff

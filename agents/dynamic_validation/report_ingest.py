@@ -400,21 +400,37 @@ def ingest_lifecycle_tasks(
     )
     reports_dir = storage.reports_root / "findings" / lifecycle
     tasks: list[ValidationTask] = []
+    seen_fids: set[str] = set()
+    for finding in read_team_findings(
+        program, family=resolved_family, lane=resolved_lane,
+        root_override=_root_override_path(root_override),
+    ):
+        fid = str(finding.get("fid") or "").strip()
+        evidence = _normalize_report_path(finding.get("evidence_path"))
+        packet = storage.reports_root.resolve(strict=False) / fid
+        if (not fid or _finding_status(finding) != lifecycle or evidence is None
+                or evidence != packet / "EVIDENCE.md" or not evidence.is_file()
+                or (storage.reports_root / fid).is_symlink()):
+            continue
+        selected = dict(finding)
+        report = _normalize_report_path(selected.get("report_path"))
+        if report is not None and (report.parent != packet or not report.is_file()):
+            selected.pop("report_path", None)
+        tasks.append(_finding_to_task(
+            selected, program=program, family=resolved_family, lane=resolved_lane,
+            cdp_url=cdp_url, account=account, vm=vm, playbook=playbook,
+            dry_run=dry_run, run_id=None,
+        ))
+        seen_fids.add(fid)
     if not reports_dir.is_dir():
         return tasks
     for path in sorted(reports_dir.glob("*.md")):
-        tasks.append(
-            ingest_report_task(
-                program,
-                report_path=path,
-                family=resolved_family,
-                lane=resolved_lane,
-                root_override=root_override,
-                cdp_url=cdp_url,
-                account=account,
-                vm=vm,
-                playbook=playbook,
-                dry_run=dry_run,
-            )
+        task = ingest_report_task(
+            program, report_path=path, family=resolved_family, lane=resolved_lane,
+            root_override=root_override, cdp_url=cdp_url, account=account,
+            vm=vm, playbook=playbook, dry_run=dry_run,
         )
+        if task.fid not in seen_fids:
+            tasks.append(task)
+            seen_fids.add(task.fid)
     return tasks

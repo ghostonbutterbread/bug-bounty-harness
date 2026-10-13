@@ -583,7 +583,8 @@ class TestSharedDormantSubtierPreservation(unittest.TestCase):
         report_text = dormant_report.read_text(encoding="utf-8")
         self.assertIn("DORMANT_ACTIVE", report_text)
         self.assertIn("DORMANT_HYPOTHETICAL", report_text)
-        self.assertIn("[[D01 - HIGH - DORMANT_ACTIVE DOM sink|D01]]", report_text)
+        self.assertIn("D01/EVIDENCE|D01]]", report_text)
+        self.assertFalse((storage.reports_root / "D01" / "REPORT.md").exists())
         self.assertFalse((storage.reports_root / "dormant").exists())
 
 

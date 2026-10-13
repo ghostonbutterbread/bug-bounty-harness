@@ -20,6 +20,7 @@ from agents.manual_hunter import (
 )
 from agents.shared_brain import build_index, save_index
 from agents.storage_resolver import resolve_storage
+from bounty_core.ledger import patch_finding_by_fid
 
 
 class ManualHunterTests(unittest.TestCase):
@@ -99,15 +100,17 @@ class ManualHunterTests(unittest.TestCase):
         packet = self._storage().reports_root / "D01"
         self.assertTrue((packet / "EVIDENCE.md").is_file())
         self.assertIn("## Claim and status", (packet / "EVIDENCE.md").read_text(encoding="utf-8"))
-        self.assertIn("## How to reproduce", (packet / "REPORT.md").read_text(encoding="utf-8"))
+        self.assertFalse((packet / "REPORT.md").exists())
         self.assertFalse((packet / "SUBMISSION.md").exists())
+        self.assertEqual(Path(ledger_payload["findings"][0]["evidence_path"]), packet / "EVIDENCE.md")
+        self.assertFalse(ledger_payload["findings"][0].get("report_path"))
         self.assertEqual(ledger_payload["findings"][0]["class_name"], "native-module-abuse")
 
         report_files = sorted(self._storage().reports_root.rglob("*.md"))
         self.assertTrue(report_files)
         report_text = "\n".join(path.read_text(encoding="utf-8") for path in report_files)
         self.assertIn("SQLite injection via exposed IPC port", report_text)
-        self.assertIn("execSqliteStatement()", report_text)
+        self.assertIn("execSqliteStatement()", ledger_payload["findings"][0]["sink"])
         self.assertFalse(list(self._storage().reports_root.glob("confirmed/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))
         self.assertFalse(list(self._storage().reports_root.glob("dormant/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))
         self.assertFalse(list(self._storage().reports_root.glob("novel/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))
@@ -223,7 +226,9 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(after["fid"], before["fid"])
         self.assertEqual(after["sightings"], before["sightings"])
         self.assertEqual(after["submission"], before["submission"])
-        self.assertIn("Verified SQLite IPC injection", Path(after["report_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(Path(after["evidence_path"]), self._storage().reports_root / "D01" / "EVIDENCE.md")
+        self.assertFalse(after.get("report_path"))
+        self.assertFalse((self._storage().reports_root / "D01" / "REPORT.md").exists())
 
     def test_edit_finding_rejects_unknown_fid_and_protected_patch_without_writing(self) -> None:
         note = self.tmp / "finding.md"
@@ -259,8 +264,13 @@ class ManualHunterTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note)]), 0)
         original = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
-        report = Path(original["report_path"])
+        report = self._storage().reports_root / original["fid"] / "REPORT.md"
         report.write_text("# Reviewer-edited report\nManual narrative.\n", encoding="utf-8")
+        patch_finding_by_fid(
+            self.program, original["fid"], {"report_path": str(report)},
+            family="binaries", lane="apk", packet_mode="evidence_only",
+            refresh=True,
+        )
         patch_file = self.tmp / "patch.json"
         patch_file.write_text('{"description":"Corrected behavior","impact":"Owned rows read"}', encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "no finding found"):
@@ -270,6 +280,7 @@ class ManualHunterTests(unittest.TestCase):
         updated = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
         self.assertEqual(updated["description"], "Corrected behavior")
         self.assertEqual(updated["impact"], "Owned rows read")
+        self.assertEqual(updated["report_path"], str(report))
         self.assertIn("Manual narrative.", report.read_text(encoding="utf-8"))
 
     def test_edit_finding_type_retires_false_generated_index(self) -> None:
@@ -589,7 +600,6 @@ class ManualHunterTests(unittest.TestCase):
         mock_update_team_finding.return_value = reserved_finding
 
         with (
-            patch.object(hunter, "_append_report") as mock_append_report,
             patch.object(hunter, "_mark_coverage") as mock_mark_coverage,
             patch.object(hunter, "_print_chain_suggestions"),
             redirect_stdout(io.StringIO()),
@@ -604,9 +614,8 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(mock_update_team_finding.call_args.kwargs["family"], "binaries")
         self.assertEqual(mock_update_team_finding.call_args.kwargs["lane"], "apk")
         self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], storage_root.resolve(strict=False))
-        self.assertTrue(mock_update_team_finding.call_args.kwargs["write_report"])
+        self.assertFalse(mock_update_team_finding.call_args.kwargs["write_report"])
         self.assertTrue(mock_update_team_finding.call_args.kwargs["refresh"])
-        mock_append_report.assert_not_called()
         mock_mark_coverage.assert_called_once_with(reserved_finding, parsed)
 
     def test_source_root_explicit_override_wins_over_shared_brain(self) -> None:

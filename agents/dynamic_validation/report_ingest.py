@@ -78,7 +78,7 @@ def _finding_to_task(
     run_id: str | None,
 ) -> ValidationTask:
     task_run_id = run_id or default_run_id()
-    report_path = _normalize_report_path(finding.get("report_path"))
+    report_path = _normalize_report_path(finding.get("report_path") or finding.get("evidence_path"))
     fid = str(finding.get("fid") or "").strip()
     return ValidationTask(
         run_id=task_run_id,
@@ -181,16 +181,22 @@ def load_finding_by_report_path(
         root_override=_root_override_path(root_override),
         create=False,
     )
-    resolved, lifecycle = _resolve_canonical_report_path(
-        report_path,
-        reports_root=storage.reports_root,
-    )
+    resolved = Path(report_path).expanduser().resolve(strict=False)
     findings = read_team_findings(
         program,
         family=family,
         lane=lane,
         root_override=_root_override_path(root_override),
     )
+    for finding in findings:
+        fid = str(finding.get("fid") or "").strip()
+        packet = storage.reports_root / fid
+        if fid and not packet.is_symlink() and resolved.parent == storage.reports_root.resolve(strict=False) / fid:
+            if resolved.name == "EVIDENCE.md" or resolved.name.endswith(f"-{fid}.md"):
+                field = "evidence_path" if resolved.name == "EVIDENCE.md" else "report_path"
+                if resolved.is_file() and _normalize_report_path(finding.get(field)) == resolved:
+                    return finding
+    resolved, lifecycle = _resolve_canonical_report_path(report_path, reports_root=storage.reports_root)
     for finding in findings:
         finding_path = _normalize_report_path(finding.get("report_path"))
         if finding_path is not None and finding_path == resolved:

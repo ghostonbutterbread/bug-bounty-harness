@@ -102,7 +102,7 @@ class ApkTeamOutputRootTests(unittest.TestCase):
         self.assertEqual(update_mock.call_args.kwargs["root_override"], expected_root)
         self.assertEqual(update_mock.call_args.kwargs["family"], "binaries")
         self.assertEqual(update_mock.call_args.kwargs["lane"], "apk")
-        self.assertTrue(update_mock.call_args.kwargs["write_report"])
+        self.assertFalse(update_mock.call_args.kwargs["write_report"])
         self.assertTrue(update_mock.call_args.kwargs["refresh"])
         ledger.update.assert_not_called()
 

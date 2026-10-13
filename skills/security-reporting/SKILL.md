@@ -39,4 +39,16 @@ Ask Bunny to triage the existing evidence and produce the one final `reports/<FI
 
 Verify the generated report and any PoC are in the **same FID packet**, correctly named, match the Evidence Report and program requirements, contain no unapproved private material, and include the decisive result rather than just a request or HTTP status. A fresh independent reviewer checks claim-to-evidence and PoC alignment and records `PASS`, `REVISE`, or `BLOCKED` under `_meta/`; Bunny's own readiness assessment does not replace that review. Revise the one final report in place within the requested scope, preserving other text; do not create versioned siblings or a competing final. Never cite another of our reports to a triager. Cross-origin steps need the full URL including scheme and authority; same-origin follow-ups may be relative when their base is unambiguous.
 
+After the final file exists, register its exact path against the FID to move generated navigation from the Evidence Report to the Bunny report:
+
+```bash
+bbh agents/finding_report.py <program> <FID> --lane <lane> --report <absolute-reports/FID/domain-vuln-FID.md>
+```
+
+Registration does not judge the claims, mark the report ready, or submit it. The command rejects a missing FID or a file outside its FID packet; read back the FID/report path before handoff. Do not register a hypothetical file in order to create a navigation link.
+
 At handoff give the full absolute **Report** path to the FID-named file and, if standalone, the actual **PoC** path; for inline curl name its section instead. Verify each exists and state readiness and any blocker. Existing `REPORT.md`/`SUBMISSION.md` files in older packets are historical content: preserve them and use an explicit FID-specific migration/review rather than deleting, overwriting, or regenerating them. Only Ryushe's confirmation of external submission updates `submission.state=submitted` through `manual-hunter`; a confirmed finding or completed report never implies submission.
+
+## Script map
+
+- `agents/finding_report.py`: register a pre-existing FID-named Bunny report in the ledger/navigation without writing report content or changing readiness/submission.

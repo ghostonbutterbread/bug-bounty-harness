@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-12
 - **Owning feature branch/ref:** `bug-bounty-harness/t_66f0802d-replace-canonical-bbh-final-report-route`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `66d8176`
+- **Feature implementation commit(s):** `66d8176` (policy checkpoint only; runtime still legacy)
 - **Inspiration / canonical references:** Ryu's correction in the current thread; BBH `security-reporting`, `manual-hunter`, `agents/index.md`; standalone `ghostonbutterbread/bunny-report-and-triage` fork; Bounty Core finding packet and navigation contracts.
 
 ## Intent
@@ -17,28 +17,28 @@ After a demonstrated finding, retain the ledger FID and populated `reports/<FID>
 
 ## Implemented contract
 
-In progress: BBH routing and skill-owner guidance point to the external skill, not a copied fork implementation. Bounty Core must provide evidence-only packet creation and navigation without accidentally generating `REPORT.md`. BBH must use this mode on finding ingestion, edits, submission status, sync/promotion and refresh, and register the exact FID-named report after review without overwriting it. The report/PoC and independent readiness checks belong to the agent skill; code does not automatically run an agent or a live exploit.
+Implementation: BBH adapter uses Bounty Core `packet_mode=evidence_only` for updates and navigation. New FIDs receive only create-once `EVIDENCE.md`; manual ingestion and CLI hand off the FID and packet. The old `finding_submission.py` refuses to create a competing artifact. After the standalone Bunny skill writes a reviewed FID-named report, `agents/finding_report.py` registers its existing file (never writes report text or claims submission). Dynamic validation resolves registered FID reports or evidence, while legacy paths remain readable. No AI agent or live exploit is automatically launched by the code.
 
 ## Evidence and review
 
-- Tests and commands: policy test in progress; code and integration tests pending provider API.
-- Independent review: pending.
-- Replay/cohort/fixture evidence: synthetic packet ingest, refresh, report-registration, and legacy preservation pending.
+- Tests and commands: BBH synthetic tests against local Bounty Core feature checkout `0a966b7`: 147 passed, 51 subtests across ingestion, edit, sync, base-team, CLI, dynamic validation, and policy. `pytest -q agents tests` reaches unrelated suites but has two historical assertion failures now updated; root-level `pytest` cannot collect `test_catalog.py` without an unrelated `bac_checks` module.
+- Independent review: Bounty Core reviewer pending; BBH review pending.
+- Replay/cohort/fixture evidence: synthetic packet ingest, report registration, and legacy artifact preservation covered; installed immutable provenance pending.
 - Merge/ancestry evidence: feature worktree fast-forwarded to fetched `origin/beta` at `9632b60`.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** Bounty Core provider mode, immutable pin, installed provenance, full BBH producer and navigation tests, independent review.
-- **Command / fixture / environment needed:** isolated Bounty Core feature tests, BBH checkout-local installer and `agents/test_manual_hunter.py` plus reporting/ledger suites with a task-owned synthetic root.
-- **Trigger to run it:** provider acceptance and published immutable beta SHA.
-- **Why it blocks integration, activation, or promotion:** current Bounty Core writes `REPORT.md` on ledger updates and navigation refresh.
-- **Next completion step / successor reference:** integrate provider, pin, implement BBH routing, test and review, then beta merge and separate runtime activation decision.
+- **Missing test or evidence:** publish/review Bounty Core provider `0a966b7` to an immutable reachable SHA, pin BBH, install from that pin, complete broader regression and independent review.
+- **Command / fixture / environment needed:** local provider test suite, BBH checkout-local installer and synthetic fixture tests using the installed distribution (not PYTHONPATH).
+- **Trigger to run it:** independent provider acceptance and published immutable beta SHA.
+- **Why it blocks integration, activation, or promotion:** a local PYTHONPATH proof does not validate an installed dependency or reachable pin.
+- **Next completion step / successor reference:** accept and publish provider, pin and install BBH, test and review, then beta merge and separate runtime activation decision.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `bug-bounty-harness/t_66f0802d-replace-canonical-bbh-final-report-route`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `66d8176`
+- **Feature implementation commit(s):** `66d8176` (policy checkpoint only; runtime still legacy)
 - **Exact resume point:** finish policy tests; await provider API, implement BBH adapter and final report registration.
 - **Working-tree state at handoff:** intentionally uncommitted implementation in progress.
 

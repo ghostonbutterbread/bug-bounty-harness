@@ -44,7 +44,7 @@ from agents.verbosity import clamp_verbosity
 
 
 from bounty_core.finding import normalize_severity  # noqa: E402
-from bounty_core.reports import refresh_report_navigation_from_ledger, write_finding_report  # noqa: E402
+from bounty_core.reports import EVIDENCE_ONLY  # noqa: E402
 
 
 SEVERITIES = {"EXCEPTIONAL", "CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "UNKNOWN"}
@@ -1062,14 +1062,14 @@ class ManualHunter:
             family=self.family,
             lane=self.lane,
             root_override=self.storage_root,
-            write_report=True,
+            write_report=False,
             refresh=True,
             update_current=False,
             update_sighting=False,
         )
-        report_path = _normalize_text(finding.get("report_path"))
-        if report_path:
-            print(f"Updated report: {report_path}")
+        evidence_path = _normalize_text(finding.get("evidence_path"))
+        if evidence_path:
+            print(f"Evidence packet: {evidence_path}")
         self._mark_coverage(finding, parsed)
         self._print_chain_suggestions(finding)
         print(f"Added finding {finding['fid']}")
@@ -1104,7 +1104,7 @@ class ManualHunter:
             family=self.family,
             lane=self.lane,
             root_override=self.storage_root,
-            write_report=True,
+            write_report=False,
             refresh=True,
         )
         print(f"Submission updated: {updated['fid']} -> {submission['state']}")
@@ -1142,20 +1142,17 @@ class ManualHunter:
             patch.setdefault("asset", patch["file"])
         updated = patch_finding_by_fid(
             self.program, target_fid, patch, family=self.family, lane=self.lane,
-            root_override=self.storage_root, write_report=True, refresh=True,
+            root_override=self.storage_root, write_report=False, refresh=True,
             update_current=bool({"status", "review_tier"} & patch.keys()),
+            packet_mode=EVIDENCE_ONLY,
         )
         if updated is None:
             raise ValueError(f"no finding found for fid {target_fid}")
         print(f"Finding updated: {target_fid}")
-        print(f"Report: {updated.get('report_path', '(none)')}")
+        print(f"Evidence: {updated.get('evidence_path', '(none)')}")
+        if updated.get("report_path"):
+            print(f"Existing report (review separately): {updated['report_path']}")
         return 0
-
-    def _append_report(self, finding: dict[str, Any]) -> None:
-        report_path = write_finding_report(self.storage, finding)
-        finding["report_path"] = str(report_path)
-        refresh_report_navigation_from_ledger(self.storage)
-        print(f"Updated report: {report_path}")
 
     def _coverage_relpath(self, file_value: str) -> str | None:
         if self.shared_brain is None or not self.shared_brain.files:

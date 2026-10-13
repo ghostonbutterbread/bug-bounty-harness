@@ -206,7 +206,6 @@ class TestSyncReports(unittest.TestCase):
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._mark_coverage", return_value=None)
-    @patch("agents.sync_reports._append_canonical_report")
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -215,7 +214,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        mock_append,
         _mock_coverage,
         _mock_chain,
     ):
@@ -229,7 +227,6 @@ class TestSyncReports(unittest.TestCase):
         )
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding1, finding2]
-        mock_append.return_value = self.tmp / "canonical.md"
         mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         sync_reports_main("test_program", lane="apk", source_dir=self.source_dir.as_posix())
@@ -246,7 +243,7 @@ class TestSyncReports(unittest.TestCase):
             family="binaries",
             lane="apk",
             root_override=self.tmp / "storage-root",
-            write_report=True,
+            write_report=False,
             refresh=True,
             update_current=False,
             update_sighting=False,
@@ -259,7 +256,6 @@ class TestSyncReports(unittest.TestCase):
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._mark_coverage", return_value=None)
-    @patch("agents.sync_reports._append_canonical_report")
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -268,7 +264,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        mock_append,
         _mock_coverage,
         _mock_chain,
     ):
@@ -282,7 +277,6 @@ class TestSyncReports(unittest.TestCase):
         )
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding1, finding2]
-        mock_append.return_value = self.tmp / "canonical.md"
         mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         sync_reports_main("test_program", lane="apk", source_dir=self.source_dir.as_posix())
@@ -294,11 +288,9 @@ class TestSyncReports(unittest.TestCase):
         self.assertEqual(mock_update_team_finding.call_args.kwargs["lane"], "apk")
         self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], self.tmp / "storage-root")
         hunter.ledger.update.assert_not_called()
-        mock_append.assert_not_called()
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._mark_coverage", return_value=None)
-    @patch("agents.sync_reports._append_canonical_report")
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -307,7 +299,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        _mock_append,
         _mock_coverage,
         _mock_chain,
     ):
@@ -402,7 +393,6 @@ class TestSyncReports(unittest.TestCase):
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._mark_coverage", return_value=None)
-    @patch("agents.sync_reports._append_canonical_report")
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -411,7 +401,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        mock_append,
         _mock_coverage,
         _mock_chain,
     ):
@@ -424,7 +413,6 @@ class TestSyncReports(unittest.TestCase):
         hunter = self._hunter(check_side_effect=[(False, None, {**finding, "fid": "D01"})])
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding]
-        mock_append.return_value = self.tmp / "canonical.md"
         mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         with patch.dict(os.environ, {"HOME": str(home)}):
@@ -439,7 +427,6 @@ class TestSyncReports(unittest.TestCase):
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._mark_coverage", return_value=None)
-    @patch("agents.sync_reports._append_canonical_report")
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -448,7 +435,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        mock_append,
         _mock_coverage,
         _mock_chain,
     ):
@@ -462,7 +448,6 @@ class TestSyncReports(unittest.TestCase):
         hunter = self._hunter(check_side_effect=[(False, None, {**finding, "fid": "D01"})])
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding]
-        mock_append.return_value = self.tmp / "canonical.md"
         mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         with patch.dict(os.environ, {"HOME": str(home)}):
@@ -477,7 +462,6 @@ class TestSyncReports(unittest.TestCase):
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._mark_coverage", return_value=None)
-    @patch("agents.sync_reports._append_canonical_report")
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -486,7 +470,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        mock_append,
         _mock_coverage,
         _mock_chain,
     ):
@@ -512,7 +495,6 @@ class TestSyncReports(unittest.TestCase):
         hunter = self._hunter(check_side_effect=[(False, None, {**finding, "fid": "D01"})])
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding]
-        mock_append.return_value = self.tmp / "canonical.md"
         mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         with patch.dict(os.environ, {"HOME": str(home)}):
@@ -555,7 +537,6 @@ class TestSyncReports(unittest.TestCase):
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._mark_coverage", return_value=None)
-    @patch("agents.sync_reports._append_canonical_report")
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -564,7 +545,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        mock_append,
         _mock_coverage,
         _mock_chain,
     ):
@@ -583,7 +563,6 @@ class TestSyncReports(unittest.TestCase):
         hunter = self._hunter(check_side_effect=[(False, None, {**finding, "fid": "D01"})])
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding]
-        mock_append.return_value = self.tmp / "canonical.md"
         mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         sync_reports_main("test_program", lane="apk", source_dir=reports_root.as_posix())
@@ -671,12 +650,9 @@ class TestSyncReports(unittest.TestCase):
         ledger_payload = json.loads((storage.ledgers_root / "ledger.json").read_text(encoding="utf-8"))
         self.assertEqual([finding["fid"] for finding in ledger_payload["findings"]], ["D01"])
 
-        canonical_reports = [
-            path
-            for path in (storage.reports_root / "findings").glob("**/*.md")
-            if "DOM XSS via location hash" in path.read_text(encoding="utf-8")
-        ]
-        self.assertEqual(len(canonical_reports), 1)
+        evidence = storage.reports_root / "D01" / "EVIDENCE.md"
+        self.assertTrue(evidence.is_file())
+        self.assertFalse((storage.reports_root / "D01" / "REPORT.md").exists())
 
         coverage_payload = json.loads((storage.ledgers_root / "coverage.json").read_text(encoding="utf-8"))
         coverage_entry = coverage_payload["snapshots"][get_snapshot_id(target_root)]["classes"]["dom-xss"]["files"]["src/app.js"]
@@ -685,7 +661,6 @@ class TestSyncReports(unittest.TestCase):
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._mark_coverage", return_value=None)
-    @patch("agents.sync_reports._append_canonical_report")
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -694,7 +669,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        mock_append,
         _mock_coverage,
         _mock_chain,
     ):
@@ -707,7 +681,6 @@ class TestSyncReports(unittest.TestCase):
         hunter = self._hunter(check_side_effect=[(False, None, {**finding, "fid": "D01"})])
         mock_hunter_cls.return_value = hunter
         mock_candidates.return_value = [finding]
-        mock_append.return_value = self.tmp / "canonical.md"
         mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
 
         sync_reports_main("test_program", lane="apk", source_dir=self.source_dir.as_posix())
@@ -779,13 +752,10 @@ class TestSyncReports(unittest.TestCase):
         self.assertEqual([finding["fid"] for finding in ledger_payload["findings"]], ["D01"])
 
         self.assertTrue(str(raw_reports.resolve(strict=False)).startswith(explicit_prefix))
-        canonical_reports = [
-            path
-            for path in (storage.reports_root / "findings").glob("**/*.md")
-            if "DOM XSS via location hash" in path.read_text(encoding="utf-8")
-        ]
-        self.assertTrue(canonical_reports)
-        self.assertTrue(all(str(path).startswith(explicit_prefix) for path in canonical_reports))
+        evidence = storage.reports_root / "D01" / "EVIDENCE.md"
+        self.assertTrue(evidence.is_file())
+        self.assertTrue(str(evidence).startswith(explicit_prefix))
+        self.assertFalse((storage.reports_root / "D01" / "REPORT.md").exists())
         self.assertFalse(list(storage.reports_root.glob("confirmed/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))
         self.assertFalse(list(storage.reports_root.glob("dormant/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))
         self.assertFalse(list(storage.reports_root.glob("novel/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))

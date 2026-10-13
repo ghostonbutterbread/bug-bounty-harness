@@ -23,6 +23,7 @@ from bounty_core.ledger import (  # noqa: E402
     patch_finding_by_fid,
     update_coverage_state as core_update_coverage_state,
 )
+from bounty_core.reports import EVIDENCE_ONLY
 
 
 def _explicit_root_from_storage(storage: StorageLayout) -> Path | None:
@@ -159,6 +160,7 @@ def update_team_finding(
         refresh=refresh,
         update_current=update_current,
         update_sighting=update_sighting,
+        packet_mode=EVIDENCE_ONLY,
     )
     if patched is not None:
         return patched
@@ -189,6 +191,7 @@ def update_team_finding(
             refresh=refresh,
             update_current=update_current,
             update_sighting=update_sighting,
+            packet_mode=EVIDENCE_ONLY,
         )
         if patched is not None:
             return patched

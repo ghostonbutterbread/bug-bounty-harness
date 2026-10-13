@@ -4289,9 +4289,10 @@ module.exports = { runHook };
     reports = summary["reports"]
     assert Path(reports["daily_confirmed"]).is_file()
     assert Path(reports["daily_index"]).is_file()
-    finding_reports = list(Path(reports["findings_root"]).rglob("*.md"))
-    assert finding_reports
-    assert all(path.resolve(strict=False).is_relative_to(tmp_path.resolve()) for path in finding_reports)
+    evidence = lane_root / "reports" / "ZDT-E2E-001" / "EVIDENCE.md"
+    assert evidence.is_file()
+    assert evidence.resolve(strict=False).is_relative_to(tmp_path.resolve())
+    assert not (evidence.parent / "REPORT.md").exists()
 
     status = campaign_status(lane_root / "brainstorm")
     assert status["handoff_count"] == 1

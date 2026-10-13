@@ -1,14 +1,14 @@
 # AI feed-path integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes / t_7fcba937
 - **Branch:** `docs/ai-feed-path`
 - **Base commit:** `9d8d68c1051a893887859d92d02ecc600c3670a1`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-13
 - **Owning feature branch/ref:** `docs/ai-feed-path`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `c8f23fde40c602af364cba8fb10abc745063de19`
+- **Feature implementation commit(s):** `fccd507ba954f1a1575b31bfa69b2c12d35abd68`, `c8f23fde40c602af364cba8fb10abc745063de19`
 - **Inspiration / canonical references:** Discord thread 1559619608095232122; existing `/ai-tester`, `/map-store`, `/indirect-injection`.
 
 ## Intent
@@ -22,7 +22,7 @@ Make the source-to-reader AI feed path an explicit, reusable discovery step with
 ## Evidence and review
 
 - Tests and commands: `git diff --check` clean; `python3 -m pytest agents/test_map_store.py -q` 72 passed; `slugify` preserves `user-writable` and `ai-feed-source`; `aiskillsync sync --profile security --skill ai-tester --dry-run -v` shows four correct projected links, no destination actions (source beta not yet updated).
-- Independent review: pending.
+- Independent review: first pass found a stale dossier and requested direct-echo clarification; both corrected for fresh review.
 - Replay/cohort/fixture evidence: no live target probe in this guidance-only change.
 - Merge/ancestry evidence: base `origin/beta` checked before branch creation.
 
@@ -33,10 +33,10 @@ Make the source-to-reader AI feed path an explicit, reusable discovery step with
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/ai-feed-path`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** validate the guidance and MapStore tag contract, obtain independent review, integrate into beta, then verify runtime projection.
-- **Working-tree state at handoff:** intentionally uncommitted until focused validation.
+- **Latest immutable recovery checkpoint:** `c8f23fde40c602af364cba8fb10abc745063de19`
+- **Feature implementation commit(s):** `fccd507ba954f1a1575b31bfa69b2c12d35abd68`, `c8f23fde40c602af364cba8fb10abc745063de19`
+- **Exact resume point:** obtain fresh independent review of the corrected tip, integrate into beta, then verify runtime projection.
+- **Working-tree state at handoff:** clean after this dossier-only handoff commit.
 
 ## Decision gates
 
@@ -47,3 +47,4 @@ Make the source-to-reader AI feed path an explicit, reusable discovery step with
 ## Decision record
 
 - 2026-10-13 — opened focused beta-based skill-guidance change.
+- 2026-10-13 — first review required a commit-correct dossier and model-mediated ingestion distinction; corrected, awaiting fresh review.

@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-13
 - **Owning feature branch/ref:** `feat/report-packet-fid-slug-tf9946642`
-- **Latest immutable recovery checkpoint:** `cdd85a34797f4cb1e98fbfc96472e57fff2b65b9`
-- **Feature implementation commit(s):** `16fdd0e2932a7fde127a1234742e088f0d34979f`, `cdd85a34797f4cb1e98fbfc96472e57fff2b65b9`
+- **Latest immutable recovery checkpoint:** `420ef2dd2aafa485d15bebefec0b4d5ee547e614`
+- **Feature implementation commit(s):** `16fdd0e2932a7fde127a1234742e088f0d34979f`, `cdd85a34797f4cb1e98fbfc96472e57fff2b65b9`, `252a2e6131cf84a134d98ce0304c4b660b6f9bbb`, `420ef2dd2aafa485d15bebefec0b4d5ee547e614`
 - **Inspiration / canonical references:** `/home/ryushe/.hermes/plans/2026-10-13_152453-report-packet-layout.md`; Bounty Core provider branch `feat/report-packet-fid-slug-tf9946642`.
 
 ## Intent
@@ -42,8 +42,8 @@ Provider feature correction `e66506a960cd1acc6cf44b53ecc4752ef4320ca6` fixes the
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/report-packet-fid-slug-tf9946642`
-- **Latest immutable recovery checkpoint:** `cdd85a34797f4cb1e98fbfc96472e57fff2b65b9`
-- **Feature implementation commit(s):** `16fdd0e2932a7fde127a1234742e088f0d34979f`, `cdd85a34797f4cb1e98fbfc96472e57fff2b65b9`
+- **Latest immutable recovery checkpoint:** `420ef2dd2aafa485d15bebefec0b4d5ee547e614`
+- **Feature implementation commit(s):** `16fdd0e2932a7fde127a1234742e088f0d34979f`, `cdd85a34797f4cb1e98fbfc96472e57fff2b65b9`, `252a2e6131cf84a134d98ce0304c4b660b6f9bbb`, `420ef2dd2aafa485d15bebefec0b4d5ee547e614`
 - **Exact resume point:** receive independent provider re-review, then publish provider beta, pin/reinstall BBH, and run installed full E2E.
 - **Working-tree state at handoff:** task-owned BBH reconciliations committed as checkpoint; verify status before further edits.
 

@@ -54,23 +54,27 @@ class ReconScopeFileLinesTests(unittest.TestCase):
 class ReconScopeFileParserCompatibilityTests(unittest.TestCase):
     """The generated file must satisfy recon-ry's own offline scope parser."""
 
-    SCOPE_FILTER = Path.home() / "tools" / "recon-ry-runtime-header" / "scripts" / "scope_filter.py"
+    SCOPE_FILTER_CANDIDATES = (
+        Path.home() / "tools" / "recon-ry-runtime-header" / "scripts" / "scope_filter.py",
+        Path.home() / "tools" / "recon-ry" / "scripts" / "scope_filter.py",
+    )
 
     def test_generated_entries_are_accepted_by_recon_ry(self):
-        if not self.SCOPE_FILTER.is_file():
+        parser = next((path for path in self.SCOPE_FILTER_CANDIDATES if path.is_file()), None)
+        if parser is None:
             self.skipTest("recon-ry runtime checkout not present")
         import subprocess
         import tempfile
 
         lines, _ = recon_scope_file_lines(
-            ["*.example.com", "api.example.net", "https://portal.example.com", "10.0.0.0/8"]
+            ["*.example.com", "api.example.net", "https://portal.example.com", "10.0.0.1/8", "2001:db8::1/32"]
         )
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
             handle.write("\n".join(lines) + "\n")
             scope_path = handle.name
         try:
             result = subprocess.run(
-                [sys.executable, str(self.SCOPE_FILTER), "validate", "--scope-file", scope_path],
+                [sys.executable, str(parser), "validate", "--scope-file", scope_path],
                 capture_output=True,
                 text=True,
                 timeout=30,

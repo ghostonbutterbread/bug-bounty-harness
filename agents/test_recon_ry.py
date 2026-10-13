@@ -623,6 +623,25 @@ def test_build_remote_seed_files_uses_saved_scope(monkeypatch) -> None:
     assert files["wild.txt"] == "example.com\n"
 
 
+def test_optional_saved_hosts_pass_start_guard_and_match_recon_files(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(recon_ry.ScopeValidator, "SCOPES_BASE", tmp_path)
+    monkeypatch.setattr(recon_ry.ScopeValidator, "LEGACY_RECON_BASE", tmp_path / "legacy")
+    scope_dir = tmp_path / "synthetic"
+    scope_dir.mkdir()
+    (scope_dir / "in-scope.txt").write_text("api(-eu1)?.example.com\n*.site(-eu1)?.example.net\n")
+
+    for host in ("api.example.com", "api-eu1.example.com", "sub.site.example.net", "sub.site-eu1.example.net"):
+        recon_ry.validate_start_scope("synthetic", host)
+    with pytest.raises(SystemExit):
+        recon_ry.validate_start_scope("synthetic", "unrelated.example.com")
+    seeds = recon_ry.build_remote_seed_files("synthetic", "api.example.com")
+    scopes, deferred = recon_ry.build_remote_scope_files("synthetic")
+    assert "api-eu1.example.com\n" in seeds["urls.txt"]
+    assert "site-eu1.example.net\n" in seeds["wild.txt"]
+    assert "*.site-eu1.example.net\n" in scopes["_scope/in-scope-hosts.txt"]
+    assert deferred == []
+
+
 def test_validate_start_scope_fails_closed_when_no_scope(monkeypatch) -> None:
     class EmptyScope:
         def __init__(self, program: str, strict: bool = True):

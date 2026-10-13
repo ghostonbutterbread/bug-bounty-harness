@@ -77,8 +77,15 @@ def is_dns_scope_value(value: str) -> bool:
             return True
         except ValueError:
             return False
+    if "[" in v or "]" in v:
+        if not (v.startswith("[") and v.endswith("]") and v.count("[") == v.count("]") == 1):
+            return False
+        try:
+            return ip_address(v[1:-1]).version == 6
+        except ValueError:
+            return False
     try:
-        ip_address(v.strip("[]"))
+        ip_address(v)
         return True
     except ValueError:
         pass

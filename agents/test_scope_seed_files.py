@@ -117,3 +117,13 @@ def test_ipv6_seed_is_not_truncated_and_cidr_is_not_a_url_seed() -> None:
     urls, wild = scope_seed_files.recon_seed_lines({"2001:db8::1", "2001:db8::1/32"}, set())
     assert urls == ["[2001:db8::1]"]
     assert wild == []
+
+
+def test_malformed_ipv6_brackets_are_deferred_from_both_scope_files() -> None:
+    for malformed in ("[[2001:db8::1]]", "[2001:db8::1", "2001:db8::1]"):
+        allowed, deferred = scope_seed_files.recon_scope_file_lines([malformed])
+        denied, excluded_deferred = scope_seed_files.recon_scope_file_lines([malformed])
+        assert allowed == denied == []
+        assert deferred == excluded_deferred == [malformed]
+        assert not scope_seed_files.is_dns_scope_value(malformed)
+    assert scope_seed_files.recon_scope_file_lines(["[2001:db8::1]"])[0] == ["[2001:db8::1]"]

@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-13
 - **Owning feature branch/ref:** `bug-bounty-harness/t_66f0802d-replace-canonical-bbh-final-report-route`
-- **Latest immutable recovery checkpoint:** `22c0f4047f68358f20b7d61f285340d31f058ef8`
-- **Feature implementation commit(s):** `66d8176` (policy), `741319b` (BBH evidence-only implementation), `22c0f40` (beta revert reconciliation)
+- **Latest immutable recovery checkpoint:** `edb5e416e881262e9300e967994feea115c0fdee`
+- **Feature implementation commit(s):** `66d8176` (policy), `741319b` (BBH evidence-only implementation), `22c0f40` (beta revert reconciliation), `2e981c7` (provider pin/installed checks), `edeaba2` (lifecycle enumeration), `edb5e41` (review fixes)
 - **Inspiration / canonical references:** Ryu's correction in the current thread; BBH `security-reporting`, `manual-hunter`, `agents/index.md`; standalone `ghostonbutterbread/bunny-report-and-triage` fork; Bounty Core finding packet and navigation contracts.
 
 ## Intent
@@ -37,10 +37,10 @@ Implementation: BBH adapter uses Bounty Core `packet_mode=evidence_only` for upd
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `bug-bounty-harness/t_66f0802d-replace-canonical-bbh-final-report-route`
-- **Latest immutable recovery checkpoint:** `22c0f4047f68358f20b7d61f285340d31f058ef8`
-- **Feature implementation commit(s):** `66d8176` (policy), `741319b` (BBH evidence-only implementation), `22c0f40` (beta revert reconciliation)
+- **Latest immutable recovery checkpoint:** `edb5e416e881262e9300e967994feea115c0fdee`
+- **Feature implementation commit(s):** `66d8176` (policy), `741319b` (BBH evidence-only implementation), `22c0f40` (beta revert reconciliation), `2e981c7` (provider pin/installed checks), `edeaba2` (lifecycle enumeration), `edb5e41` (review fixes)
 - **Exact resume point:** await BBH consumer review; then merge into BBH beta, test installed dependency and read back remote; runtime skill availability is a separate activation gate.
-- **Working-tree state at handoff:** clean after provider-pin implementation checkpoint.
+- **Working-tree state at handoff:** clean after dossier checkpoint.
 
 ## Decision gates
 

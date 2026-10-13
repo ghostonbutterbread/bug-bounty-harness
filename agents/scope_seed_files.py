@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import re
+from ipaddress import ip_network
 from pathlib import Path
 from urllib.parse import urlparse
+
+_OPT_GROUP_RE = re.compile(r"\(([^()]+)\)\?")
+_DNS_SCOPE_RE = re.compile(r"^(?:\*\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$")
+_IPV4_CIDR_RE = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?$")
 
 
 def clean_scope_value(value: str) -> str:
@@ -32,6 +38,42 @@ def wildcard_base(value: str) -> str:
     return ""
 
 
+def _expand_optional_groups(value: str) -> list[str]:
+    """Expand one ``(alt)?`` optional group into both spelling variants.
+
+    Program scopes sometimes serialize regex-style wildcards such as
+    ``*.site(-eu1)?.example``; recon-ry only understands plain ``*.host``
+    wildcards, so each optional group expands into the two concrete hosts.
+    """
+    m = _OPT_GROUP_RE.search(value)
+    if not m:
+        return [value]
+    variants = [
+        value[: m.start()] + value[m.end() :],
+        value[: m.start()] + m.group(1) + value[m.end() :],
+    ]
+    out: list[str] = []
+    for v in variants:
+        if _OPT_GROUP_RE.search(v):
+            out.extend(_expand_optional_groups(v))
+        else:
+            out.append(v)
+    return out
+
+
+def is_dns_scope_value(value: str) -> bool:
+    """True for entries recon-ry can parse: hosts, ``*.host`` wildcards, IPv4/CIDR."""
+    v = value.strip().lower()
+    if not v or _OPT_GROUP_RE.search(v):
+        return False
+    if _IPV4_CIDR_RE.fullmatch(v):
+        try:
+            return ip_network(v, strict=False).version == 4
+        except ValueError:
+            return False
+    return bool(_DNS_SCOPE_RE.match(v))
+
+
 def recon_seed_lines(domains: set[str] | list[str], urls: set[str] | list[str]) -> tuple[list[str], list[str]]:
     """Return ``(urls_txt, wild_txt)`` lines for recon-ry-compatible seeds.
 
@@ -48,14 +90,24 @@ def recon_seed_lines(domains: set[str] | list[str], urls: set[str] | list[str]) 
     for value in sorted(clean_scope_value(v) for v in domains):
         if not value:
             continue
-        base = wildcard_base(value)
-        if base:
-            wild_lines.append(base)
+        if wildcard_base(value):
+            for variant in _expand_optional_groups(value):
+                base = wildcard_base(variant)
+                if base and is_dns_scope_value(base):
+                    wild_lines.append(base)
             continue
         if value.startswith(("http://", "https://")):
             url_lines.append(value)
-        else:
-            url_lines.append(host_from_scope_value(value) or value)
+            continue
+        if "*" in value:
+            # An infix wildcard cannot be represented as a recon-ry seed or
+            # host scope; never widen it to a parent domain.
+            continue
+        # Non-DNS entries (program category labels such as "customer portal")
+        # are not hosts recon-ry can seed; skip them rather than emit junk.
+        for variant in _expand_optional_groups(value):
+            if is_dns_scope_value(variant):
+                url_lines.append(host_from_scope_value(variant) or variant)
 
     return _dedupe(url_lines), _dedupe(wild_lines)
 
@@ -95,8 +147,16 @@ def recon_scope_file_lines(values: set[str] | list[str]) -> tuple[list[str], lis
             if host:
                 scope_lines.append(host)
             continue
-        # Bare hosts, wildcards, IPs and CIDRs pass through as written.
-        scope_lines.append(value.lower())
+        # Expand regex-style optional groups into concrete wildcard hosts.
+        expanded = _expand_optional_groups(value) if _OPT_GROUP_RE.search(value) else [value]
+        for variant in expanded:
+            if is_dns_scope_value(variant):
+                # Bare hosts, wildcards, IPs and CIDRs pass through as written.
+                scope_lines.append(variant.lower())
+            else:
+                # Program category labels are not hosts recon-ry can scope;
+                # defer them rather than writing entries it will reject.
+                deferred.append(variant)
 
     return _dedupe(scope_lines), _dedupe(deferred)
 

@@ -26,3 +26,67 @@ def test_write_recon_seed_files_writes_urls_and_wild(tmp_path: Path) -> None:
     assert (tmp_path / "urls.txt").read_text(encoding="utf-8") == "https://app.example.com\napi.example.com\n"
     assert not (tmp_path / "url.txt").exists()
     assert (tmp_path / "wild.txt").read_text(encoding="utf-8") == "example.com\n"
+
+
+def test_recon_scope_file_lines_expand_optional_group_and_defer_labels() -> None:
+    lines, deferred = scope_seed_files.recon_scope_file_lines(
+        [
+            "*.site(-eu1)?.example.com",
+            "app.example.com",
+            "customer connected domain",
+            "*.mail.example.net",
+        ]
+    )
+
+    assert sorted(lines) == sorted(
+        ["*.site-eu1.example.com", "*.site.example.com", "app.example.com", "*.mail.example.net"]
+    )
+    assert deferred == ["customer connected domain"]
+
+
+def test_recon_seed_lines_skip_labels_and_expand_groups() -> None:
+    urls, wild = scope_seed_files.recon_seed_lines(
+        {
+            "*.site(-eu1)?.example.com",
+            "app.example.com",
+            "customer portal",
+            "example.net",
+        },
+        {"https://app.example.com"},
+    )
+
+    assert "https://app.example.com" in urls
+    assert "app.example.com" in urls
+    assert "example.net" in urls
+    assert "customer portal" not in urls
+    assert sorted(wild) == ["site-eu1.example.com", "site.example.com"]
+
+
+def test_is_dns_scope_value() -> None:
+    assert scope_seed_files.is_dns_scope_value("*.mail.example.net")
+    assert scope_seed_files.is_dns_scope_value("app.example.com")
+    assert scope_seed_files.is_dns_scope_value("192.0.2.1")
+    assert scope_seed_files.is_dns_scope_value("192.0.2.0/24")
+    assert not scope_seed_files.is_dns_scope_value("999.999.999.999")
+    assert not scope_seed_files.is_dns_scope_value("192.0.2.0/33")
+    assert not scope_seed_files.is_dns_scope_value("customer portal")
+    assert not scope_seed_files.is_dns_scope_value("*.site(-eu1)?.example.com")
+
+
+def test_recon_seed_lines_infix_wildcard_never_widens_to_parent() -> None:
+    urls, wild = scope_seed_files.recon_seed_lines(
+        {"app*.example.com", "api*.example.net"}, set()
+    )
+
+    assert urls == []
+    assert wild == []
+
+    allowed, deferred = scope_seed_files.recon_scope_file_lines(["app*.example.com"])
+    assert allowed == []
+    assert deferred == ["app*.example.com"]
+
+
+def test_optional_exact_host_expands_without_widening() -> None:
+    urls, wild = scope_seed_files.recon_seed_lines({"api(-eu1)?.example.com"}, set())
+    assert urls == ["api.example.com", "api-eu1.example.com"]
+    assert wild == []

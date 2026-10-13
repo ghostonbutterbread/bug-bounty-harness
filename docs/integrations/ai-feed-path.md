@@ -22,7 +22,7 @@ Make the source-to-reader AI feed path an explicit, reusable discovery step with
 ## Evidence and review
 
 - Tests and commands: `git diff --check` clean; `python3 -m pytest agents/test_map_store.py -q` 72 passed; `slugify` preserves `user-writable` and `ai-feed-source`; `aiskillsync sync --profile security --skill ai-tester --dry-run -v` shows four correct projected links, no destination actions (source beta not yet updated).
-- Independent review: first pass found a stale dossier and requested direct-echo clarification; both corrected for fresh review.
+- Independent review: first pass found a stale dossier and requested direct-echo clarification; both corrected. Fresh review of `9d8d68c..ec7bd0b` **ACCEPT**, confirming the corrected checkpoint, model-mediated distinction, safety gates, and 72/72 isolated MapStore tests.
 - Replay/cohort/fixture evidence: no live target probe in this guidance-only change.
 - Merge/ancestry evidence: base `origin/beta` checked before branch creation.
 
@@ -35,7 +35,7 @@ Make the source-to-reader AI feed path an explicit, reusable discovery step with
 - **Owning feature branch/ref:** `docs/ai-feed-path`
 - **Latest immutable recovery checkpoint:** `c8f23fde40c602af364cba8fb10abc745063de19`
 - **Feature implementation commit(s):** `fccd507ba954f1a1575b31bfa69b2c12d35abd68`, `c8f23fde40c602af364cba8fb10abc745063de19`
-- **Exact resume point:** obtain fresh independent review of the corrected tip, integrate into beta, then verify runtime projection.
+- **Exact resume point:** integrate the accepted skill change into beta, exclude this branch-local dossier, then verify runtime projection.
 - **Working-tree state at handoff:** clean after this dossier-only handoff commit.
 
 ## Decision gates
@@ -48,3 +48,4 @@ Make the source-to-reader AI feed path an explicit, reusable discovery step with
 
 - 2026-10-13 — opened focused beta-based skill-guidance change.
 - 2026-10-13 — first review required a commit-correct dossier and model-mediated ingestion distinction; corrected, awaiting fresh review.
+- 2026-10-13 — fresh independent review accepted `ec7bd0b`; no blocker or deferred test. Approved for beta integration only, not main promotion or live target testing.

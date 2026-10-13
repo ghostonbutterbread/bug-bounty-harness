@@ -98,7 +98,7 @@ class ManualHunterTests(unittest.TestCase):
         ledger_payload = json.loads(self._ledger_path().read_text(encoding="utf-8"))
         self.assertEqual(len(ledger_payload["findings"]), 1)
         self.assertEqual(ledger_payload["findings"][0]["fid"], "D01")
-        packet = self._storage().reports_root / "D01"
+        packet = Path(ledger_payload["findings"][0]["report_dir"])
         self.assertTrue((packet / "EVIDENCE.md").is_file())
         self.assertIn("## Claim and status", (packet / "EVIDENCE.md").read_text(encoding="utf-8"))
         self.assertFalse((packet / "REPORT.md").exists())
@@ -193,6 +193,7 @@ class ManualHunterTests(unittest.TestCase):
         note_path.write_text(
             "Title: SQLite injection via exposed IPC port\n"
             "Class: native-module-abuse\n"
+            "Severity: HIGH\n"
             "File: .webpack/renderer/preload.js:4\n"
             "Description: Owned fixture reached SQLite execution.\n",
             encoding="utf-8",
@@ -226,7 +227,7 @@ class ManualHunterTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(main([self.program, "--lane", "apk", "--set-submission", "D01",
                                    "--submission-state", "not_submitted"]), 0)
-        self.assertNotIn("D01", submitted.read_text(encoding="utf-8"))
+        self.assertFalse(submitted.exists())
         self.assertTrue(report.is_file())
 
     def test_edit_finding_corrects_content_and_refreshes_report_without_new_fid(self) -> None:
@@ -268,9 +269,10 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(after["fid"], before["fid"])
         self.assertEqual(after["sightings"], before["sightings"])
         self.assertEqual(after["submission"], before["submission"])
-        self.assertEqual(Path(after["evidence_path"]), self._storage().reports_root / "D01" / "EVIDENCE.md")
+        self.assertEqual(Path(after["evidence_path"]), Path(before["report_dir"]) / "EVIDENCE.md")
+        self.assertEqual(after["report_dir"], before["report_dir"])
         self.assertFalse(after.get("report_path"))
-        self.assertFalse((self._storage().reports_root / "D01" / "REPORT.md").exists())
+        self.assertFalse((Path(before["report_dir"]) / "REPORT.md").exists())
 
     def test_edit_finding_rejects_unknown_fid_and_protected_patch_without_writing(self) -> None:
         note = self.tmp / "finding.md"
@@ -306,7 +308,7 @@ class ManualHunterTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note)]), 0)
         original = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
-        report = self._storage().reports_root / original["fid"] / "REPORT.md"
+        report = Path(original["report_dir"]) / f"app-example-sqlite-{original['fid']}.md"
         report.write_text("# Reviewer-edited report\nManual narrative.\n", encoding="utf-8")
         patch_finding_by_fid(
             self.program, original["fid"], {"report_path": str(report)},
@@ -325,24 +327,24 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(updated["report_path"], str(report))
         self.assertIn("Manual narrative.", report.read_text(encoding="utf-8"))
 
-    def test_edit_finding_type_retires_false_generated_index(self) -> None:
+    def test_edit_finding_class_retires_false_generated_category(self) -> None:
         note = self.tmp / "finding.md"
         note.write_text(
             "Title: Incorrect type claim\nType: obsolete-unique-type\n"
-            "Class: native-module-abuse\nFile: .webpack/renderer/preload.js:4\n"
+            "Class: obsolete-unique-class\nFile: .webpack/renderer/preload.js:4\n"
             "Description: Initial details.\n",
             encoding="utf-8",
         )
         with redirect_stdout(io.StringIO()):
             self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note)]), 0)
-        old_index = self._storage().reports_root / "index" / "obsolete-unique-type.md"
+        old_index = self._storage().reports_root / "categories" / "obsolete-unique-class" / "index.md"
         self.assertIn("Incorrect type claim", old_index.read_text(encoding="utf-8"))
         patch_file = self.tmp / "type-correction.json"
-        patch_file.write_text('{"type":"corrected-type","title":"Verified finding"}', encoding="utf-8")
+        patch_file.write_text('{"class_name":"corrected-class","type":"corrected-type","title":"Verified finding"}', encoding="utf-8")
         with redirect_stdout(io.StringIO()):
             self.assertEqual(main([self.program, "--lane", "apk", "--edit-finding", "D01", "--patch-file", str(patch_file)]), 0)
         self.assertFalse(old_index.exists())
-        new_index = self._storage().reports_root / "index" / "corrected-type.md"
+        new_index = self._storage().reports_root / "categories" / "corrected-class" / "index.md"
         self.assertIn("Verified finding", new_index.read_text(encoding="utf-8"))
 
     def test_minimal_note_is_parsed_tolerantly(self) -> None:

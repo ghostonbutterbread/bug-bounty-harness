@@ -24,12 +24,12 @@ class BunnyReportRegistrationTests(unittest.TestCase):
         )
         added = add_finding(
             {"identity": "fixture:xss:owned", "title": "Owned XSS", "type": "xss",
-             "asset": "app.example", "status": "confirmed"},
+             "class_name": "xss", "asset": "app.example", "status": "confirmed"},
             program=self.program, family="web_bounty", lane="web",
             root_override=self.root, packet_mode="evidence_only",
         )
         self.fid = added["finding"]["fid"]
-        self.packet = self.layout.reports_root / self.fid
+        self.packet = Path(added["finding"]["report_dir"])
 
     def test_report_packet_and_submission_navigation_use_stable_descriptive_path(self):
         finding = ledger_get(self.program, self.fid, family="web_bounty", lane="web",
@@ -77,8 +77,8 @@ class BunnyReportRegistrationTests(unittest.TestCase):
             ledger_get(self.program, self.fid, family="web_bounty", lane="web",
                        root_override=self.root)["report_path"], str(report),
         )
-        navigation = (self.layout.reports_root / "confirmed.md").read_text()
-        self.assertIn(f"[[{self.fid}/{report.stem}|{self.fid}]]", navigation)
+        navigation = (self.layout.reports_root / "categories" / "xss" / "index.md").read_text()
+        self.assertIn(f"[[../../{self.packet.name}/{report.stem}|{self.fid}]]", navigation)
 
     def test_registration_receipt_preserves_existing_submitted_state(self):
         report = self.packet / f"app-example-xss-{self.fid}.md"

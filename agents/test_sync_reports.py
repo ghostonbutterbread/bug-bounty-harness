@@ -667,9 +667,10 @@ class TestSyncReports(unittest.TestCase):
         ledger_payload = json.loads((storage.ledgers_root / "ledger.json").read_text(encoding="utf-8"))
         self.assertEqual([finding["fid"] for finding in ledger_payload["findings"]], ["D01"])
 
-        evidence = storage.reports_root / "D01" / "EVIDENCE.md"
+        packet = Path(ledger_payload["findings"][0]["report_dir"])
+        evidence = packet / "EVIDENCE.md"
         self.assertTrue(evidence.is_file())
-        self.assertFalse((storage.reports_root / "D01" / "REPORT.md").exists())
+        self.assertFalse((packet / "REPORT.md").exists())
 
         coverage_payload = json.loads((storage.ledgers_root / "coverage.json").read_text(encoding="utf-8"))
         coverage_entry = coverage_payload["snapshots"][get_snapshot_id(target_root)]["classes"]["dom-xss"]["files"]["src/app.js"]
@@ -769,10 +770,10 @@ class TestSyncReports(unittest.TestCase):
         self.assertEqual([finding["fid"] for finding in ledger_payload["findings"]], ["D01"])
 
         self.assertTrue(str(raw_reports.resolve(strict=False)).startswith(explicit_prefix))
-        evidence = storage.reports_root / "D01" / "EVIDENCE.md"
+        evidence = Path(ledger_payload["findings"][0]["report_dir"]) / "EVIDENCE.md"
         self.assertTrue(evidence.is_file())
         self.assertTrue(str(evidence).startswith(explicit_prefix))
-        self.assertFalse((storage.reports_root / "D01" / "REPORT.md").exists())
+        self.assertFalse((evidence.parent / "REPORT.md").exists())
         self.assertFalse(list(storage.reports_root.glob("confirmed/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))
         self.assertFalse(list(storage.reports_root.glob("dormant/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))
         self.assertFalse(list(storage.reports_root.glob("novel/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))

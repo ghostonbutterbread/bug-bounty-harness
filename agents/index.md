@@ -69,11 +69,13 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    parent backlog.
 9. Include the selected policy chain, one BBH lane, evidence pointers, exact
    stop condition, and account/browser lane only when required in every child
-   packet. After recording a proven FID, fill `EVIDENCE.md` and load the
-   standalone `bunny-report-and-triage` skill directly for the one FID-named
-   final report. If it is unavailable, stop rather than using a deprecated
-   BBH writer or inventing another final file. After independent
-   review, register the existing final path with `agents/finding_report.py`;
+   packet. After recording a proven FID, resolve the frozen `report_dir` from
+   the ledger (`reports/<FID>-<initial-vulnerability-slug>/` for new findings,
+   with `reports/<FID>/` still valid for historical packets). Fill its
+   `EVIDENCE.md` and load the standalone `bunny-report-and-triage` skill
+   directly for the one FID-named final report. If it is unavailable, stop
+   rather than using a deprecated BBH writer or inventing another final file.
+   After independent review, register the existing final path with `agents/finding_report.py`;
    registration does not submit. Do not generate a rough `REPORT.md` or a
    competing `SUBMISSION.md` for new findings. Preserve
    older packet files and every unrequested region in a targeted revision. PoC

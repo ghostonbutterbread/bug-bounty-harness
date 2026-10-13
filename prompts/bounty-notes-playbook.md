@@ -121,7 +121,7 @@ Use Obsidian links for cross-note navigation:
 ```markdown
 Related investigation: [[timeline/2026-06-15]]
 Related handoff: [[handoffs/20260615T190000Z-codex-avatar]]
-Related report: [[../reports/findings/active/FID-123]]
+Related report: [[../reports/D01-owned-xss/EVIDENCE]]
 ```
 
 The helper can add these links and refresh the machine index:
@@ -129,7 +129,7 @@ The helper can add these links and refresh the machine index:
 ```bash
 bbh agents/bounty_notes.py link <program> \
   --source hypotheses/avatar-metadata-reaches-admin-review.md \
-  --target ../reports/findings/active/FID-123.md \
+  --target ../reports/D01-owned-xss/EVIDENCE.md \
   --relationship report
 ```
 

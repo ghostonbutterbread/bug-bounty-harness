@@ -115,7 +115,7 @@ def update_reviewed_findings(
                 family=storage.family,
                 lane=storage.lane,
                 root_override=getattr(storage, "base_root", None) if getattr(storage, "root_mode", "") == "explicit-local" else None,
-                write_report=True,
+                write_report=False,
                 refresh=True,
                 update_current=True,
                 update_sighting=True,

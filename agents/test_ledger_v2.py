@@ -482,7 +482,10 @@ class LedgerV2Tests(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0]["fid"], "D01")
         self.assertEqual(findings[0]["title"], "Reviewed corrected issue")
-        self.assertFalse(list((explicit_root / "binaries" / self.program / "apk" / "reports").glob("**/*.md")))
+        packet = explicit_root / "binaries" / self.program / "apk" / "reports" / "D01"
+        self.assertTrue((packet / "EVIDENCE.md").is_file())
+        self.assertFalse((packet / "REPORT.md").exists())
+        self.assertEqual(findings[0]["evidence_path"], str(packet / "EVIDENCE.md"))
 
     def test_versioned_update_preserves_unknown_top_level_metadata(self) -> None:
         path = ledger_path(self.program, lane="apk", family="binaries")

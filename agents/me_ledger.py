@@ -18,7 +18,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from agents.coverage_store import CoverageStore
 from agents.finding_visibility import is_confirmed_finding, normalize_submission, visible_for_default_work
-from agents.ledger import ledger_add, ledger_check, ledger_get, ledger_list, ledger_path
+from agents.ledger import ledger_add, ledger_check, ledger_get, ledger_list, ledger_path, update_team_finding
 from agents.snapshot_identity import get_snapshot_identity
 from agents.storage_resolver import resolve_storage
 from bounty_core.finding import normalize_severity
@@ -395,6 +395,13 @@ def cmd_add(args: argparse.Namespace) -> int:
         family=args.family,
         root_override=root_override,
     )
+    if is_new_fid:
+        # The ledger owns the FID; this follow-up creates only its evidence
+        # packet and navigation, never a competing generated report.
+        update_team_finding(
+            args.program, {"fid": fid}, family=args.family, lane=args.lane,
+            root_override=root_override, write_report=False, refresh=True,
+        )
     entry = ledger_get(
         args.program,
         str(fid or ""),

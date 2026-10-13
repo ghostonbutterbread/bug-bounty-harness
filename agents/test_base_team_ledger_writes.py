@@ -169,7 +169,7 @@ class BaseTeamLedgerWriteTests(unittest.TestCase):
         self.assertEqual(stored["line"], 42)
         self.assertEqual(stored["current"]["review_tier"], "CONFIRMED")
 
-    def test_reviewed_update_refreshes_report_and_indexes(self) -> None:
+    def test_reviewed_update_creates_evidence_and_indexes(self) -> None:
         reserved = self.team.deduplicate_findings([self._finding()], self.team.load_ledger())
         reviewed = {
             **reserved[0],
@@ -181,11 +181,12 @@ class BaseTeamLedgerWriteTests(unittest.TestCase):
         updated = self.team.update_reviewed_findings([reviewed])
 
         stored = updated[0]
-        report_path = Path(stored["report_path"])
-        self.assertTrue(report_path.exists())
-        self.assertEqual(report_path.parent.parent.name, "findings")
-        self.assertEqual(report_path.parent.name, "confirmed")
-        self.assertEqual(report_path.name, f"{stored['fid']} - HIGH - Exported activity trust bypass.md")
+        evidence_path = Path(stored["evidence_path"])
+        self.assertTrue(evidence_path.exists())
+        self.assertEqual(evidence_path.parent.name, stored["fid"])
+        self.assertEqual(evidence_path.name, "EVIDENCE.md")
+        self.assertNotIn("report_path", stored)
+        self.assertFalse((evidence_path.parent / "REPORT.md").exists())
         self.assertTrue((self.team.storage.ledgers_root / "indexes" / "by_status" / "confirmed.json").exists())
         self.assertTrue((self.team.storage.ledgers_root / "indexes" / "active_slice.json").exists())
         confirmed_index = self.team.storage.reports_root / "confirmed.md"

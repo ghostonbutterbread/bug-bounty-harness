@@ -130,7 +130,7 @@ class BaseTeamReviewTests(unittest.TestCase):
         self.assertFalse((storage.reports_root / "dormant").exists())
         self.assertFalse((storage.reports_root / "novel").exists())
 
-    def test_write_report_indexes_creates_canonical_reports_before_daily_links(self) -> None:
+    def test_write_report_indexes_creates_evidence_packets_before_daily_links(self) -> None:
         storage = SimpleNamespace(reports_root=self.tmp / "reports")
         finding = self._finding(
             fid="D01",
@@ -150,12 +150,14 @@ class BaseTeamReviewTests(unittest.TestCase):
             render_novel=lambda _rows: "novel body",
         )
 
-        canonical = storage.reports_root / "findings" / "confirmed" / "D01 - HIGH - DOM XSS via hash.md"
-        self.assertTrue(canonical.is_file())
-        self.assertEqual(finding["report_path"], str(canonical))
+        evidence = storage.reports_root / "D01" / "EVIDENCE.md"
+        self.assertTrue(evidence.is_file())
+        self.assertEqual(finding["evidence_path"], str(evidence))
+        self.assertNotIn("report_path", finding)
+        self.assertFalse((storage.reports_root / "D01" / "REPORT.md").exists())
         self.assertIsNotNone(confirmed_path)
         self.assertIn(
-            "[[D01 - HIGH - DOM XSS via hash|D01]]",
+            "D01/EVIDENCE|D01]]",
             confirmed_path.read_text(encoding="utf-8"),
         )
         self.assertIsNotNone(dormant_path)

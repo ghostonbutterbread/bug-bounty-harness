@@ -72,7 +72,7 @@ def promote_reviewed_findings(
                     family=storage.family,
                     lane=storage.lane,
                     root_override=root_override,
-                    write_report=True,
+                    write_report=False,
                     refresh=True,
                     update_current=False,
                     update_sighting=False,

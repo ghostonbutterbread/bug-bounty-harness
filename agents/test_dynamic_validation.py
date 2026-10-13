@@ -449,6 +449,56 @@ def test_report_ingest_from_fid_and_canonical_report_path(tmp_path: Path) -> Non
     assert len(lifecycle_tasks) == 1
 
 
+def test_report_ingest_accepts_registered_fid_packet_paths(tmp_path: Path) -> None:
+    storage = _storage(tmp_path)
+    packet = storage.reports_root / "D01"
+    packet.mkdir(parents=True)
+    evidence = packet / "EVIDENCE.md"
+    evidence.write_text("# D01 evidence\n", encoding="utf-8")
+    finding = _finding(evidence_path=str(evidence))
+    _write_ledger(storage, finding)
+    kwargs = {"family": "binaries", "lane": "exe", "root_override": tmp_path}
+    assert ingest_report_task("canva", fid="D01", **kwargs).report_path == evidence
+    assert ingest_report_task("canva", report_path=evidence, **kwargs).fid == "D01"
+    final = packet / "example-id-or-D01.md"
+    final.write_text("# Final report\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="report_path must be under"):
+        ingest_report_task("canva", report_path=final, **kwargs)
+    finding["report_path"] = str(final)
+    _write_ledger(storage, finding)
+    assert ingest_report_task("canva", report_path=final, **kwargs).report_path == final
+    assert ingest_report_task("canva", fid="D01", **kwargs).report_path == final
+
+
+def test_lifecycle_ingest_includes_evidence_only_packet_and_final(tmp_path: Path) -> None:
+    storage = _storage(tmp_path)
+    packet = storage.reports_root / "D01"
+    packet.mkdir(parents=True)
+    evidence = packet / "EVIDENCE.md"
+    evidence.write_text("# D01 proof\n", encoding="utf-8")
+    finding = _finding(status="confirmed", review_tier="CONFIRMED", evidence_path=str(evidence))
+    _write_ledger(storage, finding)
+    kwargs = {"family": "binaries", "lane": "exe", "root_override": tmp_path}
+    tasks = ingest_lifecycle_tasks("canva", "confirmed", **kwargs)
+    assert [(task.fid, task.report_path) for task in tasks] == [("D01", evidence)]
+    finding["status"] = "active"  # Core's CONFIRMED review tier wins over active status.
+    _write_ledger(storage, finding)
+    tasks = ingest_lifecycle_tasks("canva", "confirmed", **kwargs)
+    assert [(task.fid, task.status, task.report_path) for task in tasks] == [
+        ("D01", "confirmed", evidence)
+    ]
+    assert ingest_lifecycle_tasks("canva", "active", **kwargs) == []
+    final = packet / "example-bridge-D01.md"
+    final.write_text("# reviewed report\n", encoding="utf-8")
+    finding["report_path"] = str(final)
+    _write_ledger(storage, finding)
+    legacy = storage.reports_root / "findings" / "confirmed" / "D01 - HIGH - Old link.md"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("# legacy\n", encoding="utf-8")
+    tasks = ingest_lifecycle_tasks("canva", "confirmed", **kwargs)
+    assert [(task.fid, task.report_path) for task in tasks] == [("D01", final)]
+
+
 def test_report_ingest_rejects_noncanonical_report_paths(tmp_path: Path) -> None:
     storage = _storage(tmp_path)
     outside_path = tmp_path / "D01 - HIGH - Renderer bridge probe.md"

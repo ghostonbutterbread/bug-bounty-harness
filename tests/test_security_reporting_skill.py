@@ -6,78 +6,48 @@ SKILL = ROOT / "skills" / "security-reporting" / "SKILL.md"
 
 
 class SecurityReportingSkillTests(unittest.TestCase):
-    def test_canonical_owner_and_routes(self):
+    def test_single_owner_and_bunny_routes(self):
         text = SKILL.read_text(encoding="utf-8")
         self.assertIn("name: security-reporting", text)
-        self.assertIn("canonical BBH report-writing skill", text)
-        self.assertIn("security-reporting", (ROOT / "skills/manual-hunter/SKILL.md").read_text())
-        self.assertIn("security-reporting", (ROOT / "skills/bunny/SKILL.md").read_text())
-        self.assertIn("security-reporting", (ROOT / "skills/bunny/agents/bunny-reporter.md").read_text())
+        self.assertIn("canonical **BBH handoff**", text)
+        for path in (
+            "skills/manual-hunter/SKILL.md",
+            "skills/bunny/SKILL.md",
+            "skills/bunny/agents/bunny-reporter.md",
+            "skills/bunny-collaborative/SKILL.md",
+            "agents/index.md",
+        ):
+            with self.subTest(path=path):
+                self.assertIn("security-reporting", (ROOT / path).read_text(encoding="utf-8"))
         self.assertIn("skills/security-reporting/SKILL.md", (ROOT / "SKILL_REGISTRY.md").read_text())
 
-    def test_evidence_submission_and_poc_contract(self):
+    def test_evidence_only_and_one_final_bunny_file(self):
         text = SKILL.read_text(encoding="utf-8")
         for marker in (
-            "EVIDENCE.md", "SUBMISSION.md", "Judge Receipt", "PASS", "REVISE", "BLOCKED",
-            "## Evidence index", "## Complete reproduction record", "## Demonstrated impact and negative boundaries",
-            "## Reproduction variants, controls, and failed attempts", "## PoC and artifact references", "## Open questions / dated corrections",
-            "## Technical details", "## How to reproduce", "**Prerequisites:**", "**PoC:**",
-            "**Manual replay:**", "malicious request", "observed response", "Never cite, link, name",
-            "REPORT.md", "FINALIZED.md", "poc-tooling-policy", "triager-first-poc-authoring",
-            "`poc.<ext>`", "full, absolute **Report** path", "PoC: inline curl", "SUBMISSION.md`",
+            "EVIDENCE.md", "## Evidence index", "## Complete reproduction record",
+            "## Demonstrated impact and negative boundaries", "## PoC and artifact references",
+            "bunny-report-and-triage", "<target-domain>-<vuln-type>-<FID>.md",
+            "not** a generated rough `REPORT.md` or `SUBMISSION.md`",
+            "same FID packet", "poc-tooling-policy", "triager-first-poc-authoring",
+            "full absolute **Report** path", "PASS", "REVISE", "BLOCKED",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)
-        self.assertNotIn("evidence-first-vulnerability-reporting", (ROOT / "skills/manual-hunter/SKILL.md").read_text())
+        self.assertNotIn("finding_submission.py", text)
+        self.assertNotIn("ledger-derived rough `REPORT.md`", (ROOT / "skills/manual-hunter/SKILL.md").read_text())
 
-    def test_impact_framing_is_proven_nonredundant_and_triager_facing(self):
+    def test_privacy_live_authority_and_old_packet_preservation(self):
         text = SKILL.read_text(encoding="utf-8")
         for marker in (
-            "highest demonstrated impact",
-            "materially distinct",
-            "ordinary action already encompassed by the lead",
-            "Script execution alone does not prove takeover",
-            "decisive supporting evidence beside reproduction steps",
-            "PoC/flag alignment with the lead impact",
-        ):
-            with self.subTest(marker=marker):
-                self.assertIn(marker, text)
-
-    def test_cross_origin_replay_names_full_url_and_judge_checks_it(self):
-        text = SKILL.read_text(encoding="utf-8")
-        for marker in (
-            "Cross-origin request identity is a required reporting contract",
-            "full URL including scheme and authority",
-            "never let a relative path imply it still targets the previous host",
-            "same-origin follow-up may use a relative path",
-            "explicit full URLs at cross-origin steps",
+            "privacy rules take precedence", "explicit live-authorization limits",
+            "Do not make a report writer rerun destructive", "not called live-tested", "preserve them",
+            "Only Ryushe's confirmation", "full URL including scheme and authority",
+            "independent reviewer", "scope", "material limits",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)
 
-    def test_poc_author_and_reporter_are_distinct(self):
-        text = SKILL.read_text(encoding="utf-8")
-        for marker in (
-            "PoC authorship follows finding context, not agent rank",
-            "names one finding/PoC owner",
-            "If the main hunter established the proof",
-            "if a hunting subagent established it",
-            "A child that only mapped or investigated a piece returns observations",
-            "owns the single final artifact and report handoff",
-            "delegates focused construction/refinement",
-            "The reporting agent owns `SUBMISSION.md`",
-            "does not make it the PoC author or authorize it to run the exploit",
-            "do not repeat a destructive, irreversible, metered",
-            "any additional live test needs a specific unresolved proof question",
-        ):
-            with self.subTest(marker=marker):
-                self.assertIn(marker, text)
-
-    def test_inline_curl_does_not_require_triager_authoring_skill(self):
-        text = SKILL.read_text(encoding="utf-8")
-        self.assertIn("For a simple inline `curl`, the PoC author does not need to load `triager-first-poc-authoring`", text)
-        self.assertIn("For a standalone or scripted PoC, the PoC author loads `triager-first-poc-authoring`", text)
-        self.assertNotIn("The PoC author loads `poc-tooling-policy` and `triager-first-poc-authoring`", text)
+    def test_entry_routes_poc_without_unnecessary_authoring(self):
         entry = (ROOT / "agents/index.md").read_text(encoding="utf-8")
         self.assertIn("Standalone or scripted PoC editing follows `triager-first-poc-authoring`", entry)
         self.assertIn("a simple inline `curl` does not load that authoring skill", entry)

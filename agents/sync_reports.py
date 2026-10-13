@@ -38,8 +38,6 @@ from agents.report_checker import FindingRecord, _load_ledger_findings, _load_ma
 from agents.source_roots import resolve_source_root
 from agents.verbosity import clamp_verbosity
 
-
-from bounty_core.reports import refresh_report_navigation_from_ledger, write_finding_report  # noqa: E402
 from bounty_core.storage import resolve_family_lane  # noqa: E402
 
 
@@ -398,11 +396,6 @@ def _candidates_for_file(
     return candidates
 
 
-def _append_canonical_report(hunter: ManualHunter, finding: dict[str, Any]) -> Path:
-    target_path = write_finding_report(hunter.storage, finding)
-    finding["report_path"] = str(target_path)
-    refresh_report_navigation_from_ledger(hunter.storage)
-    return target_path
 
 
 def _mark_coverage(hunter: ManualHunter, finding: dict[str, Any], parsed: ParsedFinding) -> str | None:
@@ -751,12 +744,12 @@ def main(argv: list[str] | None = None) -> int:
                 family=getattr(hunter, "family", None),
                 lane=getattr(hunter, "lane", None),
                 root_override=getattr(hunter, "storage_root", None),
-                write_report=True,
+                write_report=False,
                 refresh=True,
                 update_current=False,
                 update_sighting=False,
             )
-            report_output = Path(str(finding.get("report_path") or ""))
+            evidence_output = Path(str(finding.get("evidence_path") or ""))
             coverage_relpath = None
             try:
                 coverage_relpath = _mark_coverage(hunter, finding, parsed)
@@ -768,7 +761,7 @@ def main(argv: list[str] | None = None) -> int:
             imported_fids.append(_normalize_text(finding.get("fid")))
             print(f"ADDED {finding['fid']}")
             if verbosity.verbose:
-                print(f"[sync_reports] report={report_output}")
+                print(f"[sync_reports] evidence={evidence_output}")
                 if coverage_relpath:
                     print(f"[sync_reports] coverage={coverage_relpath}")
             if related:

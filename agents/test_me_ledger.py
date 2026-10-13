@@ -85,8 +85,10 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
     )
     @patch("agents.me_ledger.ledger_get")
     @patch("agents.me_ledger.ledger_add")
+    @patch("agents.me_ledger.update_team_finding")
     def test_cmd_add_uses_adapter_functions_with_lane_and_family(
         self,
+        mock_update,
         mock_add,
         mock_get,
         _mock_resolve_snapshot,
@@ -144,6 +146,10 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             lane="exe",
             family="binaries",
             root_override="/tmp/me-root",
+        )
+        mock_update.assert_called_once_with(
+            "notion", {"fid": "B07"}, family="binaries", lane="exe",
+            root_override="/tmp/me-root", write_report=False, refresh=True,
         )
         mock_get.assert_called_once_with(
             "notion",
@@ -455,6 +461,8 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
         for raw, expected in cases.items():
             with self.subTest(raw=raw):
                 with patch("agents.me_ledger.ledger_get") as mock_get, patch(
+                    "agents.me_ledger.update_team_finding"
+                ), patch(
                     "agents.me_ledger.ledger_add", return_value=(True, "D09")
                 ) as mock_add, patch(
                     "agents.me_ledger._default_run_id", return_value="run-1"

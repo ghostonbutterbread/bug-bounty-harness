@@ -9,6 +9,7 @@ from typing import Any
 
 from agents.ledger import read_team_findings
 from agents.storage_resolver import REPORT_STATES, resolve_family_lane, resolve_storage
+from bounty_core.reports import lifecycle_for_finding
 
 from .models import ValidationTask
 
@@ -78,7 +79,7 @@ def _finding_to_task(
     run_id: str | None,
 ) -> ValidationTask:
     task_run_id = run_id or default_run_id()
-    report_path = _normalize_report_path(finding.get("report_path"))
+    report_path = _normalize_report_path(finding.get("report_path") or finding.get("evidence_path"))
     fid = str(finding.get("fid") or "").strip()
     return ValidationTask(
         run_id=task_run_id,
@@ -181,16 +182,22 @@ def load_finding_by_report_path(
         root_override=_root_override_path(root_override),
         create=False,
     )
-    resolved, lifecycle = _resolve_canonical_report_path(
-        report_path,
-        reports_root=storage.reports_root,
-    )
+    resolved = Path(report_path).expanduser().resolve(strict=False)
     findings = read_team_findings(
         program,
         family=family,
         lane=lane,
         root_override=_root_override_path(root_override),
     )
+    for finding in findings:
+        fid = str(finding.get("fid") or "").strip()
+        packet = storage.reports_root / fid
+        if fid and not packet.is_symlink() and resolved.parent == storage.reports_root.resolve(strict=False) / fid:
+            if resolved.name == "EVIDENCE.md" or resolved.name.endswith(f"-{fid}.md"):
+                field = "evidence_path" if resolved.name == "EVIDENCE.md" else "report_path"
+                if resolved.is_file() and _normalize_report_path(finding.get(field)) == resolved:
+                    return finding
+    resolved, lifecycle = _resolve_canonical_report_path(report_path, reports_root=storage.reports_root)
     for finding in findings:
         finding_path = _normalize_report_path(finding.get("report_path"))
         if finding_path is not None and finding_path == resolved:
@@ -394,21 +401,38 @@ def ingest_lifecycle_tasks(
     )
     reports_dir = storage.reports_root / "findings" / lifecycle
     tasks: list[ValidationTask] = []
+    seen_fids: set[str] = set()
+    for finding in read_team_findings(
+        program, family=resolved_family, lane=resolved_lane,
+        root_override=_root_override_path(root_override),
+    ):
+        fid = str(finding.get("fid") or "").strip()
+        evidence = _normalize_report_path(finding.get("evidence_path"))
+        packet = storage.reports_root.resolve(strict=False) / fid
+        if (not fid or lifecycle_for_finding(finding) != lifecycle or evidence is None
+                or evidence != packet / "EVIDENCE.md" or not evidence.is_file()
+                or (storage.reports_root / fid).is_symlink()):
+            continue
+        selected = dict(finding)
+        selected["status"] = lifecycle
+        report = _normalize_report_path(selected.get("report_path"))
+        if report is not None and (report.parent != packet or not report.is_file()):
+            selected.pop("report_path", None)
+        tasks.append(_finding_to_task(
+            selected, program=program, family=resolved_family, lane=resolved_lane,
+            cdp_url=cdp_url, account=account, vm=vm, playbook=playbook,
+            dry_run=dry_run, run_id=None,
+        ))
+        seen_fids.add(fid)
     if not reports_dir.is_dir():
         return tasks
     for path in sorted(reports_dir.glob("*.md")):
-        tasks.append(
-            ingest_report_task(
-                program,
-                report_path=path,
-                family=resolved_family,
-                lane=resolved_lane,
-                root_override=root_override,
-                cdp_url=cdp_url,
-                account=account,
-                vm=vm,
-                playbook=playbook,
-                dry_run=dry_run,
-            )
+        task = ingest_report_task(
+            program, report_path=path, family=resolved_family, lane=resolved_lane,
+            root_override=root_override, cdp_url=cdp_url, account=account,
+            vm=vm, playbook=playbook, dry_run=dry_run,
         )
+        if task.fid not in seen_fids:
+            tasks.append(task)
+            seen_fids.add(task.fid)
     return tasks

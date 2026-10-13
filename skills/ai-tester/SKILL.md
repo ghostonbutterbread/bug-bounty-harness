@@ -110,8 +110,10 @@ check the current map for untagged candidates too. With approved owned roles
 and resources, use a harmless marker in the source and the reader's natural AI
 task to verify ingestion. Add `ai-feed-source` only after model-visible
 consumption is evidenced; record the reader role, exact trigger, and evidence
-pointer. A marker in a summary proves ingestion, not instruction-following or
-an unauthorized action. Route the verified path to `/indirect-injection`, then
+pointer. Distinguish a marker copied by a direct UI echo from model-mediated
+retrieval/re-emission before calling ingestion verified; even a model-emitted
+marker proves neither instruction-following nor an unauthorized action. Route
+the verified path to `/indirect-injection`, then
 to the relevant output-sink or tool/action skill; apply the linked safety gates
 to every downstream effect.
 

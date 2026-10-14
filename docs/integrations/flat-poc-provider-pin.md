@@ -1,6 +1,6 @@
 # Flat PoC packet provider pin integration dossier
 
-- **Status:** review-ready
+- **Status:** accepted BBH consumer; beta integration pending
 - **Owner:** Hermes
 - **Branch:** `feat/flat-poc-provider-pin-t21d4b6ff`
 - **Base commit:** `23e7dcd11c9b1abba826137c22946ecf6a794d9b`
@@ -22,16 +22,16 @@ Update the immutable provider pin so BBH's real CLI consumes the new flat packet
 ## Evidence and review
 
 - Tests and commands: pin tests and CLI packet test failed RED against old manifest/installed provider. `./setup.sh --install-python-deps` installed checkout-local `.venv`, `direct_url.json` commit was exact new beta SHA, and installed `.venv/bin/python -m pytest agents/test_app_mapper.py agents/test_base_team_ledger_writes.py agents/test_finding_report.py agents/test_manual_hunter.py agents/test_sync_reports.py agents/test_dynamic_validation.py agents/test_report_checker.py agents/test_base_team_review.py tests/test_runtime_dependencies.py -q --tb=short` passed **242 tests, 13 subtests**. Selected pin/CLI suite **9 passed**.
-- Independent review: pending.
+- Independent review: **ACCEPT** tip `9573bb4c2225a2c2198782da27b8d8bbbcf196d6`; reviewer independently confirmed installed `direct_url.json`, CLI and historical packet compatibility (9 selected / 242 focused tests + 13 subtests), clean scoped diff/worktree. No issue found.
 - Replay/cohort/fixture evidence: CLI subprocesses under disposable roots; no production Shared writes or live-target action.
 - Merge/ancestry evidence: based on fetched BBH `origin/beta` `23e7dcd11c9b1abba826137c22946ecf6a794d9b`.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** independent no-edit consumer review; beta integration rerun and readback.
+- **Missing test or evidence:** integration-lane installed rerun and published remote readback.
 - **Command / fixture / environment needed:** checkout-local installed focused suite above in clean beta integration checkout.
-- **Trigger to run it:** committed candidate accepted; beta fetched current.
-- **Why it blocks integration, activation, or promotion:** normal consumer release gate; runtime activation is separate.
+- **Trigger to run it:** accepted committed candidate; beta fetched current.
+- **Why it blocks integration, activation, or promotion:** integration has not yet been tested/published; runtime activation is separate.
 - **Next completion step / successor reference:** review, integrate beta with dossier retired, reinstall test and read back remote ref. No historical packet deletion or movement.
 
 ## Interruption / resume handoff
@@ -39,7 +39,7 @@ Update the immutable provider pin so BBH's real CLI consumes the new flat packet
 - **Owning feature branch/ref:** `feat/flat-poc-provider-pin-t21d4b6ff`
 - **Latest immutable recovery checkpoint:** `f2de03a14055919648a82994cf66b045ca636920`
 - **Feature implementation commit(s):** `f2de03a14055919648a82994cf66b045ca636920`
-- **Exact resume point:** independent no-edit acceptance of committed candidate, then integrate into clean beta.
+- **Exact resume point:** integrate accepted candidate in clean fetched beta, install/test, push/read back.
 - **Working-tree state at handoff:** clean after dossier-only checkpoint commit.
 
 ## Decision gates
@@ -50,4 +50,4 @@ Update the immutable provider pin so BBH's real CLI consumes the new flat packet
 
 ## Decision record
 
-- 2026-10-14 — installed-pinned candidate passed 242+13 focused checks, awaiting review.
+- 2026-10-14 — independent no-edit reviewer accepted `9573bb4` after installed 242+13 and historical packet checks; beta integration remains separate.

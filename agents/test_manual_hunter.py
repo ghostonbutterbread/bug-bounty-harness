@@ -254,6 +254,10 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(packet.name, "D01-sqlite-injection-via-exposed-ipc-port")
         evidence = packet / "EVIDENCE.md"
         evidence_before = evidence.read_bytes()
+        self.assertFalse((packet / "poc").exists())
+        self.assertFalse((packet / "evidence").exists())
+        poc = packet / "poc.py"
+        poc.write_text("# standalone fixture\n", encoding="utf-8")
         final = packet / "app-example-sqlite-D01.md"
         final.write_text("# Fixture report\n\nOne paragraph on one physical line.\n", encoding="utf-8")
         final_before = final.read_bytes()
@@ -272,6 +276,7 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(after["report_dir"], str(packet))
         self.assertEqual(after["report_path"], str(final))
         self.assertEqual(evidence.read_bytes(), evidence_before)
+        self.assertEqual(poc.read_text(encoding="utf-8"), "# standalone fixture\n")
         self.assertEqual(final.read_bytes(), final_before)
         self.assertFalse((self._storage().reports_root / "daily").exists())
 

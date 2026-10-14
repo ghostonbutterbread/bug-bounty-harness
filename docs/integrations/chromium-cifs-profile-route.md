@@ -1,14 +1,14 @@
 # Chromium network-profile routing integration dossier
 
-- **Status:** review-ready
+- **Status:** corrective review (target-navigation gate addressed; final review pending)
 - **Owner:** Hermes bugfix
 - **Branch:** `fix/chromium-cifs-profile-route`
 - **Base commit:** `ab22f670666bad995bcdcc0439ee48212d44ded9`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-13
 - **Owning feature branch/ref:** `fix/chromium-cifs-profile-route`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `f59e754` (target-navigation gate; dossier handoff follows)
+- **Feature implementation commit(s):** `3d02bc2`, `f59e754`
 - **Inspiration / canonical references:** chromium-test browser provisioner, local/Hoster filesystem comparison, browser-runtime-operations.
 
 ## Intent
@@ -24,7 +24,7 @@ The canonical Chromium Test skill checks the browser node's profile filesystem. 
 - Red policy test: `uv run --with pytest --with aiohttp --with httpx --with websocket-client --with pyyaml pytest -q agents/test_chromium_test_launcher.py -k routes_network_mount_profiles_without_gpu_workaround` failed before guidance addition.
 - Green: full focused launcher suite 50 passed; `git diff --check` clean.
 - Real local disposable proof preceding edit: `/mnt/bounty` CIFS runs failed; same provisioner with a local ext4 profile succeeded headless direct, headless task-MITM (trusted CA), and headed auto (`--use-angle=gl`). All exact leases released, task proxy finished, stopped test profiles removed.
-- Independent review: initial review blocked because `findmnt -T` cannot inspect a not-yet-created override root. Corrected to inspect the nearest existing ancestor, then require a post-creation resolved profile-path check. A regression now executes the documented shell preflight against an absent nested root; full focused suite 50 passed after correction. Re-review pending.
+- Independent review: first review blocked an absent-root `findmnt` call; correction and executed regression passed. Second review confirmed that correction but blocked target navigation before the final profile check and stale dossier fields. The guidance now starts at `about:blank` when final path is unverified, including named profiles, and requires checked local filesystem/CA before target navigation. Dossier reconciled to commit `3d02bc2`. Third review pending.
 - Merge/ancestry: feature based on fetched `origin/beta` at base above; pending.
 
 ## Blockers and deferred work
@@ -38,10 +38,10 @@ The canonical Chromium Test skill checks the browser node's profile filesystem. 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/chromium-cifs-profile-route`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** independent review and beta integration after commit.
-- **Working-tree state at handoff:** intentionally uncommitted until focused review.
+- **Latest immutable recovery checkpoint:** `f59e754` (target-navigation gate; dossier handoff follows)
+- **Feature implementation commit(s):** `3d02bc2`, `f59e754`
+- **Exact resume point:** third independent review of target-navigation gate, then beta integration if approved.
+- **Working-tree state at handoff:** clean after this dossier-only handoff commit; reviewer must inspect branch tip as well as checkpoint.
 
 ## Decision gates
 

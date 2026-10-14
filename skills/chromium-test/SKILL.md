@@ -239,7 +239,80 @@ before provisioning if the active lane is uncertain. If the intended checkout's
 `.venv` is missing, use its `./setup.sh --install-python-deps` rather than
 falling back to system Python. Do not substitute a stable-lane `bbh` for beta.
 
+### Profile filesystem preflight on the browser node
+
+Before requesting a browser, check the filesystem that will hold its **live
+profile**, not just the spelling of the artifact path:
+
+```bash
+profile_probe="${HARNESS_BOUNTY_ARTIFACT_ROOT:-/mnt/bounty}"
+while [ ! -e "$profile_probe" ]; do
+  parent="$(dirname -- "$profile_probe")"
+  [ "$parent" != "$profile_probe" ] || break
+  profile_probe="$parent"
+done
+findmnt -T "$(realpath -e -- "$profile_probe")" -o TARGET,FSTYPE -n
+```
+
+The initial check uses the nearest existing ancestor when a new profile root
+does not exist yet; it is a preflight, not proof that a deeper path has no
+symlink or separate mount. After the provisioner creates a profile, recheck
+the resolved profile path from its private owner record with
+`findmnt -T "$(realpath -e -- "$profile_dir")" -o TARGET,FSTYPE -n` before
+using that browser for target traffic. The provisioner opens `--url` during
+startup, before its owner record can be inspected. When the final profile path
+needs this post-creation check, request `--url about:blank` (including for a
+named profile), complete the filesystem and normal MITM/CA readiness checks,
+and only then use the owner-recorded control path before navigating to any
+target URL. Do not put a target URL in the initial request and call a later
+filesystem check a preflight. If it resolves to network storage, release the
+exact browser without target navigation and choose the local-profile host
+instead.
+
+On the Hermes control machine, `/mnt/bounty` can be a CIFS/SMB mount of
+Hoster's storage even though the same path is local ext4 on Hoster. A Chrome
+profile is hot database/cache/lock state, not a large evidence artifact. A
+provisioner request with its profile on that network mount can fail before CDP
+readiness; do not diagnose this as a GPU problem just because Hoster has a
+discrete GPU. The headed `auto` graphics path already probes for NVK and falls
+back to ANGLE/GL when absent. A headless launch does not use those headed
+flags. Keep reports and captured evidence on the configured bounty artifact
+store.
+
+If this node's resolved live-profile location is CIFS/SMB or another network
+filesystem, prefer a browser node where that path is host-local. For a **fresh
+task-owned disposable** browser on this node, the existing artifact-root
+resolver can be overridden for the single provisioner request, for example:
+
+```bash
+HARNESS_BOUNTY_ARTIFACT_ROOT="$HOME/.local/share/ghost/browser-runtime" \
+  bbh skills/chromium-test/scripts/browser_provisioner.py request \
+  --task-owned --agent-id <agent-id> --run-id <run-id> \
+  --purpose '<task>' --url about:blank
+```
+
+First verify that the override resolves to a local filesystem. Pass it
+**per-request**, not as a global shell or user-manager setting: it changes the
+harness artifact root for that process, not only Chrome's profile. Require the
+usual provisioner lease, task MITM/CA receipt for security testing, live CDP
+readiness, and exact-owner release; remove only that stopped disposable profile.
+Do not use this example's `about:blank` as proof of target authentication.
+
+For a **named persistent** account/profile, inspect its current physical path
+and lease history before changing locations. Do not copy or relabel an active
+profile, bypass an existing lease, or silently create a second same-account
+session under a new root. Prefer the exact named account on Hoster when its
+profile is local there; use the normal `hoster-ssh` provisioner path and verify
+browser-native authentication. A stopped-profile migration needs a separately
+verified no-restart fence and identity/CA checks; a per-request override is not
+a migration.
+
 ### From Ghost or another machine
+
+For every request example below that shows `--url <url>` or a target URL,
+substitute `--url about:blank` while the final profile path is unverified;
+inspect the resolved profile and CA receipt before navigating to the target.
+Do this on the actual browser node, not by checking the control host's mount.
 
 Use `hoster-ssh` to place the provisioner request in a named Hoster
 user-systemd service. The provisioner starts the browser under its own recorded
@@ -507,7 +580,12 @@ bbh skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir 
    while work awaits input: renew it with `--work-state awaiting-input`; only a
    terminal completion, handoff, or cancellation may call `release`, which must
    declare a non-secret `--profile-health` for the next agent.
-1. Request the engagement browser through the provisioner:
+1. Request the engagement browser through the provisioner. When the final
+   profile path has not already been verified local, request `--url about:blank`
+   first; perform the post-creation filesystem check on the resolved profile
+   path and verify the task MITM/CA receipt before navigating to the scoped
+   target. The target-URL example below applies only after a profile path is
+   already verified on that browser node:
    ```bash
    bbh skills/chromium-test/scripts/browser_provisioner.py request \
      <program> <account> --agent-id <agent-id> --run-id <run-id> \

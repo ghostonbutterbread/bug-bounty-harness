@@ -239,6 +239,67 @@ before provisioning if the active lane is uncertain. If the intended checkout's
 `.venv` is missing, use its `./setup.sh --install-python-deps` rather than
 falling back to system Python. Do not substitute a stable-lane `bbh` for beta.
 
+### Profile filesystem preflight on the browser node
+
+Before requesting a browser, check the filesystem that will hold its **live
+profile**, not just the spelling of the artifact path:
+
+```bash
+profile_probe="${HARNESS_BOUNTY_ARTIFACT_ROOT:-/mnt/bounty}"
+while [ ! -e "$profile_probe" ]; do
+  parent="$(dirname -- "$profile_probe")"
+  [ "$parent" != "$profile_probe" ] || break
+  profile_probe="$parent"
+done
+findmnt -T "$(realpath -e -- "$profile_probe")" -o TARGET,FSTYPE -n
+```
+
+The initial check uses the nearest existing ancestor when a new profile root
+does not exist yet; it is a preflight, not proof that a deeper path has no
+symlink or separate mount. After the provisioner creates a profile, recheck
+the resolved profile path from its private owner record with
+`findmnt -T "$(realpath -e -- "$profile_dir")" -o TARGET,FSTYPE -n` before
+using that browser for target traffic. If it resolves to network storage,
+release the exact browser and choose the local-profile host instead.
+
+On the Hermes control machine, `/mnt/bounty` can be a CIFS/SMB mount of
+Hoster's storage even though the same path is local ext4 on Hoster. A Chrome
+profile is hot database/cache/lock state, not a large evidence artifact. A
+provisioner request with its profile on that network mount can fail before CDP
+readiness; do not diagnose this as a GPU problem just because Hoster has a
+discrete GPU. The headed `auto` graphics path already probes for NVK and falls
+back to ANGLE/GL when absent. A headless launch does not use those headed
+flags. Keep reports and captured evidence on the configured bounty artifact
+store.
+
+If this node's resolved live-profile location is CIFS/SMB or another network
+filesystem, prefer a browser node where that path is host-local. For a **fresh
+task-owned disposable** browser on this node, the existing artifact-root
+resolver can be overridden for the single provisioner request, for example:
+
+```bash
+HARNESS_BOUNTY_ARTIFACT_ROOT="$HOME/.local/share/ghost/browser-runtime" \
+  bbh skills/chromium-test/scripts/browser_provisioner.py request \
+  --task-owned --agent-id <agent-id> --run-id <run-id> \
+  --purpose '<task>' --url about:blank
+```
+
+First verify that the override resolves to a local filesystem. Pass it
+**per-request**, not as a global shell or user-manager setting: it changes the
+harness artifact root for that process, not only Chrome's profile. Require the
+usual provisioner lease, task MITM/CA receipt for security testing, live CDP
+readiness, and exact-owner release; remove only that stopped disposable profile.
+Do not use this example's `about:blank` as proof of target authentication.
+
+For a **named persistent** account/profile, inspect its current physical path
+and lease history before changing locations. Do not copy or relabel an active
+profile, bypass an existing lease, or silently create a second same-account
+session under a new root. Prefer the exact named account on Hoster when its
+profile is local there; use the normal `hoster-ssh` provisioner path and verify
+browser-native authentication. A stopped-profile migration needs a separately
+verified no-restart fence and identity/CA checks; a per-request override is not
+a migration.
+
 ### From Ghost or another machine
 
 Use `hoster-ssh` to place the provisioner request in a named Hoster

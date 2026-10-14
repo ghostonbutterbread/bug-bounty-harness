@@ -5,7 +5,9 @@ import builtins
 import importlib.util
 import json
 import os
+import re
 import ssl
+import subprocess
 import sys
 from pathlib import Path
 
@@ -56,6 +58,36 @@ def test_manual_handoff_policy_requires_recorded_kasm_failure_and_trusted_ca():
     assert "`proxy_cert_mode: import`" in policy
     assert "`proxy_cert_status.status: trusted`" in policy
     assert "Ryushe explicitly approves that exception" not in policy
+
+
+def test_chromium_skill_routes_network_mount_profiles_without_gpu_workaround(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    policy = (root / "skills" / "chromium-test" / "SKILL.md").read_text()
+    normalized = " ".join(policy.split())
+    assert "findmnt -T" in policy
+    assert "CIFS/SMB" in policy
+    assert "HARNESS_BOUNTY_ARTIFACT_ROOT" in policy
+    assert "per-request" in normalized
+    assert "Hoster" in policy
+    assert "named persistent" in normalized
+    assert "do not diagnose this as a GPU problem" in normalized
+
+    preflight = re.search(
+        r"### Profile filesystem preflight.*?```bash\n(.*?)\n```", policy, re.S
+    )
+    assert preflight is not None
+    missing_root = tmp_path / "not-yet-created" / "browser-runtime"
+    expected = subprocess.check_output(
+        ["findmnt", "-T", str(tmp_path), "-o", "TARGET,FSTYPE", "-n"], text=True
+    ).strip()
+    got = subprocess.run(
+        ["bash", "-e", "-c", preflight.group(1)],
+        env={**os.environ, "HARNESS_BOUNTY_ARTIFACT_ROOT": str(missing_root)},
+        text=True, capture_output=True,
+    )
+    assert got.returncode == 0, got.stderr
+    assert got.stdout.strip() == expected
+    assert "recheck the resolved profile path" in normalized
 
 
 def test_anonymous_profile_skips_account_inventory_and_auth_seed_resolution():

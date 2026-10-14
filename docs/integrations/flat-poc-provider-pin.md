@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-14
 - **Owning feature branch/ref:** `feat/flat-poc-provider-pin-t21d4b6ff`
-- **Latest immutable recovery checkpoint:** pending initial implementation commit
-- **Feature implementation commit(s):** pending initial implementation commit
+- **Latest immutable recovery checkpoint:** `f2de03a14055919648a82994cf66b045ca636920`
+- **Feature implementation commit(s):** `f2de03a14055919648a82994cf66b045ca636920`
 - **Inspiration / canonical references:** Ryu's packet root PoC request in Discord thread 1559687914517045351; published Bounty Core beta `035c9a165fb6addfebb814d66b1b7f6143ab7e69` containing independently reviewed provider implementation `1ee09696c0cb275fa7ab7a6d24516f98faa3f2fb`.
 
 ## Intent
@@ -37,10 +37,10 @@ Update the immutable provider pin so BBH's real CLI consumes the new flat packet
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/flat-poc-provider-pin-t21d4b6ff`
-- **Latest immutable recovery checkpoint:** pending initial implementation commit
-- **Feature implementation commit(s):** pending initial implementation commit
-- **Exact resume point:** commit candidate, record SHA here, obtain independent no-edit review.
-- **Working-tree state at handoff:** intentionally uncommitted pending candidate commit.
+- **Latest immutable recovery checkpoint:** `f2de03a14055919648a82994cf66b045ca636920`
+- **Feature implementation commit(s):** `f2de03a14055919648a82994cf66b045ca636920`
+- **Exact resume point:** independent no-edit acceptance of committed candidate, then integrate into clean beta.
+- **Working-tree state at handoff:** clean after dossier-only checkpoint commit.
 
 ## Decision gates
 

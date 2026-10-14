@@ -259,8 +259,15 @@ does not exist yet; it is a preflight, not proof that a deeper path has no
 symlink or separate mount. After the provisioner creates a profile, recheck
 the resolved profile path from its private owner record with
 `findmnt -T "$(realpath -e -- "$profile_dir")" -o TARGET,FSTYPE -n` before
-using that browser for target traffic. If it resolves to network storage,
-release the exact browser and choose the local-profile host instead.
+using that browser for target traffic. The provisioner opens `--url` during
+startup, before its owner record can be inspected. When the final profile path
+needs this post-creation check, request `--url about:blank` (including for a
+named profile), complete the filesystem and normal MITM/CA readiness checks,
+and only then use the owner-recorded control path before navigating to any
+target URL. Do not put a target URL in the initial request and call a later
+filesystem check a preflight. If it resolves to network storage, release the
+exact browser without target navigation and choose the local-profile host
+instead.
 
 On the Hermes control machine, `/mnt/bounty` can be a CIFS/SMB mount of
 Hoster's storage even though the same path is local ext4 on Hoster. A Chrome
@@ -301,6 +308,11 @@ verified no-restart fence and identity/CA checks; a per-request override is not
 a migration.
 
 ### From Ghost or another machine
+
+For every request example below that shows `--url <url>` or a target URL,
+substitute `--url about:blank` while the final profile path is unverified;
+inspect the resolved profile and CA receipt before navigating to the target.
+Do this on the actual browser node, not by checking the control host's mount.
 
 Use `hoster-ssh` to place the provisioner request in a named Hoster
 user-systemd service. The provisioner starts the browser under its own recorded
@@ -568,7 +580,12 @@ bbh skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir 
    while work awaits input: renew it with `--work-state awaiting-input`; only a
    terminal completion, handoff, or cancellation may call `release`, which must
    declare a non-secret `--profile-health` for the next agent.
-1. Request the engagement browser through the provisioner:
+1. Request the engagement browser through the provisioner. When the final
+   profile path has not already been verified local, request `--url about:blank`
+   first; perform the post-creation filesystem check on the resolved profile
+   path and verify the task MITM/CA receipt before navigating to the scoped
+   target. The target-URL example below applies only after a profile path is
+   already verified on that browser node:
    ```bash
    bbh skills/chromium-test/scripts/browser_provisioner.py request \
      <program> <account> --agent-id <agent-id> --run-id <run-id> \

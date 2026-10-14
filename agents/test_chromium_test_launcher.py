@@ -88,6 +88,12 @@ def test_chromium_skill_routes_network_mount_profiles_without_gpu_workaround(tmp
     assert got.returncode == 0, got.stderr
     assert got.stdout.strip() == expected
     assert "recheck the resolved profile path" in normalized
+    preflight_guidance = policy.split("### Profile filesystem preflight on the browser node", 1)[1].split("\n## ", 1)[0]
+    assert "--url about:blank" in preflight_guidance
+    assert "before navigating to any target URL" in " ".join(preflight_guidance.split())
+    workflow = policy.split("## Workflow", 1)[1].split("\n## ", 1)[0]
+    assert "--url about:blank" in workflow
+    assert "post-creation filesystem check" in workflow
 
 
 def test_anonymous_profile_skips_account_inventory_and_auth_seed_resolution():

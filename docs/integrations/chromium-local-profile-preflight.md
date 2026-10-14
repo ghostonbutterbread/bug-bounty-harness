@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-13
 - **Owning feature branch/ref:** `fix/chromium-local-profile-preflight`
-- **Latest immutable recovery checkpoint:** none yet; commit this branch before handoff
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `6a3895156596713dd759295ca31e61cd7a074266` (implementation; branch tip will include a later dossier-only handoff commit)
+- **Feature implementation commit(s):** `6a3895156596713dd759295ca31e61cd7a074266`
 - **Inspiration / canonical references:** Discord thread `1559668155721318492`; canonical `skills/chromium-test/SKILL.md` preflight section already in beta, but its `findmnt` output alone did not reject CIFS/SMB.
 
 ## Intent
@@ -34,10 +34,10 @@ The documented shell resolves an existing profile path or nearest existing ances
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/chromium-local-profile-preflight`
-- **Latest immutable recovery checkpoint:** none yet; replace after commit
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** commit scoped change and dossier, update checkpoint with real SHA, then complete this parent to release independent review.
-- **Working-tree state at handoff:** intentionally uncommitted until the scoped change is committed.
+- **Latest immutable recovery checkpoint:** `6a3895156596713dd759295ca31e61cd7a074266`
+- **Feature implementation commit(s):** `6a3895156596713dd759295ca31e61cd7a074266`
+- **Exact resume point:** independent review of the implementation commit and subsequent dossier-only handoff commit; then integrate into beta in the downstream lane if accepted.
+- **Working-tree state at handoff:** clean after the dossier-only commit.
 
 ## Decision gates
 

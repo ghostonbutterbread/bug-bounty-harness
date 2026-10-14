@@ -1,6 +1,6 @@
 # Finding packet layout integration dossier
 
-- **Status:** feature
+- **Status:** accepted BBH feature (independent no-edit review of `e2b71e4`; beta integration pending)
 - **Owner:** Hermes / t_f9946642
 - **Branch:** `feat/report-packet-fid-slug-tf9946642`
 - **Base commit:** `0e6fbc95d7f22c51f04eced826d31f21f7ac259b`
@@ -30,23 +30,23 @@ Provider beta is published at **`fd66f7ab9069a92c2aae624c85c00d15b6b34c90`** (co
 - BBH feature checkout `./setup.sh --install-python-deps` installed from `requirements.txt` into `.venv`; `bounty_core.__file__` points inside this checkout's `.venv/lib/python3.11/site-packages/`, and distribution `direct_url.json` resolves requested and commit IDs to full `fd66f7ab9069a92c2aae624c85c00d15b6b34c90`. `uv pip freeze --python .venv/bin/python` agrees.
 - `.venv/bin/python -m pytest agents/test_app_mapper.py agents/test_base_team_ledger_writes.py agents/test_finding_report.py agents/test_manual_hunter.py agents/test_sync_reports.py agents/test_dynamic_validation.py agents/test_report_checker.py agents/test_base_team_review.py tests/test_runtime_dependencies.py -q --tb=short` — **242 passed, 13 subtests passed** with installed pinned Core. Selected real CLI subprocess create/register/submit/reverse plus path negatives and historic fallback: **45 passed**. No source `PYTHONPATH` override.
 - Broad `agents/` suite collected 2,360 tests. First `-x -vv` captured a stale FID-only expectation in AppMap E2E (185 passed, 1 failed); next `-x -q` captured a stale base-team packet-parent assertion (235 passed, 1 failed). Both were updated to assert the generated descriptive packet/ledger pointer. A subsequent foreground run reached ~20% before its 180-second tool limit; other background attempts returned host environment errors (`GOROOT` refers to absent `/usr/local/go`; Linuxbrew Python 3.14 lacks pytest) before a usable pytest summary. **Full agents/ suite is not green.**
-- Legacy source-only focused receipt: **240 passed, 13 subtests passed**; superseded by installed pinned receipt above. Full `agents/` suite remains unresolved (slow/environment-sensitive) and is not claimed green.
+- Independent no-edit BBH acceptance: **ACCEPT for beta** on `e2b71e4`; reviewer reran installed pinned **242 tests, 13 subtests**, selected actual CLI packet tests **11/11**, checked historical fallback, symlink rejection, raw sync retention and reversible category/severity/submitted views. The full `agents/` suite remains without a green receipt but was **not a beta blocker** on reviewed focused evidence; runtime and stable promotion are not accepted.
 - Merge/ancestry evidence: feature based on fetched `origin/beta` 0e6fbc95d7f22c51f04eced826d31f21f7ac259b.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** Independent BBH consumer acceptance/review, current beta reconciliation, beta-installed recheck; complete `agents/` suite is not green, so reviewer must judge whether unrelated environment-sensitive failures block beta.
+- **Missing test or evidence:** Beta integration installed recheck and remote readback; full `agents/` suite remains unverified and is a future broad-suite gate, not this reviewed beta gate. Runtime skill synchronization is separate.
 - **Command / fixture / environment needed:** `.venv/bin/python -m pytest agents/test_app_mapper.py agents/test_base_team_ledger_writes.py agents/test_finding_report.py agents/test_manual_hunter.py agents/test_sync_reports.py agents/test_dynamic_validation.py agents/test_report_checker.py agents/test_base_team_review.py tests/test_runtime_dependencies.py -q --tb=short`; installed `direct_url.json` full SHA; final CLI subprocess cycle.
-- **Trigger to run it:** review accepts this committed candidate and reconciled beta branch, then re-run on integrated tree.
-- **Why it blocks integration, activation, or promotion:** Consumer feature is tested but not yet independently accepted/published; active `bbh` runtime remains on another checkout with an older installed dependency.
-- **Next completion step / successor reference:** independent BBH review; reconcile/publish beta from clean integration checkout, re-sync its `.venv` via `setup.sh`, verify runtime and Bunny skill sync separately.
+- **Trigger to run it:** merge accepted feature into fetched current beta, re-sync integration checkout environment and re-run installed tests before push.
+- **Why it blocks integration, activation, or promotion:** Beta merge and installed recheck remain; runtime skill version is not inferred from source publication.
+- **Next completion step / successor reference:** integrate BBH beta from clean integration checkout, push/readback; then verify selected runtime and synchronize Bunny skill separately.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/report-packet-fid-slug-tf9946642`
 - **Latest immutable recovery checkpoint:** `d17d5836c49d0ed02a168a7c837e14b932b7b3bf`
 - **Feature implementation commit(s):** `16fdd0e2932a7fde127a1234742e088f0d34979f`, `cdd85a34797f4cb1e98fbfc96472e57fff2b65b9`, `252a2e6131cf84a134d98ce0304c4b660b6f9bbb`, `420ef2dd2aafa485d15bebefec0b4d5ee547e614`, `79a42794c7fa8f00e1b4f1345944105435a107d9`, `e4935853879fcb25643073ab4b251a08a902153f`, `d17d5836c49d0ed02a168a7c837e14b932b7b3bf`
-- **Exact resume point:** independent BBH acceptance review of feature candidate with pinned installed Core; then integrate BBH beta, verify active checkout installation and skill sync separately.
+- **Exact resume point:** integrate independently accepted BBH feature into clean current beta checkout, retire dossier from beta, re-sync/install and test, push/readback. Runtime/Bunny sync separate.
 - **Working-tree state at handoff:** task-owned BBH reconciliations committed as checkpoint; verify status before further edits.
 
 ## Decision gates
@@ -58,3 +58,4 @@ Provider beta is published at **`fd66f7ab9069a92c2aae624c85c00d15b6b34c90`** (co
 ## Decision record
 
 - 2026-10-13 — created BBH feature worktree and recorded baseline; provider implementation delegated in separate repository.
+- 2026-10-13 — independent no-edit BBH review accepted `e2b71e4` for beta after installed pinned 242+13 tests; full agents suite and runtime activation remain separate gates.

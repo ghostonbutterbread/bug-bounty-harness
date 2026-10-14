@@ -245,29 +245,64 @@ Before requesting a browser, check the filesystem that will hold its **live
 profile**, not just the spelling of the artifact path:
 
 ```bash
-profile_probe="${HARNESS_BOUNTY_ARTIFACT_ROOT:-/mnt/bounty}"
+profile_probe="${CHROMIUM_PROFILE_PROBE:-${HARNESS_BOUNTY_ARTIFACT_ROOT:-/mnt/bounty}}"
 while [ ! -e "$profile_probe" ]; do
+  if [ -L "$profile_probe" ]; then
+    printf 'FAIL: unresolved profile symlink: %s\n' "$profile_probe" >&2
+    exit 1
+  fi
   parent="$(dirname -- "$profile_probe")"
-  [ "$parent" != "$profile_probe" ] || break
+  if [ "$parent" = "$profile_probe" ]; then
+    printf 'FAIL: no existing ancestor for %s\n' "$profile_probe" >&2
+    exit 1
+  fi
   profile_probe="$parent"
 done
-findmnt -T "$(realpath -e -- "$profile_probe")" -o TARGET,FSTYPE -n
+resolved_probe="$(realpath -e -- "$profile_probe")" || {
+  printf 'FAIL: cannot resolve profile path: %s\n' "$profile_probe" >&2
+  exit 1
+}
+profile_fstype="$(findmnt -T "$resolved_probe" -o FSTYPE -n)" || {
+  printf 'FAIL: cannot identify profile filesystem: %s\n' "$resolved_probe" >&2
+  exit 1
+}
+case "$profile_fstype" in
+  ext2|ext3|ext4|xfs|btrfs|f2fs|zfs)
+    printf 'PASS: local profile filesystem (%s) at %s\n' "$profile_fstype" "$resolved_probe"
+    ;;
+  *)
+    printf 'FAIL: profile filesystem %s at %s is network or unverified; do not launch or use this profile\n' \
+      "${profile_fstype:-unknown}" "$resolved_probe" >&2
+    exit 1
+    ;;
+esac
 ```
 
+Run this on the **browser node** (Hoster for a Hoster browser, not the Hermes
+control node). A nonzero exit, including CIFS/SMB, unknown filesystem, failed
+resolution, or failed mount lookup, is a stop: do not request or use that
+profile. The allowlist is deliberately conservative; inspect an unrecognized
+local filesystem before adding support rather than treating it as local.
+
+For an existing named profile, inspect its exact leased profile directory with
+`CHROMIUM_PROFILE_PROBE="$profile_dir"` **before** the request as well as the
+artifact root; a root PASS cannot override an exact-path FAIL. Do not infer the
+profile path from a color alone: use the provisioner/lease's recorded path.
 The initial check uses the nearest existing ancestor when a new profile root
-does not exist yet; it is a preflight, not proof that a deeper path has no
-symlink or separate mount. After the provisioner creates a profile, recheck
-the resolved profile path from its private owner record with
-`findmnt -T "$(realpath -e -- "$profile_dir")" -o TARGET,FSTYPE -n` before
-using that browser for target traffic. The provisioner opens `--url` during
+does not exist yet; a PASS there is provisional, not proof that a deeper path
+has no symlink or separate mount. After the provisioner creates a profile,
+rerun the entire snippet with `CHROMIUM_PROFILE_PROBE="$profile_dir"` (the actual
+profile path from its private owner record) on the browser node before target
+traffic; require a PASS on that actual path. The provisioner opens `--url` during
 startup, before its owner record can be inspected. When the final profile path
 needs this post-creation check, request `--url about:blank` (including for a
 named profile), complete the filesystem and normal MITM/CA readiness checks,
 and only then use the owner-recorded control path before navigating to any
 target URL. Do not put a target URL in the initial request and call a later
-filesystem check a preflight. If it resolves to network storage, release the
-exact browser without target navigation and choose the local-profile host
-instead.
+filesystem check a preflight. On a final-path FAIL, release the exact browser
+without target navigation, finish its task proxy through the normal lifecycle,
+and choose the local-profile host instead. Do not delete a named profile or
+bypass its lease.
 
 On the Hermes control machine, `/mnt/bounty` can be a CIFS/SMB mount of
 Hoster's storage even though the same path is local ext4 on Hoster. A Chrome
@@ -499,6 +534,10 @@ bbh skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir 
 
 ## Required Preflight
 
+The node-local profile filesystem check in **Invocation** is mandatory before
+the provisioner request. A FAIL stops the request on that node; do not use a
+different profile path to bypass a named account's lease.
+
 1. Read program scope/rules and the interpreted rate limit before live interaction.
 2. Read `prompts/chromium-test-playbook.md`.
 3. Check existing program context under `$HARNESS_SHARED_BASE/{normalized-program}/`.
@@ -565,8 +604,9 @@ bbh skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir 
 
 ## Workflow
 
-0. For every bug-bounty browser engagement, request the browser through the
-   provisioner. If it requires a durable named account profile (for example a
+0. On the browser node, run the profile filesystem preflight above and stop on
+   FAIL. For every bug-bounty browser engagement, request the browser through
+   the provisioner. If it requires a durable named account profile (for example a
    color used across a multi-agent owned-account test), first run
    `browser_profile_lease.py status <program> --account <color> --auth-domain <auth-host>`, then acquire
    that **exact** account and auth domain if available. Omit `--auth-domain`

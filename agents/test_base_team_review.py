@@ -150,14 +150,14 @@ class BaseTeamReviewTests(unittest.TestCase):
             render_novel=lambda _rows: "novel body",
         )
 
-        evidence = storage.reports_root / "D01" / "EVIDENCE.md"
+        evidence = Path(finding["report_dir"]) / "EVIDENCE.md"
         self.assertTrue(evidence.is_file())
         self.assertEqual(finding["evidence_path"], str(evidence))
         self.assertNotIn("report_path", finding)
-        self.assertFalse((storage.reports_root / "D01" / "REPORT.md").exists())
+        self.assertFalse((evidence.parent / "REPORT.md").exists())
         self.assertIsNotNone(confirmed_path)
         self.assertIn(
-            "D01/EVIDENCE|D01]]",
+            f"{evidence.parent.name}/EVIDENCE|D01]]",
             confirmed_path.read_text(encoding="utf-8"),
         )
         self.assertIsNotNone(dormant_path)

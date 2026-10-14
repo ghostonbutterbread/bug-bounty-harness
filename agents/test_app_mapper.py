@@ -4289,7 +4289,11 @@ module.exports = { runHook };
     reports = summary["reports"]
     assert Path(reports["daily_confirmed"]).is_file()
     assert Path(reports["daily_index"]).is_file()
-    evidence = lane_root / "reports" / "ZDT-E2E-001" / "EVIDENCE.md"
+    # This team writes a raw findings JSONL, not a Bounty Core ledger row.
+    # Assert its generated packet without reconstructing the title slug.
+    packets = list((lane_root / "reports").glob("ZDT-E2E-001-*/EVIDENCE.md"))
+    assert len(packets) == 1
+    evidence = packets[0]
     assert evidence.is_file()
     assert evidence.resolve(strict=False).is_relative_to(tmp_path.resolve())
     assert not (evidence.parent / "REPORT.md").exists()

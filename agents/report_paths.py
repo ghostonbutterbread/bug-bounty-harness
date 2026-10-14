@@ -24,6 +24,7 @@ LEGACY_STATUS_REPORT_SPECS = (
     ("novel", "novel_findings.md"),
 )
 DATE_SHAPED_DIR_RE = re.compile(r"^(?:\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4})$")
+FID_PACKET_DIR_RE = re.compile(r"^[A-Za-z]\d{2,}(?:-[a-z0-9][a-z0-9-]*)?$")
 DAILY_DATE_FORMAT = "%m-%d-%Y"
 REPORT_NAV_GENERATED_MARKER = "<!-- generated: bounty-core-report-navigation -->"
 CATEGORY_STUB_GENERATED_MARKER = "<!-- generated: bounty-core-category-link-stub -->"
@@ -95,6 +96,9 @@ def is_generated_report_output(path: Path, *, source_root: Path | None = None) -
         return True
 
     parts = path.parts
+    if any(left == "reports" and FID_PACKET_DIR_RE.fullmatch(right)
+           for left, right in zip(parts, parts[1:])):
+        return True
     if any(left == "reports" and right == "findings" for left, right in zip(parts, parts[1:])):
         return True
     if source_root is not None:

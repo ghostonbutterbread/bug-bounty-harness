@@ -24,16 +24,38 @@ class BunnyReportRegistrationTests(unittest.TestCase):
         )
         added = add_finding(
             {"identity": "fixture:xss:owned", "title": "Owned XSS", "type": "xss",
-             "asset": "app.example", "status": "confirmed"},
+             "class_name": "xss", "asset": "app.example", "status": "confirmed"},
             program=self.program, family="web_bounty", lane="web",
             root_override=self.root, packet_mode="evidence_only",
         )
         self.fid = added["finding"]["fid"]
-        self.packet = self.layout.reports_root / self.fid
+        self.packet = Path(added["finding"]["report_dir"])
+
+    def test_report_packet_and_submission_navigation_use_stable_descriptive_path(self):
+        finding = ledger_get(self.program, self.fid, family="web_bounty", lane="web",
+                             root_override=self.root)
+        packet = Path(finding["report_dir"])
+        self.assertEqual(packet.name, f"{self.fid}-owned-xss")
+        evidence = packet / "EVIDENCE.md"
+        self.assertTrue(evidence.is_file())
+        final = packet / f"app-example-xss-{self.fid}.md"
+        final.write_text("# Final report\n", encoding="utf-8")
+        result = register(self.program, self.fid, final, lane="web", storage_root=self.root)
+        self.assertEqual(result["report_path"], str(final))
+        patch_finding_by_fid(self.program, self.fid, {"submission": {"state": "submitted"}},
+                             family="web_bounty", lane="web", root_override=self.root,
+                             packet_mode="evidence_only", write_report=False, refresh=True)
+        submitted = self.layout.reports_root / "submitted" / "index.md"
+        self.assertIn(self.fid, submitted.read_text(encoding="utf-8"))
+        self.assertEqual(final.read_text(encoding="utf-8"), "# Final report\n")
+        self.assertTrue(evidence.is_file())
+        self.assertEqual(Path(ledger_get(self.program, self.fid, family="web_bounty",
+                                         lane="web", root_override=self.root)["report_dir"]), packet)
 
     def test_provider_pin_is_accepted_evidence_only_revision(self):
         manifest = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text(encoding="utf-8")
-        self.assertIn("9968eeb58ca902549097d8941875b0e01cfe0af2", manifest)
+        self.assertIn("fd66f7ab9069a92c2aae624c85c00d15b6b34c90", manifest)
+        self.assertNotIn("9968eeb58ca902549097d8941875b0e01cfe0af2", manifest)
         self.assertNotIn("54ac5e8261edd313c815adde17d4fbb64fb4727d", manifest)
 
     def test_register_exact_fid_report_preserves_body_and_evidence(self):
@@ -56,8 +78,8 @@ class BunnyReportRegistrationTests(unittest.TestCase):
             ledger_get(self.program, self.fid, family="web_bounty", lane="web",
                        root_override=self.root)["report_path"], str(report),
         )
-        navigation = (self.layout.reports_root / "confirmed.md").read_text()
-        self.assertIn(f"[[{self.fid}/{report.stem}|{self.fid}]]", navigation)
+        navigation = (self.layout.reports_root / "categories" / "xss" / "index.md").read_text()
+        self.assertIn(f"[[../../{self.packet.name}/{report.stem}|{self.fid}]]", navigation)
 
     def test_registration_receipt_preserves_existing_submitted_state(self):
         report = self.packet / f"app-example-xss-{self.fid}.md"

@@ -6,6 +6,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -19,6 +20,7 @@ from agents.manual_hunter import (
     main,
 )
 from agents.shared_brain import build_index, save_index
+from agents.finding_report import register
 from agents.storage_resolver import resolve_storage
 from bounty_core.ledger import patch_finding_by_fid
 
@@ -97,7 +99,7 @@ class ManualHunterTests(unittest.TestCase):
         ledger_payload = json.loads(self._ledger_path().read_text(encoding="utf-8"))
         self.assertEqual(len(ledger_payload["findings"]), 1)
         self.assertEqual(ledger_payload["findings"][0]["fid"], "D01")
-        packet = self._storage().reports_root / "D01"
+        packet = Path(ledger_payload["findings"][0]["report_dir"])
         self.assertTrue((packet / "EVIDENCE.md").is_file())
         self.assertIn("## Claim and status", (packet / "EVIDENCE.md").read_text(encoding="utf-8"))
         self.assertFalse((packet / "REPORT.md").exists())
@@ -187,6 +189,92 @@ class ManualHunterTests(unittest.TestCase):
             {"state": "dropped", "report": "H1-123", "result": "duplicate"},
         )
 
+    def test_operator_submission_follows_frozen_packet_without_moving_evidence(self) -> None:
+        note_path = self.tmp / "finding.md"
+        note_path.write_text(
+            "Title: SQLite injection via exposed IPC port\n"
+            "Class: native-module-abuse\n"
+            "Severity: HIGH\n"
+            "File: .webpack/renderer/preload.js:4\n"
+            "Description: Owned fixture reached SQLite execution.\n",
+            encoding="utf-8",
+        )
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note_path)]), 0)
+        finding = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        packet = Path(finding["report_dir"])
+        self.assertEqual(packet.name, "D01-sqlite-injection-via-exposed-ipc-port")
+        evidence = packet / "EVIDENCE.md"
+        self.assertTrue(evidence.is_file())
+        report = packet / "app-example-sqlite-injection-D01.md"
+        report.write_text("# Controlled fixture\n\nOne physical paragraph line.\n", encoding="utf-8")
+        self.assertEqual(register(self.program, "D01", report, lane="apk")["report_path"], str(report))
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--set-submission", "D01",
+                                   "--submission-state", "submitted"]), 0)
+        submitted = self._storage().reports_root / "submitted" / "index.md"
+        self.assertIn("D01", submitted.read_text(encoding="utf-8"))
+        categories = list((self._storage().reports_root / "categories").glob("*/index.md"))
+        self.assertTrue(any("D01" in path.read_text(encoding="utf-8") for path in categories))
+        high = self._storage().reports_root / "severity" / "high" / "index.md"
+        self.assertIn("D01", high.read_text(encoding="utf-8"))
+        self.assertTrue(evidence.is_file())
+        self.assertEqual(report.parent, packet)
+        self.assertFalse((self._storage().reports_root / "daily").exists())
+        self.assertFalse((self._storage().reports_root / "raw").exists())
+        after = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        self.assertEqual(after["report_path"], str(report))
+        self.assertEqual(after["report_dir"], str(packet))
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main([self.program, "--lane", "apk", "--set-submission", "D01",
+                                   "--submission-state", "not_submitted"]), 0)
+        self.assertFalse(submitted.exists())
+        self.assertTrue(report.is_file())
+
+    def test_cli_packet_lifecycle_keeps_stable_path_and_submission_view(self) -> None:
+        note = self.tmp / "owned-finding.md"
+        note.write_text(
+            "Title: SQLite injection via exposed IPC port\n"
+            "Class: native-module-abuse\nSeverity: HIGH\n"
+            "File: .webpack/renderer/preload.js:4\n"
+            "Description: Controlled fixture reaches SQLite.\n",
+            encoding="utf-8",
+        )
+
+        def cli(module: str, *args: str) -> dict[str, object] | None:
+            result = subprocess.run([sys.executable, "-m", module, self.program, *args],
+                                    capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+            return json.loads(result.stdout) if module == "agents.finding_report" else None
+
+        cli("agents.manual_hunter", "--lane", "apk", "--from-file", str(note))
+        finding = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        self.assertEqual(finding["fid"], "D01")
+        packet = Path(finding["report_dir"])
+        self.assertEqual(packet.name, "D01-sqlite-injection-via-exposed-ipc-port")
+        evidence = packet / "EVIDENCE.md"
+        evidence_before = evidence.read_bytes()
+        final = packet / "app-example-sqlite-D01.md"
+        final.write_text("# Fixture report\n\nOne paragraph on one physical line.\n", encoding="utf-8")
+        final_before = final.read_bytes()
+        receipt = cli("agents.finding_report", "D01", "--lane", "apk", "--report", str(final),
+                      "--storage-root", str(self.home / "Shared"))
+        self.assertIsNotNone(receipt)
+        self.assertEqual(receipt["report_path"], str(final))
+        cli("agents.manual_hunter", "--lane", "apk", "--set-submission", "D01",
+            "--submission-state", "submitted")
+        submitted = self._storage().reports_root / "submitted" / "index.md"
+        self.assertIn("D01", submitted.read_text(encoding="utf-8"))
+        cli("agents.manual_hunter", "--lane", "apk", "--set-submission", "D01",
+            "--submission-state", "dropped")
+        self.assertFalse(submitted.exists())
+        after = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
+        self.assertEqual(after["report_dir"], str(packet))
+        self.assertEqual(after["report_path"], str(final))
+        self.assertEqual(evidence.read_bytes(), evidence_before)
+        self.assertEqual(final.read_bytes(), final_before)
+        self.assertFalse((self._storage().reports_root / "daily").exists())
+
     def test_edit_finding_corrects_content_and_refreshes_report_without_new_fid(self) -> None:
         note = self.tmp / "finding.md"
         note.write_text(
@@ -226,9 +314,10 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(after["fid"], before["fid"])
         self.assertEqual(after["sightings"], before["sightings"])
         self.assertEqual(after["submission"], before["submission"])
-        self.assertEqual(Path(after["evidence_path"]), self._storage().reports_root / "D01" / "EVIDENCE.md")
+        self.assertEqual(Path(after["evidence_path"]), Path(before["report_dir"]) / "EVIDENCE.md")
+        self.assertEqual(after["report_dir"], before["report_dir"])
         self.assertFalse(after.get("report_path"))
-        self.assertFalse((self._storage().reports_root / "D01" / "REPORT.md").exists())
+        self.assertFalse((Path(before["report_dir"]) / "REPORT.md").exists())
 
     def test_edit_finding_rejects_unknown_fid_and_protected_patch_without_writing(self) -> None:
         note = self.tmp / "finding.md"
@@ -264,7 +353,7 @@ class ManualHunterTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note)]), 0)
         original = json.loads(self._ledger_path().read_text(encoding="utf-8"))["findings"][0]
-        report = self._storage().reports_root / original["fid"] / "REPORT.md"
+        report = Path(original["report_dir"]) / f"app-example-sqlite-{original['fid']}.md"
         report.write_text("# Reviewer-edited report\nManual narrative.\n", encoding="utf-8")
         patch_finding_by_fid(
             self.program, original["fid"], {"report_path": str(report)},
@@ -283,24 +372,24 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(updated["report_path"], str(report))
         self.assertIn("Manual narrative.", report.read_text(encoding="utf-8"))
 
-    def test_edit_finding_type_retires_false_generated_index(self) -> None:
+    def test_edit_finding_class_retires_false_generated_category(self) -> None:
         note = self.tmp / "finding.md"
         note.write_text(
             "Title: Incorrect type claim\nType: obsolete-unique-type\n"
-            "Class: native-module-abuse\nFile: .webpack/renderer/preload.js:4\n"
+            "Class: obsolete-unique-class\nFile: .webpack/renderer/preload.js:4\n"
             "Description: Initial details.\n",
             encoding="utf-8",
         )
         with redirect_stdout(io.StringIO()):
             self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note)]), 0)
-        old_index = self._storage().reports_root / "index" / "obsolete-unique-type.md"
+        old_index = self._storage().reports_root / "categories" / "obsolete-unique-class" / "index.md"
         self.assertIn("Incorrect type claim", old_index.read_text(encoding="utf-8"))
         patch_file = self.tmp / "type-correction.json"
-        patch_file.write_text('{"type":"corrected-type","title":"Verified finding"}', encoding="utf-8")
+        patch_file.write_text('{"class_name":"corrected-class","type":"corrected-type","title":"Verified finding"}', encoding="utf-8")
         with redirect_stdout(io.StringIO()):
             self.assertEqual(main([self.program, "--lane", "apk", "--edit-finding", "D01", "--patch-file", str(patch_file)]), 0)
         self.assertFalse(old_index.exists())
-        new_index = self._storage().reports_root / "index" / "corrected-type.md"
+        new_index = self._storage().reports_root / "categories" / "corrected-class" / "index.md"
         self.assertIn("Verified finding", new_index.read_text(encoding="utf-8"))
 
     def test_minimal_note_is_parsed_tolerantly(self) -> None:

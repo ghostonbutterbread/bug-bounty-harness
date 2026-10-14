@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-14
 - **Owning feature branch/ref:** `feat/impact-escalation`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `90cefda2d06cbe9676b1c0f013211abe329e2a7f`
+- **Feature implementation commit(s):** `90cefda2d06cbe9676b1c0f013211abe329e2a7f`
 - **Inspiration / canonical references:** Ryushe's Discord impact-escalation design; AI Policies `impact-fit-policy`, `assumption-testing`, and generic `impact-escalation` beta source.
 
 ## Intent
@@ -37,10 +37,10 @@ After prompt initial finding capture, explore defensible application-specific im
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/impact-escalation`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** reconcile reviewer/scenario output, update dossier, commit recoverable feature branch; request fresh approval on a later turn for AGENTS.md, then finish review/integration.
-- **Working-tree state at handoff:** intentionally uncommitted while tests/review run.
+- **Latest immutable recovery checkpoint:** `90cefda2d06cbe9676b1c0f013211abe329e2a7f`
+- **Feature implementation commit(s):** `90cefda2d06cbe9676b1c0f013211abe329e2a7f`
+- **Exact resume point:** obtain fresh approval in a later turn for the protected AGENTS.md maintenance pointer, then rerun review/tests and reconcile with current beta before integration.
+- **Working-tree state at handoff:** clean after this dossier update is committed.
 
 ## Decision gates
 

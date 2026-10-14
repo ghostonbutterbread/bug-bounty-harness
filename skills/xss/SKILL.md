@@ -56,10 +56,19 @@ and a reflected value may become dangerous only after client-side parsing.
 
 ### Defense signals deepen the same XSS lane
 
-A sanitizer hit or WAF/filter block on an XSS vector is signal, not an independent failed XSS attempt. When a controllable value has a plausible executable consumer, keep pressure on that same vector:
+A sanitizer hit, CSP violation, or WAF/filter block on an XSS vector is signal,
+not an independent failed XSS attempt. When a controllable value has a
+plausible executable consumer, locate the first observed blocker on the actual
+source-to-consumer path and keep pressure on that same vector. Load
+`references/defense-chain.md` for the layer-specific route and chain reasoning;
+the selected XSS lane still owns browser proof. An easy unprotected sink is not
+the ceiling of XSS coverage, and a blocked string without a plausible consumer
+is not automatically a bypass lead.
 
 - Sanitizer behavior: load `xss-technology-research` and `xss-payload-engineering` to map the observed transform and choose sanitizer-/parser-matched candidates.
+- CSP behavior: distinguish delivered enforcement from Report-Only and establish an executable browser context before researching permitted execution paths with `xss-technology-research` and `xss-payload-engineering`.
 - WAF/filter behavior: load `waf-live-policy` to classify the control, then return its evidence to the XSS candidate queue. Once a plausible consumer and reproducible filter differential exist, load `waf` plus `xss-waf-evasion` for the adaptive card → research → candidate → proof loop; a vendor label alone is not a bypass plan.
+- Changed or later consumer: load `xss-lifecycle` and branch the original producer into the new render path rather than calling the first inert view a negative for all views.
 
 When distinct probes meet similar resistance, ask whether the observed stack,
 response differences, or relevant prior notes could explain the control and
@@ -69,7 +78,8 @@ hypothesis; if not, keep probing non-equivalent, context-matched families. Do
 not require a vendor fingerprint before probing, or mistake passing a filter
 for execution in the claimed browser/consumer. Continue until the relevant
 defense/parser boundary is understood or an inherited safety or stop boundary
-applies.
+applies; no fixed bypass count or CSP/sanitizer/WAF difficulty order decides
+when to pivot.
 
 The parent XSS agent owns synthesis, execution choices, and hypothesis closure.
 

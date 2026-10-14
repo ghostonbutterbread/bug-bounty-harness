@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 def load_launcher_module():
     root = Path(__file__).resolve().parents[1]
@@ -60,7 +62,7 @@ def test_manual_handoff_policy_requires_recorded_kasm_failure_and_trusted_ca():
     assert "Ryushe explicitly approves that exception" not in policy
 
 
-def test_chromium_skill_routes_network_mount_profiles_without_gpu_workaround(tmp_path):
+def test_chromium_skill_routes_network_mount_profiles_without_gpu_workaround(tmp_path, monkeypatch):
     root = Path(__file__).resolve().parents[1]
     policy = (root / "skills" / "chromium-test" / "SKILL.md").read_text()
     normalized = " ".join(policy.split())
@@ -76,24 +78,106 @@ def test_chromium_skill_routes_network_mount_profiles_without_gpu_workaround(tmp
         r"### Profile filesystem preflight.*?```bash\n(.*?)\n```", policy, re.S
     )
     assert preflight is not None
-    missing_root = tmp_path / "not-yet-created" / "browser-runtime"
-    expected = subprocess.check_output(
-        ["findmnt", "-T", str(tmp_path), "-o", "TARGET,FSTYPE", "-n"], text=True
-    ).strip()
-    got = subprocess.run(
-        ["bash", "-e", "-c", preflight.group(1)],
-        env={**os.environ, "HARNESS_BOUNTY_ARTIFACT_ROOT": str(missing_root)},
-        text=True, capture_output=True,
+    # Execute the documented shell, with only findmnt stubbed so the test is
+    # independent of whether the CI node has a network mount.
+    mockbin = tmp_path / "bin"
+    mockbin.mkdir()
+    fake_findmnt = mockbin / "findmnt"
+    fake_findmnt.write_text(
+        "#!/bin/sh\n"
+        "case \"$2\" in\n"
+        "  \"$MOCK_NETWORK_ROOT\"|\"$MOCK_NETWORK_ROOT\"/*) printf 'cifs\\n' ;;\n"
+        "  \"$MOCK_UNKNOWN_ROOT\") printf 'mysteryfs\\n' ;;\n"
+        "  \"$MOCK_FAILED_ROOT\") exit 1 ;;\n"
+        "  *) printf 'ext4\\n' ;;\n"
+        "esac\n"
     )
-    assert got.returncode == 0, got.stderr
-    assert got.stdout.strip() == expected
-    assert "recheck the resolved profile path" in normalized
+    fake_findmnt.chmod(0o755)
+    network_root = tmp_path / "network"
+    network_root.mkdir()
+    unknown_root = tmp_path / "unknown"
+    unknown_root.mkdir()
+    failed_root = tmp_path / "failed-lookup"
+    failed_root.mkdir()
+    local_root = tmp_path / "local"
+    local_root.mkdir()
+    symlink_to_network = local_root / "profile-link"
+    symlink_to_network.symlink_to(network_root, target_is_directory=True)
+    dangling = local_root / "dangling"
+    dangling.symlink_to(tmp_path / "absent", target_is_directory=True)
+    monkeypatch.setenv("PATH", f"{mockbin}:{os.environ['PATH']}")
+    monkeypatch.setenv("MOCK_NETWORK_ROOT", str(network_root))
+    monkeypatch.setenv("MOCK_UNKNOWN_ROOT", str(unknown_root))
+    monkeypatch.setenv("MOCK_FAILED_ROOT", str(failed_root))
+
+    def check(profile_path, *, final=False):
+        env = {**os.environ, "HARNESS_BOUNTY_ARTIFACT_ROOT": str(profile_path)}
+        if final:
+            env["CHROMIUM_PROFILE_PROBE"] = str(profile_path)
+            env["HARNESS_BOUNTY_ARTIFACT_ROOT"] = str(local_root)
+        return subprocess.run(
+            ["bash", "-e", "-c", preflight.group(1)],
+            env=env, text=True, capture_output=True,
+        )
+
+    # New local root: nearest existing ancestor is a provisional PASS.
+    local = check(local_root / "not-yet-created" / "browser-runtime")
+    assert local.returncode == 0, local.stderr
+    assert f"PASS: local profile filesystem (ext4) at {local_root}" in local.stdout
+    # Final owner-record path: a CIFS mount or symlink to it must stop usage.
+    for path in (network_root, network_root / "new-profile", symlink_to_network):
+        failed = check(path, final=True)
+        assert failed.returncode != 0, (path, failed.stdout, failed.stderr)
+        assert "FAIL: profile filesystem cifs" in failed.stderr
+        assert "PASS:" not in failed.stdout
+    for path, reason in ((unknown_root, "mysteryfs"),
+                         (failed_root, "cannot identify"),
+                         (dangling, "unresolved profile symlink")):
+        failed = check(path, final=True)
+        assert failed.returncode != 0, (path, failed.stdout, failed.stderr)
+        assert "FAIL:" in failed.stderr and reason in failed.stderr
+
+    assert "require a PASS on that actual path" in normalized
+    assert "nonzero exit" in normalized
     preflight_guidance = policy.split("### Profile filesystem preflight on the browser node", 1)[1].split("\n## ", 1)[0]
     assert "--url about:blank" in preflight_guidance
     assert "before navigating to any target URL" in " ".join(preflight_guidance.split())
     workflow = policy.split("## Workflow", 1)[1].split("\n## ", 1)[0]
     assert "--url about:blank" in workflow
     assert "post-creation filesystem check" in workflow
+
+
+def test_chromium_skill_preflight_on_real_local_and_cifs_mounts(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    policy = (root / "skills" / "chromium-test" / "SKILL.md").read_text()
+    preflight = re.search(
+        r"### Profile filesystem preflight.*?```bash\n(.*?)\n```", policy, re.S
+    )
+    assert preflight is not None
+    local_fs = subprocess.check_output(
+        ["findmnt", "-T", str(tmp_path), "-o", "FSTYPE", "-n"], text=True
+    ).strip()
+    if local_fs not in {"ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "zfs"}:
+        pytest.skip(f"local test path uses unverified filesystem {local_fs}")
+
+    def run(path):
+        return subprocess.run(
+            ["bash", "-e", "-c", preflight.group(1)],
+            env={**os.environ, "CHROMIUM_PROFILE_PROBE": str(path)},
+            text=True, capture_output=True,
+        )
+
+    local = run(tmp_path)
+    assert local.returncode == 0 and "PASS: local profile filesystem" in local.stdout
+    mount = Path("/mnt/bounty")
+    if mount.is_mount():
+        mount_fs = subprocess.check_output(
+            ["findmnt", "-T", str(mount), "-o", "FSTYPE", "-n"], text=True
+        ).strip()
+        if mount_fs in {"cifs", "smb3"}:
+            network = run(mount)
+            assert network.returncode != 0
+            assert f"FAIL: profile filesystem {mount_fs}" in network.stderr
 
 
 def test_anonymous_profile_skips_account_inventory_and_auth_seed_resolution():

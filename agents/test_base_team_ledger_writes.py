@@ -183,7 +183,7 @@ class BaseTeamLedgerWriteTests(unittest.TestCase):
         stored = updated[0]
         evidence_path = Path(stored["evidence_path"])
         self.assertTrue(evidence_path.exists())
-        self.assertEqual(evidence_path.parent.name, stored["fid"])
+        self.assertEqual(evidence_path.parent, Path(stored["report_dir"]))
         self.assertEqual(evidence_path.name, "EVIDENCE.md")
         self.assertNotIn("report_path", stored)
         self.assertFalse((evidence_path.parent / "REPORT.md").exists())

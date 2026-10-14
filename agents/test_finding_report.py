@@ -54,7 +54,8 @@ class BunnyReportRegistrationTests(unittest.TestCase):
 
     def test_provider_pin_is_accepted_evidence_only_revision(self):
         manifest = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text(encoding="utf-8")
-        self.assertIn("9968eeb58ca902549097d8941875b0e01cfe0af2", manifest)
+        self.assertIn("fd66f7ab9069a92c2aae624c85c00d15b6b34c90", manifest)
+        self.assertNotIn("9968eeb58ca902549097d8941875b0e01cfe0af2", manifest)
         self.assertNotIn("54ac5e8261edd313c815adde17d4fbb64fb4727d", manifest)
 
     def test_register_exact_fid_report_preserves_body_and_evidence(self):

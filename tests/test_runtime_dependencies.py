@@ -9,7 +9,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REVIEWED_CORE_SHA = "54ac5e8261edd313c815adde17d4fbb64fb4727d"
+REVIEWED_CORE_SHA = "fd66f7ab9069a92c2aae624c85c00d15b6b34c90"
+SUPERSEDED_CORE_SHA = "9968eeb58ca902549097d8941875b0e01cfe0af2"
 
 
 class RuntimeDependencyTests(unittest.TestCase):
@@ -31,6 +32,7 @@ class RuntimeDependencyTests(unittest.TestCase):
             "websocket-client>=1.9,<2",
             "aiohttp>=3.12,<4",
         ])
+        self.assertNotIn(SUPERSEDED_CORE_SHA, manifest.read_text(encoding="utf-8"))
         self.assertEqual(sorted(p.name for p in ROOT.glob("requirements*.txt")),
                          ["requirements.txt"])
 

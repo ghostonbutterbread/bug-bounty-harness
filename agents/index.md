@@ -72,7 +72,11 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    packet. After recording a proven FID, resolve the frozen `report_dir` from
    the ledger (`reports/<FID>-<initial-vulnerability-slug>/` for new findings,
    with `reports/<FID>/` still valid for historical packets). Fill its
-   `EVIDENCE.md` and load the standalone `bunny-report-and-triage` skill
+   `EVIDENCE.md`; load `impact-escalation` and its available matching class
+   overlay to investigate material application-impact chains under the live
+   policy chain, then reconcile verified effects into that same FID and
+   evidence packet. A missing overlay does not invent impact or delay the
+   initial capture. Load the standalone `bunny-report-and-triage` skill
    directly for the one FID-named final report. If it is unavailable, stop
    rather than using a deprecated BBH writer or inventing another final file.
    After independent review, register the existing final path with `agents/finding_report.py`;

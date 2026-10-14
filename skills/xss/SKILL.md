@@ -197,6 +197,10 @@ Keep the source, sink/render context, auth/ownership state, meaningful
 transforms, browser result, later-consumer question, cleanup state, and
 sanitized Attempts/MapStore pointers. `attempt-recording-policy` owns the
 per-probe record; the selected XSS lane owns its proof and report shape.
+After a validated XSS finding is captured, load `impact-escalation`, which
+explicitly routes to `xss-escalation` for victim-action and durable-access ideas
+before final report preparation. This does not delay the initial finding or
+replace the XSS lane's execution and delivery proof.
 
 - `Confirmed`: browser or equivalent execution evidence for the controlled
   payload in the claimed consumer.

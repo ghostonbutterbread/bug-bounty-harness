@@ -1,6 +1,6 @@
 # Runtime and test dependencies for a BBH checkout.
 # Pin Bounty Core to a reviewed immutable revision.
-bounty-core @ git+https://github.com/ghostonbutterbread/bounty-core.git@fd66f7ab9069a92c2aae624c85c00d15b6b34c90
+bounty-core @ git+https://github.com/ghostonbutterbread/bounty-core.git@035c9a165fb6addfebb814d66b1b7f6143ab7e69
 httpx>=0.28,<1
 requests>=2.34,<3
 PyYAML>=6,<7

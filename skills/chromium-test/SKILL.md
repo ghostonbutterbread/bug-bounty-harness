@@ -506,31 +506,10 @@ bbh skills/chromium-test/scripts/hoster_mitm_lane.py --json acquire-start \
   --account-label <account-label>
 ```
 
-> **Implementation-only smoke test — not an agent launch instruction.** This
-> directly invokes the provisioner's internal launcher only for provisioner
-> implementation tests. Task agents must use `browser_provisioner.py request`.
->
-```bash
-bbh skills/chromium-test/scripts/chromium_test.py <program> "<task>" \
-  --proxy-server http://hoster:<leased-port> \
-  --ephemeral-profile \
-  --run-id <run-id> \
-  --agent-id <agent-id> \
-  --account-label <account-label> \
-  --proxy-cert-mode import \
-  --mitm-ca-cert ~/.local/state/ghost/mitm-lanes/<lane>/mitmproxy/mitmproxy-ca-cert.pem
-bbh skills/chromium-test/scripts/hoster_mitm_lane.py --json index-stop-release \
-  --lane <lane> \
-  --agent-id <agent-id> \
-  --run-id <run-id> \
-  --account-label <account-label> \
-  --proxy-port <leased-port> \
-  --transport browser
-ssh -i /home/ryushe/.ssh/hoster -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=no -T \
-  ryushe@hoster 'bbh skills/chromium-test/scripts/proxy_store.py query --program <program> --method POST'
-bbh skills/chromium-test/scripts/proxy_store.py export-request --id <request_id> --output /tmp/request-packet.json
-bbh skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir <profile-dir> --json
-```
+The internal Chromium launcher is **not** an agent entry point: its real-launch
+guard rejects direct calls. Task agents request, inspect, and release browsers
+through `browser_provisioner.py` as shown above; direct launcher dry-runs belong
+only in implementation tests.
 
 ## Required Preflight
 
@@ -615,11 +594,13 @@ different profile path to bypass a named account's lease.
    domains may use their own persistent profile for the same color. A locked
    response may show safe, explicitly available alternatives but never
    authorizes automatic account substitution. Run the helper on the browser
-   profile host. Use the persistent account profile after acquisition; retain
-   `--ephemeral-profile` for disposable one-off runs. A lease remains locked
+   profile host. Use the persistent account profile after acquisition. For a
+   separate run-scoped profile without a program/account selector, request
+   `--task-owned` with `--agent-id`, `--run-id`, and `--purpose`; the provisioner
+   has no `--ephemeral-profile` option. A lease remains locked
    while work awaits input: renew it with `--work-state awaiting-input`; only a
-   terminal completion, handoff, or cancellation may call `release`, which must
-   declare a non-secret `--profile-health` for the next agent.
+   terminal completion, handoff, or cancellation may call `release` with both
+   `--disposition` and a non-secret `--profile-health` for the next agent.
 1. Request the engagement browser through the provisioner. When the final
    profile path has not already been verified local, request `--url about:blank`
    first; perform the post-creation filesystem check on the resolved profile
@@ -630,6 +611,13 @@ different profile path to bypass a named account's lease.
    bbh skills/chromium-test/scripts/browser_provisioner.py request \
      <program> <account> --agent-id <agent-id> --run-id <run-id> \
      --purpose "<task>" --url <url>
+   ```
+   For a run-scoped profile instead of a named account (no program/account
+   positionals), request:
+   ```bash
+   bbh skills/chromium-test/scripts/browser_provisioner.py request \
+     --task-owned --agent-id <agent-id> --run-id <run-id> \
+     --purpose "<task>" --url about:blank
    ```
    On `queued`/`queued-timeout`, preserve the exact task and account. Only for
    `reason: no-capacity`, compare the nested `admission` receipt's available and
@@ -659,8 +647,20 @@ different profile path to bypass a named account's lease.
    bbh skills/chromium-test/scripts/proxy_store.py query --program <program> --method POST
    bbh skills/chromium-test/scripts/proxy_store.py export-request --id <request_id> --output /tmp/request-packet.json
    ```
-6. Release the browser through `browser_provisioner.py release` and verify the
-   recorded root and CDP endpoint close; persistent account profiles remain.
+6. Check and release the exact provisioner lease using the lease ID from its
+   request receipt and the same agent ID. `status` does not accept a program
+   positional, and `release` requires a terminal disposition and profile-health
+   enum (`healthy`, `needs-refresh`, `needs-cleanup`, or `unknown`):
+   ```bash
+   bbh skills/chromium-test/scripts/browser_provisioner.py status \
+     --lease-id <lease-id> --agent-id <agent-id>
+   bbh skills/chromium-test/scripts/browser_provisioner.py release \
+     --lease-id <lease-id> --agent-id <agent-id> \
+     --disposition completed --profile-health healthy
+   ```
+   Use `handoff` or `cancelled` instead of `completed` when that is the actual
+   outcome; choose health from the observed profile state, not by default.
+   Verify the recorded root and CDP endpoint close; persistent account profiles remain.
    Dispose of a task-only profile only after its root is stopped and it is no
    longer in use. Never infer cleanup from directory deletion alone.
 7. Continue bounded direct HTTP replay through the same task MITM when needed.

@@ -1,6 +1,6 @@
 # Manual-hunter fail-fast note integration dossier
 
-- **Status:** feature; awaiting independent review
+- **Status:** independently approved for beta integration; merged-tree verification pending
 - **Owner:** Hermes bugfix subagent
 - **Branch / owning ref:** `fix/manual-hunter-fail-fast-note`
 - **Worktree:** `/home/ryushe/worktrees/bbh-manual-hunter-fail-fast`
@@ -20,19 +20,19 @@ For `--from-file`, parse the note through the same grammar before `ManualHunter`
 - RED: `python -m unittest agents.test_manual_hunter.ManualHunterTests.test_invalid_from_file_fails_before_constructor_side_effects -v` raised `RuntimeError: costly constructor ran` from mocked `load_index` on base.
 - GREEN: `python -m unittest agents.test_manual_hunter -q` — 41 tests passed before and after beta reconciliation, including missing-File before index/ledger, valid mocked gate, fallback source-path and API route, and existing isolated real-ingest/dedupe fixture.
 - `git diff --check` clean before handoff.
-- Independent review: pending parent.
+- Independent review of `df0a6bf` against fetched `origin/beta` `2282b68`: approved; all 41 `agents.test_manual_hunter` tests and three targeted fail-fast/fallback/ingest tests passed, `git diff --check` clean. Reviewer made no edits and found no CLI-routing, parser, or ingest-gate regression.
 - Merge/ancestry: `2495b43` merges `2282b68` into the feature; `git merge-base --is-ancestor origin/beta HEAD` passed.
 
 ## Blockers and deferred work
 
-No blocker for focused local verification. Independent release review and integration intentionally owned by parent; no push, papercut close, or runtime activation here.
+No blocker for focused local verification. Parent still owns clean beta integration, merged-tree tests, push/read-back, and papercut closure; no runtime activation is implied.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/manual-hunter-fail-fast-note`
 - **Latest immutable recovery checkpoint:** `2495b43` (the subsequent dossier-only handoff commit is the current feature tip)
 - **Feature implementation commit(s):** `82fbb91`
-- **Exact resume point:** review diff and test receipt, then integrate in parent-owned beta worktree if accepted.
+- **Exact resume point:** integrate reviewed tip in parent-owned clean beta worktree, remove this temporary dossier from beta, run merged-tree suite, push/read back if green.
 - **Working-tree state at handoff:** clean after commit expected.
 
 ## Decision gates
@@ -44,3 +44,4 @@ No blocker for focused local verification. Independent release review and integr
 ## Decision record
 
 - 2026-10-15 — reproduced delayed validation with mocked costly constructor; extracted shared pure parser, covered fail-fast and valid gate, no external ingestion.
+- 2026-10-15 — independent review approved branch tip `df0a6bf` with 41 passing tests; release awaits merged-tree checks.

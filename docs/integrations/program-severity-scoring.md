@@ -1,0 +1,53 @@
+# Program severity scoring integration dossier
+
+- **Status:** feature (local verification; pending independent review)
+- **Owner:** Hermes bugfix subagent
+- **Branch:** `fix/program-severity-scoring`
+- **Base commit:** `ccdadc4e79152434c59cbebe467bd98cd0805819` (`origin/beta` fetched 2026-10-15)
+- **Intended integration target:** `beta`
+- **Last updated:** 2026-10-15
+- **Owning feature branch/ref:** `fix/program-severity-scoring`
+- **Latest immutable recovery checkpoint:** none yet; final commit will contain this dossier
+- **Feature implementation commit(s):** none yet
+- **Inspiration / canonical references:** PC-20261006-184020-439091b0; `skills/ledger/SKILL.md`; `SKILL_REGISTRY.md`; `agents/index.md`
+
+## Intent
+
+Repair the missing `program-severity-scoring` route from ledger without inventing program ratings. BBH owns its ledger workflow and skill registry; neither normalization nor the separate report-writing skill scores demonstrated impact.
+
+## Implemented contract
+
+Add a compact local skill for a confirmed finding: published program rules and caps first, delegated platform rubric second, CVSS only when required; use observed consequence, not class labels. Record source, rationale and constraint; if source/proof/conflict prevents a defensible rating, use `UNKNOWN` rather than a guessed P-tier. Registry resolves the existing ledger link; ledger text remains unchanged. No live target, program data, ledger writes or scoring algorithm.
+
+## Evidence and review
+
+- Tests and commands: `python3 -m pytest tests/test_program_severity_scoring_skill.py tests/test_ledger_skill_visibility.py tests/test_skill_command_lane_safety.py agents/test_me_ledger.py -q` (first run red before skill; rerun after final edit). YAML frontmatter parsed with PyYAML; description length 53.
+- Independent review: pending parent integration owner.
+- Replay/cohort/fixture evidence: content/route tests only; no real program rubric used.
+- Merge/ancestry evidence: base fetched `origin/beta` at `ccdadc4`; no integration performed.
+
+## Blockers and deferred work
+
+- **Missing test or evidence:** Actual policy application to a specific program/finding.
+- **Command / fixture / environment needed:** Published program brief/rubric and sanitized finding impact; compare source to selected rating.
+- **Trigger to run it:** Authorized real finding scored through the ledger route.
+- **Why it blocks integration, activation, or promotion:** It does not block this generic skill's local verification; it blocks claims of accuracy for any particular program rating.
+- **Next completion step / successor reference:** Parent independently reviews branch before integration; real program scoring stays with each finding owner.
+
+## Interruption / resume handoff
+
+- **Owning feature branch/ref:** `fix/program-severity-scoring`
+- **Latest immutable recovery checkpoint:** none yet; branch commit to follow
+- **Feature implementation commit(s):** none yet
+- **Exact resume point:** rerun focused suite, inspect staged diff, commit; hand off without merge/push.
+- **Working-tree state at handoff:** intentionally uncommitted pending verification
+
+## Decision gates
+
+- **Integration gate:** independent review and current beta reconciliation by parent; not authorized here.
+- **Activation / cohort gate:** selected runtime skill installation and fresh consumer lookup, not done here.
+- **Promotion gate:** none; explicitly prohibited.
+
+## Decision record
+
+- 2026-10-15 — BBH owns ledger reference and registry; chose a narrow scoring skill rather than extending report-writing or normalization. No program-specific P-tier table.

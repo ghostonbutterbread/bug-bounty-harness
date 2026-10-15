@@ -6,8 +6,8 @@
 - **Base commit:** `de82c81bb455e459888c20370ad1d61a84f59368` (`origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-15
-- **Latest immutable recovery checkpoint:** none yet (single task commit pending)
-- **Feature implementation commit(s):** none yet (single task commit pending)
+- **Latest immutable recovery checkpoint:** `51f25a0` on `feat/safety-incident-client`
+- **Feature implementation commit(s):** `51f25a0`
 - **Inspiration / canonical references:** Bounty Core beta `ce8718b6bfb39fb08533f506bd2bfe627b52e5da`, `bounty_core.safety_incidents.main`.
 
 ## Intent and implemented contract
@@ -35,8 +35,8 @@ Expose Bounty Core's explicit agent-reported incident CLI from the selected BBH 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/safety-incident-client`
-- **Latest immutable recovery checkpoint:** pending task commit
-- **Feature implementation commit(s):** pending task commit
+- **Latest immutable recovery checkpoint:** `51f25a0` on `feat/safety-incident-client`
+- **Feature implementation commit(s):** `51f25a0`
 - **Exact resume point:** review feature diff, reconcile current beta, resolve full-suite baseline failure, integrate only on authorization.
 - **Working-tree state at handoff:** clean after task commit.
 

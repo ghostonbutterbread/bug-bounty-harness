@@ -150,6 +150,8 @@ callback alone. Blindness concerns response visibility, not whether an internal
 destination was reached. Do not promote client-side navigation, DNS-only lookup
 as an HTTP request, generic errors, or unsupported timing speculation.
 
+Once a demonstrated security boundary or consequence is captured in the findings ledger with an FID, load `impact-escalation` and its registered `ssrf-impact-escalation` overlay for app- and stack-specific consequences before final reporting. Do not delay initial capture for a hoped-for metadata, file-read, or internal-action chain. A public callback alone remains a fetch signal under this skill, not a finding to inflate.
+
 ## Escalation And Stop Conditions
 
 After proving a server-side fetch, pursue internal reachability and impact

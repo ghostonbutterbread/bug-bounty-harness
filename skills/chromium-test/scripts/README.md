@@ -282,6 +282,9 @@ multi-instance pane registry.
     <program> green --auth-domain videogp.superdrug.com --agent-id <agent-id> --run-id <run-id> \
     --purpose "owned IDOR comparison"
 
+  # Check the exact provisioner lease from the request receipt (not status <program>):
+  bbh skills/chromium-test/scripts/browser_provisioner.py status --lease-id <lease-id> --agent-id <agent-id>
+
   # The provisioner registers the browser and renews identified task owners.
   # Declare a bounded manual wait, rather than releasing pending work:
   bbh skills/chromium-test/scripts/browser_provisioner.py touch --lease-id <lease-id> --agent-id <agent-id> \

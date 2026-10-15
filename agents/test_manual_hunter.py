@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -385,6 +386,79 @@ class ManualHunterTests(unittest.TestCase):
         self.assertFalse(old_index.exists())
         new_index = self._storage().reports_root / "categories" / "corrected-class" / "index.md"
         self.assertIn("Verified finding", new_index.read_text(encoding="utf-8"))
+
+    def test_documented_from_file_note_parses_without_ingest(self) -> None:
+        skill = (Path(__file__).resolve().parents[1] / "skills/manual-hunter/SKILL.md").read_text(encoding="utf-8")
+        example = re.search(r"## `--from-file` note format.*?```text\n(.*?)```", skill, re.S)
+        if example is None:
+            self.fail("--from-file text example missing from manual-hunter skill")
+        note = example.group(1)
+        from agents.manual_hunter import parse_finding_text
+        with patch("sys.stderr", new_callable=io.StringIO) as warning:
+            inferred = parse_finding_text(note, source_label="documented-example", family="binaries", lane="apk").finding
+        self.assertEqual(inferred["file"], "src/example.py")
+        self.assertEqual(inferred["description"], "An owned test fixture returned a private marker from another owned record.")
+        self.assertTrue(inferred["class_inferred"])
+        self.assertIn("no 'Class:'", warning.getvalue())
+
+        with patch("sys.stderr", new_callable=io.StringIO) as warning:
+            explicit = parse_finding_text("Class: idor\n" + note, source_label="documented-example", family="binaries", lane="apk").finding
+        self.assertEqual(explicit["class_name"], "idor")
+        self.assertFalse(explicit["class_inferred"])
+        self.assertEqual(warning.getvalue(), "")
+
+    def test_invalid_from_file_fails_before_constructor_side_effects(self) -> None:
+        note_path = self.tmp / "missing-file.md"
+        note_path.write_text(
+            "# Uncaught exception on www.example.com/api/validate\n"
+            "**Asset:** `www.example.com` (in scope).\n"
+            "Description: Sending a brace pair returned an error.\n",
+            encoding="utf-8",
+        )
+        with (
+            patch("agents.manual_hunter.load_index", side_effect=RuntimeError("costly constructor ran")) as load,
+            patch("agents.manual_hunter.create_team_ledger_from_storage") as ledger,
+        ):
+            with self.assertRaisesRegex(ValueError, "missing File"):
+                main([self.program, "--lane", "apk", "--from-file", str(note_path)])
+        load.assert_not_called()
+        ledger.assert_not_called()
+        self.assertFalse(self._ledger_path().exists())
+
+    def test_valid_from_file_reaches_existing_ingest_gate(self) -> None:
+        note_path = self.tmp / "valid.md"
+        note_path.write_text(
+            "Title: Owned fixture finding\nClass: native-module-abuse\n"
+            "File: .webpack/renderer/preload.js:4\n"
+            "Description: Owned fixture reached SQLite.\n", encoding="utf-8",
+        )
+        with patch.object(ManualHunter, "ingest", return_value=27) as gate:
+            rc = main([self.program, "--lane", "apk", "--from-file", str(note_path)])
+        self.assertEqual(rc, 27)
+        gate.assert_called_once()
+        self.assertEqual(gate.call_args.args[0].finding["file"], ".webpack/renderer/preload.js")
+        self.assertFalse(self._ledger_path().exists())
+
+    def test_from_file_preserves_file_hint_and_web_route_fallbacks(self) -> None:
+        note_path = self.tmp / "fallback.md"
+        note_path.write_text(
+            "Title: Owned fixture finding\nClass: native-module-abuse\n"
+            "Description: Observed in src/bridge.py:8 with the owned fixture.\n",
+            encoding="utf-8",
+        )
+        with patch.object(ManualHunter, "ingest", return_value=0) as gate:
+            self.assertEqual(main([self.program, "--lane", "apk", "--from-file", str(note_path)]), 0)
+        self.assertEqual(gate.call_args.args[0].finding["file"], "src/bridge.py")
+        self.assertEqual(gate.call_args.args[0].finding["line"], 8)
+
+        note_path.write_text(
+            "Title: Owned route finding\nClass: idor\n"
+            "Description: Observed at https://app.example.test/records/owned?key=one.\n",
+            encoding="utf-8",
+        )
+        with patch.object(ManualHunter, "ingest", return_value=0) as gate:
+            self.assertEqual(main([self.program, "--lane", "api", "--from-file", str(note_path)]), 0)
+        self.assertEqual(gate.call_args.args[0].finding["file"], "https://app.example.test/records/owned")
 
     def test_minimal_note_is_parsed_tolerantly(self) -> None:
         hunter = ManualHunter(self.program)

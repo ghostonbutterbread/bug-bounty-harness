@@ -506,31 +506,10 @@ bbh skills/chromium-test/scripts/hoster_mitm_lane.py --json acquire-start \
   --account-label <account-label>
 ```
 
-> **Implementation-only smoke test — not an agent launch instruction.** This
-> directly invokes the provisioner's internal launcher only for provisioner
-> implementation tests. Task agents must use `browser_provisioner.py request`.
->
-```bash
-bbh skills/chromium-test/scripts/chromium_test.py <program> "<task>" \
-  --proxy-server http://hoster:<leased-port> \
-  --ephemeral-profile \
-  --run-id <run-id> \
-  --agent-id <agent-id> \
-  --account-label <account-label> \
-  --proxy-cert-mode import \
-  --mitm-ca-cert ~/.local/state/ghost/mitm-lanes/<lane>/mitmproxy/mitmproxy-ca-cert.pem
-bbh skills/chromium-test/scripts/hoster_mitm_lane.py --json index-stop-release \
-  --lane <lane> \
-  --agent-id <agent-id> \
-  --run-id <run-id> \
-  --account-label <account-label> \
-  --proxy-port <leased-port> \
-  --transport browser
-ssh -i /home/ryushe/.ssh/hoster -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=no -T \
-  ryushe@hoster 'bbh skills/chromium-test/scripts/proxy_store.py query --program <program> --method POST'
-bbh skills/chromium-test/scripts/proxy_store.py export-request --id <request_id> --output /tmp/request-packet.json
-bbh skills/chromium-test/scripts/chromium_test.py cleanup-profile --profile-dir <profile-dir> --json
-```
+The internal Chromium launcher is **not** an agent entry point: its real-launch
+guard rejects direct calls. Task agents request, inspect, and release browsers
+through `browser_provisioner.py` as shown above; direct launcher dry-runs belong
+only in implementation tests.
 
 ## Required Preflight
 

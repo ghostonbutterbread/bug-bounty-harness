@@ -263,6 +263,7 @@ def test_fetch_stores_only_canary_snippets_from_live_response(tmp_path: Path) ->
     finally:
         server.shutdown()
         thread.join(timeout=2)
+        server.server_close()
 
 
 def test_fetch_does_not_follow_cross_host_redirect(tmp_path: Path) -> None:
@@ -306,6 +307,7 @@ def test_fetch_does_not_follow_cross_host_redirect(tmp_path: Path) -> None:
     finally:
         server.shutdown()
         thread.join(timeout=2)
+        server.server_close()
 
 
 def test_fetch_blocked_hosts_count_against_max_requests(tmp_path: Path) -> None:
@@ -429,6 +431,7 @@ def test_sensitive_replay_requires_explicit_flag_but_keeps_private_artifact(tmp_
     finally:
         server.shutdown()
         thread.join(timeout=2)
+        server.server_close()
 
 
 def test_plan_uses_fresh_canaries_and_cache_busters_when_run_id_reused(tmp_path: Path) -> None:
@@ -532,3 +535,4 @@ def test_fetch_403_is_inconclusive_not_a_negative_reflection(tmp_path: Path) -> 
     finally:
         server.shutdown()
         thread.join(timeout=2)
+        server.server_close()

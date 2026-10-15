@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -396,6 +397,29 @@ class ManualHunterTests(unittest.TestCase):
         self.assertFalse(old_index.exists())
         new_index = self._storage().reports_root / "categories" / "corrected-class" / "index.md"
         self.assertIn("Verified finding", new_index.read_text(encoding="utf-8"))
+
+    def test_documented_from_file_note_parses_without_ingest(self) -> None:
+        skill = (Path(__file__).resolve().parents[1] / "skills/manual-hunter/SKILL.md").read_text(encoding="utf-8")
+        example = re.search(r"## `--from-file` note format.*?```text\n(.*?)```", skill, re.S)
+        if example is None:
+            self.fail("--from-file text example missing from manual-hunter skill")
+        note = example.group(1)
+        # Bypass __init__: parser-only check must never open a ledger or ingest.
+        hunter = object.__new__(ManualHunter)
+        hunter.family = "binaries"
+        hunter.lane = "apk"
+        with patch("sys.stderr", new_callable=io.StringIO) as warning:
+            inferred = hunter.parse_text(note, source_label="documented-example").finding
+        self.assertEqual(inferred["file"], "src/example.py")
+        self.assertEqual(inferred["description"], "An owned test fixture returned a private marker from another owned record.")
+        self.assertTrue(inferred["class_inferred"])
+        self.assertIn("no 'Class:'", warning.getvalue())
+
+        with patch("sys.stderr", new_callable=io.StringIO) as warning:
+            explicit = hunter.parse_text("Class: idor\n" + note, source_label="documented-example").finding
+        self.assertEqual(explicit["class_name"], "idor")
+        self.assertFalse(explicit["class_inferred"])
+        self.assertEqual(warning.getvalue(), "")
 
     def test_minimal_note_is_parsed_tolerantly(self) -> None:
         hunter = ManualHunter(self.program)

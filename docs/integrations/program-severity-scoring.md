@@ -1,14 +1,14 @@
 # Program severity scoring integration dossier
 
-- **Status:** feature (local verification; pending independent review)
+- **Status:** review-ready locally; pending independent review and integration
 - **Owner:** Hermes bugfix subagent
 - **Branch:** `fix/program-severity-scoring`
 - **Base commit:** `ccdadc4e79152434c59cbebe467bd98cd0805819` (`origin/beta` fetched 2026-10-15)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-15
 - **Owning feature branch/ref:** `fix/program-severity-scoring`
-- **Latest immutable recovery checkpoint:** none yet; final commit will contain this dossier
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `da8e4bfae7bbb1feb9eb63059366dcf176678177`
+- **Feature implementation commit(s):** `da8e4bfae7bbb1feb9eb63059366dcf176678177`
 - **Inspiration / canonical references:** PC-20261006-184020-439091b0; `skills/ledger/SKILL.md`; `SKILL_REGISTRY.md`; `agents/index.md`
 
 ## Intent
@@ -21,7 +21,7 @@ Add a compact local skill for a confirmed finding: published program rules and c
 
 ## Evidence and review
 
-- Tests and commands: `python3 -m pytest tests/test_program_severity_scoring_skill.py tests/test_ledger_skill_visibility.py tests/test_skill_command_lane_safety.py agents/test_me_ledger.py -q` (first run red before skill; rerun after final edit). YAML frontmatter parsed with PyYAML; description length 53.
+- Tests and commands: `python3 -m pytest tests/test_program_severity_scoring_skill.py tests/test_ledger_skill_visibility.py tests/test_skill_command_lane_safety.py agents/test_me_ledger.py -q` (27 passed, 13 subtests); initial new tests red before skill. `git diff --cached --check` clean. YAML frontmatter parsed with PyYAML; description length 53.
 - Independent review: pending parent integration owner.
 - Replay/cohort/fixture evidence: content/route tests only; no real program rubric used.
 - Merge/ancestry evidence: base fetched `origin/beta` at `ccdadc4`; no integration performed.
@@ -37,10 +37,10 @@ Add a compact local skill for a confirmed finding: published program rules and c
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/program-severity-scoring`
-- **Latest immutable recovery checkpoint:** none yet; branch commit to follow
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** rerun focused suite, inspect staged diff, commit; hand off without merge/push.
-- **Working-tree state at handoff:** intentionally uncommitted pending verification
+- **Latest immutable recovery checkpoint:** `da8e4bfae7bbb1feb9eb63059366dcf176678177`
+- **Feature implementation commit(s):** `da8e4bfae7bbb1feb9eb63059366dcf176678177`
+- **Exact resume point:** inspect implementation commit and this later dossier-only commit; independently review, reconcile with fetched `origin/beta`, then integrate if accepted. No merge/push here.
+- **Working-tree state at handoff:** clean after dossier-only commit
 
 ## Decision gates
 

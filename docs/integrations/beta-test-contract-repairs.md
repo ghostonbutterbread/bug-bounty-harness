@@ -1,12 +1,12 @@
 # Beta test contract repairs — integration dossier
 
-- **Status:** review-ready; release/reconciliation pending.
+- **Status:** independently approved; reconciled to current beta and ready for scoped integration.
 - **Owner:** Hermes / Ryushe.
 - **Branch / worktree:** `fix/bbh-baseline-tests-tf64b1792` at `/home/ryushe/worktrees/bbh-beta-baseline-tests`.
 - **Base commit:** `5bd12fbb76f8506dfc4e78eab6de59d904a2a9c5`.
-- **Intended target:** `beta` (fetched remote advanced; reconcile before integration).
+- **Intended target:** `beta`, reconciled to `origin/beta` at `116a4ec25690a1f1a11a768b8e51d1c651cb9ff4` via merge `c8cacb74eff831eb31f711a5e24f8588cae8fbed`.
 - **Last updated:** 2026-10-15.
-- **Recovery checkpoint:** none yet; commit this dossier with the repair.
+- **Recovery checkpoint:** implementation `15a0860f18fab4b6924d8467edaa850a4223ab1f`, reconciliation `c8cacb74eff831eb31f711a5e24f8588cae8fbed`.
 - **Inspiration:** clean-beta failures in Hoster authority and FID packet tests; a broader-suite zero-day assertion identified during review.
 
 ## Intent and implemented contract
@@ -18,13 +18,13 @@ Correct three stale test expectations without changing production behavior: Host
 - Original Hoster and FID assertions reproduced on clean beta `5bd12fb`: 2 failed, 14 passed.
 - Zero-day chainer assertion reproduced red on this branch before its one-line correction.
 - Checkout-local pinned interpreter with `PYTHONPATH` set to this branch: `agents/test_zero_day_team.py agents/test_ledger_v2.py tests/test_hoster_script_authority.py -q`: **73 passed, 2 subtests passed**; `git diff --check` clean.
-- Independent review approved the first two test repairs: 113 passed, 26 subtests. The zero-day correction needs independent review.
-- Remote beta advanced after this branch's base. Reconcile and rerun before merging.
+- Independent review approved the full three-test repair at prior beta, 87 passed/2 subtests; post-reconciliation rerun: **73 passed, 2 subtests passed**, diff check clean. No production code changed.
+- Current beta contains additional Chromium, JS-router and manual-hunter updates, preserved by the reconciliation merge. Final merge must fetch and verify current beta tip.
 
 ## Blockers, handoff and decisions
 
-- Integration gate: independent review of the complete three-test diff, reconcile current `origin/beta`, rerun relevant suites, then commit/review/integrate in clean beta worktree.
+- Integration gate: approved; fetch current beta before merge, confirm no overlapping changes, run integrated checks, and remove temporary dossier from beta.
 - Activation: no separate executable/skill change; ship alongside reviewed live Coverage rollout.
 - Promotion: beta only; no stable promotion requested.
 - Deferred: no production code change, no Shared Brain migration.
-- **Exact resume point:** commit scoped repair and dossier, reconcile fetched beta, independently re-review final diff, then merge; remove this temporary dossier from beta after accepted merge.
+- **Exact resume point:** commit final approval dossier, merge feature into clean beta release checkout, remove dossier, test and push named beta. No Hoster change yet.

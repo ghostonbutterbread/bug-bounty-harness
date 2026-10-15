@@ -6,8 +6,8 @@
 - **Base commit:** `de82c81bb455e459888c20370ad1d61a84f59368` (`origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-15
-- **Latest immutable recovery checkpoint:** `b649326` on `feat/safety-incident-client`; routing repair commit pending
-- **Feature implementation commit(s):** `51f25a0`; routing repair pending
+- **Latest immutable recovery checkpoint:** `193f3c7a9c2c8e27f5aa3d82e2ff9ac3da96936c` on `feat/safety-incident-client`
+- **Feature implementation commit(s):** `51f25a0`, `193f3c7a9c2c8e27f5aa3d82e2ff9ac3da96936c`
 - **Provider:** Bounty Core beta `ce8718b6bfb39fb08533f506bd2bfe627b52e5da`, `bounty_core.safety_incidents.main`.
 
 ## Intent and implemented contract
@@ -34,10 +34,10 @@
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/safety-incident-client`
-- **Latest immutable recovery checkpoint:** `b649326`; routing repair commit pending
-- **Feature implementation commit(s):** `51f25a0`; routing repair pending
+- **Latest immutable recovery checkpoint:** `193f3c7a9c2c8e27f5aa3d82e2ff9ac3da96936c` on `feat/safety-incident-client`; verify any later dossier-only handoff commit separately
+- **Feature implementation commit(s):** `51f25a0`, `193f3c7a9c2c8e27f5aa3d82e2ff9ac3da96936c`
 - **Exact resume point:** inspect repair commit and diff against fresh `origin/beta`, obtain independent review, resolve baseline failure separately, then integrate only on authorization; never send a webhook for validation.
-- **Working-tree state at handoff:** pending commit.
+- **Working-tree state at handoff:** clean after dossier handoff commit.
 
 ## Decision gates
 

@@ -35,6 +35,15 @@ def test_ssrf_overlay_routed_after_capture_and_requires_verified_effect():
     assert "sensitive files" in overlay.lower()
     assert "public callback alone" in overlay.lower()
     assert "does not authorize credential use" in overlay
+    assert "`ssrf` owns finding the fetch sink" in overlay
+    assert overlay.index("first defensible finding with an FID") < overlay.index("Then load this overlay")
+    assert "non-exhaustive set of impact ideas" in overlay
+    assert "do not stop merely because none of the examples fit" in overlay
+    assert "selected JSON keys, title, image pixels, error text, job artifact" in overlay
+    assert "`technology-research`" in overlay
+    assert "For request-shape details, metadata taxonomy" in overlay
+    assert "**read** through a verified output channel" in overlay
+    assert "**action** through an attributable independent state/effect observation even when the fetch is blind" in overlay
 
 
 def test_bbh_maintainer_guide_routes_new_overlays_to_canonical_registry():

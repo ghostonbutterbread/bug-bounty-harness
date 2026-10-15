@@ -14,7 +14,7 @@ This is the canonical **BBH handoff**, not a second report writer. The separate 
 
 ## Capture, then report
 
-At first independently demonstrated vulnerability, apply `impact-fit-policy`: identify attacker starting access, newly gained protected capability, proof observation, and demonstrated consequence. Ingest promptly through `manual-hunter` with explicit program and lane. A new FID has a create-only `EVIDENCE.md` in its ledger-resolved finding packet and a ledger record, **not** a generated rough `REPORT.md` or `SUBMISSION.md`. New packets use `reports/<FID>-<frozen-vulnerability-slug>/`; existing `reports/<FID>/` packets remain supported. Do not derive a path from the current title.
+At first independently demonstrated vulnerability, apply `impact-fit-policy`: identify attacker starting access, newly gained protected capability, proof observation, and demonstrated consequence. Ingest promptly through `manual-hunter` with explicit program and lane. Then use `impact-escalation` and its available matching class overlay to investigate material, authorized impact chains before final report preparation; do not make the report writer hunt the chain. A new FID has a create-only `EVIDENCE.md` in its ledger-resolved finding packet and a ledger record, **not** a generated rough `REPORT.md` or `SUBMISSION.md`. New packets use `reports/<FID>-<frozen-vulnerability-slug>/`; existing `reports/<FID>/` packets remain supported. Do not derive a path from the current title.
 
 Fill `EVIDENCE.md` with the actual proof before calling the package ready. An initial scaffold or ledger assertion is not proof. Preserve one exact FID and these evidence sections:
 

@@ -18,7 +18,15 @@ bbh agents/me_ledger.py <arguments>
 bbh agents/url_ingest.py <arguments>
 bbh scripts/recon_bus.py <arguments>
 bbh scripts/tool_run.py <arguments>
+bbh scripts/safety_incident.py --program <program> --lane <lane> record --producer <producer> --run-id <run-id> --category <category> --action <action> --subject <subject> --impact <impact> --containment <containment> [--no-notify]
 ```
+
+The safety incident command forwards to pinned Bounty Core. Record promptly
+after stopping/containing an unsafe action, with factual, non-secret fields;
+`--no-notify` records without a Discord delivery attempt. For local verification
+pass `--root <temporary-shared-base>` before `record`. This explicit reporting
+channel does not intercept requests, detect incidents, or stop actions for you.
+See [`scripts/README.md`](../scripts/README.md) for its mutation boundary.
 
 `bbh --root` prints the selected checkout. `bbh --print-command <path>` prints
 the resolved executable without running it.

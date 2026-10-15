@@ -765,6 +765,184 @@ class DuplicateCommentStore:
             handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
+def parse_finding_text(
+    raw_text: str, *, source_label: str, family: str, lane: str,
+    source_path: Path | None = None,
+) -> ParsedFinding:
+    """Parse and validate a note without initializing storage or a ledger."""
+    text = raw_text.replace("\r\n", "\n").strip()
+    if not text:
+        raise ValueError("finding note is empty")
+
+    parsed: dict[str, str] = {}
+    narrative_lines: list[str] = []
+    current_key: str | None = None
+
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        match = FIELD_RE.match(line)
+        if match:
+            label = match.group("label").strip().lower().replace("-", " ")
+            key = FIELD_ALIASES.get(label)
+            if key:
+                value = match.group("value").strip()
+                if key == "review_tier":
+                    value = _tier_field_value(value)
+                    candidate = _infer_review_tier({"review_tier": value}) if value else None
+                    previous = parsed.get("review_tier")
+                    if previous and candidate != _infer_review_tier({"review_tier": previous}):
+                        raise ReviewTierDecisionRequired(
+                            "Conflicting Review Tier fields; supply one explicit decision."
+                        )
+                parsed[key] = value
+                current_key = key if key in MULTILINE_FIELDS else None
+                continue
+        if current_key and line.strip():
+            parsed[current_key] = (parsed.get(current_key, "") + "\n" + line.strip()).strip()
+            continue
+        if line.strip():
+            narrative_lines.append(line.strip())
+        current_key = None
+
+    narrative = "\n".join(narrative_lines).strip()
+    if not parsed.get("description"):
+        parsed["description"] = narrative
+    elif narrative:
+        parsed["review_notes"] = (
+            (parsed.get("review_notes", "") + "\n" + narrative).strip()
+        )
+
+    # Validate an explicit decision before any missing-field fallback can
+    # reinterpret this note with a guessed review tier.
+    if _normalize_text(parsed.get("review_tier")):
+        _infer_review_tier({"review_tier": parsed["review_tier"]})
+
+    if not parsed.get("file"):
+        file_hint = FILE_HINT_RE.search(text)
+        if file_hint:
+            parsed["file"] = file_hint.group("path")
+            if file_hint.group("line") and not parsed.get("line"):
+                parsed["line"] = file_hint.group("line")
+
+    file_value = _normalize_text(parsed.get("file"))
+    file_path, inline_line = _split_file_reference(file_value)
+    if family == "web_bounty" and lane in {"web", "api"}:
+        route = finding_web_route(parsed)
+        if route:
+            file_path = route
+    line_number = _safe_int(parsed.get("line")) or inline_line
+
+    class_name = _normalize_class(parsed.get("class_name"))
+    class_inferred = not class_name
+    if class_inferred:
+        class_name = _infer_class(text)
+        print(
+            f"warning: no 'Class:' in note; class_name inferred as '{class_name}' by keyword match. "
+            "Keyword matching cannot tell an asserted class from a denied one -- state 'Class: <x>' "
+            "in the note to override.",
+            file=sys.stderr,
+        )
+
+    category = _normalize_text(parsed.get("category")).lower() or ("novel" if class_name == "novel" else "class")
+    if category not in {"class", "novel"}:
+        category = "novel" if class_name == "novel" else "class"
+
+    description = _normalize_text(parsed.get("description"))
+    if not file_path:
+        raise ValueError("finding note is missing File")
+    if not description:
+        raise ValueError("finding note is missing Description")
+
+    title = (
+        _normalize_text(parsed.get("title"))
+        or _normalize_text(parsed.get("type"))
+        or _derive_title(description, first_line_only=True)
+    )
+    finding_type = _normalize_text(parsed.get("type")) or title
+    severity = _normalize_severity(parsed.get("severity"))
+    sink = _infer_sink(parsed)
+    exploitability = _normalize_text(parsed.get("exploitability"))
+    blocked_reason = _precondition_text(parsed.get("blocked_reason"))
+    chain_requirements = _precondition_text(parsed.get("chain_requirements"))
+    review_tier = _infer_review_tier(parsed)
+    evidence_supplied = bool(
+        _normalize_text(parsed.get("poc"))
+        or _normalize_text(parsed.get("review_notes"))
+        or re.search(
+            r"\b(?:reproduced|observed|demonstrated|verified|confirmed|"
+            r"response\s+(?:includes?|contains?|returns?|returned?|shows?|showed))\b",
+            description,
+            re.I,
+        )
+    )
+    if (
+        not _normalize_text(parsed.get("review_tier"))
+        and review_tier == "DORMANT_HYPOTHETICAL"
+        and not (blocked_reason or chain_requirements)
+        and evidence_supplied
+    ):
+        raise ReviewTierDecisionRequired(
+            "Review Tier is ambiguous from narrative wording; add "
+            "'Review Tier: CONFIRMED' for observed proof or "
+            "'Review Tier: DORMANT_HYPOTHETICAL' for an unproven finding."
+        )
+    vulnerability_name = title
+
+    if review_tier.startswith("DORMANT") and not blocked_reason:
+        blocked_reason = exploitability or "Manual finding requires additional preconditions."
+    if review_tier == "DORMANT_ACTIVE" and not chain_requirements:
+        chain_requirements = blocked_reason or exploitability
+
+    if category == "novel" and not _normalize_text(parsed.get("source")):
+        raise ValueError("novel finding is missing Source")
+
+    review_notes = _normalize_text(parsed.get("review_notes"))
+    if not review_notes:
+        review_notes = f"Manual finding imported from {source_label}."
+
+    impact = _normalize_text(parsed.get("impact")) or description
+    remediation = _normalize_text(parsed.get("remediation")) or "Validate untrusted input and reduce trust-boundary exposure."
+
+    finding = {
+        "agent": "manual-hunter",
+        "category": category,
+        "class_name": class_name,
+        "class_inferred": class_inferred,
+        "type": finding_type,
+        "title": title,
+        "vulnerability_name": vulnerability_name,
+        "file": file_path,
+        "line": line_number,
+        "description": description,
+        "severity": severity,
+        "severity_label": severity,
+        "context": review_notes,
+        "source": _normalize_text(parsed.get("source")),
+        "trust_boundary": _normalize_text(parsed.get("trust_boundary")),
+        "flow_path": _normalize_text(parsed.get("flow_path")),
+        "sink": sink,
+        "exploitability": exploitability,
+        "review_tier": review_tier,
+        "tier": review_tier,
+        "impact": impact,
+        "blocked_reason": blocked_reason,
+        "chain_requirements": chain_requirements,
+        "review_notes": review_notes,
+        "review_reason": review_notes,
+        "remediation": remediation,
+        "poc": _normalize_text(parsed.get("poc")),
+        "scoring_authority": _normalize_text(parsed.get("scoring_authority")),
+        "severity_rationale": _normalize_text(parsed.get("severity_rationale")),
+        "program_constraint": _normalize_text(parsed.get("program_constraint")),
+        "cvss_vector": "",
+        "cvss_score": "",
+        "run_id": _default_run_id(),
+        "manual_source_label": source_label,
+        "submission": normalize_submission(None),
+    }
+    return ParsedFinding(finding=finding, raw_text=text, source_label=source_label, source_path=source_path)
+
+
 class ManualHunter:
     def __init__(
         self,
@@ -859,183 +1037,12 @@ class ManualHunter:
         return path
 
     def parse_text(
-        self,
-        raw_text: str,
-        *,
-        source_label: str,
-        source_path: Path | None = None,
+        self, raw_text: str, *, source_label: str, source_path: Path | None = None,
     ) -> ParsedFinding:
-        text = raw_text.replace("\r\n", "\n").strip()
-        if not text:
-            raise ValueError("finding note is empty")
-
-        parsed: dict[str, str] = {}
-        narrative_lines: list[str] = []
-        current_key: str | None = None
-
-        for raw_line in text.splitlines():
-            line = raw_line.rstrip()
-            match = FIELD_RE.match(line)
-            if match:
-                label = match.group("label").strip().lower().replace("-", " ")
-                key = FIELD_ALIASES.get(label)
-                if key:
-                    value = match.group("value").strip()
-                    if key == "review_tier":
-                        value = _tier_field_value(value)
-                        candidate = _infer_review_tier({"review_tier": value}) if value else None
-                        previous = parsed.get("review_tier")
-                        if previous and candidate != _infer_review_tier({"review_tier": previous}):
-                            raise ReviewTierDecisionRequired(
-                                "Conflicting Review Tier fields; supply one explicit decision."
-                            )
-                    parsed[key] = value
-                    current_key = key if key in MULTILINE_FIELDS else None
-                    continue
-            if current_key and line.strip():
-                parsed[current_key] = (parsed.get(current_key, "") + "\n" + line.strip()).strip()
-                continue
-            if line.strip():
-                narrative_lines.append(line.strip())
-            current_key = None
-
-        narrative = "\n".join(narrative_lines).strip()
-        if not parsed.get("description"):
-            parsed["description"] = narrative
-        elif narrative:
-            parsed["review_notes"] = (
-                (parsed.get("review_notes", "") + "\n" + narrative).strip()
-            )
-
-        # Validate an explicit decision before any missing-field fallback can
-        # reinterpret this note with a guessed review tier.
-        if _normalize_text(parsed.get("review_tier")):
-            _infer_review_tier({"review_tier": parsed["review_tier"]})
-
-        if not parsed.get("file"):
-            file_hint = FILE_HINT_RE.search(text)
-            if file_hint:
-                parsed["file"] = file_hint.group("path")
-                if file_hint.group("line") and not parsed.get("line"):
-                    parsed["line"] = file_hint.group("line")
-
-        file_value = _normalize_text(parsed.get("file"))
-        file_path, inline_line = _split_file_reference(file_value)
-        if self.family == "web_bounty" and self.lane in {"web", "api"}:
-            route = finding_web_route(parsed)
-            if route:
-                file_path = route
-        line_number = _safe_int(parsed.get("line")) or inline_line
-
-        class_name = _normalize_class(parsed.get("class_name"))
-        class_inferred = not class_name
-        if class_inferred:
-            class_name = _infer_class(text)
-            print(
-                f"warning: no 'Class:' in note; class_name inferred as '{class_name}' by keyword match. "
-                "Keyword matching cannot tell an asserted class from a denied one -- state 'Class: <x>' "
-                "in the note to override.",
-                file=sys.stderr,
-            )
-
-        category = _normalize_text(parsed.get("category")).lower() or ("novel" if class_name == "novel" else "class")
-        if category not in {"class", "novel"}:
-            category = "novel" if class_name == "novel" else "class"
-
-        description = _normalize_text(parsed.get("description"))
-        if not file_path:
-            raise ValueError("finding note is missing File")
-        if not description:
-            raise ValueError("finding note is missing Description")
-
-        title = (
-            _normalize_text(parsed.get("title"))
-            or _normalize_text(parsed.get("type"))
-            or _derive_title(description, first_line_only=True)
+        return parse_finding_text(
+            raw_text, source_label=source_label, source_path=source_path,
+            family=self.family, lane=self.lane,
         )
-        finding_type = _normalize_text(parsed.get("type")) or title
-        severity = _normalize_severity(parsed.get("severity"))
-        sink = _infer_sink(parsed)
-        exploitability = _normalize_text(parsed.get("exploitability"))
-        blocked_reason = _precondition_text(parsed.get("blocked_reason"))
-        chain_requirements = _precondition_text(parsed.get("chain_requirements"))
-        review_tier = _infer_review_tier(parsed)
-        evidence_supplied = bool(
-            _normalize_text(parsed.get("poc"))
-            or _normalize_text(parsed.get("review_notes"))
-            or re.search(
-                r"\b(?:reproduced|observed|demonstrated|verified|confirmed|"
-                r"response\s+(?:includes?|contains?|returns?|returned?|shows?|showed))\b",
-                description,
-                re.I,
-            )
-        )
-        if (
-            not _normalize_text(parsed.get("review_tier"))
-            and review_tier == "DORMANT_HYPOTHETICAL"
-            and not (blocked_reason or chain_requirements)
-            and evidence_supplied
-        ):
-            raise ReviewTierDecisionRequired(
-                "Review Tier is ambiguous from narrative wording; add "
-                "'Review Tier: CONFIRMED' for observed proof or "
-                "'Review Tier: DORMANT_HYPOTHETICAL' for an unproven finding."
-            )
-        vulnerability_name = title
-
-        if review_tier.startswith("DORMANT") and not blocked_reason:
-            blocked_reason = exploitability or "Manual finding requires additional preconditions."
-        if review_tier == "DORMANT_ACTIVE" and not chain_requirements:
-            chain_requirements = blocked_reason or exploitability
-
-        if category == "novel" and not _normalize_text(parsed.get("source")):
-            raise ValueError("novel finding is missing Source")
-
-        review_notes = _normalize_text(parsed.get("review_notes"))
-        if not review_notes:
-            review_notes = f"Manual finding imported from {source_label}."
-
-        impact = _normalize_text(parsed.get("impact")) or description
-        remediation = _normalize_text(parsed.get("remediation")) or "Validate untrusted input and reduce trust-boundary exposure."
-
-        finding = {
-            "agent": "manual-hunter",
-            "category": category,
-            "class_name": class_name,
-            "class_inferred": class_inferred,
-            "type": finding_type,
-            "title": title,
-            "vulnerability_name": vulnerability_name,
-            "file": file_path,
-            "line": line_number,
-            "description": description,
-            "severity": severity,
-            "severity_label": severity,
-            "context": review_notes,
-            "source": _normalize_text(parsed.get("source")),
-            "trust_boundary": _normalize_text(parsed.get("trust_boundary")),
-            "flow_path": _normalize_text(parsed.get("flow_path")),
-            "sink": sink,
-            "exploitability": exploitability,
-            "review_tier": review_tier,
-            "tier": review_tier,
-            "impact": impact,
-            "blocked_reason": blocked_reason,
-            "chain_requirements": chain_requirements,
-            "review_notes": review_notes,
-            "review_reason": review_notes,
-            "remediation": remediation,
-            "poc": _normalize_text(parsed.get("poc")),
-            "scoring_authority": _normalize_text(parsed.get("scoring_authority")),
-            "severity_rationale": _normalize_text(parsed.get("severity_rationale")),
-            "program_constraint": _normalize_text(parsed.get("program_constraint")),
-            "cvss_vector": "",
-            "cvss_score": "",
-            "run_id": _default_run_id(),
-            "manual_source_label": source_label,
-            "submission": normalize_submission(None),
-        }
-        return ParsedFinding(finding=finding, raw_text=text, source_label=source_label, source_path=source_path)
 
     def ingest(self, parsed: ParsedFinding, *, link_duplicate_comment: bool = False) -> int:
         is_duplicate, existing_fid, finding = self.ledger.check(parsed.finding)
@@ -1484,6 +1491,19 @@ def main(argv: list[str] | None = None) -> int:
     if bool(args.edit_finding) != bool(args.patch_file):
         raise ValueError("--edit-finding and --patch-file must be used together")
     verbosity = clamp_verbosity(args.verbose)
+    note = None
+    if args.from_file:
+        note_path = Path(args.from_file).expanduser()
+        family, lane = resolve_family_lane(
+            family=_normalize_text(args.family) or None,
+            lane=_normalize_text(args.lane) or None,
+            hunt_type=args.hunt_type or args.lane,
+        )
+        note = parse_finding_text(
+            note_path.read_text(encoding="utf-8", errors="replace"),
+            source_label=str(note_path), source_path=note_path,
+            family=family, lane=lane,
+        )
     hunter = ManualHunter(
         args.program,
         hunt_type=args.hunt_type or args.lane,
@@ -1503,8 +1523,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.add is not None:
         parsed = hunter.parse_text(args.add, source_label="--add")
         return hunter.ingest(parsed, link_duplicate_comment=args.link_duplicate_comment)
-    if args.from_file:
-        return hunter.ingest_file(Path(args.from_file).expanduser(), link_duplicate_comment=args.link_duplicate_comment)
+    if note is not None:
+        return hunter.ingest(note, link_duplicate_comment=args.link_duplicate_comment)
     if args.interactive:
         return hunter.interactive(link_duplicate_comment=args.link_duplicate_comment)
     if args.set_submission:

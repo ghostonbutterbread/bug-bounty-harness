@@ -471,6 +471,7 @@ class LedgerV2Tests(unittest.TestCase):
             lane="apk",
             family="binaries",
             root_override=explicit_root,
+            write_report=True,
         )
 
         self.assertEqual(updated["fid"], "D01")
@@ -482,7 +483,9 @@ class LedgerV2Tests(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0]["fid"], "D01")
         self.assertEqual(findings[0]["title"], "Reviewed corrected issue")
-        packet = explicit_root / "binaries" / self.program / "apk" / "reports" / "D01"
+        packet = Path(updated["report_dir"])
+        self.assertEqual(packet.parent, explicit_root / "binaries" / self.program / "apk" / "reports")
+        self.assertTrue(packet.name.startswith("D01-"))
         self.assertTrue((packet / "EVIDENCE.md").is_file())
         self.assertFalse((packet / "REPORT.md").exists())
         self.assertEqual(findings[0]["evidence_path"], str(packet / "EVIDENCE.md"))

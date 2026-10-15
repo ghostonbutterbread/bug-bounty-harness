@@ -348,6 +348,156 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
             })
             self.assertNotIn(normalized_fid, stdout.getvalue())
 
+    def test_prior_work_recovers_legacy_web_label_from_one_evidenced_route(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            is_new, fid = ledger_adapter.ledger_add(
+                "demo", {
+                    "file": "Next.js", "asset": "Next.js", "class_name": "dom-xss",
+                    "description": (
+                        "## Summary\n"
+                        "`https://auth.example.test/im-logged-in` is a Next.js bridge page. "
+                        "Login at https://auth.example.test/ and return to "
+                        "https://auth.example.test/im-logged-in?code=x. Private proof."
+                    ),
+                    "impact": "`https://auth.example.test/im-logged-in` is affected",
+                    "review_tier": "CONFIRMED", "status": "confirmed",
+                    "submission": {"state": "submitted", "result": "duplicate"},
+                }, "snapshot-1", "v1", "run-1", "test-agent",
+                lane="web", family="web_bounty", root_override=root,
+            )
+            self.assertTrue(is_new)
+
+            def lookup(file_name: str, lane: str = "web") -> dict:
+                args = me_ledger.build_parser().parse_args([
+                    "prior-work", "--program", "demo", "--family", "web_bounty", "--lane", lane,
+                    "--root", root, "--file", file_name, "--class-name", "dom_xss",
+                ])
+                stdout = io.StringIO()
+                with redirect_stdout(stdout):
+                    self.assertEqual(args.func(args), 0)
+                self.assertNotIn(fid, stdout.getvalue())
+                self.assertNotIn("Private proof", stdout.getvalue())
+                return json.loads(stdout.getvalue())
+
+            match = lookup("https://AUTH.example.test/im-logged-in?code=other")
+            self.assertEqual((match["known_prior_work"], match["confirmed"], match["submitted"], match["duplicate"]),
+                             (True, True, True, True))
+            self.assertFalse(lookup("https://auth.example.test/im-logged-in-other")["known_prior_work"])
+            self.assertFalse(lookup("https://auth.example.test/other")["known_prior_work"])
+            self.assertFalse(lookup("https://other.example.test/im-logged-in")["known_prior_work"])
+            self.assertFalse(lookup("https://auth.example.test/im-logged-in", lane="api")["known_prior_work"])
+
+    def test_ambiguous_legacy_routes_report_incomplete_without_false_positive(self) -> None:
+        with patch("agents.me_ledger.ledger_list", return_value=[{
+            "file": "Framework", "class_name": "dom-xss", "review_tier": "CONFIRMED",
+            "description": "Affected at https://auth.example.test/one.\nAffected at https://auth.example.test/two.",
+        }]):
+            args = me_ledger.build_parser().parse_args([
+                "prior-work", "--program", "demo", "--family", "web_bounty", "--lane", "web",
+                "--file", "https://auth.example.test/one", "--class-name", "dom-xss",
+            ])
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(args.func(args), 0)
+            result = json.loads(stdout.getvalue())
+            self.assertFalse(result["known_prior_work"])
+            self.assertTrue(result["identity_incomplete"])
+
+    def test_explicit_source_file_is_not_replaced_by_incidental_url(self) -> None:
+        with patch("agents.me_ledger.ledger_list", return_value=[{
+            "file": "src/app.js", "class_name": "dom-xss", "review_tier": "CONFIRMED",
+            "description": "Further context at https://auth.example.test/other",
+        }]):
+            args = me_ledger.build_parser().parse_args([
+                "prior-work", "--program", "demo", "--family", "web_bounty", "--lane", "web",
+                "--file", "https://auth.example.test/other", "--class-name", "dom-xss",
+            ])
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(args.func(args), 0)
+            result = json.loads(stdout.getvalue())
+            self.assertFalse(result["known_prior_work"])
+            self.assertNotIn("identity_incomplete", result)
+
+    def test_legacy_prose_does_not_claim_incidental_documentation_route(self) -> None:
+        with patch("agents.me_ledger.ledger_list", return_value=[{
+            "file": "App.js", "class_name": "dom-xss", "review_tier": "CONFIRMED",
+            "description": "App.js sink; see documentation at `https://docs.example.test/guide`",
+        }, {
+            "file": "Next.js", "class_name": "dom-xss", "review_tier": "CONFIRMED",
+            "description": "Affected root `https://auth.example.test/` is a Next.js page. See `https://docs.example.test/guide`",
+        }]):
+            args = me_ledger.build_parser().parse_args([
+                "prior-work", "--program", "demo", "--family", "web_bounty", "--lane", "web",
+                "--file", "https://docs.example.test/guide", "--class-name", "dom-xss",
+            ])
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(args.func(args), 0)
+            self.assertFalse(json.loads(stdout.getvalue())["known_prior_work"])
+
+    def test_ordinary_affected_route_prose_is_recovered(self) -> None:
+        with patch("agents.me_ledger.ledger_list", return_value=[{
+            "file": "Next.js", "class_name": "dom-xss", "status": "confirmed",
+            "description": "Confirmed DOM-XSS at https://auth.example.test/im-logged-in.",
+        }]):
+            args = me_ledger.build_parser().parse_args([
+                "prior-work", "--program", "demo", "--family", "web_bounty", "--lane", "web",
+                "--file", "https://auth.example.test/im-logged-in", "--class-name", "dom-xss",
+            ])
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(args.func(args), 0)
+            self.assertTrue(json.loads(stdout.getvalue())["known_prior_work"])
+
+    def test_negated_route_claim_does_not_stop_work(self) -> None:
+        for description in (
+            "Confirmed not affected at https://docs.example.test/guide. The page uses Next.js.",
+            "Confirmed DOM-XSS at https://docs.example.test/guide is not affected. The vulnerable route was not identified.",
+            "## Summary\n`https://docs.example.test/guide` is not affected. It uses Next.js.",
+            "## Summary\n`https://docs.example.test/guide` is a Next.js documentation page; the affected route was not identified.",
+            "## Summary\nhttps://docs.example.test/guide is a Next.js documentation page; the affected route was not identified.",
+        ):
+            with self.subTest(description=description), patch("agents.me_ledger.ledger_list", return_value=[{
+                "file": "Next.js", "class_name": "dom-xss", "status": "confirmed",
+                "description": description,
+            }]):
+                args = me_ledger.build_parser().parse_args([
+                    "prior-work", "--program", "demo", "--family", "web_bounty", "--lane", "web",
+                    "--file", "https://docs.example.test/guide", "--class-name", "dom-xss",
+                ])
+                stdout = io.StringIO()
+                with redirect_stdout(stdout):
+                    self.assertEqual(args.func(args), 0)
+                self.assertFalse(json.loads(stdout.getvalue())["known_prior_work"])
+
+    def test_explicit_web_route_does_not_strip_valid_trailing_path_period(self) -> None:
+        with patch("agents.me_ledger.ledger_list", return_value=[{
+            "file": "https://auth.example.test/path.", "class_name": "dom-xss", "status": "confirmed",
+        }]):
+            args = me_ledger.build_parser().parse_args([
+                "prior-work", "--program", "demo", "--family", "web_bounty", "--lane", "web",
+                "--file", "https://auth.example.test/path", "--class-name", "dom-xss",
+            ])
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(args.func(args), 0)
+            self.assertFalse(json.loads(stdout.getvalue())["known_prior_work"])
+
+    def test_legacy_summary_route_preserves_valid_trailing_period(self) -> None:
+        with patch("agents.me_ledger.ledger_list", return_value=[{
+            "file": "Framework", "class_name": "dom-xss", "status": "confirmed",
+            "description": "## Summary\n`https://auth.example.test/path.` is a Framework page.",
+        }]):
+            args = me_ledger.build_parser().parse_args([
+                "prior-work", "--program", "demo", "--family", "web_bounty", "--lane", "web",
+                "--file", "https://auth.example.test/path.", "--class-name", "dom-xss",
+            ])
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                self.assertEqual(args.func(args), 0)
+            self.assertTrue(json.loads(stdout.getvalue())["known_prior_work"])
+
     @patch("agents.me_ledger._default_run_id", return_value="run-1")
     @patch(
         "agents.me_ledger._resolve_snapshot",

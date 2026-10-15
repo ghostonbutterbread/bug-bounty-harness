@@ -21,6 +21,7 @@ from agents.finding_visibility import is_confirmed_finding, normalize_submission
 from agents.ledger import ledger_add, ledger_check, ledger_get, ledger_list, ledger_path, update_team_finding
 from agents.snapshot_identity import get_snapshot_identity
 from agents.storage_resolver import resolve_storage
+from agents.web_finding_identity import finding_web_route, is_legacy_web_label, web_route
 from bounty_core.finding import normalize_severity
 
 DEFAULT_AGENT = os.environ.get("ME_AGENT") or "codex"
@@ -516,6 +517,9 @@ def cmd_prior_work(args: argparse.Namespace) -> int:
         raise ValueError("file is required")
     class_name = _normalize_class_name(args.class_name)
     confirmed = submitted = duplicate = False
+    web_lookup = args.family == "web_bounty" and args.lane in {"web", "api"} and bool(web_route(file_name))
+    requested_route = web_route(file_name) if web_lookup else ""
+    incomplete = False
     for finding in ledger_list(
         args.program,
         lane=args.lane,
@@ -523,17 +527,22 @@ def cmd_prior_work(args: argparse.Namespace) -> int:
         root_override=_root_override(args),
     ):
         stored_class = str(finding.get("class_name") or "").strip()
-        if (
-            _normalize_relpath(finding.get("file")) != file_name
-            or not stored_class
-            or _normalize_class_name(stored_class) != class_name
-        ):
+        if not stored_class or _normalize_class_name(stored_class) != class_name:
+            continue
+        stored_file = _normalize_relpath(finding.get("file"))
+        if web_lookup:
+            route = finding_web_route(finding)
+            if is_legacy_web_label(finding) and not route:
+                incomplete = True
+            if route != requested_route:
+                continue
+        elif stored_file != file_name:
             continue
         submission = normalize_submission(finding.get("submission"))
         confirmed |= is_confirmed_finding(finding)
         submitted |= submission["state"] == "submitted"
         duplicate |= submission.get("result") == "duplicate"
-    print(json.dumps({
+    response = {
         "program": _normalize_program(args.program),
         "file": file_name,
         "class_name": class_name,
@@ -541,7 +550,11 @@ def cmd_prior_work(args: argparse.Namespace) -> int:
         "confirmed": confirmed,
         "submitted": submitted,
         "duplicate": duplicate,
-    }, indent=2))
+    }
+    if incomplete and not response["known_prior_work"]:
+        response["identity_incomplete"] = True
+        response["warning"] = "Some same-class web findings lack an unambiguous route; this miss is not definitive."
+    print(json.dumps(response, indent=2))
     return 0
 
 

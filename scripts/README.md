@@ -135,18 +135,22 @@ checkout-local interpreter.
 
 - **Purpose:** Forward explicit agent-reported safety incidents to the pinned
   Bounty Core store; this is not request interception or automatic detection.
-- **Inputs:** `--program`, `--lane`, optional `--family` and `--root`, then
+- **Inputs:** `--program`, `--lane`, required `--profile` (absolute path to the
+  selected lane's `context/target_profile.json`), optional `--family` and
+  `--root` (must match the profile), then
   `record` with producer, run ID, category, action, subject, impact, and
   containment; `--no-notify` disables delivery. Provider also supports manual
   `notify <incident_id>` (may duplicate ambiguous delivery).
 - **Outputs:** JSON incident and optional notification receipt on stdout;
   lane-local `safety_incidents/events.jsonl` and notification attempts when enabled.
-- **Mutates:** Appends to the selected program/lane store; notification may send
+- **Mutates:** Validates profile identity and canonical storage path before any
+  provider call; missing/inconsistent profile fails closed, without a default
+  Shared or cwd/environment-root fallback. Appends to the selected program/lane store; notification may send
   a Discord alert unless `--no-notify` is passed. Stop and contain unsafe work
   independently; avoid secrets in input fields.
-- **Example:** `scripts/bbh scripts/safety_incident.py --program example --lane web record --producer agent --run-id run-1 --category other --action "Stopped task" --subject "Owned fixture" --impact "None observed" --containment "No further action" --no-notify`
+- **Example:** `scripts/bbh scripts/safety_incident.py --program example --lane web --profile /path/to/Shared/web_bounty/example/web/context/target_profile.json record --producer agent --run-id run-1 --category other --action "Stopped task" --subject "Owned fixture" --impact "None observed" --containment "No further action" --no-notify`
 - **Verification:** `.venv/bin/python -m pytest tests/test_safety_incident.py -q`
-  (explicit temporary root, no notification).
+  (disposable profile and nondefault shared base, no notification).
 - **Owner/scope:** Bug Bounty Harness CLI adapter / Bounty Core storage and delivery.
 - **Coverage limit:** Only incidents explicitly reported by callers are recorded.
 - **Last verified:** 2026-10-15.

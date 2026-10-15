@@ -7,8 +7,8 @@
 - **Base commit:** `7b899fe0055f419d99ecb9cb94f1e82c3ba6920e`
 - **Intended integration target:** `origin/beta` (fetched `2282b68157c1bb627e79f326799ec26266797fee` during work)
 - **Last updated:** 2026-10-15
-- **Latest immutable recovery checkpoint:** none yet; feature tip after commit is the handoff checkpoint
-- **Feature implementation commit(s):** pending commit
+- **Latest immutable recovery checkpoint:** `2495b43` (merge of current `origin/beta` into feature)
+- **Feature implementation commit(s):** `82fbb91`
 - **Inspiration:** PC-20260914-221118-4041143b; documented File/Description note contract
 
 ## Intent and implemented contract
@@ -18,10 +18,10 @@ For `--from-file`, parse the note through the same grammar before `ManualHunter`
 ## Evidence and review
 
 - RED: `python -m unittest agents.test_manual_hunter.ManualHunterTests.test_invalid_from_file_fails_before_constructor_side_effects -v` raised `RuntimeError: costly constructor ran` from mocked `load_index` on base.
-- GREEN: `python -m unittest agents.test_manual_hunter -q` — 41 tests passed, including missing-File before index/ledger, valid mocked gate, fallback source-path and API route, and existing isolated real-ingest/dedupe fixture.
+- GREEN: `python -m unittest agents.test_manual_hunter -q` — 41 tests passed before and after beta reconciliation, including missing-File before index/ledger, valid mocked gate, fallback source-path and API route, and existing isolated real-ingest/dedupe fixture.
 - `git diff --check` clean before handoff.
 - Independent review: pending parent.
-- Merge/ancestry: origin/beta advanced only in Chromium guidance files; reconcile to `2282b68` before handoff commit.
+- Merge/ancestry: `2495b43` merges `2282b68` into the feature; `git merge-base --is-ancestor origin/beta HEAD` passed.
 
 ## Blockers and deferred work
 
@@ -30,8 +30,8 @@ No blocker for focused local verification. Independent release review and integr
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/manual-hunter-fail-fast-note`
-- **Latest immutable recovery checkpoint:** feature tip after commit
-- **Feature implementation commit(s):** pending
+- **Latest immutable recovery checkpoint:** `2495b43` (the subsequent dossier-only handoff commit is the current feature tip)
+- **Feature implementation commit(s):** `82fbb91`
 - **Exact resume point:** review diff and test receipt, then integrate in parent-owned beta worktree if accepted.
 - **Working-tree state at handoff:** clean after commit expected.
 

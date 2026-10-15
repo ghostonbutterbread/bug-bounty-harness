@@ -43,10 +43,12 @@ def main(argv: list[str] | None = None) -> int:
         canonical_root = Path(canonical_value).resolve(strict=False)
         if profile_path != canonical_root / "context" / "target_profile.json":
             raise ValueError("profile location mismatch")
-        # The profile is anchored in the lane; derive the shared base, never a default.
-        base_root = canonical_root.parents[2]
+        base_value = profile.get("base_root")
+        if not isinstance(base_value, str) or not Path(base_value).is_absolute():
+            raise ValueError("invalid profile base root")
+        base_root = Path(base_value).resolve(strict=False)
         layout = resolve_storage(program, family=family, lane=lane, root_override=base_root)
-        if layout.lane_root != canonical_root:
+        if layout.base_root != base_root or layout.lane_root != canonical_root:
             raise ValueError("canonical root mismatch")
         if args.root is not None:
             if not Path(args.root).is_absolute():

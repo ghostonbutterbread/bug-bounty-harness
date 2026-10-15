@@ -29,6 +29,7 @@ class SafetyIncidentCliTests(unittest.TestCase):
 
     def write_profile(self, **overrides: str) -> None:
         profile = {"program": "fixture-program", "family": "web_bounty", "lane": "web",
+                   "base_root": str(self.layout.base_root),
                    "canonical_root": str(self.layout.lane_root)}
         profile.update(overrides)
         self.profile.write_text(json.dumps(profile), encoding="utf-8")
@@ -77,6 +78,7 @@ class SafetyIncidentCliTests(unittest.TestCase):
 
     def test_wrong_identity_root_location_or_explicit_root_fails_closed(self) -> None:
         for field, value in (("program", "other"), ("family", "binaries"), ("lane", "api"),
+                             ("base_root", str(Path(self.temp.name) / "other-base")),
                              ("canonical_root", str(self.layout.lane_root / "other"))):
             with self.subTest(field=field):
                 self.write_profile(**{field: value})

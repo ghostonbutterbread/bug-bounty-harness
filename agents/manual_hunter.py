@@ -288,18 +288,15 @@ def _build_hunt_context(
             family=resolved_family,
             root_override=resolved_storage_root,
         )
-        examined = coverage.get_all_examined(
-            snapshot_id=_normalize_text(snapshot_identity.get("snapshot_id"))
-        )
-        # Historical finding imports auto-marked static rows without reviewing them.
+        coverage_snapshot = _normalize_text(snapshot_identity.get("snapshot_id"))
+        examined = coverage.get_all_examined(snapshot_id=coverage_snapshot)
+        # get_all_examined excludes legacy marks; inspect raw current-snapshot coverage
+        # only to preserve the explanatory warning for old finding-import rows.
         legacy_auto_marks = any(
             row.get("method") in {"manual-hunter", "sync-reports"}
-            for row in examined.values()
+            for class_name in coverage.list_classes(coverage_snapshot)
+            for row in coverage.get_coverage(class_name, coverage_snapshot).values()
         )
-        examined = {
-            key: row for key, row in examined.items()
-            if row.get("method") not in {"manual-hunter", "sync-reports"}
-        }
         candidates = coverage.get_candidates()
         unexplored = {
             key: value

@@ -16,7 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from agents.coverage_store import CoverageStore
+from agents.coverage_store import CoverageStore, is_reviewed_coverage_entry
 from agents.coverage import register_commands
 from agents.finding_visibility import is_confirmed_finding, normalize_submission, visible_for_default_work
 from agents.ledger import ledger_add, ledger_check, ledger_get, ledger_list, ledger_path, update_team_finding
@@ -253,7 +253,7 @@ def _examined_files(payload: dict[str, Any], class_name: str, snapshot_id: str |
             continue
         for relpath, entry in files.items():
             # Historical finding imports auto-marked coverage without a static review.
-            if isinstance(entry, dict) and entry.get("method") in {"manual-hunter", "sync-reports"}:
+            if not is_reviewed_coverage_entry(entry):
                 continue
             normalized = _normalize_relpath(str(relpath))
             if normalized:

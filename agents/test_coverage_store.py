@@ -317,6 +317,32 @@ class CoverageStoreTests(unittest.TestCase):
         snapshot = payload["snapshots"][store.get_snapshot_id()]
         self.assertNotIn("unexplored", snapshot["classes"]["dom-xss"])
 
+    def test_legacy_auto_marks_and_errors_are_not_reviewed(self) -> None:
+        names = ("manual", "synced", "error", "done", "partial", "skip")
+        self._write_shared_brain(files={f"src/{name}.js": _brain_file(f"sha-{name}") for name in names})
+        store = CoverageStore(self.program, self.target_dir)
+        for name, method, status in (
+            ("manual", "manual-hunter", "done"),
+            ("synced", "sync-reports", "partial"),
+            ("error", "agent-static", "error"),
+            ("done", "agent-static", "done"),
+            ("partial", "agent-static", "partial"),
+            ("skip", "manual", "manual-skip"),
+        ):
+            store.mark_examined("dom-xss", [f"src/{name}.js"], method=method, status=status)
+
+        self.assertEqual(
+            store.get_unexplored("dom-xss", [f"src/{name}.js" for name in names]),
+            ["src/manual.js", "src/synced.js", "src/error.js", "src/skip.js"],
+        )
+        self.assertEqual(
+            set(store.get_all_examined()),
+            {"src/done.js::dom-xss", "src/partial.js::dom-xss", "src/skip.js::dom-xss"},
+        )
+        self.assertEqual(store.summary()["dom-xss"]["examined"], 3)
+        self.assertEqual(store.summary()["dom-xss"]["statuses"],
+                         {"done": 1, "error": 1, "manual-skip": 1, "partial": 1})
+
     def test_findings_fids_optional(self) -> None:
         self._write_shared_brain(files={"src/a.js": _brain_file("sha-a")})
         store = CoverageStore(self.program, self.target_dir)

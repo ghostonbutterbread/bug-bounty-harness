@@ -22,6 +22,15 @@ LOGGER = logging.getLogger(__name__)
 COVERAGE_FILENAME = "coverage.json"
 COVERAGE_VERSION = 1
 VALID_STATUSES = {"done", "partial", "error", "manual-skip"}
+LEGACY_AUTO_MARK_METHODS = {"manual-hunter", "sync-reports"}
+
+
+def is_reviewed_coverage_entry(entry: Any, *, include_manual_skip: bool = True) -> bool:
+    """Whether a stored mark is evidence of an explicit static review."""
+    if not isinstance(entry, dict) or str(entry.get("method", "")).strip() in LEGACY_AUTO_MARK_METHODS:
+        return False
+    statuses = {"done", "partial", "manual-skip"} if include_manual_skip else {"done", "partial"}
+    return str(entry.get("status", "")).strip() in statuses
 
 
 def _timestamp_iso() -> str:
@@ -173,7 +182,7 @@ class CoverageStore:
         explored = {
             relpath
             for relpath, entry in coverage.items()
-            if str(entry.get("status", "")).strip() in {"done", "partial"}
+            if is_reviewed_coverage_entry(entry, include_manual_skip=False)
         }
 
         unexplored: list[str] = []
@@ -301,15 +310,15 @@ class CoverageStore:
     def get_all_examined(self, snapshot_id: str | None = None) -> dict[str, dict[str, Any]]:
         """Return examined class/file pairs for the current snapshot.
 
-        `done`, `partial`, and `manual-skip` are treated as already reviewed.
-        `error` remains eligible for re-hunting.
+        Explicit `done`, `partial`, and `manual-skip` marks count as reviewed.
+        Errors and historical finding-import auto-marks remain eligible.
         """
         target_snapshot = self._resolve_snapshot_id(snapshot_id)
         examined: dict[str, dict[str, Any]] = {}
         for vuln_class in self.list_classes(target_snapshot):
             coverage = self.get_coverage(vuln_class, target_snapshot)
             for relpath, entry in sorted(coverage.items()):
-                if str(entry.get("status", "")).strip() not in {"done", "partial", "manual-skip"}:
+                if not is_reviewed_coverage_entry(entry):
                     continue
                 key = f"{relpath}::{vuln_class}"
                 examined[key] = {
@@ -358,9 +367,16 @@ class CoverageStore:
                 if not coverage:
                     continue
 
-                counts = Counter(str(entry.get("status", "")).strip() for entry in coverage.values())
+                # Keep errors visible, but legacy finding-import marks are not reviews.
+                counts = Counter(
+                    str(entry.get("status", "")).strip()
+                    for entry in coverage.values()
+                    if str(entry.get("method", "")).strip() not in LEGACY_AUTO_MARK_METHODS
+                )
+                if not counts:
+                    continue
                 summary[vuln_class] = {
-                    "examined": len(coverage),
+                    "examined": sum(is_reviewed_coverage_entry(entry) for entry in coverage.values()),
                     "status": self._rollup_status(counts),
                     "statuses": {name: counts[name] for name in sorted(counts)},
                     "snapshot_id": target_snapshot,

@@ -575,6 +575,26 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
         self.assertEqual(result["unexplored_count"], 2)
         self.assertEqual(result["unexplored"], ["src/manual.js", "src/synced.js"])
 
+    def test_unexplored_error_is_not_examined(self) -> None:
+        coverage = {"snapshots": {"snap-1": {"classes": {"dom-xss": {"files": {
+            "src/error.js": {"method": "agent-static", "status": "error"},
+            "src/partial.js": {"method": "agent-static", "status": "partial"},
+        }}}}}}
+        args = argparse.Namespace(
+            program="demo", class_name="dom-xss", version_label=None,
+            lane="apk", family="binaries", root_override=None,
+        )
+        stdout = io.StringIO()
+        with patch("agents.me_ledger._load_shared_brain_candidates", return_value={
+            "dom-xss": ["src/error.js", "src/partial.js"]
+        }), patch("agents.me_ledger._load_coverage_payload", return_value=coverage), \
+             patch("agents.me_ledger._resolve_snapshot", return_value={"snapshot_id": "snap-1"}), \
+             redirect_stdout(stdout):
+            self.assertEqual(me_ledger.cmd_unexplored(args), 0)
+        result = json.loads(stdout.getvalue())["classes"]["dom-xss"]
+        self.assertEqual(result["examined_count"], 1)
+        self.assertEqual(result["unexplored"], ["src/error.js"])
+
     def test_unexplored_cli_parses_version_and_root_for_handler(self) -> None:
         args = me_ledger.build_parser().parse_args(
             ["unexplored", "--program", "demo", "--class", "dom-xss", "--version", "v1", "--root", "/tmp/me-ledger-test"]

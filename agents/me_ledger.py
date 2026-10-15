@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agents.coverage_store import CoverageStore
+from agents.coverage import register_commands
 from agents.finding_visibility import is_confirmed_finding, normalize_submission, visible_for_default_work
 from agents.ledger import ledger_add, ledger_check, ledger_get, ledger_list, ledger_path, update_team_finding
 from agents.snapshot_identity import get_snapshot_identity
@@ -250,7 +251,10 @@ def _examined_files(payload: dict[str, Any], class_name: str, snapshot_id: str |
         files = class_bucket.get("files", {})
         if not isinstance(files, dict):
             continue
-        for relpath in files:
+        for relpath, entry in files.items():
+            # Historical finding imports auto-marked coverage without a static review.
+            if isinstance(entry, dict) and entry.get("method") in {"manual-hunter", "sync-reports"}:
+                continue
             normalized = _normalize_relpath(str(relpath))
             if normalized:
                 examined.add(normalized)
@@ -681,6 +685,8 @@ def build_parser() -> argparse.ArgumentParser:
     cover_parser.add_argument("--version", dest="version_label")
     cover_parser.set_defaults(func=cmd_cover)
 
+    register_commands(subparsers, legacy=True)
+
     list_parser = subparsers.add_parser("list", help="List current findings")
     _add_common_arguments(list_parser, include_file=False, include_class=False)
     list_parser.add_argument("--snapshot")
@@ -693,8 +699,9 @@ def build_parser() -> argparse.ArgumentParser:
     prior_parser.set_defaults(func=cmd_prior_work)
 
     unexplored_parser = subparsers.add_parser("unexplored", help="List unexplored surfaces by class")
-    _add_common_arguments(unexplored_parser, include_file=False, include_class=False, include_root=False)
+    _add_common_arguments(unexplored_parser, include_file=False, include_class=False)
     unexplored_parser.add_argument("--class", "--class-name", dest="class_name")
+    unexplored_parser.add_argument("--version", dest="version_label")
     unexplored_parser.set_defaults(func=cmd_unexplored)
 
     return parser

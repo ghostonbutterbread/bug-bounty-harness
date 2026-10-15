@@ -550,6 +550,46 @@ class MeLedgerCliAdapterTests(unittest.TestCase):
         payload = json.loads(stdout.getvalue())
         self.assertEqual(payload["coverage_path"], "/tmp/me-root/coverage.json")
 
+    def test_unexplored_ignores_legacy_auto_marks_but_keeps_explicit_review(self) -> None:
+        candidates = {"dom-xss": ["src/manual.js", "src/synced.js", "src/reviewed.js"]}
+        coverage = {"snapshots": {
+            "snap-1": {"classes": {"dom-xss": {"files": {
+                "src/manual.js": {"method": "manual-hunter", "status": "done"},
+                "src/synced.js": {"method": "sync-reports", "status": "done"},
+                "./src\\reviewed.js": {"method": "manual-review", "status": "done"},
+            }}}},
+        }}
+        args = argparse.Namespace(
+            program="demo", class_name="dom-xss", version_label=None,
+            lane="apk", family="binaries", root_override=None,
+        )
+        stdout = io.StringIO()
+        with patch("agents.me_ledger._load_shared_brain_candidates", return_value=candidates), \
+             patch("agents.me_ledger._load_coverage_payload", return_value=coverage), \
+             patch("agents.me_ledger._resolve_snapshot", return_value={"snapshot_id": "snap-1"}), \
+             redirect_stdout(stdout):
+            self.assertEqual(me_ledger.cmd_unexplored(args), 0)
+        result = json.loads(stdout.getvalue())["classes"]["dom-xss"]
+        self.assertEqual(result["candidate_count"], 3)
+        self.assertEqual(result["examined_count"], 1)
+        self.assertEqual(result["unexplored_count"], 2)
+        self.assertEqual(result["unexplored"], ["src/manual.js", "src/synced.js"])
+
+    def test_unexplored_cli_parses_version_and_root_for_handler(self) -> None:
+        args = me_ledger.build_parser().parse_args(
+            ["unexplored", "--program", "demo", "--class", "dom-xss", "--version", "v1", "--root", "/tmp/me-ledger-test"]
+        )
+        stdout = io.StringIO()
+        with patch("agents.me_ledger._load_shared_brain_candidates", return_value={"dom-xss": []}), \
+             patch("agents.me_ledger._load_coverage_payload", return_value={}), \
+             patch("agents.me_ledger._resolve_snapshot", return_value={"snapshot_id": "snap-1"}) as snapshot, \
+             redirect_stdout(stdout):
+            self.assertEqual(args.func(args), 0)
+        self.assertEqual(args.root_override, "/tmp/me-ledger-test")
+        snapshot.assert_called_once_with(
+            "demo", "v1", lane="apk", family="binaries", root_override="/tmp/me-ledger-test"
+        )
+
     def test_build_parser_cover_accepts_root_override(self) -> None:
         args = me_ledger.build_parser().parse_args(
             [

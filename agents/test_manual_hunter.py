@@ -13,6 +13,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from agents.coverage_store import CoverageStore
+from agents.snapshot_identity import get_snapshot_identity
 from agents.manual_hunter import (
     ManualHunter,
     _build_hunt_context,
@@ -68,7 +70,7 @@ class ManualHunterTests(unittest.TestCase):
     def _report_index_paths(self) -> list[Path]:
         return sorted(self._storage().reports_root.glob("*/*/index.md"))
 
-    def test_from_file_ingests_then_dedupes_and_marks_coverage(self) -> None:
+    def test_from_file_ingests_then_dedupes_without_static_auto_review(self) -> None:
         note_path = self.tmp / "test_finding.md"
         note_path.write_text(
             "\n".join(
@@ -117,20 +119,7 @@ class ManualHunterTests(unittest.TestCase):
         self.assertFalse(list(self._storage().reports_root.glob("dormant/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))
         self.assertFalse(list(self._storage().reports_root.glob("novel/[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/index.md")))
 
-        coverage_payload = json.loads(self._coverage_path().read_text(encoding="utf-8"))
-        snapshots = coverage_payload["snapshots"]
-        coverage_entries = [
-            snapshot["classes"]["native-module-abuse"]["files"][".webpack/renderer/preload.js"]
-            for snapshot in snapshots.values()
-            if "native-module-abuse" in snapshot.get("classes", {})
-            and ".webpack/renderer/preload.js"
-            in snapshot["classes"]["native-module-abuse"].get("files", {})
-        ]
-        self.assertEqual(len(coverage_entries), 1)
-        coverage_entry = coverage_entries[0]
-        self.assertEqual(coverage_entry["status"], "done")
-        self.assertEqual(coverage_entry["method"], "manual-hunter")
-        self.assertEqual(coverage_entry["finding_fids"], ["D01"])
+        self.assertFalse(self._coverage_path().exists(), "a finding is not a completed file/class review")
 
         second_stdout = io.StringIO()
         with redirect_stdout(second_stdout):
@@ -724,7 +713,6 @@ class ManualHunterTests(unittest.TestCase):
         mock_update_team_finding.return_value = reserved_finding
 
         with (
-            patch.object(hunter, "_mark_coverage") as mock_mark_coverage,
             patch.object(hunter, "_print_chain_suggestions"),
             redirect_stdout(io.StringIO()),
         ):
@@ -740,7 +728,31 @@ class ManualHunterTests(unittest.TestCase):
         self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], storage_root.resolve(strict=False))
         self.assertFalse(mock_update_team_finding.call_args.kwargs["write_report"])
         self.assertTrue(mock_update_team_finding.call_args.kwargs["refresh"])
-        mock_mark_coverage.assert_called_once_with(reserved_finding, parsed)
+
+    def test_hunt_context_static_coverage_is_lane_scoped(self) -> None:
+        (self.target_root / "renderer").mkdir(parents=True, exist_ok=True)
+        (self.target_root / "renderer" / "view.js").write_text("document.body.textContent = 'ok';\n", encoding="utf-8")
+        index = build_index(self.target_root, self.program)
+        save_index(index, self.program, family="binaries", lane="apk")
+        save_index(index, self.program, family="web_bounty", lane="web")
+        snapshot_id = get_snapshot_identity(self.target_root)["snapshot_id"]
+        apk = CoverageStore(self.program, self.target_root, family="binaries", lane="apk")
+        apk.mark_examined("native-module-abuse", [".webpack/renderer/preload.js"],
+                          method="test", snapshot_id=snapshot_id)
+        web = CoverageStore(self.program, self.target_root, family="web_bounty", lane="web")
+        web.mark_examined("dom-xss", ["renderer/view.js"], method="test",
+                          snapshot_id=snapshot_id)
+
+        context = _build_hunt_context(self.program, source_root=self.target_root,
+                                      family="web_bounty", lane="web", hunt_type="web")
+        self.assertIn("renderer/view.js (dom-xss) ✅", context)
+        self.assertNotIn(".webpack/renderer/preload.js (native-module-abuse) ✅", context)
+
+        api_context = _build_hunt_context(self.program, source_root=self.target_root,
+                                          family="web_bounty", lane="api", hunt_type="api")
+        self.assertIn("Coverage unavailable:", api_context)
+        self.assertNotIn("renderer/view.js (dom-xss) ✅", api_context)
+        self.assertNotIn(".webpack/renderer/preload.js (native-module-abuse) ✅", api_context)
 
     def test_source_root_explicit_override_wins_over_shared_brain(self) -> None:
         explicit_root = self.tmp / "explicit-source"
@@ -798,6 +810,12 @@ class ManualHunterTests(unittest.TestCase):
             rc = hunter.ingest(parsed)
         self.assertEqual(rc, 0)
 
+        before_review = _build_hunt_context(self.program, source_root=self.target_root, lane="apk")
+        self.assertNotIn(".webpack/renderer/preload.js (native-module-abuse) ✅", before_review)
+        CoverageStore(self.program, self.target_root, family="binaries", lane="apk").mark_examined(
+            "native-module-abuse", [".webpack/renderer/preload.js"],
+            method="manual-review", snapshot_id=hunter.snapshot_id)
+
         context = _build_hunt_context(self.program, source_root=self.target_root, lane="apk")
         self.assertIn(f"Program: {self.program}", context)
         self.assertIn(f"Target: {self.target_root}", context)
@@ -809,6 +827,32 @@ class ManualHunterTests(unittest.TestCase):
         self.assertIn(".webpack/renderer/preload.js (native-module-abuse) ✅", context)
         self.assertIn("renderer/view.js (dom-xss)", context)
         self.assertIn("updater.ts (exec-sink-reachability)", context)
+
+    def test_hunt_context_does_not_trust_legacy_finding_auto_marks(self) -> None:
+        (self.target_root / "renderer").mkdir(parents=True, exist_ok=True)
+        (self.target_root / "renderer" / "view.js").write_text(
+            "document.body.innerHTML = userHtml;\n", encoding="utf-8")
+        save_index(build_index(self.target_root, self.program), self.program,
+                   family="binaries", lane="apk")
+        store = CoverageStore(self.program, self.target_root, family="binaries", lane="apk")
+        snapshot_id = get_snapshot_identity(self.target_root)["snapshot_id"]
+        store.mark_examined("dom-xss", ["renderer/view.js"],
+                            method="manual-hunter", snapshot_id=snapshot_id)
+        store.mark_examined("legacy-unindexed-class", ["renderer/view.js"],
+                            method="sync-reports", snapshot_id=snapshot_id)
+        before = self._coverage_path().read_bytes()
+
+        context = _build_hunt_context(self.program, source_root=self.target_root, lane="apk")
+        examined = context.split("## Already examined indexed source-file/class pairs:\n", 1)[1].split(
+            "## Unexplored indexed source-file/class pairs:", 1)[0]
+        unexplored = context.split("## Unexplored indexed source-file/class pairs:\n", 1)[1].split(
+            "## Coordination:", 1)[0]
+        self.assertNotIn("dom-xss", examined)
+        self.assertNotIn("legacy-unindexed-class", examined)
+        self.assertIn("renderer/view.js (dom-xss)", unexplored)
+        self.assertNotIn("legacy-unindexed-class", unexplored)
+        self.assertIn("Legacy manual-hunter/sync-reports auto-marks are not evidence of review", context)
+        self.assertEqual(self._coverage_path().read_bytes(), before)
 
     def test_build_hunt_context_fresh_mode_rejects_historical_findings_as_success(self) -> None:
         context = _build_hunt_context(self.program, source_root=self.target_root, lane="apk", fresh=True)

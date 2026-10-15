@@ -620,6 +620,36 @@ class ManualHunterTests(unittest.TestCase):
 
         self.assertEqual(parsed.finding["file"], "www.example.go")
 
+    def test_web_ingest_uses_route_identity_instead_of_technology_label(self) -> None:
+        root = self.tmp / "web-storage"
+        hunter = ManualHunter(self.program, family="web_bounty", lane="web", storage_root=root)
+        note = "\n".join([
+            "Title: Login return DOM-XSS", "Class: dom-xss", "Review Tier: CONFIRMED",
+            "File: Next.js", "Description: Observed at https://auth.example.test/im-logged-in?code=x. "
+            "The affected page uses Next.js.",
+        ])
+        parsed = hunter.parse_text(note, source_label="unit-test")
+        self.assertEqual(parsed.finding["file"], "https://auth.example.test/im-logged-in")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(hunter.ingest(parsed), 0)
+        entries = json.loads((root / "web_bounty" / self.program / "web" / "ledgers" / "ledger.json").read_text())["findings"]
+        self.assertEqual(entries[0]["file"], "https://auth.example.test/im-logged-in")
+        self.assertEqual(entries[0]["asset"], "https://auth.example.test/im-logged-in")
+
+    def test_web_explicit_url_wins_but_source_file_without_route_is_preserved(self) -> None:
+        hunter = ManualHunter(self.program, family="web_bounty", lane="web", storage_root=self.tmp / "web-storage")
+        note = "\n".join([
+            "Class: dom-xss", "File: src/render.js", "URL: https://auth.example.test/one?code=x",
+            "Description: This route is affected.",
+        ])
+        parsed = hunter.parse_text(note, source_label="unit-test")
+        self.assertEqual(parsed.finding["file"], "https://auth.example.test/one")
+        self.assertNotIn("url", parsed.finding)
+        source_only = hunter.parse_text(note.replace("URL: https://auth.example.test/one?code=x\n", ""), source_label="unit-test")
+        self.assertEqual(source_only.finding["file"], "src/render.js")
+        route_only = hunter.parse_text(note.replace("File: src/render.js\n", ""), source_label="unit-test")
+        self.assertEqual(route_only.finding["file"], "https://auth.example.test/one")
+
     def test_markdown_note_without_file_field_is_rejected_not_corrupted(self) -> None:
         """Regression: a markdown note with no 'File:' used to be rescued by a bogus
         hostname match instead of failing loudly."""

@@ -41,6 +41,7 @@ from agents.snapshot_identity import get_snapshot_identity
 from agents.source_roots import resolve_source_root
 from agents.storage_resolver import StorageLayout, resolve_family_lane, resolve_storage, write_context_files
 from agents.verbosity import clamp_verbosity
+from agents.web_finding_identity import finding_web_route
 
 
 from bounty_core.finding import normalize_severity  # noqa: E402
@@ -78,6 +79,8 @@ FIELD_ALIASES = {
     "severity": "severity",
     "file": "file",
     "path": "file",
+    "url": "url",
+    "endpoint": "endpoint",
     "line": "line",
     "source": "source",
     "sink": "sink",
@@ -918,6 +921,10 @@ class ManualHunter:
 
         file_value = _normalize_text(parsed.get("file"))
         file_path, inline_line = _split_file_reference(file_value)
+        if self.family == "web_bounty" and self.lane in {"web", "api"}:
+            route = finding_web_route(parsed)
+            if route:
+                file_path = route
         line_number = _safe_int(parsed.get("line")) or inline_line
 
         class_name = _normalize_class(parsed.get("class_name"))

@@ -1,6 +1,6 @@
 # XSS mapper socket cleanup integration dossier
 
-- **Status:** blocked (independent code review accepted; integration worktree unavailable)
+- **Status:** review accepted; integration pending in a clean beta checkout
 - **Owner:** Hermes bugfix
 - **Branch / owning ref:** `fix/xss-mapper-server-cleanup`
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-mapper-server-cleanup`
@@ -27,21 +27,21 @@ Four XSS mapper HTTPServer fixtures shut down their serving threads but leave li
 
 - **Missing evidence:** merged-tree warning-as-error test and remote beta read-back.
 - **Command:** `python3 -m pytest skills/xss/scripts/test_xss_canary_mapper.py -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning` from clean beta worktree; fetch/read back `origin/beta` after push.
-- **Trigger:** owner makes the local `beta` integration worktree clean and current or explicitly arranges a clean named-beta worktree without disturbing unrelated state.
-- **Why blocked:** `beta` is checked out at `/home/ryushe/projects/bug_bounty_harness`, which is 53 commits behind `origin/beta` and has multiple unrelated untracked directories. A nested `bbh-beta-integration/` is detached HEAD and unregistered, not the named beta worktree. Do not clean/reset or change the shared checkout to bypass the gate.
-- **Next step:** establish a clean current beta integration worktree, merge the reviewed feature, remove this dossier from beta, rerun focused checks, and push/read back `origin beta` only if all gates pass. Papercut closure remains with parent.
+- **Trigger:** a clean named-beta integration checkout has been established at `/home/ryushe/worktrees/bbh-papercut-batch-beta-20261015` from current remote beta `5993acc` without disturbing the shared checkout.
+- **Why still pending:** integration and merged-tree verification have not yet run; the feature is based on older `de82c81` and must retain the newer beta commits.
+- **Next step:** merge the reviewed feature into that clean checkout, remove this dossier from beta, rerun focused checks, and push/read back `origin beta` only if all gates pass. Papercut closure remains with parent.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/xss-mapper-server-cleanup`
 - **Latest immutable recovery checkpoint:** `1bf5481208ff22465e8150d382fbb42ce75adb5b`
 - **Feature implementation commits:** `1bf5481208ff22465e8150d382fbb42ce75adb5b`
-- **Exact resume point:** arrange a clean named-`beta` integration worktree without disturbing the shared dirty checkout; fetch and reconcile `origin/beta`, merge feature, remove dossier from integration target, rerun focused test and push/read back only if gates pass. Parent owns papercut closure.
+- **Exact resume point:** fetch and reconcile `origin/beta` in the clean named-beta checkout above, merge feature, remove dossier from integration target, rerun focused test and push/read back only if gates pass. Parent owns papercut closure.
 - **Working-tree state at handoff:** clean after the dossier-only review checkpoint commit.
 
 ## Decision gates
 
-- **Integration:** code review and focused warning-as-error test passed; blocked by non-clean, stale named-beta worktree. No integration authorized under present checkout state.
+- **Integration:** code review and focused warning-as-error test passed; clean named-beta checkout established. Merged-tree checks and remote read-back remain required.
 - **Activation:** not applicable; test-only change.
 - **Promotion:** no stable promotion requested.
 
@@ -49,3 +49,4 @@ Four XSS mapper HTTPServer fixtures shut down their serving threads but leave li
 
 - 2026-10-15 — reproduced and patched the four socket leaks; implementation committed as `1bf5481208ff22465e8150d382fbb42ce75adb5b`.
 - 2026-10-15 — independent review accepted the portable test-only fix and reran all 15 focused tests with warnings treated as errors; release blocked at dirty/stale beta integration worktree. No merged-tree test or push; no outstanding deferred test beyond integration verification above.
+- 2026-10-15 — established a fresh clean named-beta integration clone at remote beta `5993acc`; original shared checkout remains untouched. Proceeding with reconciliation and merged-tree verification.

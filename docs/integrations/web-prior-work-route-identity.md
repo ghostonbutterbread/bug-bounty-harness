@@ -7,8 +7,8 @@
 - **Base commit:** `4823e2b9a27e04db4569f03e1075182e76a16b47`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-15
-- **Latest immutable recovery checkpoint:** none yet
-- **Implementation commits:** none yet
+- **Latest immutable recovery checkpoint:** `6aa0d912f97c9999b6c5057eaba67b204d1c5aa3` (reachable on owning branch)
+- **Implementation commits:** `6aa0d912f97c9999b6c5057eaba67b204d1c5aa3`
 
 ## Intent and contract
 
@@ -30,9 +30,9 @@ A web finding with a technology label in `file` but a sufficiently asserted sing
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/web-prior-work-route-identity`
-- **Latest immutable recovery checkpoint:** none yet; material change must be committed before pause.
-- **Exact resume point:** Commit reviewed implementation; record immutable SHA in a follow-up dossier-only commit; fetch current beta, preflight/merge if clean, run post-merge suite.
-- **Working-tree state:** implementation, tests, and dossier uncommitted.
+- **Latest immutable recovery checkpoint:** `6aa0d912f97c9999b6c5057eaba67b204d1c5aa3` (implementation plus previous dossier); current branch tip may contain a later dossier-only commit.
+- **Exact resume point:** Fetch current beta, preflight/merge if clean, run post-merge suite.
+- **Working-tree state:** clean after the dossier-only handoff commit.
 
 ## Decision gates
 

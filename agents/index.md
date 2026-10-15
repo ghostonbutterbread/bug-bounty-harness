@@ -59,6 +59,12 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    `docs/bounty-core-evidence-and-secrets-workstream.md`: Bounty Core owns
    generic primitives; BBH modules own their domain semantics; raw evidence has
    one canonical source and projections are regenerated.
+   If an agent observes an unsafe action, stop and contain it first; explicitly
+   record a factual, non-secret incident with
+   `bbh scripts/safety_incident.py --program <program> --lane <lane> --profile <absolute-path-to-context/target_profile.json> record --producer <producer> --run-id <run-id> --category <category> --action <action> --subject <subject> --impact <impact> --containment <containment>`.
+   Add `--no-notify` to persist without delivery. This is agent reporting, not
+   automatic interception or comprehensive coverage; see
+   [`docs/bbh-launcher.md`](../docs/bbh-launcher.md).
 7. Recon artifacts are owned by Recon Bus. CWD is never a corpus lookup root.
    Resolve a named corpus with
    `bbh scripts/recon_bus.py query <program> --artifact <name> --format path`.

@@ -15,7 +15,7 @@ the operator need not name a vulnerability class. If the inventory is missing,
 ## Intent Routes
 
 - **Pull / collect / inventory** -> load `/js-pull`. Keep the existing
-  `agents/js_analyzer.py inventory` acquisition, hashing, source-map, chunk,
+  `bbh agents/js_analyzer.py inventory` acquisition, hashing, source-map, chunk,
   provenance, and packet workflow. Collection is not a vulnerability review.
 - **Hunt / analyze / review / dig deep** -> load `/js-hunt`. Its default broad
   behavior map, evidence-selected deep trace, and synthesis produce supported
@@ -30,14 +30,16 @@ the operator need not name a vulnerability class. If the inventory is missing,
 
 Legacy `analyze` maps to hunt; `deep` and `offline-fanout` are effort/execution
 choices **within** hunt, not rival pipelines. Legacy `generate` maps to the
-reviewed candidate handoff above. See `prompts/js-playbook.md` for detailed
-existing mechanics; `skills/js/references/offline-fanout.md` governs native
+reviewed candidate handoff above. The paths `prompts/js-playbook.md` and
+`skills/js/references/offline-fanout.md` are relative to the **BBH repository
+root**, not this skill directory; the former details existing mechanics, and
+the latter governs native
 subagent execution when packet volume warrants it. Do not invoke the legacy
-`agents/js_offline_campaign.py` unless explicitly requested.
+`bbh agents/js_offline_campaign.py` unless explicitly requested.
 
 ## Tool Map
 
-- **BBH JS inventory** (`agents/js_analyzer.py inventory`): acquire, hash,
+- **BBH JS inventory** (`bbh agents/js_analyzer.py inventory`): acquire, hash,
   deduplicate, extract cheap signals, and create bounded review packets; owned
   by `/js-pull`.
 - **JSLuice** (upstream CLI): AST-derived URL/request-shape or secret leads from

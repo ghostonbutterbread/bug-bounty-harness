@@ -1,6 +1,6 @@
 # Safety incident client integration dossier
 
-- **Status:** feature (local handoff; not integrated)
+- **Status:** independent release gate accepted for beta integration; not activated
 - **Owner:** BBH consumer
 - **Branch / owning ref:** `feat/safety-incident-client`
 - **Base commit:** `de82c81bb455e459888c20370ad1d61a84f59368` (`origin/beta`)
@@ -23,13 +23,13 @@
 - Final focused rerun: `.venv/bin/python -m pytest tests/test_safety_incident.py tests/test_runtime_dependencies.py tests/test_bbh_launcher.py -q` — 21 passed, 6 subtests passed. Full rerun: `.venv/bin/python -m pytest tests -q` — 225 passed, 168 subtests passed, same single unrelated `test_hoster_script_authority_uses_current_capability_not_machine_lists` failure. Excluding only that baseline test: `.venv/bin/python -m pytest tests -q -k 'not test_hoster_script_authority_uses_current_capability_not_machine_lists'` — 225 passed, 1 deselected, 168 subtests passed.
 - Reference-impact search for `safety_incident.py`: updated live call sites `agents/index.md`, `docs/bbh-launcher.md`, `scripts/README.md`; remaining references are tests, this dossier, and the owning script.
 - Follow-up root-source correction: require the profile's `base_root` field and compare both resolved base/lane roots; reject a mismatched base root even when the profile location itself is plausible. `.venv/bin/python -m pytest -q tests/test_safety_incident.py tests/test_runtime_dependencies.py tests/test_bbh_launcher.py` — 21 passed, 7 subtests; filtered full suite — 225 passed, 1 deselected, 169 subtests. `git diff --check` clean.
-- No post-repair independent review or integration/activation. Selected runtime must reinstall pinned provider after integration.
+- Fresh independent release gate at `b5eedaca4e3ddb20df9c820d334fe6ec22e8c1e2`: verified profile location, identity, absolute `base_root`, canonical root, and both storage roots in the source; tested duplicate program/profile/root flags, flags after command, abbreviated flags and `--` forwarding with a provider spy. Invalid duplicates were rejected before provider invocation; `--` leaves arguments to provider's strict parser, which rejects unrecognized flags. No exception values or profile data are printed on validation failure. Installed Bounty Core `direct_url.json` points at `ce8718b6bfb39fb08533f506bd2bfe627b52e5da`, matching `requirements.txt` and the runtime-dependency test. Focused: 21 passed, 7 subtests; full: 225 passed, 169 subtests, one unchanged `AGENTS.md` baseline failure; filtered full: 225 passed, 1 deselected, 169 subtests. No webhook or actual shared data touched. Selected runtime still needs reinstall after beta publication.
 
 ## Blockers and deferred work
 
-- **Missing evidence:** clean full suite and independent integration review.
-- **Command / fixture:** `.venv/bin/python -m pytest tests -q` after owner resolves existing AGENTS/test disagreement; review feature diff against fresh `origin/beta`.
-- **Trigger:** before beta integration or activation.
+- **Missing evidence:** clean full suite; independent review accepted but the baseline `AGENTS.md`/test disagreement remains unresolved.
+- **Command / fixture:** `.venv/bin/python -m pytest tests -q` after owner resolves existing AGENTS/test disagreement.
+- **Trigger:** before claiming a green full suite or stable promotion.
 - **Why:** unrelated baseline failure precludes a green full suite; activation must reinstall from manifest in the selected runtime.
 
 ## Interruption / resume handoff
@@ -42,11 +42,12 @@
 
 ## Decision gates
 
-- **Integration gate:** not claimed; baseline suite failure and independent review outstanding.
-- **Activation / cohort gate:** reinstall pinned provider in selected checkout, rerun CLI smoke with disposable profile, nondefault shared base and `--no-notify`.
+- **Integration gate:** accepted for beta with one independently verified unrelated baseline full-suite failure; focused and filtered full suite pass. Recheck after merge in clean named-beta integration checkout.
+- **Activation / cohort gate:** not claimed; reinstall pinned provider in selected active checkout and rerun CLI smoke with disposable profile, nondefault shared base and `--no-notify`.
 - **Promotion gate:** not requested or tested.
 
 ## Decision record
 
 - 2026-10-15 — feature-only forwarding and isolated no-delivery CLI verification; no merge/push or runtime activation.
 - 2026-10-15 — reviewer-blocking wrong-root defect repaired at owning BBH CLI boundary; feature-only, no webhook/merge/push.
+- 2026-10-15 — fresh independent review accepted beta integration against `de82c81bb455e459888c20370ad1d61a84f59368`; full suite has one unchanged AGENTS baseline failure, focused and filtered suite green. No activation or promotion authorized.

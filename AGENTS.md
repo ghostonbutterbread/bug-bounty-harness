@@ -4,6 +4,13 @@ Read [`agents/index.md`](agents/index.md) before ordinary BBH runtime work. It
 is the compact entry card: shared AI Policies own live-testing judgment, while
 BBH skills own the selected runner, command, packet, and artifact mechanics.
 
+When adding, renaming, or retiring a vulnerability-class escalation skill in
+BBH, update the explicit class-overlay route list at the bottom of the shared
+`impact-escalation` skill in AI Policies as part of the coordinated change.
+Verify the listed skill resolves in the intended agent runtime. Keep the
+maintainer reminder here; the route list and escalation behavior belong in
+`impact-escalation`, not in this contributor guide.
+
 ## Recon-Ry ownership boundary
 
 `agents/recon_ry.py`, `skills/recon-ry/`, and `prompts/recon-ry-playbook.md` are

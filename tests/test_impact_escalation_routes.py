@@ -22,3 +22,11 @@ def test_xss_overlay_routes_to_guard_owner_and_checks_effect():
     for phrase in ("`assumption-testing`", "Old-password, OTP", "server enforcement", "independently usable", "owned accounts", "same FID"):
         assert phrase in overlay
     assert "this overlay supplies **impact ideas**" in overlay
+
+
+def test_bbh_maintainer_guide_routes_new_overlays_to_canonical_registry():
+    guidance = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "When adding, renaming, or retiring a vulnerability-class escalation skill" in guidance
+    assert "class-overlay route list at the bottom" in guidance
+    assert "`impact-escalation` skill in AI Policies" in guidance
+    assert "Verify the listed skill resolves" in guidance

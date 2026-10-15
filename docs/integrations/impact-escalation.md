@@ -21,33 +21,34 @@ After prompt initial finding capture, explore defensible application-specific im
 
 ## Evidence and review
 
-- Tests and commands: `python3 -m pytest -q tests/test_impact_escalation_routes.py tests/test_security_reporting_skill.py tests/test_reporting_markdown.py` (7 passed, 30 subtests); `git diff --check` passed. AI Policies lint and 43 tests passed separately.
-- Independent review: fresh agent found no behavioral defect; medium maintenance gap remains: protected `AGENTS.md` pointer absent after approval timeout. Not PASS for integration.
+- Tests and commands: `python3 -m pytest -q tests/test_impact_escalation_routes.py tests/test_security_reporting_skill.py tests/test_reporting_markdown.py` (8 passed, 30 subtests); `git diff --check` passed. AI Policies lint and 43 tests passed separately.
+- Independent review: earlier agent found no behavioral defect and one missing maintainer pointer. The pointer is now in BBH `AGENTS.md`, Ryushe's selected maintainer entry; fresh review of the completed diff pending.
 - Replay/cohort/fixture evidence: offline agent evaluation of fictional stored XSS FID D17. It challenged a UI old-password claim against two routes: one enforced the guard, the other had a simulated owned-fixture email-state change. It did **not** claim ATO because login/recovery binding and fresh-session usability were unproven. Stale-auth token and viewer invite branches stayed negative. No real target traffic or effect.
 - Merge/ancestry evidence: feature based on fetched `origin/beta` `ce0804a`.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** Requested repository `AGENTS.md` maintenance instruction is not added. The protected-file approval timed out; no consent was obtained, and this turn must not retry the edit through any path.
-- **Command / fixture / environment needed:** A fresh explicitly approved edit to the repository agent-instruction file in a later authorized context.
-- **Trigger to run it:** Ryushe approves the protected-file write through the approval flow.
-- **Why it blocks integration, activation, or promotion:** User expressly requested maintainers be told to update the generic skill's bottom class route list when adding subskills. The skill itself contains the route-maintenance rule, but the repository contributor guide does not yet carry the pointer.
-- **Next completion step / successor reference:** Obtain approval, add concise AGENTS.md pointer, rerun checks and independent review before beta merge. Do not circumvent the timed-out approval.
+- **Missing test or evidence:** Fresh independent review of the complete feature diff, plus current-beta reconciliation and post-merge tests. The prior protected-file gap is resolved in BBH `AGENTS.md`; no AI Policies `AGENTS.md` change is required.
+- **Command / fixture / environment needed:** Review current feature commit and cumulative AI Policies policy diff; rerun the focused test commands after merging.
+- **Trigger to run it:** BBH maintainer pointer has been written and its route regression passes.
+- **Why it blocks integration, activation, or promotion:** Do not merge or sync an unreviewed final diff. Activation separately needs reviewed, published source and fresh runtime resolution.
+- **Next completion step / successor reference:** Finish independent review, integrate into current `beta`, run checks, then verify remote and runtime source before claiming activation.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/impact-escalation`
 - **Latest immutable recovery checkpoint:** `90cefda2d06cbe9676b1c0f013211abe329e2a7f`
 - **Feature implementation commit(s):** `90cefda2d06cbe9676b1c0f013211abe329e2a7f`
-- **Exact resume point:** obtain fresh approval in a later turn for the protected AGENTS.md maintenance pointer, then rerun review/tests and reconcile with current beta before integration.
-- **Working-tree state at handoff:** clean after this dossier update is committed.
+- **Exact resume point:** review final diff; reconcile with current beta, merge, test, and verify source/runtime route.
+- **Working-tree state at handoff:** task-owned edits to AGENTS.md, route test, and dossier pending commit.
 
 ## Decision gates
 
-- **Integration gate:** passing tests, independent review resolved, repository AGENTS.md maintenance instruction approved and written; reconcile current beta before merge.
+- **Integration gate:** passing tests, independent review resolved, BBH `AGENTS.md` maintenance instruction present; reconcile current beta before merge.
 - **Activation / cohort gate:** reviewed source lane plus focused sync and fresh runtime resolution of generic and XSS overlays.
 - **Promotion gate:** no stable promotion without explicit owner direction.
 
 ## Decision record
 
 - 2026-10-14 — Created feature worktree and class route; static tests and offline scenario passed. Independent review identified only the protected `AGENTS.md` maintenance gap; integration held pending authorization.
+- 2026-10-14 — Ryushe selected BBH `AGENTS.md` as the contributor entry. Protected edit succeeded; route regression passes. The earlier proposed AI Policies `AGENTS.md` edit was not made.

@@ -23,6 +23,18 @@ def test_js_routes_broad_and_focused_hunts_without_losing_legacy_entrypoints() -
     assert "legacy analyze/deep/offline-fanout/generate remain supported" in registry
 
 
+def test_js_router_references_resolve_from_bbh_root() -> None:
+    router = text("skills/js/SKILL.md")
+    fanout = text("skills/js/references/offline-fanout.md")
+    assert "bbh agents/js_analyzer.py inventory" in router
+    assert "bbh agents/js_analyzer.py inventory" in fanout
+    assert "BBH repository root" in " ".join(router.split())
+    for path in ("prompts/js-playbook.md", "skills/js/references/offline-fanout.md"):
+        assert path in router
+        assert (ROOT / path).is_file()
+        assert not (ROOT / "skills/js" / path).exists()
+
+
 def test_pull_preserves_existing_inventory_and_scope_contract() -> None:
     pull = text("skills/js-pull/SKILL.md")
     for required in (

@@ -46,7 +46,7 @@ tasks through its native delegation capability.
 
 ## Flow
 
-1. Run `agents/js_analyzer.py inventory` to collect, hash, dedupe, chunk, and
+1. Run `bbh agents/js_analyzer.py inventory` to collect, hash, dedupe, chunk, and
    packet JavaScript. Pass an explicit `--run-id` or `--output-root` when early
    packet review is intended so the consumer knows the run root. During a long
    run, newly visible `packets/*.md` and

@@ -40,6 +40,17 @@ Every invocation must declare the **canonical destination lane**. The tool will 
 
 Use `--lane api` for an API surface, or `--lane apk|exe|mac` for binary work. `--family` is optional when the lane implies it; `--hunt-type` is legacy metadata only and cannot override `--lane`.
 
+## `--from-file` note format
+
+Write a markdown/text note with an explicit `File:` and `Description:`. `File:` identifies the affected file or route; `Description:` states the observed behavior. Replace this **synthetic example** with verified, sanitized evidence from an authorized test before ingesting:
+
+```text
+File: src/example.py
+Description: An owned test fixture returned a private marker from another owned record.
+```
+
+`Class:` is optional but recommended when the vulnerability class is known. For example, add `Class: idor` as a separate line. Without it, the parser infers a class from keywords (possibly `unknown` or a wrong class) and prints a warning. The parser can sometimes infer an unlabelled file or use narrative text as the description, but do not rely on those fallbacks. Do not put credentials, tokens, or unrelated private data in notes. This format only establishes parser acceptance; the evidence gate above still determines whether to ingest.
+
 ## Report handoff meaning
 
 When Ryushe says a finding is **confirmed**, it means the evidence has met the

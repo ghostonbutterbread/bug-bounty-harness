@@ -1,14 +1,14 @@
 # Manual-hunter note template integration dossier
 
-- **Status:** feature; awaiting parent review
+- **Status:** independently reviewed; awaiting beta integration
 - **Owner:** Hermes bugfix delegated implementation
 - **Branch / owning ref:** `docs/manual-hunter-note-template`
 - **Worktree:** `/home/ryushe/worktrees/bbh-manual-hunter-note-template`
 - **Base commit:** `c39efdc93b2ae0f0c52fa83ba32bc327d33fe971` (`origin/beta`, fetched)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-15
-- **Latest immutable recovery checkpoint:** none yet; implementation commit and branch tip to be supplied in handoff
-- **Feature implementation commit(s):** pending
+- **Latest immutable recovery checkpoint:** `eabe5a722f6f6d746c778b5fad6dad05a2859766`
+- **Feature implementation commit(s):** `eabe5a722f6f6d746c778b5fad6dad05a2859766`
 - **Inspiration:** `PC-20260914-221118-4041143b`, `PC-20260917-015305-acbfa385`; owning skill and `agents/manual_hunter.py` parser
 
 ## Intent and implemented contract
@@ -21,7 +21,7 @@ Document a sanitized `--from-file` note accepted by the current parser: explicit
 - `python3 -m unittest agents.test_manual_hunter.ManualHunterTests.test_documented_from_file_note_parses_without_ingest -v`: 1 passed. The test parses the actual skill example via an uninitialized parser object, with explicit and inferred class cases; no ledger or ingest is invoked.
 - Four focused parser tests (documented example, tolerant minimal note, class inferred/stated, missing file): 4 passed.
 - `git diff --check`: passed.
-- Independent review and beta integration: parent owns; not performed by this branch.
+- Independent read-only review accepted parser contract and sanitized example, reran four focused tests and `git diff --check`; requested only this checkpoint-metadata correction. Beta integration pending.
 
 ## Blockers and deferred work
 
@@ -30,9 +30,10 @@ None for parser-only validation. Parent should review the documentation/test dif
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/manual-hunter-note-template`
-- **Latest immutable recovery checkpoint:** implementation commit to be reported in handoff
-- **Exact resume point:** parent review and integration into `beta`; retire this dossier at merge
-- **Working-tree state at handoff:** expected clean after commit
+- **Latest immutable recovery checkpoint:** `eabe5a722f6f6d746c778b5fad6dad05a2859766`
+- **Feature implementation commit(s):** `eabe5a722f6f6d746c778b5fad6dad05a2859766`
+- **Exact resume point:** reconcile current beta, integrate reviewed change, rerun focused tests, and retire this dossier on beta
+- **Working-tree state at handoff:** clean after this dossier correction commit
 
 ## Decision gates
 
@@ -43,3 +44,4 @@ None for parser-only validation. Parent should review the documentation/test dif
 ## Decision record
 
 - 2026-10-15 — current parser contract verified and skill note template tested in isolation; parent review pending.
+- 2026-10-15 — independent reviewer accepted the behavior and corrected a stale checkpoint handoff; no finding ingested.

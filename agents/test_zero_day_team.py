@@ -576,7 +576,7 @@ Electron desktop target.
         )
         self.assertEqual(update_mock.call_args.kwargs["family"], "web")
         self.assertEqual(update_mock.call_args.kwargs["lane"], "0day_team")
-        self.assertTrue(update_mock.call_args.kwargs["write_report"])
+        self.assertFalse(update_mock.call_args.kwargs["write_report"])
         self.assertTrue(update_mock.call_args.kwargs["refresh"])
         ledger.update.assert_not_called()
 

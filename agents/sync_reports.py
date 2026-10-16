@@ -17,7 +17,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agents.chain_matrix import build_chain_graph, get_chainable_findings
-from agents.coverage_store import CoverageStore
 from agents.ledger import update_team_finding
 from agents.manual_hunter import (
     FIELD_ALIASES,
@@ -398,38 +397,6 @@ def _candidates_for_file(
 
 
 
-def _mark_coverage(hunter: ManualHunter, finding: dict[str, Any], parsed: ParsedFinding) -> str | None:
-    vuln_class = _normalize_text(finding.get("class_name")).lower()
-    if vuln_class in {"", "unknown", "novel"}:
-        return None
-    if hunter.shared_brain is None or hunter.source_root is None:
-        return None
-
-    relpath = hunter._coverage_relpath(_normalize_text(parsed.finding.get("file")))
-    if relpath is None:
-        return None
-
-    store = CoverageStore(
-        hunter.program,
-        hunter.source_root,
-        lane=hunter.lane,
-        family=hunter.family,
-        root_override=getattr(hunter, "storage_root", None),
-    )
-    store.mark_examined(
-        vuln_class=vuln_class,
-        files=[relpath],
-        method="sync-reports",
-        status="done",
-        run_id=_normalize_text(finding.get("run_id")) or _default_run_id(),
-        snapshot_id=hunter.snapshot_id,
-        version_label=hunter.version_label,
-        finding_fids=[_normalize_text(finding.get("fid"))],
-        notes=f"Imported report from {parsed.source_label}",
-    )
-    return relpath
-
-
 def _chain_suggestions(
     program: str,
     hunt_type: str,
@@ -750,20 +717,12 @@ def main(argv: list[str] | None = None) -> int:
                 update_sighting=False,
             )
             evidence_output = Path(str(finding.get("evidence_path") or ""))
-            coverage_relpath = None
-            try:
-                coverage_relpath = _mark_coverage(hunter, finding, parsed)
-            except Exception as exc:
-                if verbosity.verbose:
-                    print(f"[sync_reports] coverage update failed for {report_path}: {exc}")
             related = _chain_suggestions(program, hunt_type, finding, hunter=hunter)
 
             imported_fids.append(_normalize_text(finding.get("fid")))
             print(f"ADDED {finding['fid']}")
             if verbosity.verbose:
                 print(f"[sync_reports] evidence={evidence_output}")
-                if coverage_relpath:
-                    print(f"[sync_reports] coverage={coverage_relpath}")
             if related:
                 chain_lines.append(f"{finding['fid']} could chain with {', '.join(related)}")
 

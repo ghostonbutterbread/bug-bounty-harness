@@ -1,19 +1,19 @@
 ---
 name: ledger
-description: Coordinate BBH findings, coverage, and durable hunt context.
+description: Coordinate BBH findings, prior-proof checks, and report handoff.
 ---
 
 # BBH Ledger
 
 Use this skill for the Bug Bounty Harness ledger and its adjacent durable hunt
-records. It owns finding deduplication, coverage coordination, and the
+records. It owns finding deduplication, not mapped-versus-reviewed coverage, and the
 canonical artifact locations. It does not provide a general session briefing;
 use the shared `atme` skill for a concise “what are we working on?” summary.
 
 ## When to Use
 
 - A manual hunt needs its program/lane storage context.
-- Before recording a candidate finding or marking a surface reviewed.
+- Before recording a candidate finding; use `/coverage` to mark an explicitly reviewed surface.
 - When importing a real finding into BBH's report pipeline.
 - When writing target-specific handoff, hypothesis, or timeline context.
 
@@ -87,7 +87,7 @@ finding.
 ~/Shared/{family}/{program}/{lane}/
 ├── ledgers/ledger.json          # canonical v2 dedupe ledger
 ├── ledgers/findings.jsonl       # append-only finding stream, when present
-├── ledgers/coverage.json        # reviewed surface/class state
+├── ledgers/coverage.json        # legacy static source-file/class snapshot review (see /coverage)
 ├── ledgers/shared_brain/        # indexed target context
 ├── context/                     # target profile and handoff
 ├── notes/                       # timeline, hypotheses, handoffs, FAQ
@@ -167,8 +167,10 @@ Keep reusable target knowledge in the resolved source/version root:
 - Handoffs: takeover-ready scope, lane, evidence, and blocker.
 - FAQ: solved target-specific workflow facts, never secrets.
 
-Submit findings through `manual_hunter.py`; use `me_ledger.py cover` only after
-actual review; leave a handoff even when no finding was produced.
+Submit findings through `manual_hunter.py`; load `/coverage` and use the legacy
+`me_ledger.py cover` only after explicit static source-file/class review. Live
+surface/class assessments use `agents/coverage.py`, not this ledger command.
+Leave a handoff even when no finding was produced.
 
 ## Safety and Verification
 

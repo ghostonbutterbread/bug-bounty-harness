@@ -6,8 +6,8 @@
 - **Base commit:** `5993acc110972b2eae45b77a453ccb7ebb0e6b96` (selected Hoster beta runtime ancestor)
 - **Intended integration target:** `beta` (currently `origin/beta` at `e6e12b4b64cab8af3e7939ee8e0d7099294f1f57`; reconcile later)
 - **Last updated:** 2026-10-15
-- **Latest immutable recovery checkpoint:** `3411333dd7d99529c3e087b6236defca37589832` on `feat/safety-incident-host-secret`
-- **Feature implementation commit(s):** `3411333dd7d99529c3e087b6236defca37589832`
+- **Latest immutable recovery checkpoint:** `4bc51020f4459a1aa4074a69b385d5143744dc1f` on `feat/safety-incident-host-secret`
+- **Feature implementation commit(s):** `3411333dd7d99529c3e087b6236defca37589832`, `4bc51020f4459a1aa4074a69b385d5143744dc1f`
 - **Inspiration / canonical references:** `AGENTS.md`, `SCRIPT_POLICY.md`, `docs/bbh-launcher.md`, published Bounty Core beta `6c36ee88a60073e1b687ec32deeade24ffafdd4f` (formatted severity alerts).
 
 ## Intent and contract
@@ -36,15 +36,15 @@ Only `scripts/safety_incident.py` loads the owner-only `$HOME/.config/bounty-cor
 ## Interruption / resume handoff
 
 - **Owning ref:** `feat/safety-incident-host-secret`
-- **Latest recovery checkpoint:** `3411333dd7d99529c3e087b6236defca37589832` (verify any later dossier-only tip separately)
-- **Feature implementation commit(s):** `3411333dd7d99529c3e087b6236defca37589832`
-- **Exact resume:** review feature diff, reconcile onto current beta, verify, and integrate only with separate authorization.
+- **Latest recovery checkpoint:** `4bc51020f4459a1aa4074a69b385d5143744dc1f` (verify any later dossier-only tip separately)
+- **Feature implementation commit(s):** `3411333dd7d99529c3e087b6236defca37589832`, `4bc51020f4459a1aa4074a69b385d5143744dc1f`
+- **Exact resume:** final independent review of combined loader and provider pin; reconcile onto current beta, verify, then deploy selected runtime only to the published reviewed feature checkpoint.
 - **Working-tree state at handoff:** clean after task commit.
 
 ## Decision gates
 
 - **Integration:** no merge or push in this task; parent review and beta reconciliation required.
-- **Activation:** no secret provisioning or live send in this task; operator-controlled per-host file and separate activation evidence required.
+- **Activation:** Hoster owner-only secret file provisioned and privately read back; selected checkout/dependency update and one controlled Discord delivery/readback remain pending.
 - **Promotion:** no stable promotion authorized.
 
 ## Decision record

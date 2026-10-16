@@ -3,7 +3,7 @@
 - Owner/card: Hermes in-thread, `t_86eff61e`
 - Worktree/branch: `/home/ryushe/worktrees/bbh-skill-triage-20261016`, `feat/bbh-skill-triage-20261016`
 - Base: `origin/beta` at `e6e12b4b64cab8af3e7939ee8e0d7099294f1f57`; target: reviewed `beta` only
-- Implementation commits: `0f56ac87b7037e4379b0953c3d11acc993e446af`, `35fabb272b8afc447188e83fcad18f25c1bf5055`, `a13544d0cb38d062c7de49cedb1a37efa9b00988`, `f93703d300f4ba84086ccb320988199c5bb2b470`, `df2edd7c37969f8be9e38fe107b05892d4c0b383`, `41e69026d204a5fc7af42939f72b4d6373390fe0` (completed-project current-data route), and `278c1f0e31345a3157586dd1a406b384f91f8038` (parent `/recon` ingest-route clarity); URL-review intake correction pending a commit. `4a81072c822a64191a4f989968fd23ee2581b394` was a prior dossier-only receipt. Verify review/merge against the complete feature range and current tip, not an earlier pass.
+- Implementation commits: `0f56ac87b7037e4379b0953c3d11acc993e446af`, `35fabb272b8afc447188e83fcad18f25c1bf5055`, `a13544d0cb38d062c7de49cedb1a37efa9b00988`, `f93703d300f4ba84086ccb320988199c5bb2b470`, `df2edd7c37969f8be9e38fe107b05892d4c0b383`, `41e69026d204a5fc7af42939f72b4d6373390fe0` (completed-project current-data route), `278c1f0e31345a3157586dd1a406b384f91f8038` (parent `/recon` ingest-route clarity), and `3d7367f267cad80404e06977f259dd4a459c3807` (canonical URL-review intake). `4a81072c822a64191a4f989968fd23ee2581b394` was a prior dossier-only receipt. This dossier update follows the implementation commit. Verify review/merge against the complete feature range and current tip, not an earlier pass.
 - Source: Discord message `1560733134524260465`
 
 ## Intent and ownership

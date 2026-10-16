@@ -66,6 +66,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **rce-validation** | Bounded precursor or proof | `skills/rce-validation/SKILL.md` |
 | **rce-technology-research** | Observed stack and preconditions | `skills/rce-technology-research/SKILL.md` |
 | **xss** | `/xss {program}` | Router to `reflected-xss`, `stored-xss`, and `dom-xss` |
+| **xss-gtm** | Load with `/xss` when a controlled path selects a GTM ID or loads its script | `skills/xss-gtm/SKILL.md`; preconfigured XSS fixture, not GTM account management |
 | **reflected-xss** | `/reflected-xss {target_url}` | `skills/reflected-xss/SKILL.md` |
 | **stored-xss** | `/stored-xss {program} {write-and-render-context}` | `skills/stored-xss/SKILL.md` |
 | **dom-xss** | `/dom-xss {target_url}` | `skills/dom-xss/SKILL.md` |

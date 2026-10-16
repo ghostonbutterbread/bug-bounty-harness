@@ -67,3 +67,19 @@ def test_exact_url_scope_file_is_only_a_host_filter() -> None:
     recon = text("skills/recon/SKILL.md")
     assert "post-run artifact filtering cannot undo an out-of-scope request" in recon
     assert "request-level destinations" in recon
+
+
+def test_mandatory_recon_ry_child_route_preserves_exact_host_stop_gate() -> None:
+    child = " ".join(text("skills/recon-ry/SKILL.md").split())
+    playbook = " ".join(text("prompts/recon-ry-playbook.md").split())
+    assert "Read `prompts/recon-ry-playbook.md`" in child
+    assert "host-granular scope file does not enforce scheme, port, or path" in child
+    assert "one distinct project per eligible host" in child
+    assert "A grant limited to one origin or path does not authorize that active profile" in child
+    assert "A URL limited to one scheme/port or an allowed path is **not** a host-wide grant" in playbook
+    assert "do not run active `exact-urls` stages" in playbook.lower()
+    assert "--remote-project /home/ryushe/bounties/<program>/exact/<host-key>" in playbook
+    assert "do not launch the next host until the prior PID has completed" in playbook
+    assert "not** an aggregate concurrent cap" in playbook
+    assert "Run it once per exact scoped host" not in playbook
+    assert "launch Recon-Ry once as the durable broad collector" not in child

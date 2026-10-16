@@ -29,12 +29,17 @@ Start a remote run and return immediately:
 bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
 ```
 
-The start command fails closed if saved scope is missing or the URL is out of scope. It also writes a project-local `rate_limit.conf` before launch. Use `--rate-limit-rps` only after checking the program policy; use `--allow-unscoped` only after explicit Ryushe approval.
+The start command rejects a missing saved scope or out-of-scope seed host, but
+its host-granular scope file does not enforce scheme, port, or path on every
+request. Read the playbook's exact-host versus origin/path-limited gate before
+choosing `exact-urls`. It writes a project-local `rate_limit.conf` before launch.
+Use `--rate-limit-rps` only after checking program policy; use
+`--allow-unscoped` only after explicit Ryushe approval.
 
 Authenticated runs are opt-in:
 
 ```bash
-bbh agents/recon_ry.py start <program> --url <one-scoped-origin> --profile exact-urls --auth blue
+bbh agents/recon_ry.py start <program> --url <host-wide-approved-url> --profile exact-urls --auth blue --remote-project /home/ryushe/bounties/<program>/exact/<host-key>
 ```
 
 `--auth <alias-or-color>` resolves through `/account-management` and PwnFox
@@ -48,10 +53,12 @@ header forwarding (including EyeWitness); its filters are not a universal
 request-level egress guarantee. Raw values must not be pasted into chat or
 committed. Dry-run output is redacted.
 
-Before launch, the wrapper stages recon seed files into the remote project:
+Before launch, the wrapper stages recon seed files into the selected remote
+project (`/home/ryushe/bounties/{program}/` by default, or the explicit
+`--remote-project` for a permitted exact-host run):
 
-- `/home/ryushe/bounties/{program}/urls.txt`
-- `/home/ryushe/bounties/{program}/wild.txt`
+- `<remote-project>/urls.txt`
+- `<remote-project>/wild.txt`
 
 `urls.txt` receives exact URLs and exact host/domain entries. `wild.txt`
 receives wildcard base domains with `*.` removed.
@@ -82,6 +89,7 @@ Active and durable recon-ry project directories use:
 
 ```text
 /home/ryushe/bounties/{program}/
+/home/ryushe/bounties/{program}/exact/{host-key}/  # separate approved exact-host run
 ```
 
 Legacy local examples may also exist at:
@@ -154,10 +162,14 @@ Use ingest/indexing for manifests, counts, and small parsed artifacts. Do not co
 ## Role In The Advanced Recon Baseline
 
 For a permitted `/recon --mode full` baseline or a separately selected deep
-recon campaign, launch Recon-Ry once as the durable broad collector. It already
-owns GAU/Wayback/archive URL collection and its own aggregate promotion path; do
-not start overlapping GAU, Wayback, or archive-URL jobs against the same scope
-merely because those tools are available.
+recon campaign, launch Recon-Ry for the approved profile and target set as the
+durable broad collector: a wildcard baseline may use one broad run, while
+approved exact-host-only scope requires one distinct project per eligible host,
+started sequentially after the previous detached run completes. A grant
+limited to one origin or path does not authorize that active profile. Recon-Ry
+already owns GAU/Wayback/archive URL collection and its own aggregate promotion
+path; do not start overlapping GAU, Wayback, or archive-URL jobs against the same
+scope merely because those tools are available.
 
 After Recon-Ry returns, `/recon` may select only evidence-gap-driven companion
 lanes: DNS/IP/certificate correlation for approved wildcard hosts, permitted

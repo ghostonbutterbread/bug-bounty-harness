@@ -29,38 +29,62 @@ Start via the local wrapper so Hoster owns the long-running process:
 bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
 ```
 
-The wrapper enforces saved scope before starting:
+The wrapper checks the seed against saved scope before starting; this is not
+request-level confinement for all stages. The derived scope file reduces root
+URLs to hosts, so it cannot enforce a scheme, port, or allowed-path grant:
 
 - if no saved scope exists for the program, it stops
 - if the seed URL is not in scope, it stops
 - `--allow-unscoped` is only for explicit Ryushe-approved runs with no saved scope; it never disables an existing saved host filter or exclusion
 
-### Exact URL-Only Scope
+### Exact-host grants versus origin/path-limited grants
 
-For programs with only exact website/API URL targets and no wildcard scope, use:
+For a program with exact targets and no wildcard scope, classify the saved
+grant first. A URL limited to one scheme/port or an allowed path is **not** a
+host-wide grant. Do not run active `exact-urls` stages for such a target until
+request-level destinations are constrained and verified or the program separately
+approves wider host activity. Path-scoped repository/package URLs stay source
+review only; do not treat them as whole-host seeds. Passive/source review may
+continue within its own authorization.
+
+For an approved host-wide target, verify each enabled stage's request behavior
+against saved scope, then launch **one** host with its own project:
 
 ```bash
 bbh agents/recon_ry.py start <program> \
-  --url <one-scoped-origin> \
-  --profile exact-urls
+  --url <approved-host-url> \
+  --profile exact-urls \
+  --remote-project /home/ryushe/bounties/<program>/exact/<host-key>
 ```
 
 `exact-urls` keeps the standard project and artifact schema but omits subdomain
 enumeration, IP/port enrichment, and any promotion of sibling hosts. It runs
-only exact-host web stages: crawl/archive URL discovery, alive checks, HTTP
+exact-host web stages: crawl/archive URL discovery, alive checks, HTTP
 fingerprinting, parameter/JS discovery, directory discovery, secret scanning,
-URL ranking, and EyeWitness. URL-bearing outputs are filtered back to the exact
-seed host. Run it once per exact scoped host.
+URL ranking, and EyeWitness. Its URL-bearing outputs are filtered back to the
+seed **host**; this does not prove request-level confinement to the authorized
+origin/path, or undo any prior out-of-scope request.
 
-The wrapper writes `<remote-project>/rate_limit.conf` before launch. Default is conservative: `--rate-limit-rps 2`; `--timeout 0` disables the per-tool timeout. Set tighter limits when the program policy requires them, and increase request rate only when allowed.
+For multiple approved hosts, use a distinct `--remote-project` per host. `start`
+defaults to the **same** program project and backgrounds each job, so do not
+launch the next host until the prior PID has completed and its log/project
+receipt is inspected. Record the eligible count and deferred assets; one-host
+smoke is not scope-wide coverage. Do not substitute the detached multi-host
+queue as an automatic aggregate-rate or containment guarantee.
+
+The wrapper writes `<remote-project>/rate_limit.conf` before launch. Default is
+`--rate-limit-rps 2` per project, **not** an aggregate concurrent cap;
+`--timeout 0` disables the per-tool timeout. Set tighter limits when program
+policy requires them, and increase request rate only when allowed.
 
 Authenticated recon is opt-in and should use the existing account resolver:
 
 ```bash
 bbh agents/recon_ry.py start <program> \
-  --url <one-scoped-origin> \
+  --url <host-wide-approved-url> \
   --profile exact-urls \
-  --auth blue
+  --auth blue \
+  --remote-project /home/ryushe/bounties/<program>/exact/<host-key>
 ```
 
 `--auth <alias-or-color>` resolves through
@@ -125,7 +149,9 @@ Do not tail the process for the whole run. Save the PID/log/project path in note
 
 ## Directory Map
 
-Default active project:
+Default active project (wildcard/broad); distinct exact-host projects live under
+`/home/ryushe/bounties/{program}/exact/{host-key}/` when selected via
+`--remote-project`:
 
 ```text
 /home/ryushe/bounties/{program}/

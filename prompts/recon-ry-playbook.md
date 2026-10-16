@@ -195,13 +195,20 @@ Recon-ry writes and dedupes its current state into root line files:
 └── screenshots/ or eyewitness/  # visual artifacts when present
 ```
 
-Root files are the latest deduped view. `history/{timestamp}/` folders are run snapshots. The newest run is usually:
+Each selected project's root files are its latest deduped view;
+`history/{timestamp}/` beneath that **same project** contains its run
+snapshots. Select the completed `start` receipt's `project=` path first: the
+program root for a broad run, or the separate `exact/` project for that host.
+Do not read program-root files/history to represent an exact-host run. For
+example, to inspect a completed exact-host project:
 
 ```bash
-ls -1t /home/ryushe/bounties/<program>/history | head -1
+PROJECT=/home/ryushe/bounties/<program>/exact/<host-key>
+ls -1t "$PROJECT/history" | head -1
 ```
 
-If no `history/` directory exists, use the root files directly.
+For a broad run, set `PROJECT=/home/ryushe/bounties/<program>` instead. If
+that selected project's `history/` is absent, read **its** root files directly.
 
 Large EyeWitness stores should live on the mounted bounty volume, not inside
 `/home/ryushe/bounties`. Hoster recon-ry supports
@@ -229,7 +236,9 @@ If needed, inspect the last log lines manually on Hoster, but avoid turning this
 
 ## Reading Pattern
 
-When an agent needs recon data:
+When an agent needs recon data, resolve the completed run's `project=` path
+before following these file names; for exact-host runs use each host's distinct
+project, not the program root:
 
 - start from `alive.txt` for live hosts, browser checks, live-map, and nuclei-style validation
 - use `params.txt` for endpoint-heavy testing such as XSS, SQLi, SSRF, redirect, request-shape, and IDOR review

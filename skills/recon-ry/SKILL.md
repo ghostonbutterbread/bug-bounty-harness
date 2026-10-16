@@ -110,7 +110,11 @@ Legacy local examples may also exist at:
 ~/projects/bounties/{program}/
 ```
 
-Use the newest `history/` snapshot when the question is about a specific run. Use the root files when the question is about the latest deduped current state.
+Use the completed run's `project=` path before reading data: the program root
+for a broad run, or the recorded `exact/` project for each approved host. Use
+**that project's** newest `history/` snapshot for a specific run and its root
+files for the latest deduped current state; never substitute program-root data
+for an exact-host run.
 
 ## Artifact Map
 
@@ -134,16 +138,21 @@ Use the newest `history/` snapshot when the question is about a specific run. Us
 └── screenshots/ or eyewitness/  # visual artifacts when present
 ```
 
-Recon-ry merges line-based outputs into the root files during runs, so root files are the current deduped view. `history/{timestamp}/` preserves what existed during that run.
+Recon-ry merges line-based outputs into the selected project's root files
+during runs; `history/{timestamp}/` beneath the same project preserves its
+snapshots. Separate exact-host projects do not merge into the program root.
 
 ## Finding The Latest Data
 
-On Hoster:
+On Hoster, select the `project=` path recorded by the completed run. For an
+exact-host example:
 
 ```bash
-PROJECT=/home/ryushe/bounties/<program>
+PROJECT=/home/ryushe/bounties/<program>/exact/<host-key>
 ls -1t "$PROJECT/history" | head -1
 ```
+
+For a broad run, set `PROJECT=/home/ryushe/bounties/<program>` instead.
 
 For legacy local data:
 
@@ -152,7 +161,7 @@ PROJECT=~/Shared/bounty_recon/<program>
 ls -1t "$PROJECT/history" | head -1
 ```
 
-If `history/` does not exist, read the project root files directly.
+If `history/` does not exist, read the selected project's root files directly.
 
 ## Output Indexing
 

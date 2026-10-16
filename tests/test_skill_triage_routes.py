@@ -46,6 +46,12 @@ def test_cookie_and_form_testing_preserve_safety_contracts() -> None:
     assert "stop and request a separately reviewed isolated secret-handling adapter" in cookie
     for phrase in ("valid", "baseline", "conditional", "account-testing-policy", "CAPTCHA"):
         assert phrase in form
+    assert "## JavaScript Lens" in form
+    assert "source/proxy packet" in form and "allowed task-MITM baseline" in form
+    assert "source code alone does" in form
+    assert "## JavaScript Lens" in cookie
+    assert "not an input to this offline CookieMonster workflow" in cookie
+    assert "Never carry a bearer value" in cookie
 
 
 def test_scope_merge_is_small_and_not_a_duplicate_recon_router() -> None:

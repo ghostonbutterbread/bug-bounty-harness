@@ -41,6 +41,15 @@ Do not use this to bypass CAPTCHA, consent, authorization, anti-automation, paym
 7. **Capture only after baseline.** When browser-generated state matters, capture one successful owned submission through the task-scoped MITM. Replay or temporarily modify only the approved request family and one variable, then observe the response and owned effect. Completion: the captured baseline, sanitized mutation, response, and cleanup are recorded; no interception rule remains.
 8. **Record and continue safely.** Distinguish UI-only prevention from server validation, authorization, and durable state change. Record the required state, submitted/omitted field category, one changed variable, response class, and owned effect. Completion: the next test, pivot, ask, or stop decision follows evidence and applicable policy.
 
+## JavaScript Lens
+
+When `/js` observes form controllers, client validators, conditional fields,
+serialization, or a submit request builder, carry a compact source/proxy packet
+with module or route provenance into the form-state map. Compare it with the
+visible browser state and an allowed task-MITM baseline; source code alone does
+not establish server validation, authorization, or permission to submit. `/js`
+owns bundle inventory; this skill owns only the controlled form workflow.
+
 ## CAPTCHA and Other Boundaries
 
 - A CAPTCHA is a control, not a malformed field. Do not bypass it, rotate IPs, automate solving, or modify its verification values to force submission.

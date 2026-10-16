@@ -51,6 +51,14 @@ test -x "$COOKIE_MONSTER" || exit 1
 "$COOKIE_MONSTER" -cookie '<synthetic-non-authentic-cookie>' -resign '<controlled-body>'
 ```
 
+## JavaScript Lens
+
+JavaScript evidence is not an input to this offline CookieMonster workflow.
+If `/js` reveals client-side cookie construction or session access, record only
+the source location and non-secret format clue; route live session behavior to
+`browser-session-policy` or `jwt-auth`. Never carry a bearer value from a
+bundle, browser, or proxy into this synthetic-only CLI procedure.
+
 ## Pitfalls
 
 - `-url` issues a live HTTP request; it is not an offline inspection mode and is not a substitute for the live-testing policy chain.

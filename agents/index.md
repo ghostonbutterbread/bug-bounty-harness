@@ -30,6 +30,11 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    selected surface to one specialist lane. When no signal exists, run an
    adaptive, class-appropriate live discovery sequence to establish or reject
    it; signal controls escalation severity, not permission to test.
+   For a server-side execution question load `/rce` as the class entry; it
+   routes mapping, primitive exploration, later consumers, stack research, and
+   bounded validation. For a solo primary hunter needing distinct sidecars,
+   load `hunt-orchestration-policy` for admission and `/hunt-orchestration` for
+   BBH evidence and handoff mechanics; Bunny remains opt-in.
    For any potentially destructive proof, prefer a recreated, task-owned
    disposable local Docker/VM instance, preserve evidence, then remove and
    verify only its resources. Isolation does not authorize live impact; if a
@@ -40,6 +45,9 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
 5. Use `$HARNESS_SHARED_BASE` and the canonical storage tools: `/bounty-storage`
    for Shared vs mounted-artifact vs scratch routing, `/map-store` for durable
    target facts, `/docs` for compact program-specific application-behavior models,
+   `/account-registry` with `/account-management` for non-secret owned-account
+   metadata and resolver/lease contracts, `/blocker-first-analysis` for causal
+   blocked-test interpretation (use `/blockers` only for an external prerequisite),
    `/hypothesis-ledger` for private candidate branches, `/leads` for cross-run
    evidence-backed lead synthesis and lifecycle reconciliation, `/bounty-notes` for human
    coordination, and Attempts for exact target-directed payload/probe history.
@@ -49,7 +57,8 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    handoff. Attempts and findings never imply a completed review; `/ledger`
    remains the findings/dedupe owner. Program docs explain how this application
    uses a technology or flow; ResearchMap supplies portable mechanisms only
-   when their recognition signals match that model or a current observation. Read
+   when their recognition signals match that model or a current observation;
+   `/research-knowledge-management` owns source admission and corpus separation. Read
    `docs/attempt-recording-contract.md` before writing Attempts: they are not a
    general live-observation log. For an audit of what an agent actually did,
    load `/agent-audit` with the program and run/handoff identity; it reconciles

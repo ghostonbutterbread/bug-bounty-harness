@@ -1,6 +1,6 @@
 # Program severity scoring integration dossier
 
-- **Status:** review-ready locally; pending independent review and integration
+- **Status:** independently approved for beta integration; runtime activation pending
 - **Owner:** Hermes bugfix subagent
 - **Branch:** `fix/program-severity-scoring`
 - **Base commit:** `ccdadc4e79152434c59cbebe467bd98cd0805819` (`origin/beta` fetched 2026-10-15)
@@ -22,7 +22,7 @@ Add a compact local skill for a confirmed finding: published program rules and c
 ## Evidence and review
 
 - Tests and commands: `python3 -m pytest tests/test_program_severity_scoring_skill.py tests/test_ledger_skill_visibility.py tests/test_skill_command_lane_safety.py agents/test_me_ledger.py -q` (27 passed, 13 subtests); initial new tests red before skill. `git diff --cached --check` clean. YAML frontmatter parsed with PyYAML; description length 53.
-- Independent review: pending parent integration owner.
+- Independent review approved the four-file diff against fetched `origin/beta` at the feature base: 27 focused tests and 13 subtests, 41 manual-hunter tests and 13 subtests, three severity-normalization tests, frontmatter parsing, and `git diff --check` passed. No invented rating table or false P-tier mapping found. Reviewer changed no files.
 - Replay/cohort/fixture evidence: content/route tests only; no real program rubric used.
 - Merge/ancestry evidence: base fetched `origin/beta` at `ccdadc4`; no integration performed.
 
@@ -32,14 +32,14 @@ Add a compact local skill for a confirmed finding: published program rules and c
 - **Command / fixture / environment needed:** Published program brief/rubric and sanitized finding impact; compare source to selected rating.
 - **Trigger to run it:** Authorized real finding scored through the ledger route.
 - **Why it blocks integration, activation, or promotion:** It does not block this generic skill's local verification; it blocks claims of accuracy for any particular program rating.
-- **Next completion step / successor reference:** Parent independently reviews branch before integration; real program scoring stays with each finding owner.
+- **Next completion step / successor reference:** Parent integrates to selected beta, verifies merged-tree checks and publishes, then refreshes the selected Hoster beta source and runs a focused profile sync/resolver check. Real program scoring stays with each finding owner.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/program-severity-scoring`
 - **Latest immutable recovery checkpoint:** `da8e4bfae7bbb1feb9eb63059366dcf176678177`
 - **Feature implementation commit(s):** `da8e4bfae7bbb1feb9eb63059366dcf176678177`
-- **Exact resume point:** inspect implementation commit and this later dossier-only commit; independently review, reconcile with fetched `origin/beta`, then integrate if accepted. No merge/push here.
+- **Exact resume point:** reconcile with current `origin/beta`, integrate independently reviewed code into a clean beta checkout, remove this temporary dossier, run merged-tree tests, publish and verify selected runtime skill projection. No real finding scoring is implied.
 - **Working-tree state at handoff:** clean after dossier-only commit
 
 ## Decision gates
@@ -51,3 +51,4 @@ Add a compact local skill for a confirmed finding: published program rules and c
 ## Decision record
 
 - 2026-10-15 — BBH owns ledger reference and registry; chose a narrow scoring skill rather than extending report-writing or normalization. No program-specific P-tier table.
+- 2026-10-15 — independent review approved source-level beta integration with focused and neighboring suites; runtime discovery remains unverified.

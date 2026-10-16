@@ -6,8 +6,8 @@
 - **Base commit:** `69aa9992526acb1ccfb93314022a4c7ea205afce` (`origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-16
-- **Latest immutable recovery checkpoint:** none yet; initial commit pending
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `6c67e12f50eaa07da77788688acce218fda481b0`
+- **Feature implementation commit(s):** `6c67e12f50eaa07da77788688acce218fda481b0`
 - **Inspiration / canonical references:** Ryushe request; Recon-Ry `config/profiles.yaml` snap preset; BBH `AGENTS.md` ownership boundary.
 
 ## Intent
@@ -20,9 +20,9 @@ Make ordinary BBH Recon-Ry broad launches choose reduced `snap`, not `full`, wit
 
 ## Evidence and review
 
-- `python3 -m pytest -q tests/test_recon_ry_snap_default.py tests/test_skill_triage_routes.py tests/test_recon_ry_scope_files.py` → 19 passed.
+- `python3 -m pytest -q tests/test_recon_ry_snap_default.py tests/test_skill_triage_routes.py tests/test_recon_ry_scope_files.py tests/test_full_recon.py tests/test_recon_docs.py` → 27 passed after review follow-up.
 - Recon-Ry local `config/profiles.yaml` includes snap (subdomain, URL, alive, IP, fingerprint, params, secret, ranking); `main.sh` accepts `--profile`.
-- Independent review: pending.
+- Independent review: approved behavior and guards; requested registry/playbook alignment and current dossier receipt, now addressed. Focused reviewer checks: 19 passed. Excluded-wildcard regression covered in follow-up.
 - Merge/ancestry: feature based on fetched `origin/beta` tip above; no integration yet.
 
 ## Blockers and deferred work
@@ -32,9 +32,10 @@ Make ordinary BBH Recon-Ry broad launches choose reduced `snap`, not `full`, wit
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/recon-ry-snap-default`
-- **Latest immutable recovery checkpoint:** pending initial commit
-- **Exact resume point:** commit, independent review, reconcile/integrate to beta, verify consumer activation.
-- **Working-tree state at handoff:** task-owned edits pending commit.
+- **Latest immutable recovery checkpoint:** `6c67e12f50eaa07da77788688acce218fda481b0`
+- **Feature implementation commit(s):** `6c67e12f50eaa07da77788688acce218fda481b0`
+- **Exact resume point:** reconcile/integrate to beta, verify consumer activation.
+- **Working-tree state at handoff:** clean after follow-up commit.
 
 ## Decision gates
 
@@ -44,4 +45,4 @@ Make ordinary BBH Recon-Ry broad launches choose reduced `snap`, not `full`, wit
 
 ## Decision record
 
-- 2026-10-16 — implemented default change and mirrored full-profile safety guards; focused offline checks green; pending independent review.
+- 2026-10-16 — independent review accepted code behavior; requested registry/playbook/dossier alignment. Follow-up addressed those items and tested excluded-wildcard rejection (27 focused tests green). Integration approved; Hoster activation remains separate.

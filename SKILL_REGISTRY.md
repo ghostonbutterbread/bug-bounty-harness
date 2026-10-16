@@ -201,7 +201,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 /js generate canva --from-run js-canva-20260615T000000Z
 /js deep canva --offline-fanout --from-run js-canva-20260615T000000Z
 /recon superdrug
-/recon-ry superdrug --url example.com --profile full
+/recon-ry superdrug --url example.com
 /focused-recon canva --top 20
 /focused-recon canva --host labs.canva.tech
 /csrf superdrug

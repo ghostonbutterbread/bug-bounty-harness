@@ -132,7 +132,7 @@ For credentialed starts the wrapper narrows staged seeds to the approved
 `--url` target, leaves `wild.txt` empty, and does not run wildcard-dependent
 profiles. Repeatable `--header` values—including Authorization and program
 attribution headers—are treated as credentials regardless of their names.
-Unauthenticated `full`, `subs`, and `fast` runs enumerate eligible staged
+Unauthenticated `snap`, `full`, `subs`, and `fast` runs enumerate eligible staged
 wildcard roots; if every saved root was excluded, the wrapper refuses to
 fall back to subdomain enumeration from an exact URL.
 

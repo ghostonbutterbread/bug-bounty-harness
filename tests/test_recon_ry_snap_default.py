@@ -23,6 +23,10 @@ class ExactScope(WildcardScope):
     _entries = [type("Entry", (), {"entry_type": "domain", "raw": "example.test"})()]
 
 
+class ExcludedWildcardScope(WildcardScope):
+    _out_of_scope = [type("Entry", (), {"raw": "*.example.test"})()]
+
+
 @pytest.mark.parametrize("profile,flag", [(None, "--profile snap"), ("full", "--full")])
 def test_broad_launch_default_and_full_override(monkeypatch, capsys, profile, flag):
     monkeypatch.setattr(recon_ry, "ScopeValidator", WildcardScope)
@@ -44,6 +48,15 @@ def test_snap_requires_wildcard_scope(monkeypatch):
         ["start", "example", "--url", "example.test", "--dry-run"]
     )
     with pytest.raises(SystemExit, match="requires wildcard targets"):
+        args.func(args)
+
+
+def test_snap_refuses_excluded_wildcard_roots(monkeypatch):
+    monkeypatch.setattr(recon_ry, "ScopeValidator", ExcludedWildcardScope)
+    args = recon_ry.build_parser().parse_args(
+        ["start", "example", "--url", "example.test", "--dry-run"]
+    )
+    with pytest.raises(SystemExit, match="no eligible wildcard roots"):
         args.func(args)
 
 

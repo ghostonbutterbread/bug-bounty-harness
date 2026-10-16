@@ -6,8 +6,8 @@
 - **Base commit:** `5993acc110972b2eae45b77a453ccb7ebb0e6b96` (selected Hoster beta runtime ancestor)
 - **Intended integration target:** `beta` (currently `origin/beta` at `e6e12b4b64cab8af3e7939ee8e0d7099294f1f57`; reconcile later)
 - **Last updated:** 2026-10-15
-- **Latest immutable recovery checkpoint:** base `5993acc110972b2eae45b77a453ccb7ebb0e6b96` until feature commit; feature branch tip thereafter
-- **Feature implementation commit(s):** pending
+- **Latest immutable recovery checkpoint:** `3411333dd7d99529c3e087b6236defca37589832` on `feat/safety-incident-host-secret`
+- **Feature implementation commit(s):** `3411333dd7d99529c3e087b6236defca37589832`
 - **Inspiration / canonical references:** `AGENTS.md`, `SCRIPT_POLICY.md`, `docs/bbh-launcher.md`, Bounty Core pin `ce8718b6bfb39fb08533f506bd2bfe627b52e5da`
 
 ## Intent and contract
@@ -34,8 +34,8 @@ Only `scripts/safety_incident.py` loads the owner-only `$HOME/.config/bounty-cor
 ## Interruption / resume handoff
 
 - **Owning ref:** `feat/safety-incident-host-secret`
-- **Latest recovery checkpoint:** branch tip after commit (base `5993acc...` before commit)
-- **Feature implementation commit(s):** pending
+- **Latest recovery checkpoint:** `3411333dd7d99529c3e087b6236defca37589832` (verify any later dossier-only tip separately)
+- **Feature implementation commit(s):** `3411333dd7d99529c3e087b6236defca37589832`
 - **Exact resume:** review feature diff, reconcile onto current beta, verify, and integrate only with separate authorization.
 - **Working-tree state at handoff:** clean after task commit.
 
@@ -48,3 +48,4 @@ Only `scripts/safety_incident.py` loads the owner-only `$HOME/.config/bounty-cor
 ## Decision record
 
 - 2026-10-15 — selected runtime-ancestor exception recorded; narrow CLI fallback implemented and offline tests exercised.
+- 2026-10-15 — implementation checkpoint `3411333dd7d99529c3e087b6236defca37589832`; offline suite 230 passed, 174 subtests with known unrelated Hoster-authority failure excluded.

@@ -152,3 +152,12 @@ def test_recon_current_data_routes_select_the_completed_project() -> None:
         assert "project=` path" in route
         assert "program root" in route
     assert "ls -1t /home/ryushe/bounties/<program>/history" not in playbook
+
+
+def test_url_review_intake_uses_promoted_aggregate_not_stale_program_root() -> None:
+    for path in ("prompts/url-ingest-playbook.md", "skills/url-ingest/references/url-ingest-reference.md"):
+        route = text(path)
+        assert "bbh scripts/recon_bus.py query <program> --artifact alive --format path" in route
+        assert '--source "$ALIVE_PATH" --run-id <run-id> --scope-filter auto' in route
+        assert "project=" in route
+        assert "/home/ryushe/bounties/<program>/alive.txt" not in route

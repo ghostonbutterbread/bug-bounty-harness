@@ -108,13 +108,19 @@ bbh agents/recon_store.py <program> --tool <tool-name> --target <domain-or-url> 
 
 ## Hoster Ingest
 
-```bash
-scp hoster:/home/ryushe/bounties/<program>/alive.txt /tmp/alive_<program>.txt
-bbh agents/url_ingest.py ingest <program> --source /tmp/alive_<program>.txt --run-id <run-id>
+Wait for Recon-Ry's completed-project promotion. Its URL-shaped artifacts are
+automatically indexed by Recon Bus. For an explicit reimport, resolve the
+canonical aggregate rather than an unconditional Hoster program-root file;
+exact-host runs write to separate recorded projects:
 
-ssh hoster 'cat /home/ryushe/bounties/<program>/alive.txt' | \
-  bbh agents/url_ingest.py ingest <program>
+```bash
+ALIVE_PATH="$(bbh scripts/recon_bus.py query <program> --artifact alive --format path)"
+bbh agents/url_ingest.py ingest <program> \
+  --source "$ALIVE_PATH" --run-id <run-id> --scope-filter auto
 ```
+
+If the aggregate is missing, inspect the completed run's `project=` path and
+promotion receipt. Do not substitute the program root for an exact-host run.
 
 ## Supported Lanes
 

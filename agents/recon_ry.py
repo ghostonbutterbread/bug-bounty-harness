@@ -228,7 +228,7 @@ def validate_start_scope(program: str, url: str, *, allow_unscoped: bool = False
 
 def validate_profile_scope(program: str, profile: str) -> None:
     """Reject wildcard-dependent profiles when published scope has exact URLs only."""
-    if profile not in {"full", "subs", "fast", "urls"}:
+    if profile not in {"full", "snap", "subs", "fast", "urls"}:
         return
     validator = ScopeValidator(program=program, strict=True)
     if validator.is_empty():
@@ -355,7 +355,7 @@ def start_remote(args: argparse.Namespace) -> None:
     verbose = " -vv" if args.very_verbose else " -v"
     rate_conf = rate_limit_conf_body(args.rate_limit_rps, args.timeout)
     seed_files = build_remote_seed_files(args.program, args.url, allow_unscoped=args.allow_unscoped)
-    if args.profile in {"full", "subs", "fast", "urls"} and not seed_files["wild.txt"].strip():
+    if args.profile in {"full", "snap", "subs", "fast", "urls"} and not seed_files["wild.txt"].strip():
         # Do not fall back to --url enumeration when the only saved wildcard
         # roots were excluded; an exact seed host does not authorize its subtree.
         if not ScopeValidator(program=args.program, strict=True).is_empty():
@@ -372,7 +372,7 @@ def start_remote(args: argparse.Namespace) -> None:
             "urls.txt": args.url.strip() + "\n",
             "wild.txt": "",
         }
-    if args.profile in {"full", "subs", "fast"} and seed_files["wild.txt"].strip():
+    if args.profile in {"full", "snap", "subs", "fast"} and seed_files["wild.txt"].strip():
         # Recon-Ry prefers --url over wild.txt for subdomain enumeration.
         # Keep the URL for BBH scope validation, but let the staged wildcard
         # roots drive the remote enumeration instead of silently using one.
@@ -384,7 +384,7 @@ def start_remote(args: argparse.Namespace) -> None:
     scope_files: dict[str, str] = {}
     deferred_scope: list[str] = []
     scope_files, deferred_scope = build_remote_scope_files(args.program)
-    if not scope_files and args.profile in {"full", "subs", "fast", "urls"}:
+    if not scope_files and args.profile in {"full", "snap", "subs", "fast", "urls"}:
         if not ScopeValidator(program=args.program, strict=True).is_empty():
             raise SystemExit("saved scope has no usable host filter for wildcard recon; use --profile exact-urls")
     if scope_files:
@@ -694,7 +694,7 @@ def build_parser() -> argparse.ArgumentParser:
     start_parser = subparsers.add_parser("start", help="Start recon-ry on Hoster and return immediately.")
     start_parser.add_argument("program")
     start_parser.add_argument("--url", required=True, help="Scoped seed URL or domain.")
-    start_parser.add_argument("--profile", default="full")
+    start_parser.add_argument("--profile", default="snap", help="Recon-Ry profile (default: snap; use --profile full explicitly for full scan).")
     start_parser.add_argument("--remote-project")
     start_parser.add_argument("--remote", default=DEFAULT_REMOTE)
     start_parser.add_argument("--ssh-key", default=str(DEFAULT_SSH_KEY))

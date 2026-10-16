@@ -138,15 +138,17 @@ checkout-local interpreter.
 - **Inputs:** `--program`, `--lane`, required `--profile` (absolute path to the
   selected lane's `context/target_profile.json`), optional `--family` and
   `--root` (must match the profile), then
-  `record` with producer, run ID, category, action, subject, impact, and
-  containment; `--no-notify` disables delivery. Provider also supports manual
+  `record` with producer, run ID, category, optional severity (unknown by
+  default; low/medium/high/critical for colored alerts), action, subject, impact,
+  and containment; `--no-notify` disables delivery. Provider also supports manual
   `notify <incident_id>` (may duplicate ambiguous delivery). For this command
   only, `DISCORD_SAFETY_WEBHOOK_URL` takes precedence; if unset, the CLI reads
   `$HOME/.config/bounty-core/safety-webhook-url` (regular, current-user-owned,
   owner-only permissions (mode 0600 recommended), no symlink, at most 4096
   bytes). Keep this credential off-repo;
   do not put it in program Shared or pass it as a command-line argument.
-- **Outputs:** JSON incident and optional notification receipt on stdout;
+- **Outputs:** JSON incident and optional notification receipt on stdout; a
+  bounded saved-ID/action status on stderr after durable write and before delivery;
   lane-local `safety_incidents/events.jsonl` and notification attempts when enabled.
 - **Mutates:** Validates profile identity and canonical storage path before any
   provider call; missing/inconsistent profile fails closed, without a default

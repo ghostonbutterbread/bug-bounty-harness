@@ -47,7 +47,7 @@ class SafetyIncidentCliTests(unittest.TestCase):
         self.profile.write_text(json.dumps(profile), encoding="utf-8")
 
     def run_client(self, *global_args: str, command: str = "record", profile: Path | None = None,
-                   no_notify: bool = True) -> subprocess.CompletedProcess[str]:
+                   no_notify: bool = True, severity: str | None = None) -> subprocess.CompletedProcess[str]:
         args = [str(ROOT / "scripts/bbh"), "scripts/safety_incident.py",
                 "--program", "fixture-program", "--lane", "web"]
         if profile is not None:
@@ -58,6 +58,8 @@ class SafetyIncidentCliTests(unittest.TestCase):
                      "--category", "other", "--action", "Stopped local fixture task",
                      "--subject", "Owned local fixture", "--impact", "None observed",
                      "--containment", "No further action"]
+            if severity is not None:
+                args += ["--severity", severity]
             if no_notify:
                 args.append("--no-notify")
         else:
@@ -83,6 +85,15 @@ class SafetyIncidentCliTests(unittest.TestCase):
         self.assertFalse(store.notifications_path.exists())
         self.assertEqual(store.events_path, self.layout.lane_root / "safety_incidents/events.jsonl")
         self.assertFalse((Path(self.env["HARNESS_SHARED_BASE"]) / "web_bounty").exists())
+
+    def test_severity_and_terminal_summary_with_installed_provider(self) -> None:
+        result = self.run_client(profile=self.profile, severity="critical")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads(result.stdout)
+        self.assertEqual(receipt["incident"]["severity"], "critical")
+        self.assertIn("Saved safety incident " + receipt["incident"]["incident_id"], result.stderr)
+        self.assertIn("Stopped local fixture task", result.stderr)
+        self.assertIsNone(receipt["notification"])
 
     def test_missing_profile_or_missing_flag_fails_closed(self) -> None:
         for profile in (None, self.base / "web_bounty" / "missing" / "web" / "context" / "target_profile.json"):
@@ -174,7 +185,7 @@ class SafetyIncidentCliTests(unittest.TestCase):
         result = self.run_client(profile=self.profile)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIsNone(json.loads(result.stdout)["notification"])
-        self.assertEqual(result.stderr, "")
+        self.assertIn("Saved safety incident", result.stderr)
         self.assertNotIn(secret, result.stdout + result.stderr)
         store = SafetyIncidentStore("fixture-program", lane="web", root_override=self.base)
         self.assertFalse(store.notifications_path.exists())
@@ -186,7 +197,7 @@ class SafetyIncidentCliTests(unittest.TestCase):
         result = self.run_client(profile=self.profile, no_notify=False)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(json.loads(result.stdout)["notification"]["state"], "invalid-configuration")
-        self.assertEqual(result.stderr, "")
+        self.assertIn("Saved safety incident", result.stderr)
         self.assertNotIn(secret, result.stdout + result.stderr)
 
     def test_different_owner_is_rejected(self) -> None:

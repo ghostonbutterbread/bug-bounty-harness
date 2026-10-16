@@ -58,7 +58,7 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    one canonical source and projections are regenerated.
    If an agent observes an unsafe action, stop and contain it first; explicitly
    record a factual, non-secret incident with
-   `bbh scripts/safety_incident.py --program <program> --lane <lane> --profile <absolute-path-to-context/target_profile.json> record --producer <producer> --run-id <run-id> --category <category> --action <action> --subject <subject> --impact <impact> --containment <containment>`.
+   `bbh scripts/safety_incident.py --program <program> --lane <lane> --profile <absolute-path-to-context/target_profile.json> record --producer <producer> --run-id <run-id> --category <category> --severity <unknown|low|medium|high|critical> --action <action> --subject <subject> --impact <impact> --containment <containment>`.
    Add `--no-notify` to persist without delivery. This is agent reporting, not
    automatic interception or comprehensive coverage; see
    [`docs/bbh-launcher.md`](../docs/bbh-launcher.md).

@@ -61,6 +61,8 @@ class SkillPromotionRoutesTest(unittest.TestCase):
         self.assertIn("current lease helper also accepts legacy", registry)
         self.assertIn("`lifecycle: live`", registry)
         self.assertIn("do not retire on the basis of the account CLI alone", registry)
+        self.assertIn("**not** verified authenticated or cleared", registry)
+        self.assertIn("The helper does not perform a live health check on first acquisition", registry)
 
     def test_conditional_routes_agree_with_their_entry_skills(self):
         recovery = (SKILLS / "account-registry" / "references" / "program-auth-recovery.md").read_text(encoding="utf-8")

@@ -60,11 +60,16 @@ permission, and it does not authorize a silent identity substitution.
 
 Immediately before an IDOR run, query the profile-host lease helper for the
 current primary-account and PwnFox-color state. Prefer an explicitly available
-primary account; if none is available, surface eligible ordinary-account
-fallbacks and choose one explicitly. A terminal run releases its exact lease
-immediately so it returns to the pool. Keep lockouts or step-up sessions
-unavailable/`needs-refresh` until a dedicated repair/re-authentication lease
-records a healthy release.
+primary account for **lease acquisition**; if none is available, surface
+eligible ordinary-account fallbacks and choose one explicitly. `available`
+means lease-eligible and not locked, **not** verified authenticated or cleared
+for a target request: a first acquisition can be available without any prior
+healthy release. Check the chosen identity's current auth/session health in
+its exact owned profile before using it for IDOR work; if that check fails,
+stop testing and release as `needs-refresh`, not `healthy`. A terminal run
+releases its exact lease immediately with the observed disposition. Keep
+lockouts or step-up sessions unavailable/`needs-refresh` until a dedicated
+repair/re-authentication lease records a healthy release.
 
 Lease selection requires `browser_lease_enabled: true` and an explicit
 `lifecycle: active`; the current lease helper also accepts legacy
@@ -77,7 +82,12 @@ lifecycle: active
 browser_lease_enabled: true
 ```
 
-Historical session notes are not a current clearance. Leave accounts unavailable until a current, scoped health check confirms them. When a currently leased account later becomes unavailable, status output must still show its safe active-lease metadata so an operator can release or hand it off.
+Historical session notes and lease `available` are not a current authentication
+clearance. The helper does not perform a live health check on first acquisition;
+do not use the lease for target work until the current, scoped check succeeds.
+When a currently leased account later becomes unavailable, status output must
+still show its safe active-lease metadata so an operator can release or hand it
+off.
 
 ## Schema and handoff fields
 

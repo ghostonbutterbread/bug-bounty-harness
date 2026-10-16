@@ -17,14 +17,22 @@ This applies even when Ryushe runs a one-off tool such as amass. The one-off out
 
 ### Pre-hunt ingestion
 Before any hunting agents run against a program:
-1. Run recon-ry on Hoster → produces `alive.txt`, `params_raw.txt`, etc.
-2. Copy or pipe those files into url-ingest. For queues that may feed live testing, scope-filter first:
+1. Run recon-ry on Hoster → produces `alive.txt`, `params_raw.txt`, etc. Wait
+   for its completion and Recon Bus promotion; a started PID is not a completed
+   corpus. Exact-host runs have their own recorded `project=` paths and do not
+   update the program-root files.
+2. Recon Bus normally indexes promoted URL artifacts automatically. For an
+   explicit review-index import, resolve the canonical aggregate instead of
+   copying the Hoster program root (which can omit or predate an exact-host
+   run). For queues that may feed live testing, scope-filter first:
    ```bash
-   ssh hoster 'cat /home/ryushe/bounties/<program>/alive.txt' | \
-       bbh agents/url_ingest.py ingest <program> \
-         --run-id <run-id> \
-         --scope-filter auto
+   ALIVE_PATH="$(bbh scripts/recon_bus.py query <program> --artifact alive --format path)"
+   bbh agents/url_ingest.py ingest <program> \
+     --source "$ALIVE_PATH" --run-id <run-id> --scope-filter auto
    ```
+   If that aggregate is absent, inspect the completed run's recorded project
+   and promotion receipt; do not fall back to a possibly stale program-root
+   `alive.txt` for an exact-host run.
 3. Run `url-ingest stats <program>` to confirm import.
 
 For an agent-safe overview before selecting work, use:

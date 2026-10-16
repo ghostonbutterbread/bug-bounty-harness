@@ -49,11 +49,20 @@ This is a mapping pass, not an invitation to fuzz or validate vulnerabilities.
 
 ## 3. Run or Reuse Broad Collection
 
-- If `rerun`, use `/recon-ry` as the long-running broad producer. Use `full` for
-  wildcard/domain scope and `exact-urls` per approved origin for exact-only
-  scope. Auth is opt-in.
-- If `reuse` or `delta`, use the root deduped project files for current state and
-  `history/<timestamp>/` only for run comparison.
+- If `rerun`, load `/recon-ry` and its mandatory playbook before choosing the
+  active profile. Inspect **all** saved grants: wildcard scope alongside an
+  origin/path-limited exact URL does not automatically authorize `full`, because
+  the wrapper can reduce that restricted URL to a host. Stop the active run
+  unless program rules cover the resulting host-wide traffic or each enabled
+  stage has verified request-level confinement. For separately approved
+  host-wide exact targets, use `exact-urls` once per eligible host with distinct
+  projects and sequential completed jobs; an origin/path grant alone is not
+  host-wide authorization. Auth is opt-in.
+- If `reuse` or `delta`, select each completed run's recorded `project=` path
+  first (program root for a broad run; distinct nested project for each approved
+  exact host). Read current deduped files at **that project's** root and its own
+  `history/<timestamp>/` for run comparison. Do not substitute the program root
+  for an exact-host run; it can be stale or missing that host's results.
 - Use `/bounty-tools` supplemental collection only for an evidenced gap.
   Preserve raw artifacts and promote scoped reusable data through Recon Bus.
 

@@ -29,12 +29,18 @@ Start a remote run and return immediately:
 bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
 ```
 
-The start command fails closed if saved scope is missing or the URL is out of scope. It also writes a project-local `rate_limit.conf` before launch. Use `--rate-limit-rps` only after checking the program policy; use `--allow-unscoped` only after explicit Ryushe approval.
+The start command rejects a missing saved scope or out-of-scope seed host, but
+its host-granular scope file does not enforce scheme, port, or path on every
+request. Read the playbook's mixed-scope preflight before `full`, and its
+exact-host versus origin/path-limited gate before `exact-urls`. It writes a
+project-local `rate_limit.conf` before launch.
+Use `--rate-limit-rps` only after checking program policy; use
+`--allow-unscoped` only after explicit Ryushe approval.
 
 Authenticated runs are opt-in:
 
 ```bash
-bbh agents/recon_ry.py start <program> --url <one-scoped-origin> --profile exact-urls --auth blue
+bbh agents/recon_ry.py start <program> --url <host-wide-approved-url> --profile exact-urls --auth blue --remote-project /home/ryushe/bounties/<program>/exact/<host-key>
 ```
 
 `--auth <alias-or-color>` resolves through `/account-management` and PwnFox
@@ -48,10 +54,12 @@ header forwarding (including EyeWitness); its filters are not a universal
 request-level egress guarantee. Raw values must not be pasted into chat or
 committed. Dry-run output is redacted.
 
-Before launch, the wrapper stages recon seed files into the remote project:
+Before launch, the wrapper stages recon seed files into the selected remote
+project (`/home/ryushe/bounties/{program}/` by default, or the explicit
+`--remote-project` for a permitted exact-host run):
 
-- `/home/ryushe/bounties/{program}/urls.txt`
-- `/home/ryushe/bounties/{program}/wild.txt`
+- `<remote-project>/urls.txt`
+- `<remote-project>/wild.txt`
 
 `urls.txt` receives exact URLs and exact host/domain entries. `wild.txt`
 receives wildcard base domains with `*.` removed.
@@ -68,13 +76,23 @@ Check remote status/log names:
 bbh agents/recon_ry.py status
 ```
 
-Ingest a completed Hoster project:
+Ingest a completed Hoster project. Use the `project=` path recorded by that
+run: the program root for a broad run, or **each** completed exact-host
+project separately. Give each exact-host ingest a distinct `--target` so its
+manifest and counts are attributed to that host; the helper does not search
+nested `exact/` directories from the program root.
 
 ```bash
 bbh agents/recon_ry.py ingest <program> \
-  --source ryushe@hoster:/home/ryushe/bounties/<program> \
-  --target <target-host>
+  --source ryushe@hoster:/home/ryushe/bounties/<program>/exact/<host-key> \
+  --target <approved-host>
 ```
+
+For a broad program-root run, use
+`--source ryushe@hoster:/home/ryushe/bounties/<program>` and a separate
+program-root target. Never ingest the root as a substitute for a completed
+exact-host project; follow `prompts/recon-ry-playbook.md` for the per-host
+completion sequence.
 
 ## Recon-Ry Project Location
 
@@ -82,6 +100,7 @@ Active and durable recon-ry project directories use:
 
 ```text
 /home/ryushe/bounties/{program}/
+/home/ryushe/bounties/{program}/exact/{host-key}/  # separate approved exact-host run
 ```
 
 Legacy local examples may also exist at:
@@ -91,7 +110,11 @@ Legacy local examples may also exist at:
 ~/projects/bounties/{program}/
 ```
 
-Use the newest `history/` snapshot when the question is about a specific run. Use the root files when the question is about the latest deduped current state.
+Use the completed run's `project=` path before reading data: the program root
+for a broad run, or the recorded `exact/` project for each approved host. Use
+**that project's** newest `history/` snapshot for a specific run and its root
+files for the latest deduped current state; never substitute program-root data
+for an exact-host run.
 
 ## Artifact Map
 
@@ -115,16 +138,21 @@ Use the newest `history/` snapshot when the question is about a specific run. Us
 └── screenshots/ or eyewitness/  # visual artifacts when present
 ```
 
-Recon-ry merges line-based outputs into the root files during runs, so root files are the current deduped view. `history/{timestamp}/` preserves what existed during that run.
+Recon-ry merges line-based outputs into the selected project's root files
+during runs; `history/{timestamp}/` beneath the same project preserves its
+snapshots. Separate exact-host projects do not merge into the program root.
 
 ## Finding The Latest Data
 
-On Hoster:
+On Hoster, select the `project=` path recorded by the completed run. For an
+exact-host example:
 
 ```bash
-PROJECT=/home/ryushe/bounties/<program>
+PROJECT=/home/ryushe/bounties/<program>/exact/<host-key>
 ls -1t "$PROJECT/history" | head -1
 ```
+
+For a broad run, set `PROJECT=/home/ryushe/bounties/<program>` instead.
 
 For legacy local data:
 
@@ -133,7 +161,7 @@ PROJECT=~/Shared/bounty_recon/<program>
 ls -1t "$PROJECT/history" | head -1
 ```
 
-If `history/` does not exist, read the project root files directly.
+If `history/` does not exist, read the selected project's root files directly.
 
 ## Output Indexing
 
@@ -154,10 +182,14 @@ Use ingest/indexing for manifests, counts, and small parsed artifacts. Do not co
 ## Role In The Advanced Recon Baseline
 
 For a permitted `/recon --mode full` baseline or a separately selected deep
-recon campaign, launch Recon-Ry once as the durable broad collector. It already
-owns GAU/Wayback/archive URL collection and its own aggregate promotion path; do
-not start overlapping GAU, Wayback, or archive-URL jobs against the same scope
-merely because those tools are available.
+recon campaign, launch Recon-Ry for the approved profile and target set as the
+durable broad collector: a wildcard baseline may use one broad run, while
+approved exact-host-only scope requires one distinct project per eligible host,
+started sequentially after the previous detached run completes. A grant
+limited to one origin or path does not authorize that active profile. Recon-Ry
+already owns GAU/Wayback/archive URL collection and its own aggregate promotion
+path; do not start overlapping GAU, Wayback, or archive-URL jobs against the same
+scope merely because those tools are available.
 
 After Recon-Ry returns, `/recon` may select only evidence-gap-driven companion
 lanes: DNS/IP/certificate correlation for approved wildcard hosts, permitted

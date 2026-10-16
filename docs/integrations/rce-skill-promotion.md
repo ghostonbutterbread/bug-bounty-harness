@@ -6,8 +6,8 @@
 - Branch/ref: `feat/rce-skill-promotion`
 - Base beta commit: `e6e12b4b64cab8af3e7939ee8e0d7099294f1f57`
 - Intended integration target: `beta` (`origin/beta` after review)
-- Latest immutable recovery checkpoint: `e1bfd7f2fe476297fdb804bc59ba945664b3a84e` (transport and validation route correction pending commit)
-- Implementation commits: `1852fe3178e47c0bd3a9747a13f0e121c119cd84`, `58c0376934239f78523246d9526bafd680614b64`, `60682537754b6a1a78e8f6d34613d6a15422a0b6`, `90298e9123d819170cb389697969d231383d26a7`, `e1bfd7f2fe476297fdb804bc59ba945664b3a84e`
+- Latest immutable recovery checkpoint: `b760e107e4b7ef0a0d30fc069d8f06be2e9bdf4d`
+- Implementation commits: `1852fe3178e47c0bd3a9747a13f0e121c119cd84`, `58c0376934239f78523246d9526bafd680614b64`, `60682537754b6a1a78e8f6d34613d6a15422a0b6`, `90298e9123d819170cb389697969d231383d26a7`, `e1bfd7f2fe476297fdb804bc59ba945664b3a84e`, `b760e107e4b7ef0a0d30fc069d8f06be2e9bdf4d`
 - Source: nine Ghost-local skills named in the operator's Discord request (thread 1560716542101159957)
 
 ## Intent and contract
@@ -25,7 +25,7 @@ Update the BBH registry, entry card, and upload route. No live target tests.
 ## Evidence and review
 
 - `PYTHONPATH=. python3 -m pytest -q tests/test_skill_promotion_routes.py tests/test_bunny_skill.py tests/test_research_map.py tests/test_ai_action_guards.py tests/test_goal_router.py`: 21 passed, 36 subtests.
-- `PYTHONPATH=. python3 -m pytest -q tests --ignore=tests/test_safety_incident.py`: 237 passed, 174 subtests on latest implementation tip.
+- `PYTHONPATH=. python3 -m pytest -q tests --ignore=tests/test_safety_incident.py`: 238 passed, 174 subtests on latest implementation tip.
 - Unfiltered `tests`: 8 failures after initial placeholder path; placeholder corrected. Remaining 7 failures in `test_safety_incident.py` are reproduced unchanged on the beta integration base (missing checkout-local `.venv`, not a skill change). Exact deferred check: run `PYTHONPATH=. python3 -m pytest -q tests/test_safety_incident.py` after provisioning this checkout through `./setup.sh --install-python-deps`; compare with beta base. No waiver of application correctness.
 - `PYTHONPATH=. python3 -m pytest -q tests/test_skill_command_lane_safety.py tests/test_migrated_skill_commands.py`: 3 passed, 62 subtests.
 - Independent reviews of `1852fe3` and `58c0376`: first blocked on phantom auth loader and blocker gate, then on a blanket proxy exception, inconsistent RCE mapping route, research trigger and stale handoff. Corrected in `6068253`. A review of `89b3541` blocked on account-registry cross-consumer tombstone/schema claims and an `active`-only lease gate; corrected at `90298e9`. Review of `f1294ca` found a first-lease auth-health conflation; corrected at `e1bfd7f`. Review of `88aab9a` found a broad proxy outage inference, misrouted intermediary fingerprint to MapStore, and inconsistent RCE validation admission. The current correction limits transport pause to the affected path, routes blocker narrative to Bounty Notes, and accepts a named plausible RCE packet from mapping/class entry as well as exploration. Fresh exact-tip review required. Integration/remote runtime tests: pending.
@@ -42,8 +42,9 @@ retire local shadow copies only after complete-tree comparison and ownership che
 
 ## Resume
 
-If interrupted: inspect the current feature tip and record the pending
-transport/validation correction commit; refresh beta, then
+If interrupted: inspect implementation commit
+`b760e107e4b7ef0a0d30fc069d8f06be2e9bdf4d` and the subsequent
+dossier-only handoff commit on this feature branch; refresh beta, then
 obtain a new independent verdict on the corrected tip. The branch owns no
 target traffic, secrets, or program data. The eventual implementation checkpoint
 precedes any dossier-only handoff commit; reviewers must inspect both.

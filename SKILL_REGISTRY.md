@@ -148,6 +148,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **manual-places-to-hunt** | `/manual {program} [--run <run-id>] [--historical]` | `skills/manual-places-to-hunt/SKILL.md` |
 | **leads** | `/leads <program> [--class <vuln-class>]`; `agents/leads.py {create|search|update-status}` | `skills/leads/SKILL.md` |
 | **ledger** | `/ledger {program}` | `skills/ledger/SKILL.md` |
+| **coverage** | `/coverage {program}` (mapped live surface/class and explicit static file/class review) | `skills/coverage/SKILL.md` |
 | **program-severity-scoring** | `/program-severity-scoring {program}` | `skills/program-severity-scoring/SKILL.md` |
 | **agent-audit** | `/agent-audit {program} {run-id-or-handoff}` (read-only audit guidance; no standalone runner) | `skills/agent-audit/SKILL.md`; reconcile run traces, target actions, Attempts, promotions, and cleanup |
 | **bunny-report-and-triage** | Load the installed standalone fork directly after a populated FID `EVIDENCE.md` (one FID-named final, report-only by default) | External skill; not copied into BBH `skills/` |

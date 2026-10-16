@@ -9,11 +9,10 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from agents.shared_brain import RepoIndex, save_index
-from agents.snapshot_identity import get_snapshot_id
 from agents.storage_resolver import resolve_storage
 from agents.report_paths import discover_report_files, select_report_source
 from agents.manual_hunter import ManualHunter, ReviewTierDecisionRequired
-from agents.sync_reports import _candidates_for_file, _flexible_findings_for_file, _resolve_source_root, _mark_coverage, sync_reports_main
+from agents.sync_reports import _candidates_for_file, _flexible_findings_for_file, _resolve_source_root, sync_reports_main
 
 
 def _brain_file(sha1: str) -> dict[str, object]:
@@ -205,7 +204,6 @@ class TestSyncReports(unittest.TestCase):
         self.assertEqual(candidates[0]["review_tier"], "CONFIRMED")
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
-    @patch("agents.sync_reports._mark_coverage", return_value=None)
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -214,7 +212,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        _mock_coverage,
         _mock_chain,
     ):
         finding1 = {"type": "xss", "class_name": "dom-xss", "file": "src/app.js"}
@@ -255,7 +252,6 @@ class TestSyncReports(unittest.TestCase):
         hunter.ledger.update.assert_not_called()
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
-    @patch("agents.sync_reports._mark_coverage", return_value=None)
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -264,7 +260,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        _mock_coverage,
         _mock_chain,
     ):
         finding1 = {"type": "xss", "class_name": "dom-xss", "file": "src/app.js"}
@@ -290,7 +285,6 @@ class TestSyncReports(unittest.TestCase):
         hunter.ledger.update.assert_not_called()
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
-    @patch("agents.sync_reports._mark_coverage", return_value=None)
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -299,7 +293,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        _mock_coverage,
         _mock_chain,
     ):
         finding = {"type": "xss", "class_name": "dom-xss", "file": "src/app.js", "fid": "G01"}
@@ -392,7 +385,6 @@ class TestSyncReports(unittest.TestCase):
         self.assertEqual(resolved, fallback_root.resolve(strict=False))
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
-    @patch("agents.sync_reports._mark_coverage", return_value=None)
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -401,7 +393,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        _mock_coverage,
         _mock_chain,
     ):
         home = self.tmp / "home"
@@ -426,7 +417,6 @@ class TestSyncReports(unittest.TestCase):
         hunter.ledger.update.assert_not_called()
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
-    @patch("agents.sync_reports._mark_coverage", return_value=None)
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -435,7 +425,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        _mock_coverage,
         _mock_chain,
     ):
         home = self.tmp / "home"
@@ -461,7 +450,6 @@ class TestSyncReports(unittest.TestCase):
         hunter.ledger.update.assert_not_called()
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
-    @patch("agents.sync_reports._mark_coverage", return_value=None)
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -470,7 +458,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        _mock_coverage,
         _mock_chain,
     ):
         home = self.tmp / "home"
@@ -553,7 +540,6 @@ class TestSyncReports(unittest.TestCase):
         self.assertEqual(discovered, [raw_body])
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
-    @patch("agents.sync_reports._mark_coverage", return_value=None)
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -562,7 +548,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        _mock_coverage,
         _mock_chain,
     ):
         reports_root = self.tmp / "canonical-reports"
@@ -672,13 +657,10 @@ class TestSyncReports(unittest.TestCase):
         self.assertTrue(evidence.is_file())
         self.assertFalse((packet / "REPORT.md").exists())
 
-        coverage_payload = json.loads((storage.ledgers_root / "coverage.json").read_text(encoding="utf-8"))
-        coverage_entry = coverage_payload["snapshots"][get_snapshot_id(target_root)]["classes"]["dom-xss"]["files"]["src/app.js"]
-        self.assertEqual(coverage_entry["method"], "sync-reports")
-        self.assertEqual(coverage_entry["finding_fids"], ["D01"])
+        self.assertFalse((storage.ledgers_root / "coverage.json").exists(),
+                         "report import is not a completed file/class review")
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
-    @patch("agents.sync_reports._mark_coverage", return_value=None)
     @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
@@ -687,7 +669,6 @@ class TestSyncReports(unittest.TestCase):
         mock_hunter_cls,
         mock_update_team_finding,
         mock_candidates,
-        _mock_coverage,
         _mock_chain,
     ):
         nav = self.source_dir / "dormant.md"
@@ -781,61 +762,13 @@ class TestSyncReports(unittest.TestCase):
         shared_brain_path = storage.ledgers_root / "shared_brain" / "index.json"
         coverage_path = storage.ledgers_root / "coverage.json"
         self.assertTrue(shared_brain_path.is_file())
-        self.assertTrue(coverage_path.is_file())
+        self.assertFalse(coverage_path.exists())
         self.assertTrue(str(shared_brain_path).startswith(explicit_prefix))
-        self.assertTrue(str(coverage_path).startswith(explicit_prefix))
-        coverage_payload = json.loads(coverage_path.read_text(encoding="utf-8"))
-        coverage_entries = [
-            (snapshot_id, snapshot["classes"]["dom-xss"]["files"]["src/app.js"])
-            for snapshot_id, snapshot in coverage_payload["snapshots"].items()
-            if "dom-xss" in snapshot.get("classes", {})
-            and "src/app.js" in snapshot["classes"]["dom-xss"].get("files", {})
-        ]
-        self.assertEqual(len(coverage_entries), 1)
-        coverage_snapshot_id, coverage_entry = coverage_entries[0]
-        self.assertEqual(coverage_snapshot_id, get_snapshot_id(target_root))
-        self.assertNotEqual(coverage_snapshot_id, get_snapshot_id(raw_reports))
-        self.assertEqual(coverage_entry["method"], "sync-reports")
-        self.assertEqual(coverage_entry["finding_fids"], ["D01"])
 
         legacy_ghost_root = home / "Shared" / "bounty_recon" / program / "ghost"
         self.assertFalse(legacy_ghost_root.exists())
         self.assertFalse((home / "Shared" / "binaries" / program).exists())
 
-    @patch("agents.sync_reports.CoverageStore")
-    def test_mark_coverage_forwards_explicit_storage_root(self, mock_store_cls):
-        store = Mock()
-        mock_store_cls.return_value = store
-        source_root = self.tmp / "source"
-        source_root.mkdir(parents=True)
-        storage_root = self.tmp / "explicit-root"
-        hunter = SimpleNamespace(
-            program="test_program",
-            source_root=source_root,
-            lane="apk",
-            family="binaries",
-            storage_root=storage_root,
-            shared_brain=SimpleNamespace(files={"src/app.js": {}}),
-            snapshot_id="snap-1",
-            version_label="v1",
-            _coverage_relpath=lambda _file_value: "src/app.js",
-        )
-        finding = {"class_name": "dom-xss", "run_id": "run-1", "fid": "D01"}
-        parsed = SimpleNamespace(finding={"file": "src/app.js"}, source_label="unit-test")
-
-        relpath = _mark_coverage(hunter, finding, parsed)
-
-        self.assertEqual(relpath, "src/app.js")
-        mock_store_cls.assert_called_once_with(
-            "test_program",
-            source_root,
-            lane="apk",
-            family="binaries",
-            root_override=storage_root,
-        )
-        store.mark_examined.assert_called_once()
-        self.assertEqual(store.mark_examined.call_args.kwargs["files"], ["src/app.js"])
-        self.assertEqual(store.mark_examined.call_args.kwargs["snapshot_id"], "snap-1")
 
 
 if __name__ == "__main__":

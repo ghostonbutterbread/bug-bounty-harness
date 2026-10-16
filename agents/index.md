@@ -44,9 +44,12 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
    evidence-backed lead synthesis and lifecycle reconciliation, `/bounty-notes` for human
    coordination, and Attempts for exact target-directed payload/probe history.
    For a corpus too large to inspect directly, load `/huge-ingest` before deep
-   reading. Program docs explain how this application uses a technology or flow;
-   ResearchMap supplies portable mechanisms only when their recognition signals
-   match that model or a current observation. Read
+   reading. For mapped live route/input/class questions or explicit indexed
+   source-file review, load `/coverage` at discovery, selected-path review, or
+   handoff. Attempts and findings never imply a completed review; `/ledger`
+   remains the findings/dedupe owner. Program docs explain how this application
+   uses a technology or flow; ResearchMap supplies portable mechanisms only
+   when their recognition signals match that model or a current observation. Read
    `docs/attempt-recording-contract.md` before writing Attempts: they are not a
    general live-observation log. For an audit of what an agent actually did,
    load `/agent-audit` with the program and run/handoff identity; it reconciles

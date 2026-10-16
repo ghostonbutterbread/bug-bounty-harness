@@ -212,13 +212,12 @@ def _coordination_briefing(program: str, reports_dir: Path) -> list[str]:
     ledger_script = (REPO_ROOT / "agents" / "me_ledger.py").resolve(strict=False)
     return [
         "## Coordination:",
-        "Use the shared ledger to dedup findings and coordinate coverage in real time.",
+        "Use the findings ledger for candidate/confirmed finding dedupe and reports.",
         "Before adding a finding, check if it already exists:",
         f"  python3 {ledger_script} check --program {program} --file <file> --class-name <class>",
         "If it is not a duplicate, add it to the ledger:",
         f"  python3 {ledger_script} add --program {program} --file <file> --class-name <class> --type \"<type>\" --severity <SEVERITY>",
-        "After reviewing a surface, mark it as explored:",
-        f"  python3 {ledger_script} cover --program {program} --file <file> --class-name <class>",
+        "For mapped live surfaces and indexed source-file review, load skills/coverage/SKILL.md; a finding or Attempt is not a live coverage assessment.",
         f"Write one markdown report per finding to {_display_path(reports_dir)}/<fid>_<title>.md.",
         "",
     ]
@@ -279,17 +278,24 @@ def _build_hunt_context(
     snapshot_identity = get_snapshot_identity(target_root, version_label=version_label)
     examined_rows: list[dict[str, Any]] = []
     unexplored_rows: list[dict[str, Any]] = []
+    legacy_auto_marks = False
     coverage_note = ""
     try:
         coverage = CoverageStore(
             program_slug,
             target_root,
-            lane="apk",
-            family="binaries",
+            lane=resolved_lane,
+            family=resolved_family,
             root_override=resolved_storage_root,
         )
-        examined = coverage.get_all_examined(
-            snapshot_id=_normalize_text(snapshot_identity.get("snapshot_id"))
+        coverage_snapshot = _normalize_text(snapshot_identity.get("snapshot_id"))
+        examined = coverage.get_all_examined(snapshot_id=coverage_snapshot)
+        # get_all_examined excludes legacy marks; inspect raw current-snapshot coverage
+        # only to preserve the explanatory warning for old finding-import rows.
+        legacy_auto_marks = any(
+            row.get("method") in {"manual-hunter", "sync-reports"}
+            for class_name in coverage.list_classes(coverage_snapshot)
+            for row in coverage.get_coverage(class_name, coverage_snapshot).values()
         )
         candidates = coverage.get_candidates()
         unexplored = {
@@ -334,21 +340,28 @@ def _build_hunt_context(
         ]
     )
 
+    if legacy_auto_marks:
+        context_parts.append(
+            "Legacy manual-hunter/sync-reports auto-marks are not evidence of review; "
+            "indexed candidates remain eligible, and unindexed rows are not treated as examined."
+        )
+        context_parts.append("")
+
     _append_grouped_surface_section(
         context_parts,
-        "## Already examined surfaces:",
+        "## Already examined indexed source-file/class pairs:",
         _group_surface_entries(examined_rows),
         trailing="✅",
     )
 
     if coverage_note:
-        context_parts.append("## Unexplored attack surface:")
+        context_parts.append("## Unexplored indexed source-file/class pairs:")
         context_parts.append(f"- {coverage_note}")
         context_parts.append("")
     else:
         _append_grouped_surface_section(
             context_parts,
-            "## Unexplored attack surface:",
+            "## Unexplored indexed source-file/class pairs:",
             _group_surface_entries(unexplored_rows),
         )
 
@@ -358,8 +371,8 @@ def _build_hunt_context(
         [
             "## Task:",
             f"Hunt for vulnerabilities in this {hunt_subject}.",
-            "Focus on the unexplored surfaces above.",
-            "Do NOT re-hunt surfaces already examined.",
+            "These indexed file/class rows are not live application coverage; use /coverage for mapped routes and scoped live assessments.",
+            "Prioritize relevant unexplored file/class pairs when indexed; a reviewed pair does not close other classes or live paths.",
             f"When you find a vulnerability, write a markdown report to {_display_path(resolved_reports_dir)}.",
             "Use this format for each report:",
             "  # [Vulnerability Title]",
@@ -1084,7 +1097,6 @@ class ManualHunter:
         evidence_path = _normalize_text(finding.get("evidence_path"))
         if evidence_path:
             print(f"Evidence packet: {evidence_path}")
-        self._mark_coverage(finding, parsed)
         self._print_chain_suggestions(finding)
         print(f"Added finding {finding['fid']}")
         return 0
@@ -1167,67 +1179,6 @@ class ManualHunter:
         if updated.get("report_path"):
             print(f"Existing report (review separately): {updated['report_path']}")
         return 0
-
-    def _coverage_relpath(self, file_value: str) -> str | None:
-        if self.shared_brain is None or not self.shared_brain.files:
-            return None
-        raw_file = _normalize_text(file_value)
-        if not raw_file:
-            return None
-        path_part, _ = _split_file_reference(raw_file)
-        if path_part in self.shared_brain.files:
-            return path_part
-
-        candidate = Path(path_part).expanduser()
-        if not candidate.is_absolute() and self.source_root is not None:
-            candidate = (self.source_root / candidate).resolve(strict=False)
-        if self.source_root is not None:
-            with contextlib.suppress(ValueError):
-                relpath = candidate.relative_to(self.source_root).as_posix()
-                if relpath in self.shared_brain.files:
-                    return relpath
-
-        lowered = path_part.lower()
-        for relpath in self.shared_brain.files:
-            if relpath.lower() == lowered or relpath.lower().endswith("/" + lowered):
-                return relpath
-        return None
-
-    def _mark_coverage(self, finding: dict[str, Any], parsed: ParsedFinding) -> None:
-        vuln_class = _normalize_text(finding.get("class_name")).lower()
-        if vuln_class in {"", "unknown", "novel"}:
-            return
-        if self.shared_brain is None or self.source_root is None:
-            print("Coverage not updated: shared_brain index unavailable")
-            return
-
-        relpath = self._coverage_relpath(_normalize_text(parsed.finding.get("file")))
-        if relpath is None:
-            print("Coverage not updated: file not present in shared_brain")
-            return
-
-        try:
-            store = CoverageStore(
-                self.program,
-                self.source_root,
-                lane=self.lane,
-                family=self.family,
-                root_override=self.storage_root,
-            )
-            store.mark_examined(
-                vuln_class=vuln_class,
-                files=[relpath],
-                method="manual-hunter",
-                status="done",
-                run_id=_normalize_text(finding.get("run_id")) or _default_run_id(),
-                snapshot_id=self.snapshot_id,
-                version_label=self.version_label,
-                finding_fids=[_normalize_text(finding.get("fid"))],
-                notes=f"Manual finding imported from {parsed.source_label}",
-            )
-            print(f"Coverage updated: {vuln_class} -> {relpath}")
-        except Exception as exc:
-            print(f"Coverage not updated: {exc}")
 
     def _print_chain_suggestions(self, new_finding: dict[str, Any]) -> None:
         canonical_reports = [

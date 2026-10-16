@@ -95,7 +95,7 @@ Drop markdown notes here. They will be ingested on the next run.
 
 1. Parses the finding from your input.
 2. Deduplicates against the ledger.
-3. If new: adds to the ledger, seeds `EVIDENCE.md`, and marks coverage when possible; the Bunny report follows populated evidence.
+3. If new: adds the finding under its FID and seeds `EVIDENCE.md`; the Bunny report follows populated evidence. Ingesting a finding does **not** mark static or live Coverage. Record an indexed source-file/class review or a mapped live surface assessment separately through `/coverage` after actually reviewing it; a finding FID is not a coverage receipt.
 4. If duplicate: shows the overlapping finding; with `--link-duplicate-comment`, appends the note to that finding's comment ledger.
 
 ## Add evidence to an existing finding

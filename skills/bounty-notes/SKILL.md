@@ -32,7 +32,7 @@ and Attempts artifact.
   keep private candidate rationale in `/hypothesis-ledger`.
 - Deliberately published human hypothesis/decision record, timeline, handoff, or blocker -> `/bounty-notes`.
 - Bulk URL queue/review state -> `/url-ingest`.
-- Already-tested coverage -> `me_ledger.py` / coverage ledgers.
+- Mapped/reviewed coverage -> `/coverage` (live surfaces and static source-file review).
 - Exact payload/probe attempts -> the resolved lane's
   `<lane>/attempts/_runs/<run-id>/attempts.jsonl`, created through
   `resolve_attempts_path(...)` and written through `append_attempt(...)`, with

@@ -411,6 +411,35 @@ class ReconBusTests(unittest.TestCase):
         self.assertEqual(result["excluded_internal_logs"], [str(link)])
         self.assertFalse(self.aggregate("alive.txt").exists())
 
+    def test_promote_run_excludes_direct_symlink_outside_run(self):
+        run_root = Path(self.tmp.name) / "external-link-run"
+        run_root.mkdir()
+        external = Path(self.tmp.name) / "other-run-alive.txt"
+        external.write_text("https://example.com/not-this-run\n", encoding="utf-8")
+        link = run_root / "alive.txt"
+        link.symlink_to(external)
+        result = promote_run.promote_run(argparse.Namespace(
+            program="demo", run_root=str(run_root), shared_base=str(M.SHARED_BASE),
+            no_index=True, probe_urls=False,
+        ))
+        self.assertEqual(result["discovered"], {})
+        self.assertEqual(result["excluded_internal_logs"], [str(link)])
+        self.assertFalse(self.aggregate("alive.txt").exists())
+
+    def test_promote_run_excludes_direct_output_directory_symlink_to_logs(self):
+        run_root = Path(self.tmp.name) / "linked-raw-run"
+        log_dir = run_root / "custom" / "_logs"
+        log_dir.mkdir(parents=True)
+        (log_dir / "urls.txt").write_text("https://example.com/not-a-url-queue\n", encoding="utf-8")
+        (run_root / "raw").symlink_to(log_dir, target_is_directory=True)
+        result = promote_run.promote_run(argparse.Namespace(
+            program="demo", run_root=str(run_root), shared_base=str(M.SHARED_BASE),
+            no_index=True, probe_urls=False,
+        ))
+        self.assertEqual(result["discovered"], {})
+        self.assertEqual(result["excluded_internal_logs"], [str(run_root / "raw" / "urls.txt")])
+        self.assertFalse(self.aggregate("urls.txt").exists())
+
     def test_promote_run_reports_malformed_url_with_source_location(self):
         run_root = Path(self.tmp.name) / "bad-run"
         run_root.mkdir()

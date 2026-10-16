@@ -1,6 +1,6 @@
 # Recon Bus noisy-raw promotion integration dossier
 
-- **Status:** first independent review blocked; path-handling defects patched, re-review pending
+- **Status:** second independent review blocked direct-discovery bypass; patched, re-review pending
 - **Owner:** Hermes bugfix subagent
 - **Branch / owning ref:** `fix/recon-bus-noisy-raw`
 - **Worktree:** `/home/ryushe/worktrees/bbh-recon-bus-noisy-raw`
@@ -25,7 +25,7 @@ Known URL-bearing output files are parsed into normalized HTTP(S) URL candidates
 - GREEN: `python3 -m unittest tests.test_recon_bus tests.test_recon_promote_run` — 39 tests passed.
 - `git diff --check` — passed.
 - Initial independent review blocked: an absolute manifest file with relative run root crashed at `relative_to`, and a manifest symlink re-admitted an internal `_logs` target. Both now have synthetic regressions; 41 focused tests pass. Reviewer also corrected the scope of coverage counters to URL-bearing/alive queues.
-- Reconciled the advanced beta `19c8f22` without conflict and reran 41 focused tests and diff checks on the reconciled feature tip; no target traffic.
+- Reconciled the advanced beta `19c8f22` without conflict and reran 41 focused tests and diff checks on the reconciled feature tip; no target traffic. Second review found direct candidate discovery could still promote an external `alive.txt` symlink or a `raw` directory symlink into `_logs`. The same resolved/declared run boundary now gates every classified direct candidate. Two more synthetic regressions passed; 43 focused tests and diff check passed.
 - Branch topology: fetched `origin/beta`; local `master` is not the selected lane. No integration or push authorized.
 
 ## Blockers and deferred work
@@ -36,14 +36,14 @@ Known URL-bearing output files are parsed into normalized HTTP(S) URL candidates
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/recon-bus-noisy-raw`
-- **Latest immutable recovery checkpoint:** `a592750` plus reconciled beta merge (exact tip from branch ref)
-- **Feature implementation commit(s):** `5de0a04918bfef65f0ba7b6cec28170b06e2ebcd`, `a592750`
-- **Exact resume point:** obtain independent re-review of the reconciled tip, both path-handling corrections and full diff. Parent decides integration.
+- **Latest immutable recovery checkpoint:** `a592750` plus reconciled beta merge (exact newer tip from branch ref)
+- **Feature implementation commit(s):** `5de0a04918bfef65f0ba7b6cec28170b06e2ebcd`, `a592750`, pending direct-discovery correction commit
+- **Exact resume point:** obtain independent re-review of the reconciled tip, all direct/manifest path handling and full diff. Parent decides integration.
 - **Working-tree state at handoff:** clean after commit.
 
 ## Decision gates
 
-- **Integration gate:** first review rejected path-handling; correction awaits re-review and parent approval.
+- **Integration gate:** first review rejected manifest path handling; second review rejected direct-discovery bypass. Both corrected; re-review and parent approval remain.
 - **Activation / cohort gate:** none in this offline patch.
 - **Promotion gate:** not authorized; no beta/main publication.
 
@@ -52,3 +52,4 @@ Known URL-bearing output files are parsed into normalized HTTP(S) URL candidates
 - 2026-10-15 — reproduced both defects against fetched beta and implemented isolated offline repair; awaiting independent review.
 - 2026-10-15 — reviewer reproduced relative-root crash and symlink log admission; patched both with focused regressions, 41 tests passed; re-review pending.
 - 2026-10-15 — reconciled `origin/beta` `19c8f22`, 41 focused tests and diff checks passed; re-review pending.
+- 2026-10-15 — second reviewer reproduced external-file and `_logs` directory symlink bypasses in direct discovery; applied common candidate gate, added regressions, 43 focused tests passed; re-review pending.

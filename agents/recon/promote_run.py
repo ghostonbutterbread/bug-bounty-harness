@@ -159,8 +159,13 @@ def discover_candidate_files(run_root: Path, excluded: list[Path] | None = None)
     grouped: dict[str, list[Path]] = defaultdict(list)
     for path in _dedupe_paths(files):
         kind = classify_path(path)
-        if kind:
-            grouped[kind].append(path)
+        if not kind:
+            continue
+        if _internal_log(path, run_root):
+            if excluded is not None:
+                excluded.append(path)
+            continue
+        grouped[kind].append(path)
     # Recon-Ry keeps content-discovery output partitioned by HTTP status under
     # dirs_status/. Preserve those flat result files as the durable dir queue
     # rather than requiring every producer to create a duplicate dirs.txt.

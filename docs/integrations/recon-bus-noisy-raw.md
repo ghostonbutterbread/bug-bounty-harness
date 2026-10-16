@@ -7,8 +7,8 @@
 - **Base commit:** `5b31aab52282d39e52053f64ce8cd4132b7ad604` (fetched `origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-15
-- **Latest immutable recovery checkpoint:** none before implementation commit; current branch tip after commit is the recovery point
-- **Feature implementation commit(s):** pending
+- **Latest immutable recovery checkpoint:** `5de0a04918bfef65f0ba7b6cec28170b06e2ebcd` on `fix/recon-bus-noisy-raw`
+- **Feature implementation commit(s):** `5de0a04918bfef65f0ba7b6cec28170b06e2ebcd`
 - **Inspiration:** PC-20261003-012719-0518d9ab; PC-20261003-012719-66a99c06
 
 ## Intent and ownership
@@ -35,8 +35,8 @@ Known URL-bearing output files are parsed into normalized HTTP(S) URL candidates
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/recon-bus-noisy-raw`
-- **Latest immutable recovery checkpoint:** implementation commit after commit creation; see branch tip
-- **Feature implementation commit(s):** pending
+- **Latest immutable recovery checkpoint:** `5de0a04918bfef65f0ba7b6cec28170b06e2ebcd`
+- **Feature implementation commit(s):** `5de0a04918bfef65f0ba7b6cec28170b06e2ebcd`
 - **Exact resume point:** independent review of source/test diff, then parent decides integration.
 - **Working-tree state at handoff:** clean after commit.
 

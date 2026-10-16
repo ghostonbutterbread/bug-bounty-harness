@@ -139,10 +139,12 @@ def test_exact_host_ingest_uses_its_own_project_and_distinct_target(tmp_path: Pa
 
 def test_recon_current_data_routes_select_the_completed_project() -> None:
     parent = text("prompts/recon-playbook.md")
+    recon = text("skills/recon/SKILL.md")
     playbook = text("prompts/recon-ry-playbook.md")
     child = text("skills/recon-ry/SKILL.md")
     assert "select each completed run's recorded `project=` path" in parent
     assert "Do not substitute the program root" in parent
+    assert "Ingest each completed exact-host project with its own host target" in recon
     for route in (playbook, child):
         assert "PROJECT=/home/ryushe/bounties/<program>/exact/<host-key>" in route
         assert 'ls -1t "$PROJECT/history"' in route

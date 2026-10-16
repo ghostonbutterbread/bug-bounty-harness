@@ -214,8 +214,10 @@ protection. Authenticated recon is opt-in with an approved account alias; never
 broaden auth to wildcard scope by default.
 
 Record PID, remote project, log, profile, scope input, and rate configuration;
-do not tail the long-running job. When it finishes, ingest/index it with
-`agents/recon_ry.py ingest` if a Shared manifest/count receipt is needed.
+do not tail the long-running job. When it finishes, ingest/index the **recorded
+project** with `agents/recon_ry.py ingest` if a Shared manifest/count receipt is
+needed. Ingest each completed exact-host project with its own host target;
+the helper does not descend from the program root into nested projects.
 
 Use `/bounty-tools` + `tool-run` for bounded supplemental collection only when
 current evidence names a gap that Recon-Ry does not cover. Preserve raw output,

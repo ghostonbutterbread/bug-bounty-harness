@@ -9,8 +9,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REVIEWED_CORE_SHA = "ce8718b6bfb39fb08533f506bd2bfe627b52e5da"
-SUPERSEDED_CORE_SHA = "fd66f7ab9069a92c2aae624c85c00d15b6b34c90"
+REVIEWED_CORE_SHA = "6c36ee88a60073e1b687ec32deeade24ffafdd4f"
+SUPERSEDED_CORE_SHA = "ce8718b6bfb39fb08533f506bd2bfe627b52e5da"
 
 
 class RuntimeDependencyTests(unittest.TestCase):

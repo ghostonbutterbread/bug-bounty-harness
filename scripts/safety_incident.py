@@ -5,11 +5,40 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
+import stat
 import sys
 from pathlib import Path
 
 from bounty_core.safety_incidents import main as provider_main
 from bounty_core.storage import normalize_family, normalize_lane, normalize_program, resolve_storage
+
+WEBHOOK_ENV = "DISCORD_SAFETY_WEBHOOK_URL"
+_WEBHOOK_FILE = Path(".config/bounty-core/safety-webhook-url")
+_WEBHOOK_PATTERN = re.compile(r"https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+\Z")
+_MAX_WEBHOOK_BYTES = 4096
+
+
+def _load_webhook_file() -> str | None:
+    """Read only a regular, owner-private file; never include its data in errors."""
+    try:
+        path = Path.home() / _WEBHOOK_FILE
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            info = os.fstat(fd)
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_mode & 0o077 or info.st_size > _MAX_WEBHOOK_BYTES):
+                return None
+            raw = os.read(fd, _MAX_WEBHOOK_BYTES + 1)
+            if len(raw) > _MAX_WEBHOOK_BYTES:
+                return None
+            url = raw.decode("utf-8").removesuffix("\n")
+            return url if _WEBHOOK_PATTERN.fullmatch(url) else None
+        finally:
+            os.close(fd)
+    except (OSError, UnicodeError, RuntimeError):
+        return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -59,6 +88,14 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError, TypeError, IndexError):
         print("safety incident profile unavailable or inconsistent; no record or delivery attempted", file=sys.stderr)
         return 2
+    # Only this CLI opts in. An explicit environment setting (even empty) wins;
+    # --no-notify does not need to open a credential at all.
+    if WEBHOOK_ENV not in os.environ and "--no-notify" not in remaining:
+        url = _load_webhook_file()
+        if url is None:
+            print("safety incident webhook unavailable or insecure; notification not configured", file=sys.stderr)
+        else:
+            os.environ[WEBHOOK_ENV] = url
     return provider_main(["--program", program, "--family", family, "--lane", lane,
                           "--root", str(base_root), *remaining])
 

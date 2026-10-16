@@ -138,19 +138,29 @@ checkout-local interpreter.
 - **Inputs:** `--program`, `--lane`, required `--profile` (absolute path to the
   selected lane's `context/target_profile.json`), optional `--family` and
   `--root` (must match the profile), then
-  `record` with producer, run ID, category, action, subject, impact, and
-  containment; `--no-notify` disables delivery. Provider also supports manual
-  `notify <incident_id>` (may duplicate ambiguous delivery).
-- **Outputs:** JSON incident and optional notification receipt on stdout;
+  `record` with producer, run ID, category, optional severity (unknown by
+  default; low/medium/high/critical for colored alerts), action, subject, impact,
+  and containment; `--no-notify` disables delivery. Provider also supports manual
+  `notify <incident_id>` (may duplicate ambiguous delivery). For this command
+  only, `DISCORD_SAFETY_WEBHOOK_URL` takes precedence; if unset, the CLI reads
+  `$HOME/.config/bounty-core/safety-webhook-url` (regular, current-user-owned,
+  owner-only permissions (mode 0600 recommended), no symlink, at most 4096
+  bytes). Keep this credential off-repo;
+  do not put it in program Shared or pass it as a command-line argument.
+- **Outputs:** JSON incident and optional notification receipt on stdout; a
+  bounded saved-ID/action status on stderr after durable write and before delivery;
   lane-local `safety_incidents/events.jsonl` and notification attempts when enabled.
 - **Mutates:** Validates profile identity and canonical storage path before any
   provider call; missing/inconsistent profile fails closed, without a default
   Shared or cwd/environment-root fallback. Appends to the selected program/lane store; notification may send
   a Discord alert unless `--no-notify` is passed. Stop and contain unsafe work
-  independently; avoid secrets in input fields.
+  independently; avoid secrets in input fields. An absent, unsafe, or invalid
+  secret file emits a generic warning, still records the incident, and yields
+  the provider's `not-configured` notification receipt (exit 1). `--no-notify`
+  skips secret loading and has no notification receipt.
 - **Example:** `scripts/bbh scripts/safety_incident.py --program example --lane web --profile /path/to/Shared/web_bounty/example/web/context/target_profile.json record --producer agent --run-id run-1 --category other --action "Stopped task" --subject "Owned fixture" --impact "None observed" --containment "No further action" --no-notify`
 - **Verification:** `.venv/bin/python -m pytest tests/test_safety_incident.py -q`
-  (disposable profile and nondefault shared base, no notification).
+  (disposable profile/HOME, fake secret and nondefault shared base; no live send).
 - **Owner/scope:** Bug Bounty Harness CLI adapter / Bounty Core storage and delivery.
 - **Coverage limit:** Only incidents explicitly reported by callers are recorded.
 - **Last verified:** 2026-10-15.

@@ -23,6 +23,16 @@ If tool dependencies are missing, report them. Do not block ingestion of already
 
 ## Start Pattern
 
+This preflight applies to **every** active profile, including `full`: review
+the entire saved scope for a wildcard grant alongside any separately
+origin/path-limited exact URL. The wrapper can accept `full`, stage both, and
+reduce the exact URL to a host. Do not launch that mixed set unless program
+authorization explicitly covers the host-wide activity **or** each enabled
+active stage is verified to avoid requests outside the restricted grant. A
+scoped seed URL and post-run filtering do not enforce this boundary. When
+unresolved, defer active broad collection; keep narrow-source/passive review
+within its own rules.
+
 Start via the local wrapper so Hoster owns the long-running process:
 
 ```bash
@@ -39,13 +49,13 @@ URLs to hosts, so it cannot enforce a scheme, port, or allowed-path grant:
 
 ### Exact-host grants versus origin/path-limited grants
 
-For a program with exact targets and no wildcard scope, classify the saved
-grant first. A URL limited to one scheme/port or an allowed path is **not** a
-host-wide grant. Do not run active `exact-urls` stages for such a target until
-request-level destinations are constrained and verified or the program separately
-approves wider host activity. Path-scoped repository/package URLs stay source
-review only; do not treat them as whole-host seeds. Passive/source review may
-continue within its own authorization.
+For a program with exact targets (with or without a wildcard elsewhere),
+classify each saved grant first. A URL limited to one scheme/port or an allowed
+path is **not** a host-wide grant. Do not run active `exact-urls` stages for
+such a target until request-level destinations are constrained and verified or
+the program separately approves wider host activity. Path-scoped
+repository/package URLs stay source review only; do not treat them as whole-host
+seeds. Passive/source review may continue within its own authorization.
 
 For an approved host-wide target, verify each enabled stage's request behavior
 against saved scope, then launch **one** host with its own project:

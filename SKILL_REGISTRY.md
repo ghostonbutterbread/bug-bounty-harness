@@ -67,7 +67,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **business-logic** | `/business-logic {program} {workflow}` | `skills/business-logic/SKILL.md`; issue families in `references/` |
 | **idor** | `/idor {program}` | `prompts/idor-playbook.md` |
 | **jwt-auth** | `/jwt-auth {program} {jwt-auth-context}` | `prompts/jwt-auth-playbook.md` |
-| **cookie-session-analysis** | `/cookie-session-analysis {owned-cookie-fixture}` | `skills/cookie-session-analysis/SKILL.md`; offline stateless-cookie format and weak-key analysis only |
+| **cookie-session-analysis** | `/cookie-session-analysis {nonsecret-synthetic-fixture-ref}` | `skills/cookie-session-analysis/SKILL.md`; offline stateless-cookie format and weak-key analysis only; never supply a cookie value in chat |
 | **sqli** | `/sqli {program}` | `prompts/sqli-playbook.md` |
 | **ssti** | `/ssti {program}` | `prompts/ssti-playbook.md` |
 | **ssrf** | `/ssrf {program}` | `prompts/ssrf-playbook.md` |

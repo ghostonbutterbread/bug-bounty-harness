@@ -31,8 +31,9 @@ bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile fu
 
 The start command rejects a missing saved scope or out-of-scope seed host, but
 its host-granular scope file does not enforce scheme, port, or path on every
-request. Read the playbook's exact-host versus origin/path-limited gate before
-choosing `exact-urls`. It writes a project-local `rate_limit.conf` before launch.
+request. Read the playbook's mixed-scope preflight before `full`, and its
+exact-host versus origin/path-limited gate before `exact-urls`. It writes a
+project-local `rate_limit.conf` before launch.
 Use `--rate-limit-rps` only after checking program policy; use
 `--allow-unscoped` only after explicit Ryushe approval.
 

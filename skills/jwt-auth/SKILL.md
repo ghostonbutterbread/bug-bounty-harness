@@ -23,7 +23,7 @@ This is a RAG-style child skill. Classify the token behavior, load one focused r
    - malformed JWT, duplicate claims, whitespace, nested token, JWE/JWS confusion -> `skills/jwt-auth/references/technique-packs/format-confusion.md`
 6. Read `prompts/jwt-auth-playbook.md` for deep review, stuck analysis, or report writing.
 7. Route instead of duplicating:
-   - non-JWT signed stateless-session cookies -> `/cookie-session-analysis` for offline format/weak-key analysis; this is not a route for opaque server-side session IDs
+   - non-JWT signed stateless-session candidates -> `/cookie-session-analysis` for offline format/weak-key analysis of a non-authentic synthetic fixture; do not pass a live cookie value in chat or CLI, and do not route opaque server-side session IDs there
    - path/header/method 403 bypass -> `/403`, `/headers`, or `/bypass`
    - direct object authorization -> `/access-control` or `/idor`
    - SSRF from `iss`, `jku`, or `x5u` URL fetching -> `/ssrf` after using only owned callback URLs

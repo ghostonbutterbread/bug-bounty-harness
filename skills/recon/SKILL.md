@@ -170,6 +170,18 @@ represent the platform; it is not vulnerability testing.
 
 ## Phase 2 — Broad Collection Producer
 
+Before any **active** Recon-Ry profile, assess the whole saved scope, not just
+the selected seed. A program may grant wildcard hosts **and** a restricted
+exact origin/path elsewhere. The wrapper can accept `--profile full` for that
+mixed set while reducing the restricted URL to a hostname in its scope file;
+the wildcard grant must not silently broaden a separately restricted asset.
+Do not launch `full` on the mixed set unless program authorization explicitly
+covers the resulting host-wide activity **or** every enabled active stage is
+verified to exclude the restricted origin/path at request time. A seed-host
+check or post-run output filter is not that proof. If unresolved, defer the
+active broad run and handle the narrow asset only within its own passive/source
+review boundary.
+
 Use `/recon-ry` as the preferred durable broad producer when its freshness
 receipt says `rerun` or `unknown -> rerun` and high-volume collection is
 permitted:

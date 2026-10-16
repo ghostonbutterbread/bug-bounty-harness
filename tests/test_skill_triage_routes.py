@@ -26,6 +26,11 @@ def test_new_skills_have_discoverable_routes_and_no_local_runtime_path() -> None
         assert "/home/ryushe/.hermes" not in skill
     assert "/cookie-session-analysis" in jwt
     assert "opaque server-side session IDs" in jwt
+    assert "non-authentic synthetic fixture" in jwt
+    assert "do not pass a live cookie value in chat or CLI" in jwt
+    assert "{nonsecret-synthetic-fixture-ref}" in registry
+    assert "{owned-cookie-fixture}" not in registry
+    assert "never supply a cookie value in chat" in registry
     assert "/form-submission-testing" in requests
     assert requests.index("/form-submission-testing") < requests.index("Capture the valid baseline request")
 
@@ -83,3 +88,20 @@ def test_mandatory_recon_ry_child_route_preserves_exact_host_stop_gate() -> None
     assert "not** an aggregate concurrent cap" in playbook
     assert "Run it once per exact scoped host" not in playbook
     assert "launch Recon-Ry once as the durable broad collector" not in child
+
+
+def test_mixed_scope_full_profile_is_not_implicitly_safe() -> None:
+    lines, deferred = recon_scope_file_lines(
+        ["*.example.test", "https://limited.other.test:8443/"]
+    )
+    assert lines == ["*.example.test", "limited.other.test"]
+    assert deferred == []  # the restricted origin becomes a host filter
+    recon = " ".join(text("skills/recon/SKILL.md").split())
+    playbook = " ".join(text("prompts/recon-ry-playbook.md").split())
+    child = " ".join(text("skills/recon-ry/SKILL.md").split())
+    assert "wildcard hosts **and** a restricted exact origin/path" in recon
+    assert "Do not launch `full` on the mixed set" in recon
+    assert "This preflight applies to **every** active profile, including `full`" in playbook
+    assert "reduce the exact URL to a host" in playbook
+    assert "Do not launch that mixed set" in playbook
+    assert "mixed-scope preflight before `full`" in child

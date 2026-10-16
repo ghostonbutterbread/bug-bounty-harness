@@ -54,6 +54,16 @@ class SkillPromotionRoutesTest(unittest.TestCase):
         self.assertIn("freshly assess", blocker)
         self.assertNotIn("Open records block", blocker)
 
+    def test_conditional_routes_agree_with_their_entry_skills(self):
+        recovery = (SKILLS / "account-registry" / "references" / "program-auth-recovery.md").read_text(encoding="utf-8")
+        mapping = (SKILLS / "rce-surface-mapping" / "SKILL.md").read_text(encoding="utf-8")
+        research = (SKILLS / "research-knowledge-management" / "references" / "research-map-pattern.md").read_text(encoding="utf-8")
+        self.assertIn("`proxy-replayable` or `hybrid`", recovery)
+        self.assertIn("`browser-bound` and `unknown` remain browser-only", recovery)
+        self.assertIn("Load from `rce` for broad mapped-surface coverage", mapping)
+        self.assertIn("or from `rce-exploration`", mapping)
+        self.assertIn("external context could distinguish", research)
+
 
 if __name__ == "__main__":
     unittest.main()

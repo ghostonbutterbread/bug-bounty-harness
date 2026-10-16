@@ -13,7 +13,8 @@ metadata:
 
 # RCE Surface Mapping
 
-Load from `rce-exploration` after `/appmap`, `/live-map`, `/mental-map`, source
+Load from `rce` for broad mapped-surface coverage, or from `rce-exploration`
+for a selected primitive branch, after `/appmap`, `/live-map`, `/mental-map`, source
 review, runtime observations, or technology research. Its purpose is broad RCE
 lead generation: examine the mapped application for every component that could
 consume attacker-controlled data as instructions. It does not replace the

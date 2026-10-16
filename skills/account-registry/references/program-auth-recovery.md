@@ -28,6 +28,9 @@ browser login, OTP step, or Tailscale Serve link was already performed.
 5. Human-only failures produce a loopback-only Tailscale Serve handoff with SSH
    fallback and `awaiting-input` lease state.
 
-An explicit Ryushe instruction to pull from proxy is a one-run exception, scoped
-to exact program/account/host and retained only as non-secret provenance. It
-never alters the default policy and active tests remain on the agent MITM lane.
+An explicit Ryushe instruction to pull from proxy can be considered only for a
+`proxy-replayable` or `hybrid` session with an approved refresh source, scoped
+to the exact program/account/host and retained as non-secret run provenance.
+`browser-bound` and `unknown` remain browser-only even on such a request; the
+resolver does not export their session material. Active tests remain on the
+agent MITM lane.

@@ -5,13 +5,13 @@
 - **Authored corpus:** ResearchMap's `$HOME/notes/appsec/research` default or explicit `--root`
 - **Project-local CLI and tests:** `scripts/research_map.py` and `tests/test_research_map.py`
 - **Target facts:** BBH MapStore
-- **External discovery:** Preview/write-up source, only after local research is insufficient
+- **External discovery:** Preview/write-up source when local research is thin or external context could distinguish the next concrete branch; not an ambient startup step
 
 Markdown cards are synced and human-readable. SQLite FTS is a local generated index and must be rebuildable from Markdown.
 
 ## Agent policy wording
 
-> Start with target-specific reasoning and current-run observations. Use MapStore for concrete target facts, dedupe, and coverage. If a plausible surface has no next discriminating hypothesis, query ResearchMap before declaring it exhausted. If ResearchMap is thin or does not resolve the block, query the external source for source-backed idea generation. Research results are hypotheses, not target facts.
+> Start with target-specific reasoning and current-run observations. Use MapStore for concrete target facts, dedupe, and coverage. Query ResearchMap for a concrete mechanism question; use a bounded external source sweep when local knowledge is thin or outside context can distinguish the next branch. A search miss does not close a plausible surface. Research results are hypotheses, not target facts.
 
 ## CLI contract
 

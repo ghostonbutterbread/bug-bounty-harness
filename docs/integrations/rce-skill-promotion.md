@@ -1,6 +1,6 @@
 # RCE and Ghost-local skill promotion dossier
 
-- Status: feature (review pending)
+- Status: feature (independent source review approved; beta integration pending)
 - Owner/task: Hermes, `t_e6ec07ac`
 - Worktree: `/home/ryushe/worktrees/bbh-rce-skill-promotion`
 - Branch/ref: `feat/rce-skill-promotion`
@@ -28,7 +28,7 @@ Update the BBH registry, entry card, and upload route. No live target tests.
 - `PYTHONPATH=. python3 -m pytest -q tests --ignore=tests/test_safety_incident.py`: 239 passed, 174 subtests on latest implementation tip.
 - Unfiltered `tests`: 8 failures after initial placeholder path; placeholder corrected. Remaining 7 failures in `test_safety_incident.py` are reproduced unchanged on the beta integration base (missing checkout-local `.venv`, not a skill change). Exact deferred check: run `PYTHONPATH=. python3 -m pytest -q tests/test_safety_incident.py` after provisioning this checkout through `./setup.sh --install-python-deps`; compare with beta base. No waiver of application correctness.
 - `PYTHONPATH=. python3 -m pytest -q tests/test_skill_command_lane_safety.py tests/test_migrated_skill_commands.py`: 3 passed, 62 subtests.
-- Independent reviews of `1852fe3` and `58c0376`: first blocked on phantom auth loader and blocker gate, then on a blanket proxy exception, inconsistent RCE mapping route, research trigger and stale handoff. Corrected in `6068253`. Review of `89b3541` blocked on cross-consumer tombstone/schema claims and an `active`-only lease gate; corrected at `90298e9`. Review of `f1294ca` found first-lease auth-health conflation; corrected at `e1bfd7f`. Review of `88aab9a` found broad proxy outage inference, intermediary fingerprint misrouted to MapStore, and inconsistent RCE validation admission; corrected at `b760e10`. Review of `814d2eb` found the packaged RCE ladders contradicted pre-sink precursor and controlled confirmation admission; the current correction distinguishes pre-sink from interpreter differential, admits visible and blind branches with lower-impact-first gating, and keeps callback optional and authorized. Fresh exact-tip review required. Integration/remote runtime tests: pending.
+- Independent reviews of `1852fe3` and `58c0376`: first blocked on phantom auth loader and blocker gate, then on a blanket proxy exception, inconsistent RCE mapping route, research trigger and stale handoff. Corrected in `6068253`. Review of `89b3541` blocked on cross-consumer tombstone/schema claims and an `active`-only lease gate; corrected at `90298e9`. Review of `f1294ca` found first-lease auth-health conflation; corrected at `e1bfd7f`. Review of `88aab9a` found broad proxy outage inference, intermediary fingerprint misrouted to MapStore, and inconsistent RCE validation admission; corrected at `b760e10`. Review of `814d2eb` found the packaged RCE ladders contradicted pre-sink precursor and controlled confirmation admission; corrected at `56f874c`. A fresh read-only review APPROVED exact tip `ae4e2a4db82f1bac8697780a181b9e0b7797f174` against `e6e12b4b64cab8af3e7939ee8e0d7099294f1f57` with no remaining material source blocker (review session `20261016_123513_bec194`). This was source review only; integration and both runtime projections remain pending.
 
 ## Decision and activation gates
 

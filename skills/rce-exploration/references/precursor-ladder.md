@@ -26,8 +26,13 @@ Attempt. `live-testing-policy` still controls any approval boundary.
    discriminator to establish whether a process execution primitive exists.
    Do not expand it into host/file enumeration; redact output and compare it to
    an inert sibling.
-4. **Controlled confirmation:** only after informative signal, choose a
-   deterministic proof appropriate to the primitive and stop.
+4. **Controlled confirmation:** after informative signal, or after the active
+   hypothesis records a blind/asynchronous observation gap, explain why an
+   available lower-impact measurement is insufficient. Choose one permitted,
+   correlated deterministic proof appropriate to the branch; use an authorized
+   task-scoped observer only when that branch requires it. Stop at sufficient
+   evidence. See `validation-ladder.md` and `rce-validation` for attribution,
+   observation-channel, and closure checks.
 
 ## Bad precursors
 

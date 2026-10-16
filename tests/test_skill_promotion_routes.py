@@ -87,6 +87,18 @@ class SkillPromotionRoutesTest(unittest.TestCase):
             self.assertIn("source-to-executor", route)
             self.assertIn("`rce-exploration`", route)
 
+    def test_rce_ladders_distinguish_precursor_from_confirmation(self):
+        validation = (SKILLS / "rce-validation" / "SKILL.md").read_text(encoding="utf-8")
+        refs = SKILLS / "rce-exploration" / "references"
+        ladder = (refs / "validation-ladder.md").read_text(encoding="utf-8")
+        precursor = (refs / "precursor-ladder.md").read_text(encoding="utf-8")
+        self.assertIn("before the sink is evidenced", ladder)
+        self.assertIn("only\n   once the candidate sink is evidenced", ladder)
+        for text in (validation, ladder, precursor):
+            self.assertIn("blind/asynchronous observation gap", text)
+            self.assertIn("lower-impact measurement is insufficient", text)
+        self.assertIn("do not require a callback for a visible branch", validation)
+
 
 if __name__ == "__main__":
     unittest.main()

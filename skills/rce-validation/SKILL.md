@@ -50,14 +50,17 @@ result, cleanup, residual hypothesis, stop reason
    whether the observation channel is reliable for that branch. Do not label an
    otherwise plausible asynchronous/blind consumer cold merely because its
    normal response has no visible difference.
-4. **Controlled signal:** only after the active hypothesis record identifies a
-   blind/asynchronous observation gap and explains why the selected confirmation
-   distinguishes that branch better than an available lower-impact measurement,
-   use a permitted deterministic confirmation and correlate it to the request.
-   An out-of-band observer is eligible when it is scoped and authorized under
-   the normal platform/program policy; use the task-scoped observer and record
-   its ownership, correlation, and cleanup. If no authorized observer is
-   available, close as `blocked: observation channel`, not `cold`.
+4. **Controlled signal:** after informative precursor evidence, or after the
+   active hypothesis record identifies a blind/asynchronous observation gap,
+   explain why an available lower-impact measurement is insufficient. Choose
+   one permitted deterministic confirmation that distinguishes the active
+   branch and correlate it to the request. Visible synchronous effects may use
+   a response differential; blind branches may need a bounded delay or an
+   out-of-band observer. An observer is eligible only when scoped and authorized
+   under the normal platform/program policy; use the task-scoped observer and
+   record its ownership, correlation, and cleanup. If a blind branch has no
+   authorized observation channel, close as `blocked: observation channel`,
+   not `cold`; do not require a callback for a visible branch.
 5. **Stop/close:** stop at the first sufficient evidence or record why the
    primitive is cold, blocked, or only an exposure lead.
 

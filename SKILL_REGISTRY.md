@@ -59,6 +59,12 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 |-------|---------|----------|
 | **bb-script-rules** | `/bb-script-rules` with the relevant BBH skill before a bug-bounty script investigates a target | `skills/bb-script-rules/SKILL.md`; interpretation of bug-bounty script output |
 | **upload-surface** | `/upload-surface {program} {file-flow}` | `skills/upload-surface/SKILL.md`; trace file lineage and route the observed consumer to a specialist; `/pfp` owns avatar orchestration |
+| **rce** | `/rce {program} {execution-question}` | `skills/rce/SKILL.md`; class entry for server-side execution chains |
+| **rce-exploration** | Named primitive investigation | `skills/rce-exploration/SKILL.md`; focused packet and conditional references |
+| **rce-surface-mapping** | Mapped execution-capable consumers | `skills/rce-surface-mapping/SKILL.md` |
+| **rce-lifecycle** | Delayed or transformed consumers | `skills/rce-lifecycle/SKILL.md` |
+| **rce-validation** | Bounded precursor or proof | `skills/rce-validation/SKILL.md` |
+| **rce-technology-research** | Observed stack and preconditions | `skills/rce-technology-research/SKILL.md` |
 | **xss** | `/xss {program}` | Router to `reflected-xss`, `stored-xss`, and `dom-xss` |
 | **reflected-xss** | `/reflected-xss {target_url}` | `skills/reflected-xss/SKILL.md` |
 | **stored-xss** | `/stored-xss {program} {write-and-render-context}` | `skills/stored-xss/SKILL.md` |
@@ -102,11 +108,13 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **mullvad** | `/mullvad` | `prompts/mullvad-playbook.md` |
 | **temporary-email** | `/temporary-email {create|read|show|accounts}` | `skills/temporary-email/SKILL.md` |
 | **account-management** | `/account-management {program}` | `prompts/account-management-playbook.md` |
+| **account-registry** | `/account-registry {program}` for schema, migration, and lease invariants | `skills/account-registry/SKILL.md`; account operations remain with `account-management` |
 | **create-account** | `/create-account {program}` | `skills/create-account/SKILL.md` |
 | **live-map** | `/live-map {program}` | `skills/live-map/SKILL.md` (loads `prompts/live-map-playbook.md` for full mapping) |
 | **error-mapper** | `/error-mapper {program} --url {target_url}` | `prompts/error-mapper-playbook.md` |
 | **error-intelligence** | `/error-intelligence {program} [--url {target_url}]` | `skills/error-intelligence/SKILL.md`; `agents/error_store.py` |
 | **blockers** | `/blockers {program}` | `skills/blockers/SKILL.md`; `agents/blockers.py` |
+| **blocker-first-analysis** | `/blocker-first-analysis {program} {blocked-test}` | `skills/blocker-first-analysis/SKILL.md`; causal interpretation, not a second blocker store |
 | **hybrid** | `/hybrid deep-dive {mode} {program} --input {urls-or-params-file}` | `prompts/hybrid-playbook.md` |
 | **url-ingest** | `/url-ingest {init|ingest|status|mark|search|stats} {program}` | `skills/url-ingest/SKILL.md` |
 | **bounty-storage** | `/bounty-storage` | `skills/bounty-storage/SKILL.md` |
@@ -116,6 +124,8 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **hunter-memory** | `/hunter-memory {program} {surface}` | `prompts/hunter-memory-playbook.md` |
 | **hypothesis-ledger** | `/hypothesis-ledger {create|heartbeat|continuation|list|lead-followup|peer-surface-review|operator-app-review|transition|release|delegate|reclaim|complete} {program}` | `skills/hypothesis-ledger/SKILL.md` |
 | **hunter-loop** | `/hunter-loop {program} --goal {objective}` | `prompts/hunter-loop-playbook.md` |
+| **hunt-orchestration** | `/hunt-orchestration {program}` for solo hunter and bounded sidecars | `skills/hunt-orchestration/SKILL.md`; `hunt-orchestration-policy` owns sidecar admission |
+| **research-knowledge-management** | `/research-knowledge-management {research-question}` | `skills/research-knowledge-management/SKILL.md`; ResearchMap corpus and source admission |
 | **bunny** | `/bunny {program} --goal {objective}` or explicit Bunny `multi` parameter (collaborative default; skill guidance, no standalone CLI runner) | `skills/bunny/SKILL.md` |
 | **bunny-collaborative** | Default Bunny mode; coordinator and collaborative workers load it | `skills/bunny-collaborative/SKILL.md` |
 | **bunny-multi** | Coordinator-only collaborative overlay when Bunny has explicit `multi` parameter (with or without `/goal`) | `skills/bunny-multi/SKILL.md` |

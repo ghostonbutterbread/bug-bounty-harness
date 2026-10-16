@@ -2,7 +2,8 @@
 
 - Owner/card: Hermes in-thread, `t_86eff61e`
 - Worktree/branch: `/home/ryushe/worktrees/bbh-skill-triage-20261016`, `feat/bbh-skill-triage-20261016`
-- Base: `origin/beta` at `e6e12b4`; target: reviewed `beta` only
+- Base: `origin/beta` at `e6e12b4b64cab8af3e7939ee8e0d7099294f1f57`; target: reviewed `beta` only
+- Implementation commits: `0f56ac87b7037e4379b0953c3d11acc993e446af`, then `35fabb272b8afc447188e83fcad18f25c1bf5055`; the current tip may add only this dossier receipt. Verify the eventual review/merge against the complete feature range, not the earlier first pass.
 - Source: Discord message `1560733134524260465`
 
 ## Intent and ownership
@@ -13,8 +14,8 @@ Parallel owner `t_e6ec07ac` is changing nine distinct RCE/BBH skill routes. Do n
 
 ## Gates and evidence
 
-- Focused validation: `python -m pytest -q agents/test_recon_ry.py tests/test_skill_triage_routes.py tests/test_skill_command_lane_safety.py tests/test_recon_ry_scope_files.py` → 76 passed; `git diff --check` passed. CookieMonster v1.5.0 `--help` verified on Ghost and Hoster (offline only). An unrelated `tests/test_recon_docs.py` collection with system Python failed on absent `bounty_core`; its missing-interpreter prerequisite is tracked as an existing papercut, not a green full suite.
-- Full regression comparison: pending; the changed paths are skill text and route tests, not Recon-Ry implementation.
+- Focused validation: `.venv/bin/python -m pytest -q agents/test_recon_ry.py tests/test_skill_triage_routes.py tests/test_skill_command_lane_safety.py tests/test_recon_ry_scope_files.py` → 76 passed; `git diff --check` passed. CookieMonster v1.5.0 `--help` verified on Ghost and Hoster (offline only).
+- Full isolated suite: `./setup.sh --install-python-deps` created this worktree's `.venv` with `bounty-core` at the exact `requirements.txt` pin `ce8718b6bfb39fb08533f506bd2bfe627b52e5da`; `.venv/bin/python -m pytest -q tests` → 242 passed, 171 subtests passed. Earlier runs using system Python and another checkout's stale venv failed collection on missing/mismatched `bounty_core`; neither is a failure of this feature branch.
 - Independent review: first pass blocked unsafe recon wording and unclear cookie boundary; both were corrected with an offline host-granularity regression and explicit synthetic-only stop boundary. Second pass confirmed those fixes but blocked the stale mandatory `recon-ry` child playbook; that route and its regression test were corrected. Fresh review of the corrected tip is pending. AI Policies preview rule passed its separate read-only review and 44 policy-lint tests.
 - Beta merge/push: pending. AI Policies beta has three unrelated, previously local commits ahead of origin without recorded independent semantic review; pushing the task-owned preview commit would also publish those. Do not push that beta stack without review/owner decision or a safely isolated task-only publication path.
 - Ghost/Hoster projection and fresh resolver: pending.

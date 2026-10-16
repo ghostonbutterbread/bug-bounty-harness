@@ -88,8 +88,12 @@ def _under_root(path: Path, root: Path) -> bool:
     except ValueError:
         return False
 
+def _internal_log(path: Path, run_root: Path) -> bool:
+    """Only run-internal log directories are excluded, not ordinary output files."""
+    return "_logs" in path.relative_to(run_root).parts[:-1]
 
-def _resolve_manifest_path(value: str, run_root: Path) -> Path | None:
+
+def _resolve_manifest_path(value: str, run_root: Path, excluded: list[Path] | None = None) -> Path | None:
     text = str(value or "").strip()
     if not text:
         return None
@@ -97,7 +101,11 @@ def _resolve_manifest_path(value: str, run_root: Path) -> Path | None:
     if not candidate.is_absolute():
         candidate = run_root / candidate
     if candidate.is_file() and _under_root(candidate, run_root):
-        return candidate
+        if _internal_log(candidate, run_root):
+            if excluded is not None:
+                excluded.append(candidate)
+        else:
+            return candidate
     return None
 
 
@@ -119,7 +127,7 @@ def _manifest_path_values(value: object, *, key_hint: str = "") -> Iterable[str]
         yield value
 
 
-def manifest_declared_files(run_root: Path) -> list[Path]:
+def manifest_declared_files(run_root: Path, excluded: list[Path] | None = None) -> list[Path]:
     manifest = run_root / "manifest.json"
     if not manifest.is_file():
         return []
@@ -130,18 +138,18 @@ def manifest_declared_files(run_root: Path) -> list[Path]:
 
     paths = []
     for value in _manifest_path_values(payload):
-        path = _resolve_manifest_path(value, run_root)
+        path = _resolve_manifest_path(value, run_root, excluded)
         if path is not None:
             paths.append(path)
     return _dedupe_paths(paths)
 
 
-def discover_candidate_files(run_root: Path) -> dict[str, list[Path]]:
+def discover_candidate_files(run_root: Path, excluded: list[Path] | None = None) -> dict[str, list[Path]]:
     files: list[Path] = []
     files.extend(_direct_files(run_root))
     for name in DIRECTORY_NAMES:
         files.extend(_direct_files(run_root / name))
-    files.extend(manifest_declared_files(run_root))
+    files.extend(manifest_declared_files(run_root, excluded))
 
     grouped: dict[str, list[Path]] = defaultdict(list)
     for path in _dedupe_paths(files):
@@ -156,11 +164,15 @@ def discover_candidate_files(run_root: Path) -> dict[str, list[Path]]:
         "wild.txt", "hosts.jsonl", "httpx.jsonl", "httpx_ip_raw.txt",
         "waf_hosts.txt", "unprotected_hosts.txt",
     }
-    for status_dir in sorted(path for path in run_root.rglob("dirs_status") if path.is_dir()):
-        grouped["dir"].extend(
-            path for path in sorted(status_dir.rglob("*"))
-            if path.is_file() and path.name.lower() not in non_queue_names
-        )
+    for status_dir in sorted(path for path in run_root.rglob("dirs_status") if path.is_dir() and not _internal_log(path, run_root)):
+        for path in sorted(status_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            if _internal_log(path, run_root):
+                if excluded is not None:
+                    excluded.append(path)
+            elif path.name.lower() not in non_queue_names:
+                grouped["dir"].append(path)
     grouped = {kind: _dedupe_paths(paths) for kind, paths in grouped.items()}
     if any(is_params_raw(path) for path in grouped.get("param", [])):
         grouped["param"] = [path for path in grouped["param"] if not is_params_view(path)]
@@ -196,20 +208,41 @@ def append_kind(
     return bus.append(append_args)
 
 
-def http_urls(files: Iterable[Path]) -> list[str]:
-    """Return deduplicated full HTTP(S) URLs from URL-shaped recon artifacts."""
+def url_candidates(files: Iterable[Path]) -> tuple[list[str], dict[str, dict[str, int]]]:
+    """Parse URL queues without treating console output as targets.
+
+    Malformed URL-looking lines remain hard errors with source locations; ordinary
+    console lines are counted so coverage is explicit rather than silently lost.
+    """
     urls: list[str] = []
     seen: set[str] = set()
+    coverage: dict[str, dict[str, int]] = {}
     for path in files:
-        for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-            value = raw.strip()
-            parsed = urlparse(value)
-            if parsed.scheme not in {"http", "https"} or not parsed.netloc or value in seen:
+        counts = {"lines": 0, "accepted_urls": 0, "ignored_non_url": 0, "duplicates": 0}
+        coverage[str(path)] = counts
+        for number, raw in enumerate(path.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+            value = bus.normalize_line(raw)
+            counts["lines"] += 1
+            if not value:
+                continue
+            if not value.lower().startswith(("http://", "https://")):
+                counts["ignored_non_url"] += 1
+                continue
+            try:
+                parsed = urlparse(value)
+                if not parsed.netloc or not parsed.hostname or any(char.isspace() for char in value):
+                    raise ValueError("invalid HTTP(S) authority or embedded whitespace")
+                # Accessing port validates malformed authority ports if present.
+                parsed.port
+            except ValueError as exc:
+                raise ValueError(f"invalid URL candidate at {path}:{number}: {exc}") from exc
+            if value in seen:
+                counts["duplicates"] += 1
                 continue
             seen.add(value)
             urls.append(value)
-    return urls
-
+            counts["accepted_urls"] += 1
+    return urls, coverage
 
 def normalize_host_port(host: object, port_value: object) -> tuple[str, int] | None:
     host_text = str(host or "").strip().lower()
@@ -364,21 +397,29 @@ def promote_run(args: argparse.Namespace) -> dict[str, object]:
     if not run_root.is_dir():
         raise SystemExit(f"--run-root is not a directory: {run_root}")
 
-    discovered = discover_candidate_files(run_root)
+    excluded_logs: list[Path] = []
+    discovered = discover_candidate_files(run_root, excluded_logs)
     appends: dict[str, dict[str, object]] = {}
 
     # A URL may arrive in an URL, parameter, or JavaScript artifact. Promote
     # every full HTTP(S) URL into the broad URL inventory first, and probe only
     # its newly deduplicated delta. Flat alive.txt remains a positive tool queue;
     # absence from it is not a claim that a URL is dead.
-    url_inputs = [path for kind in URL_BEARING_KINDS for path in discovered.get(kind, [])]
-    candidates = http_urls(url_inputs)
+    # Parse all URL-shaped files before any append so malformed URL-looking
+    # input cannot leave behind a partial promotion.
+    parsed_by_kind: dict[str, list[str]] = {}
+    coverage: dict[str, dict[str, int]] = {}
+    for kind in (*URL_BEARING_KINDS, "alive"):
+        parsed_by_kind[kind], file_coverage = url_candidates(discovered.get(kind, []))
+        coverage.update(file_coverage)
+    candidates = list(dict.fromkeys(url for kind in URL_BEARING_KINDS for url in parsed_by_kind[kind]))
 
-    if discovered.get("alive"):
+    if parsed_by_kind["alive"]:
         appends["alive"] = append_kind(
             program=args.program,
             kind="alive",
-            files=discovered["alive"],
+            files=[],
+            values=parsed_by_kind["alive"],
             run_root=run_root,
             shared_base=args.shared_base,
             no_index=args.no_index,
@@ -403,10 +444,13 @@ def promote_run(args: argparse.Namespace) -> dict[str, object]:
     for kind, files in discovered.items():
         if kind in {"port", "url", "alive"}:
             continue
+        if kind in {"param", "js"} and not parsed_by_kind[kind]:
+            continue
         appends[kind] = append_kind(
             program=args.program,
             kind=kind,
-            files=files,
+            files=[] if kind in {"param", "js"} else files,
+            values=parsed_by_kind[kind] if kind in {"param", "js"} else None,
             run_root=run_root,
             shared_base=args.shared_base,
             no_index=args.no_index,
@@ -431,6 +475,8 @@ def promote_run(args: argparse.Namespace) -> dict[str, object]:
         "program": args.program,
         "run_root": str(run_root),
         "discovered": {kind: [str(path) for path in files] for kind, files in discovered.items()},
+        "excluded_internal_logs": [str(path) for path in _dedupe_paths(excluded_logs)],
+        "coverage": coverage,
         "appends": appends,
         "services": services,
         "probe_urls": bool(getattr(args, "probe_urls", True)),

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import os
 import subprocess
 import sys
@@ -345,6 +346,130 @@ class ReconBusTests(unittest.TestCase):
                 "www.example.com:10443",
             ],
         )
+
+    def test_promote_run_ignores_httpx_console_and_preserves_valid_urls(self):
+        run_root = Path(self.tmp.name) / "noisy-run"
+        (run_root / "raw").mkdir(parents=True)
+        alive = run_root / "raw" / "httpx.txt"
+        alive.write_text("[INF] httpx banner\n _  _  _\nhttps://example.com/live [200] [nginx]\n", encoding="utf-8")
+        urls = run_root / "raw" / "urls.txt"
+        urls.write_text("[INF] banner\nhttps://example.com/path\n", encoding="utf-8")
+        result = promote_run.promote_run(argparse.Namespace(
+            program="demo", run_root=str(run_root), shared_base=str(M.SHARED_BASE),
+            no_index=True, probe_urls=False,
+        ))
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(self.aggregate("alive.txt").read_text().splitlines(), ["https://example.com/live"])
+        self.assertEqual(self.aggregate("urls.txt").read_text().splitlines(),
+                         ["https://example.com/live", "https://example.com/path"])
+        self.assertEqual(result["coverage"][str(alive)]["ignored_non_url"], 2)
+
+    def test_promote_run_excludes_internal_logs_even_when_manifest_declares_them(self):
+        run_root = Path(self.tmp.name) / "status-run"
+        output = run_root / "dirs_status" / "200" / "found.txt"
+        output.parent.mkdir(parents=True)
+        output.write_text("https://example.com/admin\n", encoding="utf-8")
+        log = run_root / "dirs_status" / "_logs" / "alive.txt"
+        log.parent.mkdir()
+        log.write_text("ASCII BANNER\n", encoding="utf-8")
+        (run_root / "manifest.json").write_text('{"output": "dirs_status/_logs/alive.txt"}')
+        result = promote_run.promote_run(argparse.Namespace(
+            program="demo", run_root=str(run_root), shared_base=str(M.SHARED_BASE),
+            no_index=True, probe_urls=False,
+        ))
+        self.assertNotIn(str(log), result["discovered"].get("alive", []))
+        self.assertEqual(result["excluded_internal_logs"], [str(log)])
+        self.assertIn(str(output), result["discovered"]["dir"])
+        self.assertFalse(self.aggregate("alive.txt").exists())
+        self.assertEqual(self.aggregate("dirs.txt").read_text().splitlines(), ["https://example.com/admin"])
+
+    def test_promote_run_excludes_absolute_manifest_log_with_relative_run_root(self):
+        run_root = Path(self.tmp.name) / "relative-status-run"
+        log = run_root / "custom" / "_logs" / "alive.txt"
+        log.parent.mkdir(parents=True)
+        log.write_text("https://example.com/not-alive\n", encoding="utf-8")
+        (run_root / "manifest.json").write_text(json.dumps({"output": str(log)}), encoding="utf-8")
+        result = promote_run.promote_run(argparse.Namespace(
+            program="demo", run_root=os.path.relpath(run_root), shared_base=str(M.SHARED_BASE),
+            no_index=True, probe_urls=False,
+        ))
+        self.assertEqual(result["excluded_internal_logs"], [str(log)])
+        self.assertFalse(self.aggregate("alive.txt").exists())
+
+    def test_promote_run_excludes_manifest_symlink_to_internal_log(self):
+        run_root = Path(self.tmp.name) / "linked-status-run"
+        log = run_root / "custom" / "_logs" / "alive.txt"
+        log.parent.mkdir(parents=True)
+        log.write_text("https://example.com/not-alive\n", encoding="utf-8")
+        link = run_root / "custom" / "alive.txt"
+        link.symlink_to(log)
+        (run_root / "manifest.json").write_text(json.dumps({"output": "custom/alive.txt"}), encoding="utf-8")
+        result = promote_run.promote_run(argparse.Namespace(
+            program="demo", run_root=str(run_root), shared_base=str(M.SHARED_BASE),
+            no_index=True, probe_urls=False,
+        ))
+        self.assertEqual(result["excluded_internal_logs"], [str(link)])
+        self.assertFalse(self.aggregate("alive.txt").exists())
+
+    def test_promote_run_excludes_direct_symlink_outside_run(self):
+        run_root = Path(self.tmp.name) / "external-link-run"
+        run_root.mkdir()
+        external = Path(self.tmp.name) / "other-run-alive.txt"
+        external.write_text("https://example.com/not-this-run\n", encoding="utf-8")
+        link = run_root / "alive.txt"
+        link.symlink_to(external)
+        result = promote_run.promote_run(argparse.Namespace(
+            program="demo", run_root=str(run_root), shared_base=str(M.SHARED_BASE),
+            no_index=True, probe_urls=False,
+        ))
+        self.assertEqual(result["discovered"], {})
+        self.assertEqual(result["excluded_internal_logs"], [str(link)])
+        self.assertFalse(self.aggregate("alive.txt").exists())
+
+    def test_promote_run_excludes_direct_output_directory_symlink_to_logs(self):
+        run_root = Path(self.tmp.name) / "linked-raw-run"
+        log_dir = run_root / "custom" / "_logs"
+        log_dir.mkdir(parents=True)
+        (log_dir / "urls.txt").write_text("https://example.com/not-a-url-queue\n", encoding="utf-8")
+        (run_root / "raw").symlink_to(log_dir, target_is_directory=True)
+        result = promote_run.promote_run(argparse.Namespace(
+            program="demo", run_root=str(run_root), shared_base=str(M.SHARED_BASE),
+            no_index=True, probe_urls=False,
+        ))
+        self.assertEqual(result["discovered"], {})
+        self.assertEqual(result["excluded_internal_logs"], [str(run_root / "raw" / "urls.txt")])
+        self.assertFalse(self.aggregate("urls.txt").exists())
+
+    def test_promote_run_reports_malformed_url_with_source_location(self):
+        run_root = Path(self.tmp.name) / "bad-run"
+        run_root.mkdir()
+        (run_root / "alive.txt").write_text("http://[broken\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, r"alive.txt:1.*Invalid IPv6 URL"):
+            promote_run.promote_run(argparse.Namespace(
+                program="demo", run_root=str(run_root), shared_base=str(M.SHARED_BASE),
+                no_index=True, probe_urls=False,
+            ))
+        self.assertFalse(self.aggregate("alive.txt").exists())
+
+    def test_promote_run_filters_console_in_param_and_js_without_losing_urls(self):
+        run_root = Path(self.tmp.name) / "mixed-run"
+        run_root.mkdir()
+        (run_root / "params_raw.txt").write_text(
+            "[INF] collecting\nhttps://example.com/search?q=1\n", encoding="utf-8")
+        (run_root / "jsfiles.txt").write_text(
+            " __ banner __\nhttps://example.com/app.js\n", encoding="utf-8")
+        result = promote_run.promote_run(argparse.Namespace(
+            program="demo", run_root=str(run_root), shared_base=str(M.SHARED_BASE),
+            no_index=True, probe_urls=False,
+        ))
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(self.aggregate("params_raw.txt").read_text().splitlines(),
+                         ["https://example.com/search?q=1"])
+        self.assertEqual(self.aggregate("jsfiles.txt").read_text().splitlines(),
+                         ["https://example.com/app.js"])
+        self.assertEqual(self.aggregate("urls.txt").read_text().splitlines(),
+                         ["https://example.com/search?q=1", "https://example.com/app.js"])
+        self.assertEqual(result["coverage"][str(run_root / "params_raw.txt")]["ignored_non_url"], 1)
 
     def test_cli_append_probes_urls_by_default_and_treats_alive_as_known(self):
         parser = M.build_parser()

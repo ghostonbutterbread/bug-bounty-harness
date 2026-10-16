@@ -53,6 +53,7 @@ and a reflected value may become dangerous only after client-side parsing.
 | Plausible warm/hot vector needs payload selection, mutation, or reduction | `xss-payload-engineering` |
 | Observed renderer, parser, sanitizer, framework, or defense may change the next hypothesis | `xss-technology-research` |
 | Filtering, challenge, or edge/origin difference needs characterization | `waf-live-policy` |
+| A controlled source can select a GTM container ID or load a GTM script | `xss-gtm` for the preconfigured XSS fixture; selected lane still owns proof |
 
 ### Defense signals deepen the same XSS lane
 

@@ -248,12 +248,25 @@ When an agent needs recon data:
 
 ## Ingest/Index Pattern
 
-After the run completes, ingest or index the project directory only when Ghost needs a Shared manifest/counts record:
+After a run completes, ingest the **completed project's own directory** only
+when Ghost needs a Shared manifest/counts record. For a broad program-root run:
 
 ```bash
 bbh agents/recon_ry.py ingest <program> \
   --source ryushe@hoster:/home/ryushe/bounties/<program> \
-  --target <target-host>
+  --target <program-root-target>
+```
+
+For exact-host runs, use the `project=` path recorded by each completed
+`start`, not the program root. Repeat once per completed host, with a distinct
+`--target` matching that host; inspect the run receipt before the next host's
+start. The wrapper copies artifacts from the specified directory only—it does
+not descend into sibling `exact/` projects:
+
+```bash
+bbh agents/recon_ry.py ingest <program> \
+  --source ryushe@hoster:/home/ryushe/bounties/<program>/exact/<host-key> \
+  --target <approved-host>
 ```
 
 The helper can copy known `recon-ry` artifacts into:

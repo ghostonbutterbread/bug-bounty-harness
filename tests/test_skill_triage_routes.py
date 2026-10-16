@@ -7,6 +7,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agents.scope_seed_files import recon_scope_file_lines
+from agents.recon_ry import copy_recon_outputs
 
 SKILLS = ROOT / "skills"
 
@@ -111,3 +112,26 @@ def test_mixed_scope_full_profile_is_not_implicitly_safe() -> None:
     assert "verified request-level confinement" in entry
     assert "use `exact-urls` once per eligible host" in entry
     assert "exact-urls` per approved origin" not in entry
+
+
+def test_exact_host_ingest_uses_its_own_project_and_distinct_target(tmp_path: Path) -> None:
+    playbook = text("prompts/recon-ry-playbook.md")
+    child = text("skills/recon-ry/SKILL.md")
+    exact_project = "/home/ryushe/bounties/<program>/exact/<host-key>"
+    assert f"--remote-project {exact_project}" in playbook
+    for route in (playbook, child):
+        assert f"--source ryushe@hoster:{exact_project}" in route
+        assert "--target <approved-host>" in route
+        assert "program root" in route
+
+    # The underlying ingest copier is non-recursive across project directories.
+    root = tmp_path / "program"
+    host = root / "exact" / "host-key"
+    host.mkdir(parents=True)
+    (root / "alive.txt").write_text("https://stale.example.test\n", encoding="utf-8")
+    (host / "alive.txt").write_text("https://host.example.test\n", encoding="utf-8")
+    raw = tmp_path / "raw"
+    parsed = tmp_path / "parsed"
+    copy_recon_outputs(host, raw, parsed)
+    assert (parsed / "alive.txt").read_text(encoding="utf-8") == "https://host.example.test\n"
+    assert "stale.example.test" not in (parsed / "alive.txt").read_text(encoding="utf-8")

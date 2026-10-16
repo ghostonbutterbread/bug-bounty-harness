@@ -76,13 +76,23 @@ Check remote status/log names:
 bbh agents/recon_ry.py status
 ```
 
-Ingest a completed Hoster project:
+Ingest a completed Hoster project. Use the `project=` path recorded by that
+run: the program root for a broad run, or **each** completed exact-host
+project separately. Give each exact-host ingest a distinct `--target` so its
+manifest and counts are attributed to that host; the helper does not search
+nested `exact/` directories from the program root.
 
 ```bash
 bbh agents/recon_ry.py ingest <program> \
-  --source ryushe@hoster:/home/ryushe/bounties/<program> \
-  --target <target-host>
+  --source ryushe@hoster:/home/ryushe/bounties/<program>/exact/<host-key> \
+  --target <approved-host>
 ```
+
+For a broad program-root run, use
+`--source ryushe@hoster:/home/ryushe/bounties/<program>` and a separate
+program-root target. Never ingest the root as a substitute for a completed
+exact-host project; follow `prompts/recon-ry-playbook.md` for the per-host
+completion sequence.
 
 ## Recon-Ry Project Location
 

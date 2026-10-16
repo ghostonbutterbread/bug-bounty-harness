@@ -41,6 +41,19 @@ class SkillPromotionRoutesTest(unittest.TestCase):
         self.assertIn("`blockers` owns the optional external-prerequisite store",
                       (SKILLS / "blocker-first-analysis" / "SKILL.md").read_text(encoding="utf-8"))
 
+    def test_promoted_contracts_do_not_invent_auth_or_blocker_gates(self):
+        registry = (SKILLS / "account-registry" / "SKILL.md").read_text(encoding="utf-8")
+        recovery = (SKILLS / "account-registry" / "references" / "program-auth-recovery.md").read_text(encoding="utf-8")
+        blocker = (SKILLS / "blocker-first-analysis" / "references" / "blocker-store-contract.md").read_text(encoding="utf-8")
+        self.assertIn("`needs-browser-handoff`", registry)
+        self.assertIn("not implemented by", registry)
+        self.assertIn("not implemented by the resolver", recovery)
+        self.assertNotIn("The resolver must load both", registry)
+        self.assertNotIn("run the policy-declared owned browser login", registry)
+        self.assertIn("not a testing or coverage gate", blocker)
+        self.assertIn("freshly assess", blocker)
+        self.assertNotIn("Open records block", blocker)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -97,34 +97,20 @@ account-level override when a host/account genuinely differs. Valid values are:
 `auth_session_mode` answers whether that material may leave its owner browser.
 Do not conflate them.
 
-### Program auth policy and autonomous recovery
+### Browser-bound recovery and current implementation
 
-Keep auth operations out of scope authorization: published program policy controls
-what the program permits to test, while the program's resolved `auth-policy.json`
-controls the non-secret mechanics for obtaining the selected owned account.
-The resolver must load both the program auth policy and account registry; do not
-infer passwordless, password+OTP, proxy portability, or manual-handoff behavior
-from prose.
-
-The auth policy may specify session mode, login method/URL, approved OTP channel,
-browser-native post-login check, and recovery order. The registry supplies only
-exact owned-account facts and opaque references such as `bitwarden:<item>` and
-`gmail:<owned-alias>`; never write credentials, OTPs, magic links, cookies, or
-tokens into either file.
-
-Recovery order: reuse the exact healthy owned profile → lease/provision that
-profile → run the policy-declared owned browser login (Bitwarden/password and
-approved Gmail OTP only for the initiating account flow) → verify in the same
-browser → create private Tailscale Serve/SSH handoff only for CAPTCHA, passkey or
-wallet confirmation, lockout, missing/ambiguous OTP, unexpected step-up, or
-failed verification. Preserve the exact lease as `awaiting-input` while paused.
-
-Treat an explicit Ryushe phrase such as “pull from my proxy” as a natural-language
-one-run transport exception for the exact program/account/host. It must never
-rewrite policy or inventory, must leave non-secret run provenance, and must not
-turn active testing into Ryushe-proxy traffic. On the next autonomous run, revert
-to normal policy. See `references/program-auth-recovery.md` for the
-separation of authority and `account-management` for the current resolver.
+Published program policy controls what may be tested. The inventory supplies
+non-secret account identity and `auth_session_mode`; it is not an authorization
+policy or an executable login recipe. `auth_resolver.py resolve` currently returns
+`needs-browser-handoff` for `browser-bound` sessions without inspecting or
+copying a seed. Follow `account-management` and the browser owner's exact-profile
+lease/handoff contract; any browser-native login must follow the approved
+account workflow and be verified in that same browser. If it cannot complete,
+retain the lease as `awaiting-input` and give the private Tailscale/SSH handoff.
+Do not claim that the resolver loads a program `auth-policy.json`, performs OTP
+login, or provisions that handoff automatically: those are not implemented by
+this registry skill. Keep Bitwarden, mailbox, and session secrets out of the
+inventory. See `references/program-auth-recovery.md` for the ownership split.
 
 When schema changes, provide an explicit migration for prior records or reject unsupported versions. Never silently relabel an old schema version.
 

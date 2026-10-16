@@ -16,11 +16,17 @@ A blocker is an append-only lifecycle record, distinct from:
 
 Record the exact operation (`subject`), authorization test scope, stable prerequisite key, typed reason, non-secret account/resource references, evidence pointer, and smallest concrete wake condition. Do not include cookies, bearer values, or URL userinfo. Redact URL userinfo before persistence.
 
-Open records block only their exact subject and test scope. Later `resolved` or `superseded` lifecycle records close the gate without deleting history. Derive active status from the full event history before applying any presentation limit.
+Open records describe an external prerequisite for an exact subject and test
+scope; they are not a testing or coverage gate. Before honoring a known record,
+freshly assess whether ordinary authorized remediation can now clear it. Later
+`resolved` or `superseded` events preserve the append-only history. Derive
+current status from the full event history before applying a presentation limit.
 
 ## Coverage wording
 
-An open gate means: **not demonstrated under available prerequisites**.
+An open external prerequisite means: **not demonstrated under the recorded
+conditions**. It does not close the route, prohibit other authorized work, or
+supersede fresh evidence from a newly available fixture.
 
 A successful login, two usable account aliases, an in-scope SPA route, or a routing/method matrix does not prove the normal feature state was exercised. Verify the feature-specific capability and the owned fixture first. Routing observations may still be recorded, but cannot be reported as coverage for the unavailable feature.
 

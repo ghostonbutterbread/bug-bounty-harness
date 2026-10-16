@@ -98,6 +98,7 @@ def test_mixed_scope_full_profile_is_not_implicitly_safe() -> None:
     assert deferred == []  # the restricted origin becomes a host filter
     recon = " ".join(text("skills/recon/SKILL.md").split())
     playbook = " ".join(text("prompts/recon-ry-playbook.md").split())
+    entry = " ".join(text("prompts/recon-playbook.md").split())
     child = " ".join(text("skills/recon-ry/SKILL.md").split())
     assert "wildcard hosts **and** a restricted exact origin/path" in recon
     assert "Do not launch `full` on the mixed set" in recon
@@ -105,3 +106,8 @@ def test_mixed_scope_full_profile_is_not_implicitly_safe() -> None:
     assert "reduce the exact URL to a host" in playbook
     assert "Do not launch that mixed set" in playbook
     assert "mixed-scope preflight before `full`" in child
+    assert "wildcard scope alongside an origin/path-limited exact URL" in entry
+    assert "Stop the active run" in entry
+    assert "verified request-level confinement" in entry
+    assert "use `exact-urls` once per eligible host" in entry
+    assert "exact-urls` per approved origin" not in entry

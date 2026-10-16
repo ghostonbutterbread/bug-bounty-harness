@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import os
 import subprocess
 import sys
@@ -381,6 +382,34 @@ class ReconBusTests(unittest.TestCase):
         self.assertIn(str(output), result["discovered"]["dir"])
         self.assertFalse(self.aggregate("alive.txt").exists())
         self.assertEqual(self.aggregate("dirs.txt").read_text().splitlines(), ["https://example.com/admin"])
+
+    def test_promote_run_excludes_absolute_manifest_log_with_relative_run_root(self):
+        run_root = Path(self.tmp.name) / "relative-status-run"
+        log = run_root / "custom" / "_logs" / "alive.txt"
+        log.parent.mkdir(parents=True)
+        log.write_text("https://example.com/not-alive\n", encoding="utf-8")
+        (run_root / "manifest.json").write_text(json.dumps({"output": str(log)}), encoding="utf-8")
+        result = promote_run.promote_run(argparse.Namespace(
+            program="demo", run_root=os.path.relpath(run_root), shared_base=str(M.SHARED_BASE),
+            no_index=True, probe_urls=False,
+        ))
+        self.assertEqual(result["excluded_internal_logs"], [str(log)])
+        self.assertFalse(self.aggregate("alive.txt").exists())
+
+    def test_promote_run_excludes_manifest_symlink_to_internal_log(self):
+        run_root = Path(self.tmp.name) / "linked-status-run"
+        log = run_root / "custom" / "_logs" / "alive.txt"
+        log.parent.mkdir(parents=True)
+        log.write_text("https://example.com/not-alive\n", encoding="utf-8")
+        link = run_root / "custom" / "alive.txt"
+        link.symlink_to(log)
+        (run_root / "manifest.json").write_text(json.dumps({"output": "custom/alive.txt"}), encoding="utf-8")
+        result = promote_run.promote_run(argparse.Namespace(
+            program="demo", run_root=str(run_root), shared_base=str(M.SHARED_BASE),
+            no_index=True, probe_urls=False,
+        ))
+        self.assertEqual(result["excluded_internal_logs"], [str(link)])
+        self.assertFalse(self.aggregate("alive.txt").exists())
 
     def test_promote_run_reports_malformed_url_with_source_location(self):
         run_root = Path(self.tmp.name) / "bad-run"

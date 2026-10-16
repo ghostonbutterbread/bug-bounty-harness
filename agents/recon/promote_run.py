@@ -89,8 +89,13 @@ def _under_root(path: Path, root: Path) -> bool:
         return False
 
 def _internal_log(path: Path, run_root: Path) -> bool:
-    """Only run-internal log directories are excluded, not ordinary output files."""
-    return "_logs" in path.relative_to(run_root).parts[:-1]
+    """Exclude internal log directories in both declared and resolved paths."""
+    try:
+        declared = path.absolute().relative_to(run_root.absolute())
+        resolved = path.resolve().relative_to(run_root.resolve())
+    except ValueError:
+        return True  # Never admit a path outside the run, including symlink escapes.
+    return "_logs" in declared.parts[:-1] or "_logs" in resolved.parts[:-1]
 
 
 def _resolve_manifest_path(value: str, run_root: Path, excluded: list[Path] | None = None) -> Path | None:

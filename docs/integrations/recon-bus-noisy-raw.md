@@ -1,6 +1,6 @@
 # Recon Bus noisy-raw promotion integration dossier
 
-- **Status:** feature (awaiting independent review; not integrated)
+- **Status:** first independent review blocked; path-handling defects patched, re-review pending
 - **Owner:** Hermes bugfix subagent
 - **Branch / owning ref:** `fix/recon-bus-noisy-raw`
 - **Worktree:** `/home/ryushe/worktrees/bbh-recon-bus-noisy-raw`
@@ -17,35 +17,36 @@ Repair `agents/recon/promote_run.py` candidate parsing and candidate-file discov
 
 ## Implemented contract
 
-Known URL-bearing output files are parsed into normalized HTTP(S) URL candidates before any append; console lines are counted but not promoted, while malformed URL-looking lines raise a file:line diagnostic. Existing scope enforcement stays with Recon Bus append. `dirs_status` recursion and manifest-declared files exclude `_logs` directories, not normal status results. Promotion result reports discovered source files, per-file line/accepted/ignored/duplicate counts, and excluded internal log paths. No URL probing in the synthetic reproduction.
+Known URL-bearing output files are parsed into normalized HTTP(S) URL candidates before any append; console lines are counted but not promoted, while malformed URL-looking lines raise a file:line diagnostic. Existing scope enforcement stays with Recon Bus append. `dirs_status` recursion and manifest-declared files exclude `_logs` directories, including symlink targets, not normal status results. Promotion result reports discovered source files, per-file line/accepted/ignored/duplicate counts for URL-bearing and alive queues, and excluded internal log paths. Non-URL source kinds retain their existing parsing rather than receiving those counters. No URL probing in the synthetic reproduction.
 
 ## Evidence and review
 
 - RED: four synthetic test cases added; original first three failed with console contamination, log discovery, and missing malformed URL diagnostic respectively.
 - GREEN: `python3 -m unittest tests.test_recon_bus tests.test_recon_promote_run` — 39 tests passed.
 - `git diff --check` — passed.
-- Independent review: pending parent/release gate.
+- Initial independent review blocked: an absolute manifest file with relative run root crashed at `relative_to`, and a manifest symlink re-admitted an internal `_logs` target. Both now have synthetic regressions; 41 focused tests pass. Reviewer also corrected the scope of coverage counters to URL-bearing/alive queues.
 - Branch topology: fetched `origin/beta`; local `master` is not the selected lane. No integration or push authorized.
 
 ## Blockers and deferred work
 
 - No live Recon-Ry artifact replay: prohibited for this task. Trigger a controlled replay only after normal independent review and authorization, using a disposable/synthetic run root and scope store; not an integration gate for this offline repair.
-- Independent review and beta integration are intentionally deferred to parent. No papercut closure authorized.
+- Independent re-review and beta integration are intentionally deferred to parent. No papercut closure authorized.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/recon-bus-noisy-raw`
 - **Latest immutable recovery checkpoint:** `5de0a04918bfef65f0ba7b6cec28170b06e2ebcd`
 - **Feature implementation commit(s):** `5de0a04918bfef65f0ba7b6cec28170b06e2ebcd`
-- **Exact resume point:** independent review of source/test diff, then parent decides integration.
+- **Exact resume point:** reconcile fetched `origin/beta` (advanced to `19c8f22`), rerun focused tests and obtain independent re-review of both path-handling corrections and full diff. Parent decides integration.
 - **Working-tree state at handoff:** clean after commit.
 
 ## Decision gates
 
-- **Integration gate:** independent review and parent approval; not done here.
+- **Integration gate:** first review rejected path-handling; correction awaits re-review and parent approval.
 - **Activation / cohort gate:** none in this offline patch.
 - **Promotion gate:** not authorized; no beta/main publication.
 
 ## Decision record
 
 - 2026-10-15 — reproduced both defects against fetched beta and implemented isolated offline repair; awaiting independent review.
+- 2026-10-15 — reviewer reproduced relative-root crash and symlink log admission; patched both with focused regressions, 41 tests passed; re-review pending.

@@ -6,8 +6,8 @@
 - Branch/ref: `feat/rce-skill-promotion`
 - Base beta commit: `e6e12b4b64cab8af3e7939ee8e0d7099294f1f57`
 - Intended integration target: `beta` (`origin/beta` after review)
-- Latest immutable recovery checkpoint: `60682537754b6a1a78e8f6d34613d6a15422a0b6` (preceding implementation; current consumer-alignment correction pending commit)
-- Implementation commits: `1852fe3178e47c0bd3a9747a13f0e121c119cd84`, `58c0376934239f78523246d9526bafd680614b64`, `60682537754b6a1a78e8f6d34613d6a15422a0b6`
+- Latest immutable recovery checkpoint: `90298e9123d819170cb389697969d231383d26a7`
+- Implementation commits: `1852fe3178e47c0bd3a9747a13f0e121c119cd84`, `58c0376934239f78523246d9526bafd680614b64`, `60682537754b6a1a78e8f6d34613d6a15422a0b6`, `90298e9123d819170cb389697969d231383d26a7`
 - Source: nine Ghost-local skills named in the operator's Discord request (thread 1560716542101159957)
 
 ## Intent and contract
@@ -42,8 +42,9 @@ retire local shadow copies only after complete-tree comparison and ownership che
 
 ## Resume
 
-If interrupted: inspect the current feature tip and verify its recorded
-implementation SHA after the pending correction commit; refresh beta, then
+If interrupted: inspect implementation commit
+`90298e9123d819170cb389697969d231383d26a7` and this later dossier-only
+handoff commit on the feature branch; refresh beta, then
 obtain a new independent verdict on the corrected tip. The branch owns no
 target traffic, secrets, or program data. The eventual implementation checkpoint
 precedes any dossier-only handoff commit; reviewers must inspect both.

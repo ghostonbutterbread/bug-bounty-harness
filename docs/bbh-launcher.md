@@ -31,6 +31,17 @@ environment variable. Supply `--family` for non-web families; optional `--root`
 must resolve to the same lane. For local verification use a disposable profile
 and shared base with `--no-notify`. This explicit reporting
 channel does not intercept requests, detect incidents, or stop actions for you.
+Only this CLI loads a fallback credential: when `DISCORD_SAFETY_WEBHOOK_URL` is
+unset, it reads `$HOME/.config/bounty-core/safety-webhook-url` after profile
+validation. Provision the per-host file outside the repository, owned by the
+running user, as a regular non-symlink file with owner-only permissions
+(mode 0600 recommended). Its contents must be a single Discord webhook URL,
+optionally ending in one newline. Do not put the URL in a command,
+Shared artifact, Git, or incident fields. An explicit environment setting wins,
+including an empty one. If the file is absent, invalid, or insecure, the CLI
+warns generically without printing it; `record` still persists and returns the
+provider's `not-configured` receipt and exit status 1. Inspect the incident ID
+before retrying `notify`, which can duplicate an ambiguous delivery.
 See [`scripts/README.md`](../scripts/README.md) for its mutation boundary.
 
 `bbh --root` prints the selected checkout. `bbh --print-command <path>` prints

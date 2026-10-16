@@ -33,12 +33,15 @@ canonical path.
 ## Read and migration rules
 
 1. Resolve `HARNESS_SHARED_BASE` through the account-management helper; its documented default is `$HOME/Shared/web_bounty`.
-2. Before consuming an inventory, validate it is a JSON object, its schema version is supported, and it is not retired.
-3. A registry with `status: retired` is a hard error, not an empty account fleet. Surface its `replaced_by` path directly.
-4. When migrating a registry, preserve and reconcile its complete non-secret data before retiring the old path. Use a small `status: retired` / `replaced_by` tombstone only when consumers support it and retaining the path is intended. For explicitly authorized removal of a redundant root, archive outside the synced tree, remove the legacy root, and put replacement guidance in shared metadata—not a compatibility symlink or second writable registry.
+2. For an inspected inventory, validate the JSON object and supported schema version using `account_inventory.py` before planning a migration. Do not assume all consumers enforce those checks: the Chromium launcher currently accepts retired inventories, and the auth resolver and browser lease helper do not reject unsupported schema versions.
+3. Do **not** publish a `status: retired` tombstone as a hard stop yet. The account CLI, auth resolver, and lease helper reject it with `replaced_by`, but the Chromium launcher does not. Until every consumer rejects it, retirement is not an enforced cross-consumer boundary; preserve the legacy source and avoid directing agents through it.
+4. When migrating a registry, preserve and reconcile its complete non-secret data before retiring the old path. Use a small `status: retired` / `replaced_by` tombstone only **after** all consumers demonstrably support it and retaining the path is intended. For explicitly authorized removal of a redundant root, archive outside the synced tree, remove the legacy root, and put replacement guidance in shared metadata—not a compatibility symlink or second writable registry.
 5. Update every reader, example environment file, skill/playbook, and lease helper in the same change. A default-path change is incomplete if an exported environment variable can still override it to the old root.
 
 ## Retiring a redundant synced registry
+
+This sequence is a migration plan, not permission to retire a live registry
+while the cross-consumer gates above still fail.
 
 1. Bound discovery to the exact legacy inventories and their canonical counterparts; do not recursively scan unrelated corpora. Reject unexpected files or symlink ancestors before acting.
 2. Compare aliases with duplicate detection, then distinguish missing accounts from differing historical metadata. Equal alias sets do not prove equal records: preserve the full originals and do not overwrite canonical lifecycle, identity, or auth fields merely to reconcile duplicates.
@@ -63,7 +66,11 @@ immediately so it returns to the pool. Keep lockouts or step-up sessions
 unavailable/`needs-refresh` until a dedicated repair/re-authentication lease
 records a healthy release.
 
-Lease selection must fail closed. An account is eligible only when both are explicit:
+Lease selection requires `browser_lease_enabled: true` and an explicit
+`lifecycle: active`; the current lease helper also accepts legacy
+`lifecycle: live`. Do not present `active` as the only enforced value until that exception
+is removed with a tested migration. Neither a missing lifecycle nor a missing
+lease flag is eligible. New or edited records should use:
 
 ```text
 lifecycle: active
@@ -132,11 +139,18 @@ Then follow the approved Bitwarden preflight and count only active owned account
 
 Immediately after a successful connection, write the exact underlying account's non-secret provider/connection-or-external-handle/status/capability/source record. A child handoff that created or observed a connection must include that registry update command or patch; never use the `integration-profile` alias as a substitute for recording the concrete account.
 
-### Shared-loader invariant
+### Shared-loader migration target (not yet implemented)
 
-Put JSON parsing, tombstone rejection, schema validation, v1→current migration, and account-default normalization in one importable schema module. Every consumer—including account CLI, auth resolver, and browser lease helper—must call it. Do not accept a version in one reader that another rejects.
+There is no single shared inventory loader today. The account CLI, auth resolver,
+Chromium launcher, and browser lease helper use separate readers; the account
+CLI validates schema versions, but the others do not. Before relying on
+cross-consumer retirement or version rejection, implement JSON parsing,
+tombstone rejection, schema validation, v1→current migration, and account-default
+normalization in one importable module. Route **every** consumer through it,
+including Chromium, and test that none accepts a version another rejects.
 
-A fresh `add-account` record and a migrated legacy record must have the same materialized fail-closed representation:
+The migration target is for a fresh `add-account` record and a migrated legacy
+record to have the same materialized fail-closed representation:
 
 ```json
 {
@@ -152,9 +166,9 @@ A fresh `add-account` record and a migrated legacy record must have the same mat
 ## Verification
 
 - Source the checked-in example config and assert it selects `web_bounty`.
-- Exercise every reader against a tombstone and assert a non-zero, replacement-directed error.
+- Before any retirement, exercise **every** reader against a tombstone and assert a non-zero, replacement-directed error. This gate currently fails for the Chromium launcher; do not retire on the basis of the account CLI alone.
 - Exercise a canonical inventory lookup and one eligible/unavailable lease status.
 - Run the focused account-inventory, resolver, Chromium-launcher, and browser-lease tests.
 - Search adjacent orchestrators (for example AutoRecon) for direct inventory consumers; either route each through the canonical helper or record that the bounded source audit found none.
 - Search user-facing skills and playbooks for literal inventory paths; update them to the normalized-program form in the same change.
-- Confirm no legacy registry remains writable or authoritative.
+- Only after the shared-loader migration and retirement checks pass, confirm no legacy registry remains writable or authoritative.

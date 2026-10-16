@@ -54,6 +54,14 @@ class SkillPromotionRoutesTest(unittest.TestCase):
         self.assertIn("freshly assess", blocker)
         self.assertNotIn("Open records block", blocker)
 
+    def test_registry_migration_gates_match_current_consumers(self):
+        registry = (SKILLS / "account-registry" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("Chromium launcher currently accepts retired inventories", registry)
+        self.assertIn("Shared-loader migration target (not yet implemented)", registry)
+        self.assertIn("current lease helper also accepts legacy", registry)
+        self.assertIn("`lifecycle: live`", registry)
+        self.assertIn("do not retire on the basis of the account CLI alone", registry)
+
     def test_conditional_routes_agree_with_their_entry_skills(self):
         recovery = (SKILLS / "account-registry" / "references" / "program-auth-recovery.md").read_text(encoding="utf-8")
         mapping = (SKILLS / "rce-surface-mapping" / "SKILL.md").read_text(encoding="utf-8")

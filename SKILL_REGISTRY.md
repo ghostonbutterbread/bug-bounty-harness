@@ -67,6 +67,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **business-logic** | `/business-logic {program} {workflow}` | `skills/business-logic/SKILL.md`; issue families in `references/` |
 | **idor** | `/idor {program}` | `prompts/idor-playbook.md` |
 | **jwt-auth** | `/jwt-auth {program} {jwt-auth-context}` | `prompts/jwt-auth-playbook.md` |
+| **cookie-session-analysis** | `/cookie-session-analysis {owned-cookie-fixture}` | `skills/cookie-session-analysis/SKILL.md`; offline stateless-cookie format and weak-key analysis only |
 | **sqli** | `/sqli {program}` | `prompts/sqli-playbook.md` |
 | **ssti** | `/ssti {program}` | `prompts/ssti-playbook.md` |
 | **ssrf** | `/ssrf {program}` | `prompts/ssrf-playbook.md` |
@@ -93,6 +94,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **analyze-endpoint** | `/analyze-endpoint {program} {raw-request-file}` | `prompts/analyze-endpoint-playbook.md` |
 | **api-surface-mapping** | `/api-surface-mapping {program} [--focus inventory|cross-implementation|cross-surface|contract-behavior]` | `skills/api-surface-mapping/SKILL.md` |
 | **request-exploration** | `/request-exploration {program} {request-context}` | `skills/request-exploration/SKILL.md` |
+| **form-submission-testing** | `/form-submission-testing {program} {owned-form-flow}` | `skills/form-submission-testing/SKILL.md`; valid baseline and conditional-form state before authorized variation |
 | **intelligent-fuzzing** | `/intelligent-fuzzing {program} {endpoint-or-surface}` | `skills/intelligent-fuzzing/SKILL.md` |
 | **pwnfox** | `/pwnfox {color}` | `skills/pwnfox/SKILL.md` |
 | **agent-proxy** | `/agent-proxy` | `skills/agent-proxy/SKILL.md` |

@@ -179,9 +179,27 @@ permitted:
 bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
 ```
 
-For exact-host-only scope, run the documented `exact-urls` profile once per
-approved origin. Authenticated recon is opt-in and uses an approved account
-alias only. Never broaden auth to the wildcard scope by default.
+For exact-host scope, account for **every eligible root host**; one-host smoke
+is not scope-wide coverage. Do not convert a path-scoped repository/package
+URL into a host-wide seed or enumerate sibling hosts from an exact-host grant;
+name such assets as deferred source review. The current Recon-Ry scope filter
+reduces root URLs to hostnames: it does **not** enforce scheme or port, and
+post-run artifact filtering cannot undo an out-of-scope request. If the grant
+is limited to a particular origin (scheme/port) or allowed path, do not run
+active `exact-urls` stages until their request-level destinations are actually
+constrained and verified, or the program separately approves the wider host
+activity. Passive/source review remains available within its own rules.
+
+For an authorized host-wide `exact-urls` run, check each enabled stage's
+request behavior against saved scope before launch. Use a distinct
+`--remote-project` for each host; starts default to the same program project.
+Start the next host **only after** the previous detached job has completed and
+its log/project receipt has been inspected; `--rate-limit-rps` is per project,
+not an aggregate concurrent limiter. Do not use the detached multi-host queue
+as an implicit containment or rate guarantee. Filter URL-bearing output to
+saved scope before active follow-on use, but never treat that as request-level
+protection. Authenticated recon is opt-in with an approved account alias; never
+broaden auth to wildcard scope by default.
 
 Record PID, remote project, log, profile, scope input, and rate configuration;
 do not tail the long-running job. When it finishes, ingest/index it with

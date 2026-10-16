@@ -14,8 +14,9 @@ This is a thinking loop, not a request-count cap. Continue while each mutation f
 1. Read scope, owned-account context, and `/live-testing-policy`.
 2. Confirm every account and resource is owned or explicitly approved.
 3. Identify whether the endpoint uses a one-time token, CSRF token, payment session, state transition, or any stateful workflow. If yes, use live interception (proxy/Burp) instead of replay to avoid token reuse false negatives.
-4. Capture the baseline request: method, URL, headers, body, and the expected normal response.
-5. Route focused lanes:
+4. If a disabled or conditional browser form has no valid owned request yet, load `/form-submission-testing` to discover its state and permitted baseline; do not invent a replay shape.
+5. Capture the valid baseline request: method, URL, headers, body, and the expected normal response.
+6. Route focused lanes:
    - header-specific mutations → `/headers`
    - WAF/filter behavior → `/waf-live-policy`
    - structured focused exploration → `/hypothesis-live-testing`

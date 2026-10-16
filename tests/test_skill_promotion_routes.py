@@ -74,6 +74,19 @@ class SkillPromotionRoutesTest(unittest.TestCase):
         self.assertIn("or from `rce-exploration`", mapping)
         self.assertIn("external context could distinguish", research)
 
+    def test_transport_blocker_and_rce_validation_routes(self):
+        hunt = (SKILLS / "hunt-orchestration" / "SKILL.md").read_text(encoding="utf-8")
+        entry = (SKILLS / "rce" / "SKILL.md").read_text(encoding="utf-8")
+        mapping = (SKILLS / "rce-surface-mapping" / "SKILL.md").read_text(encoding="utf-8")
+        validation = (SKILLS / "rce-validation" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("through that affected transport path", hunt)
+        self.assertIn("independently healthy transport lane", hunt)
+        self.assertIn("handoff/blocker pointer in `bounty-notes`", hunt)
+        self.assertIn("MapStore\nentry only for separately verified target behavior", hunt)
+        for route in (entry, mapping, validation):
+            self.assertIn("source-to-executor", route)
+            self.assertIn("`rce-exploration`", route)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -66,7 +66,9 @@ next precursor, mapping observation, or research question
    prerequisite facts separate.
 4. Preserve unproven but structurally plausible leads in the Hypothesis Ledger;
    promote observed application facts through MapStore.
-5. Route a lead to `rce-validation` for a permitted precursor,
+5. Route a lead with a named, plausible source-to-executor question to
+   `rce-validation` for a permitted precursor; otherwise clarify the primitive
+   with `rce-exploration` first. Use
    `rce-lifecycle` for delayed consumers, or `rce-technology-research` when
    stack/advisory facts decide feasibility.
 

@@ -13,9 +13,12 @@ metadata:
 
 # RCE Validation
 
-Load when `rce-exploration` has a named, plausible RCE primitive question.
-This packet supports bounded precursor probes as well as confirmation after a
-signal; it is not an exploit-development or payload catalog.
+Load when `rce-exploration`, `rce-surface-mapping`, or the `rce` class entry has
+produced a named, plausible source-to-executor primitive question with a scoped
+control point, baseline, observation channel, and stop condition. If only a
+surface family or technology name is known, first clarify the chain with
+`rce-exploration`. This packet supports bounded precursor probes as well as
+confirmation after a signal; it is not an exploit-development or payload catalog.
 
 ## When to Use
 

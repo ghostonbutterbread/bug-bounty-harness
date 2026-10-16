@@ -39,8 +39,11 @@ These are recognition cues, not a claim that every such feature executes code.
   `rce-lifecycle` for producer-to-consumer lineage.
 - Observed stack or advisory changes feasibility? Load `rce-technology-research`
   for source-backed preconditions; version or public PoC alone is not target proof.
-- Need a precursor, differential, or bounded confirmation? Load `rce-validation`.
-  Preserve a normal baseline, inert control, observation channel, and exact stop.
+- Need a precursor, differential, or bounded confirmation? With a named,
+  plausible source-to-executor question from this class entry, mapping, or
+  `rce-exploration`, load `rce-validation`. If the candidate lacks that chain,
+  clarify the primitive with `rce-exploration` first. Preserve a normal baseline,
+  inert control, observation channel, and exact stop.
 - For a specific input boundary such as SSTI, upload, LFI, SSRF, or XML parsing,
   also load its class skill and applicable AI Policies. Those skills own the
   mechanism; this entry owns the execution-chain question.

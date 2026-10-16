@@ -64,18 +64,22 @@ listening proxy port is not proof that it can forward the selected scoped flow.
 
 If a bounded owned request returns a 5xx, timeout, or reset with an intermediary
 marker, make at most one minimal reproduction when the live-status policy allows
-it. If it is identical or still intermediary-generated, stop target requests:
-additional routes or payload variants would only repeat a transport failure.
-Record this as a **transport blocker**, not a target negative or vulnerability
-candidate.
+it. If it is identical or still intermediary-generated, stop target requests
+**through that affected transport path**: payload variants on the same broken
+path would repeat a transport failure. Do not infer all scoped routes are down.
+An independently healthy transport lane may continue only after its own
+scope, rate, and transport preflight. Record the affected path as a **transport
+blocker**, not a target negative or vulnerability candidate.
 
 Do not dispatch a mapper, verifier, or parallel hunter through the same broken
 path. A sidecar is appropriate only after transport is restored, or for a
-separate offline diagnostic decision that needs no further target requests.
+separate offline diagnostic decision that needs no further target requests;
+work on independently healthy lanes follows the usual sidecar and rate gates.
 Persist only sanitized fingerprints (status, response size/hash, intermediary
 marker, proxy lane, request count, and restart condition) in restricted run
-artifacts and MapStore—never cookies, identity-header values, or raw private
-response content.
+artifacts, with a concise handoff/blocker pointer in `bounty-notes`—never
+cookies, identity-header values, or raw private response content. Add a MapStore
+entry only for separately verified target behavior, not an intermediary failure.
 
 ## Event-Driven Sidecars
 

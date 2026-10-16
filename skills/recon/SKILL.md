@@ -172,10 +172,10 @@ represent the platform; it is not vulnerability testing.
 
 Before any **active** Recon-Ry profile, assess the whole saved scope, not just
 the selected seed. A program may grant wildcard hosts **and** a restricted
-exact origin/path elsewhere. The wrapper can accept `--profile full` for that
-mixed set while reducing the restricted URL to a hostname in its scope file;
+exact origin/path elsewhere. The wrapper can accept `snap` (the default) or
+`--profile full` for that mixed set while reducing the restricted URL to a hostname in its scope file;
 the wildcard grant must not silently broaden a separately restricted asset.
-Do not launch `full` on the mixed set unless program authorization explicitly
+Do not launch either broad profile on the mixed set unless program authorization explicitly
 covers the resulting host-wide activity **or** every enabled active stage is
 verified to exclude the restricted origin/path at request time. A seed-host
 check or post-run output filter is not that proof. If unresolved, defer the
@@ -188,10 +188,13 @@ permitted:
 
 ```bash
 
-bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
+bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url>
 ```
 
-For exact-host scope, account for **every eligible root host**; one-host smoke
+This defaults to Recon-Ry's reduced `snap` profile even when `/recon --mode full`
+selected the broad-collection phase. Use `--profile full` only when its extra
+stages are explicitly chosen and approved. For exact-host scope, account for
+**every eligible root host**; one-host smoke
 is not scope-wide coverage. Do not convert a path-scoped repository/package
 URL into a host-wide seed or enumerate sibling hosts from an exact-host grant;
 name such assets as deferred source review. The current Recon-Ry scope filter

@@ -97,7 +97,7 @@ def test_mandatory_recon_ry_child_route_preserves_exact_host_stop_gate() -> None
     assert "launch Recon-Ry once as the durable broad collector" not in child
 
 
-def test_mixed_scope_full_profile_is_not_implicitly_safe() -> None:
+def test_mixed_scope_broad_profiles_are_not_implicitly_safe() -> None:
     lines, deferred = recon_scope_file_lines(
         ["*.example.test", "https://limited.other.test:8443/"]
     )
@@ -108,11 +108,11 @@ def test_mixed_scope_full_profile_is_not_implicitly_safe() -> None:
     entry = " ".join(text("prompts/recon-playbook.md").split())
     child = " ".join(text("skills/recon-ry/SKILL.md").split())
     assert "wildcard hosts **and** a restricted exact origin/path" in recon
-    assert "Do not launch `full` on the mixed set" in recon
-    assert "This preflight applies to **every** active profile, including `full`" in playbook
+    assert "Do not launch either broad profile on the mixed set" in recon
+    assert "This preflight applies to **every** active profile, including `snap` and `full`" in playbook
     assert "reduce the exact URL to a host" in playbook
     assert "Do not launch that mixed set" in playbook
-    assert "mixed-scope preflight before `full`" in child
+    assert "mixed-scope preflight before `snap` or `full`" in child
     assert "wildcard scope alongside an origin/path-limited exact URL" in entry
     assert "Stop the active run" in entry
     assert "verified request-level confinement" in entry

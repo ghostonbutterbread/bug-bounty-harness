@@ -23,9 +23,9 @@ If tool dependencies are missing, report them. Do not block ingestion of already
 
 ## Start Pattern
 
-This preflight applies to **every** active profile, including `full`: review
+This preflight applies to **every** active profile, including `snap` and `full`: review
 the entire saved scope for a wildcard grant alongside any separately
-origin/path-limited exact URL. The wrapper can accept `full`, stage both, and
+origin/path-limited exact URL. The wrapper can accept `snap` or `full`, stage both, and
 reduce the exact URL to a host. Do not launch that mixed set unless program
 authorization explicitly covers the host-wide activity **or** each enabled
 active stage is verified to avoid requests outside the restricted grant. A
@@ -36,11 +36,14 @@ within its own rules.
 Start via the local wrapper so Hoster owns the long-running process:
 
 ```bash
-bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
+bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url>
 ```
 
-The wrapper checks the seed against saved scope before starting; this is not
-request-level confinement for all stages. The derived scope file reduces root
+This launches Recon-Ry's `snap` profile by default. It omits port enrichment,
+directory brute force, and screenshots, but still performs active wildcard
+recon; request `--profile full` explicitly for its additional stages when
+authorized. The wrapper checks the seed against saved scope before starting;
+this is not request-level confinement for all stages. The derived scope file reduces root
 URLs to hosts, so it cannot enforce a scheme, port, or allowed-path grant:
 
 - if no saved scope exists for the program, it stops

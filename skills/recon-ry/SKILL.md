@@ -26,12 +26,14 @@ project location and artifact map instead of copying bulk output.
 Start a remote run and return immediately:
 
 ```bash
-bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url> --profile full
+bbh agents/recon_ry.py start <program> --url <scoped-domain-or-url>
 ```
 
-The start command rejects a missing saved scope or out-of-scope seed host, but
-its host-granular scope file does not enforce scheme, port, or path on every
-request. Read the playbook's mixed-scope preflight before `full`, and its
+`start` defaults to Recon-Ry's `snap` profile (reduced stages; still active
+wildcard recon). Request `--profile full` explicitly when its additional stages
+are approved. The start command rejects a missing saved scope or out-of-scope
+seed host, but its host-granular scope file does not enforce scheme, port, or path on every
+request. Read the playbook's mixed-scope preflight before `snap` or `full`, and its
 exact-host versus origin/path-limited gate before `exact-urls`. It writes a
 project-local `rate_limit.conf` before launch.
 Use `--rate-limit-rps` only after checking program policy; use
@@ -182,8 +184,10 @@ Use ingest/indexing for manifests, counts, and small parsed artifacts. Do not co
 ## Role In The Advanced Recon Baseline
 
 For a permitted `/recon --mode full` baseline or a separately selected deep
-recon campaign, launch Recon-Ry for the approved profile and target set as the
-durable broad collector: a wildcard baseline may use one broad run, while
+recon campaign, launch Recon-Ry with `snap` by default (this mode does not
+require Recon-Ry's `full` profile); request `--profile full` explicitly when its
+extra stages are justified and approved. Use the approved profile and target
+set as the durable broad collector: a wildcard baseline may use one broad run, while
 approved exact-host-only scope requires one distinct project per eligible host,
 started sequentially after the previous detached run completes. A grant
 limited to one origin or path does not authorize that active profile. Recon-Ry

@@ -199,7 +199,7 @@ transforms, browser result, later-consumer question, cleanup state, and
 sanitized Attempts/MapStore pointers. `attempt-recording-policy` owns the
 per-probe record; the selected XSS lane owns its proof and report shape.
 After mapping a selected route/action/input/consumer, load `/coverage` and
-register that path as `untested` via `agents/coverage.py discover`. For an XSS
+register that path as `no_assessment` via `agents/coverage.py discover`. For an XSS
 canary mapper `plan`, use `--xss-canary-sources <plan-dir>/sources.jsonl` with
 `--source-ref recon/xss/<mapper-run>/sources.jsonl`: a sanitized, lane-relative
 artifact reference, **not** the local absolute scratch path. Inspect path

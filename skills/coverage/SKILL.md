@@ -5,7 +5,7 @@ description: Use when registering mapped surfaces or assessing scoped review.
 
 # BBH Coverage
 
-Coverage answers: **what was mapped, what remains untested, and what exact
+Coverage answers: **what was mapped, what has no assessment, and what exact
 surface/class was reviewed?** It is not the findings ledger. Load this skill
 when a bounded mapping run produces inventory, when selecting a current mapped
 surface/class, or when recording a scoped review at a pivot or handoff. Do not
@@ -16,7 +16,7 @@ and reusable observed behavior goes to `/map-store` as it is established.
 
 - **Live application inventory:** the lane-local `ledgers/surface_coverage.sqlite`
   indexes semantic route/action/input/consumer × relevant vulnerability class.
-  Discovery creates `untested` questions, not test results. Assessments are
+  Discovery creates `no_assessment` questions, not test results. Assessments are
   explicit, evidence-linked, and limited to the reviewed path/class/fingerprint.
 - **Static source-file review:** `ledgers/coverage.json` is tied to an indexed
   `shared_brain/index.json` source snapshot and file/class pair. It cannot
@@ -63,7 +63,7 @@ not a reason to load the findings `/ledger` skill.
    retained producer artifact, not the absolute local/scratch `sources.jsonl`
    path; the latter is not portable to a later reviewer.
 
-   It creates one `untested` XSS question per literal method/route/input,
+   It creates one `no_assessment` XSS question per literal method/route/input,
    retaining each source ID when multiple mapper rows name that same question
    (`brief` displays up to 20 with `source_count`/`sources_truncated`). It does
    not copy the mapper's canary/nonce columns or query values. A planned input
@@ -90,9 +90,11 @@ not a reason to load the findings `/ledger` skill.
 3. **Assess** only after a deliberate review. Use the returned surface ID and
    fingerprint **actually reviewed**, plus opaque non-secret Attempt/MapStore
    pointers. `in_progress` means work remains; `blocked` requires a concrete
-   prerequisite and `--reopen-when`; `exhausted` requires the exact tested
-   `--boundary`, at least one `--axis`, and supporting evidence. An inert HTTP
-   reflection is not an exhausted XSS path or a generic blocker.
+   prerequisite and `--reopen-when`; `bounded_review` requires the exact tested
+   `--boundary`, at least one `--axis`, and supporting evidence. It describes
+   only that path/class/version, **not** a negative vulnerability verdict or
+   permission to stop XSS specialist work. An inert HTTP reflection is not a
+   bounded XSS review or a generic blocker.
 
    ```bash
    bbh agents/coverage.py assess --program {program} --family web_bounty \
@@ -102,12 +104,18 @@ not a reason to load the findings `/ledger` skill.
      --evidence-ref attempt:<probe-run>:A-...
    ```
 
-   `untested` is created by discovery; `stale` is a read-time version or
+   `no_assessment` is created by discovery; `stale` is a read-time version or
    unversioned mapper-run mismatch. Use a new mapper run ID for a fresh mapping.
    A finding or Attempt never closes a class, sibling input, role, or consumer
    automatically. Class-specific pressure such as XSS `warm` is optional via
    `--pressure` and does not replace review status. Use `history` with the
    surface ID/class when assessing a previously reviewed path.
+   Existing SQLite `untested`/`exhausted` values are shown as
+   `no_assessment`/`bounded_review` in brief, history, and stale prior status
+   without rewriting stored rows. The old `--status exhausted` writer spelling
+   remains accepted as a deprecated input alias and writes `bounded_review`;
+   new commands should use the new spelling. XSS pressure `exhausted` remains
+   a separate specialist state and is not translated.
 
    Prefer typed pointers that resolve within the selected family/lane:
    `--evidence-ref attempt:<attempt-run-id>:<attempt_id>` (use the returned

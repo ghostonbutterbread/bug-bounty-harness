@@ -30,6 +30,24 @@ class CoverageCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
+    def test_both_cli_names_accept_new_and_legacy_review_alias_with_canonical_output(self) -> None:
+        surface_id = self.invoke("coverage.py", "discover", "--kind", "route", "--host", "shop.example",
+                                 "--surface-key", "GET /search", "--class-name", "xss",
+                                 "--source-ref", "map/routes.jsonl", "--run-id", "map-1")["surface_ids"][0]
+        self.assertEqual(self.invoke("me_ledger.py", "surface-brief")["counts"], {"no_assessment": 1})
+        for owner, command, status in (("coverage.py", "assess", "bounded_review"),
+                                       ("me_ledger.py", "surface-assess", "exhausted")):
+            assessed = self.invoke(owner, command, "--surface-id", surface_id,
+                                   "--class-name", "xss", "--expected-fingerprint", "",
+                                   "--status", status, "--reason", "specific renderer reviewed",
+                                   "--boundary", "search text renderer", "--axis", "encoding",
+                                   "--evidence-ref", "A-123")
+            self.assertEqual(assessed["status"], "bounded_review")
+        self.assertEqual(self.invoke("coverage.py", "brief")["counts"], {"bounded_review": 1})
+        self.assertEqual([event["status"] for event in self.invoke("me_ledger.py", "surface-history",
+                         "--surface-id", surface_id, "--class-name", "xss")["events"]],
+                         ["bounded_review", "bounded_review"])
+
     def test_dedicated_commands_share_state_and_json_contract_with_legacy(self) -> None:
         discovered = self.invoke("coverage.py", "discover", "--kind", "route", "--host", "shop.example",
                                  "--surface-key", "/account", "--class-name", "xss",
@@ -40,7 +58,7 @@ class CoverageCliTests(unittest.TestCase):
         self.assertEqual(self.invoke("coverage.py", "brief", "--class-name", "xss"),
                          self.invoke("me_ledger.py", "surface-brief", "--class-name", "xss"))
         self.assertEqual(self.invoke("coverage.py", "brief", "--class-name", "xss")["counts"],
-                         {"untested": 1})
+                         {"no_assessment": 1})
         assessed = self.invoke("coverage.py", "assess", "--surface-id", surface_id, "--class-name", "xss",
                                "--status", "blocked", "--expected-fingerprint", "v1",
                                "--evidence-ref", "A-123", "--reason", "fixture missing",
@@ -60,7 +78,7 @@ class CoverageCliTests(unittest.TestCase):
                                      "--class-name", "idor", "--source-ref", "map/routes.jsonl",
                                      "--run-id", "map-2")["discovered"], 1)
         self.assertEqual(self.invoke("coverage.py", "brief", "--class-name", "idor")["counts"],
-                         {"untested": 1})
+                         {"no_assessment": 1})
         self.invoke("me_ledger.py", "surface-assess", "--surface-id", surface_id, "--class-name", "xss",
                     "--status", "in_progress", "--expected-fingerprint", "v1", "--evidence-ref", "A-124",
                     "--reason", "fixture available", "--run-id", "review-2")
@@ -84,7 +102,7 @@ class CoverageCliTests(unittest.TestCase):
                                "recon/xss/map-1/sources.jsonl")
         self.assertEqual(imported["discovered"], 3)
         brief = self.invoke("coverage.py", "brief", "--class-name", "xss")
-        self.assertEqual(brief["counts"], {"untested": 3})
+        self.assertEqual(brief["counts"], {"no_assessment": 3})
         self.assertEqual({item["input_key"] for item in brief["items"]}, {"query:q", "query:sort", "json:name"})
         self.assertEqual({item["surface_key"] for item in brief["items"]}, {"GET /search", "POST /profile"})
         self.assertEqual({item["consumer"] for item in brief["items"]}, {""})
@@ -206,16 +224,16 @@ class CoverageCliTests(unittest.TestCase):
         options = ("--xss-canary-sources", str(inventory), "--source-ref", "recon/xss/sources.jsonl")
         surface_id = self.invoke("coverage.py", "discover", *options)["surface_ids"][0]
         self.invoke("coverage.py", "assess", "--surface-id", surface_id, "--class-name", "xss",
-                    "--status", "exhausted", "--expected-fingerprint", "", "--reason", "reviewed",
+                    "--status", "bounded_review", "--expected-fingerprint", "", "--reason", "reviewed",
                     "--boundary", "one renderer", "--axis", "quote", "--evidence-ref", "A-1")
         self.invoke("coverage.py", "discover", *options)
         self.assertEqual(self.invoke("coverage.py", "brief", "--class-name", "xss")["counts"],
-                         {"exhausted": 1})
+                         {"bounded_review": 1})
         inventory.write_text(json.dumps({**source, "run_id": "map-2"}) + "\n", encoding="utf-8")
         self.invoke("coverage.py", "discover", *options)
         brief = self.invoke("coverage.py", "brief", "--class-name", "xss")
         self.assertEqual(brief["counts"], {"stale": 1})
-        self.assertEqual(brief["items"][0]["prior_status"], "exhausted")
+        self.assertEqual(brief["items"][0]["prior_status"], "bounded_review")
         self.assertEqual({row["run_id"] for row in brief["items"][0]["sources"]}, {"map-1", "map-2"})
         self.assertNotIn("GHOST_XSS", json.dumps(brief))
 
@@ -295,7 +313,7 @@ class CoverageCliTests(unittest.TestCase):
                                  str(plan / "sources.jsonl"), "--source-ref", "recon/xss/lab-1/sources.jsonl")
         self.assertEqual(discovered["discovered"], 2)
         before = self.invoke("coverage.py", "brief", "--class-name", "xss", "--limit", "1")
-        self.assertEqual(before["counts"], {"untested": 2})
+        self.assertEqual(before["counts"], {"no_assessment": 2})
         self.assertEqual(before["next_offset"], 1)
         fetched = mapper("fetch", "--planned", str(plan / "planned_requests.jsonl"),
                          "--out-dir", str(plan), "--allow-host", "127.0.0.1",
@@ -315,7 +333,7 @@ class CoverageCliTests(unittest.TestCase):
         self.assertEqual(sink["response_id"], responses[0]["response_id"])
         self.assertEqual(sink["context"], "html_text")
         self.assertEqual(self.invoke("coverage.py", "brief", "--class-name", "xss")["counts"],
-                         {"untested": 2})  # A scan is not an agent review.
+                         {"no_assessment": 2})  # A scan is not an agent review.
 
         run_id = "probe-lab-1"
         attempt_path = resolve_attempts_path("sample", family="web_bounty", lane="web",
@@ -352,9 +370,9 @@ class CoverageCliTests(unittest.TestCase):
                               "--class-name", "xss")
         self.assertEqual([row["status"] for row in audited["references"]], ["resolved", "resolved"])
         general = self.invoke("coverage.py", "brief")
-        self.assertEqual(general["counts"], {"in_progress": 1, "untested": 1})
+        self.assertEqual(general["counts"], {"in_progress": 1, "no_assessment": 1})
         sibling = next(item for item in general["items"] if item["input_key"] == "query:memo")
-        self.assertEqual(sibling["status"], "untested")
+        self.assertEqual(sibling["status"], "no_assessment")
         self.assertEqual(self.invoke("coverage.py", "history", "--surface-id", sibling["surface_id"],
                                      "--class-name", "xss")["events"], [])
         self.assertNotIn("GHOST_XSS_lab-1_", json.dumps(general))
@@ -394,14 +412,14 @@ class CoverageCliTests(unittest.TestCase):
         web.assess(web_idor["surface_id"], class_name="idor", status="in_progress",
                    expected_fingerprint="v1", evidence_refs=[ref],
                    reason="one role reviewed; comparison remains open", run_id="auth-1")
-        self.assertEqual(web.brief()["counts"], {"in_progress": 1, "untested": 1})
-        self.assertEqual(web.brief(class_name="xss")["counts"], {"untested": 1})
+        self.assertEqual(web.brief()["counts"], {"in_progress": 1, "no_assessment": 1})
+        self.assertEqual(web.brief(class_name="xss")["counts"], {"no_assessment": 1})
         for (family, lane), store in stores.items():
             if (family, lane) == ("web_bounty", "web"):
                 continue
-            self.assertEqual(store.brief()["counts"], {"untested": 2}, (family, lane))
-            self.assertEqual(store.brief(class_name="idor")["counts"], {"untested": 1})
-            self.assertEqual(store.brief(class_name="xss")["counts"], {"untested": 1})
+            self.assertEqual(store.brief()["counts"], {"no_assessment": 2}, (family, lane))
+            self.assertEqual(store.brief(class_name="idor")["counts"], {"no_assessment": 1})
+            self.assertEqual(store.brief(class_name="xss")["counts"], {"no_assessment": 1})
             self.assertEqual(verify_references("sample", family=family, lane=lane,
                                                root_override=self.tmp.name, refs=[ref])[0]["status"], "missing")
 

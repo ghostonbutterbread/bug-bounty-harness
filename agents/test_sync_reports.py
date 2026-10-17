@@ -321,6 +321,54 @@ class TestSyncReports(unittest.TestCase):
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._candidates_for_file")
+    def test_real_ledger_fid_collision_continues_import_and_returns_nonzero(
+        self, mock_candidates, _mock_chain
+    ):
+        program = "collision_fixture"
+        storage_root = self.tmp / "collision-storage"
+        source_root = self.tmp / "collision-source"
+        source_root.mkdir()
+        hunter = ManualHunter(
+            program, lane="apk", source_root=source_root, storage_root=storage_root
+        )
+        self.assertEqual(hunter.ledger.__class__.__name__, "VersionedFindingsLedger")
+        existing = {
+            "fid": "D06", "type": "Existing DOM XSS", "class_name": "dom-xss",
+            "file": "src/existing.js", "line": 1,
+        }
+        collision = {
+            "fid": "D06", "type": "Different DOM XSS", "class_name": "dom-xss",
+            "file": "src/different.js", "line": 2,
+        }
+        next_finding = {
+            "fid": "D07", "type": "Independent SQL injection", "class_name": "sqli",
+            "file": "src/query.py", "line": 3,
+        }
+        self.assertEqual(hunter.ledger.check(existing)[1], "D06")
+        with self.assertRaisesRegex(ValueError, "finding FID already assigned: D06"):
+            hunter.ledger.check(collision)
+        mock_candidates.return_value = [collision, next_finding]
+
+        output, errors = io.StringIO(), io.StringIO()
+        with redirect_stdout(output), redirect_stderr(errors):
+            exit_code = sync_reports_main(
+                program, lane="apk", source_dir=self.source_dir.as_posix(),
+                source_root=source_root, storage_root=storage_root,
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("finding FID already assigned: D06", errors.getvalue())
+        self.assertIn("FID collisions: 1 report needs manual reconciliation", output.getvalue())
+        self.assertIn("ADDED D07", output.getvalue())
+        self.assertEqual(mock_candidates.call_count, 1)
+        findings = hunter.ledger.list_all()
+        self.assertEqual({item["fid"] for item in findings}, {"D06", "D07"})
+        self.assertEqual(next(item for item in findings if item["fid"] == "D06")["file"], "src/existing.js")
+        self.assertEqual(next(item for item in findings if item["fid"] == "D07")["file"], "src/query.py")
+        self.assertTrue(str(hunter.ledger.path).startswith(str(storage_root)))
+
+    @patch("agents.sync_reports._chain_suggestions", return_value=[])
+    @patch("agents.sync_reports._candidates_for_file")
     @patch("agents.sync_reports.update_team_finding")
     @patch("agents.sync_reports.ManualHunter")
     def test_sync_report_preserves_reserved_fid_on_update(

@@ -13,6 +13,7 @@ The goal is to make agents explore from observed app behavior instead of from le
 - `/appmap`: source/static map for local code, extracted apps, binaries, and generated brainstorm specs.
 - `/mental-map`: human-readable flow notes from Caido/proxy traffic.
 - `/live-map`: universal runtime JSONL map from browser, proxy, manual, or hybrid observations.
+- `/map-store`: URL-specific factual observations and named Application Behaviors linked to those observations. It is not another route inventory or a finding store.
 
 Use `/live-map` for live web testing and any case where future agents should reuse previously explored areas.
 
@@ -136,6 +137,30 @@ bbh agents/live_map.py build-handoffs <program> --skill access-control --blind-m
 ```
 
 5. Spawn child agents using only the packet and the relevant skill pack.
+
+### Promote a concrete capability
+
+When a mapped route shows a user-influenceable parser, upload/attachment
+pipeline, renderer, fetcher, or transform, use `/map-store` to record its
+concrete URL observation, then create/update the same stable named Application
+Behavior with **all** supporting MapStore-relative observation paths. The
+`write` CLI prints an absolute file path: derive the relative path from the
+resolved MapStore maps root rather than copying the absolute path into
+`behavior write --observation`. A later URL observation can link an existing
+behavior with `--behavior`, but that link does not automatically add the new
+path to the Behavior's supporting-path index; update the behavior with the
+cumulative paths. See `skills/map-store/references/map-store-reference.md`.
+
+Keep observed transforms, controls, and consumers separate from unknown next
+boundaries. A JS request builder, normal owned browser action, and task-MITM
+request are complementary evidence for material browser/stateful flows; mark
+any unavailable source as a named gap rather than claiming complete coverage.
+`/docs` owns a longer program-specific integration model; `/api-surface-mapping`
+owns API operation comparisons. Before closing a broad map, make a bounded
+recall pass across applicable browser/proxy, JS, documentation, adjacent
+roles/features, and downstream consumers; stop at a named unavailable source
+or external blocker rather than guessing routes. A specialist receives only a
+bounded capability/consumer question with evidence pointers, not a raw dump.
 
 ## Symptom Routing
 

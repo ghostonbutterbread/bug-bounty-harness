@@ -379,6 +379,29 @@ class TestMapStore:
         assert entry["behaviors"] == ["xml-notification-parser"]
         assert "Application Behaviors: xml-notification-parser" in path.read_text(encoding="utf-8")
 
+    def test_later_behavior_link_requires_explicit_cumulative_path_update(self, store: MapStore):
+        store.init()
+        first = store.write(url="https://app.com/import", surface="api", body="Upload accepted.\n")
+        first_rel = first.relative_to(store.maps_root).as_posix()
+        store.write_behavior(
+            name="Import pipeline", kinds=["upload"],
+            observation_paths=[first_rel], body="Observed upload input.\n",
+        )
+        later = store.write(
+            url="https://app.com/import/preview", surface="api",
+            body="Preview of uploaded document observed.\n", behaviors=["Import pipeline"],
+        )
+        later_rel = later.relative_to(store.maps_root).as_posix()
+        assert store.query_behaviors(kind="upload")[0]["observation_paths"] == [first_rel]
+        assert store.query(url="https://app.com/import/preview")[0]["behaviors"] == ["import-pipeline"]
+
+        store.write_behavior(
+            name="Import pipeline", kinds=["upload"],
+            observation_paths=[first_rel, later_rel],
+            body="Observed upload and preview; downstream processing unknown.\n",
+        )
+        assert store.query_behaviors(kind="upload")[0]["observation_paths"] == [first_rel, later_rel]
+
     def test_cli_behavior_write_and_query(self, store: MapStore, tmp_path: Path):
         body_file = tmp_path / "behavior.md"
         body_file.write_text("XML is accepted without authentication.\n", encoding="utf-8")

@@ -19,6 +19,11 @@ Keep five distinct layers:
 
 Do not turn raw write-ups into target facts. Do not paste a large research corpus into every agent prompt.
 
+For an explicit product-class literature/threat-map request, load
+`references/functionality-first-writeup-synthesis.md`. It gives the on-demand
+case-admission, source-status, functionality-clustering, and specialist handoff
+method; do not run a broad write-up sweep on every ordinary target start.
+
 ## Class-Level Skill Boundary
 
 Keep class skills and their primary lanes stable and procedural. Do not create a

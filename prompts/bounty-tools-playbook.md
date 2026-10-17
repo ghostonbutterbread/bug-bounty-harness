@@ -208,6 +208,31 @@ Examples:
 Do not delete a lock blindly. Check whether the referenced process is still
 running and whether the manifest has a terminal status.
 
+### First-signal checkpoint for substantial runs
+
+Record the run owner, scoped input count, effective executable/interpreter,
+run root, rate/workers, stop condition, and one expected first observable
+result. Before launch, check binary/dependencies with the **runtime**
+interpreter, validate nonempty input and writable run root, and use a real
+offline fixture or plan when supplied. A missing fixture is a gap, not a pass.
+
+Only when the approved runner supplies safe early output, inspect the first
+work item or a similarly bounded initial slice: did a baseline or explicit
+error appear, did the expected artifact begin, is the signal meaningful rather
+than just reflection/status, and are scope, rate, account state, and service
+health still acceptable? If it is a no-op, repair or stop instead of waiting
+for a long empty run. Keep the receipt compact: `run ID; preflight; first
+signal or exact absence; output/log pointer; observed count; next action`.
+
+`tool-run` is synchronous; it records output and manifest on exit, so this
+mid-run checkpoint is **not** implemented by that wrapper. A detached worker
+requires an approved task-owned supervisor, reliable completion evidence, and
+the governing lifecycle policy. Do not infer progress from a PID or launch a
+separate live probe solely to satisfy the checkpoint. For XSS-specific output,
+use the selected XSS lane's source/sink/transform and browser proof contract;
+a tool's reflected value or same-bundle source/sink co-occurrence is only a
+lead.
+
 ## Stop Conditions
 
 Do not stop on one isolated noisy response. First reduce rps, narrow the target

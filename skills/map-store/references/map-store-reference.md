@@ -19,7 +19,8 @@ bbh agents/map_store.py write \
   --program canva --url "https://app.example/api/attachments" --surface api \
   --body-file /tmp/request-observation.md
 
-# Use the printed MapStore-relative observation path as evidence for the behavior.
+# The observation write prints an absolute path. Use its path relative to the
+# resolved MapStore maps root as evidence for the behavior.
 bbh agents/map_store.py behavior write \
   --program canva --family web_bounty --lane web \
   --name "Attachment processing" \
@@ -33,7 +34,10 @@ bbh agents/map_store.py behavior query \
 ```
 
 Link ordinary URL observations to their behavior with `--behavior`; the name is
-normalized to the behavior ID and must already exist:
+normalized to the behavior ID and must already exist. This does not add the
+new path to the Behavior's `observation_paths`: update the Behavior with the
+complete existing-plus-new supporting-path list to retain all locations. A
+`behavior write` replaces that list rather than appending to it:
 
 ```bash
 bbh agents/map_store.py write \

@@ -21,6 +21,24 @@ boundary as unknown. A safe first render settles only that render. This is
 not an exhaustive consumer census or permission to test an external service
 outside the program's scope.
 
+## Capability promotion
+
+The JSONL runtime map records observed routes and flows; it is not the
+MapStore's named Application Behavior index. When a concrete, user-influenceable
+parser, attachment pipeline, renderer, fetcher, or transform is evidenced,
+write the supporting URL observation to `/map-store` first, then create or
+update one named Behavior with its existing MapStore-relative observation paths.
+Keep the behavior factual: observed controls and consumers versus unknown next
+boundaries. A negative class test does not erase the evidenced capability;
+put deliberate probes in Attempts and unresolved exploit reasoning in the
+private Hypothesis Ledger. A Lead needs a separate bounded security question.
+
+For a material browser-backed or stateful surface, correlate available client
+JavaScript/request builders, normal owned-session browser flow, and task-MITM
+request evidence; label an unavailable lens as a coverage gap, not a made-up
+observation or a universal block on mapping. The full procedure and CLI
+contract remain with `/map-store` and `prompts/live-map-playbook.md`.
+
 `/live-map` complements `/appmap`:
 - `/appmap` maps local source or extracted binaries.
 - `/live-map` maps runtime behavior from browser navigation, proxy traffic, and manual observations.

@@ -37,6 +37,12 @@ component owners:
 It is **not** proof that a platform-wide recon pass is complete, and it does not
 replace the historical, freshness, aggregate, or handoff stages below.
 
+If Ryushe asks to **design** recurring maintenance rather than invoke a full
+pass, consult `/bounty-tools`' on-demand
+`references/recon-maintenance-automation.md`. Its scheduler/queue contract is
+explicitly proposed and offline-review-only; do not treat the existing
+`recon_full.py`, `tool-run`, or `watch-runs` as that scheduler or enable a worker.
+
 ## Required Entry Chain
 
 1. Load `general-security-testing-policy`.

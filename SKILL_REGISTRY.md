@@ -92,6 +92,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **vulnerability-patch-research** | `/vulnerability-patch-research {component} {version} {reachable-feature}` | `skills/vulnerability-patch-research/SKILL.md`; disposable local proof reference in `references/` |
 | **credential-exposure-validation** | `/credential-exposure-validation {program} {panel-or-source}` | `skills/credential-exposure-validation/SKILL.md` |
 | **recon** | `/recon {program}` | `prompts/recon-playbook.md` |
+| **program-finder** | `/program-finder {paid-program-shortlist-question}` | `skills/program-finder/SKILL.md`; public, pre-selection shortlist, not a scope or testing permission |
 | **recon-ry** | `/recon-ry {program}` | `prompts/recon-ry-playbook.md` |
 | **focused-recon** | `/focused-recon {program} [--host host] [--top N]` | `prompts/focused-recon-playbook.md` |
 | **csrf** | `/csrf {program}` | `skills/csrff/SKILL.md` |
@@ -157,7 +158,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **chromium-test** | `/chromium-test {program} {task}` | `prompts/chromium-test-playbook.md` |
 | **chromium-handoff** | `/chromium-handoff {cdp_port}` | `skills/chromium-handoff/SKILL.md` |
 | **pfp** | `/pfp {program} {goal}` | `prompts/pfp-playbook.md` |
-| **bountylens** | `/bountylens {sessions|findings|leads|reports}` | `skills/bountylens/SKILL.md` |
+| **bountylens** | `/bountylens {programs|scope|stats}` | `skills/bountylens/SKILL.md`; public program/scope/stat context only, not hunt memory |
 | **manual-places-to-hunt** | `/manual {program} [--run <run-id>] [--historical]` | `skills/manual-places-to-hunt/SKILL.md` |
 | **leads** | `/leads <program> [--class <vuln-class>]`; `agents/leads.py {create|search|update-status}` | `skills/leads/SKILL.md` |
 | **ledger** | `/ledger {program}` | `skills/ledger/SKILL.md` |

@@ -11,6 +11,10 @@ or changing a runnable BBH skill command.
 
 Use this as the compact runtime entry point for a Bug Bounty Harness agent.
 
+For public, paid-program selection **before** an authorized target is chosen,
+load `/program-finder`. A shortlist is not testing permission: once a program
+is selected, the normal published scope and AI Policies gates below still apply.
+
 1. Before any live action, load `general-security-testing-policy`, then
    `live-testing-policy`. Also load `resource-safety-policy` for every agent
    task: it governs local artifact search and processing, including when a
@@ -25,7 +29,10 @@ Use this as the compact runtime entry point for a Bug Bounty Harness agent.
 3. Begin from the current user goal and a cold, current surface. Do not preload
    broad prior leads, findings, or peer theory queues. When mapping a
    user-influenced value or workflow, consult `/live-map` for its consumer
-   question; keep class-specific testing and lineage with the specialist lane.
+   question. Its runtime route map is distinct from MapStore's named, factual
+   Application Behaviors; create/update a Behavior only from concrete URL
+   observations through `/map-store`. Keep class-specific testing and lineage
+   with the specialist lane.
 4. Use `/hunter-loop` only for bounded orchestration; route each plausible
    selected surface to one specialist lane. When no signal exists, run an
    adaptive, class-appropriate live discovery sequence to establish or reject

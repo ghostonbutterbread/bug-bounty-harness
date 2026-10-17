@@ -185,6 +185,14 @@ The hybrid approach is: tools map broadly, agents reason deeply.
 8. Mark tool-only results as `Potential`; mark `Confirmed` only after browser or
    equivalent execution proof.
 
+For a long-running XSS mapper, `/bounty-tools` owns its bounded startup check.
+The first useful result should identify an input/source, observed
+representation, plausible render/sink context, and transform or defense state;
+otherwise classify it as discovery-only. A source and sink mentioned in the
+same static bundle are not a proven data-flow edge. A reflected marker alone
+is not browser execution proof, and the selected XSS lane still owns the
+source-to-consumer and browser verification decision.
+
 Good packet shape:
 
 ```json

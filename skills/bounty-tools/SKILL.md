@@ -35,6 +35,26 @@ standardizes tool execution and artifact handling.
    <command>` so the run root, manifest, and promotion are handled
    consistently.
 
+## Long-running startup qualification
+
+Before committing a substantial scanner, crawler, mapper, or custom-tool run,
+name the expected **first useful signal**, not just a PID: a baseline/error,
+relevant output row, or an observable source-to-consumer edge for the selected
+tool. Preflight its actual executable, nonempty scoped input, output directory,
+effective rate/concurrency, auth reference when needed, and dependencies in
+the interpreter that will run it. Use an available offline fixture or dry plan;
+record its absence rather than claiming a passing test. A failed preflight
+blocks that run until repaired.
+
+Where the selected runner exposes safe early logs/output, inspect the first
+bounded work item and decide whether to continue, repair, narrow, or stop.
+Do not send an extra live control request merely to satisfy this checkpoint.
+The existing `tool-run` waits for its child to exit and writes its manifest
+and captured output afterward; it does **not** implement a mid-run progress
+gate. A detached run needs separately approved supervision and the applicable
+Hoster lifecycle policy. The receipt and signal-quality questions are in
+`prompts/bounty-tools-playbook.md`; specialist skills still own proof.
+
 ## Canonical Run Root
 
 Default web run root:
@@ -151,6 +171,9 @@ After preserving raw output:
 
 ## Related Skills
 
+- `references/recon-maintenance-automation.md` — **proposed, offline-review-only**
+  design gates for future recurring recon; no implemented scheduler or live
+  activation follows from this reference.
 - `/url-ingest` — triage large URL lists, narrow scope, queue agent review, and
   answer whether a URL or parameter has already been inspected for a given
   lane, skill, or test family.

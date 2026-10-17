@@ -3,7 +3,7 @@ import json
 import os
 import tempfile
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -41,7 +41,7 @@ class TestSyncReports(unittest.TestCase):
         self.report_path = self.source_dir / "finding.md"
         self.report_path.write_text("# Finding\n\nsrc/app.js:12\n", encoding="utf-8")
 
-    def _hunter(self, *, check_side_effect: list[tuple[bool, str | None, dict]]) -> SimpleNamespace:
+    def _hunter(self, *, check_side_effect: list[tuple[bool, str | None, dict] | Exception]) -> SimpleNamespace:
         ledger = Mock()
         ledger.path = self.tmp / "ledger.json"
         ledger.check.side_effect = check_side_effect
@@ -283,6 +283,89 @@ class TestSyncReports(unittest.TestCase):
         self.assertEqual(mock_update_team_finding.call_args.kwargs["lane"], "apk")
         self.assertEqual(mock_update_team_finding.call_args.kwargs["root_override"], self.tmp / "storage-root")
         hunter.ledger.update.assert_not_called()
+
+    @patch("agents.sync_reports._chain_suggestions", return_value=[])
+    @patch("agents.sync_reports._candidates_for_file")
+    @patch("agents.sync_reports.update_team_finding")
+    @patch("agents.sync_reports.ManualHunter")
+    def test_sync_report_fid_collision_is_skipped_and_reported(
+        self,
+        mock_hunter_cls,
+        mock_update_team_finding,
+        mock_candidates,
+        _mock_chain,
+    ):
+        finding1 = {"type": "xss", "class_name": "dom-xss", "file": "src/app.js", "fid": "D06"}
+        finding2 = {"type": "sqli", "class_name": "sqli", "file": "src/db.py"}
+        hunter = self._hunter(
+            check_side_effect=[
+                ValueError("finding FID already assigned: D06"),
+                (False, None, {**finding2, "fid": "D02"}),
+            ]
+        )
+        mock_hunter_cls.return_value = hunter
+        mock_candidates.return_value = [finding1, finding2]
+        mock_update_team_finding.side_effect = lambda _program, finding, **_kwargs: dict(finding)
+
+        output, errors = io.StringIO(), io.StringIO()
+        with redirect_stdout(output), redirect_stderr(errors):
+            exit_code = sync_reports_main("test_program", lane="apk", source_dir=self.source_dir.as_posix())
+
+        self.assertEqual(hunter.ledger.check.call_count, 2)
+        mock_update_team_finding.assert_called_once()
+        self.assertEqual(mock_update_team_finding.call_args.args[:2], ("test_program", {**finding2, "fid": "D02"}))
+        self.assertEqual(exit_code, 1)
+        self.assertIn("FID collisions: 1 report needs manual reconciliation", output.getvalue())
+        self.assertIn("finding FID already assigned: D06", errors.getvalue())
+        hunter.ledger.update.assert_not_called()
+
+    @patch("agents.sync_reports._chain_suggestions", return_value=[])
+    @patch("agents.sync_reports._candidates_for_file")
+    def test_real_ledger_fid_collision_continues_import_and_returns_nonzero(
+        self, mock_candidates, _mock_chain
+    ):
+        program = "collision_fixture"
+        storage_root = self.tmp / "collision-storage"
+        source_root = self.tmp / "collision-source"
+        source_root.mkdir()
+        hunter = ManualHunter(
+            program, lane="apk", source_root=source_root, storage_root=storage_root
+        )
+        self.assertEqual(hunter.ledger.__class__.__name__, "VersionedFindingsLedger")
+        existing = {
+            "fid": "D06", "type": "Existing DOM XSS", "class_name": "dom-xss",
+            "file": "src/existing.js", "line": 1,
+        }
+        collision = {
+            "fid": "D06", "type": "Different DOM XSS", "class_name": "dom-xss",
+            "file": "src/different.js", "line": 2,
+        }
+        next_finding = {
+            "fid": "D07", "type": "Independent SQL injection", "class_name": "sqli",
+            "file": "src/query.py", "line": 3,
+        }
+        self.assertEqual(hunter.ledger.check(existing)[1], "D06")
+        with self.assertRaisesRegex(ValueError, "finding FID already assigned: D06"):
+            hunter.ledger.check(collision)
+        mock_candidates.return_value = [collision, next_finding]
+
+        output, errors = io.StringIO(), io.StringIO()
+        with redirect_stdout(output), redirect_stderr(errors):
+            exit_code = sync_reports_main(
+                program, lane="apk", source_dir=self.source_dir.as_posix(),
+                source_root=source_root, storage_root=storage_root,
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("finding FID already assigned: D06", errors.getvalue())
+        self.assertIn("FID collisions: 1 report needs manual reconciliation", output.getvalue())
+        self.assertIn("ADDED D07", output.getvalue())
+        self.assertEqual(mock_candidates.call_count, 1)
+        findings = hunter.ledger.list_all()
+        self.assertEqual({item["fid"] for item in findings}, {"D06", "D07"})
+        self.assertEqual(next(item for item in findings if item["fid"] == "D06")["file"], "src/existing.js")
+        self.assertEqual(next(item for item in findings if item["fid"] == "D07")["file"], "src/query.py")
+        self.assertTrue(str(hunter.ledger.path).startswith(str(storage_root)))
 
     @patch("agents.sync_reports._chain_suggestions", return_value=[])
     @patch("agents.sync_reports._candidates_for_file")

@@ -676,6 +676,7 @@ def main(argv: list[str] | None = None) -> int:
     imported_fids: list[str] = []
     skipped_fids: list[str] = []
     review_tier_errors: list[Path] = []
+    fid_collisions: list[tuple[Path, str]] = []
     chain_lines: list[str] = []
 
     for report_path in report_files:
@@ -695,7 +696,17 @@ def main(argv: list[str] | None = None) -> int:
                 source_label=str(report_path),
                 source_path=report_path,
             )
-            is_duplicate, existing_fid, finding = hunter.ledger.check(candidate)
+            try:
+                is_duplicate, existing_fid, finding = hunter.ledger.check(candidate)
+            except ValueError as exc:
+                # A report that names an FID which is already assigned to a
+                # different ledger identity (e.g. the finding's file path
+                # changed across a rebuild) is a reconciliation decision for
+                # a human, not an importable new finding. Skip the candidate
+                # and surface it, keeping the remaining reports runnable.
+                fid_collisions.append((report_path, str(exc)))
+                print(f"[sync_reports] skipped {report_path}: {exc}", file=sys.stderr)
+                continue
             if is_duplicate:
                 skipped_fids.append(existing_fid or "?")
                 print(f"{existing_fid} already exists, skipped")
@@ -733,9 +744,14 @@ def main(argv: list[str] | None = None) -> int:
     print(_format_summary_count("Skipped", len(skipped_fids), "duplicates", duplicate_summary))
     if review_tier_errors:
         print(f"  Review-tier decisions required: {len(review_tier_errors)}")
+    if fid_collisions:
+        print(_format_summary_count(
+            "FID collisions", len(fid_collisions), "report needs manual reconciliation",
+            [f"{path.name}: {msg}" for path, msg in fid_collisions],
+        ))
     if chain_lines:
         print(f"  Chain suggestions: {'; '.join(chain_lines)}")
-    return 1 if review_tier_errors else 0
+    return 1 if (review_tier_errors or fid_collisions) else 0
 
 
 if __name__ == "__main__":

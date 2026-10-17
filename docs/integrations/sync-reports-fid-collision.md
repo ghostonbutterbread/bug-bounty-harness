@@ -1,14 +1,14 @@
 # Sync reports FID collision integration dossier
 
-- **Status:** real ledger collision reproduced in isolated storage; independent integration review pending
+- **Status:** real ledger collision reproduced in isolated storage; independent review approved, beta integration and Hoster activation pending
 - **Owner:** Hermes bugfix reconciliation
 - **Branch / owning ref:** `fix/sync-reports-fid-collision`
 - **Worktree:** `/home/ryushe/worktrees/bbh-sync-reports-fid-collision`
 - **Base commit:** `388e0929718405ca826b8abbd14235e4c3dfc23b` (fetched `origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-16
-- **Latest immutable recovery checkpoint:** `063dd509` (initial feature commit); this revision updates the fixture and handoff
-- **Feature implementation commit(s):** `063dd509`; fixture/dossier revision in current branch tip after commit
+- **Latest immutable recovery checkpoint:** `fe3cbc6ae8d61d792972e751c364f24b1cb4998c` (real-ledger fixture and handoff)
+- **Feature implementation commit(s):** `063dd509ff8fd30606dee250b49bb13093e36196`, `fe3cbc6ae8d61d792972e751c364f24b1cb4998c`
 - **Inspiration:** Hoster active runtime `/home/ryushe/projects/bug_bounty_harness-runtime-beta-reporting-20261013` at `5770784e1e07d990c4bb592fdad6217118222666`, dirty diff limited to `agents/sync_reports.py` and `agents/test_sync_reports.py`; Hoster checkout untouched.
 
 ## Intent and implemented contract
@@ -27,21 +27,21 @@ Port the Hoster repair to current published beta without changing the dirty runt
 ## Blockers and deferred work
 
 - **Resolved throw-site question:** `ManualHunter.ledger` is `bounty_core.ledger.VersionedFindingsLedger`, constructed via `agents/ledger.py:create_team_ledger_from_storage`, not `agents/findings_ledger.py`. Its `check` calls Bounty Core `_reserve_candidate`; that function rejects a caller-supplied FID when `_find_existing` did not match and the FID belongs to another identity. The real-ledger fixture above proves this path before `update_team_finding`; no downstream-only hypothesis remains.
-- **Independent review:** Not performed in this isolated feature task; reviewer should inspect exception scope, report safety, and the real-ledger fixture before merging.
+- **Independent review:** Approved read-only review at `fe3cbc6`; reviewer independently ran 51 adjacent tests and `git diff --check`. The handler labels all `check()` `ValueError`s as FID collisions, including invalid-FID errors; it still reports the underlying error and exits nonzero. A collision followed by a successful separate import is deliberately partial, not atomic—operators must account for the committed import on retry.
 - **Existing unrelated test failure:** `python3 -m unittest agents.test_finding_report.BunnyReportRegistrationTests.test_provider_pin_is_accepted_evidence_only_revision` fails on clean beta and feature due to an outdated expected dependency pin. Handle separately.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/sync-reports-fid-collision`
-- **Latest immutable recovery checkpoint:** `063dd509` (initial feature commit); fixture/dossier revision is the feature tip after commit.
-- **Feature implementation commit(s):** `063dd509` and current fixture/dossier revision (see branch tip).
-- **Exact resume point:** independently review actual Bounty Core throw site and exception scope against the real fixture; do not merge or deploy under this task.
+- **Latest immutable recovery checkpoint:** `fe3cbc6ae8d61d792972e751c364f24b1cb4998c`; review decision is a later dossier-only commit.
+- **Feature implementation commit(s):** `063dd509ff8fd30606dee250b49bb13093e36196`, `fe3cbc6ae8d61d792972e751c364f24b1cb4998c`.
+- **Exact resume point:** merge accepted feature into clean current beta after fetching and checking ancestry, retire dossier, run integrated tests, publish beta; migrate Hoster to a clean selected checkout without altering the old dirty runtime.
 - **Working-tree state at handoff:** verify clean after fixture/dossier commit.
 
 ## Decision gates
 
-- **Integration gate:** real-ledger fixture passes; independent review remains pending. User explicitly forbids merge/push.
-- **Activation / promotion gate:** not requested; Hoster active runtime remains untouched.
+- **Integration gate:** independent review approved `fe3cbc6`; merge into `beta` after ancestry check and integrated test pass. Ryu explicitly chose reconciling this reporting behavior to enable Coverage activation.
+- **Activation / promotion gate:** after beta publication, select a clean Hoster runtime, compare host-local configuration, preserve the dirty former source, and verify managed skill/launcher projections; no stable promotion.
 
 ## Decision record
 

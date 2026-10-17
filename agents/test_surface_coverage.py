@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import contextlib
 import io
+import sqlite3
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -30,10 +31,70 @@ class SurfaceCoverageTests(unittest.TestCase):
         kwargs.setdefault("expected_fingerprint", "bundle-v1")
         return self.store.assess(surface_id, **kwargs)
 
+    def test_old_sqlite_rows_and_history_read_as_narrow_review_without_rewrite(self) -> None:
+        surface_id = self.discover()
+        self.assess(surface_id, class_name="xss", status="exhausted", evidence_refs=["A-123"],
+                    reason="specific renderer reviewed", boundary="state attribute", axes=["quote"],
+                    pressure="exhausted")
+        with sqlite3.connect(self.store.path) as db:
+            db.execute("UPDATE assessments SET status='exhausted' WHERE surface_id=?", (surface_id,))
+            db.execute("UPDATE assessment_history SET status='exhausted' WHERE surface_id=?", (surface_id,))
+        before = self.store.path.read_bytes()
+        brief = self.store.brief(class_name="xss")
+        self.assertEqual(brief["counts"], {"bounded_review": 1})
+        self.assertEqual(brief["items"][0]["status"], "bounded_review")
+        self.assertEqual(brief["items"][0]["pressure"], "exhausted")
+        self.assertEqual(self.store.history(surface_id, class_name="xss")[0]["status"], "bounded_review")
+        self.assertEqual(self.store.history(surface_id, class_name="xss")[0]["pressure"], "exhausted")
+        self.assertEqual(self.store.path.read_bytes(), before)
+        with sqlite3.connect(self.store.path) as db:
+            self.assertEqual(db.execute("SELECT status FROM assessments").fetchone()[0], "exhausted")
+            self.assertEqual(db.execute("SELECT status FROM assessment_history").fetchone()[0], "exhausted")
+        self.discover(fingerprint="bundle-v2")
+        stale = self.store.brief(class_name="xss")["items"][0]
+        self.assertEqual((stale["status"], stale["prior_status"]), ("stale", "bounded_review"))
+        self.assertEqual(self.store.history(surface_id, class_name="xss")[0]["status"], "bounded_review")
+
+    def test_new_discovery_and_review_write_canonical_statuses(self) -> None:
+        surface_id = self.discover()
+        self.assertEqual(self.store.brief()["counts"], {"no_assessment": 1})
+        with sqlite3.connect(self.store.path) as db:
+            self.assertEqual(db.execute("SELECT status FROM assessments").fetchone()[0], "no_assessment")
+        result = self.assess(surface_id, class_name="xss", status="bounded_review",
+                             evidence_refs=["A-123"], reason="specific renderer reviewed",
+                             boundary="state attribute", axes=["quote"])
+        self.assertEqual(result["status"], "bounded_review")
+        self.assertEqual(self.store.brief()["counts"], {"bounded_review": 1})
+        self.assertEqual(self.store.history(surface_id, class_name="xss")[0]["status"], "bounded_review")
+        with sqlite3.connect(self.store.path) as db:
+            self.assertEqual(db.execute("SELECT status FROM assessments").fetchone()[0], "bounded_review")
+
+    def test_old_default_status_stays_readable_and_new_class_uses_new_status(self) -> None:
+        surface_id = self.discover()
+        with sqlite3.connect(self.store.path) as db:
+            db.execute("UPDATE assessments SET status='untested' WHERE surface_id=?", (surface_id,))
+        self.assertEqual(self.store.brief()["counts"], {"no_assessment": 1})
+        self.store.discover(kind="route", host="shop.example", surface_key="GET /next",
+                            class_name="idor", source_ref="map/next.jsonl", run_id="mapper-1")
+        self.assertEqual(self.store.brief()["counts"], {"no_assessment": 2})
+        with sqlite3.connect(self.store.path) as db:
+            self.assertEqual({row[0] for row in db.execute("SELECT status FROM assessments")},
+                             {"untested", "no_assessment"})
+
+    def test_bounded_review_requires_exact_boundary_axes_and_evidence(self) -> None:
+        surface_id = self.discover()
+        for options in ({"boundary": "", "axes": ["quote"], "evidence_refs": ["A-123"]},
+                        {"boundary": "state attribute", "axes": [], "evidence_refs": ["A-123"]},
+                        {"boundary": "state attribute", "axes": ["quote"], "evidence_refs": []}):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                self.assess(surface_id, class_name="xss", status="bounded_review",
+                            reason="reviewed", **options)
+        self.assertEqual(self.store.brief()["counts"], {"no_assessment": 1})
+
     def test_discovery_creates_untested_class_without_static_file_index(self) -> None:
         surface_id = self.discover()
         result = self.store.brief(class_name="xss")
-        self.assertEqual(result["counts"], {"untested": 1})
+        self.assertEqual(result["counts"], {"no_assessment": 1})
         self.assertEqual(result["items"][0]["surface_id"], surface_id)
         self.assertEqual(result["items"][0]["source_ref"], "recon/wcs/actions.jsonl")
         self.assertTrue(self.store.path.name == "surface_coverage.sqlite")
@@ -58,8 +119,8 @@ class SurfaceCoverageTests(unittest.TestCase):
         self.assess(first, class_name="xss", status="exhausted", evidence_refs=["A-123"],
                           reason="attribute encoding verified", boundary="state attribute in account view",
                           axes=["quote", "entity", "browser render"])
-        self.assertEqual(self.store.brief(class_name="xss")["counts"], {"untested": 1, "exhausted": 1})
-        self.assertEqual(self.store.brief(class_name="idor")["counts"], {"untested": 1})
+        self.assertEqual(self.store.brief(class_name="xss")["counts"], {"no_assessment": 1, "bounded_review": 1})
+        self.assertEqual(self.store.brief(class_name="idor")["counts"], {"no_assessment": 1})
 
     def test_blocked_requires_wake_condition_and_exhaustion_requires_boundary(self) -> None:
         surface_id = self.discover()
@@ -67,7 +128,7 @@ class SurfaceCoverageTests(unittest.TestCase):
             self.assess(surface_id, class_name="xss", status="blocked", evidence_refs=["A-123"], reason="fixture missing")
         with self.assertRaisesRegex(ValueError, "boundary"):
             self.assess(surface_id, class_name="xss", status="exhausted", evidence_refs=["A-123"], reason="tested")
-        self.assertEqual(self.store.brief(class_name="xss")["counts"], {"untested": 1})
+        self.assertEqual(self.store.brief(class_name="xss")["counts"], {"no_assessment": 1})
 
     def test_new_fingerprint_reopens_old_assessment_without_erasing_evidence(self) -> None:
         surface_id = self.discover()
@@ -76,7 +137,7 @@ class SurfaceCoverageTests(unittest.TestCase):
         self.discover(fingerprint="bundle-v2")
         item = self.store.brief(class_name="xss")["items"][0]
         self.assertEqual(item["status"], "stale")
-        self.assertEqual(item["prior_status"], "exhausted")
+        self.assertEqual(item["prior_status"], "bounded_review")
         self.assertEqual(item["evidence_refs"], ["A-123"])
         self.assertEqual(item["fingerprint"], "bundle-v2")
 
@@ -88,17 +149,17 @@ class SurfaceCoverageTests(unittest.TestCase):
         self.assess(surface_id, class_name="xss", status="exhausted", expected_fingerprint="",
                     evidence_refs=["A-123"], reason="reviewed", boundary="one renderer", axes=["quote"])
         self.store.discover_many([row])
-        self.assertEqual(self.store.brief(class_name="xss")["counts"], {"exhausted": 1})
+        self.assertEqual(self.store.brief(class_name="xss")["counts"], {"bounded_review": 1})
         self.store.discover_many([{**row, "run_id": "mapper-2",
                                    "source_ref": "recon/xss/mapper-2/sources.jsonl:s2"}])
         item = self.store.brief(class_name="xss")["items"][0]
         self.assertEqual(item["status"], "stale")
-        self.assertEqual(item["prior_status"], "exhausted")
+        self.assertEqual(item["prior_status"], "bounded_review")
         self.assertEqual(item["evidence_refs"], ["A-123"])
-        self.assertEqual(self.store.brief(class_name="idor")["counts"], {"untested": 1})
+        self.assertEqual(self.store.brief(class_name="idor")["counts"], {"no_assessment": 1})
         self.assertEqual({source["run_id"] for source in item["sources"]}, {"mapper-1", "mapper-2"})
         self.assertEqual([event["status"] for event in self.store.history(surface_id, class_name="xss")],
-                         ["exhausted"])
+                         ["bounded_review"])
 
     def test_preexisting_unversioned_assessment_reopens_when_next_mapper_run_imports(self) -> None:
         surface_id = self.store.discover(kind="route", host="shop.example", surface_key="GET /search",
@@ -139,7 +200,7 @@ class SurfaceCoverageTests(unittest.TestCase):
             self.assess(surface_id, class_name="xss", status="exhausted",
                               expected_fingerprint="bundle-v1", evidence_refs=["A-123"],
                               reason="reviewed old bundle", boundary="account render", axes=["quote"])
-        self.assertEqual(self.store.brief(class_name="xss")["counts"], {"untested": 1})
+        self.assertEqual(self.store.brief(class_name="xss")["counts"], {"no_assessment": 1})
 
     def test_reassessment_preserves_prior_evidence_in_history(self) -> None:
         surface_id = self.discover()
@@ -158,7 +219,7 @@ class SurfaceCoverageTests(unittest.TestCase):
         self.assess(first, class_name="xss", status="blocked", evidence_refs=["A-123"],
                           reason="needs owned fixture", reopen_when="fixture available")
         result = self.store.brief(class_name="xss", limit=1)
-        self.assertEqual(result["counts"], {"blocked": 1, "untested": 1})
+        self.assertEqual(result["counts"], {"blocked": 1, "no_assessment": 1})
         self.assertEqual(len(result["items"]), 1)
         self.assertEqual(result["items"][0]["status"], "blocked")
 
@@ -178,7 +239,7 @@ class SurfaceCoverageTests(unittest.TestCase):
         self.store.discover(kind="workflow", host="shop.example", surface_key="checkout-return",
                             source_ref="recon/workflows.jsonl", run_id="mapper-1")
         result = self.store.brief(class_name="xss")
-        self.assertEqual(result["counts"], {"untested": 1})
+        self.assertEqual(result["counts"], {"no_assessment": 1})
         self.assertEqual(result["unclassified_surfaces"], 1)
         self.assertEqual(result["mapped_kinds"], {"wcs_action": 1, "workflow": 1})
 
@@ -187,7 +248,7 @@ class SurfaceCoverageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.assess(surface_id, class_name="xss", status="in_progress",
                               evidence_refs=["https://shop.example/?token=secret"], reason="test")
-        self.assertEqual(self.store.brief(class_name="xss")["counts"], {"untested": 1})
+        self.assertEqual(self.store.brief(class_name="xss")["counts"], {"no_assessment": 1})
 
     def test_refuses_bearer_material_in_reference_or_reason(self) -> None:
         surface_id = self.discover()
@@ -196,7 +257,7 @@ class SurfaceCoverageTests(unittest.TestCase):
                 self.assess(surface_id, class_name="xss", status="in_progress",
                                   evidence_refs=["Bearer sensitive-value"] if field == "reference" else ["A-123"],
                                   reason="Bearer sensitive-value" if field == "reason" else "review in progress")
-        self.assertEqual(self.store.brief(class_name="xss")["counts"], {"untested": 1})
+        self.assertEqual(self.store.brief(class_name="xss")["counts"], {"no_assessment": 1})
 
     def test_refuses_named_secret_values_in_assessment_text(self) -> None:
         surface_id = self.discover()
@@ -206,7 +267,7 @@ class SurfaceCoverageTests(unittest.TestCase):
             with self.subTest(secret_text=secret_text), self.assertRaises(ValueError):
                 self.assess(surface_id, class_name="xss", status="in_progress",
                                   evidence_refs=["A-123"], reason=secret_text)
-        self.assertEqual(self.store.brief(class_name="xss")["counts"], {"untested": 1})
+        self.assertEqual(self.store.brief(class_name="xss")["counts"], {"no_assessment": 1})
 
     def test_bulk_import_rejects_invalid_second_row_without_partial_discovery(self) -> None:
         # A later validation error must not make the earlier mapped row visible.
@@ -261,8 +322,8 @@ class SurfaceCoverageTests(unittest.TestCase):
         common = ("--program", "sample", "--family", "web_bounty", "--lane", "web", "--root", self.tmp.name)
         imported = invoke("surface-discover", *common, "--input-jsonl", str(inventory))
         self.assertEqual(imported["discovered"], 1)
-        self.assertEqual(invoke("surface-brief", *common, "--class-name", "xss")["counts"], {"untested": 1})
-        self.assertEqual(invoke("surface-brief", *common, "--class-name", "access-control")["counts"], {"untested": 1})
+        self.assertEqual(invoke("surface-brief", *common, "--class-name", "xss")["counts"], {"no_assessment": 1})
+        self.assertEqual(invoke("surface-brief", *common, "--class-name", "access-control")["counts"], {"no_assessment": 1})
         self.assertEqual(invoke("surface-brief", *common, "--limit", "1")["next_offset"], 1)
         self.assertEqual(len(invoke("surface-brief", *common, "--limit", "1", "--offset", "1")["items"]), 1)
         surface_id = imported["surface_ids"][0]
@@ -273,7 +334,7 @@ class SurfaceCoverageTests(unittest.TestCase):
         self.assertEqual(invoke("surface-brief", *common, "--class-name", "xss")["counts"], {"blocked": 1})
         self.assertEqual(invoke("surface-history", *common, "--surface-id", surface_id,
                                 "--class-name", "xss")["events"][0]["evidence_refs"], ["A-123"])
-        self.assertEqual(invoke("surface-brief", *common, "--class-name", "access-control")["counts"], {"untested": 1})
+        self.assertEqual(invoke("surface-brief", *common, "--class-name", "access-control")["counts"], {"no_assessment": 1})
 
 
 if __name__ == "__main__":

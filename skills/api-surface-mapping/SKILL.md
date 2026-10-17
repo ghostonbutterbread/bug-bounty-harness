@@ -228,7 +228,7 @@ For a bounded operation/field inventory, load `/coverage` and register mapped
 operations with `agents/coverage.py discover` (`--input-jsonl` accepts kind,
 host, surface_key, optional input_key/consumer, class_names, source_ref, run_id,
 and optional fingerprint). Nominate only relevant vulnerability classes;
-discovery is `untested`, not proof of negative testing. Preserve mapper method
+discovery is `no_assessment`, not proof of negative testing. Preserve mapper method
 and limits in the producer artifact.
 
 Use `analyze-endpoint` as the canonical selected-operation contract writer.

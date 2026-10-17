@@ -16,8 +16,13 @@ from typing import Any
 
 from agents.storage_resolver import resolve_storage
 
-STATES = {"untested", "in_progress", "blocked", "exhausted"}
-ORDER = {"blocked": 0, "stale": 1, "in_progress": 2, "untested": 3, "exhausted": 4}
+STATES = {"no_assessment", "in_progress", "blocked", "bounded_review"}
+# Read old lane-local SQLite rows without rewriting history or changing XSS pressure.
+LEGACY_STATUSES = {"untested": "no_assessment", "exhausted": "bounded_review"}
+
+
+def _review_status(status: str) -> str:
+    return LEGACY_STATUSES.get(status, status)
 
 
 def _now() -> str:
@@ -58,7 +63,7 @@ class SurfaceCoverageStore:
             );
             CREATE TABLE IF NOT EXISTS assessments (
                 surface_id TEXT NOT NULL REFERENCES surfaces(id), class_name TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'untested', pressure TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'no_assessment', pressure TEXT NOT NULL DEFAULT '',
                 reason TEXT NOT NULL DEFAULT '', boundary TEXT NOT NULL DEFAULT '',
                 axes_json TEXT NOT NULL DEFAULT '[]', evidence_json TEXT NOT NULL DEFAULT '[]',
                 reopen_when TEXT NOT NULL DEFAULT '', assessed_fingerprint TEXT NOT NULL DEFAULT '',
@@ -142,7 +147,8 @@ class SurfaceCoverageStore:
                             # Older unversioned decisions have no mapper baseline; capture it
                             # before replacing the current run, without altering their history.
                             db.execute("""UPDATE assessments SET assessed_fingerprint=?
-                                          WHERE surface_id=? AND status!='untested' AND assessed_fingerprint=''""",
+                                          WHERE surface_id=? AND status NOT IN ('untested','no_assessment')
+                                            AND assessed_fingerprint=''""",
                                        ("@mapper-run:" + previous["run_id"], surface_id))
                     if previous and fingerprint and fingerprint != previous["fingerprint"]:
                         seen = db.execute("SELECT 1 FROM previous_fingerprints WHERE surface_id=? AND fingerprint=?",
@@ -162,8 +168,8 @@ class SurfaceCoverageStore:
                                   VALUES(?,?,?,?)""", (surface_id, source_ref, run_id, timestamp))
                     for class_name in class_names:
                         if class_name:
-                            db.execute("""INSERT OR IGNORE INTO assessments(surface_id,class_name,updated_at)
-                                          VALUES(?,?,?)""", (surface_id, class_name, timestamp))
+                            db.execute("""INSERT OR IGNORE INTO assessments(surface_id,class_name,status,updated_at)
+                                          VALUES(?,?,?,?)""", (surface_id, class_name, "no_assessment", timestamp))
                     if surface_id not in seen_ids:
                         seen_ids.add(surface_id)
                         ids.append(surface_id)
@@ -178,8 +184,9 @@ class SurfaceCoverageStore:
         surface_id = _plain(surface_id, "surface_id", required=True)
         class_name = _plain(class_name, "class_name", required=True).lower()
         expected_fingerprint = _plain(expected_fingerprint, "expected_fingerprint")
-        if status not in STATES - {"untested"}:
-            raise ValueError("status must be in_progress, blocked, or exhausted")
+        status = _review_status(status)  # Historical CLI writers remain accepted.
+        if status not in STATES - {"no_assessment"}:
+            raise ValueError("status must be in_progress, blocked, or bounded_review")
         reason = _plain(reason, "reason", required=True)
         refs = [_plain(ref, "evidence_ref", required=True) for ref in evidence_refs]
         if not refs:
@@ -192,8 +199,8 @@ class SurfaceCoverageStore:
         run_id = _plain(run_id, "run_id")
         if status == "blocked" and not reopen_when:
             raise ValueError("blocked assessment requires reopen_when")
-        if status == "exhausted" and (not boundary or not axes):
-            raise ValueError("exhausted assessment requires boundary and axes")
+        if status == "bounded_review" and (not boundary or not axes):
+            raise ValueError("bounded_review assessment requires boundary and axes")
         if not self.path.exists():
             raise ValueError("surface not discovered")
         with self._connect() as db:
@@ -227,7 +234,7 @@ class SurfaceCoverageStore:
                               ORDER BY event_id DESC LIMIT ?""",
                               (_plain(surface_id, "surface_id", required=True),
                                _plain(class_name, "class_name", required=True).lower(), limit)).fetchall()
-        return [{**dict(row), "axes": json.loads(row["axes_json"]),
+        return [{**dict(row), "status": _review_status(row["status"]), "axes": json.loads(row["axes_json"]),
                  "evidence_refs": json.loads(row["evidence_json"])} for row in reversed(rows)]
 
     def brief(self, *, class_name: str | None = None, host: str | None = None,
@@ -252,10 +259,12 @@ class SurfaceCoverageStore:
         questions = """WITH questions AS (SELECT s.*,a.class_name,a.status,a.pressure,a.reason,a.boundary,
                        a.axes_json,a.evidence_json,a.reopen_when,a.assessed_fingerprint,a.agent,
                        a.assessment_run_id,a.updated_at,
-                       CASE WHEN a.status != 'untested' AND a.assessed_fingerprint != ''
+                       CASE WHEN a.status NOT IN ('untested','no_assessment') AND a.assessed_fingerprint != ''
                                  AND a.assessed_fingerprint !=
                                      CASE WHEN s.fingerprint != '' THEN s.fingerprint
                                           ELSE '@mapper-run:' || s.run_id END THEN 'stale'
+                            WHEN a.status = 'untested' THEN 'no_assessment'
+                            WHEN a.status = 'exhausted' THEN 'bounded_review'
                             ELSE a.status END AS review_status
                        FROM assessments a JOIN surfaces s ON s.id=a.surface_id""" + where + ") "
         with self._read_connection() as db:
@@ -263,7 +272,7 @@ class SurfaceCoverageStore:
                 questions + "SELECT review_status, COUNT(*) AS n FROM questions GROUP BY review_status", values)}
             rows = db.execute(questions + """SELECT * FROM questions ORDER BY
                               CASE review_status WHEN 'blocked' THEN 0 WHEN 'stale' THEN 1
-                              WHEN 'in_progress' THEN 2 WHEN 'untested' THEN 3 ELSE 4 END,
+                              WHEN 'in_progress' THEN 2 WHEN 'no_assessment' THEN 3 ELSE 4 END,
                               host,surface_key,input_key,class_name,id LIMIT ? OFFSET ?""",
                               [*values, limit, offset]).fetchall()
             host_filter = " WHERE s.host=?" if host else ""
@@ -291,7 +300,7 @@ class SurfaceCoverageStore:
         for row in rows:
             item = dict(row)
             if item["review_status"] == "stale":
-                item["prior_status"] = item["status"]
+                item["prior_status"] = _review_status(item["status"])
             item["status"] = item.pop("review_status")
             item["surface_id"] = item.pop("id")
             item["sources"], item["source_count"] = sources_by_id[item["surface_id"]]

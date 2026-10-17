@@ -136,7 +136,7 @@ def register_commands(subparsers: argparse._SubParsersAction, *, legacy: bool = 
     discover = subparsers.add_parser(prefix + "discover", help="Register mapped live surfaces and relevant class questions")
     common(discover)
     discover.add_argument("--input-jsonl", help="Inventory rows with class_names; no review status is inferred")
-    discover.add_argument("--xss-canary-sources", help="Import planned XSS canary mapper sources.jsonl as untested inputs; pair with --source-ref")
+    discover.add_argument("--xss-canary-sources", help="Import planned XSS canary mapper sources.jsonl as no_assessment inputs; pair with --source-ref")
     for name in ("kind", "host", "surface-key", "input-key", "consumer", "class-name", "source-ref", "run-id", "fingerprint"):
         discover.add_argument("--" + name)
     discover.set_defaults(func=cmd_surface_discover)
@@ -145,14 +145,15 @@ def register_commands(subparsers: argparse._SubParsersAction, *, legacy: bool = 
     common(assess)
     assess.add_argument("--surface-id", required=True)
     assess.add_argument("--class-name", required=True)
-    assess.add_argument("--status", required=True, choices=("in_progress", "blocked", "exhausted"))
+    assess.add_argument("--status", required=True, choices=("in_progress", "blocked", "bounded_review", "exhausted"),
+                        help="Review status; exhausted is a deprecated input alias for bounded_review")
     assess.add_argument("--expected-fingerprint", required=True,
                         help="Fingerprint shown by brief (legacy surface-brief) for the version actually reviewed; use '' only for unversioned inventory")
     assess.add_argument("--evidence-ref", action="append", default=[], help="Opaque Attempt or MapStore reference; repeatable")
     assess.add_argument("--reason", required=True)
     assess.add_argument("--pressure", default="", help="Optional class-specific state, e.g. XSS warm")
-    assess.add_argument("--boundary", default="", help="Exact scoped conclusion, required for exhausted")
-    assess.add_argument("--axis", action="append", default=[], help="Tested dimension, required for exhausted; repeatable")
+    assess.add_argument("--boundary", default="", help="Exact scoped conclusion, required for bounded_review")
+    assess.add_argument("--axis", action="append", default=[], help="Tested dimension, required for bounded_review; repeatable")
     assess.add_argument("--reopen-when", default="", help="Required for blocked")
     assess.add_argument("--agent", default=DEFAULT_AGENT)
     assess.add_argument("--run-id", help="Assessment run identity; defaults to UTC timestamp")

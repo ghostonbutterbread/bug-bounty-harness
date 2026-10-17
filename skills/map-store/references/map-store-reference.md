@@ -17,10 +17,12 @@ Leads only when appropriate.
 ```bash
 bbh agents/map_store.py write \
   --program canva --url "https://app.example/api/attachments" --surface api \
-  --body-file /tmp/request-observation.md
+  --title "request observation" --body-file /tmp/request-observation.md
 
 # The observation write prints an absolute path. Use its path relative to the
-# resolved MapStore maps root as evidence for the behavior.
+# resolved MapStore maps root as evidence for the behavior. The path below is
+# valid only if the preceding write printed that path; otherwise use the
+# actual printed path, not a slug guessed from the title or URL.
 bbh agents/map_store.py behavior write \
   --program canva --family web_bounty --lane web \
   --name "Attachment processing" \

@@ -250,7 +250,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 /chromium-test canva upload-flow --account qa-primary --url https://www.canva.com/
 /chromium-handoff 9224
 /pfp canva profile-picture
-/bountylens sessions --status active
+bbh skills/bountylens/scripts/bountylens_api.py GET /programs --query q=shopify
 /ledger notion --hunt-type source
 /ledger canva --hunt-type source --lane exe
 /access-control canva project-sharing

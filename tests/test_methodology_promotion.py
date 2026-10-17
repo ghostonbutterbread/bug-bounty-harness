@@ -15,7 +15,10 @@ class MethodologyPromotionTest(unittest.TestCase):
     def test_public_program_shortlist_has_canonical_entry_and_no_auth_claim(self):
         finder = body("skills/program-finder/SKILL.md")
         self.assertTrue(finder.startswith("---\nname: program-finder\n"))
-        self.assertIn("| **program-finder** |", body("SKILL_REGISTRY.md"))
+        registry = body("SKILL_REGISTRY.md")
+        self.assertIn("| **program-finder** |", registry)
+        self.assertIn("bbh skills/bountylens/scripts/bountylens_api.py GET /programs --query q=shopify", registry)
+        self.assertNotIn("/bountylens sessions --status active", registry)
         self.assertIn("load `/program-finder`", body("agents/index.md"))
         for phrase in ("not reconnaissance", "not testing permission", "JavaScript Lens — not applicable", "unknown"):
             self.assertIn(phrase, finder)
@@ -30,6 +33,7 @@ class MethodologyPromotionTest(unittest.TestCase):
             self.assertIn("Behavior", text)
             self.assertIn("unknown", text)
         self.assertIn("prints an absolute path", map_ref)
+        self.assertIn('--title "request observation" --body-file', map_ref)
         self.assertIn("complete existing-plus-new", map_ref)
         self.assertIn("named, factual\n   Application Behaviors", body("agents/index.md"))
         self.assertFalse((SKILLS / "application-surface-mapping").exists())

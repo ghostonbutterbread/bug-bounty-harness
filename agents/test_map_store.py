@@ -441,6 +441,35 @@ class TestMapStore:
         assert observation.returncode == 0, observation.stderr
         assert store.query(url="https://app.com/stocknotification")[0]["behaviors"] == ["xml-notification-parser"]
 
+    def test_cli_documented_observation_path_can_create_behavior(self, store: MapStore, tmp_path: Path):
+        observation_body = tmp_path / "request-observation.md"
+        observation_body.write_text("Observed attachment input.\n", encoding="utf-8")
+        behavior_body = tmp_path / "attachment-behavior.md"
+        behavior_body.write_text("Attachment input observed; downstream unknown.\n", encoding="utf-8")
+        root = str(store._layout.base_root)
+        cwd = Path(__file__).resolve().parents[1]
+        observed = subprocess.run(
+            [sys.executable, "agents/map_store.py", "write", "--program", "testprog", "--root", root,
+             "--url", "https://app.example/api/attachments", "--surface", "api",
+             "--title", "request observation", "--body-file", str(observation_body)],
+            cwd=cwd, text=True, capture_output=True,
+        )
+        assert observed.returncode == 0, observed.stderr
+        printed = Path(observed.stdout.strip())
+        assert printed.is_absolute() and printed.is_file()
+        relative = printed.relative_to(store.maps_root).as_posix()
+        assert relative == "api/app.example_s_api_s_attachments/request-observation/index.md"
+        created = subprocess.run(
+            [sys.executable, "agents/map_store.py", "behavior", "write",
+             "--program", "testprog", "--root", root, "--family", "web_bounty", "--lane", "web",
+             "--name", "Attachment processing", "--kind", "upload", "--kind", "file-transform",
+             "--observation", relative, "--body-file", str(behavior_body),
+             "--tags", "attachment,user-controlled"],
+            cwd=cwd, text=True, capture_output=True,
+        )
+        assert created.returncode == 0, created.stderr
+        assert store.query_behaviors(kind="upload")[0]["observation_paths"] == [relative]
+
     def test_write_app_scope(self, store: MapStore):
         store.init()
         path = store.write(

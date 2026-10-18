@@ -36,4 +36,10 @@ The assertion is a **motivational search stance, never a factual finding** or in
 
 ## Campaign loop
 
+When this campaign also has an **explicit `/goal`**, its coordinator follows
+`/bug-goals`' goal-only Coverage checkpoint before negative goal closure,
+combining worker evidence and mapped-but-unassessed paths. Workers report their
+leased slice; they never declare the goal fulfilled. Bunny without `/goal` keeps
+its existing campaign checkpoint behavior without this extra goal receipt.
+
 Admit one scoped surface with account/browser lease and aggregate rate headroom. Keep a hot chain with its steward while distinct recon maps another currently observed surface where useful. Route credible candidates to independent verification, verified reportable evidence to the reporter, and blockers to their resource owner. Before ending a checkpoint, ensure each active surface has an owner and next discriminator or evidence-backed closure. Never interrupt a strong chain just to satisfy a breadth quota.

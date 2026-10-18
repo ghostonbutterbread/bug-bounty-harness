@@ -37,6 +37,51 @@ bbh scripts/goal_router.py plan --program <program> --objective "<goal>" \
 Use `init` only after choosing the approved run-artifact directory. It writes
 routing state only; durable target truth belongs in MapStore.
 
+## Goal-only Coverage checkpoint
+
+The **goal parent** owns a continuation decision after mapping a current path,
+at a meaningful pivot or worker handoff, and before a negative stop. This is
+not a per-payload ritual or a condition on normal interactive work. In a solo
+goal the same agent is the parent; with Hunter Loop/Bunny workers, the parent
+reconciles their scoped results. Load `/coverage` before using its statuses.
+
+Read the current class/lane Coverage `brief` (page when needed), then inspect
+source-attributed inventory relevant to the decision: scoped services/hosts,
+routes and named inputs, runtime/UI and authorized proxy maps, JS/API paths, or
+native entry points as applicable. Use Recon Bus or the owning mapper for a
+named corpus; no file such as `params.txt` or `urls.txt` is mandatory. An empty
+or thin Coverage ledger means mapping may be missing, not that the class is
+clean. Register only relevant observed questions with `/coverage` `discover`;
+do not bulk-promote URLs into class assessments or copy probes into Coverage.
+
+Choose **deepen** the current chain, **explore** a different observed path,
+**map** another feature/service, **unblock** a concrete prerequisite, or a
+**bounded-stop** with residual unknowns and a wake condition. A blocked
+consumer, stale review, or unassessed sibling remains open until evidence
+resolves it. Specialist skills decide the next discriminator, including defense
+or multi-step research; Coverage does not prescribe a payload or stop quota.
+Preserve strong warm/hot work rather than interrupting it to satisfy breadth.
+
+Record the parent decision in the explicit run artifact, after `init`:
+
+```bash
+bbh scripts/goal_router.py checkpoint --run-dir <approved-run-dir> \
+  --family <family> --lane <lane> --class <class-if-broad-goal> \
+  --decision <deepen|explore|map|unblock|bounded-stop> \
+  --reason '<evidence-grounded short reason>' --next-step '<next action or wake condition>' \
+  [--inventory-ref <sanitized-source-ref>] [--remaining '<specific unknown>']
+```
+
+It reads up to ten mapped questions with counts and `next_offset`, records a
+run-local `goal-checkpoints.jsonl` receipt and `goal-state.json` last decision,
+and never assesses Coverage or contacts the target. Follow `next_offset` with
+Coverage `brief` before claiming the mapped frontier was reconciled. Name the
+source inventory checked; a source pointer is not proof that every row was
+reviewed. `bounded-stop` is a **paused, evidence-bounded run**, never success
+for a “find vulnerability” objective. Only independently verified fulfillment
+of the stated objective merits goal completion. This BBH helper does not
+intercept the external goal runner's completion operation.
+
 ## Goal modes
 
 ### Broad program

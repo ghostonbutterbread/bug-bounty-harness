@@ -26,6 +26,34 @@ bbh scripts/goal_router.py init \
 `init` creates `goal-state.json`. It contains routing/hypothesis continuity only;
 it is not another source of durable target truth.
 
+## Goal-parent continuation checkpoint
+
+After a current path is mapped, at a meaningful pivot, and before a negative
+stop, the goal parent checks the relevant `/coverage` `brief` and the applicable
+scoped inventory sources. It chooses deepen, explore, map, unblock, or an
+evidence-bounded pause; workers provide scoped evidence but do not close the
+goal. This applies to solo and coordinated explicit goals, not normal chat or
+Bunny without a goal. Use `brief --offset` to page beyond the ten questions in
+the checkpoint receipt; the receipt never claims the entire corpus is covered.
+
+```bash
+bbh scripts/goal_router.py checkpoint \
+  --run-dir /path/to/approved/run-artifact \
+  --family web_bounty --lane web --class xss \
+  --decision map --reason 'Known consumer remains unrendered' \
+  --next-step 'Map owned context list consumer' \
+  --inventory-ref recon/maps/app/contexts.jsonl
+```
+
+This reads existing Coverage without creating it, updates `goal-state.json`'s
+last decision, and appends one run-local `goal-checkpoints.jsonl` receipt. If
+Coverage is missing, investigate whether discovery was never registered and
+consult source-attributed service/route/input/JS/UI or native entry-point maps;
+do not assume an empty database means no surface. A `bounded-stop` requires
+specific residual unknowns or checked inventory references and a wake condition;
+it yields `paused_bounded`, **not** fulfillment of a “find vulnerability” goal.
+No `goal_complete` operation is implemented by this BBH helper.
+
 ## Modes
 
 | Mode | Trigger | Parent behavior |

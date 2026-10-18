@@ -66,9 +66,10 @@ Record the parent decision in the explicit run artifact, after `init`:
 
 ```bash
 bbh scripts/goal_router.py checkpoint --run-dir <approved-run-dir> \
-  --family <family> --lane <lane> --class <class-if-broad-goal> \
+  --family <family> --lane <lane> \
   --decision <deepen|explore|map|unblock|bounded-stop> \
   --reason '<evidence-grounded short reason>' --next-step '<next action or wake condition>' \
+  [--class <class-for-broad-goal-continuation>] \
   [--inventory-ref <sanitized-source-ref>] [--remaining '<specific unknown>']
 ```
 
@@ -78,7 +79,7 @@ decision, and never assesses Coverage or contacts the target. `missing` means
 no ledger; `empty` means no registered class questions; `no_matching_questions`
 means the ledger has other questions but none for this class/host filter.
 Negative `bounded-stop` cannot filter away another host, or a class in a broad
-goal. Follow `next_offset` with
+goal; omit `--class` for a broad-goal bounded stop. Follow `next_offset` with
 Coverage `brief` before claiming the mapped frontier was reconciled. Name the
 source inventory checked; a source pointer is not proof that every row was
 reviewed. `bounded-stop` is a **paused, evidence-bounded run**, never success

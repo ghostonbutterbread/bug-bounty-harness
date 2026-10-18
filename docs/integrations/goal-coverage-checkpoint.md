@@ -1,6 +1,6 @@
 # Goal-only Coverage checkpoint integration dossier
 
-- **Status:** second review class-identity blocker repaired; fresh independent review pending
+- **Status:** independently approved as advisory feature; beta compatibility pending
 - **Owner:** Hermes Agent
 - **Branch / owning ref:** `feat/goal-coverage-checkpoint-t4c8370c7`
 - **Base commit:** `646adb4c9fb15db4a5b978dd11dbb96b32dbc8d8` (`origin/beta` at branch creation)
@@ -28,6 +28,7 @@ Limit the Coverage continuation habit to explicit long-standing goal runs, solo 
 - Local paired parent-agent simulation: four fresh read-only agents, two matched prompts (solo missing Coverage and coordinator mapped Coverage). Control/feature evidence was SHA-256-identical per pair. All four rejected XSS goal completion and chose the unrendered context-list consumer; feature more explicitly called the missing ledger a mapping gap. No demonstrated decision-quality uplift; natural installed skill/CLI discovery was not tested.
 - Independent first review blocked `af8e867` on filtered negative stops, misleading `empty` for filtered views, and dual-write receipt failure. Focused regressions now reject a negative stop with any host filter or class filter for a broad goal; distinguish absent/empty/no matching ledger; use one atomic state history and clean temporary files on failure. Fresh independent review required on the repair tip.
 - Independent second review of `8bae10f` verified those fixes but blocked on a broad-goal receipt conflating two vulnerability-class questions with one surface ID. A failing same-surface XSS+IDOR test preceded adding `class_name` to each bounded item. Fresh independent review required.
+- Fresh third review approved the corrected `8aac657` tip as an advisory beta candidate, reran 55 tests +12 subtests and `git diff --check`; no material issue. Clarified its one nonblocking broad-goal `--class` example. Approval does not extend to external Pi enforcement, runtime activation, or proof of hunting uplift.
 - Current beta compatibility / merge evidence: pending fresh fetch and preflight.
 
 ## Blockers and deferred work
@@ -41,7 +42,7 @@ Limit the Coverage continuation habit to explicit long-standing goal runs, solo 
 - **Owning feature branch/ref:** `feat/goal-coverage-checkpoint-t4c8370c7`
 - **Latest immutable recovery checkpoint:** `42e5a4c3b136240ff579c02f5c2b0f73cc4a0891` (class-identity implementation; check later handoff-only tip separately)
 - **Feature implementation commit(s):** `af8e8670992de298de66cff50765d69df7d7d48b`, `8256a1e4f2ef43c3b5d2d2a31cdc83fcb2dddc08`, `42e5a4c3b136240ff579c02f5c2b0f73cc4a0891`
-- **Exact resume point:** obtain fresh independent review of the class-identity repair, then decide beta integration separately from runtime activation.
+- **Exact resume point:** fetch current beta, verify integration compatibility and focused tests, then decide beta integration separately from runtime activation and Pi completion enforcement.
 - **Working-tree state at handoff:** implementation committed; this dossier update is a later handoff-only commit.
 
 ## Decision gates

@@ -267,7 +267,7 @@ def record_checkpoint(
     if decision == "bounded-stop" and (open_count or not brief["total"]) and not remaining:
         raise ValueError("bounded-stop requires remaining unknowns for open or missing Coverage")
     items = [
-        {key: row[key] for key in ("surface_id", "status", "host", "kind", "surface_key",
+        {key: row[key] for key in ("surface_id", "class_name", "status", "host", "kind", "surface_key",
                                    "input_key", "consumer", "source_ref", "reason", "reopen_when")}
         for row in brief["items"]
     ]

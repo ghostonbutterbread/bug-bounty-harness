@@ -264,3 +264,23 @@ def test_second_checkpoint_preserves_run_local_history(tmp_path: Path) -> None:
     state = json.loads((run / "goal-state.json").read_text())
     assert state["checkpoints"] == [first, second]
     assert state["last_checkpoint"] == second
+
+
+def test_broad_goal_receipt_retains_class_for_same_surface_questions(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    goal.initialize_run(goal.build_plan(program="sample", objective="Find a vulnerability"), run)
+    store = SurfaceCoverageStore("sample", family="web_bounty", lane="web", root_override=tmp_path / "data")
+    surface_id = store.discover(kind="route", host="app.example", surface_key="GET /preview",
+                                input_key="id", consumer="preview", source_ref="recon/app/preview.jsonl",
+                                run_id="map-1", class_name="xss")
+    store.discover(kind="route", host="app.example", surface_key="GET /preview",
+                   input_key="id", consumer="preview", source_ref="recon/app/preview.jsonl",
+                   run_id="map-1", class_name="idor")
+    store.assess(surface_id, class_name="idor", status="blocked", expected_fingerprint="",
+                 reason="second principal unavailable", reopen_when="owned second principal available",
+                 evidence_refs=["attempt:app:A-3"])
+    receipt = goal.record_checkpoint(run, family="web_bounty", lane="web", root=tmp_path / "data",
+                                     decision="map", reason="More consumers remain", next_step="Map inputs")
+    assert {(item["surface_id"], item["class_name"], item["status"])
+            for item in receipt["coverage"]["items"]} == {
+                (surface_id, "idor", "blocked"), (surface_id, "xss", "no_assessment")}

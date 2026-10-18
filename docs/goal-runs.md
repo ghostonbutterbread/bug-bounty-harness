@@ -45,9 +45,12 @@ bbh scripts/goal_router.py checkpoint \
   --inventory-ref recon/maps/app/contexts.jsonl
 ```
 
-This reads existing Coverage without creating it, updates `goal-state.json`'s
-last decision, and appends one run-local `goal-checkpoints.jsonl` receipt. If
-Coverage is missing, investigate whether discovery was never registered and
+This reads existing Coverage without creating it, atomically updates the
+run-local `goal-state.json` checkpoint history and last decision. A negative
+bounded stop cannot filter to one host or to one class of a broad goal. The
+receipt distinguishes missing ledger, empty ledger, and no matching class/host
+questions in a ledger containing other questions. If Coverage is missing,
+investigate whether discovery was never registered and
 consult source-attributed service/route/input/JS/UI or native entry-point maps;
 do not assume an empty database means no surface. A `bounded-stop` requires
 specific residual unknowns or checked inventory references and a wake condition;

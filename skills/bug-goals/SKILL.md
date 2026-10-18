@@ -72,9 +72,13 @@ bbh scripts/goal_router.py checkpoint --run-dir <approved-run-dir> \
   [--inventory-ref <sanitized-source-ref>] [--remaining '<specific unknown>']
 ```
 
-It reads up to ten mapped questions with counts and `next_offset`, records a
-run-local `goal-checkpoints.jsonl` receipt and `goal-state.json` last decision,
-and never assesses Coverage or contacts the target. Follow `next_offset` with
+It reads up to ten mapped questions with counts and `next_offset`, atomically
+records a run-local receipt in `goal-state.json`'s checkpoint history and last
+decision, and never assesses Coverage or contacts the target. `missing` means
+no ledger; `empty` means no registered class questions; `no_matching_questions`
+means the ledger has other questions but none for this class/host filter.
+Negative `bounded-stop` cannot filter away another host, or a class in a broad
+goal. Follow `next_offset` with
 Coverage `brief` before claiming the mapped frontier was reconciled. Name the
 source inventory checked; a source pointer is not proof that every row was
 reviewed. `bounded-stop` is a **paused, evidence-bounded run**, never success

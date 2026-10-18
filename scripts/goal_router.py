@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -223,6 +225,7 @@ def initialize_run(plan: dict[str, Any], run_dir: Path) -> Path:
         "retrieval_reason": None,
         "next_discriminator": None,
         "pressure": "cold",
+        "checkpoints": [],
     }
     path = run_dir / "goal-state.json"
     path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -246,8 +249,10 @@ def record_checkpoint(
     class_name = normalized(vulnerability_class) or goal_class
     if goal_class and class_name != goal_class:
         raise ValueError("checkpoint class must match the focused goal class")
-    if decision == "bounded-stop" and host and not state.get("url"):
-        raise ValueError("class-wide bounded-stop must not hide other hosts behind a host filter")
+    if decision == "bounded-stop" and host:
+        raise ValueError("bounded-stop must not hide other hosts behind a host filter")
+    if decision == "bounded-stop" and not goal_class and class_name:
+        raise ValueError("broad goal bounded-stop must not hide other classes behind a class filter")
     reason = _plain(reason, "reason", required=True)
     next_step = _plain(next_step, "next_step", required=True)
     remaining = [_plain(item, "remaining", required=True) for item in (remaining or [])]
@@ -256,6 +261,7 @@ def record_checkpoint(
         raise ValueError("bounded-stop requires remaining unknowns or a checked inventory reference")
     store = SurfaceCoverageStore(state["program"], family=family, lane=lane, root_override=root)
     brief = store.brief(class_name=class_name, host=host, limit=10)
+    unfiltered = store.brief(limit=1) if class_name or host else brief
     open_count = sum(brief["counts"].get(status, 0) for status in
                      ("no_assessment", "in_progress", "blocked", "stale"))
     if decision == "bounded-stop" and (open_count or not brief["total"]) and not remaining:
@@ -268,20 +274,31 @@ def record_checkpoint(
     receipt = {
         "recorded_at": iso_now(), "program": state["program"], "family": family,
         "lane": lane, "class_name": class_name, "host": host,
-        "inventory_state": "missing" if not store.path.exists() else ("empty" if brief["total"] == 0 else "mapped"),
+        "inventory_state": ("missing" if not store.path.exists() else
+                            "empty" if not unfiltered["total"] and not unfiltered["unclassified_surfaces"] else
+                            "no_matching_questions" if not brief["total"] else "mapped"),
         "coverage": {"counts": brief["counts"], "total": brief["total"],
                      "items": items, "next_offset": brief["next_offset"],
-                     "unclassified_surfaces": brief["unclassified_surfaces"]},
+                     "unclassified_surfaces": brief["unclassified_surfaces"],
+                     "unfiltered_total": unfiltered["total"]},
         "inventory_refs": inventory_refs, "decision": decision, "reason": reason,
         "next_step": next_step, "remaining": remaining,
         "goal_outcome": "paused_bounded" if decision == "bounded-stop" else "in_progress",
         "eligible_goal_complete": False,
     }
-    # A goal checkpoint is run chronology, not a second target-coverage ledger.
-    with (run_dir / "goal-checkpoints.jsonl").open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(receipt, sort_keys=True) + "\n")
+    # One atomic run-state file owns the checkpoint history; Coverage owns target truth.
     state["last_checkpoint"] = receipt
-    state_path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    state.setdefault("checkpoints", []).append(receipt)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=run_dir,
+                                         prefix=".goal-state-", delete=False) as handle:
+            temp_path = Path(handle.name)
+            handle.write(json.dumps(state, indent=2, sort_keys=True) + "\n")
+        os.replace(temp_path, state_path)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
     return receipt
 
 

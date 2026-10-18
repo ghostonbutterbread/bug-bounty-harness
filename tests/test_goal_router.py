@@ -155,7 +155,7 @@ def test_checkpoint_replays_blocked_and_unassessed_paths_as_bounded_pause(tmp_pa
     assert {item["source_ref"] for item in receipt["coverage"]["items"]} == {
         "recon/docs/ask.jsonl", "recon/app/contexts.jsonl"}
     assert store.path.read_bytes() == before
-    assert json.loads((run / "goal-checkpoints.jsonl").read_text().splitlines()[0]) == receipt
+    assert json.loads((run / "goal-state.json").read_text())["checkpoints"] == [receipt]
 
 
 def test_checkpoint_rejects_unspecific_bounded_stop_and_mismatched_class(tmp_path: Path) -> None:
@@ -168,7 +168,7 @@ def test_checkpoint_rejects_unspecific_bounded_stop_and_mismatched_class(tmp_pat
         goal.record_checkpoint(run, family="web_bounty", lane="web", root=tmp_path,
                                vulnerability_class="idor", decision="map", reason="New pass",
                                next_step="Find surface")
-    assert not (run / "goal-checkpoints.jsonl").exists()
+    assert "last_checkpoint" not in json.loads((run / "goal-state.json").read_text())
 
 
 def test_bounded_stop_cannot_hide_open_questions_behind_inventory_pointer_or_host(tmp_path: Path) -> None:
@@ -185,4 +185,82 @@ def test_bounded_stop_cannot_hide_open_questions_behind_inventory_pointer_or_hos
         goal.record_checkpoint(run, family="web_bounty", lane="web", root=tmp_path / "data",
                                host="app.example", decision="bounded-stop", reason="No action",
                                next_step="Resume later", remaining=["docs not reviewed"])
+    assert "last_checkpoint" not in json.loads((run / "goal-state.json").read_text())
+
+
+def test_focused_url_negative_stop_does_not_accept_unrelated_host_filter(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    goal.initialize_run(goal.build_plan(program="sample", objective="Find XSS",
+                                        url="https://app.example/comments", vulnerability_class="xss"), run)
+    store = SurfaceCoverageStore("sample", family="web_bounty", lane="web", root_override=tmp_path / "data")
+    store.discover(kind="route", host="app.example", surface_key="GET /comments",
+                   source_ref="recon/app/comments.jsonl", run_id="map-1", class_name="xss")
+    with pytest.raises(ValueError, match="host"):
+        goal.record_checkpoint(run, family="web_bounty", lane="web", root=tmp_path / "data",
+                               host="unrelated.example", decision="bounded-stop", reason="No safe action",
+                               next_step="Resume later", remaining=["Mapping gap"])
+    assert "last_checkpoint" not in json.loads((run / "goal-state.json").read_text())
+
+
+def test_broad_goal_negative_stop_cannot_filter_to_one_class(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    goal.initialize_run(goal.build_plan(program="sample", objective="Find a vulnerability"), run)
+    with pytest.raises(ValueError, match="class"):
+        goal.record_checkpoint(run, family="web_bounty", lane="web", root=tmp_path,
+                               vulnerability_class="xss", decision="bounded-stop",
+                               reason="No safe action", next_step="Resume later", remaining=["Other classes"])
+
+
+def test_checkpoint_distinguishes_empty_ledger_from_no_matching_class(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    goal.initialize_run(goal.build_plan(program="sample", objective="Find XSS", vulnerability_class="xss"), run)
+    store = SurfaceCoverageStore("sample", family="web_bounty", lane="web", root_override=tmp_path / "data")
+    store.discover(kind="route", host="app.example", surface_key="GET /object",
+                   source_ref="recon/app/object.jsonl", run_id="map-1", class_name="idor")
+    receipt = goal.record_checkpoint(run, family="web_bounty", lane="web", root=tmp_path / "data",
+                                     decision="map", reason="No XSS question", next_step="Map render consumers")
+    assert receipt["inventory_state"] == "no_matching_questions"
+    assert receipt["coverage"]["total"] == 0
+    assert receipt["coverage"]["unfiltered_total"] == 1
+
+
+def test_checkpoint_atomic_failure_keeps_prior_state_and_no_second_journal(tmp_path: Path, monkeypatch) -> None:
+    run = tmp_path / "run"
+    goal.initialize_run(goal.build_plan(program="sample", objective="Find XSS", vulnerability_class="xss"), run)
+    original = (run / "goal-state.json").read_bytes()
+
+    def fail_replace(*args):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(goal.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="simulated replace failure"):
+        goal.record_checkpoint(run, family="web_bounty", lane="web", root=tmp_path,
+                               decision="map", reason="Missing inventory", next_step="Map consumers")
+    assert (run / "goal-state.json").read_bytes() == original
     assert not (run / "goal-checkpoints.jsonl").exists()
+    assert not list(run.glob(".goal-state-*"))
+
+
+def test_checkpoint_serialization_failure_cleans_temp_and_keeps_prior_state(tmp_path: Path, monkeypatch) -> None:
+    run = tmp_path / "run"
+    goal.initialize_run(goal.build_plan(program="sample", objective="Find XSS", vulnerability_class="xss"), run)
+    original = (run / "goal-state.json").read_bytes()
+    with monkeypatch.context() as context:
+        context.setattr(goal.json, "dumps", lambda *a, **k: (_ for _ in ()).throw(OSError("serialization failed")))
+        with pytest.raises(OSError, match="serialization failed"):
+            goal.record_checkpoint(run, family="web_bounty", lane="web", root=tmp_path,
+                                   decision="map", reason="Missing inventory", next_step="Map consumers")
+    assert (run / "goal-state.json").read_bytes() == original
+    assert not list(run.glob(".goal-state-*"))
+
+
+def test_second_checkpoint_preserves_run_local_history(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    goal.initialize_run(goal.build_plan(program="sample", objective="Find XSS", vulnerability_class="xss"), run)
+    first = goal.record_checkpoint(run, family="web_bounty", lane="web", root=tmp_path,
+                                   decision="map", reason="Inventory missing", next_step="Map contexts")
+    second = goal.record_checkpoint(run, family="web_bounty", lane="web", root=tmp_path,
+                                    decision="unblock", reason="Challenge blocks reply", next_step="Resolve owned challenge")
+    state = json.loads((run / "goal-state.json").read_text())
+    assert state["checkpoints"] == [first, second]
+    assert state["last_checkpoint"] == second

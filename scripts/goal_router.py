@@ -15,11 +15,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from agents.surface_coverage import SurfaceCoverageStore, _plain
 
 
 MODES = {
@@ -58,7 +66,7 @@ CLASS_SKILLS = {
     "sqli": "sqli",
     "xss": "xss",
 }
-BASE_SKILLS = ["bug-goals", "general-security-testing-policy", "live-testing-policy"]
+BASE_SKILLS = ["bug-goals", "general-security-testing-policy", "live-testing-policy", "coverage"]
 RETRIEVAL_CAPABILITIES = [
     "map-store-target-facts",
     "research-map",
@@ -145,6 +153,12 @@ def build_plan(*, program: str, objective: str, url: str | None = None, vulnerab
         "historical_material": "primary" if mode == "revalidation" else "targeted-after-fresh-observation",
         "opening_contract": opening_contract(mode),
         "completion_contract": completion_contract(mode),
+        "checkpoint_contract": (
+            "At a goal pivot and before a negative stop, read the class/lane Coverage brief "
+            "and source-attributed surface inventory; choose deepen, explore, map, unblock, "
+            "or bounded-stop with named residuals. The parent owns this decision in solo "
+            "and coordinated runs. A bounded stop is not goal completion."
+        ),
         "research_contract": [
             "Use target observation and internal surface synthesis before broad retrieval when sufficient evidence exists.",
             "MapStore is available but must not be queried until a concrete current surface and decision question exist.",
@@ -211,10 +225,81 @@ def initialize_run(plan: dict[str, Any], run_dir: Path) -> Path:
         "retrieval_reason": None,
         "next_discriminator": None,
         "pressure": "cold",
+        "checkpoints": [],
     }
     path = run_dir / "goal-state.json"
     path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
+
+
+def record_checkpoint(
+    run_dir: Path, *, family: str, lane: str, decision: str, reason: str,
+    next_step: str, root: Path | None = None, vulnerability_class: str | None = None,
+    host: str | None = None, remaining: list[str] | None = None,
+    inventory_refs: list[str] | None = None,
+) -> dict[str, Any]:
+    """Record a goal-parent decision from existing coverage, never a verdict about a target."""
+    state_path = run_dir / "goal-state.json"
+    if not state_path.is_file():
+        raise ValueError("initialize an explicit goal run before checkpointing")
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if decision not in {"deepen", "explore", "map", "unblock", "bounded-stop"}:
+        raise ValueError("decision must be deepen, explore, map, unblock, or bounded-stop")
+    goal_class = state.get("vulnerability_class")
+    class_name = normalized(vulnerability_class) or goal_class
+    if goal_class and class_name != goal_class:
+        raise ValueError("checkpoint class must match the focused goal class")
+    if decision == "bounded-stop" and host:
+        raise ValueError("bounded-stop must not hide other hosts behind a host filter")
+    if decision == "bounded-stop" and not goal_class and class_name:
+        raise ValueError("broad goal bounded-stop must not hide other classes behind a class filter")
+    reason = _plain(reason, "reason", required=True)
+    next_step = _plain(next_step, "next_step", required=True)
+    remaining = [_plain(item, "remaining", required=True) for item in (remaining or [])]
+    inventory_refs = [_plain(item, "inventory_ref", required=True) for item in (inventory_refs or [])]
+    if decision == "bounded-stop" and not (remaining or inventory_refs):
+        raise ValueError("bounded-stop requires remaining unknowns or a checked inventory reference")
+    store = SurfaceCoverageStore(state["program"], family=family, lane=lane, root_override=root)
+    brief = store.brief(class_name=class_name, host=host, limit=10)
+    unfiltered = store.brief(limit=1) if class_name or host else brief
+    open_count = sum(brief["counts"].get(status, 0) for status in
+                     ("no_assessment", "in_progress", "blocked", "stale"))
+    if decision == "bounded-stop" and (open_count or not brief["total"]) and not remaining:
+        raise ValueError("bounded-stop requires remaining unknowns for open or missing Coverage")
+    items = [
+        {key: row[key] for key in ("surface_id", "class_name", "status", "host", "kind", "surface_key",
+                                   "input_key", "consumer", "source_ref", "reason", "reopen_when")}
+        for row in brief["items"]
+    ]
+    receipt = {
+        "recorded_at": iso_now(), "program": state["program"], "family": family,
+        "lane": lane, "class_name": class_name, "host": host,
+        "inventory_state": ("missing" if not store.path.exists() else
+                            "empty" if not unfiltered["total"] and not unfiltered["unclassified_surfaces"] else
+                            "no_matching_questions" if not brief["total"] else "mapped"),
+        "coverage": {"counts": brief["counts"], "total": brief["total"],
+                     "items": items, "next_offset": brief["next_offset"],
+                     "unclassified_surfaces": brief["unclassified_surfaces"],
+                     "unfiltered_total": unfiltered["total"]},
+        "inventory_refs": inventory_refs, "decision": decision, "reason": reason,
+        "next_step": next_step, "remaining": remaining,
+        "goal_outcome": "paused_bounded" if decision == "bounded-stop" else "in_progress",
+        "eligible_goal_complete": False,
+    }
+    # One atomic run-state file owns the checkpoint history; Coverage owns target truth.
+    state["last_checkpoint"] = receipt
+    state.setdefault("checkpoints", []).append(receipt)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=run_dir,
+                                         prefix=".goal-state-", delete=False) as handle:
+            temp_path = Path(handle.name)
+            handle.write(json.dumps(state, indent=2, sort_keys=True) + "\n")
+        os.replace(temp_path, state_path)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+    return receipt
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -228,11 +313,32 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         command.add_argument("--class", dest="vulnerability_class")
         if name == "init":
             command.add_argument("--run-dir", type=Path, required=True)
+    checkpoint = subcommands.add_parser("checkpoint", help="Record a goal-parent Coverage continuation decision")
+    checkpoint.add_argument("--run-dir", type=Path, required=True)
+    checkpoint.add_argument("--family", required=True)
+    checkpoint.add_argument("--lane", required=True)
+    checkpoint.add_argument("--root", type=Path, help="Explicit local storage root, for isolated fixtures")
+    checkpoint.add_argument("--class", dest="vulnerability_class")
+    checkpoint.add_argument("--host")
+    checkpoint.add_argument("--decision", required=True,
+                            choices=("deepen", "explore", "map", "unblock", "bounded-stop"))
+    checkpoint.add_argument("--reason", required=True)
+    checkpoint.add_argument("--next-step", required=True)
+    checkpoint.add_argument("--remaining", action="append", default=[])
+    checkpoint.add_argument("--inventory-ref", action="append", default=[])
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
+    if args.command == "checkpoint":
+        print(json.dumps(record_checkpoint(
+            args.run_dir.expanduser().resolve(), family=args.family, lane=args.lane,
+            root=args.root, vulnerability_class=args.vulnerability_class, host=args.host,
+            decision=args.decision, reason=args.reason, next_step=args.next_step,
+            remaining=args.remaining, inventory_refs=args.inventory_ref,
+        ), indent=2, sort_keys=True))
+        return 0
     plan = build_plan(
         program=args.program,
         objective=args.objective,

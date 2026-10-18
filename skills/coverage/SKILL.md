@@ -27,6 +27,13 @@ facts are the live denominator. Never edit either coverage store by hand. An
 empty live brief can mean mapping/import is incomplete, not that the app was
 exhaustively reviewed.
 
+For **explicit goal runs only**, `/bug-goals` owns the parent continuation
+checkpoint. Give it the current class/lane `brief` plus source-attributed
+inventory pointers where available. This store describes mapped questions and
+scoped assessments; it cannot establish that all services, parameters,
+consumers, native entry points, or archived URLs were mapped. A missing/empty
+ledger calls for mapping reconciliation, not a negative goal decision.
+
 ## Live surface workflow
 
 Use the installed `bbh` launcher with the resolved program/family/lane.

@@ -14,6 +14,13 @@ Hunter Loop is the parent orchestration skill. It does not replace `/xss`,
 `/live-map` or `/hunter-memory`; it decides when to invoke them
 and what scoped packet they should receive.
 
+When and only when an **explicit `/goal`** uses Hunter Loop, load `/bug-goals`
+and use its goal-only Coverage checkpoint at pivots and before negative closure.
+The parent reconciles scoped worker results and chooses the next action; a solo
+parent performs the same check directly. A worker's `coverage_exhausted` closes
+only its supported chain, not the goal or vulnerability class. Do not impose
+this checkpoint on ordinary interactive hunts.
+
 For a long-running multi-agent hunt, Hunter Loop may use Hermes Kanban as the
 local orchestrator's durable work queue. External CLI agents keep their own
 native session/run logs and publish only durable hunt outcomes into the

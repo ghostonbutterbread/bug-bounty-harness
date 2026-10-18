@@ -6,8 +6,8 @@
 - **Base commit:** `646adb4c9fb15db4a5b978dd11dbb96b32dbc8d8` (`origin/beta` at branch creation)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-18
-- **Latest immutable recovery checkpoint:** `af8e8670992de298de66cff50765d69df7d7d48b` (implementation; check any later handoff-only tip separately)
-- **Feature implementation commit(s):** `af8e8670992de298de66cff50765d69df7d7d48b`
+- **Latest immutable recovery checkpoint:** `8256a1e4f2ef43c3b5d2d2a31cdc83fcb2dddc08` (repair implementation; check later handoff-only tip separately)
+- **Feature implementation commit(s):** `af8e8670992de298de66cff50765d69df7d7d48b`, `8256a1e4f2ef43c3b5d2d2a31cdc83fcb2dddc08`
 - **Inspiration / canonical references:** `skills/bug-goals`, `scripts/goal_router.py`, `skills/coverage`, `agents/surface_coverage.py`; LaunchDarkly hunt audit and controlled read-only Coverage-card comparison.
 
 ## Intent
@@ -38,9 +38,9 @@ Limit the Coverage continuation habit to explicit long-standing goal runs, solo 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/goal-coverage-checkpoint-t4c8370c7`
-- **Latest immutable recovery checkpoint:** `af8e8670992de298de66cff50765d69df7d7d48b` (implementation; check any later handoff-only tip separately)
-- **Feature implementation commit(s):** `af8e8670992de298de66cff50765d69df7d7d48b`
-- **Exact resume point:** commit repaired implementation, obtain fresh independent review of that tip, then decide beta integration separately from runtime activation.
+- **Latest immutable recovery checkpoint:** `8256a1e4f2ef43c3b5d2d2a31cdc83fcb2dddc08` (repair implementation; check later handoff-only tip separately)
+- **Feature implementation commit(s):** `af8e8670992de298de66cff50765d69df7d7d48b`, `8256a1e4f2ef43c3b5d2d2a31cdc83fcb2dddc08`
+- **Exact resume point:** obtain fresh independent review of the repair tip, then decide beta integration separately from runtime activation.
 - **Working-tree state at handoff:** implementation committed; this dossier update is a later handoff-only commit.
 
 ## Decision gates

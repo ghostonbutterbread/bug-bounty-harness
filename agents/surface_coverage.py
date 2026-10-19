@@ -217,23 +217,30 @@ class SurfaceCoverageStore:
                        (status, pressure, reason, boundary, json.dumps(axes), json.dumps(refs), reopen_when,
                         row["fingerprint"] or "@mapper-run:" + row["run_id"],
                         agent, run_id, _now(), surface_id, class_name))
-            db.execute("""INSERT INTO assessment_history(surface_id,class_name,status,pressure,reason,boundary,
+            event = db.execute("""INSERT INTO assessment_history(surface_id,class_name,status,pressure,reason,boundary,
                           axes_json,evidence_json,reopen_when,fingerprint,agent,run_id,recorded_at)
                           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                        (surface_id, class_name, status, pressure, reason, boundary, json.dumps(axes),
                         json.dumps(refs), reopen_when, row["fingerprint"], agent, run_id, _now()))
-        return {"surface_id": surface_id, "class_name": class_name, "status": status}
+            event_id = event.lastrowid
+        return {"surface_id": surface_id, "class_name": class_name, "status": status,
+                "event_id": event_id}
 
-    def history(self, surface_id: str, *, class_name: str, limit: int = 50) -> list[dict[str, Any]]:
+    def history(self, surface_id: str, *, class_name: str, limit: int = 50,
+                event_id: int | None = None) -> list[dict[str, Any]]:
         if not 1 <= limit <= 200:
             raise ValueError("limit must be between 1 and 200")
+        if event_id is not None and event_id < 1:
+            raise ValueError("event_id must be positive")
         if not self.path.exists():
             return []
         with self._read_connection() as db:
-            rows = db.execute("""SELECT * FROM assessment_history WHERE surface_id=? AND class_name=?
-                              ORDER BY event_id DESC LIMIT ?""",
+            where = " AND event_id=?" if event_id is not None else ""
+            rows = db.execute("""SELECT * FROM assessment_history WHERE surface_id=? AND class_name=?"""
+                              + where + " ORDER BY event_id DESC LIMIT ?",
                               (_plain(surface_id, "surface_id", required=True),
-                               _plain(class_name, "class_name", required=True).lower(), limit)).fetchall()
+                               _plain(class_name, "class_name", required=True).lower(),
+                               *([event_id] if event_id is not None else []), limit)).fetchall()
         return [{**dict(row), "status": _review_status(row["status"]), "axes": json.loads(row["axes_json"]),
                  "evidence_refs": json.loads(row["evidence_json"])} for row in reversed(rows)]
 

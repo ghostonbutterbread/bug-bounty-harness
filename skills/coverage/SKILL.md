@@ -132,8 +132,12 @@ not a reason to load the findings `/ledger` skill.
    decision and pointers. Legacy bare `A-...` refs remain readable but lack a
    run path for reliable verification. After the write, run
    `bbh agents/coverage.py verify --program {program} --family <family>
-   --lane <lane> --surface-id S-... --class-name <class>` to audit the **current**
-   assessment pointers. `resolved` means the ID/path exists in that lane;
+   --lane <lane> --surface-id S-... --class-name <class> --event-id <returned-event-id>`
+   to audit the **exact assessment event** returned by `assess`, even if another
+   worker has since updated the same surface/class. Without `--event-id`, `verify`
+   audits the current/latest assessment as before. `history --event-id <id>`
+   reads that single event; save the returned `event_id` in handoff receipts.
+   `resolved` means the ID/path exists in that lane;
    `missing` means a fully specified pointer was not found; `unverified` means
    a legacy/unsupported ref or incomplete evidence stream. This read-only
    audit does not copy evidence bodies or block historic assessments. Fix any

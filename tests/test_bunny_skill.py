@@ -131,6 +131,17 @@ class BunnySkillTests(unittest.TestCase):
         self.assertIn("requested checkpoints, not only at final completion", hunter)
         self.assertIn("motivational search stance, not evidence", hunter)
 
+    def test_workers_own_scoped_store_writes_and_parent_reconciles(self):
+        text = COLLABORATIVE.read_text(encoding="utf-8")
+        for phrase in (
+            "resolved program, family, and lane", "exact Attempt stream ID",
+            "Worker-owned writes", "attempt:<attempt-run-id>:<attempt_id>",
+            "read-back", "no Coverage assessment was justified",
+            "do not transcribe", "parent", "open sibling",
+        ):
+            self.assertIn(phrase, text)
+        self.assertIn("worker writes", GOALS.read_text(encoding="utf-8"))
+
     def test_offhand_requires_no_worker_mode(self):
         text = OFFHAND.read_text(encoding="utf-8")
         self.assertIn("name: bunny-offhand\n", text)

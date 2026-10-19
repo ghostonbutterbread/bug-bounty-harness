@@ -36,6 +36,13 @@ bbh scripts/goal_router.py plan --program <program> --objective "<goal>" \
 
 Use `init` only after choosing the approved run-artifact directory. It writes
 routing state only; durable target truth belongs in MapStore.
+For a coordinated run, resolve the worker storage first and bind the goal run
+with `bbh scripts/goal_router.py init --program <program> --objective '<goal>'
+--run-dir <approved-run-dir> --family <family> --lane <lane>` (add `--class` for a
+focused class). The checkpoint refuses another family/lane. Old unbound run
+artifacts remain readable but should not be used for new worker dispatch.
+`init` will not replace an existing run; resume it instead of erasing its
+checkpoint history or rebinding its lane.
 
 ## Goal-only Coverage checkpoint
 
@@ -43,7 +50,10 @@ The **goal parent** owns a continuation decision after mapping a current path,
 at a meaningful pivot or worker handoff, and before a negative stop. This is
 not a per-payload ritual or a condition on normal interactive work. In a solo
 goal the same agent is the parent; with Hunter Loop/Bunny workers, the parent
-reconciles their scoped results. Load `/coverage` before using its statuses.
+reconciles their scoped results. In collaborative Bunny, the worker writes and
+reads back its own evidenced Attempts, MapStore observations and scoped Coverage
+assessment; the parent reads the IDs and reconciles open siblings rather than
+transcribing a second copy. Load `/coverage` before using its statuses.
 
 Read the current class/lane Coverage `brief` (page when needed), then inspect
 source-attributed inventory relevant to the decision: scoped services/hosts,

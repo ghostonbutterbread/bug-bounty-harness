@@ -105,20 +105,22 @@ def cmd_surface_brief(args: argparse.Namespace) -> int:
 
 def cmd_surface_history(args: argparse.Namespace) -> int:
     events = _surface_store(args).history(args.surface_id, class_name=args.class_name,
-                                          limit=args.limit)
+                                          limit=args.limit, event_id=args.event_id)
     print(json.dumps({"surface_id": args.surface_id, "class_name": args.class_name,
                       "events": events}, indent=2))
     return 0
 
 
 def cmd_surface_verify(args: argparse.Namespace) -> int:
-    events = _surface_store(args).history(args.surface_id, class_name=args.class_name, limit=1)
+    events = _surface_store(args).history(args.surface_id, class_name=args.class_name,
+                                          limit=1, event_id=args.event_id)
     if not events:
         raise ValueError("no assessment history for this surface/class")
     references = verify_references(args.program, family=args.family, lane=args.lane,
                                    root_override=args.root_override,
                                    refs=events[-1]["evidence_refs"])
     print(json.dumps({"surface_id": args.surface_id, "class_name": args.class_name,
+                      "event_id": events[-1]["event_id"],
                       "references": references}, indent=2))
     return 0
 
@@ -172,6 +174,7 @@ def register_commands(subparsers: argparse._SubParsersAction, *, legacy: bool = 
     history.add_argument("--surface-id", required=True)
     history.add_argument("--class-name", required=True)
     history.add_argument("--limit", type=int, default=50)
+    history.add_argument("--event-id", type=int, help="Read one exact assessment event")
     history.set_defaults(func=cmd_surface_history)
 
     if not legacy:
@@ -179,6 +182,7 @@ def register_commands(subparsers: argparse._SubParsersAction, *, legacy: bool = 
         common(verify)
         verify.add_argument("--surface-id", required=True)
         verify.add_argument("--class-name", required=True)
+        verify.add_argument("--event-id", type=int, help="Audit one worker assessment event, not only current")
         verify.set_defaults(func=cmd_surface_verify)
 
 

@@ -1,4 +1,4 @@
-"""Default proxy index path must remain separate from artifact-mounted legacy data."""
+"""The default proxy index reuses the local store, never an artifact alias."""
 
 import importlib.util
 import json
@@ -15,117 +15,101 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parents[1] / "skills/chromium-test/scripts"
 
 
-def test_default_store_indexes_outside_legacy_artifact_symlink(tmp_path):
+def run_store(home, *args):
+    return subprocess.run(
+        [sys.executable, str(SCRIPTS / "proxy_store.py"), "--json", *args],
+        env={**os.environ, "HOME": str(home)}, capture_output=True, text=True,
+    )
+
+
+def test_default_store_reuses_existing_local_database_and_reservations(tmp_path):
     home = tmp_path / "home"
     home.mkdir(mode=0o700)
-    artifact = tmp_path / "artifact-mount"
-    artifact.mkdir(mode=0o770)
-    legacy = home / ".local/share/ghost/proxy-store"
-    legacy.parent.mkdir(parents=True)
-    legacy.symlink_to(artifact, target_is_directory=True)
-    env = {**os.environ, "HOME": str(home)}
+    db = home / ".local/share/ghost/proxy-store/proxy_store.sqlite"
+    db.parent.mkdir(parents=True, mode=0o700)
+    os.chmod(db.parent, 0o2770)  # Host's existing real-directory mode.
     spec = importlib.util.spec_from_file_location("proxy_store", SCRIPTS / "proxy_store.py")
     store = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(store)
-    with sqlite3.connect(artifact / "proxy_store.sqlite") as old:
-        old.row_factory = sqlite3.Row
-        store.init_db(old)
-        old.execute("""INSERT INTO proxy_leases
+    with sqlite3.connect(db) as conn:
+        conn.row_factory = sqlite3.Row
+        store.init_db(conn)
+        conn.execute("""INSERT INTO proxy_leases
             (lease_id, lane, proxy_host, proxy_port, proxy_server, status, started_at, updated_at)
             VALUES ('old', 'old', 'hoster', 8081, 'http://hoster:8081', 'active', 1, 1)""")
-        old.execute("""INSERT INTO requests (flow_uid, lane, host, method, path_key, indexed_at)
+        conn.execute("""INSERT INTO requests (flow_uid, lane, host, method, path_key, indexed_at)
             VALUES ('old-flow', 'old', 'example.test', 'GET', '/old', 1)""")
-        old.commit()
-    command = [sys.executable, str(SCRIPTS / "proxy_store.py"), "--json"]
-    blocked = subprocess.run(command + ["lease-acquire", "--port", "8081"],
-                             env=env, capture_output=True, text=True)
-    db = home / ".local/state/ghost/proxy-store/proxy_store.sqlite"
+        conn.commit()
+    os.chmod(db, 0o600)
+    before = db.stat()
+
+    blocked = run_store(home, "lease-acquire", "--port", "8081")
     assert blocked.returncode != 0
-    assert "legacy proxy store" in blocked.stderr.lower()
-    assert not db.exists()
-    assert legacy.is_symlink()
-    explicit = subprocess.run(command[:2] + ["--db", str(legacy / "proxy_store.sqlite"), "init"],
-                              env=env, capture_output=True, text=True)
-    assert explicit.returncode != 0  # The private opener must not follow the symlink.
-    assert not db.exists()
+    assert "group/world writable" in blocked.stderr
+    assert stat.S_IMODE(db.parent.stat().st_mode) == 0o2770
+    assert db.stat().st_ino == before.st_ino
+    assert not (home / ".local/state/ghost/proxy-store").exists()
 
-    # Fixture models an operator-completed frozen backup (not an app copy):
-    # the old path is decommissioned only after its SQLite state is transferred.
-    db.parent.mkdir(parents=True, mode=0o700)
-    with sqlite3.connect(artifact / "proxy_store.sqlite") as old, sqlite3.connect(db) as new:
-        old.backup(new)
-    legacy.unlink()
-    result = subprocess.run(command + ["init"],
-        env=env, capture_output=True, text=True, check=True,
-    )
-    db = home / ".local/state/ghost/proxy-store/proxy_store.sqlite"
+    # Simulate a deliberate operator permission change on the fixture only.
+    os.chmod(db.parent, 0o700)
+    result = run_store(home, "init")
+    assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {"status": "initialized", "db": str(db)}
-    assert db.is_file()
-    assert (artifact / "proxy_store.sqlite").is_file()
-    with sqlite3.connect(artifact / "proxy_store.sqlite") as old:
-        assert old.execute("SELECT proxy_port FROM proxy_leases").fetchone()[0] == 8081
-    assert not legacy.exists()
-    assert stat.S_IMODE(db.parent.stat().st_mode) == 0o700
+    assert db.stat().st_ino == before.st_ino
     assert stat.S_IMODE(db.stat().st_mode) == 0o600
-    with sqlite3.connect(db) as conn:
-        assert conn.execute("SELECT name FROM sqlite_master WHERE name='lanes'").fetchone()
-        assert conn.execute("SELECT proxy_port FROM proxy_leases").fetchone()[0] == 8081
-    fenced = subprocess.run(command + ["lease-acquire", "--port", "8081"],
-                            env=env, capture_output=True, text=True, check=True)
+    fenced = run_store(home, "lease-acquire", "--port", "8081")
+    assert fenced.returncode == 0, fenced.stderr
     assert json.loads(fenced.stdout)["status"] == "no-free-port"
-    visible = subprocess.run(command + ["query"], env=env, capture_output=True,
-                             text=True, check=True)
+    visible = run_store(home, "query")
+    assert visible.returncode == 0, visible.stderr
     assert json.loads(visible.stdout)["rows"][0]["flow_uid"] == "old-flow"
+    assert not (home / ".local/state/ghost/proxy-store").exists()
 
-    # The standalone lane index and task-proxy-finish (which invokes the store
-    # without --db) must select the same new default, without migrating old data.
+    # The standalone lane index and task-proxy-finish's bare store invocation
+    # must select this same default, without a second allocator/database.
     code = (
         "import sys; sys.path.insert(0, sys.argv[1]); import mitm_lane; "
         "sys.argv=['mitm_lane.py','index-store']; print(mitm_lane.parse_args().db)"
     )
     lane = subprocess.run(
         [sys.executable, "-c", code, str(SCRIPTS)],
-        env=env, capture_output=True, text=True, check=True,
+        env={**os.environ, "HOME": str(home)}, capture_output=True, text=True, check=True,
     )
     assert lane.stdout.strip() == str(db)
 
 
-@pytest.mark.parametrize("legacy_kind", ["directory", "dangling-symlink"])
 @pytest.mark.parametrize("action", [["init"], ["query"], ["lease-acquire", "--port", "8081"]])
-def test_legacy_path_blocks_default_even_when_new_database_exists(tmp_path, legacy_kind, action):
+def test_default_store_refuses_artifact_symlink_without_touching_target(tmp_path, action):
     home = tmp_path / "home"
     home.mkdir(mode=0o700)
-    legacy = home / ".local/share/ghost/proxy-store"
-    legacy.parent.mkdir(parents=True)
-    if legacy_kind == "directory":
-        legacy.mkdir()
-    else:
-        legacy.symlink_to(tmp_path / "missing-mount")
-    db = home / ".local/state/ghost/proxy-store/proxy_store.sqlite"
-    db.parent.mkdir(parents=True, mode=0o700)
-    db.touch(mode=0o600)
-    result = subprocess.run(
-        [sys.executable, str(SCRIPTS / "proxy_store.py"), "--db", str(db), "--json", *action],
-        env={**os.environ, "HOME": str(home)}, capture_output=True, text=True,
-    )
+    artifact = tmp_path / "artifact-mount"
+    artifact.mkdir(mode=0o770)
+    os.chmod(artifact, 0o770)
+    mounted_db = artifact / "proxy_store.sqlite"
+    with sqlite3.connect(mounted_db) as conn:
+        conn.execute("CREATE TABLE marker (value TEXT)")
+        conn.execute("INSERT INTO marker VALUES ('artifact-only')")
+    mounted_inode = mounted_db.stat().st_ino
+    alias = home / ".local/share/ghost/proxy-store"
+    alias.parent.mkdir(parents=True)
+    alias.symlink_to(artifact, target_is_directory=True)
+    result = run_store(home, *action)
     assert result.returncode != 0
-    assert "Legacy proxy store" in result.stderr
-    assert db.stat().st_size == 0
+    assert alias.is_symlink()
+    assert mounted_db.stat().st_ino == mounted_inode
+    with sqlite3.connect(mounted_db) as conn:
+        assert conn.execute("SELECT value FROM marker").fetchone()[0] == "artifact-only"
+    assert stat.S_IMODE(artifact.stat().st_mode) == 0o770
+    assert not (home / ".local/state/ghost/proxy-store").exists()
 
 
-def test_default_store_still_refuses_new_symlink(tmp_path):
+def test_default_store_refuses_dangling_symlink(tmp_path):
     home = tmp_path / "home"
     home.mkdir(mode=0o700)
-    target = tmp_path / "artifact-mount"
-    target.mkdir(mode=0o770)
-    os.chmod(target, 0o770)
-    parent = home / ".local/state/ghost/proxy-store"
-    parent.parent.mkdir(parents=True)
-    parent.symlink_to(target, target_is_directory=True)
-    result = subprocess.run(
-        [sys.executable, str(SCRIPTS / "proxy_store.py"), "--json", "init"],
-        env={**os.environ, "HOME": str(home)}, capture_output=True, text=True,
-    )
+    alias = home / ".local/share/ghost/proxy-store"
+    alias.parent.mkdir(parents=True)
+    alias.symlink_to(tmp_path / "missing-artifact", target_is_directory=True)
+    result = run_store(home, "init")
     assert result.returncode != 0
-    assert "proxy_store.sqlite" not in [p.name for p in target.iterdir()]
-    assert stat.S_IMODE(target.stat().st_mode) == 0o770
+    assert alias.is_symlink()
+    assert not (tmp_path / "missing-artifact").exists()

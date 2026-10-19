@@ -563,6 +563,11 @@ multi-instance pane registry.
 - **Purpose:** Build and query a sanitized SQLite index of task MITM lane
   traffic.
 - **Inputs:** Captured lane flows, query filters, and configured store path.
+  The default is `~/.local/state/ghost/proxy-store/proxy_store.sqlite` (local
+  private state, not mounted artifacts). Explicit `--db` remains supported,
+  subject to the private-parent/symlink checks. The old share-path database is
+  not migrated automatically; use an explicit `--db` only after ensuring its
+  entire path is private and contains no symlinks.
 - **Outputs:** Sanitized indexed request metadata and query results.
 - **Mutates:** The selected SQLite store for ingest/update operations; queries
   are read-only.

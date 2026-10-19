@@ -290,7 +290,7 @@ def parse_args() -> argparse.Namespace:
     replay.set_defaults(func=replay_flows)
 
     index = sub.add_parser("index-store", help="Index this lane into the sanitized proxy SQLite store.")
-    index.add_argument("--db", default=str(Path("~/.local/share/ghost/proxy-store/proxy_store.sqlite").expanduser()))
+    index.add_argument("--db", default=str(Path("~/.local/state/ghost/proxy-store/proxy_store.sqlite").expanduser()))
     index.add_argument("--flow-file", help="Override flow file. Defaults to lane state.")
     index.add_argument("--program")
     index.add_argument("--task")

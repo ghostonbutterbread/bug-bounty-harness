@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import sqlite3
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -806,3 +807,50 @@ def test_failed_ca_rollback_marks_reservation_recoverable(monkeypatch, tmp_path)
     monkeypatch.setattr(m, "remove_matching_ca", lambda *_a, **_kw: (_ for _ in ()).throw(RuntimeError("busy")))
     assert not m.rollback_failed_browser_proxy(c, task, True, tmp_path / "profile")
     assert m.proxy_row(c, args)["state"] == "cleanup-failed"
+
+
+@pytest.mark.parametrize("recovery", [False, True])
+def test_task_proxy_completion_indexes_private_default_and_releases(
+    monkeypatch, tmp_path, capsys, recovery,
+):
+    """Exercise the real index subprocess, not only a mocked finish result."""
+    m = load(monkeypatch, tmp_path)
+    args = start_args()
+    c = proxy_fixture(m, args, tmp_path)
+    if recovery:
+        c.execute("update task_proxies set state='cleanup-failed'")
+        c.commit()
+    home = tmp_path / "home"
+    home.mkdir(mode=0o700)
+    artifact = tmp_path / "artifact-mount"
+    artifact.mkdir()
+    legacy = home / ".local/share/ghost/proxy-store"
+    legacy.parent.mkdir(parents=True)
+    legacy.symlink_to(artifact, target_is_directory=True)
+    monkeypatch.setenv("HOME", str(home))
+
+    try:
+        python = m.mitm_runtime()[1]
+    except (RuntimeError, OSError):
+        pytest.skip("mitmdump Python unavailable for real-flow fixture")
+    flow = Path(m.proxy_metadata(m.proxy_row(c, args))["flow_file"])
+    fixture = (
+        "from mitmproxy import connection, http, io; import sys; "
+        "f=http.HTTPFlow(connection.Client(('127.0.0.1',12345),"
+        "('127.0.0.1',8081),1.0), connection.Server(('example.test',443))); "
+        "f.request=http.Request.make('GET','https://example.test/check'); "
+        "o=open(sys.argv[1],'wb'); io.FlowWriter(o).add(f); o.close()"
+    )
+    subprocess.run([python, "-c", fixture, str(flow)], check=True)
+    monkeypatch.setattr(m, "unit_active", lambda _: False)
+    monkeypatch.setattr(m, "port_open", lambda _: False)
+    monkeypatch.setattr(m, "remove_matching_ca", lambda *_a, **_k: None)
+    with pytest.raises(SystemExit) as outcome:
+        (m.task_proxy_recover if recovery else m.task_proxy_finish)(args)
+    assert outcome.value.code == 0, capsys.readouterr().out
+    assert m.proxy_row(c, args) is None
+    db_path = home / ".local/state/ghost/proxy-store/proxy_store.sqlite"
+    assert db_path.is_file()
+    assert legacy.is_symlink() and not list(artifact.iterdir())
+    with sqlite3.connect(db_path) as index:
+        assert index.execute("SELECT COUNT(*) FROM requests").fetchone()[0] == 1

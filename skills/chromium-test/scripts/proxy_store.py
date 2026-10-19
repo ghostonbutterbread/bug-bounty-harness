@@ -19,7 +19,9 @@ from urllib.parse import parse_qsl
 
 
 DEFAULT_LANE_ROOT = Path("~/.local/state/ghost/mitm-lanes").expanduser()
-DEFAULT_STORE = Path("~/.local/share/ghost/proxy-store/proxy_store.sqlite").expanduser()
+# Runtime metadata belongs on the private local state path, not the artifact
+# mount (or the legacy share path that may be symlinked to that mount).
+DEFAULT_STORE = Path("~/.local/state/ghost/proxy-store/proxy_store.sqlite").expanduser()
 DEFAULT_PROXY_HOST = "hoster"
 DEFAULT_AGENT_PORT_MIN = 8081
 DEFAULT_AGENT_PORT_MAX = 8090

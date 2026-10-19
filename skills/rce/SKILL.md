@@ -35,6 +35,9 @@ These are recognition cues, not a claim that every such feature executes code.
   then load `rce-surface-mapping` to derive candidate execution paths.
 - Have a particular source-to-executor hypothesis? Load `rce-exploration` for
   primitive classification, branch selection, and an investigation packet.
+- State may be reconstructed as runtime objects, including inside cookies or
+  headers? Load `rce-deserialization` for representation, accepted control,
+  integrity boundaries, and the actual object-loading trigger.
 - Value is stored, transformed, queued, previewed, or consumed later? Load
   `rce-lifecycle` for producer-to-consumer lineage.
 - Observed stack or advisory changes feasibility? Load `rce-technology-research`

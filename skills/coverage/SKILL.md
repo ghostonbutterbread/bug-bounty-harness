@@ -31,15 +31,17 @@ exhaustively reviewed.
 
 Use `bbh agents/coverage.py watch --program <program> --family <family>
 --lane <lane> [--attempt-run-id <exact-stream-id>]` as a **read-only watcher**.
-It reports the Coverage question/status/history counts, recent canonical Attempt
-streams with `linked`, `needs_reconciliation`, or `incomplete` signals, and
+It reports the Coverage question/status/history counts, a bounded sample of canonical Attempt
+streams with `linked`, `needs_reconciliation`, `missing_stream`, or `incomplete` signals, and
 availability pointers for URL Ingest and aggregated URL, parameter, and JS
 corpora. It never creates a ledger, writes an assessment, infers a negative test,
 or claims that a URL/JS file was reviewed. `needs_reconciliation` only means no
 typed Attempt pointer from that run was found in Coverage history; older or
 untyped evidence, unassessed mapping, and other lanes may still hold the work.
-The default is at most 50 recent streams and 5,000 rows per stream; `more_runs`
-and `truncated` are explicit. Use an exact `--attempt-run-id` for a worker
+The default is at most 50 directory entries, 5,000 rows per stream, and 5,000
+newest history events; `more_runs`, `truncated`, and `history_incomplete` are
+explicit. Enumeration is a bounded sample, **not** necessarily the most recent
+streams or a full census. Use an exact `--attempt-run-id` for a worker
 handoff. A historical census across all programs is an operator task, not a
 per-payload query or automatic scanner.
 
@@ -65,10 +67,12 @@ Backfill proceeds **source → relevant semantic question → scoped evidence**:
    a lead, not a reviewed Coverage question by itself. Preserve the retained
    source reference and source run ID. Respect the original program/lane and
    published scope; no inferred cross-program joins.
-2. Register only relevant mapped questions through `discover`. This creates
-   `no_assessment` (legacy `untested` reads the same). For an existing surface,
-   check `brief`/`history` first so historical re-import cannot replace the
-   newer mapper fingerprint/run or overwrite a current assessment.
+2. Register only relevant **previously unmapped** questions through `discover`.
+   This creates `no_assessment` (legacy `untested` reads the same). If the exact
+   surface/input/consumer/class already exists, **skip rediscovery and retain
+   its current mapper run/fingerprint**, even when your historical source is a
+   different run. Check `brief`/`history` first: rediscovering an older run can
+   make a current bounded assessment appear `stale`.
 3. `assess` an existing or newly mapped question only if the retained Attempts
    or MapStore record proves a deliberate **scoped review** of that exact
    version/input/consumer/class. Use typed, lane-resolving evidence references.

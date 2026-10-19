@@ -228,6 +228,17 @@ def test_goal_checkpoint_watches_exact_worker_run_without_assessing_it(tmp_path:
     assert not (root / "web_bounty" / "sample" / "web" / "ledgers" / "surface_coverage.sqlite").exists()
 
 
+def test_goal_checkpoint_cannot_bounded_stop_on_missing_exact_worker_stream(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    goal.initialize_run(goal.build_plan(program="sample", objective="Find XSS", vulnerability_class="xss"), run,
+                        family="web_bounty", lane="web")
+    with pytest.raises(ValueError, match="remaining unknowns"):
+        goal.record_checkpoint(run, family="web_bounty", lane="web", root=tmp_path / "data",
+                               attempt_run_id="worker-typo", decision="bounded-stop", reason="Done",
+                               next_step="Stop", inventory_refs=["recon/example.jsonl"])
+    assert "last_checkpoint" not in json.loads((run / "goal-state.json").read_text())
+
+
 def test_checkpoint_replays_blocked_and_unassessed_paths_as_bounded_pause(tmp_path: Path) -> None:
     run = tmp_path / "run"
     goal.initialize_run(goal.build_plan(program="sample", objective="Find XSS", vulnerability_class="xss"), run)

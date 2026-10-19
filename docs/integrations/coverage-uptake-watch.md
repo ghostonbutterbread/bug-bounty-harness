@@ -1,14 +1,14 @@
 # Coverage uptake watch integration dossier
 
-- **Status:** feature; independent review pending
+- **Status:** feature; review findings repaired, re-review pending
 - **Owner:** Hermes; Kanban `t_1dbc97ba`
 - **Branch:** `feat/coverage-uptake-watch-t1dbc97ba`
 - **Base commit:** `5946cdb61cfbacb1dc91ce152d153c116f62cee0`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-19
 - **Owning feature branch/ref:** `feat/coverage-uptake-watch-t1dbc97ba`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `7977c48`
+- **Feature implementation commit(s):** `7977c48` (initial); follow-up review repairs pending commit
 - **Inspiration / canonical references:** `skills/coverage/SKILL.md`, `skills/bunny-collaborative/SKILL.md`, `agents/surface_coverage.py`.
 
 ## Intent
@@ -21,8 +21,8 @@ Make sparse historical Coverage visible without equating Attempt counts with rev
 
 ## Evidence and review
 
-- Tests and commands: `python -m pytest -q tests/ agents/test_surface_coverage.py agents/test_coverage_watch.py --ignore=tests/test_safety_incident.py`: 313 passed, 186 subtests passed. `git diff --check` clean before review.
-- Independent review: pending.
+- Tests and commands: `python -m pytest -q tests/ agents/test_surface_coverage.py agents/test_coverage_watch.py --ignore=tests/test_safety_incident.py`: 316 passed, 186 subtests passed after review repairs. `git diff --check` clean.
+- Independent review: three findings on missing exact streams, unbounded history/directory enumeration, and stale current assessments after older mapper rediscovery. Repaired with explicit missing-stream guard, bounded samples, skip-existing guidance and regressions; re-review pending.
 - Cohort evidence: read-only Hoster historical census: 88 lanes scanned; 5 with Coverage DB; 50 with Attempt streams, 45 without Coverage DB. This is historical inventory, not evidence of post-release adoption.
 - Merge/ancestry evidence: base equals fetched `origin/beta` at work start.
 
@@ -36,8 +36,8 @@ Make sparse historical Coverage visible without equating Attempt counts with rev
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/coverage-uptake-watch-t1dbc97ba`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `7977c48`
+- **Feature implementation commit(s):** `7977c48` (initial); follow-up review repairs pending commit
 - **Exact resume point:** reconcile independent review; run final tests; commit and integrate reviewed feature to `beta`; activate selected Hoster beta runtime and read back the watcher against an existing lane.
 - **Working-tree state at handoff:** intentionally uncommitted during independent review; commit before any pause.
 

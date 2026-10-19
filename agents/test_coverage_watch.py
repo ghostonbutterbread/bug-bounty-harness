@@ -61,6 +61,32 @@ def test_invalid_or_incomplete_run_is_not_reported_as_unlinked(tmp_path: Path) -
         watch_lane("sample", family="web_bounty", lane="web", root=tmp_path, attempt_run_id="../other")
 
 
+def test_missing_exact_stream_is_explicit(tmp_path: Path) -> None:
+    row = watch_lane("sample", family="web_bounty", lane="web", root=tmp_path,
+                     attempt_run_id="worker-typo")["runs"][0]
+    assert row["signal"] == "missing_stream"
+    assert row["attempt_rows"] == 0
+
+
+def test_history_and_directory_samples_are_bounded(tmp_path: Path) -> None:
+    for index in range(5):
+        stream(tmp_path, f"worker-{index}", [{"attempt_id": f"A-{index}"}])
+    store = SurfaceCoverageStore("sample", family="web_bounty", lane="web", root_override=tmp_path)
+    surface = store.discover(kind="route", host="app.example", surface_key="GET /preview",
+                             input_key="comment", consumer="preview", source_ref="recon/preview.jsonl",
+                             run_id="mapper-1", class_name="xss")
+    for index in range(3):
+        store.assess(surface, class_name="xss", status="in_progress", expected_fingerprint="",
+                     reason="consumer open", evidence_refs=[f"attempt:worker-{index}:A-{index}"])
+    result = watch_lane("sample", family="web_bounty", lane="web", root=tmp_path,
+                        run_limit=2, history_limit=2)
+    assert len(result["runs"]) <= 2
+    assert result["more_runs"] is True
+    assert result["coverage"]["history_events"] == 2
+    assert result["coverage"]["history_incomplete"] is True
+    assert all(row["signal"] == "incomplete" for row in result["runs"])
+
+
 def test_source_pointers_are_availability_not_review(tmp_path: Path) -> None:
     lane = tmp_path / "web_bounty" / "sample" / "web"
     (lane / "recon" / "aggregated").mkdir(parents=True)

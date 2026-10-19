@@ -315,7 +315,7 @@ def record_checkpoint(
         uptake = watch_lane(state["program"], family=family, lane=lane, root=root,
                             attempt_run_id=attempt_run_id, max_attempt_rows=5000)
         receipt["coverage_uptake"] = uptake["runs"][0]
-        if decision == "bounded-stop" and uptake["runs"][0]["signal"] == "needs_reconciliation" and not remaining:
+        if decision == "bounded-stop" and uptake["runs"][0]["signal"] in {"needs_reconciliation", "missing_stream", "incomplete"} and not remaining:
             raise ValueError("bounded-stop requires remaining unknowns for unreconciled worker coverage")
     # One atomic run-state file owns the checkpoint history; Coverage owns target truth.
     state["last_checkpoint"] = receipt

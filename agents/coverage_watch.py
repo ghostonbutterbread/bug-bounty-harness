@@ -6,7 +6,10 @@ that every Attempt must have an assessment. This helper never writes Coverage.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+from contextlib import nullcontext
+from itertools import islice
 from pathlib import Path
 
 from agents.storage_resolver import resolve_storage
@@ -28,10 +31,10 @@ def _run_id(value: str) -> str:
 
 def watch_lane(program: str, *, family: str, lane: str, root: str | Path | None = None,
                attempt_run_id: str | None = None, run_limit: int = 50,
-               max_attempt_rows: int = 5000) -> dict:
+               max_attempt_rows: int = 5000, history_limit: int = 5000) -> dict:
     """Summarize existing inventory and typed Attempt links without creating stores."""
-    if not 1 <= run_limit <= 200 or not 1 <= max_attempt_rows <= 100000:
-        raise ValueError("run_limit must be 1..200 and max_attempt_rows 1..100000")
+    if not 1 <= run_limit <= 200 or not 1 <= max_attempt_rows <= 100000 or not 1 <= history_limit <= 100000:
+        raise ValueError("run_limit must be 1..200, max_attempt_rows 1..100000 and history_limit 1..100000")
     layout = resolve_storage(program, family=family, lane=lane, root_override=root, create=False)
     store = SurfaceCoverageStore(program, family=family, lane=lane, root_override=root)
     coverage = {"state": "missing", "questions": 0, "statuses": {}, "history_events": 0,
@@ -43,7 +46,10 @@ def watch_lane(program: str, *, family: str, lane: str, root: str | Path | None 
             brief = store.brief(limit=1)
             coverage.update(state="present", questions=brief["total"], statuses=brief["counts"])
             with store._read_connection() as db:
-                for event in db.execute("SELECT event_id,evidence_json FROM assessment_history"):
+                for event in db.execute("SELECT event_id,evidence_json FROM assessment_history ORDER BY event_id DESC LIMIT ?", (history_limit + 1,)):
+                    if coverage["history_events"] == history_limit:
+                        coverage["history_incomplete"] = True
+                        break
                     coverage["history_events"] += 1
                     try:
                         refs = json.loads(event["evidence_json"])
@@ -69,15 +75,20 @@ def watch_lane(program: str, *, family: str, lane: str, root: str | Path | None 
         files = [runs_root / _run_id(attempt_run_id) / "attempts.jsonl"]
         more_runs = False
     else:
-        files = sorted(runs_root.glob("*/attempts.jsonl"), reverse=True) if runs_root.is_dir() else []
-        more_runs = len(files) > run_limit
-        files = files[:run_limit]
+        # Cap directory enumeration itself; this is a bounded sample, not an exhaustive census.
+        with os.scandir(runs_root) if runs_root.is_dir() else nullcontext(iter(())) as entries:
+            candidates = list(islice(entries, run_limit + 1))
+        more_runs = len(candidates) > run_limit
+        files = [Path(entry.path) / "attempts.jsonl" for entry in candidates[:run_limit]
+                 if entry.is_dir(follow_symlinks=False) and (Path(entry.path) / "attempts.jsonl").is_file()]
     runs = []
     for path in files:
         run_id = _run_id(path.parent.name)
         row = {"run_id": run_id, "attempt_rows": 0, "linked_events": 0,
                "truncated": False, "parse_errors": 0, "missing_ids": 0, "signal": "no_attempts"}
-        if path.is_file():
+        if not path.is_file():
+            row["signal"] = "missing_stream" if attempt_run_id is not None else "incomplete"
+        else:
             ids = set()
             with path.open(encoding="utf-8") as handle:
                 for index, line in enumerate(handle):

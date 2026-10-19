@@ -61,6 +61,15 @@ are outside the mechanism contract.
 
 ## Activation and successor
 
-Stop at a committed, independently reviewed feature draft. A later explicit
-adoption can integrate into beta, test the integrated tree, and project the new
-skill to intended consumers. No active runtime is changed by this draft.
+Ryu message `1561828206858731693` explicitly authorizes merge and push to `beta`.
+Release task: `t_4dacb3e8`. The clean integration checkout was fast-forwarded to
+`b7b4728a4b890dda41bad7e9ede216161f62dff1`; its intervening changes do not overlap
+the reviewed skill/registry paths. Independent review remains accepted for the
+unchanged mechanism contract. Merge the reviewed feature, remove this branch-local
+dossier from the integration tree, run the final integrated suite and diff check,
+then publish from the beta worktree and verify the exact remote ref.
+
+No `main` promotion, remote-host deployment or new skill projection is authorized
+by this release. Close the release card with the remote merge SHA and tests, then
+retire the clean contained feature worktree/branch. The original draft-only
+boundary above records the previous phase, not the newly authorized release.

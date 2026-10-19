@@ -691,7 +691,9 @@ def test_auth_seed_requires_owner_only_permissions(tmp_path):
     try:
         module.auth_seed_metadata(str(seed))
     except SystemExit as exc:
-        assert "group/other" in str(exc)
+        assert "verify file ownership and contents" in str(exc)
+        assert "mode 0600" in str(exc)
+        assert seed.stat().st_mode & 0o777 == 0o644
     else:
         raise AssertionError("Expected loose auth seed permissions to be rejected")
 

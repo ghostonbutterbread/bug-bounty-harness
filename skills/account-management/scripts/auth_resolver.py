@@ -887,15 +887,35 @@ def query_proxy_seed(
 
 
 def write_auth_seed(path: Path, seed: dict[str, Any]) -> None:
+    # Do not silently replace (or chmod) an existing secret whose provenance is
+    # uncertain. The operator must inspect ownership before repairing its mode.
+    try:
+        existing = path.lstat()
+    except FileNotFoundError:
+        existing = None
+    if existing is not None:
+        if not stat.S_ISREG(existing.st_mode) or existing.st_uid != os.getuid():
+            raise SystemExit(f"Auth seed destination is not an owned regular file: {path}; inspect it and choose an owned path")
+        if stat.S_IMODE(existing.st_mode) & 0o077:
+            raise SystemExit(
+                f"Auth seed has unsafe permissions: {path} mode={oct(stat.S_IMODE(existing.st_mode))}; "
+                "verify ownership and contents, then restrict it to mode 0600 yourself before retrying"
+            )
     path.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(path.parent, 0o700)
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
-        json.dump(seed, handle, indent=2, sort_keys=True)
-        handle.write("\n")
-        tmp_name = handle.name
-    os.chmod(tmp_name, 0o600)
-    Path(tmp_name).replace(path)
-    os.chmod(path, 0o600)
+    tmp_name = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+            tmp_name = handle.name
+            # Establish permissions on the open descriptor before any secret
+            # bytes are written, independent of the caller's umask.
+            os.fchmod(handle.fileno(), 0o600)
+            json.dump(seed, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        Path(tmp_name).replace(path)
+    finally:
+        if tmp_name is not None:
+            Path(tmp_name).unlink(missing_ok=True)
 
 
 def refresh_from_ryushe_proxy(args: argparse.Namespace) -> dict[str, Any]:

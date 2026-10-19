@@ -212,7 +212,16 @@ No host environment, sandbox, installed package or existing route is changed.
 ## `browser_profile_lease.py`
 
 Explicit `--instance-key` acquisitions add isolated parallel slots without
-migrating legacy single-profile leases. Manual policy and passive reporting:
+migrating legacy single-profile leases. For a manager-proven stopped unkeyed
+profile, named-account `--recover-profile` may inherit its existing directory
+when older pre-manager lease history has `manager_id=NULL` only on released or
+expired rows with stopped browser status, no CDP URL, and the same physical
+profile and auth domain. The selected source still needs its matching manager
+identity and released status; active or uncertain history remains locked. This
+is admission of terminal history, not a rewrite of canonical leases or a
+replacement for the provisioner's quiescence check. `browser_manager_row_repair.py`
+repairs malformed manager projections only, not missing lease-manager provenance.
+Manual policy and passive reporting:
 
 ```sh
 bbh skills/chromium-test/scripts/browser_profile_lease.py --state-dir <state> \

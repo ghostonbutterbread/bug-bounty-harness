@@ -93,6 +93,46 @@ def test_stopped_pre_domain_inherits_only_exact_manager_history(monkeypatch, tmp
     assert peer['status'] == 'leased' and peer['lease']['profile_dir'] != str(pre_domain)
 
 
+@pytest.mark.parametrize('prior_status,prior_manager,expected', [
+    ('released', None, 'leased'), ('expired', None, 'leased'),
+    ('active', None, 'locked'), ('released', 'foreign', 'locked'),
+    ('unverified', None, 'locked'), ('cdp-present', None, 'locked'),
+])
+def test_stopped_named_profile_with_pre_manager_history(monkeypatch, tmp_path, prior_status, prior_manager, expected):
+    m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
+    c.execute("UPDATE browsers SET state='stopped' WHERE lease_id=?", (row['lease_id'],))
+    c.commit()
+    with profiles.connect(m.STATE.parent / 'browser_profile_leases.sqlite') as db:
+        db.execute("UPDATE browser_profile_leases SET status='released', released_at=1, profile_health='healthy' WHERE lease_id=?", (row['lease_id'],))
+        db.execute("""INSERT INTO browser_profile_leases
+            (lease_id,program,account_alias,auth_domain,owner_agent_id,owner_run_id,purpose,
+             profile_dir,status,browser_status,created_at,heartbeat_at,expires_at,released_at,manager_id)
+            SELECT 'pre-manager',program,account_alias,auth_domain,owner_agent_id,owner_run_id,purpose,
+             profile_dir,?,'stopped',created_at-1,heartbeat_at,expires_at,1,?
+            FROM browser_profile_leases WHERE lease_id=?""", (prior_status if prior_status in ('released', 'expired', 'active') else 'released', prior_manager, row['lease_id']))
+        if prior_status == 'unverified':
+            db.execute("UPDATE browser_profile_leases SET browser_status='unverified-after-release' WHERE lease_id='pre-manager'")
+        if prior_status == 'cdp-present':
+            db.execute("UPDATE browser_profile_leases SET cdp_url='http://127.0.0.1:9' WHERE lease_id='pre-manager'")
+    monkeypatch.setattr(m, 'unit_active', lambda _: False)
+    request = argparse.Namespace(**vars(owner))
+    request.agent_id = request.run_id = 'new-owner'
+    request.recover_profile = True
+    request.stopped_legacy_lease_id = row['lease_id']
+    request.stopped_legacy_profile_dir = row['profile_dir']
+    request.stopped_legacy_agent_id = row['agent_id']
+    request.stopped_legacy_run_id = row['run_id']
+    result = profiles.cmd_acquire(request)
+    assert result['status'] == expected
+    if expected == 'leased':
+        assert result['lease']['profile_dir'] == row['profile_dir']
+    else:
+        if prior_status == 'active':
+            assert result['lease']['lease_id'] == 'pre-manager'
+        else:
+            assert result['reason'] == 'legacy-profile-history-mismatch'
+
+
 def test_stopped_missing_receipt_fails_closed_on_unit_or_profile_lock(monkeypatch, tmp_path, capsys):
     m, c, row, owner, manager = fixture(monkeypatch, tmp_path)
     c.execute("UPDATE browsers SET state='stopped'")

@@ -222,13 +222,21 @@ def stopped_legacy_profile(conn, args, alias, domain, key):
     pre_domain = artifact_base() / program_key(args.program) / 'web' / 'browser-profiles' / slug(alias)
     allowed = (str(pre_domain), str(profile_dir(args.program, domain, alias)))
     identity = physical_profile(old_path)
+    def consistent_history(row):
+        if physical_profile(row['profile_dir']) != identity or row['auth_domain'] != domain:
+            return False
+        if row['manager_id'] == manager:
+            return True
+        # Pre-manager terminal history has no manager attestation. It may only
+        # corroborate this exact profile; it cannot authorize a live takeover.
+        return (row['manager_id'] is None and row['status'] in ('released', 'expired')
+                and row['browser_status'] == 'stopped' and row['cdp_url'] is None)
+
     if (not source or old_path not in allowed or not identity or source['profile_dir'] != old_path
             or source['auth_domain'] != domain or source['manager_id'] != manager
             or source['owner_agent_id'] != getattr(args, 'stopped_legacy_agent_id', None)
             or source['owner_run_id'] != getattr(args, 'stopped_legacy_run_id', None)
-            or source['status'] != 'released' or any(
-                physical_profile(r['profile_dir']) != identity or r['auth_domain'] != domain
-                or r['manager_id'] != manager for r in rows)):
+            or source['status'] != 'released' or any(not consistent_history(r) for r in rows)):
         return None, True
     return source['profile_dir'], True
 

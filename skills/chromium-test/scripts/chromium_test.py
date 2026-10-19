@@ -559,7 +559,11 @@ def load_auth_seed(path: str | None) -> dict[str, Any] | None:
         raise SystemExit(f"Auth seed file not found: {seed_path}")
     mode = seed_path.stat().st_mode & 0o777
     if mode & 0o077:
-        raise SystemExit(f"Auth seed file must not be readable by group/other: {seed_path} mode={oct(mode)}")
+        raise SystemExit(
+            f"Auth seed file must be owner-only: {seed_path} mode={oct(mode)}; "
+            "verify file ownership and contents, then set mode 0600 yourself "
+            "(or provide a new owner-only seed). No permissions were changed."
+        )
     try:
         data = json.loads(seed_path.read_text())
     except json.JSONDecodeError as exc:

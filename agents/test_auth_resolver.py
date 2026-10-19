@@ -3,7 +3,10 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import stat
 from pathlib import Path
+
+import pytest
 
 
 def load_resolver_module():
@@ -574,3 +577,45 @@ def test_refresh_from_ryushe_proxy_writes_locked_seed_and_updates_inventory(tmp_
     assert inventory["accounts"][0]["auth_seed_ref"] == f"auth-seed:{seed_path}"
     assert "secret-session" not in output
     assert "secret-token" not in output
+
+
+def test_write_auth_seed_is_private_before_writing(monkeypatch, tmp_path):
+    seed_path = tmp_path / "credentials" / "seed.json"
+    module = load_resolver_module()
+    original_dump = module.json.dump
+
+    def check_mode_during_write(value, handle, *args, **kwargs):
+        assert stat.S_IMODE(os.fstat(handle.fileno()).st_mode) == 0o600
+        return original_dump(value, handle, *args, **kwargs)
+
+    monkeypatch.setattr(module.json, "dump", check_mode_during_write)
+    previous = os.umask(0)
+    try:
+        module.write_auth_seed(seed_path, {"cookies": [{"value": "fixture-only"}]})
+    finally:
+        os.umask(previous)
+    assert stat.S_IMODE(seed_path.stat().st_mode) == 0o600
+    assert json.loads(seed_path.read_text())["cookies"][0]["value"] == "fixture-only"
+
+
+def test_write_auth_seed_refuses_existing_insecure_file_without_mutating_it(tmp_path):
+    module = load_resolver_module()
+    seed_path = tmp_path / "seed.json"
+    seed_path.write_text('{"cookies": []}')
+    seed_path.chmod(0o664)
+    with pytest.raises(SystemExit, match="verify ownership and contents.*0600"):
+        module.write_auth_seed(seed_path, {"cookies": [{"value": "new"}]})
+    assert seed_path.read_text() == '{"cookies": []}'
+    assert stat.S_IMODE(seed_path.stat().st_mode) == 0o664
+    assert list(tmp_path.iterdir()) == [seed_path]
+
+
+def test_write_auth_seed_refuses_symlink_destination(tmp_path):
+    module = load_resolver_module()
+    target = tmp_path / "target.json"
+    target.write_text("original")
+    link = tmp_path / "seed.json"
+    link.symlink_to(target)
+    with pytest.raises(SystemExit, match="not an owned regular file"):
+        module.write_auth_seed(link, {"cookies": []})
+    assert link.is_symlink() and target.read_text() == "original"

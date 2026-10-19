@@ -603,7 +603,7 @@ The host's existing real directory is owned by UID 1000 and currently has mode
 parent **before SQLite opens** and does not silently chmod it. After confirming
 that this is the local, owned directory (not a symlink, mount alias, or another
 writer's shared access path), the authorized operator can change **only** its
-mode to `0700`: `chmod 0700 "$name"`. Do not change the DB path, copy the DB,
+mode to `0700`: `chmod 0700 "$name"; chmod g-s "$name"` (some filesystems preserve the setgid bit on directory chmod). Verify `stat -c %a "$name"` prints `700`. Do not change the DB path, copy the DB,
 or unlink the alternate-name symlink backup. Check all ancestors remain trusted
 and non-writable by other users. The directory-mode change is atomic and does
 not require freezing same-UID SQLite writers or checkpointing WAL; however,

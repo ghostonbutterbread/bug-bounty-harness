@@ -85,13 +85,20 @@ def test_default_store_refuses_artifact_symlink_without_touching_target(tmp_path
     artifact = tmp_path / "artifact-mount"
     artifact.mkdir(mode=0o770)
     os.chmod(artifact, 0o770)
+    mounted_db = artifact / "proxy_store.sqlite"
+    with sqlite3.connect(mounted_db) as conn:
+        conn.execute("CREATE TABLE marker (value TEXT)")
+        conn.execute("INSERT INTO marker VALUES ('artifact-only')")
+    mounted_inode = mounted_db.stat().st_ino
     alias = home / ".local/share/ghost/proxy-store"
     alias.parent.mkdir(parents=True)
     alias.symlink_to(artifact, target_is_directory=True)
     result = run_store(home, *action)
     assert result.returncode != 0
     assert alias.is_symlink()
-    assert not (artifact / "proxy_store.sqlite").exists()
+    assert mounted_db.stat().st_ino == mounted_inode
+    with sqlite3.connect(mounted_db) as conn:
+        assert conn.execute("SELECT value FROM marker").fetchone()[0] == "artifact-only"
     assert stat.S_IMODE(artifact.stat().st_mode) == 0o770
     assert not (home / ".local/state/ghost/proxy-store").exists()
 

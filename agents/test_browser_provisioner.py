@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import sqlite3
+import stat
 import subprocess
 import sys
 import time
@@ -844,8 +845,8 @@ def test_task_proxy_completion_indexes_private_default_and_releases(
         (m.task_proxy_recover if recovery else m.task_proxy_finish)(args)
     assert outcome.value.code == 0, capsys.readouterr().out
     assert m.proxy_row(c, args) is None
-    db_path = home / ".local/state/ghost/proxy-store/proxy_store.sqlite"
+    db_path = home / ".local/share/ghost/proxy-store/proxy_store.sqlite"
     assert db_path.is_file()
-    assert not (home / ".local/share/ghost/proxy-store").exists()
+    assert stat.S_IMODE(db_path.parent.stat().st_mode) == 0o700
     with sqlite3.connect(db_path) as index:
         assert index.execute("SELECT COUNT(*) FROM requests").fetchone()[0] == 1

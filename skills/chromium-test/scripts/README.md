@@ -572,16 +572,12 @@ multi-instance pane registry.
 - **Purpose:** Build and query a sanitized SQLite index of task MITM lane
   traffic.
 - **Inputs:** Captured lane flows, query filters, and configured store path.
-  The default is `~/.local/state/ghost/proxy-store/proxy_store.sqlite` (local
-  private state, not mounted artifacts). The legacy
-  `~/.local/share/ghost/proxy-store` entry (including a dangling symlink or
-  regular directory) blocks all commands against the new default, even with
-  an explicit `--db` naming that default. This prevents a fresh index from
-  hiding old requests or allocating ports reserved in the old database.
-  Explicit `--db` for another private, non-symlinked store remains supported;
-  the legacy symlink itself is still rejected by the private opener. No live
-  data is copied automatically. Before activating this default on a host with
-  legacy state, follow the frozen, operator-controlled migration gate below.
+  The default is the existing local
+  `~/.local/share/ghost/proxy-store/proxy_store.sqlite`. This must be a real
+  private directory, not an alias to the artifact mount. The opener rejects
+  symlink components, untrusted ancestors, and group/world-writable parent
+  directories; it does not move or copy SQLite data. Explicit `--db` remains
+  available for another private, non-symlinked store.
 - **Outputs:** Sanitized indexed request metadata and query results.
 - **Mutates:** The selected SQLite store for ingest/update operations; queries
   are read-only.
@@ -591,53 +587,32 @@ multi-instance pane registry.
 - **Coverage:** Indexed fields and secret classifiers are non-exhaustive; absent
   records do not prove absent traffic.
 
-### Operator-only activation gate for legacy stores
+### Operator preflight for an existing local store
 
-Do **not** remove the legacy path merely to bypass the gate. No migration, copy,
-lease release, service stop, or mount modification is performed by this code.
-A host with `~/.local/share/ghost/proxy-store` present remains blocked until an
-operator schedules a frozen writer window and explicitly authorizes migration.
+Inspect without changing live state:
 
-1. Identify the actual legacy target (`readlink -f
-   "$HOME/.local/share/ghost/proxy-store"`) and its SQLite file, `-wal`, and
-   `-shm`; record the active reservations and pending task-proxy rows. Stop or
-   fence **all** indexers, lease acquire/release clients, finish/recover callers,
-   and standalone lane indexers on both old and new paths. Confirm no writer
-   remains and hold the freeze through the switch. If the source is missing,
-   invalid, or another new DB already contains divergent rows, stop and reconcile
-   manually; never overwrite or combine databases by file copy.
-2. While frozen, take an operator-controlled SQLite **online backup** of the
-   legacy DB (not `cp` of a live WAL DB) into a private local staging file under
-   `~/.local/state/ghost/proxy-store/` (directory 0700, file 0600; no symlink
-   components). Keep the old DB and sidecars unchanged. This transfers indexed
-   requests, packets, lanes, and leases, including uncheckpointed WAL rows.
-3. Run `PRAGMA integrity_check` on source and staged DB; require `ok` on both.
-   Compare exact row counts for `requests`, `request_packets`, `params`,
-   `lanes`, and `proxy_leases`; compare sorted active lease IDs/ports and pending
-   task-proxy reservations against the separately owned provisioner registry.
-   Check the new DB's mode and ownership. If any comparison fails, do not
-   switch: retain the old path and freeze until investigated.
-4. With writers still fenced, atomically rename the staged DB to
-   `~/.local/state/ghost/proxy-store/proxy_store.sqlite` (only if that final
-   path did not exist); retain an offline, access-controlled backup of the old
-   DB. Decommission the *legacy entry* after verification: unlink the old
-   symlink, or rename the old directory into a private offline archive outside
-   `~/.local/share/ghost/proxy-store`. Do not delete the old DB, WAL, or SHM
-   as a shortcut; do not leave a dangling alias. Recheck the final DB and lease
-   counts with `proxy_store.py leases --active` and `query` using the activated
-   checkout, and ensure the legacy path is absent (`test ! -e "$legacy" &&
-   test ! -L "$legacy"`). Only then lift the writer freeze and recover
-   task-owned reservations after verifying their proxy/browser state.
-5. If a failure occurs before the switch, keep the original store authoritative
-   and do not start the new default. If failure occurs after the switch, fence
-   writers again; reconcile state before restoring the old path or reopening
-   leases. Never run both stores as independent allocators. An operator must
-   decide how to handle any earlier divergent new DB rather than overwriting it.
+```bash
+name="$HOME/.local/share/ghost/proxy-store"
+stat -c '%F %a %u:%g %n' "$HOME/.local" "$HOME/.local/share" \
+  "$HOME/.local/share/ghost" "$name" "$name/proxy_store.sqlite"
+test -d "$name" && test ! -L "$name"
+```
 
-The private opener intentionally rejects `--db` through the legacy symlink;
-operator backup reads the source under a controlled freeze, not through the
-application's unsafe override. A host without a legacy entry may start with an
-empty new default normally.
+The host's existing real directory is owned by UID 1000 and currently has mode
+`2770`; its DB is already `0600`. The private opener refuses that group-writable
+parent **before SQLite opens** and does not silently chmod it. After confirming
+that this is the local, owned directory (not a symlink, mount alias, or another
+writer's shared access path), the authorized operator can change **only** its
+mode to `0700`: `chmod 0700 "$name"`. Do not change the DB path, copy the DB,
+or unlink the alternate-name symlink backup. Check all ancestors remain trusted
+and non-writable by other users. The directory-mode change is atomic and does
+not require freezing same-UID SQLite writers or checkpointing WAL; however,
+confirm no different-UID/group-based producer relies on access before removing
+its group permissions. Keep code deployment separate from this live preflight.
+Once both are approved, verify existing requests and active reservations from
+the same default path. If an independent DB already exists at the rejected
+state-path default, reconcile it before activating two allocators; do not merge
+or discard rows automatically.
 
 ## `mitm_chromium_profile.py`
 

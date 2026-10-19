@@ -19,10 +19,8 @@ from urllib.parse import parse_qsl
 
 
 DEFAULT_LANE_ROOT = Path("~/.local/state/ghost/mitm-lanes").expanduser()
-# Runtime metadata belongs on the private local state path, not the artifact
-# mount (or the legacy share path that may be symlinked to that mount).
-DEFAULT_STORE = Path("~/.local/state/ghost/proxy-store/proxy_store.sqlite").expanduser()
-LEGACY_STORE = Path("~/.local/share/ghost/proxy-store").expanduser()
+# Keep one authoritative local database; never follow an artifact-mount alias.
+DEFAULT_STORE = Path("~/.local/share/ghost/proxy-store/proxy_store.sqlite").expanduser()
 DEFAULT_PROXY_HOST = "hoster"
 DEFAULT_AGENT_PORT_MIN = 8081
 DEFAULT_AGENT_PORT_MAX = 8090
@@ -82,32 +80,21 @@ def _open_private_parent(parent: Path, *, default_store: bool) -> int:
         final = os.fstat(dir_fd)
         if final.st_uid not in {0, os.geteuid()}:
             raise PermissionError("Proxy store parent owner is not trusted")
+        if final.st_mode & 0o022:
+            raise PermissionError(
+                "Proxy store parent is group/world writable; make the existing "
+                "local directory private (chmod 0700) before using this database"
+            )
         if default_store:
             os.fchmod(dir_fd, 0o700)
-        elif final.st_mode & 0o022:
-            raise PermissionError("Proxy store parent is group/world writable")
         return dir_fd
     except BaseException:
         os.close(dir_fd)
         raise
 
 
-def guard_default_store(db_path: Path) -> None:
-    """Never initialize or read a fresh index while legacy state can diverge."""
-    if Path(os.path.abspath(db_path)) == Path(os.path.abspath(DEFAULT_STORE)):
-        # lexists also catches dangling symlinks: never silently assume a
-        # missing mount means the legacy database has been decommissioned.
-        if os.path.lexists(LEGACY_STORE):
-            raise RuntimeError(
-                "Legacy proxy store still exists at ~/.local/share/ghost/proxy-store; "
-                "freeze proxy-store writers, migrate and verify the SQLite database "
-                "and leases, then decommission the old path before using the new default"
-            )
-
-
 def connect(db_path: Path, *, read_only: bool = False) -> sqlite3.Connection:
     db_path = Path(os.path.abspath(db_path))
-    guard_default_store(db_path)
     default_store = db_path == Path(os.path.abspath(DEFAULT_STORE))
     # SQLite reopens by pathname. No component of that path may be replaceable
     # by another account between the permission check and the SQLite open.
@@ -1051,7 +1038,6 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    guard_default_store(Path(args.db).expanduser())
     result = args.func(args)
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))

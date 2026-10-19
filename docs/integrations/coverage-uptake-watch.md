@@ -22,7 +22,7 @@ Make sparse historical Coverage visible without equating Attempt counts with rev
 ## Evidence and review
 
 - Tests and commands: `python -m pytest -q tests/ agents/test_surface_coverage.py agents/test_coverage_watch.py --ignore=tests/test_safety_incident.py`: 316 passed, 186 subtests passed after review repairs. `git diff --check` clean.
-- Independent review: three findings on missing exact streams, unbounded history/directory enumeration, and stale current assessments after older mapper rediscovery. Repaired with explicit missing-stream guard, bounded samples, skip-existing guidance and regressions; re-review pending.
+- Independent review: three initial findings on missing exact streams, unbounded history/directory enumeration, and stale current assessments after older mapper rediscovery. First re-review found a cross-class stale path: rediscovery updates surface identity shared across all classes. Backfill now skips any existing surface across classes; strong bounded-stop regression uses a bounded-reviewed question. Final re-review pending.
 - Cohort evidence: read-only Hoster historical census: 88 lanes scanned; 5 with Coverage DB; 50 with Attempt streams, 45 without Coverage DB. This is historical inventory, not evidence of post-release adoption.
 - Merge/ancestry evidence: base equals fetched `origin/beta` at work start.
 

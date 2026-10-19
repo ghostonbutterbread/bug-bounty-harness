@@ -67,12 +67,15 @@ Backfill proceeds **source → relevant semantic question → scoped evidence**:
    a lead, not a reviewed Coverage question by itself. Preserve the retained
    source reference and source run ID. Respect the original program/lane and
    published scope; no inferred cross-program joins.
-2. Register only relevant **previously unmapped** questions through `discover`.
-   This creates `no_assessment` (legacy `untested` reads the same). If the exact
-   surface/input/consumer/class already exists, **skip rediscovery and retain
-   its current mapper run/fingerprint**, even when your historical source is a
-   different run. Check `brief`/`history` first: rediscovering an older run can
-   make a current bounded assessment appear `stale`.
+2. Register only relevant questions on **entirely new surface identities**
+   through `discover`. This creates `no_assessment` (legacy `untested` reads the
+   same). Before writing, page `brief` across **all classes**, not only the new
+   class, and compare the surface kind/host/key/input/consumer. If that surface
+   already exists in any class, **do not rediscover it even to add a new class**:
+   `discover` updates the shared surface mapper run/fingerprint and can stale
+   a current assessment of a different class. Retain the existing mapping and
+   hand the uncovered class to a fresh mapper/current owner instead of
+   historical backfill. Check `history` for its existing classes as well.
 3. `assess` an existing or newly mapped question only if the retained Attempts
    or MapStore record proves a deliberate **scoped review** of that exact
    version/input/consumer/class. Use typed, lane-resolving evidence references.

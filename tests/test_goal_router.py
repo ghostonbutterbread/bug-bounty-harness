@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -104,6 +106,88 @@ def test_initialize_run_writes_small_routing_state(tmp_path: Path) -> None:
     assert state["mode"] == "focused-surface"
     assert state["retrieval_decision"] == "unselected"
     assert state["current_surface"] is None
+
+
+def test_bound_run_rejects_cross_lane_checkpoint_before_creating_receipt(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    plan = goal.build_plan(program="sample", objective="Find XSS", vulnerability_class="xss")
+    goal.initialize_run(plan, run, family="web_bounty", lane="web")
+    state_path = run / "goal-state.json"
+    original = state_path.read_bytes()
+    with pytest.raises(ValueError, match="family/lane"):
+        goal.record_checkpoint(run, family="web_bounty", lane="api", root=tmp_path,
+                               decision="map", reason="Missing inventory", next_step="Map consumers")
+    with pytest.raises(ValueError, match="family/lane"):
+        goal.record_checkpoint(run, family="private_program", lane="web", root=tmp_path,
+                               decision="map", reason="Missing inventory", next_step="Map consumers")
+    assert state_path.read_bytes() == original
+    receipt = goal.record_checkpoint(run, family="web_bounty", lane="web", root=tmp_path,
+                                     decision="map", reason="Missing inventory", next_step="Map consumers")
+    assert receipt["family"] == "web_bounty"
+    assert receipt["lane"] == "web"
+
+
+def test_init_requires_family_and_lane_together(tmp_path: Path) -> None:
+    plan = goal.build_plan(program="sample", objective="Find XSS", vulnerability_class="xss")
+    with pytest.raises(ValueError, match="family and lane"):
+        goal.initialize_run(plan, tmp_path / "run", family="web_bounty")
+    assert not (tmp_path / "run" / "goal-state.json").exists()
+
+
+def test_reinitializing_existing_run_does_not_replace_checkpoint_history(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    plan = goal.build_plan(program="sample", objective="Find XSS", vulnerability_class="xss")
+    goal.initialize_run(plan, run, family="web_bounty", lane="web")
+    goal.record_checkpoint(run, family="web_bounty", lane="web", root=tmp_path / "data",
+                           decision="map", reason="Missing inventory", next_step="Map consumers")
+    original = (run / "goal-state.json").read_bytes()
+    with pytest.raises(ValueError, match="already initialized"):
+        goal.initialize_run(plan, run, family="web_bounty", lane="api")
+    assert (run / "goal-state.json").read_bytes() == original
+
+
+def test_failed_init_does_not_strand_exclusive_run(tmp_path: Path, monkeypatch) -> None:
+    run = tmp_path / "run"
+    plan = goal.build_plan(program="sample", objective="Find XSS", vulnerability_class="xss")
+    with monkeypatch.context() as context:
+        context.setattr(goal.json, "dumps", lambda *a, **k: (_ for _ in ()).throw(OSError("serialization failed")))
+        with pytest.raises(OSError, match="serialization failed"):
+            goal.initialize_run(plan, run, family="web_bounty", lane="web")
+    assert not (run / "goal-state.json").exists()
+    assert not list(run.glob(".goal-state-*"))
+    assert goal.initialize_run(plan, run, family="web_bounty", lane="web").is_file()
+
+
+def test_failed_atomic_publish_cleans_temp_without_stranding_run(tmp_path: Path, monkeypatch) -> None:
+    run = tmp_path / "run"
+    plan = goal.build_plan(program="sample", objective="Find XSS", vulnerability_class="xss")
+    with monkeypatch.context() as context:
+        context.setattr(goal.os, "link", lambda *a: (_ for _ in ()).throw(OSError("link failed")))
+        with pytest.raises(OSError, match="link failed"):
+            goal.initialize_run(plan, run, family="web_bounty", lane="web")
+    assert not (run / "goal-state.json").exists()
+    assert not list(run.glob(".goal-state-*"))
+    goal.initialize_run(plan, run, family="web_bounty", lane="web")
+
+
+def test_cli_bound_goal_run_rejects_wrong_checkpoint_lane(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    base = [sys.executable, str(SCRIPT_PATH)]
+    initialized = subprocess.run(base + ["init", "--program", "sample", "--objective", "Find XSS",
+                                     "--class", "xss", "--run-dir", str(run),
+                                     "--family", "web_bounty", "--lane", "web"],
+                                 capture_output=True, text=True, check=True)
+    assert initialized.stdout.strip() == str(run / "goal-state.json")
+    common = ["--run-dir", str(run), "--family", "web_bounty", "--root", str(tmp_path / "data"),
+              "--decision", "map", "--reason", "Missing inventory", "--next-step", "Map consumers"]
+    rejected = subprocess.run(base + ["checkpoint", *common, "--lane", "api"],
+                              capture_output=True, text=True)
+    assert rejected.returncode != 0
+    assert "family/lane" in rejected.stderr
+    assert json.loads((run / "goal-state.json").read_text())["checkpoints"] == []
+    accepted = subprocess.run(base + ["checkpoint", *common, "--lane", "web"],
+                              capture_output=True, text=True, check=True)
+    assert json.loads(accepted.stdout)["inventory_state"] == "missing"
 
 
 def test_goal_plan_routes_coverage_checkpoint_only_in_explicit_goal_plan() -> None:

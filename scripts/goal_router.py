@@ -211,8 +211,11 @@ def completion_contract(mode: str) -> list[str]:
     ]
 
 
-def initialize_run(plan: dict[str, Any], run_dir: Path) -> Path:
+def initialize_run(plan: dict[str, Any], run_dir: Path, *, family: str | None = None,
+                   lane: str | None = None) -> Path:
     """Write routing state only; durable app facts belong in existing stores."""
+    if bool(family) != bool(lane):
+        raise ValueError("family and lane must be supplied together")
     run_dir.mkdir(parents=True, exist_ok=True)
     state = {
         "created_at": iso_now(),
@@ -227,8 +230,25 @@ def initialize_run(plan: dict[str, Any], run_dir: Path) -> Path:
         "pressure": "cold",
         "checkpoints": [],
     }
+    if family and lane:
+        state["family"] = family
+        state["lane"] = lane
     path = run_dir / "goal-state.json"
-    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    content = json.dumps(state, indent=2, sort_keys=True) + "\n"
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=run_dir,
+                                         prefix=".goal-state-", delete=False) as handle:
+            temp_path = Path(handle.name)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.link(temp_path, path)  # Publish atomically; fail rather than replace an existing run.
+    except FileExistsError as exc:
+        raise ValueError("goal run already initialized; resume it instead of replacing history") from exc
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
     return path
 
 
@@ -243,6 +263,10 @@ def record_checkpoint(
     if not state_path.is_file():
         raise ValueError("initialize an explicit goal run before checkpointing")
     state = json.loads(state_path.read_text(encoding="utf-8"))
+    if (state.get("family") or state.get("lane")) and (
+        state.get("family"), state.get("lane")
+    ) != (family, lane):
+        raise ValueError("checkpoint family/lane must match the initialized run")
     if decision not in {"deepen", "explore", "map", "unblock", "bounded-stop"}:
         raise ValueError("decision must be deepen, explore, map, unblock, or bounded-stop")
     goal_class = state.get("vulnerability_class")
@@ -313,6 +337,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         command.add_argument("--class", dest="vulnerability_class")
         if name == "init":
             command.add_argument("--run-dir", type=Path, required=True)
+            command.add_argument("--family", help="Bind this run to the worker storage family")
+            command.add_argument("--lane", help="Bind this run to the worker storage lane")
     checkpoint = subcommands.add_parser("checkpoint", help="Record a goal-parent Coverage continuation decision")
     checkpoint.add_argument("--run-dir", type=Path, required=True)
     checkpoint.add_argument("--family", required=True)
@@ -346,7 +372,8 @@ def main(argv: list[str] | None = None) -> int:
         vulnerability_class=args.vulnerability_class,
     )
     if args.command == "init":
-        path = initialize_run(plan, args.run_dir.expanduser().resolve())
+        path = initialize_run(plan, args.run_dir.expanduser().resolve(),
+                              family=args.family, lane=args.lane)
         print(path)
     else:
         print(json.dumps(plan, indent=2, sort_keys=True))

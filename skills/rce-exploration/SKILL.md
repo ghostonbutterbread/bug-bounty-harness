@@ -55,6 +55,7 @@ scope, synthesis, execution decisions, and closure.
 |---|---|---|
 | Need routes, flows, state, source, or runtime technology facts | `/appmap`, `/live-map`, or `/mental-map` | Reusable application map and bounded handoff context |
 | Application mapping or technology evidence is available and RCE coverage needs leads | `rce-surface-mapping` | Candidate RCE primitive packets across mapped consumers |
+| Round-tripped state or a nested blob may be reconstructed as runtime objects | `rce-deserialization` | Accepted-control, integrity, object-loader, and trigger analysis |
 | A marker or file is stored, queued, transformed, previewed, imported, or later-consumed | `rce-lifecycle` | RCE-specific producer/consumer lineage and branch packets |
 | A plausible primitive needs a low-impact precursor, differential, or bounded proof | `rce-validation` | Probe ladder, baseline/control/result, confidence label, cleanup, closure |
 | An observed stack, dependency, parser, runtime, configuration, or advisory changes feasibility | `rce-technology-research` | Source-backed mechanism and target precondition matrix |

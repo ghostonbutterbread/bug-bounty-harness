@@ -44,6 +44,17 @@ Review mapped surfaces for these consumer families:
 - error, fallback, validation, parser-selection, and header/content-type paths
   that select a different consumer than the normal flow.
 
+## Look Beyond Visible Fields
+
+Headers and cookies are easy to overlook when mapping only forms, URLs, and
+bodies. Treat transport metadata and round-tripped server-issued state as input
+carriers too: signed sessions, callback/resume tokens, custom headers, and opaque
+references may reach different consumers. Distinguish merely readable state from
+modifications a server accepts. Trace nested encodings and the handler that later
+reads the value; neither the carrier nor its apparent format determines the
+primitive. Use `rce-deserialization` when object reconstruction is plausible;
+header-driven parser/error paths may instead select another execution family.
+
 ## Lead Packet
 
 Create one compact packet per distinct candidate:

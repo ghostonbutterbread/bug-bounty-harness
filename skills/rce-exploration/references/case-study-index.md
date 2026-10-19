@@ -11,6 +11,7 @@ safe-fetch.
 | Apache Struts S2-045 | Include headers, validation failures, exception rendering, and parser fallback/error paths in the sink map. Apache describes the affected multipart `Content-Type` error path and publishes affected/fixed versions.[9] |
 | GitLab / ExifTool | An extension allowlist can be bypassed by downstream content sniffing. Trace raw bytes through each metadata, preview, conversion, AV, OCR, and extraction consumer—not only the upload gate.[10] |
 | Apache Struts S2-052 | Deserialization analysis must name the serializer, protocol/endpoint, type restrictions, and remediation. Apache attributes this route to XML handling through XStream without type filtering.[11] |
+| DevSite session object | For the accepted-control/integrity/object-loader chain and verified primary sources, load `rce-deserialization` and its `references/session-object-case.md`; default Flask state is not itself pickle. |
 | Spring Framework CVE-2022-22965 | Record an explicit environmental precondition matrix. Spring identifies JDK, servlet container, package type, and dependency conditions; a library version alone does not establish the stated path.[12] |
 | Atlassian Confluence advisory | Use vendor notices to capture product/deployment class, affected/fixed range, auth condition, exploitation status, and mitigation. They are exposure-triage evidence, not production reproduction instructions.[14] |
 

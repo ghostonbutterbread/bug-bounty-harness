@@ -62,6 +62,7 @@ HARNESS_SHARED_BASE=/custom/shared ./setup.sh --config
 | **rce** | `/rce {program} {execution-question}` | `skills/rce/SKILL.md`; class entry for server-side execution chains |
 | **rce-exploration** | Named primitive investigation | `skills/rce-exploration/SKILL.md`; focused packet and conditional references |
 | **rce-surface-mapping** | Mapped execution-capable consumers | `skills/rce-surface-mapping/SKILL.md` |
+| **rce-deserialization** | Object reconstruction and accepted-state trust boundaries | `skills/rce-deserialization/SKILL.md`; nested state, integrity gates, and later loading triggers |
 | **rce-lifecycle** | Delayed or transformed consumers | `skills/rce-lifecycle/SKILL.md` |
 | **rce-validation** | Bounded precursor or proof | `skills/rce-validation/SKILL.md` |
 | **rce-technology-research** | Observed stack and preconditions | `skills/rce-technology-research/SKILL.md` |

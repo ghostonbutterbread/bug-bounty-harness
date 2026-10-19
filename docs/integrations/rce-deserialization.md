@@ -12,7 +12,9 @@ traffic, runtime projection, beta/main merge, push, or new live-cookie tooling.
 - Worktree: `~/worktrees/bbh-rce-deserialization`.
 - Base: `origin/beta`, `9f56eb16d480eda212f7f76108a329d434aa9d9a`.
 - Intended integration target after a separate adoption decision: `beta`.
-- Current recovery: uncommitted draft; checkpoint SHA added after commit.
+- Recovery checkpoint: implementation commit
+  `eee4f0bec6080548f855bf70fd1097324820e754`; a later dossier-only commit records
+  final review/verification. The feature branch retains both commits.
 
 ## Implemented contract
 
@@ -43,8 +45,19 @@ interpreter exposed missing checkout-local launcher dependencies; the documented
 `./setup.sh --install-python-deps` created the task worktree's `.venv` without
 changing dispatchers or runtime projection. Final `.venv/bin/python -m pytest -q
 tests`: **286 passed, 186 subtests passed**. `git diff --check` passed.
-Independent read-only review/fresh scenario smoke is pending. No live efficacy
-claim follows from text/packaging checks.
+Independent read-only review approved the draft without blockers. The reviewer
+reran focused checks: **21 passed, 10 subtests passed**, verified all four primary
+capture hashes, and exercised three reader scenarios: intact default Flask
+JSON; compromised-integrity nested pickle consumed at callback; and header-driven
+parser/error rendering without object loading. These are reader/packaging checks,
+not executed target tests or a live efficacy claim.
+
+Reviewed nine-file snapshot manifest SHA-256:
+`6e4d140ef1bb6852ecff6d7e06e536835d28f05722ae48fd2816dc53acfed60b`.
+The parent reconstructed that snapshot from the implementation commit, reverting
+only the dossier's test-receipt paragraph in memory; the hash matched exactly.
+No skill/reference/test changed after review. Final dossier-only evidence changes
+are outside the mechanism contract.
 
 ## Activation and successor
 

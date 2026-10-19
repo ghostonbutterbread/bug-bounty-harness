@@ -822,11 +822,6 @@ def test_task_proxy_completion_indexes_private_default_and_releases(
         c.commit()
     home = tmp_path / "home"
     home.mkdir(mode=0o700)
-    artifact = tmp_path / "artifact-mount"
-    artifact.mkdir()
-    legacy = home / ".local/share/ghost/proxy-store"
-    legacy.parent.mkdir(parents=True)
-    legacy.symlink_to(artifact, target_is_directory=True)
     monkeypatch.setenv("HOME", str(home))
 
     try:
@@ -851,6 +846,6 @@ def test_task_proxy_completion_indexes_private_default_and_releases(
     assert m.proxy_row(c, args) is None
     db_path = home / ".local/state/ghost/proxy-store/proxy_store.sqlite"
     assert db_path.is_file()
-    assert legacy.is_symlink() and not list(artifact.iterdir())
+    assert not (home / ".local/share/ghost/proxy-store").exists()
     with sqlite3.connect(db_path) as index:
         assert index.execute("SELECT COUNT(*) FROM requests").fetchone()[0] == 1

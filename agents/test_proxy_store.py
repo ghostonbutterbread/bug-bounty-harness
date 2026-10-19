@@ -28,6 +28,7 @@ def test_connect_creates_and_repairs_private_default_store(tmp_path, monkeypatch
     module = load_proxy_store()
     db = tmp_path / "proxy-store" / "proxy.sqlite"
     monkeypatch.setattr(module, "DEFAULT_STORE", db)
+    monkeypatch.setattr(module, "LEGACY_STORE", tmp_path / "legacy")
     previous_umask = os.umask(0o022)
     try:
         with module.connect(db) as conn:
@@ -123,6 +124,7 @@ def test_connect_refuses_symlinked_default_directory_without_chmod(tmp_path, mon
     dedicated.symlink_to(shared, target_is_directory=True)
     db = dedicated / "proxy.sqlite"
     monkeypatch.setattr(module, "DEFAULT_STORE", db)
+    monkeypatch.setattr(module, "LEGACY_STORE", tmp_path / "legacy")
 
     with pytest.raises(OSError):
         module.connect(db)
@@ -233,6 +235,7 @@ def test_connect_refuses_intermediate_default_symlink_without_chmod(tmp_path, mo
     alias.symlink_to(actual, target_is_directory=True)
     db = alias / "proxy-store" / "proxy_store.sqlite"
     monkeypatch.setattr(module, "DEFAULT_STORE", db)
+    monkeypatch.setattr(module, "LEGACY_STORE", tmp_path / "legacy")
     with pytest.raises(OSError):
         module.connect(db)
     assert stat.S_IMODE(dedicated.stat().st_mode) == 0o755

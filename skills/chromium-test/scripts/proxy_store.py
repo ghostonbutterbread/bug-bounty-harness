@@ -22,6 +22,7 @@ DEFAULT_LANE_ROOT = Path("~/.local/state/ghost/mitm-lanes").expanduser()
 # Runtime metadata belongs on the private local state path, not the artifact
 # mount (or the legacy share path that may be symlinked to that mount).
 DEFAULT_STORE = Path("~/.local/state/ghost/proxy-store/proxy_store.sqlite").expanduser()
+LEGACY_STORE = Path("~/.local/share/ghost/proxy-store").expanduser()
 DEFAULT_PROXY_HOST = "hoster"
 DEFAULT_AGENT_PORT_MIN = 8081
 DEFAULT_AGENT_PORT_MAX = 8090
@@ -91,8 +92,22 @@ def _open_private_parent(parent: Path, *, default_store: bool) -> int:
         raise
 
 
+def guard_default_store(db_path: Path) -> None:
+    """Never initialize or read a fresh index while legacy state can diverge."""
+    if Path(os.path.abspath(db_path)) == Path(os.path.abspath(DEFAULT_STORE)):
+        # lexists also catches dangling symlinks: never silently assume a
+        # missing mount means the legacy database has been decommissioned.
+        if os.path.lexists(LEGACY_STORE):
+            raise RuntimeError(
+                "Legacy proxy store still exists at ~/.local/share/ghost/proxy-store; "
+                "freeze proxy-store writers, migrate and verify the SQLite database "
+                "and leases, then decommission the old path before using the new default"
+            )
+
+
 def connect(db_path: Path, *, read_only: bool = False) -> sqlite3.Connection:
     db_path = Path(os.path.abspath(db_path))
+    guard_default_store(db_path)
     default_store = db_path == Path(os.path.abspath(DEFAULT_STORE))
     # SQLite reopens by pathname. No component of that path may be replaceable
     # by another account between the permission check and the SQLite open.
@@ -1036,6 +1051,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    guard_default_store(Path(args.db).expanduser())
     result = args.func(args)
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))

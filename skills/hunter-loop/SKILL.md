@@ -21,6 +21,14 @@ parent performs the same check directly. A worker's `coverage_exhausted` closes
 only its supported chain, not the goal or vulnerability class. Do not impose
 this checkpoint on ordinary interactive hunts.
 
+For a long multi-agent hunt (whether or not it is an explicit `/goal`), run
+`/coverage`'s read-only `watch` at the first mapped slice and each meaningful
+worker handoff or proposed negative stop. Reconcile the selected lane's mapped
+questions, exact Attempt stream linkage, and available URL/parameter/JS source
+pointers. A missing ledger calls for a bounded offline backfill worker when
+source evidence permits; it is not a negative verdict or a reason to abandon
+an active hot chain. This watch is not the `/bug-goals` decision checkpoint.
+
 For a long-running multi-agent hunt, Hunter Loop may use Hermes Kanban as the
 local orchestrator's durable work queue. External CLI agents keep their own
 native session/run logs and publish only durable hunt outcomes into the

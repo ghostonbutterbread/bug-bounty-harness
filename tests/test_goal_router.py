@@ -211,6 +211,42 @@ def test_checkpoint_empty_inventory_is_mapping_gap_without_creating_coverage(tmp
     assert json.loads((run / "goal-state.json").read_text())["last_checkpoint"] == receipt
 
 
+def test_goal_checkpoint_watches_exact_worker_run_without_assessing_it(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    root = tmp_path / "data"
+    goal.initialize_run(goal.build_plan(program="sample", objective="Find XSS", vulnerability_class="xss"), run,
+                        family="web_bounty", lane="web")
+    stream = root / "web_bounty" / "sample" / "web" / "attempts" / "_runs" / "worker-1" / "attempts.jsonl"
+    stream.parent.mkdir(parents=True)
+    stream.write_text(json.dumps({"attempt_id": "A-1", "target": "https://private.example/?q=secret"}) + "\n")
+    receipt = goal.record_checkpoint(run, family="web_bounty", lane="web", root=root,
+                                     attempt_run_id="worker-1", decision="map", reason="Inventory thin",
+                                     next_step="Backfill the mapped question")
+    assert receipt["coverage_uptake"]["signal"] == "needs_reconciliation"
+    assert receipt["coverage_uptake"]["run_id"] == "worker-1"
+    assert "private.example" not in json.dumps(receipt)
+    assert not (root / "web_bounty" / "sample" / "web" / "ledgers" / "surface_coverage.sqlite").exists()
+
+
+def test_goal_checkpoint_cannot_bounded_stop_on_missing_exact_worker_stream(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    root = tmp_path / "data"
+    goal.initialize_run(goal.build_plan(program="sample", objective="Find XSS", vulnerability_class="xss"), run,
+                        family="web_bounty", lane="web")
+    store = SurfaceCoverageStore("sample", family="web_bounty", lane="web", root_override=root)
+    surface = store.discover(kind="route", host="app.example", surface_key="GET /preview",
+                             input_key="comment", consumer="preview", source_ref="recon/preview.jsonl",
+                             run_id="mapper-1", class_name="xss")
+    store.assess(surface, class_name="xss", status="bounded_review", expected_fingerprint="",
+                 reason="owned browser render checked", boundary="preview only", axes=["render"],
+                 evidence_refs=["map:preview.jsonl"])
+    with pytest.raises(ValueError, match="remaining unknowns"):
+        goal.record_checkpoint(run, family="web_bounty", lane="web", root=root,
+                               attempt_run_id="worker-typo", decision="bounded-stop", reason="Done",
+                               next_step="Stop", inventory_refs=["recon/example.jsonl"])
+    assert "last_checkpoint" not in json.loads((run / "goal-state.json").read_text())
+
+
 def test_checkpoint_replays_blocked_and_unassessed_paths_as_bounded_pause(tmp_path: Path) -> None:
     run = tmp_path / "run"
     goal.initialize_run(goal.build_plan(program="sample", objective="Find XSS", vulnerability_class="xss"), run)

@@ -28,6 +28,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agents.surface_coverage import SurfaceCoverageStore, _plain
+from agents.coverage_watch import watch_lane
 
 
 MODES = {
@@ -256,7 +257,7 @@ def record_checkpoint(
     run_dir: Path, *, family: str, lane: str, decision: str, reason: str,
     next_step: str, root: Path | None = None, vulnerability_class: str | None = None,
     host: str | None = None, remaining: list[str] | None = None,
-    inventory_refs: list[str] | None = None,
+    inventory_refs: list[str] | None = None, attempt_run_id: str | None = None,
 ) -> dict[str, Any]:
     """Record a goal-parent decision from existing coverage, never a verdict about a target."""
     state_path = run_dir / "goal-state.json"
@@ -310,6 +311,12 @@ def record_checkpoint(
         "goal_outcome": "paused_bounded" if decision == "bounded-stop" else "in_progress",
         "eligible_goal_complete": False,
     }
+    if attempt_run_id is not None:
+        uptake = watch_lane(state["program"], family=family, lane=lane, root=root,
+                            attempt_run_id=attempt_run_id, max_attempt_rows=5000)
+        receipt["coverage_uptake"] = uptake["runs"][0]
+        if decision == "bounded-stop" and uptake["runs"][0]["signal"] in {"needs_reconciliation", "missing_stream", "incomplete"} and not remaining:
+            raise ValueError("bounded-stop requires remaining unknowns for unreconciled worker coverage")
     # One atomic run-state file owns the checkpoint history; Coverage owns target truth.
     state["last_checkpoint"] = receipt
     state.setdefault("checkpoints", []).append(receipt)
@@ -352,6 +359,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     checkpoint.add_argument("--next-step", required=True)
     checkpoint.add_argument("--remaining", action="append", default=[])
     checkpoint.add_argument("--inventory-ref", action="append", default=[])
+    checkpoint.add_argument("--attempt-run-id", help="Include read-only Coverage uptake for this worker stream")
     return parser.parse_args(argv)
 
 
@@ -363,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
             root=args.root, vulnerability_class=args.vulnerability_class, host=args.host,
             decision=args.decision, reason=args.reason, next_step=args.next_step,
             remaining=args.remaining, inventory_refs=args.inventory_ref,
+            attempt_run_id=args.attempt_run_id,
         ), indent=2, sort_keys=True))
         return 0
     plan = build_plan(

@@ -663,7 +663,8 @@ class MapStore:
         # Replace existing entry with same path
         path_key = entry.get("path", "")
         entries = [e for e in entries if e.get("path") != path_key]
-        entries.append(entry)
+        # Prepend before the stable sort so a new write wins same-second ties.
+        entries.insert(0, entry)
         # Sort newest first
         entries.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
         self._write_index(entries)

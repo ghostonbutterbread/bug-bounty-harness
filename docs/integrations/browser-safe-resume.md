@@ -5,8 +5,8 @@
 - **Branch / owning ref:** `feat/browser-safe-resume`
 - **Base commit:** `eaa6cca5483e12b79a427bc06cac1629673e3348` (`origin/beta` fetched)
 - **Intended integration target:** `beta`
-- **Prior immutable recovery checkpoint:** `da1ba16aa2aed036ce944c5719309fc23504e2a0` (automatic-slot refinement). Current correction is checkpointed on this feature ref; verify current tip separately.
-- **Feature implementation commit(s):** `54a9433`, `57b4c44`, `f96c0bc`, `da1ba16`
+- **Prior immutable recovery checkpoint:** `da1ba16aa2aed036ce944c5719309fc23504e2a0` (automatic-slot refinement). Local real-fixture implementation checkpoint: `7c47c11` on this feature ref; verify current tip separately.
+- **Feature implementation commit(s):** `54a9433`, `57b4c44`, `f96c0bc`, `da1ba16`, `1ec2e65` (canonical-owner correction), `7c47c11` (local real fixture)
 - **Inspiration:** capacity incident where four active browser units were stopped by a mismatched suffix; existing request-triggered two-hour CDP idle sweep.
 
 ## Intent and implemented contract

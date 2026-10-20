@@ -5,8 +5,8 @@
 - **Branch / owning ref:** `feat/browser-safe-resume`
 - **Base commit:** `eaa6cca5483e12b79a427bc06cac1629673e3348` (`origin/beta` fetched)
 - **Intended integration target:** `beta`
-- **Latest immutable recovery checkpoint:** `54a9433` (initial feature); current repair checkpoint is the branch tip accompanying this dossier
-- **Feature implementation commit(s):** `54a9433` plus the repair checkpoint accompanying this dossier
+- **Latest immutable recovery checkpoint:** `57b4c44790c6377c7b879b48036b25763c75784d` (repair and test receipt; later dossier-only commits do not change implementation)
+- **Feature implementation commit(s):** `54a9433`, `57b4c44`
 - **Inspiration:** capacity incident where four active browser units were stopped by a mismatched suffix; existing request-triggered two-hour CDP idle sweep.
 
 ## Intent and implemented contract

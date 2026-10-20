@@ -26,7 +26,11 @@ is selected, the normal published scope and AI Policies gates below still apply.
 2. Authority order is published program rules and scope → AI Policies → BBH
    runtime mechanics. BBH does not override scope, account, rate, or impact
    decisions.
-3. Begin from the current user goal and a cold, current surface. Do not preload
+3. Begin from the current user goal and a selected current surface. At a
+   concrete URL, feature, or component, use a bounded MapStore Application
+   Behavior query as an optional orientation map rather than rediscovering
+   known input-to-consumer edges from scratch. Verify relevant edges live and
+   explore beyond the map; absence means unknown, not safe. Do not preload
    broad prior leads, findings, or peer theory queues. When mapping a
    user-influenced value or workflow, consult `/live-map` for its consumer
    question. Its runtime route map is distinct from MapStore's named, factual

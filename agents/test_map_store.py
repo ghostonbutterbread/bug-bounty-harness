@@ -417,6 +417,7 @@ class TestMapStore:
                 "--program", "testprog", "--root", root,
                 "--name", "XML notification parser", "--kind", "parser",
                 "--observation", source_path, "--body-file", str(body_file),
+                "--anchor", "StockNotification", "--summary", "XML input → parser; downstream unknown",
             ],
             cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True,
         )
@@ -430,6 +431,7 @@ class TestMapStore:
         )
         assert query.returncode == 0, query.stderr
         assert json.loads(query.stdout)[0]["id"] == "xml-notification-parser"
+        assert store.query_behaviors(location="StockNotification")[0]["summary"] == "XML input → parser; downstream unknown"
         observation = subprocess.run(
             [
                 sys.executable, "agents/map_store.py", "write", "--program", "testprog", "--root", root,
@@ -440,6 +442,69 @@ class TestMapStore:
         )
         assert observation.returncode == 0, observation.stderr
         assert store.query(url="https://app.com/stocknotification")[0]["behaviors"] == ["xml-notification-parser"]
+
+    def test_location_orientation_and_exact_drilldown(self, store: MapStore):
+        store.init()
+        source = store.write(
+            url="https://app.example/inbox", surface="js",
+            title="Observed notification action",
+            body="actions[].href reaches location.href. Attempts: runs/a/attempts.jsonl.\n",
+        )
+        relative = source.relative_to(store.maps_root).as_posix()
+        store.write_behavior(
+            name="Courier notification navigation", kinds=["navigation-sink"],
+            observation_paths=[relative], anchors=["CourierInbox", "actions[].href"],
+            summary="actions[].href → location.href; writer unknown",
+            body="Observed action navigation; source writer not established.\n",
+        )
+        unrelated = store.write(url="https://other.example/inbox", surface="js", body="Other inbox.\n")
+        store.write_behavior(name="Other inbox", kinds=["navigation-sink"],
+                             observation_paths=[unrelated.relative_to(store.maps_root).as_posix()],
+                             anchors=["CourierInbox"], body="Other host.\n")
+        with pytest.raises(ValueError, match="multiple hosts"):
+            store.query_behaviors(location="CourierInbox")
+        assert [row["id"] for row in store.query_behaviors(location="CourierInbox", url="https://app.example/inbox")] == ["courier-notification-navigation"]
+        assert [row["id"] for row in store.query_behaviors(url="https://app.example/inbox")] == ["courier-notification-navigation"]
+        assert store.query_behaviors(url="https://app.example/inbox/other") == []
+        detail = store.behavior_detail("courier-notification-navigation")
+        assert detail["observations"][0]["path"] == relative
+        assert detail["observations"][0]["status"] == "active"
+        assert "writer not established" in detail["body"]
+        assert "runs/a/attempts.jsonl" not in detail["body"]  # no bulk Attempt ingest
+
+    def test_legacy_behavior_update_keeps_orientation_metadata(self, store: MapStore):
+        store.init()
+        observation = store.write(url="https://app.example/inbox", surface="js", body="Observed action.\n")
+        relative = observation.relative_to(store.maps_root).as_posix()
+        store.write_behavior(name="Courier action", kinds=["sink"], observation_paths=[relative],
+                             body="Initial observation.\n", anchors=["CourierInbox"],
+                             summary="action.href → navigation")
+        store.write_behavior(name="Courier action", kinds=["sink"], observation_paths=[relative],
+                             body="Updated observation.\n")
+        row = store.query_behaviors(location="CourierInbox")[0]
+        assert row["summary"] == "action.href → navigation"
+        assert "Summary: action.href → navigation" in store.behavior_detail(row["id"])["body"]
+
+    def test_location_cli_is_bounded_and_reports_truncation(self, store: MapStore):
+        store.init()
+        for name in ("Inbox action A", "Inbox action B"):
+            observation = store.write(url="https://app.example/inbox", surface="js", body=name, title=name)
+            store.write_behavior(name=name, kinds=["sink"],
+                                 observation_paths=[observation.relative_to(store.maps_root).as_posix()],
+                                 body=name, anchors=["CourierInbox"], summary=name)
+        command = [sys.executable, "agents/map_store.py", "behavior", "query",
+                   "--program", "testprog", "--root", str(store._layout.base_root),
+                   "--location", "CourierInbox", "--limit", "1", "--json"]
+        result = subprocess.run(command, cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True)
+        assert result.returncode == 0, result.stderr
+        assert len(json.loads(result.stdout)) == 1
+        assert "truncated" in result.stderr
+        shown = subprocess.run([sys.executable, "agents/map_store.py", "behavior", "show",
+                                "--program", "testprog", "--root", str(store._layout.base_root),
+                                "--id", "inbox-action-a", "--json"],
+                               cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True)
+        assert shown.returncode == 0, shown.stderr
+        assert json.loads(shown.stdout)["observations"][0]["status"] == "active"
 
     def test_cli_documented_observation_path_can_create_behavior(self, store: MapStore, tmp_path: Path):
         observation_body = tmp_path / "request-observation.md"

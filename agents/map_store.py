@@ -763,7 +763,8 @@ class MapStore:
         )
 
     def write_behavior(self, *, name: str, kinds: list[str], observation_paths: list[str], body: str,
-                       tags: list[str] | None = None, agent: str = "ghost",
+                       tags: list[str] | None = None, anchors: list[str] | None = None,
+                       summary: str | None = None, agent: str = "ghost",
                        run_id: str | None = None, model_id: str | None = None) -> Path:
         """Create/update a named evidence-backed capability, not a vulnerability lead."""
         behavior_id = slugify(name, fallback="")
@@ -784,11 +785,16 @@ class MapStore:
             raise ValueError("Supporting observations must include at least one concrete URL")
         if not body.strip():
             raise ValueError("Application behavior body is required")
+        if summary is not None and ("\n" in summary or "\r" in summary):
+            raise ValueError("Application behavior summary must be one line")
         normalized_tags = sorted({slugify(value) for value in tags or [] if value.strip()})
         timestamp = iso_now()
         with self._locked():
             existing_entries = self._read_behavior_index()
             existing = next((entry for entry in existing_entries if entry.get("id") == behavior_id), {})
+            normalized_anchors = (sorted({slugify(value) for value in anchors if value.strip()})
+                                  if anchors is not None else existing.get("anchors", []))
+            summary_text = summary.strip() if summary is not None else existing.get("summary", "")
             reviewers = merge_ai_reviewers(
                 existing.get(AI_REVIEWED_BY_FIELD), agent_id=agent, model_id=model_id
             )
@@ -800,6 +806,10 @@ class MapStore:
                       *[f"- {url}" for url in normalized_urls]]
             if normalized_tags:
                 header.append(f"Tags: {' '.join('#' + tag for tag in normalized_tags)}")
+            if normalized_anchors:
+                header.append(f"Location Anchors: {', '.join(normalized_anchors)}")
+            if summary_text:
+                header.append(f"Summary: {summary_text}")
             if reviewers:
                 header.append(f"AI Reviewed By: {', '.join(reviewer_labels(reviewers))}")
             header.extend([f"Agent: {agent}", f"Run: {run_id or 'manual'}", f"Updated: {timestamp}", ""])
@@ -807,6 +817,7 @@ class MapStore:
             entries = [entry for entry in existing_entries if entry.get("id") != behavior_id]
             entry = {"record_type": "application_behavior", "id": behavior_id, "name": name.strip(), "kinds": normalized_kinds,
                      "observation_paths": normalized_paths, "urls": normalized_urls, "tags": normalized_tags,
+                     "anchors": normalized_anchors, "summary": summary_text,
                      "path": path.relative_to(self._maps_root).as_posix(),
                      "timestamp": timestamp, "agent": agent, "run_id": run_id or ""}
             if reviewers:
@@ -820,15 +831,50 @@ class MapStore:
         return path
 
     def query_behaviors(self, *, kind: str | None = None, url: str | None = None,
-                        tags: list[str] | None = None, limit: int | None = None) -> list[dict]:
+                        location: str | None = None, tags: list[str] | None = None,
+                        limit: int | None = None) -> list[dict]:
+        """Find named capabilities at a selected location, without a broad lead feed.
+
+        Location matches explicit anchors or the behavior name/ID. URL lookup
+        remains exact so an unrelated route or host never inherits a behavior.
+        """
         required_tags = {slugify(value) for value in tags or [] if value}
         normalized_kind = slugify(kind) if kind else ""
         normalized_url = normalize_url(url) if url else ""
+        normalized_location = slugify(location) if location else ""
         results = [entry for entry in self._read_behavior_index()
                    if (not normalized_kind or normalized_kind in entry.get("kinds", []))
                    and (not normalized_url or normalized_url in entry.get("urls", []))
+                   and (not normalized_location or normalized_location in
+                        {entry.get("id"), slugify(str(entry.get("name") or "")),
+                         *entry.get("anchors", [])})
                    and required_tags.issubset(set(entry.get("tags", [])))]
+        if normalized_location and not normalized_url:
+            hosts = {urlsplit(value).netloc for entry in results for value in entry.get("urls", [])}
+            if len(hosts) > 1:
+                raise ValueError("Location matches multiple hosts (" + ", ".join(sorted(hosts))
+                                 + "); add --url for an exact host/route lookup")
         return results[:limit] if limit is not None and limit >= 0 else results
+
+    def behavior_detail(self, behavior_id: str) -> dict:
+        """Read one selected behavior and its evidence-linked observation state."""
+        key = slugify(behavior_id)
+        entry = next((row for row in self._read_behavior_index() if row.get("id") == key), None)
+        if entry is None:
+            raise ValueError(f"Unknown application behavior: {behavior_id}")
+        observations = {row.get("path"): row for row in self._read_index()}
+        return {
+            **entry,
+            "body": (self._maps_root / entry["path"]).read_text(encoding="utf-8"),
+            "observations": [
+                {"path": path, "title": observations[path].get("title", ""),
+                 "status": _entry_status(observations[path]),
+                 "timestamp": observations[path].get("timestamp", ""),
+                 "url": observations[path].get("url", "")}
+                if path in observations else {"path": path, "missing": True}
+                for path in entry.get("observation_paths", [])
+            ],
+        }
 
     def _behavior_ids(self, values: list[str]) -> list[str]:
         requested = sorted({slugify(value) for value in values if value.strip()})
@@ -1511,6 +1557,8 @@ def _build_parser() -> argparse.ArgumentParser:
     behavior_body.add_argument("--body-file")
     behavior_body.add_argument("--body-stdin", action="store_true")
     behavior_write_p.add_argument("--tags", default="")
+    behavior_write_p.add_argument("--anchor", action="append", default=None, help="Feature/component/field identifier at which to retrieve this behavior; repeat")
+    behavior_write_p.add_argument("--summary", default=None, help="One-line observed source-to-consumer map (unknown edges explicitly unknown)")
     behavior_write_p.add_argument("--agent", default="ghost")
     behavior_write_p.add_argument("--model-id", help="Optional model identifier for AI-review attribution")
     behavior_write_p.add_argument("--run-id", default=None)
@@ -1518,9 +1566,14 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_common(behavior_query_p)
     behavior_query_p.add_argument("--kind", default=None)
     behavior_query_p.add_argument("--url", default=None)
+    behavior_query_p.add_argument("--location", default=None, help="Exact feature/component/field anchor or behavior name; combine with --kind")
     behavior_query_p.add_argument("--tags", default="")
-    behavior_query_p.add_argument("--limit", type=int, default=None)
+    behavior_query_p.add_argument("--limit", type=int, default=10)
     behavior_query_p.add_argument("--json", action="store_true")
+    behavior_show_p = behavior_sub.add_parser("show", help="Read one selected behavior and linked observation state")
+    _add_common(behavior_show_p)
+    behavior_show_p.add_argument("--id", required=True, help="Exact behavior ID returned by query")
+    behavior_show_p.add_argument("--json", action="store_true")
 
     # init
     init_p = sub.add_parser("init", help="Create maps directory structure")
@@ -1655,24 +1708,48 @@ def _run_behavior(store: MapStore, args: argparse.Namespace) -> int:
         path = store.write_behavior(
             name=args.name, kinds=args.kind, observation_paths=args.observation, body=body,
             tags=[tag.strip() for tag in args.tags.split(",") if tag.strip()],
+            anchors=args.anchor, summary=args.summary,
             agent=args.agent, run_id=args.run_id, model_id=args.model_id,
         )
         print(path)
         return 0
-    entries = store.query_behaviors(
-        kind=args.kind, url=args.url,
-        tags=[tag.strip() for tag in args.tags.split(",") if tag.strip()],
-        limit=args.limit,
-    )
+    if args.behavior_command == "show":
+        detail = store.behavior_detail(args.id)
+        if args.json:
+            print(json.dumps(detail, indent=2))
+        else:
+            print(detail["body"].rstrip())
+            print("\nLinked observations (lifecycle status is not test coverage):")
+            for obs in detail["observations"]:
+                print(f"- {obs['path']} | {obs.get('status', 'missing')}")
+        return 0
+    if args.limit < 1:
+        raise ValueError("Behavior query limit must be positive")
+    try:
+        entries = store.query_behaviors(
+            kind=args.kind, url=args.url, location=args.location,
+            tags=[tag.strip() for tag in args.tags.split(",") if tag.strip()],
+            limit=args.limit + 1,
+        )
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    truncated = len(entries) > args.limit
+    entries = entries[:args.limit]
     if args.json:
         print(json.dumps(entries, indent=2))
+        if truncated:
+            print("WARNING: behavior query truncated; narrow filters or raise --limit", file=sys.stderr)
     elif not entries:
         print("(no application behaviors found)")
     else:
         for entry in entries:
-            print(f"{entry['name']} | {', '.join(entry['kinds'])}")
+            print(f"{entry['name']} | {', '.join(entry['kinds'])} | {entry.get('summary') or '(open record for map)'}")
+            print(f"  ID: {entry['id']}")
             print(f"  URLs: {', '.join(entry['urls'])}")
             print(f"  Path: {entry['path']}")
+        if truncated:
+            print("(more matches; narrow --location/--kind/--url or raise --limit)")
     return 0
 
 

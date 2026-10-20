@@ -37,9 +37,13 @@ Read `general-security-testing-policy` first and follow its Cold-Start guidance 
    live-testing policy. Check `~/Shared/scopes/{program}/` first, then
    `~/Shared/bounty_recon/{program}/scope/`. If no scope exists, try
    `/pullscope`. If the program has no published scope, write `no scope` stub.
-2. **Cold Surface Pass** — Read `prompts/hunter-loop-playbook.md`.
-   Look at the app with fresh eyes. Browse, map endpoints, observe behavior.
-   Avoid broad MapStore, ledger, or prior-lead reads until the agent has current observations.
+2. **Current Surface Pass** — Read `prompts/hunter-loop-playbook.md`.
+   Select a route, feature, or component from the goal/current app. A bounded
+   MapStore Application Behavior lookup at that location may orient the agent
+   on known inputs and consumers without remapping them from scratch. Verify
+   relevant edges against the current app, observe something current, and
+   freely explore outside the map. Avoid broad MapStore, ledger, or prior-lead
+   reads; historical leads must not choose the target.
 3. **Fresh Observations** — Record what the current surface actually shows;
    a narrow flow need not produce a quota of observations.
 4. **Memory Overlay** — Now query prior state as needed:
@@ -101,8 +105,9 @@ task database.
 4. Create a scope-and-account gate as the first task. It records scope source,
    rate rules, owned account aliases, allowed actions, and auth-seed references
    without copying secrets. Block live tasks until that gate is complete.
-5. Create a cold-surface mapping task before specialist tasks. Its required
-   output is fresh current-run observations, not a MapStore lead summary.
+5. Create a current-surface mapping task before specialist tasks. Its required
+   output is fresh current-run observations, not a MapStore lead summary;
+   it may use a targeted factual Behavior map to skip repeat inventory.
 6. Give every live card a bounded scope, lease, max runtime, stop condition,
    required policy chain, attempts path, and evidence standard. A worker may
    not expand its surface or start a new vulnerability lane without a new card.

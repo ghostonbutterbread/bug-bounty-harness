@@ -33,6 +33,7 @@ checkout-local interpreter.
 - [Chromium Handoff](../skills/chromium-handoff/scripts/README.md)
 - [Chromium Test](../skills/chromium-test/scripts/README.md)
 - [Proxy Curl](../skills/proxy-curl/scripts/README.md)
+- [Stack to Program](../skills/stack-to-program/scripts/README.md)
 - [XSS](../skills/xss/scripts/README.md)
 
 ## `bbh`

@@ -1,0 +1,15 @@
+# Stack-to-program scripts
+
+## `stack_to_program.py`
+
+- **Purpose:** Offline, deterministic candidate join from observed technology/product evidence to a local ProjectDiscovery public-bugbounty-programs `dist/data.json` snapshot. It does not discover vulnerabilities or grant testing authorization.
+- **Owner/scope:** Stack-to-program / public directory metadata only. No network requests, host probes, candidate app queries, or account activity.
+- **Inputs:** `--evidence` JSONL with nonempty string fields `component`, `product`, `evidence_label` (`source-derived`, `disclosure`, `artifact`, `feature-inferred`, `contradicted`, `unknown`), `source_url` (HTTP(S)), `observed_date` (ISO calendar date); optional `product_domain` or `program_url`. `--programs` points to an already-downloaded ProjectDiscovery `dist/data.json` containing `programs` with `name`, `url`, `domains`, and optional boolean `bounty`. No snapshot download is performed by the CLI.
+- **Join boundary:** If `program_url` is present, match only that exact URL (normalized scheme/host case and trailing slash). Otherwise, if `product_domain` is present, match only an exact directory domain (case/trailing-dot normalized). Otherwise use exact whitespace/case-normalized product-to-program name. No subdomain, substring, fuzzy, repository owner, or technology-to-owner inference. Explicit identifiers that fail to match do not fall back to name. Multiple exact matches remain candidates rather than silently choosing one.
+- **Output:** Deterministic JSON on stdout or at `--output PATH`: `count`, `candidates`, `unmatched`, `exhaustive: false`. Each candidate includes directory source and URL, directory bounty flag(s) marked unverified, all distinct evidence labels (including contradictions), evidence/match provenance, and unknowns. Duplicate identical evidence lines collapse. Paid status, current rules, scope, and vulnerability status remain unknown regardless of the directory flag.
+- **Mutation boundary:** Reads only input files; optional `--output` overwrites only the designated local derived JSON file. No target traffic.
+- **Example after beta activation:** `bbh skills/stack-to-program/scripts/stack_to_program.py --evidence evidence.jsonl --programs dist/data.json --output candidates.json`. For branch-local verification, run `python3 skills/stack-to-program/scripts/stack_to_program.py ...` from this worktree.
+- **Snapshot source:** [ProjectDiscovery public-bugbounty-programs dist/data.json](https://github.com/projectdiscovery/public-bugbounty-programs/blob/main/dist/data.json). Download and date the public snapshot separately; preserve its revision or checksum alongside the output. Directory domain fields are metadata, not a scoped-host list.
+- **Verification:** `python3 -m unittest discover -s tests -p test_stack_to_program.py -v` (offline fixtures).
+- **Coverage limit:** Only exact mappings visible in the supplied snapshot; absence of a candidate is not absence of a public program. Review live program rules and authorization separately before testing.
+- **Last verified:** 2026-10-20.

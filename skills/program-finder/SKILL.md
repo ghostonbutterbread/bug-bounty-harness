@@ -14,6 +14,8 @@ any target interaction.
 
 ## Candidate sources and fit
 
+When the selection criterion is a named technology, CVE, library, or converter, load `stack-to-program` first to produce evidence-labeled product and directory candidates. Then verify current paid status and program rules here. A dependency or directory join alone is neither a paid-program confirmation nor testing permission.
+
 Start with current public directories and program pages (including YesWeHack,
 Intigriti, HackerOne, Bugcrowd, and direct programs where relevant). `/bountylens`
 may contribute program/stat candidates; it is not the authority for a reward,

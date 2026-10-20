@@ -1,0 +1,48 @@
+# Stack-to-program integration dossier
+
+- **Status:** feature
+- **Owner:** Hermes bugfix
+- **Branch / owning ref:** `feat/stack-to-program`
+- **Base commit:** `ff9ebafe6f953819c65cd1e18471d74db0070ef4` (`origin/beta` fetched 2026-10-20)
+- **Intended integration target:** `beta`
+- **Last updated:** 2026-10-20
+- **Latest immutable recovery checkpoint:** none yet
+- **Feature implementation commit(s):** none yet
+- **Inspiration:** `~/Shared/skill_seeds/2026-10-20-stack-to-program.md`; Discord thread 1562182691246317579
+
+## Intent
+
+Make CVE/component-led program discovery repeatable at scale without treating public composition evidence or directory domains as authorization, deployed version, vulnerability, or current payment proof.
+
+## Implemented contract
+
+BBH `stack-to-program` skill with Ghostscript recipe; public-only evidence labeling and offline join CLI over evidence JSONL and dated public directory snapshot. Program Finder receives candidates for current paid/rules verification. No live target requests or scans in this phase.
+
+## Evidence and review
+
+- Tests and commands: `python3 -m unittest discover -s tests -p test_stack_to_program.py -v` (3 passing fixture tests); `git diff --check`. Real public snapshot fetched from ProjectDiscovery `dist/data.json` (149894 bytes) on 2026-10-20; offline Ghostscript run over Moodle's current Assignment settings docs and Nextcloud preview docs returned one `feature-inferred` Nextcloud directory candidate and one unmatched `source-derived` Moodle row. This is intentionally not a confirmed Ghostscript bounty deployment. Scratch inputs/output: `/home/ryushe/.hermes/profiles/bugfix/cache/scratch/stack-to-program-ghostscript-*` and dated `public-bugbounty-programs-20261020.json` (non-durable; rerun from public sources).
+- Independent review: pending.
+- Replay/cohort/fixture evidence: exact-match, no substring/subdomain/fallback, duplicates, contradiction, unpaid-status unknown and invalid-input fixtures.
+- Merge/ancestry evidence: worktree based on fetched `origin/beta` SHA above.
+
+## Blockers and deferred work
+
+No target scan is authorized by a directory join. A production version/affected-surface assertion requires later scoped program selection and normal testing gates. Broad automated evidence harvesting/API integrations are deferred beyond this first reproducible vertical slice; add only after source contracts and coverage are verified.
+
+## Interruption / resume handoff
+
+- **Owning feature branch/ref:** `feat/stack-to-program`
+- **Latest immutable recovery checkpoint:** none yet
+- **Feature implementation commit(s):** none yet
+- **Exact resume point:** finalize script and tests; run real public Ghostscript evidence example; independent review; beta integration if clean.
+- **Working-tree state:** active edits.
+
+## Decision gates
+
+- **Integration:** tests, real public-evidence smoke, independent review, clean current beta merge.
+- **Activation:** verify selected beta skill/script resolution; no automatic rollout to other hosts.
+- **Promotion:** stable only on explicit owner direction.
+
+## Decision record
+
+- 2026-10-20 — created feature branch and public-only boundary; skill documentation drafted.

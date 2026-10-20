@@ -2057,6 +2057,7 @@ def resume(args):
                     and successor["run_id"] == args.run_id and canonical_owner(successor)
                     and successor["profile_dir"] == row["profile_dir"]
                     and successor_info.get("instance_key") == recipe["instance_key"]
+                    and isinstance(successor_info.get("resumed_state_lost"), bool)
                     and isinstance(successor_recipe, dict) and physical is not None
                     and list(physical) == successor_recipe.get("physical_profile")
                     and not reservation_blocks(successor) and healthy(successor)
@@ -2067,7 +2068,7 @@ def resume(args):
                         mitm_ca_cert=recipe["mitm_ca_cert"]), successor)):
                 emit({"status": "already-running", **safe(successor),
                       "replaces_browser_id": row["browser_id"],
-                      "state_lost": bool(successor_info.get("resumed_state_lost")),
+                      "state_lost": successor_info["resumed_state_lost"],
                       "authentication": "browser-native-check-required"})
             emit({"status": "recovery-blocked", "reason": "replacement-unverified"}, 2)
         # Child start repeats exact row/physical/slot checks inside the node lock.
@@ -2105,16 +2106,18 @@ def resume(args):
         with node_lock(STATE):
             current = db().execute("SELECT * FROM browsers WHERE browser_id=?",
                                    (result.get("browser_id"),)).fetchone()
+            current_info = record_info(current) if current is not None else {}
             verified = (result.get("replaces_browser_id") == expected and current is not None
                         and current["state"] == "running" and current["lease_id"] == result.get("lease_id")
                         and current["agent_id"] == args.agent_id and current["run_id"] == args.run_id
                         and current["profile_dir"] == row["profile_dir"] and canonical_owner(current)
-                        and healthy(current) and record_info(current).get("replaces_browser_id") == expected
+                        and healthy(current) and current_info.get("replaces_browser_id") == expected
+                        and isinstance(current_info.get("resumed_state_lost"), bool)
                         and list(profiles.physical_profile(current["profile_dir"]) or ()) ==
-                            record_info(current).get("launch_recipe", {}).get("physical_profile"))
+                            current_info.get("launch_recipe", {}).get("physical_profile"))
         if not verified:
             emit({"status": "recovery-blocked", "reason": "replacement-publication-unverified"}, 2)
-        result["state_lost"] = lost
+        result["state_lost"] = current_info["resumed_state_lost"]
         result["authentication"] = "browser-native-check-required"
     emit(result, p.returncode)
 

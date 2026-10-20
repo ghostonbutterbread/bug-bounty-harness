@@ -216,13 +216,17 @@ def prepared_resume(monkeypatch, tmp_path, *, task_owned=True, missing=False, mo
     return m, c, row, recipe
 
 
-@pytest.mark.parametrize('missing', [False, True])
-def test_resume_dispatches_exact_stopped_task_owned_profile(monkeypatch, tmp_path, capsys, missing):
+@pytest.mark.parametrize('missing,removed_after_preflight', [(False, False), (True, False), (False, True)])
+def test_resume_dispatches_exact_stopped_task_owned_profile(monkeypatch, tmp_path, capsys, missing, removed_after_preflight):
     m, c, row, recipe = prepared_resume(monkeypatch, tmp_path, missing=missing)
     calls = []
     def child(cmd, **kwargs):
         calls.append(cmd)
-        if missing:
+        # Child start observes the filesystem only after resume releases its lock.
+        if removed_after_preflight:
+            Path(row['profile_dir']).rmdir()
+        child_state_lost = missing or removed_after_preflight
+        if child_state_lost:
             Path(row['profile_dir']).mkdir()
         import browser_profile_lease as profiles
         c.execute('INSERT INTO browsers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
@@ -230,6 +234,7 @@ def test_resume_dispatches_exact_stopped_task_owned_profile(monkeypatch, tmp_pat
                    'fixture', 'new-unit', row['profile_dir'], str(tmp_path / 'new.json'),
                    'running', 0, 0, 1, 1))
         (tmp_path / 'new.json').write_text(json.dumps({'replaces_browser_id': 'browser-0',
+                                                       'resumed_state_lost': child_state_lost,
                                                        'instance_key': '',
                                                        'launch_recipe': {'physical_profile': list(
                                                            profiles.physical_profile(row['profile_dir']))}}))
@@ -241,7 +246,7 @@ def test_resume_dispatches_exact_stopped_task_owned_profile(monkeypatch, tmp_pat
     monkeypatch.setattr(m, 'healthy', lambda _: True)
     assert result(lambda: m.resume(argparse.Namespace(browser_id='browser-0', agent_id='agent', run_id='run'))) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out['state_lost'] is missing
+    assert out['state_lost'] is (missing or removed_after_preflight)
     assert out['authentication'] == 'browser-native-check-required'
     assert len(calls) == 1 and '--expected-replaces-browser-id' in calls[0]
     assert calls[0][calls[0].index('--url') + 1] == 'about:blank'
@@ -339,7 +344,8 @@ def test_released_canonical_owner_stopped_resume_preflight(monkeypatch, tmp_path
         assert calls[0][calls[0].index('--url') + 1] == 'about:blank'
 
 
-def test_resume_repeat_returns_verified_successor_without_dispatch(monkeypatch, tmp_path, capsys):
+@pytest.mark.parametrize('stored_state_lost', [True, False, None])
+def test_resume_repeat_returns_verified_successor_without_dispatch(monkeypatch, tmp_path, capsys, stored_state_lost):
     m, c, row, recipe = prepared_resume(monkeypatch, tmp_path)
     Path(row['profile_dir']).rename(tmp_path / 'old-profile')
     Path(row['profile_dir']).mkdir()
@@ -350,19 +356,21 @@ def test_resume_repeat_returns_verified_successor_without_dispatch(monkeypatch, 
                'fixture', 'new-unit', row['profile_dir'], str(tmp_path / 'new.json'),
                'running', 0, 0, 1, 1))
     (tmp_path / 'new.json').write_text(json.dumps({'replaces_browser_id': 'browser-0',
-                                                   'instance_key': '', 'resumed_state_lost': True,
+                                                   'instance_key': '', 'resumed_state_lost': stored_state_lost,
                                                    'launch_recipe': {'physical_profile': replacement_physical}}))
     c.commit()
     monkeypatch.setattr(m, 'healthy', lambda _: True)
     monkeypatch.setattr(m, 'reservation_blocks', lambda _: False)
     monkeypatch.setattr(m, 'matching_proxy', lambda *a: True)
     monkeypatch.setattr(m.subprocess, 'run', lambda *a, **kw: pytest.fail('duplicate dispatch'))
-    assert result(lambda: m.resume(argparse.Namespace(browser_id='browser-0', agent_id='agent', run_id='run'))) == 0
+    assert result(lambda: m.resume(argparse.Namespace(browser_id='browser-0', agent_id='agent', run_id='run'))) == (2 if stored_state_lost is None else 0)
     out = json.loads(capsys.readouterr().out)
+    if stored_state_lost is None:
+        assert out['status'] == 'recovery-blocked' and out['reason'] == 'replacement-unverified'
+        return
     assert out['status'] == 'already-running' and out['browser_id'] == 'new-id'
     assert out['replaces_browser_id'] == 'browser-0'
-    assert out['state_lost'] is True
-
+    assert out['state_lost'] is stored_state_lost
 
 def test_resume_external_ca_missing_refuses(monkeypatch, tmp_path, capsys):
     m, c, row, recipe = prepared_resume(monkeypatch, tmp_path)

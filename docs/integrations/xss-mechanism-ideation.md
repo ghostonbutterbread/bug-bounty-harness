@@ -1,14 +1,14 @@
 # XSS mechanism ideation integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes / Kanban `t_e47a68ab`
 - **Branch:** `feat/xss-idea-depth`
 - **Base commit:** `ba398d92b05daf63406ba74b98c16a34d9e329de` (`origin/beta` at task start)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-20
 - **Owning feature branch/ref:** `feat/xss-idea-depth`
-- **Latest immutable recovery checkpoint:** none yet; implementation uncommitted while validation runs
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `639480ba23b2b490124b4866cd22a883be48412b` (implementation; current tip may have a later dossier-only update)
+- **Feature implementation commit(s):** `639480ba23b2b490124b4866cd22a883be48412b`
 - **Inspiration / canonical references:** Advanced-XSS HEAD `7d529fe86fe8bdef73b393db9274e427cf637182`; DOMPurify README; PortSwigger historical mXSS write-up; existing XSS router and payload-engineering skill.
 
 ## Intent
@@ -49,12 +49,12 @@ negative controls; the learning note explains before/after and sample limits.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/xss-idea-depth`
-- **Latest immutable recovery checkpoint:** none yet; commit after full suite
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** review focused diff/source consistency,
-  commit, request independent review, reconcile fixes, merge to beta only after
+- **Latest immutable recovery checkpoint:** `639480ba23b2b490124b4866cd22a883be48412b` (implementation commit)
+- **Feature implementation commit(s):** `639480ba23b2b490124b4866cd22a883be48412b`
+- **Exact resume point:** request independent review of entire current branch,
+  reconcile fixes, merge to beta only after
   acceptance and verify selected projection.
-- **Working-tree state at handoff:** intentionally uncommitted while validating
+- **Working-tree state at handoff:** clean after dossier-only checkpoint
 
 ## Decision gates
 
@@ -67,3 +67,5 @@ negative controls; the learning note explains before/after and sample limits.
 
 - 2026-10-20 — isolated feature created from current beta; bounded Attempts
   review and local browser composition proof informed the initial guidance.
+- 2026-10-20 — implementation committed as `639480ba23b2b490124b4866cd22a883be48412b`;
+  full suite matches two pre-existing beta failures; fresh review requested next.

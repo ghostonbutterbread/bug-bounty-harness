@@ -1,6 +1,6 @@
 # XSS mechanism ideation integration dossier
 
-- **Status:** review-ready
+- **Status:** feature (review corrections pending re-review)
 - **Owner:** Hermes / Kanban `t_e47a68ab`
 - **Branch:** `feat/xss-idea-depth`
 - **Base commit:** `ba398d92b05daf63406ba74b98c16a34d9e329de` (`origin/beta` at task start)
@@ -32,7 +32,17 @@ negative controls; the learning note explains before/after and sample limits.
 ## Evidence and review
 
 - Tests and commands: focused `python3 -m pytest -q tests/test_xss_mechanism_ideation.py tests/test_xss_gtm_skill.py` passed 4; first browser probe showed DOM attribute but asynchronous marker had not fired yet, corrected observer wait then isolated Chrome 150 fixture passed (individual branches false, joined true, safe sinks false, marker 1). The provisioner released the exact fixture browser and returned `state: stopped, status: released`. Checkout-local `.venv` installed via `./setup.sh --install-python-deps`; full `.venv/bin/python -m pytest -q tests` returned **300 passed, 2 failed, 190 subtests passed**. Unchanged beta base, run with the **same feature-venv interpreter** and baseline working directory, returned **297 passed, the same 2 failed, 190 subtests passed**. Both failures are pre-existing in `skills/stack-to-program/scripts/README.md`: missing Outputs/Mutates record and a lane-unsafe direct-Python example. No XSS-owned failure; do not patch unrelated source on this feature.
-- Independent review: pending fresh reviewer on committed candidate.
+- Independent review: initial fresh reviewer verdict **MAJOR**: the mXSS branch
+  conflated parser mutation with post-check composition. Corrected the
+  definition and decision table, narrowed the historical patch claim, repaired
+  cross-skill pointers, and added an opt-in browser regression. The updated
+  version requires a fresh verdict on its final committed tree.
+- Browser regression: `XSS_FIXTURE_CDP_LAUNCH=<private task-owned receipt>
+  .venv/bin/python -m pytest -q tests/test_xss_browser_fixture.py
+  tests/test_xss_mechanism_ideation.py tests/test_xss_gtm_skill.py` returned
+  **5 passed** (owned Chrome 150, only local `file:` fixture). Its exact lease
+  was released and returned `state: stopped, status: released`; without the
+  receipt the browser test skips rather than provisioning a browser.
 - Replay/cohort/fixture evidence: bounded 12-stream/110-object recent XSS Attempts sample (40 canonical, 70 legacy omissions); summarized without secrets in `docs/xss-mechanism-ideation.md`. Local fixture only; no live replay.
 - Merge/ancestry evidence: isolated branch started at beta `ba398d9`; merge and remote verification pending.
 
@@ -69,3 +79,6 @@ negative controls; the learning note explains before/after and sample limits.
   review and local browser composition proof informed the initial guidance.
 - 2026-10-20 — implementation committed as `639480ba23b2b490124b4866cd22a883be48412b`;
   full suite matches two pre-existing beta failures; fresh review requested next.
+- 2026-10-20 — initial independent review identified an mXSS/composition
+  conflation; corrected and reproduced the optional browser regression. Fresh
+  review of the corrected commit is the next gate.

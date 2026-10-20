@@ -48,7 +48,7 @@ Build the query from observed technology plus observed renderer, source, sink,
 or parser boundary. A bounded briefing is sufficient; do not inject a large
 corpus into a worker prompt.
 For an inert sanitizer or URL matrix, first use
-`xss-payload-engineering/references/mechanism-ideation.md` to state the
+`skills/xss-payload-engineering/references/mechanism-ideation.md` to state the
 specific transition that might still exist (for example, sanitizer output
 serialized and parsed again, or separately checked fields composed after the
 check). Query cards by that transition and observed stack; do not request a

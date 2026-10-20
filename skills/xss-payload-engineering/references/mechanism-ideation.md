@@ -37,8 +37,8 @@ manufacturing variants.
 
 | Signal | Mechanism question and minimal distinction | Falsifier or next branch |
 | --- | --- | --- |
-| HTML sanitizer removes hazardous elements/attributes | Does the actual output, after a **later** DOM serialization, concatenation, or HTML insertion, form a different tree? Compare sanitized string or node, `outerHTML`/`innerHTML` after the second parse, and a safe one-pass control. Inspect parser namespace, raw-text/comment context and exact sanitizer config. | Same safe tree after all real parses, or no reparse in this consumer → do **not** call it mXSS. Look at another owned consumer or stop this mechanism. |
-| Separate fields or fragments pass checks | Are two controlled values assembled **after** validation/sanitization and then interpreted as HTML, URL, template, or code? Compare isolated A/B controls, joined result, and safe text-only assembly. | Assembly happens before the sanitizer, or output uses `textContent` → no demonstrated split-payload bypass. A WAF seeing separate request fields is not proof the browser assembles them. |
+| HTML sanitizer removes hazardous elements/attributes | Does the **same sanitized markup**, without application edits or concatenation, change its DOM structure when serialized and reparsed by the actual consumer? Compare the sanitizer's output tree, serialized string, reparsed tree, and a safe one-pass control. Inspect parser namespace, raw-text/comment context and exact sanitizer config. | Same safe tree after all real parses, or no reparse in this consumer → do **not** call it mXSS. If application code changes the output, take the distinct composition branch below. |
+| Separate fields or sanitized output are modified after checks | Are controlled values joined, wrapped, or rewritten **after** validation/sanitization and then interpreted as HTML, URL, template, or code? Compare isolated A/B controls, the actual modified result, and safe text-only assembly or sanitize-after-joining. | Composition happens before an appropriate final check, or output uses `textContent` → no demonstrated post-check composition bypass. A WAF seeing separate request fields is not proof the browser assembles them. |
 | URL attribute keeps a web link but rejects `javascript:` | Identify the exact writer, validator and parser used at each stage. Compare inert schemes/whitespace, protocol-relative and URL-component controls against the final browser-resolved `href`/navigation on the *same* route. Explore a different writer or downstream URL construction only if observed. | Backend rejects the variant before storage, or browser resolves it to a benign URL; a timeout/no popup is not click/execution proof. A percent-encoded scheme is not magical: name the decoder that runs **after** validation. |
 | HTML is escaped in one view | Is that escaping specific to one serializer/consumer? Trace the same controlled value to a separately observed preview, notification, export, or client renderer; classify its context afresh. | Same escaped text in the only reachable owned view → record exact negative, not a general XSS clearance. |
 | Trusted Types or CSP blocks execution | Which precise sink/policy created TrustedHTML, and what does the *delivered* CSP permit? Locate a caller-controlled argument to an existing trusted policy or an actually allowed execution route. | No attacker control over trusted caller/output, or enforced CSP blocks the claimed path. Never infer a bypass from a Report-Only violation, a permissive default policy, or raw markup alone. |
@@ -56,17 +56,19 @@ edge. Do not probe non-owned staff/public consumers merely to complete a chain.
 
 ## Terms that must not be conflated
 
-**Mutation XSS (mXSS):** parsed/sanitized markup changes structure or meaning
-when the browser serializes/reparses it, or when a sanitizer and later consumer
-interpret the tree differently. It requires a real parse-stage transition and
-an unsafe result, not merely two stripped tags. HTML namespaces and comment or
-raw-text boundaries can matter, but a known historical vector is not evidence
-that a current sanitizer version is vulnerable.
+**Mutation XSS (mXSS):** the **same sanitized markup**, without application
+rewrites or joins, acquires a different and unsafe structure when the browser
+serializes and reparses it. Show both trees and the actual parser transition;
+two stripped tags or an application concatenating sanitized pieces is not mXSS.
+HTML namespaces and comment or raw-text boundaries can matter, but a known
+historical vector is not evidence that a current sanitizer version is vulnerable.
 
-**Fragmentation/reassembly:** independently controlled parts become meaningful
-only after composition at a later sink. This can be an application design error
-without any browser parser mutation. Show where the join occurs relative to the
-security check.
+**Post-check composition / fragmentation:** independently controlled parts or
+sanitized output are joined, wrapped, or rewritten by application code *after*
+a check, then interpreted in a different context. This can be an application
+design error without any browser parser mutation. Show what code changes the
+string, when it runs relative to the security check, and which final grammar
+parses the result.
 
 **Double decode / entity / Unicode:** representation changes only if an actual
 stage decodes or normalizes before the interpreter. An HTML character reference
@@ -108,7 +110,8 @@ Sources for the narrow parser/composition principles:
 - DOMPurify README, “Is there any foot-gun potential?” (post-sanitize
   modification): https://github.com/cure53/DOMPurify
 - Gareth Heyes, “Bypassing DOMPurify again with mutation XSS” (historical,
-  browser-/version-specific example; patched in DOMPurify 2.1):
+  browser-/version-specific example; the Chrome bypass vector was patched in
+  DOMPurify 2.1, while the article describes later Firefox observations):
   https://portswigger.net/research/bypassing-dompurify-again-with-mutation-xss
 - WHATWG HTML parsing and character-reference rules:
   https://html.spec.whatwg.org/multipage/parsing.html

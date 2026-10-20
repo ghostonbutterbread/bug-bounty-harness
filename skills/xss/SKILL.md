@@ -107,7 +107,7 @@ sinks as chain leads with their missing link and reopening condition.
    execution blocked. If the consumer never mounted, fix reachability or name
    the missing owned fixture; do not infer that a sanitizer held. For a
    mounted consumer, identify the first changed representation and use
-   `xss-payload-engineering/references/mechanism-ideation.md` to derive a
+   `skills/xss-payload-engineering/references/mechanism-ideation.md` to derive a
    different mechanism or a falsifying control.
 4. Load `attempt-recording-policy` for each deliberate target-directed probe,
    comparison, and retest. It owns the exact canonical writer, fields, redaction,

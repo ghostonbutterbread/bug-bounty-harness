@@ -4,7 +4,8 @@
 - **Owner:** BBH `xss` router and `xss-payload-engineering`.
 - **Canonical path:** `docs/xss-mechanism-ideation.md`.
 - **Supersedes:** none; complements the existing parser-stage reference and ResearchMap.
-- **Implementation commit:** pending feature review.
+- **Implementation commit:** `639480ba23b2b490124b4866cd22a883be48412b`
+  (initial feature implementation; follow-up review fixes remain on its branch).
 
 ## The gap, without understating existing coverage
 
@@ -95,11 +96,18 @@ error event produced the proof. This illustrates why an HTML attribute hit
 alone is not browser execution. No live target traffic was sent and no remote
 scripts were loaded by the fixture. A fixture proves only its own deliberately
 unsafe code.
+The opt-in regression `tests/test_xss_browser_fixture.py` now asserts those
+exact positive and negative outcomes against an already provisioned,
+task-owned browser; it skips without an explicit private launch receipt and
+does not allocate or release a browser itself. The reviewer-driven rerun passed
+with that receipt, and the exact provisioner lease was released afterward.
 
-**mXSS is different:** a sanitizer or browser sees one parsed tree, but after
-serialization/reparse the consumer has a different executable tree. The
-historical PortSwigger/DOMPurify example depended on namespaces and
-comment/raw-text transitions and was patched for DOMPurify 2.1; it is a
+**mXSS is different:** the same sanitized markup has one parsed tree, but after
+serialization/reparse (without application rewriting it) the consumer has a
+different executable tree. The historical PortSwigger/DOMPurify Chrome bypass
+depended on namespaces and comment/raw-text transitions; that Chrome vector
+was patched for DOMPurify 2.1. The article separately discusses a Firefox
+vector found after the patch and continuing browser mutation. This is a
 recognition example, not a current universal payload. Our own recent report
 consumer had *no* claimed reparse, so mXSS would have been the wrong branch
 there. Do not treat “two things stripped then combined” as the definition of
@@ -131,6 +139,10 @@ mXSS; that more likely describes post-check composition.
   https://html.spec.whatwg.org/multipage/parsing.html
 
 Focused routing tests: `python3 -m pytest -q tests/test_xss_mechanism_ideation.py`.
-The browser fixture was exercised through a task-owned provisioner browser; it
-is not a live-target automation script. Final full-suite and independent
-review receipts belong in the branch-local integration dossier.
+Optional real-browser regression: provision an isolated, task-owned Chrome
+with `--url about:blank --proxy none` under the browser skill, set
+`XSS_FIXTURE_CDP_LAUNCH` to its *private* launch-receipt path, run
+`python3 -m pytest -q tests/test_xss_browser_fixture.py`, then release its
+exact lease through the provisioner. Do not log or publish the receipt's CDP
+URL. The fixture is not a live-target automation script. Final full-suite and
+independent review receipts belong in the branch-local integration dossier.

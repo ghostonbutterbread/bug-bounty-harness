@@ -32,13 +32,24 @@ def test_nonfire_and_sanitizer_branch_preserve_causal_controls() -> None:
     assert "Build candidates **backward from the final interpreter**" in payload
     for distinction in (
         "Mutation XSS (mXSS)",
-        "Fragmentation/reassembly",
+        "Post-check composition / fragmentation",
         "Double decode / entity / Unicode",
         "Sanitizer output vs safe use",
     ):
         assert distinction in ideation
+    mutation = ideation.split("**Mutation XSS (mXSS):**", 1)[1].split(
+        "**Post-check composition / fragmentation:**", 1
+    )[0]
+    composition = ideation.split("**Post-check composition / fragmentation:**", 1)[1].split(
+        "**Double decode / entity / Unicode:**", 1
+    )[0]
+    assert "same sanitized markup" in mutation
+    assert "without application" in mutation
+    assert "two stripped tags or an application concatenating" in mutation
+    assert "application code *after*" in composition
+    assert "without any browser parser mutation" in composition
     assert "Same safe tree after all real parses" in ideation
-    assert "Assembly happens before the sanitizer" in ideation
+    assert "Composition happens before an appropriate final check" in ideation
     assert "Backend rejects the variant before storage" in ideation
     assert "a permissive default policy" in ideation
     assert "A local fixture can teach that contrast but never proves" in ideation

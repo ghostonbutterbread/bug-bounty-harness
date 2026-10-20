@@ -1,0 +1,69 @@
+# XSS mechanism ideation integration dossier
+
+- **Status:** feature
+- **Owner:** Hermes / Kanban `t_e47a68ab`
+- **Branch:** `feat/xss-idea-depth`
+- **Base commit:** `ba398d92b05daf63406ba74b98c16a34d9e329de` (`origin/beta` at task start)
+- **Intended integration target:** `beta`
+- **Last updated:** 2026-10-20
+- **Owning feature branch/ref:** `feat/xss-idea-depth`
+- **Latest immutable recovery checkpoint:** none yet; implementation uncommitted while validation runs
+- **Feature implementation commit(s):** none yet
+- **Inspiration / canonical references:** Advanced-XSS HEAD `7d529fe86fe8bdef73b393db9274e427cf637182`; DOMPurify README; PortSwigger historical mXSS write-up; existing XSS router and payload-engineering skill.
+
+## Intent
+
+Augment existing XSS methodology to produce non-equivalent ideas after a
+sanitizer, URL, reparse or inert result; preserve lane proof, live testing and
+ResearchMap ownership. Teach Ryushe through an explicit before/after and local
+controlled fixture. No live target traffic or reproduction claims against
+third-party programs.
+
+## Implemented contract
+
+Router and payload overlay conditionally load a compact mechanism-ideation
+reference. It distinguishes nonmounted consumers, sanitizer/reparse mXSS,
+fragment composition, URL check/parser differences, alternate consumers and
+other structural/async routes with falsifying controls. Research routing uses an
+exact observed edge rather than a generic bypass label. One local HTML fixture
+shows post-text-encoding composition into an HTML attribute and two safe
+negative controls; the learning note explains before/after and sample limits.
+
+## Evidence and review
+
+- Tests and commands: focused `python3 -m pytest -q tests/test_xss_mechanism_ideation.py tests/test_xss_gtm_skill.py` passed 4; first browser probe showed DOM attribute but asynchronous marker had not fired yet, corrected observer wait then isolated Chrome 150 fixture passed (individual branches false, joined true, safe sinks false, marker 1). The provisioner released the exact fixture browser and returned `state: stopped, status: released`. Checkout-local `.venv` installed via `./setup.sh --install-python-deps`; full `.venv/bin/python -m pytest -q tests` returned **300 passed, 2 failed, 190 subtests passed**. Unchanged beta base, run with the **same feature-venv interpreter** and baseline working directory, returned **297 passed, the same 2 failed, 190 subtests passed**. Both failures are pre-existing in `skills/stack-to-program/scripts/README.md`: missing Outputs/Mutates record and a lane-unsafe direct-Python example. No XSS-owned failure; do not patch unrelated source on this feature.
+- Independent review: pending fresh reviewer on committed candidate.
+- Replay/cohort/fixture evidence: bounded 12-stream/110-object recent XSS Attempts sample (40 canonical, 70 legacy omissions); summarized without secrets in `docs/xss-mechanism-ideation.md`. Local fixture only; no live replay.
+- Merge/ancestry evidence: isolated branch started at beta `ba398d9`; merge and remote verification pending.
+
+## Blockers and deferred work
+
+- Full-suite green is blocked by the two verified pre-existing beta failures, not
+  by this change; independent reviewer must accept or reject that baseline
+  comparison explicitly. A separate owner fixes those records; do not alter
+  `stack-to-program` on this feature. Fresh review is still required.
+- A local fixture does not validate any third-party sanitizer, historical claim,
+  or the scoped target behavior; those require the separate matching, authorized
+  target-specific XSS lane and browser evidence.
+
+## Interruption / resume handoff
+
+- **Owning feature branch/ref:** `feat/xss-idea-depth`
+- **Latest immutable recovery checkpoint:** none yet; commit after full suite
+- **Feature implementation commit(s):** none yet
+- **Exact resume point:** review focused diff/source consistency,
+  commit, request independent review, reconcile fixes, merge to beta only after
+  acceptance and verify selected projection.
+- **Working-tree state at handoff:** intentionally uncommitted while validating
+
+## Decision gates
+
+- **Integration gate:** focused and full repository checks plus independent review.
+- **Activation / cohort gate:** merge/push beta, then verify selected skill
+  projection and fresh resolver; do not equate feature branch with activation.
+- **Promotion gate:** no stable/main change without explicit owner direction.
+
+## Decision record
+
+- 2026-10-20 — isolated feature created from current beta; bounded Attempts
+  review and local browser composition proof informed the initial guidance.

@@ -27,6 +27,11 @@ current consumer and any later-consumer branch
 Use the profile to answer: **what language can this input still speak, and
 which executable consumer could interpret it?**
 
+When a sanitizer, URL check, browser reparse, assembled field, or large inert
+matrix leaves the next idea unclear, read `references/mechanism-ideation.md`.
+It supplies a causal branching worksheet and small discriminators; do not load
+it as a mandatory startup checklist or treat a local fixture as target proof.
+
 For character encodings, Unicode variants, entity/escape representations, and
 parser-stage differentials, read
 `references/parser-stage-character-variants.md`. Treat it as a transformation
@@ -54,6 +59,14 @@ An exploratory candidate may be surprising or model-generated. Record its
 source/parent, mutation operations or generator seed when applicable, placement,
 and browser/origin result. If it signals, reduce it through follow-up comparisons
 until the responsible parser, transform, or consumer boundary is understood.
+
+Build candidates **backward from the final interpreter**: identify the needed
+DOM node, URL, or JavaScript grammar; its immediate feeder and transformations;
+then choose only source-controlled primitives that can survive to it. Pair each
+candidate with an inert reachability control and a competing safe-path/control
+that could falsify the proposed mechanism. A sanitized-looking string is not a
+bypass unless a subsequent parse or composition changes its meaning in the
+claimed browser consumer.
 
 ## Defense And Research Routing
 

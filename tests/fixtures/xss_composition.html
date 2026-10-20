@@ -1,0 +1,40 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Offline XSS composition teaching fixture</title>
+<p>Task-owned local fixture; intentionally unsafe interpolation for comparison only.</p>
+<div id="isolated-a"></div><div id="isolated-b"></div>
+<div id="joined"></div><div id="safe-attr"></div><div id="safe-text"></div>
+<script>
+// This is an HTML *text-context* encoder, not a production sanitizer.
+function encodeText(value) {
+  const node = document.createElement('div');
+  node.textContent = value;
+  return node.innerHTML;
+}
+window.__xssFixture = { proof: 0, states: {} };
+const a = '" src=x on';
+const b = 'error=window.__xssFixture.proof=1 x="';
+const isolatedA = encodeText(a), isolatedB = encodeText(b);
+// This is the intentionally broken context transition: text-safe output is
+// concatenated into a quoted attribute, then interpreted as HTML.
+function renderUnsafe(target, value) {
+  target.innerHTML = '<img alt="' + value + '">';
+}
+renderUnsafe(document.querySelector('#isolated-a'), isolatedA);
+renderUnsafe(document.querySelector('#isolated-b'), isolatedB);
+renderUnsafe(document.querySelector('#joined'), isolatedA + isolatedB);
+// Controls: use the DOM API for the attribute or a text sink for the same bytes.
+const safeImage = document.createElement('img');
+safeImage.setAttribute('alt', a + b);
+document.querySelector('#safe-attr').append(safeImage);
+document.querySelector('#safe-text').textContent = a + b;
+window.__xssFixture.states = {
+  individualA: document.querySelector('#isolated-a img').hasAttribute('onerror'),
+  individualB: document.querySelector('#isolated-b img').hasAttribute('onerror'),
+  joined: document.querySelector('#joined img').hasAttribute('onerror'),
+  safeAttribute: safeImage.hasAttribute('onerror'),
+  safeText: document.querySelector('#safe-text').querySelector('img') !== null,
+  encodedParts: [isolatedA, isolatedB],
+  joinedHTML: document.querySelector('#joined').innerHTML
+};
+</script>

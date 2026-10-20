@@ -2087,6 +2087,8 @@ def resume(args):
     for name in ("instance_key", "display_backend", "kasmvnc_display", "kasmvnc_web_port"):
         if recipe.get(name) is not None:
             cmd += ["--" + name.replace("_", "-"), str(recipe[name])]
+    if recipe.get("instance_selection") == "automatic":
+        cmd += ["--resume-automatic-instance"]
     if recipe["proxy"] == "external":
         cmd += ["--proxy-server", recipe["proxy_server"],
                 "--mitm-ca-cert", recipe["mitm_ca_cert"]]
@@ -2145,6 +2147,8 @@ def resume_recipe_valid(row, recipe):
     return (all(recipe.get(key) == row[key] for key in fields)
             and recipe.get("instance_key") == record_info(row).get("instance_key")
             and (row["program"] == "task-owned" or bool(recipe.get("instance_key")))
+            and recipe.get("instance_selection") == record_info(row).get("instance_selection")
+            and recipe.get("instance_selection") in ("automatic", "explicit", "legacy")
             and recipe.get("proxy") in ("mitm", "none", "external")
             and recipe.get("proxy_cert_mode") == ("none" if recipe.get("proxy") == "none" else "import")
             and recipe.get("owner_pid") is None and not recipe.get("legacy_profile")
@@ -2395,6 +2399,9 @@ def start(args):
                 (physical is None and not (args.task_owned and not os.path.lexists(replacing["profile_dir"]))) or
                 (physical is not None and list(physical) != recipe["physical_profile"])):
             emit({"status": "recovery-blocked", "reason": "expected-profile-or-policy-changed"}, 2)
+        if bool(getattr(args, "resume_automatic_instance", False)) != (recipe["instance_selection"] == "automatic"):
+            emit({"status": "recovery-blocked", "reason": "expected-instance-selection-changed"}, 2)
+        automatic = recipe["instance_selection"] == "automatic"
         if recipe["proxy"] != args.proxy or recipe["proxy_ownership"] != args.proxy_ownership or \
                 recipe["proxy_cert_mode"] != ("none" if args.proxy == "none" else args.proxy_cert_mode) or \
                 recipe["driving_mode"] != (args.driving_mode or "agent-driven") or \
@@ -2883,6 +2890,7 @@ def start(args):
             "account": slug(got["lease"].get("account_alias", args.account)),
             "auth_domain": resolved_domain, "profile_dir": str(prof),
             "physical_profile": list(physical), "instance_key": instance,
+            "instance_selection": info["instance_selection"],
             "single_policy": single, "purpose": args.purpose,
             "account_auth_policy": account_auth_policy(account),
             "ttl_seconds": args.ttl_seconds, "idle_seconds": args.idle_seconds,
@@ -3455,6 +3463,8 @@ def request(args):
             cmd += ["--recover-profile"]
         if getattr(args, "expected_replaces_browser_id", None):
             cmd += ["--expected-replaces-browser-id", args.expected_replaces_browser_id]
+        if getattr(args, "resume_automatic_instance", False):
+            cmd += ["--resume-automatic-instance"]
         p = subprocess.run(cmd, capture_output=True, text=True)
         try:
             result = json.loads(p.stdout)
@@ -3596,6 +3606,7 @@ def main():
         parser.add_argument("--run-id", required=True)
     for parser in (s, r0):
         parser.add_argument("--expected-replaces-browser-id", help=argparse.SUPPRESS)
+        parser.add_argument("--resume-automatic-instance", action="store_true", help=argparse.SUPPRESS)
         parser.add_argument("--proxy", choices=("mitm", "external", "none"), default="mitm",
                             help="Task-owned MITM by default; external requires an explicit listener; none forces direct routing.")
         parser.add_argument("--driving-mode", choices=("agent-driven", "manual"),

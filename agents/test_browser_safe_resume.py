@@ -190,7 +190,8 @@ def prepared_resume(monkeypatch, tmp_path, *, task_owned=True, missing=False):
     row = c.execute("SELECT * FROM browsers WHERE browser_id='browser-0'").fetchone()
     recipe = dict(version=1, program=program, account=account, auth_domain=domain,
                   profile_dir=str(profile), physical_profile=[1, 2],
-                  instance_key='' if task_owned else 'slot-1', single_policy=False,
+                  instance_key='' if task_owned else 'slot-1',
+                  instance_selection='legacy' if task_owned else 'explicit', single_policy=False,
                   purpose='fixture', ttl_seconds=1800, idle_seconds=300,
                   min_ram_available_mib=100, min_swap_free_mib=0,
                   memory_high='1G', memory_max='2G', proxy='none',
@@ -206,7 +207,8 @@ def prepared_resume(monkeypatch, tmp_path, *, task_owned=True, missing=False):
         recipe['physical_profile'] = list(profiles.physical_profile(profile))
     (tmp_path / 'browser-0.json').write_text(json.dumps(dict(
         launch_recipe=recipe, stop_proof={'cdp_url': 'http://127.0.0.1:9/capability'},
-        instance_key=recipe['instance_key'], process_identity={'pid': 9})))
+        instance_key=recipe['instance_key'], instance_selection=recipe['instance_selection'],
+        process_identity={'pid': 9})))
     monkeypatch.setattr(m, 'canonical_owner', lambda row, **_: True)
     monkeypatch.setattr(m, 'stopped', lambda row: True)
     monkeypatch.setattr(m, 'proxy_row', lambda *a: None)
@@ -344,3 +346,41 @@ def test_release_receipt_retains_private_recipe_and_cdp_stop_proof(monkeypatch, 
     assert after['stop_proof']['cdp_url'] == data['cdp_url']
     assert after['replaces_browser_id'] == 'older-id'
     assert 'cdp_url' not in after and 'command' not in after and 'proxy_secret' not in after
+
+
+def test_automatic_slot_replay_preserves_manager_selection_proof(monkeypatch, tmp_path, capsys):
+    m, c, row, recipe = prepared_resume(monkeypatch, tmp_path, task_owned=False)
+    import browser_profile_lease as profiles
+    data = json.loads(Path(row['launch_file']).read_text())
+    data['instance_key'] = data['launch_recipe']['instance_key'] = 'auto-1'
+    data['instance_selection'] = data['launch_recipe']['instance_selection'] = 'automatic'
+    account = {'alias': 'blue'}
+    data['launch_recipe']['account_auth_policy'] = m.account_auth_policy(account)
+    Path(row['launch_file']).write_text(json.dumps(data))
+    monkeypatch.setattr(profiles, 'resolve_account', lambda *a: (account, {}))
+    monkeypatch.setattr(profiles, 'auth_domain_for', lambda *a: 'example.test')
+    monkeypatch.setattr(profiles, 'account_lease_eligible', lambda *a: True)
+    monkeypatch.setattr(profiles, 'authorize_auto_slot', lambda *a: 'proof')
+    monkeypatch.setattr(m, 'account_policy', lambda *a: False)
+    monkeypatch.setattr(m, 'sweep_rows', lambda *a: ([], []))
+    monkeypatch.setattr(m, 'cleanup_unused', lambda *a: [])
+    monkeypatch.setattr(m, 'admission', lambda *a: {'status': 'admitted'})
+    observed = []
+    def lease(args, action, *rest):
+        observed.extend(rest)
+        assert args._selection_proof == 'proof'
+        return {'status': 'locked'}
+    monkeypatch.setattr(m, 'lease', lease)
+    args = argparse.Namespace(program='demo', account='blue', auth_domain='example.test',
+        agent_id='agent', run_id='run', purpose='fixture', task_owned=False,
+        owner_pid=None, driving_mode='agent-driven', legacy_profile=False,
+        instance_key='auto-1', resume_automatic_instance=True,
+        expected_replaces_browser_id='browser-0', min_ram_available_mib=100,
+        min_swap_free_mib=0, proxy='none', proxy_server=None, mitm_ca_cert=None,
+        proxy_cert_mode='none', proxy_ownership='task', url='about:blank',
+        ttl_seconds=1800, idle_seconds=300, memory_high='1G', memory_max='2G',
+        display_backend='default', kasmvnc_display=None, kasmvnc_web_port=None,
+        headless=True, graphics_backend='auto')
+    assert result(lambda: m.start(args)) == 2
+    assert '--automatic-instance' in observed and '--selection-proof-stdin' in observed
+    assert json.loads(capsys.readouterr().out)['status'] == 'queued'

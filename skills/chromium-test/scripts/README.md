@@ -337,6 +337,47 @@ multi-instance pane registry.
 
 ## `browser_provisioner.py`
 
+On `request` `queued/no-capacity`, keep the **same** program/account, agent/run,
+proxy and display constraints. On the browser node, inspect before opting in to
+stops; never use a different account, raw launcher or broad process kill:
+
+```sh
+bbh skills/chromium-test/scripts/browser_provisioner.py cleanup
+bbh skills/chromium-test/scripts/browser_provisioner.py cleanup --apply  # only if the dry-run lists eligible terminal idle owners
+bbh skills/chromium-test/scripts/browser_provisioner.py request <same original arguments>
+bbh skills/chromium-test/scripts/browser_provisioner.py resume --browser-id <exact-browser-id> --agent-id <agent> --run-id <run>
+```
+
+`cleanup` defaults to dry-run with admission and per-browser refusal reasons;
+`--apply` rechecks canonical ownership, exact unit, runtime, terminal task
+owner, tracked activity, hold and in-flight work under the node lock. It stops
+only a proven terminal owner with an explicitly headless, non-KasmVNC receipt
+idle for at least two hours. Headed/native displays are protected even with no
+attached CDP client: this is not evidence that a viewer is idle. Four active owners
+release **zero** browsers even when CDP has been idle for two hours. Missing
+task-owner evidence, manual mode, active/attached owners, held commands and
+uncertain runtime are protected. Existing request-triggered idle cleanup now
+also requires a proven terminal owner. Stopping keeps the persistent profile
+and does not finish the task proxy; run the normal proxy lifecycle separately.
+
+`resume` binds the exact browser ID and original agent/run. A healthy running
+process reconnects only after canonical lease, unit/CDP, activity and proxy/CA
+checks (`reconnect_scope: browser-control-only`; separately verify interactive
+viewer availability). A stopped browser created with a versioned private launch
+recipe and verified release/stop proof may be re-provisioned through ordinary
+request/start admission under the node lock. The original physical profile,
+instance, account/domain policy and proxy/CA are rechecked before acquisition;
+a replacement gets new browser/lease IDs and `replaces_browser_id`. It opens
+`about:blank`, never the previous target. `authentication:
+browser-native-check-required` is a required follow-up, **not** a logged-in
+claim. `state_lost: true` means a task-owned profile is absent and starts fresh.
+An old/ambiguous record, changed named profile, foreign ownership, missing CA,
+changed auth source or proxy, and uncertain stop proof refuse without launching.
+A repeated exact-ID resume returns only the verified live successor; otherwise
+it blocks rather than selecting an account-equivalent browser. The private
+recipe stores no cookie, seed value or previous URL. Keep it owner-only.
+Do not use this command to bypass a refusal with a different account/slot.
+
 - **Purpose:** Node-local browser admission, profile/instance leasing,
   activity-aware ownership, verified cleanup and fenced live handoff.
 - **Inputs:** Existing program/account selectors or `--task-owned`; agent/run,

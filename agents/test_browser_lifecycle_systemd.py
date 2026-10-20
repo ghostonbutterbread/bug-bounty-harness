@@ -654,3 +654,222 @@ def test_real_stopped_legacy_to_two_auto_requests():
                     os.environ.pop(key, None)
                 else:
                     os.environ[key] = value
+
+
+@pytest.mark.parametrize("scenario", ["task", "named-explicit", "named-auto", "missing-task", "concurrent-task"])
+@pytest.mark.skipif(os.environ.get("BBH_LOCAL_BROWSER_SMOKE") != "1",
+                    reason="explicit local systemd/Chromium smoke opt-in")
+def test_real_task_owned_stopped_exact_id_resume_and_cleanup(scenario):
+    """No target navigation: prove stopped-ID replay and protect a live peer."""
+    import socket
+    import urllib.error
+    import urllib.request
+    import concurrent.futures
+    import shutil
+    from browser_lifecycle import owner_state
+
+    named = scenario.startswith("named-")
+    agent = "resume-fixture-" + uuid.uuid4().hex[:12]
+    run_id = "resume-" + uuid.uuid4().hex[:12]
+    peer_agent = agent + "-peer"
+    with disposable_fixture_root() as (root, evidence):
+        state = root / "state/manager.sqlite"
+        env = {**os.environ, "BROWSER_PROVISIONER_STATE": str(state),
+               "HARNESS_BOUNTY_ARTIFACT_ROOT": str(root / "artifacts"),
+               "HARNESS_SHARED_BASE": str(root / "shared"),
+               "BROWSER_STARTUP_DIAGNOSTICS": "1"}
+        if named:
+            inventory = root / "shared/fixture/credentials/account_inventory.json"
+            inventory.parent.mkdir(parents=True)
+            inventory.write_text(json.dumps({"program": "fixture", "accounts": [{
+                "alias": "fixture-owner", "pwnfox_color": "green", "role": "owner",
+                "lifecycle": "active", "browser_lease_enabled": True,
+                "auth_host_filter": "fixture.invalid"}]}))
+        records = []
+        peer_owner = subprocess.Popen(["sleep", "120"])
+
+        def command(*args, expected=0):
+            result = subprocess.run([sys.executable, str(PROVISIONER), *map(str, args)],
+                                    env=env, capture_output=True, text=True, timeout=90)
+            assert result.returncode == expected, (args, result.stdout, result.stderr)
+            return json.loads(result.stdout)
+
+        def row(lease_id):
+            with sqlite3.connect(state) as db:
+                db.row_factory = sqlite3.Row
+                found = db.execute("SELECT * FROM browsers WHERE lease_id=?", (lease_id,)).fetchone()
+                assert found is not None
+                return dict(found)
+
+        def live(receipt):
+            owned = row(receipt["lease_id"])
+            private = json.loads(Path(owned["launch_file"]).read_text())
+            assert owned["browser_id"] == receipt["browser_id"]
+            assert owned["state"] == "running"
+            assert private["process_identity"] and owner_state(private["process_identity"]) == "active"
+            assert private["cdp_url"].startswith("http://127.0.0.1:")
+            assert Path(owned["profile_dir"]).is_dir()
+            with sqlite3.connect(state.parent / "browser_profile_leases.sqlite") as leases:
+                lease = leases.execute("SELECT status, service_unit, profile_dir, owner_agent_id FROM browser_profile_leases WHERE lease_id=?",
+                                       (receipt["lease_id"],)).fetchone()
+            assert lease == ("active", owned["unit"], owned["profile_dir"], owned["agent_id"])
+            cgroup = Path(f"/proc/{private['pid']}/cgroup").read_text()
+            assert owned["unit"] in cgroup
+            unit = subprocess.run(["systemctl", "--user", "show", owned["unit"],
+                                   "--property=ActiveState,ControlGroup,MemoryHigh,MemoryMax"],
+                                  capture_output=True, text=True, timeout=10, check=True).stdout
+            assert "ActiveState=active" in unit and "ControlGroup=/user.slice/" in unit
+            assert "MemoryHigh=" in unit and "MemoryMax=" in unit
+            with urllib.request.urlopen(private["cdp_url"] + "/json/version", timeout=5) as response:
+                assert json.load(response)["Browser"]
+            return owned, private
+
+        def closed(owned, private, *, port_reused=False):
+            assert row(owned["lease_id"])["state"] == "stopped"
+            assert owner_state(private["process_identity"]) == "terminal"
+            unit = subprocess.run(["systemctl", "--user", "show", owned["unit"],
+                                   "--property=ActiveState", "--value"],
+                                  capture_output=True, text=True, timeout=10, check=True)
+            assert unit.stdout.strip() in {"inactive", "failed"}
+            from urllib.parse import urlsplit
+            endpoint = urlsplit(private["cdp_url"])
+            assert endpoint.hostname == "127.0.0.1"
+            if port_reused:
+                with pytest.raises(urllib.error.HTTPError) as gone:
+                    urllib.request.urlopen(private["cdp_url"] + "/json/version", timeout=5)
+                assert gone.value.code == 410  # Old generation cannot alias the replacement.
+            else:
+                with pytest.raises((ConnectionRefusedError, TimeoutError, OSError)):
+                    with socket.create_connection((endpoint.hostname, endpoint.port), timeout=2):
+                        pytest.fail("released CDP remains reachable")
+
+        def release(receipt, owner):
+            result = command("release", "--lease-id", receipt["lease_id"],
+                             "--agent-id", owner, "--disposition", "completed",
+                             "--profile-health", "healthy")
+            assert result["status"] == "released"
+
+        selector = (("fixture", "fixture-owner", "--auth-domain", "fixture.invalid",
+                     *(("--instance-key", "resume-slot") if scenario == "named-explicit" else ()))
+                    if named else ("--task-owned",))
+        options = (*selector, "--purpose", "disposable stopped-ID fixture",
+                   "--url", "about:blank", "--headless", "--proxy", "none",
+                   "--proxy-cert-mode", "none", "--ttl-seconds", "120",
+                   "--idle-seconds", "30", "--min-ram-available-mib", "1",
+                   "--min-swap-free-mib", "0", "--memory-high", "384M",
+                   "--memory-max", "512M", "--wait-seconds", "0")
+        try:
+            first = command("request", *options, "--agent-id", agent, "--run-id", run_id)
+            assert first["status"] == "started"
+            records.append((first, agent))
+            old, old_private = live(first)
+            if named:
+                assert old["program"] == "fixture" and old["account"] == "fixture-owner"
+                assert first["instance_key"] == ("resume-slot" if scenario == "named-explicit" else old_private["instance_key"])
+                assert old_private["instance_selection"] == ("explicit" if scenario == "named-explicit" else "automatic")
+                if scenario == "named-auto":
+                    assert first["instance_key"].startswith("auto-")
+            assert "--no-proxy-server" in old_private["command"]
+            assert old_private["launch_recipe"]["proxy"] == "none"
+            exact_profile = old["profile_dir"]
+            release(first, agent)
+            closed(old, old_private)
+            old_physical = old_private["launch_recipe"]["physical_profile"]
+            if scenario == "missing-task":
+                shutil.rmtree(exact_profile)
+                assert not Path(exact_profile).exists()
+
+            # Different owner and run, distinct profile; cleanup must not touch it.
+            peer_options = (("--task-owned", *options[len(selector):]) if named else options)
+            peer = command("request", *peer_options, "--agent-id", peer_agent,
+                           "--run-id", run_id + "-peer", "--owner-pid", peer_owner.pid)
+            assert peer["status"] == "started"
+            records.append((peer, peer_agent))
+            peer_row, peer_private = live(peer)
+            assert peer_row["profile_dir"] != exact_profile
+            cleanup = command("cleanup", "--apply")
+            entry = next(item for item in cleanup["browsers"] if item["browser_id"] == peer["browser_id"])
+            assert peer_owner.poll() is None
+            assert entry["result"] == "owner-active-or-unverified" and peer["browser_id"] not in cleanup["stopped"]
+            live(peer)
+
+            resume_args = ("resume", "--browser-id", first["browser_id"],
+                           "--agent-id", agent, "--run-id", run_id)
+            if scenario == "concurrent-task":
+                barrier = threading.Barrier(3)
+                def race():
+                    barrier.wait(timeout=10)
+                    result = subprocess.run([sys.executable, str(PROVISIONER), *resume_args],
+                                            env=env, capture_output=True, text=True, timeout=90)
+                    return result.returncode, json.loads(result.stdout)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                    futures = [pool.submit(race) for _ in range(2)]
+                    barrier.wait(timeout=10)
+                    raced = [future.result(timeout=95) for future in futures]
+                successes = [out for code, out in raced if code == 0]
+                losers = [(code, out) for code, out in raced if code != 0]
+                assert successes, raced
+                assert any(out["status"] == "started" for out in successes), raced
+                assert len({out["browser_id"] for out in successes}) == 1, raced
+                assert all(code == 2 and out["status"] in ("locked", "recovery-blocked", "queued")
+                           for code, out in losers), raced
+                print("Concurrent resume outcomes:", [(code, out["status"]) for code, out in raced])
+                resumed = command(*resume_args)  # Even an explicit loser must converge on retry.
+                assert resumed["status"] == "already-running"
+                assert resumed["browser_id"] == successes[0]["browser_id"]
+            else:
+                resumed = command(*resume_args)
+            assert resumed["status"] == ("already-running" if scenario == "concurrent-task" else "started")
+            assert resumed["browser_id"] != first["browser_id"]
+            assert resumed["replaces_browser_id"] == first["browser_id"]
+            assert resumed["authentication"] == "browser-native-check-required"
+            assert resumed["state_lost"] is (scenario == "missing-task")
+            records.append((resumed, agent))
+            new, new_private = live(resumed)
+            assert new["profile_dir"] == exact_profile and new["unit"] != old["unit"]
+            assert new["agent_id"] == agent and new["run_id"] == run_id
+            assert new["lease_id"] != old["lease_id"]
+            assert new_private["instance_key"] == old_private["instance_key"]
+            assert new_private["instance_selection"] == old_private["instance_selection"]
+            assert new_private["cdp_url"] != old_private["cdp_url"]
+            assert new_private["replaces_browser_id"] == first["browser_id"]
+            if scenario == "missing-task":
+                assert new_private["launch_recipe"]["physical_profile"] != old_physical
+            else:
+                assert new_private["launch_recipe"]["physical_profile"] == old_physical
+            assert row(first["lease_id"])["state"] == "stopped"
+            old_receipt = json.loads(Path(old["launch_file"]).read_text())
+            assert "cdp_url" not in old_receipt and old_receipt["stop_proof"]["cdp_url"] == old_private["cdp_url"]
+            closed(old, old_private, port_reused=True)
+            again = command("resume", "--browser-id", first["browser_id"],
+                            "--agent-id", agent, "--run-id", run_id)
+            assert again["status"] == "already-running"
+            assert again["browser_id"] == resumed["browser_id"] and again["lease_id"] == resumed["lease_id"]
+            assert again["state_lost"] is (scenario == "missing-task")
+            live(peer)  # Neither the racing loser nor the successor stops a foreign owner.
+            with sqlite3.connect(state) as db:
+                assert db.execute("SELECT count(*) FROM browsers WHERE state='running' AND agent_id=?",
+                                  (agent,)).fetchone()[0] == 1
+                assert db.execute("SELECT count(*) FROM browsers WHERE state='running' AND profile_dir=?",
+                                  (exact_profile,)).fetchone()[0] == 1
+            release(resumed, agent)
+            closed(new, new_private)
+            release(peer, peer_agent)
+            closed(peer_row, peer_private)
+            assert Path(exact_profile).is_dir()  # Release preserves state; fixture teardown removes it.
+        finally:
+            try:
+                for receipt, owner in reversed(records):
+                    if row(receipt["lease_id"])["state"] == "running":
+                        release(receipt, owner)
+            finally:
+                if peer_owner.poll() is None:
+                    peer_owner.terminate()
+                peer_owner.wait(timeout=5)
+    assert not root.exists() and not Path(exact_profile).exists()
+    receipt_path = os.environ.get("BBH_BROWSER_RESUME_RECEIPT")
+    if receipt_path:
+        Path(receipt_path).write_text(json.dumps({"status": "passed", "fixture": "about:blank/proxy-none",
+            "old_browser_id": first["browser_id"], "new_browser_id": resumed["browser_id"],
+            "peer_preserved_by_cleanup": cleanup["status"] == "ok",
+            "root_removed": True, "evidence": str(evidence / "startup.json")}, indent=2) + "\n")

@@ -629,6 +629,23 @@ different profile path to bypass a named account's lease.
    disable swap or bypass RAM admission. Otherwise perform non-browser preparation
    and retry with bounded backoff; do not relax the RAM threshold to force a
    launch. Never launch `chromium_test.py` directly to evade engagement admission.
+   For `reason: no-capacity`, run provisioner `cleanup` on the browser node to
+   inspect admission and per-browser refusal reasons. It is a dry-run; use
+   `cleanup --apply` only for rows proven terminal, explicitly headless and idle,
+   then retry the **same** request arguments and agent/run identity. Headed/native
+   displays (including KasmVNC), active, attached, manual, held, in-flight and
+   uncertain owners are never capacity to borrow. To reconnect, use
+   `resume --browser-id <exact-id> --agent-id <agent> --run-id <run>`; healthy
+   compatible ownership returns the same ID with `browser-control-only` scope.
+   Do not promise an interactive viewer handoff without separately verifying
+   that viewer is available. A stopped exact ID with a verified versioned
+   private launch recipe can request a replacement through normal admission:
+   same physical profile/slot/account/domain and proxy/CA, new browser and lease
+   IDs, `replaces_browser_id`, and `about:blank` only. Legacy or uncertain
+   records refuse. `state_lost: true` indicates a missing task-owned profile;
+   never infer authentication from an existing one. Always perform the site's
+   browser-native auth check before target work. See
+   [cleanup and resume](scripts/README.md#browser_provisionerpy).
    On `started` or
    `already-running`, use the browser's owner-recorded control path and returned
    `task_proxy` metadata. The provisioner starts the task MITM and passes its

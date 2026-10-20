@@ -164,8 +164,8 @@ def canonical_record(m, row, key=""):
     got = profiles.cmd_acquire(request)
     assert got["status"] == "leased"
     with profiles.connect(m.STATE.parent / "browser_profile_leases.sqlite") as leases:
-        leases.execute("UPDATE browser_profile_leases SET lease_id=?,profile_dir=? WHERE lease_id=?",
-                       (row["lease_id"], row["profile_dir"], got["lease"]["lease_id"]))
+        leases.execute("UPDATE browser_profile_leases SET lease_id=?,profile_dir=?,service_unit=? WHERE lease_id=?",
+                       (row["lease_id"], row["profile_dir"], row["unit"], got["lease"]["lease_id"]))
 
 
 def test_stopped_receipt_preserves_automatic_pool_provenance(monkeypatch, tmp_path):
@@ -399,6 +399,7 @@ def test_instance_keys_are_not_silently_normalized(tmp_path, key):
 
 def bridge(monkeypatch):
     b = PipeBrowser.__new__(PipeBrowser)
+    b.clients = {}
     b.last_use = 0
     b.last_activity = 0
     b.inflight = 0
@@ -470,6 +471,13 @@ def test_freeze_winner_rejects_late_reservation(monkeypatch):
     with pytest.raises(web.HTTPConflict):
         result(b.reserve(Request(seconds=30)))
 
+def test_missing_activity_clients_fails_closed(monkeypatch):
+    b = bridge(monkeypatch)
+    del b.clients
+    with pytest.raises(AttributeError, match="clients"):
+        result(b.freeze(Request(idle_seconds=7200, require_detached=True)))
+    assert not b.frozen
+
 
 def test_pipe_backpressure_has_deadline_and_fails_closed(monkeypatch):
     b = bridge(monkeypatch)
@@ -529,15 +537,37 @@ def test_idle_owner_is_independent_of_live_pid(monkeypatch, tmp_path):
 @pytest.mark.parametrize("idle,frozen,stop,expected", [(7199, True, True, []), (7200, False, True, []), (7200, True, False, []), (7200, True, True, ["browser-id"])])
 def test_cleanup_threshold_recheck_and_verified_stop(monkeypatch, tmp_path, idle, frozen, stop, expected):
     m = provisioner(monkeypatch, tmp_path)
-    c, row = record(m, tmp_path, process_identity(os.getpid()))
-    monkeypatch.setattr(m, "activity_snapshot", lambda _: dict(idle_seconds=idle, inflight=0, reserved_seconds=0))
-    monkeypatch.setattr(m, "freeze_idle", lambda r, seconds: frozen)
+    dead = {**process_identity(os.getpid()), "start": "old"}
+    c, row = record(m, tmp_path, dead)
+    canonical_record(m, row)
+    Path(row["launch_file"]).write_text(json.dumps({"command": ["chromium", "--headless=new"]}))
+    assert m.canonical_owner(row)
+    assert m.owner_state(m.metadata(c, row)["owner"]) == "terminal"
+    monkeypatch.setattr(m, "activity_snapshot", lambda _: dict(idle_seconds=idle, inflight=0, reserved_seconds=0, attached_clients=0))
+    monkeypatch.setattr(m, "freeze_idle", lambda r, seconds, **kw: kw["require_detached"] and frozen)
     calls = []
     monkeypatch.setattr(m, "restore_failed_stop", lambda *_: False)
     monkeypatch.setattr(m, "retire", lambda *_: calls.append("stop") or stop)
     assert m.cleanup_unused(c) == expected
     assert Path(row["profile_dir"]).exists()
     assert bool(calls) == (idle >= 7200 and frozen)
+
+def test_cleanup_requires_exact_canonical_owner_identity(monkeypatch, tmp_path):
+    m = provisioner(monkeypatch, tmp_path)
+    dead = {**process_identity(os.getpid()), "start": "old"}
+    c, row = record(m, tmp_path, dead)
+    canonical_record(m, row)
+    Path(row["launch_file"]).write_text(json.dumps({"command": ["chromium", "--headless=new"]}))
+    monkeypatch.setattr(m, "activity_snapshot", lambda _: dict(idle_seconds=9000, inflight=0,
+        reserved_seconds=0, attached_clients=0))
+    monkeypatch.setattr(m, "freeze_idle", lambda *a, **kw: pytest.fail("mismatched owner frozen"))
+    monkeypatch.setattr(m, "retire", lambda *a: pytest.fail("mismatched owner stopped"))
+    assert m.canonical_owner(row)
+    with profiles.connect(m.STATE.parent / "browser_profile_leases.sqlite") as leases:
+        leases.execute("UPDATE browser_profile_leases SET owner_run_id=? WHERE lease_id=?",
+                       ("different-run", row["lease_id"]))
+    assert not m.canonical_owner(row)
+    assert m.cleanup_unused(c) == []
 
 
 def test_request_performs_idle_cleanup_before_capacity(monkeypatch, tmp_path, capsys):

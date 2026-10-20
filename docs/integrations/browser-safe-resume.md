@@ -1,6 +1,6 @@
 # Browser safe cleanup and resume integration dossier
 
-- **Status:** implementation checkpoint; disposable local stopped-ID systemd and default task-MITM/CA acceptance passed; authenticated named principal and beta integration gates pending
+- **Status:** independently reviewed feature approved for beta integration after reconciliation and integrated-tree tests; local disposable stopped-ID systemd and task-MITM/CA acceptance passed. Authenticated named principal and Hoster activation remain separate gates.
 - **Owner:** feature worktree agent, parent integration owner t_a6a67529
 - **Branch / owning ref:** `feat/browser-safe-resume`
 - **Base commit:** `eaa6cca5483e12b79a427bc06cac1629673e3348` (`origin/beta` fetched)
@@ -48,4 +48,4 @@ Provisioner `cleanup` dry-run reports node admission and per-browser safe refusa
 - **Integration gate:** independent review of refusal/stop boundaries and portability, plus existing dependency fixture decision.
 - **Activation gate:** selected beta runtime install and isolated systemd fixture, not this branch-only test.
 - **Promotion gate:** separate owner decision; no stable promotion implied.
-- **Decision:** guarded stopped-ID auto-reprovision implemented for versioned receipts; operational end-to-end acceptance deferred.
+- **Decision:** final independent reviewer found no blocking defect at `c886fc3` and reran 205 focused passes plus opt-in real task-owned/named/concurrent and task-MITM fixtures. Approve beta integration only after reconciling fetched `origin/beta`, removing this dossier from the integration target, and rerunning focused integrated-tree tests. Do not infer authenticated named-principal or Hoster runtime acceptance from local fixtures.

@@ -6,8 +6,8 @@
 - **Base commit:** `adeec56250962888b42faa79f5a79e7260f14100` (`origin/beta`)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-20
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commits:** none yet
+- **Latest immutable recovery checkpoint:** `3ac572cd066e5034614ac2653c735110622f431d` (before review fixes)
+- **Feature implementation commits:** `3ac572cd066e5034614ac2653c735110622f431d`; review fixes pending commit
 - **Inspiration / canonical references:** `skills/stack-to-program/SKILL.md`, `skills/program-finder/SKILL.md`, Discord stack-to-program request
 
 ## Intent
@@ -24,7 +24,7 @@ Generalize a previously Ghostscript-heavy public-source CVE-to-bounty discovery 
 ## Evidence and review
 
 - Tests and commands: `python3 -m unittest discover -s tests -p test_stack_to_program.py -v` (4 passed); `git diff --check`; local markdown-link resolution and YAML frontmatter parsing passed. Repository lacks the `docs/policy-authoring.md` lint guide referenced by shared guidance; manual equivalent run, logged as papercut.
-- Independent review: pending.
+- Independent review: read-only review of `3ac572c` found a moderate overstatement: Sketchfab public texture docs list no EPS/PS; corrected the retrospective to a broad-only lead and explained that the historical EPS path took owned-session observation. Also added safe resolved-Shared relative pointers to D05 report/submission. Reviewer re-ran 4 tests, checked 12 local links and `git diff --check`. Narrow re-review of the correction pending.
 - Replay/cohort/fixture evidence: core spells public-indexed route without private tracing, optional/private bridge route with feature-only uncertainty, and Sketchfab retrospective as hypothesis distinct from historical target-side evidence. Review pending.
 - Merge/ancestry evidence: pending.
 
@@ -36,10 +36,10 @@ Generalize a previously Ghostscript-heavy public-source CVE-to-bounty discovery 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/stack-to-program-generic`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commits:** none yet
-- **Exact resume point:** validate docs and CLI, independently review and integrate to beta.
-- **Working-tree state at handoff:** changes under the three skill files and this dossier only.
+- **Latest immutable recovery checkpoint:** `3ac572cd066e5034614ac2653c735110622f431d` (review fix not yet committed)
+- **Feature implementation commits:** `3ac572cd066e5034614ac2653c735110622f431d`; correction pending
+- **Exact resume point:** commit correction, narrow re-review, then integrate to beta.
+- **Working-tree state at handoff:** review correction under Ghostscript reference and this dossier only.
 
 ## Decision gates
 

@@ -15,7 +15,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from agents.coverage_evidence import verify_references
-from agents.coverage_watch import watch_lane
 from agents.surface_coverage import SurfaceCoverageStore
 
 DEFAULT_AGENT = os.environ.get("ME_AGENT") or "codex"
@@ -126,13 +125,6 @@ def cmd_surface_verify(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_surface_watch(args: argparse.Namespace) -> int:
-    print(json.dumps(watch_lane(args.program, family=args.family, lane=args.lane,
-                                root=args.root_override, attempt_run_id=args.attempt_run_id,
-                                run_limit=args.run_limit, max_attempt_rows=args.max_attempt_rows), indent=2))
-    return 0
-
-
 def register_commands(subparsers: argparse._SubParsersAction, *, legacy: bool = False) -> None:
     """Expose one parser/handler contract under dedicated or compatibility names."""
     prefix = "surface-" if legacy else ""
@@ -192,16 +184,6 @@ def register_commands(subparsers: argparse._SubParsersAction, *, legacy: bool = 
         verify.add_argument("--class-name", required=True)
         verify.add_argument("--event-id", type=int, help="Audit one worker assessment event, not only current")
         verify.set_defaults(func=cmd_surface_verify)
-
-        watch = subparsers.add_parser("watch", help="Read-only uptake check; missing links are reconciliation prompts")
-        watch.add_argument("--program", required=True)
-        watch.add_argument("--family", required=True)
-        watch.add_argument("--lane", required=True)
-        watch.add_argument("--root", dest="root_override", help="Explicit local storage root for fixtures")
-        watch.add_argument("--attempt-run-id", help="Check only this exact canonical Attempt stream")
-        watch.add_argument("--run-limit", type=int, default=50)
-        watch.add_argument("--max-attempt-rows", type=int, default=5000)
-        watch.set_defaults(func=cmd_surface_watch)
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -61,10 +61,8 @@ is selected, the normal published scope and AI Policies gates below still apply.
    For a corpus too large to inspect directly, load `/huge-ingest` before deep
    reading. For mapped live route/input/class questions or explicit indexed
    source-file review, load `/coverage` at discovery, selected-path review, or
-   handoff. Its read-only `watch` flags missing lane uptake and points to URL,
-   parameter, and JS source inventories for bounded backfill. Attempts and
-   findings never imply a completed review; `/ledger` remains the
-   findings/dedupe owner. Program docs explain how this application
+   handoff. Attempts and findings never imply a completed review; `/ledger`
+   remains the findings/dedupe owner. Program docs explain how this application
    uses a technology or flow; ResearchMap supplies portable mechanisms only
    when their recognition signals match that model or a current observation;
    `/research-knowledge-management` owns source admission and corpus separation. Read

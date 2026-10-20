@@ -1,14 +1,14 @@
 # Generic Coverage evidence guard integration
 
-- **Status:** review pending
+- **Status:** code review accepted; beta integration ready
 - **Owner:** Hermes; Kanban `t_65d21152`
 - **Branch:** `fix/coverage-evidence-routing-t65d21152`
 - **Base commit:** `6de012847458318726bed02deb10b99a627ede44`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-19
 - **Owning feature branch/ref:** `fix/coverage-evidence-routing-t65d21152`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `7af0a77`
+- **Feature implementation commit(s):** `7af0a77`
 - **Inspiration / canonical references:** direct user instruction and read-only Hoster audit of recent Canva/LaunchDarkly runs.
 
 ## Intent
@@ -23,7 +23,7 @@ Coverage is a generic BBH capability, not contingent on Bunny or explicit goals.
 
 - RED: new typed-ref regression initially failed for mismatched ID, wrong stream, malformed ID, missing map and showed unwanted history events.
 - GREEN: focused suite `65 passed, 16 subtests`; broader `python -m pytest -q tests/ agents/test_surface_coverage.py agents/test_coverage_cli.py --ignore=tests/test_safety_incident.py`: 323 passed, 190 subtests passed. `git diff --check` clean.
-- Independent review: pending.
+- Independent review: accepted code gate; reviewer independently reran 79 focused tests/16 subtests and 323 broad tests/190 subtests. Dossier commit metadata corrected before integration; legacy opaque writes remain an explicit unverified compatibility limit.
 - Historical cohort: Hoster Canva newly wrote 17 assessments with 25/25 typed refs missing; LaunchDarkly newer XSS run had 134 Attempt rows and no new Coverage event. Neither is silently rewritten.
 
 ## Blockers and deferred work
@@ -34,10 +34,10 @@ Coverage is a generic BBH capability, not contingent on Bunny or explicit goals.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/coverage-evidence-routing-t65d21152`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** independent review; reconcile findings, commit, integrate beta and update selected Hoster runtime; smoke rejected bad ref and accepted valid ref in disposable fixture without touching campaign state.
-- **Working-tree state at handoff:** intentionally uncommitted during review; commit before pause.
+- **Latest immutable recovery checkpoint:** `7af0a77`
+- **Feature implementation commit(s):** `7af0a77`
+- **Exact resume point:** integrate accepted feature to beta, update selected Hoster runtime, and smoke rejected bad ref and accepted valid ref in a disposable fixture without touching campaign state.
+- **Working-tree state at handoff:** clean after decision commit.
 
 ## Decision gates
 

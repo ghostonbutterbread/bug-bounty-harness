@@ -1,14 +1,14 @@
 # Remove mistaken Coverage watcher integration
 
-- **Status:** review pending
+- **Status:** accepted for beta integration
 - **Owner:** Hermes; `t_47f31769`
 - **Branch:** `fix/remove-coverage-watch-t47f31769`
 - **Base commit:** `eb034af78363088f552a895b5a79f01987af57ad`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-19
 - **Owning feature branch/ref:** `fix/remove-coverage-watch-t47f31769`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `bd62838`
+- **Feature implementation commit(s):** `bd62838`
 - **Inspiration / canonical references:** direct user correction after release of `eb034af`.
 
 ## Intent
@@ -23,7 +23,7 @@ Restore only the 10 changed code/skill/test paths to `5946cdb`, the parent of th
 
 - `git diff 5946cdb -- <10 touched paths>` is empty; compare after final edits.
 - Tests: `python -m pytest -q tests/ agents/test_surface_coverage.py --ignore=tests/test_safety_incident.py`: 307 passed, 186 subtests passed; `git diff --quiet 5946cdb -- <10 touched paths>` confirmed exact pre-watch equivalence.
-- Independent review: pending.
+- Independent review: accepted. Reviewer confirmed all ten feature paths exactly match `5946cdb`, worker-owned Coverage remains, no live watcher references, focused suite 307 tests and 186 subtests.
 - Hoster seed audit: exact `hubspot/web` surface `S-cf655cd5f7f9082f58568fb6` was read back as `no_assessment`, one question, zero assessment events; retained source file exists. It is not evidence of a completed review or fresh XSS adoption.
 - Merge/ancestry evidence: feature based on fetched `origin/beta` `eb034af`.
 
@@ -35,10 +35,10 @@ Restore only the 10 changed code/skill/test paths to `5946cdb`, the parent of th
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `fix/remove-coverage-watch-t47f31769`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** tests and independent review; integrate to beta and update selected Hoster runtime, then verify projected skill no longer contains watcher instructions and existing seeded Coverage is untouched.
-- **Working-tree state at handoff:** uncommitted until test/checkpoint.
+- **Latest immutable recovery checkpoint:** `bd62838`
+- **Feature implementation commit(s):** `bd62838`
+- **Exact resume point:** integrate reviewed rollback to beta and update selected Hoster runtime, then verify projected skills and preserved seed.
+- **Working-tree state at handoff:** clean after decision commit.
 
 ## Decision gates
 

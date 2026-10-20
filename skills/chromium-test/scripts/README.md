@@ -351,7 +351,9 @@ bbh skills/chromium-test/scripts/browser_provisioner.py resume --browser-id <exa
 `cleanup` defaults to dry-run with admission and per-browser refusal reasons;
 `--apply` rechecks canonical ownership, exact unit, runtime, terminal task
 owner, tracked activity, hold and in-flight work under the node lock. It stops
-only a proven terminal owner idle for at least two hours. Four active owners
+only a proven terminal owner with an explicitly headless, non-KasmVNC receipt
+idle for at least two hours. Headed/native displays are protected even with no
+attached CDP client: this is not evidence that a viewer is idle. Four active owners
 release **zero** browsers even when CDP has been idle for two hours. Missing
 task-owner evidence, manual mode, active/attached owners, held commands and
 uncertain runtime are protected. Existing request-triggered idle cleanup now
@@ -360,7 +362,9 @@ and does not finish the task proxy; run the normal proxy lifecycle separately.
 
 `resume` is an exact owner/browser-ID reconnect, not an account-selector
 request: a healthy running process returns the same ID only when the canonical
-lease, unit/CDP, owner activity and proxy/CA remain compatible. It never
+lease, unit/CDP, owner activity and proxy/CA remain compatible. The receipt's
+`reconnect_scope: browser-control-only` does **not** attest a KasmVNC viewer or
+interactive handoff; verify viewer availability separately before offering one. It never
 re-provisions on uncertainty. A verified stopped browser currently returns
 `recovery-blocked/safe-launch-recipe-unavailable`: the manager does not retain
 the original safe request parameters or authorize rebuilding a named profile

@@ -5,21 +5,22 @@
 - **Branch / owning ref:** `feat/browser-safe-resume`
 - **Base commit:** `eaa6cca5483e12b79a427bc06cac1629673e3348` (`origin/beta` fetched)
 - **Intended integration target:** `beta`
-- **Latest immutable recovery checkpoint:** branch commit accompanying this dossier (read branch tip)
-- **Feature implementation commit(s):** branch commit accompanying this dossier
+- **Latest immutable recovery checkpoint:** `54a9433` (initial feature); current repair checkpoint is the branch tip accompanying this dossier
+- **Feature implementation commit(s):** `54a9433` plus the repair checkpoint accompanying this dossier
 - **Inspiration:** capacity incident where four active browser units were stopped by a mismatched suffix; existing request-triggered two-hour CDP idle sweep.
 
 ## Intent and implemented contract
 
-Provisioner `cleanup` dry-run reports node admission and per-browser safe refusal reasons. `--apply` admits only canonical manager-owned, exact-invocation healthy units with positively terminal owner, zero attached CDP clients and tracked idle >=7200 seconds; atomic detached-activity freeze, stop verification and canonical release remain required. Active owners are protected also in the existing request-triggered idle sweep. No proxy listener is finished or profile deleted.
+Provisioner `cleanup` dry-run reports node admission and per-browser safe refusal reasons. `--apply` admits only canonical manager-owned, exact-invocation healthy units with positively terminal owner, explicitly headless/non-KasmVNC receipt, zero attached CDP clients and tracked idle >=7200 seconds; atomic detached-activity freeze, stop verification and canonical release remain required. Active and headed/native owners are protected also in the existing request-triggered idle sweep. CDP detachment does not attest viewer quiescence. No proxy listener is finished or profile deleted.
 
-`request` no-capacity returns a safe cleanup next step and retains bounded retry behavior and identity. `resume --browser-id --agent-id --run-id` checks exact owner, canonical lease, healthy unit/CDP and proxy/CA; returns the existing ID or a refusal. Verified stopped IDs explicitly return `safe-launch-recipe-unavailable`; task-owned absent profile reports state loss. No automatic restart, auth clone, proxy reroute, display substitution or account change. Fresh ordinary request remains the path with explicitly repeated parameters and new ID, followed by authentication verification.
+`request` no-capacity returns a safe cleanup next step and retains bounded retry behavior and identity. `resume --browser-id --agent-id --run-id` checks exact owner, canonical lease, healthy unit/CDP and proxy/CA; returns the existing ID or a refusal. The successful receipt is `browser-control-only`, not a viewer/interactive-handoff availability assertion; verify the viewer separately. Verified stopped IDs explicitly return `safe-launch-recipe-unavailable`; task-owned absent profile reports state loss. No automatic restart, auth clone, proxy reroute, display substitution or account change. Fresh ordinary request remains the path with explicitly repeated parameters and new ID, followed by authentication verification.
 
 ## Evidence and review
 
-- `python -m pytest agents/test_browser_safe_resume.py agents/test_browser_provisioner.py agents/test_browser_lease_recovery.py -q -k 'not test_task_proxy_completion_indexes_private_default_and_releases'` — 68 passed, 2 deselected (includes attached-client fixture).
-- Full same selection without exclusions — 45 passed, 3 failed before fixture correction (one newly added test corrected; two existing real mitmproxy fixtures fail because installed `connection.Client` now requires keyword arguments; no production change for that unrelated dependency drift).
-- `.venv/bin/python` absent in this worktree; system Python used for fixtures only, never real browser provisioning.
+- `/home/ryushe/projects/bug_bounty_harness/.venv/bin/python -m pytest -q agents/test_browser_safe_resume.py agents/test_browser_resources.py agents/test_browser_provisioner.py --tb=short` — **123 passed, 2 failed**. All six feature-introduced regressions are green: four fixture `clients` initializations and two threshold fixture canonical-owner/terminal/detachment corrections. Two failures predate this repair: `agents/test_browser_provisioner.py::test_task_proxy_completion_indexes_private_default_and_releases[False]` and `[True]`; their subprocess fixture calls mitmproxy `connection.Client` positionally and fails with `TypeError: Client.__init__() takes 1 positional argument but 4 were given` before testing provisioner behavior. No tests omitted from this run.
+- Focused canonical-owner, missing-client fail-closed, and threshold cases: 6 passed, 66 deselected (focused run only).
+- Added headed/native/KasmVNC zero-stop tests for both cleanup paths and a browser-control-only resume receipt assertion.
+- `.venv/bin/python` absent in this worktree; the existing beta checkout `.venv` was used for offline fixtures, never real browser provisioning.
 - Four simulated live owners with 90000 seconds CDP idle and `--apply`: zero stops, four `owner-active-or-unverified` reasons.
 - `git diff --check` clean. No Hoster runtime or live browsers touched.
 - Independent review: pending parent.

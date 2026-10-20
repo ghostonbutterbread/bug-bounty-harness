@@ -1884,10 +1884,18 @@ def restore_failed_stop(row):
         return False
 
 
+def cleanup_headless(row):
+    """CDP detachment cannot attest a headed/native viewer is quiescent."""
+    info = record_info(row)
+    return ("kasmvnc" not in info
+            and any(str(flag).startswith("--headless") for flag in info.get("command", [])))
+
+
 def cleanup_unused(c):
     stopped_ids = []
     for row in c.execute("SELECT * FROM browsers WHERE state='running'").fetchall():
-        if not canonical_owner(row) or owner_state(metadata(c, row).get("owner")) != "terminal":
+        if (not canonical_owner(row) or not cleanup_headless(row)
+                or owner_state(metadata(c, row).get("owner")) != "terminal"):
             continue
         activity = activity_snapshot(row)
         if (not activity or activity.get("unavailable") or activity["idle_seconds"] < 7200
@@ -1896,7 +1904,8 @@ def cleanup_unused(c):
             continue
         # Recheck AND freeze in the adapter's event loop, not a stale file snapshot.
         if freeze_idle(row, 7200, require_detached=True):
-            if canonical_owner(row) and owner_state(metadata(c, row).get("owner")) == "terminal" and retire(c, row):
+            if (canonical_owner(row) and cleanup_headless(row)
+                    and owner_state(metadata(c, row).get("owner")) == "terminal" and retire(c, row)):
                 stopped_ids.append(row["browser_id"])
             else:
                 meta = metadata(c, row)
@@ -1938,6 +1947,8 @@ def cleanup(args):
         meta = metadata(c, row)
         if not canonical_owner(row):
             reason = "canonical-owner-unverified"
+        elif not cleanup_headless(row):
+            reason = "headed-or-display-unverified"
         elif reservation_blocks(row):
             reason = "profile-reserved"
         elif not info.get("unit_invocation") or unit_identity(row["unit"]) != info["unit_invocation"]:
@@ -1963,7 +1974,8 @@ def cleanup(args):
         if reason == "eligible-terminal-idle" and args.apply:
             if not freeze_idle(row, 7200, require_detached=True):
                 reason = "activity-changed"
-            elif not canonical_owner(row) or owner_state(metadata(c, row).get("owner")) != "terminal":
+            elif (not canonical_owner(row) or not cleanup_headless(row)
+                  or owner_state(metadata(c, row).get("owner")) != "terminal"):
                 restore_failed_stop(row)
                 reason = "owner-changed"
             elif retire(c, row):
@@ -2004,6 +2016,7 @@ def resume(args):
         if not matching_proxy(c, proxy_args, row):
             emit({"status": "recovery-blocked", "reason": "proxy-or-ca-unverified"}, 2)
         emit({"status": "already-running", **safe(row),
+              "reconnect_scope": "browser-control-only",
               "task_proxy": proxy_metadata(proxy_row(c, args)),
               "watcher_healthy": unit_active(monitor_unit(row["browser_id"]))})
     if row["state"] == "stopped" and canonical_owner(row, active=False) and stopped(row):

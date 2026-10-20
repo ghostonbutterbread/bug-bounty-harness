@@ -631,11 +631,14 @@ different profile path to bypass a named account's lease.
    launch. Never launch `chromium_test.py` directly to evade engagement admission.
    For `reason: no-capacity`, run provisioner `cleanup` on the browser node to
    inspect admission and per-browser refusal reasons. It is a dry-run; use
-   `cleanup --apply` only for rows proven terminal and idle, then retry the
-   **same** request arguments and agent/run identity. Active, attached, manual,
-   held, in-flight and uncertain owners are never capacity to borrow. To
-   reconnect, use `resume --browser-id <exact-id> --agent-id <agent> --run-id
-   <run>`; healthy compatible ownership returns the same ID. A stopped ID
+   `cleanup --apply` only for rows proven terminal, explicitly headless and idle,
+   then retry the **same** request arguments and agent/run identity. Headed/native
+   displays (including KasmVNC), active, attached, manual, held, in-flight and
+   uncertain owners are never capacity to borrow. To reconnect, use
+   `resume --browser-id <exact-id> --agent-id <agent> --run-id <run>`; healthy
+   compatible ownership returns the same ID with `browser-control-only` scope.
+   Do not promise an interactive viewer handoff without separately verifying
+   that viewer is available. A stopped ID
    currently refuses automatic restore because a safe launch recipe is not
    retained; issue a fresh normal request with explicit proxy/display/auth
    constraints instead, and verify authentication. See

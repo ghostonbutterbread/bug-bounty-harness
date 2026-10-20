@@ -29,7 +29,7 @@ def rows(m, tmp_path, count=4, state='running'):
                    'fixture', f'unit-{n}', str(tmp_path / f'profile-{n}'),
                    str(tmp_path / f'{bid}.json'), state, 0, 0, 0, 0))
         (tmp_path / f'{bid}.json').write_text(json.dumps({'unit_invocation': f'invocation-{n}',
-                                                       'command': ['--no-proxy-server']}))
+                                                       'command': ['--headless=new', '--no-proxy-server']}))
     c.commit()
     return c
 
@@ -100,6 +100,7 @@ def test_resume_exact_owner_healthy_and_stopped_blocker(monkeypatch, tmp_path, c
     assert result(lambda: m.resume(args)) == 0
     output = json.loads(capsys.readouterr().out)
     assert output['status'] == 'already-running' and output['browser_id'] == 'browser-0'
+    assert output['reconnect_scope'] == 'browser-control-only'
     c.execute("UPDATE browsers SET state='stopped' WHERE browser_id='browser-0'")
     c.commit()
     monkeypatch.setattr(m, 'stopped', lambda row: True)
@@ -137,6 +138,30 @@ def test_task_owned_lost_profile_refusal(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(m, 'stopped', lambda row: True)
     assert result(lambda: m.resume(argparse.Namespace(browser_id='browser-0', agent_id='agent', run_id='run'))) == 2
     assert json.loads(capsys.readouterr().out)['state_lost'] is True
+
+
+@pytest.mark.parametrize('command,kasm', [(['chromium'], None), (['chromium', '--headless=new'], {'display': ':20'})])
+def test_headed_viewer_protected_in_both_cleanup_paths(monkeypatch, tmp_path, capsys, command, kasm):
+    m = manager(monkeypatch, tmp_path)
+    c = rows(m, tmp_path, count=1)
+    info = {'command': command, 'unit_invocation': 'invocation-0'}
+    if kasm is not None:
+        info['kasmvnc'] = kasm
+    (tmp_path / 'browser-0.json').write_text(json.dumps(info))
+    monkeypatch.setattr(m, 'canonical_owner', lambda row, **_: True)
+    monkeypatch.setattr(m, 'owner_state', lambda _: 'terminal')
+    monkeypatch.setattr(m, 'unit_identity', lambda _: 'invocation-0')
+    monkeypatch.setattr(m, 'unit_active', lambda _: True)
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    monkeypatch.setattr(m, 'activity_snapshot', lambda _: dict(idle_seconds=9000, inflight=0,
+        reserved_seconds=0, attached_clients=0))
+    monkeypatch.setattr(m, 'admission', lambda *args: {'status': 'queued'})
+    monkeypatch.setattr(m, 'freeze_idle', lambda *args, **kwargs: pytest.fail('viewer must not freeze'))
+    monkeypatch.setattr(m, 'retire', lambda *args: pytest.fail('viewer must not stop'))
+    assert m.cleanup_unused(c) == []
+    assert result(lambda: m.cleanup(argparse.Namespace(apply=True))) == 0
+    assert json.loads(capsys.readouterr().out)['browsers'][0]['result'] == 'headed-or-display-unverified'
+    assert c.execute("SELECT state FROM browsers WHERE browser_id='browser-0'").fetchone()[0] == 'running'
 
 
 def test_adapter_reports_attached_socket_even_without_session(monkeypatch, tmp_path):

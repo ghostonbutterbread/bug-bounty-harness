@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from agents.storage_resolver import resolve_storage
+from agents.coverage_evidence import verify_references
 
 STATES = {"no_assessment", "in_progress", "blocked", "bounded_review"}
 # Read old lane-local SQLite rows without rewriting history or changing XSS pressure.
@@ -48,6 +49,7 @@ class SurfaceCoverageStore:
     def __init__(self, program: str, *, family: str, lane: str, root_override: str | Path | None = None) -> None:
         layout = resolve_storage(program, family=family, lane=lane, root_override=root_override, create=False)
         self.path = layout.ledgers_root / "surface_coverage.sqlite"
+        self._evidence_scope = (layout.program, layout.family, layout.lane, root_override)
 
     def _connect(self) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -203,6 +205,18 @@ class SurfaceCoverageStore:
             raise ValueError("bounded_review assessment requires boundary and axes")
         if not self.path.exists():
             raise ValueError("surface not discovered")
+        # New typed pointers must resolve *before* changing the assessment/history.
+        # Legacy opaque references remain readable and writable for compatibility.
+        typed = [ref for ref in refs if ref.startswith(("attempt:", "map:"))]
+        if typed:
+            program, family, lane, root = self._evidence_scope
+            checked = verify_references(program, family=family, lane=lane,
+                                        root_override=str(root) if root is not None else None, refs=typed)
+            for number, result in enumerate(checked, 1):
+                if result["status"] != "resolved":
+                    kind = "Attempt" if typed[number - 1].startswith("attempt:") else "MapStore"
+                    raise ValueError(f"evidence reference {number} ({kind}) is {result['status']}; "
+                                     "use the returned attempt_id and exact stream or a retained indexed map path")
         with self._connect() as db:
             row = db.execute("SELECT fingerprint,run_id FROM surfaces WHERE id=?", (surface_id,)).fetchone()
             assessment = db.execute("SELECT 1 FROM assessments WHERE surface_id=? AND class_name=?",

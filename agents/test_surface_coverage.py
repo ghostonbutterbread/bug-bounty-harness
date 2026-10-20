@@ -91,6 +91,29 @@ class SurfaceCoverageTests(unittest.TestCase):
                             reason="reviewed", **options)
         self.assertEqual(self.store.brief()["counts"], {"no_assessment": 1})
 
+    def test_typed_references_must_resolve_before_assessment_write(self) -> None:
+        # Typed pointers are checked on write; old opaque pointers remain readable.
+        surface_id = self.discover()
+        stream = Path(self.tmp.name) / "web_bounty/sample/web/attempts/_runs/probe-1/attempts.jsonl"
+        stream.parent.mkdir(parents=True)
+        stream.write_text(json.dumps({"attempt_id": "A-actual", "media": "other-id"}) + "\n")
+        for ref in ("attempt:probe-1:other-id", "attempt:wrong-stream:A-actual", "attempt:probe-1:",
+                    "map:missing.jsonl"):
+            with self.subTest(ref=ref), self.assertRaisesRegex(ValueError, "evidence reference"):
+                self.assess(surface_id, class_name="xss", status="in_progress",
+                            evidence_refs=[ref], reason="renderer open")
+        self.assertEqual(self.store.history(surface_id, class_name="xss"), [])
+        self.assertEqual(self.store.brief()["counts"], {"no_assessment": 1})
+        result = self.assess(surface_id, class_name="xss", status="in_progress",
+                             evidence_refs=["attempt:probe-1:A-actual"], reason="renderer open")
+        self.assertEqual(result["status"], "in_progress")
+
+    def test_legacy_opaque_reference_still_writes(self) -> None:
+        surface_id = self.discover()
+        self.assess(surface_id, class_name="xss", status="in_progress",
+                    evidence_refs=["A-legacy"], reason="legacy pointer needs reconciliation")
+        self.assertEqual(self.store.brief()["counts"], {"in_progress": 1})
+
     def test_discovery_creates_untested_class_without_static_file_index(self) -> None:
         surface_id = self.discover()
         result = self.store.brief(class_name="xss")
@@ -290,6 +313,9 @@ class SurfaceCoverageTests(unittest.TestCase):
             surface_id = store.discover(kind="route", host="shop.example", surface_key="GET /search",
                                         input_key=f"query:field-{number}", class_name="xss",
                                         source_ref=f"recon/xss/source-{number}.jsonl", run_id=f"map-{number}")
+            stream = Path(self.tmp.name) / f"web_bounty/sample/web/attempts/_runs/probe-{number}/attempts.jsonl"
+            stream.parent.mkdir(parents=True)
+            stream.write_text(json.dumps({"attempt_id": f"A-{number}"}) + "\n")
             store.assess(surface_id, class_name="xss", status="in_progress",
                          expected_fingerprint="", evidence_refs=[f"attempt:probe-{number}:A-{number}"],
                          reason=f"consumer {number} remains open", run_id=f"probe-{number}")

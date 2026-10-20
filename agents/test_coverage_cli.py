@@ -134,15 +134,22 @@ class CoverageCliTests(unittest.TestCase):
         surface_id = self.invoke("coverage.py", "discover", "--kind", "route", "--host", "shop.example",
                                  "--surface-key", "GET /search", "--input-key", "query:q", "--class-name", "xss",
                                  "--source-ref", "recon/xss/sources.jsonl:1", "--run-id", "mapper-1")["surface_ids"][0]
+        rejected = subprocess.run([sys.executable, str(REPO_ROOT / "agents/coverage.py"), "assess",
+                                   *self.common, "--surface-id", surface_id, "--class-name", "xss",
+                                   "--status", "in_progress", "--expected-fingerprint", "",
+                                   "--reason", "browser consumer remains open", "--evidence-ref",
+                                   "attempt:probe-1:A-missing"], cwd=REPO_ROOT, capture_output=True, text=True)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("evidence reference", rejected.stderr)
+        self.assertEqual(self.invoke("coverage.py", "brief", "--class-name", "xss")["counts"],
+                         {"no_assessment": 1})
         self.invoke("coverage.py", "assess", "--surface-id", surface_id, "--class-name", "xss",
                     "--status", "in_progress", "--expected-fingerprint", "",
                     "--reason", "browser consumer remains open", "--evidence-ref", attempt_ref,
-                    "--evidence-ref", map_ref, "--evidence-ref", "attempt:probe-1:A-missing",
-                    "--evidence-ref", attempt["attempt_id"])
+                    "--evidence-ref", map_ref, "--evidence-ref", attempt["attempt_id"])
         audited = self.invoke("coverage.py", "verify", "--surface-id", surface_id, "--class-name", "xss")
         self.assertEqual({row["ref"]: row["status"] for row in audited["references"]},
-                         {attempt_ref: "resolved", map_ref: "resolved",
-                          "attempt:probe-1:A-missing": "missing", attempt["attempt_id"]: "unverified"})
+                         {attempt_ref: "resolved", map_ref: "resolved", attempt["attempt_id"]: "unverified"})
         self.assertNotIn("Sensitive reusable fact", json.dumps(audited))
         self.assertNotIn("sensitive-probe-detail", json.dumps(audited))
         maps.update_status(path=observation.relative_to(maps.maps_root).as_posix(),

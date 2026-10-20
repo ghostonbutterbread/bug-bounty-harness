@@ -379,6 +379,14 @@ class TestMapStore:
         assert entry["behaviors"] == ["xml-notification-parser"]
         assert "Application Behaviors: xml-notification-parser" in path.read_text(encoding="utf-8")
 
+    def test_same_second_observation_writes_return_newest_first(self, store: MapStore, monkeypatch):
+        store.init()
+        monkeypatch.setattr("agents.map_store.iso_now", lambda: "2026-10-19T00:00:00Z")
+        first = store.write(url="https://app.example/inbox", surface="js", body="Initial input.\n", title="first")
+        second = store.write(url="https://app.example/inbox", surface="js", body="Observed sink.\n", title="second")
+        assert first != second
+        assert [entry["title"] for entry in store.query(url="https://app.example/inbox")] == ["second", "first"]
+
     def test_later_behavior_link_requires_explicit_cumulative_path_update(self, store: MapStore):
         store.init()
         first = store.write(url="https://app.com/import", surface="api", body="Upload accepted.\n")

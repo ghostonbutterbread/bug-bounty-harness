@@ -63,10 +63,6 @@ named corpus; no file such as `params.txt` or `urls.txt` is mandatory. An empty
 or thin Coverage ledger means mapping may be missing, not that the class is
 clean. Register only relevant observed questions with `/coverage` `discover`;
 do not bulk-promote URLs into class assessments or copy probes into Coverage.
-Use `/coverage` `watch` as the read-only uptake check for the worker's exact
-Attempt stream at handoff; if it reports a reconciliation gap, pass one bounded
-historical slice to an offline backfill worker rather than silently counting
-Attempts as reviewed. The goal parent still owns the continuation decision.
 
 Choose **deepen** the current chain, **explore** a different observed path,
 **map** another feature/service, **unblock** a concrete prerequisite, or a

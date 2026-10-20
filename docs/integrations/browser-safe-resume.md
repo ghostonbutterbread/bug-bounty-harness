@@ -5,7 +5,7 @@
 - **Branch / owning ref:** `feat/browser-safe-resume`
 - **Base commit:** `eaa6cca5483e12b79a427bc06cac1629673e3348` (`origin/beta` fetched)
 - **Intended integration target:** `beta`
-- **Latest immutable recovery checkpoint:** `da1ba16aa2aed036ce944c5719309fc23504e2a0` (automatic-slot refinement and final split-suite receipts; dossier-only handoff follows)
+- **Prior immutable recovery checkpoint:** `da1ba16aa2aed036ce944c5719309fc23504e2a0` (automatic-slot refinement). Current correction is checkpointed on this feature ref; verify current tip separately.
 - **Feature implementation commit(s):** `54a9433`, `57b4c44`, `f96c0bc`, `da1ba16`
 - **Inspiration:** capacity incident where four active browser units were stopped by a mismatched suffix; existing request-triggered two-hour CDP idle sweep.
 
@@ -26,7 +26,10 @@ Provisioner `cleanup` dry-run reports node admission and per-browser safe refusa
 - Attempted `agents/test_browser*.py` suite exceeded the tool's 420-second cap without a final receipt; split suites above are the recorded evidence, not a claim that the entire browser suite passed.
 - Four simulated live owners with 90000 seconds CDP idle and `--apply`: zero stops, four `owner-active-or-unverified` reasons.
 - `git diff --check` clean. No Hoster runtime or live browsers touched.
-- Independent review: pending parent.
+- **Review blocker repaired on this checkpoint:** `browser_profile_lease.cmd_release` clears `service_unit`, so released canonical-owner checks requiring it made all stopped resumes fail before child request. `canonical_owner(active=False)` now compares the retained exact manager/program/account/auth-domain/agent/run/profile fields and released status; active checks still require the exact service unit. The regression uses real lease SQLite schema and `cmd_release`, proves dispatch after release, and refuses changed physical inode, profile path, owner run, and manager ID without dispatch. CLI `--help` now describes stopped reprovisioning.
+- **Current focused receipt:** `.venv/bin/python -m pytest -q agents/test_browser_safe_resume.py` → **24 passed** (same checkout source; interpreter from existing beta `.venv`).
+- **Current broad receipts:** six-file provisioner/profile group with `-k 'not test_task_proxy_completion_indexes_private_default_and_releases'` → **202 passed, 2 deselected, 41 subtests passed**; lifecycle/policy/legacy group → **112 passed, 6 skipped**. The two deselected cases are the known positional mitmproxy fixture failures described below. `browser_provisioner.py --help` shows stopped reprovisioning; `git diff --check` clean. No live browser, Hoster, integration, or push.
+- Independent re-review of this correction: pending parent.
 
 ## Blockers and deferred work
 
@@ -36,8 +39,8 @@ Provisioner `cleanup` dry-run reports node admission and per-browser safe refusa
 
 ## Handoff and decision gates
 
-- **Exact resume point:** parent reviews new checkpoint diff and receipts; isolated disposable systemd/Chromium acceptance, concurrent resume and named pool proof are the next gate. Do not merge/push or activate this branch from this agent.
-- **Working tree at handoff:** clean after checkpoint commit.
+- **Exact resume point:** parent independently reviews the canonical-owner correction, regression and current feature tip against fetched `origin/beta` (now two commits ahead of this branch's base); isolated disposable systemd/Chromium acceptance, concurrent resume and named pool proof remain the next gate. Do not merge/push or activate this branch from this agent.
+- **Working tree at handoff:** commit checkpoint and verify clean status before handoff.
 - **Integration gate:** independent review of refusal/stop boundaries and portability, plus existing dependency fixture decision.
 - **Activation gate:** selected beta runtime install and isolated systemd fixture, not this branch-only test.
 - **Promotion gate:** separate owner decision; no stable promotion implied.

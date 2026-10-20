@@ -175,7 +175,7 @@ def test_adapter_reports_attached_socket_even_without_session(monkeypatch, tmp_p
     assert browser_control.PipeBrowser.activity_status(adapter)['attached_clients'] == 1
 
 
-def prepared_resume(monkeypatch, tmp_path, *, task_owned=True, missing=False):
+def prepared_resume(monkeypatch, tmp_path, *, task_owned=True, missing=False, mock_owner=True):
     m = manager(monkeypatch, tmp_path)
     c = rows(m, tmp_path, count=1, state='stopped')
     profile = tmp_path / 'profile-0'
@@ -209,7 +209,8 @@ def prepared_resume(monkeypatch, tmp_path, *, task_owned=True, missing=False):
         launch_recipe=recipe, stop_proof={'cdp_url': 'http://127.0.0.1:9/capability'},
         instance_key=recipe['instance_key'], instance_selection=recipe['instance_selection'],
         process_identity={'pid': 9})))
-    monkeypatch.setattr(m, 'canonical_owner', lambda row, **_: True)
+    if mock_owner:
+        monkeypatch.setattr(m, 'canonical_owner', lambda row, **_: True)
     monkeypatch.setattr(m, 'stopped', lambda row: True)
     monkeypatch.setattr(m, 'proxy_row', lambda *a: None)
     return m, c, row, recipe
@@ -270,6 +271,72 @@ def test_resume_rejects_unproved_changes_without_dispatch(monkeypatch, tmp_path,
     monkeypatch.setattr(m.subprocess, 'run', lambda *a, **kw: pytest.fail('must not dispatch'))
     assert result(lambda: m.resume(argparse.Namespace(browser_id='browser-0', agent_id='agent', run_id='run'))) == 2
     assert json.loads(capsys.readouterr().out).get('reason', reason) == reason
+
+
+@pytest.mark.parametrize('mutation,reason', [
+    ('none', None),
+    ('physical', 'profile-identity-changed'),
+    ('profile', 'stop-or-ownership-unverified'),
+    ('owner', 'stop-or-ownership-unverified'),
+    ('manager', 'stop-or-ownership-unverified'),
+])
+def test_released_canonical_owner_stopped_resume_preflight(monkeypatch, tmp_path, capsys, mutation, reason):
+    m, c, row, recipe = prepared_resume(monkeypatch, tmp_path, mock_owner=False)
+    import browser_profile_lease as profiles
+    db_path = tmp_path / 'browser_profile_leases.sqlite'
+    with profiles.connect(db_path) as leases:
+        profiles.init_db(leases)
+        leases.execute('''INSERT INTO browser_profile_leases
+            (lease_id, program, account_alias, auth_domain, owner_agent_id,
+             owner_run_id, purpose, profile_dir, status, service_unit,
+             created_at, heartbeat_at, expires_at, manager_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+            (row['lease_id'], row['program'], row['account'], row['auth_domain'],
+             row['agent_id'], row['run_id'], row['purpose'], row['profile_dir'],
+             'active', row['unit'], 1, 1, 9999999999, m.manager_id()))
+    assert m.canonical_owner(row)
+    with profiles.connect(db_path) as leases:
+        leases.execute('UPDATE browser_profile_leases SET service_unit=? WHERE lease_id=?',
+                       ('different-unit', row['lease_id']))
+    assert not m.canonical_owner(row)  # Active unit matching is unchanged.
+    with profiles.connect(db_path) as leases:
+        leases.execute('UPDATE browser_profile_leases SET service_unit=? WHERE lease_id=?',
+                       (row['unit'], row['lease_id']))
+    released = profiles.cmd_release(argparse.Namespace(state_dir=str(tmp_path),
+        lease_id=row['lease_id'], agent_id=row['agent_id'], manager_id=m.manager_id(),
+        disposition='completed', profile_health='healthy'))
+    assert released['status'] == 'released'
+    with profiles.connect(db_path) as leases:
+        historical = leases.execute('SELECT * FROM browser_profile_leases WHERE lease_id=?',
+                                    (row['lease_id'],)).fetchone()
+        assert historical['service_unit'] is None and historical['status'] == 'released'
+    assert m.canonical_owner(row, active=False)
+    assert not m.canonical_owner(row)  # Released is never an active owner.
+    if mutation == 'physical':
+        Path(row['profile_dir']).rename(tmp_path / 'moved-profile')
+        Path(row['profile_dir']).mkdir()
+    elif mutation == 'profile':
+        c.execute('UPDATE browsers SET profile_dir=? WHERE browser_id=?',
+                  (str(tmp_path / 'other-profile'), row['browser_id']))
+        c.commit()
+    elif mutation in ('owner', 'manager'):
+        with profiles.connect(db_path) as leases:
+            leases.execute(f'UPDATE browser_profile_leases SET {"owner_run_id" if mutation == "owner" else "manager_id"}=? WHERE lease_id=?',
+                           ('different', row['lease_id']))
+    calls = []
+    def child(cmd, **kwargs):
+        calls.append(cmd)
+        return SimpleNamespace(returncode=2, stdout=json.dumps({'status': 'queued'}))
+    monkeypatch.setattr(m.subprocess, 'run', child)
+    assert result(lambda: m.resume(argparse.Namespace(browser_id=row['browser_id'],
+                                      agent_id=row['agent_id'], run_id=row['run_id']))) == 2
+    output = json.loads(capsys.readouterr().out)
+    if reason:
+        assert output['reason'] == reason and calls == []
+    else:
+        assert output['status'] == 'queued' and len(calls) == 1
+        assert '--expected-replaces-browser-id' in calls[0]
+        assert calls[0][calls[0].index('--url') + 1] == 'about:blank'
 
 
 def test_resume_repeat_returns_verified_successor_without_dispatch(monkeypatch, tmp_path, capsys):

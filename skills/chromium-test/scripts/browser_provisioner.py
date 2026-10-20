@@ -1929,12 +1929,15 @@ def canonical_owner(row, *, active=True):
             lease_row = leases.execute(
                 "SELECT * FROM browser_profile_leases WHERE lease_id=?", (row["lease_id"],)
             ).fetchone()
+        identity = (("manager_id", manager_id()), ("program", row["program"]),
+                    ("account_alias", row["account"]), ("auth_domain", row["auth_domain"]),
+                    ("owner_agent_id", row["agent_id"]), ("owner_run_id", row["run_id"]),
+                    ("profile_dir", row["profile_dir"]))
+        # Release clears the transient unit, but retains the exact historical
+        # manager, account, owner and profile identity needed for stopped replay.
         return bool(lease_row and lease_row["status"] == ("active" if active else "released")
-                    and all(lease_row[k] == value for k, value in (
-                        ("manager_id", manager_id()), ("program", row["program"]),
-                        ("account_alias", row["account"]), ("auth_domain", row["auth_domain"]),
-                        ("owner_agent_id", row["agent_id"]), ("owner_run_id", row["run_id"]),
-                        ("profile_dir", row["profile_dir"]), ("service_unit", row["unit"]))))
+                    and all(lease_row[k] == value for k, value in identity)
+                    and (not active or lease_row["service_unit"] == row["unit"]))
     except (sqlite3.Error, OSError, KeyError):
         return False
 
@@ -3580,7 +3583,7 @@ def main():
     q.add_argument("--agent-id", required=True)
     clean = sub.add_parser("cleanup", help="Inspect capacity and eligible terminal idle browsers; dry-run unless --apply")
     clean.add_argument("--apply", action="store_true")
-    res = sub.add_parser("resume", help="Reconnect only the exact owned healthy browser ID")
+    res = sub.add_parser("resume", help="Reconnect the exact healthy running browser ID or safely reprovision a verified stopped ID")
     res.add_argument("--browser-id", required=True)
     res.add_argument("--agent-id", required=True)
     res.add_argument("--run-id", required=True)

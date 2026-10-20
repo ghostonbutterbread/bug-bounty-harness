@@ -1,14 +1,14 @@
 # Pull-based MapStore surface orientation integration dossier
 
-- **Status:** review-ready
+- **Status:** reviewed; integration pending
 - **Owner:** Hermes bugfix
 - **Branch:** `feat/mapstore-pull-surface-orientation`
 - **Base commit:** `4cc4ae0c603edf94aaff6e98b5351d7681d55a93`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-19
 - **Owning feature branch/ref:** `feat/mapstore-pull-surface-orientation`
-- **Latest immutable recovery checkpoint:** `3e3cb951c5f31602adf0d59a7e950d04ca6ae64c` (initial implementation; reviewer fixes being committed)
-- **Feature implementation commit(s):** `3e3cb951c5f31602adf0d59a7e950d04ca6ae64c`; reviewer fix pending
+- **Latest immutable recovery checkpoint:** `ad546f6eb79bb6538737ccf74d13708fff68bd1b`
+- **Feature implementation commit(s):** `3e3cb951c5f31602adf0d59a7e950d04ca6ae64c`, `ad546f6eb79bb6538737ccf74d13708fff68bd1b`
 - **Inspiration / canonical references:** Ryu's request for on-location, optional MapStore recall without broad startup ingest or historical-lead drift.
 
 ## Intent
@@ -22,7 +22,7 @@ Application Behavior records accept optional location anchors and a one-line obs
 ## Evidence and review
 
 - Tests and commands: baseline `python -m pytest agents/test_map_store.py -q` 74 passed; initial implementation 76 passed; reviewer fixes 77 passed. `git diff --check` clean.
-- Independent review: fresh reviewer requested changes at commit `3e3cb95`: cross-host anchor collision and legacy update metadata loss. Both repaired with regressions; narrow re-review pending.
+- Independent review: fresh reviewer requested changes at commit `3e3cb95`: cross-host anchor collision and legacy update metadata loss. Narrow independent re-review at `ad546f6` confirmed both fixes, reran 77 passing tests, `git diff --check` clean, and found no code blocker.
 - Replay/cohort/fixture evidence: fixture-backed multi-host collision guard, legacy update retention, CLI bounds, exact drill-down and legacy CLI tests.
 - Merge/ancestry evidence: pending fresh beta fetch.
 
@@ -34,10 +34,10 @@ Application Behavior records accept optional location anchors and a one-line obs
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/mapstore-pull-surface-orientation`
-- **Latest immutable recovery checkpoint:** `3e3cb951c5f31602adf0d59a7e950d04ca6ae64c`; reviewer fix commit pending.
-- **Feature implementation commit(s):** `3e3cb951c5f31602adf0d59a7e950d04ca6ae64c`; reviewer fix pending.
-- **Exact resume point:** narrow re-review, fresh beta comparison, integration decision.
-- **Working-tree state at handoff:** reviewer fixes and dossier not yet committed.
+- **Latest immutable recovery checkpoint:** `ad546f6eb79bb6538737ccf74d13708fff68bd1b` (dossier-only commit may follow).
+- **Feature implementation commit(s):** `3e3cb951c5f31602adf0d59a7e950d04ca6ae64c`, `ad546f6eb79bb6538737ccf74d13708fff68bd1b`.
+- **Exact resume point:** fresh beta comparison, integration and activation boundary.
+- **Working-tree state at handoff:** clean after the dossier-only commit.
 
 ## Decision gates
 
@@ -49,3 +49,4 @@ Application Behavior records accept optional location anchors and a one-line obs
 
 - 2026-10-19 — feature created from fetched beta; bounded orientation and exact drill-down implemented.
 - 2026-10-19 — independent review found two medium issues; fixed collision guard and legacy update retention; focused tests 77 passed, re-review pending.
+- 2026-10-19 — narrow independent re-review confirmed both fixes with 77 passing tests; no code blocker; reviewed feature accepted for beta integration only.

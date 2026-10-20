@@ -1,11 +1,13 @@
 # XSS idea-depth augmentation — before, after, and why
 
-- **Status:** beta-candidate methodology note (not a target finding).
+- **Status:** reviewed beta methodology note (not a target finding).
 - **Owner:** BBH `xss` router and `xss-payload-engineering`.
 - **Canonical path:** `docs/xss-mechanism-ideation.md`.
 - **Supersedes:** none; complements the existing parser-stage reference and ResearchMap.
-- **Implementation commit:** `639480ba23b2b490124b4866cd22a883be48412b`
-  (initial feature implementation; follow-up review fixes remain on its branch).
+- **Implementation commits:** `639480ba23b2b490124b4866cd22a883be48412b`
+  (initial feature), `7273a774a73059151df48c92cde93d5756634536`
+  (reviewed mXSS/composition correction). Initially promoted to beta by
+  `40077525c9794aff425aadcfe68d220f20121d6c`.
 
 ## The gap, without understating existing coverage
 
@@ -144,5 +146,10 @@ with `--url about:blank --proxy none` under the browser skill, set
 `XSS_FIXTURE_CDP_LAUNCH` to its *private* launch-receipt path, run
 `python3 -m pytest -q tests/test_xss_browser_fixture.py`, then release its
 exact lease through the provisioner. Do not log or publish the receipt's CDP
-URL. The fixture is not a live-target automation script. Final full-suite and
-independent review receipts belong in the branch-local integration dossier.
+URL. The fixture is not a live-target automation script. In the beta merge
+checkout, focused checks returned 4 passed and 1 opt-in browser skip; the full
+suite returned 300 passed, 1 skipped, and 2 unrelated `stack-to-program`
+failures reproduced on unchanged beta. The owned offline Chrome regression
+returned 5 passed before that browser was released. An independent reviewer
+accepted the corrected XSS guidance and fixture; the feature-only integration
+dossier was excluded from beta, and its review receipts remain in Git history.

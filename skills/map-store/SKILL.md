@@ -52,9 +52,11 @@ Application Behavior record. It is a factual capability map, not a lead.
 
 1. Load this skill early so the agent knows MapStore is available, but do not
    ingest broad MapStore contents by default.
-2. Start from the user goal and the live surface in front of you. Do not make a
-   broad MapStore or findings-ledger read the opening move for creative live
-   testing.
+2. Start from the user goal and a selected route, feature, component, or field.
+   Do not rediscover its known inventory from scratch: if you have a concrete
+   location, use a bounded `behavior query --location <name>` or `--url <full-url>`
+   to orient on existing factual capabilities. Do not make a broad MapStore or
+   findings-ledger read the opening move for creative live testing.
 3. Query MapStore only when you have a concrete URL, endpoint, surface,
    parameter, role boundary, or vuln class and need targeted tested-state,
    duplicate avoidance, reusable app facts, coverage, or gadget context.
@@ -66,8 +68,12 @@ Application Behavior record. It is a factual capability map, not a lead.
    prerequisite blocker, or at session end. `gadget` writes are always allowed.
    `old-leads` is disabled unless the user asked for retest, repass, cleanup,
    duplicate triage, or old-lead review.
-5. Treat MapStore results as constraints and prior observations, not as the
-   hypothesis generator. If prior notes are narrow, pivot to adjacent untested
+5. Verify relevant mapped edges against current behavior. A map is a starting
+   point, not an assigned queue: explore outside it and add newly observed
+   edges. Missing records mean unknown, not absent; a tested result covers only
+   its recorded source, consumer, conditions, and family. Treat MapStore results
+   as constraints and prior observations, not as the hypothesis generator. If
+   prior notes are narrow, pivot to adjacent untested
    classes instead of inheriting their tunnel vision. When a targeted result has
    `ai_reviewed_by` tags and the current agent/model pair is absent, a different
    model may independently revisit the same surface or re-parse linked evidence
@@ -88,6 +94,33 @@ Application Behavior record. It is a factual capability map, not a lead.
     of one known run, resolve its path and use `read_attempts(exact_path, ...)`.
 11. If the observation changes hunt direction, add the narrative/handoff to
     `/bounty-notes` too.
+
+### Pull-based surface orientation
+
+For a named user-influenceable capability, write a URL-backed observation first,
+then `behavior write` with a factual one-line `--summary` and repeatable
+`--anchor` names for the feature, component, or input field an agent may encounter.
+In the body describe **observed** input → transform → consumer/sink edges and
+mark unknown links unknown. Link the observation path(s); do not turn a source
+name alone into a proven sink or copy private hypotheses into this public map.
+For a tested direction, the linked MapStore observation describes representative
+families, exact kill stage, tested conditions, untested boundary, next
+discriminator and redacted Attempt pointer. Keep raw payloads in Attempts.
+
+```bash
+bbh agents/map_store.py behavior query --program <program> --location CourierInbox --limit 10
+bbh agents/map_store.py behavior query --program <program> --url 'https://app.example/inbox' --kind renderer --limit 10
+bbh agents/map_store.py behavior show --program <program> --id courier-inbox-actions
+bbh agents/map_store.py query --program <program> --url 'https://app.example/inbox' --intent dedupe --limit 10
+```
+
+`behavior query` returns short indexed summaries and evidence pointers; `show`
+opens exactly one selected behavior plus linked observation statuses. Drill into
+the exact observation or Attempts only if needed. Queries are optional on an
+unselected area and are not a campaign-wide ingest gate. Before declaring a
+*selected* direction novel or exhausted, inspect its targeted tested state.
+Lifecycle status is not a coverage verdict. If results are truncated, narrow
+the location/kind/URL or deliberately raise the limit.
 
 ## Class-Derivation Decisions
 

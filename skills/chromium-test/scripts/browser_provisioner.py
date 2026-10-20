@@ -1557,10 +1557,11 @@ def stopped(row):
         return False
     if identity and owner_state(identity) != "terminal":
         return False
-    if info.get("cdp_url"):
+    cdp_url = info.get("cdp_url") or info.get("stop_proof", {}).get("cdp_url")
+    if cdp_url:
         import browser_profile_lease as profiles
 
-        if profiles.local_cdp_version(info["cdp_url"])["status"] == "ready":
+        if profiles.local_cdp_version(cdp_url)["status"] == "ready":
             return False
     return True
 
@@ -1590,9 +1591,10 @@ def browser_blocks_proxy(c, row):
 
 def stop_receipt(row):
     info = record_info(row)
+    proof = {"cdp_url": info.get("cdp_url"), "unit_invocation": info.get("unit_invocation")}
     private_json(
         row["launch_file"],
-        {key: info.get(key) for key in ("process_identity", "unit_invocation", "pid", "instance_key", "instance_selection", "instance_id", "pane_id", "account_color", "driving_mode")},
+        {**{key: info.get(key) for key in ("process_identity", "unit_invocation", "pid", "instance_key", "instance_selection", "instance_id", "pane_id", "account_color", "driving_mode", "launch_recipe", "replaces_browser_id", "resumed_state_lost")}, "stop_proof": proof},
     )
 
 
@@ -1618,6 +1620,7 @@ def retire(c, row, health="healthy"):
     q = release_lease(row["lease_id"], row["agent_id"], health=health)
     if q.get("status") != "released":
         return False
+    stop_receipt(row)
     c.execute(
         "update browsers set state='stopped',updated=? where lease_id=?",
         (now(), row["lease_id"]),
@@ -1989,13 +1992,129 @@ def cleanup(args):
           "browsers": entries, "stopped": [e["browser_id"] for e in entries if e["result"] == "stopped"]})
 
 
-@serialized
 def resume(args):
-    c = db()
-    row = c.execute("SELECT * FROM browsers WHERE browser_id=?", (args.browser_id,)).fetchone()
-    if not row or row["agent_id"] != args.agent_id or row["run_id"] != args.run_id:
-        emit({"status": "not-owner"}, 2)
-    if row["state"] == "running":
+    # Do not hold the node lock across request: start acquires it in a child.
+    with node_lock(STATE):
+        c = db()
+        row = c.execute("SELECT * FROM browsers WHERE browser_id=?", (args.browser_id,)).fetchone()
+        if not row or row["agent_id"] != args.agent_id or row["run_id"] != args.run_id:
+            emit({"status": "not-owner"}, 2)
+        if row["state"] == "running":
+            resume_running(c, row, args)
+        if row["state"] != "stopped" or not canonical_owner(row, active=False) or not stopped(row):
+            emit({"status": "recovery-blocked", "reason": "stop-or-ownership-unverified"}, 2)
+        info = record_info(row)
+        recipe = info.get("launch_recipe")
+        if not isinstance(recipe, dict) or recipe.get("version") != 1:
+            emit({"status": "recovery-blocked", "reason": "safe-launch-recipe-unavailable",
+                  "state_lost": row["program"] == "task-owned" and not Path(row["profile_dir"]).exists()}, 2)
+        if not isinstance(info.get("stop_proof"), dict) or not info["stop_proof"].get("cdp_url"):
+            emit({"status": "recovery-blocked", "reason": "stop-proof-unavailable"}, 2)
+        if not resume_recipe_valid(row, recipe):
+            emit({"status": "recovery-blocked", "reason": "launch-recipe-conflict"}, 2)
+        import browser_profile_lease as profiles
+        successors = [other for other in c.execute("SELECT * FROM browsers WHERE browser_id!=?", (row["browser_id"],))
+                      if record_info(other).get("replaces_browser_id") == row["browser_id"]]
+        profile = Path(row["profile_dir"])
+        lost = row["program"] == "task-owned" and not os.path.lexists(profile)
+        if not lost and not successors and (not profile.is_dir() or profiles.physical_profile(profile) is None
+                         or list(profiles.physical_profile(profile)) != recipe["physical_profile"]):
+            emit({"status": "recovery-blocked", "reason": "profile-identity-changed"}, 2)
+        if recipe["proxy"] == "mitm":
+            task = proxy_row(c, args)
+            if not task or task["state"] != "running" or not proxy_ready(task):
+                emit({"status": "recovery-blocked", "reason": "proxy-or-ca-unverified"}, 2)
+            if (proxy_metadata(task)["proxy_server"] != recipe["proxy_server"]
+                    or ca_fingerprint(Path(proxy_metadata(task)["ca_cert"])) != recipe["ca_sha256"]):
+                emit({"status": "recovery-blocked", "reason": "proxy-or-ca-unverified"}, 2)
+        elif proxy_row(c, args):
+            emit({"status": "recovery-blocked", "reason": "proxy-or-ca-unverified"}, 2)
+        if recipe["proxy"] == "external":
+            if (not endpoint_open(recipe["proxy_server"]) or
+                    not Path(recipe["mitm_ca_cert"]).is_file() or
+                    ca_fingerprint(Path(recipe["mitm_ca_cert"])) != recipe["ca_sha256"]):
+                emit({"status": "recovery-blocked", "reason": "proxy-or-ca-unverified"}, 2)
+        if recipe["program"] != "task-owned":
+            account, _ = profiles.resolve_account(recipe["program"], recipe["account"])
+            if not account or account.get("alias") != row["account"] or not profiles.account_lease_eligible(account):
+                emit({"status": "recovery-blocked", "reason": "account-identity-changed"}, 2)
+            check = argparse.Namespace(program=recipe["program"], account=recipe["account"],
+                                       auth_domain=recipe["auth_domain"])
+            if (profiles.auth_domain_for(check, account) != row["auth_domain"] or
+                    account_policy(row["program"], row["account"], row["auth_domain"]) != recipe["single_policy"] or
+                    account_auth_policy(account) != recipe.get("account_auth_policy")):
+                emit({"status": "recovery-blocked", "reason": "account-policy-changed"}, 2)
+        # A newer row for this physical slot is never the old ID's successor by inference.
+        if successors:
+            successor = max(successors, key=lambda item: item["created"])
+            successor_info = record_info(successor)
+            successor_recipe = successor_info.get("launch_recipe")
+            physical = profiles.physical_profile(successor["profile_dir"])
+            if (successor["state"] == "running" and successor["agent_id"] == args.agent_id
+                    and successor["run_id"] == args.run_id and canonical_owner(successor)
+                    and successor["profile_dir"] == row["profile_dir"]
+                    and successor_info.get("instance_key") == recipe["instance_key"]
+                    and isinstance(successor_recipe, dict) and physical is not None
+                    and list(physical) == successor_recipe.get("physical_profile")
+                    and not reservation_blocks(successor) and healthy(successor)
+                    and matching_proxy(c, argparse.Namespace(
+                        agent_id=args.agent_id, run_id=args.run_id, proxy=recipe["proxy"],
+                        proxy_server=recipe["proxy_server"],
+                        proxy_cert_mode=recipe["proxy_cert_mode"],
+                        mitm_ca_cert=recipe["mitm_ca_cert"]), successor)):
+                emit({"status": "already-running", **safe(successor),
+                      "replaces_browser_id": row["browser_id"],
+                      "state_lost": bool(successor_info.get("resumed_state_lost")),
+                      "authentication": "browser-native-check-required"})
+            emit({"status": "recovery-blocked", "reason": "replacement-unverified"}, 2)
+        # Child start repeats exact row/physical/slot checks inside the node lock.
+        expected = row["browser_id"]
+    cmd = [sys.executable, str(Path(__file__).resolve()), "request",
+           *([recipe["program"], recipe["account"]] if recipe["program"] != "task-owned" else []),
+           "--agent-id", args.agent_id, "--run-id", args.run_id,
+           "--purpose", recipe["purpose"], "--url", "about:blank",
+           "--auth-domain", recipe["auth_domain"]] if recipe["program"] != "task-owned" else [
+           sys.executable, str(Path(__file__).resolve()), "request", "--task-owned",
+           "--agent-id", args.agent_id, "--run-id", args.run_id,
+           "--purpose", recipe["purpose"], "--url", "about:blank"]
+    for name in ("ttl_seconds", "idle_seconds", "min_ram_available_mib", "min_swap_free_mib",
+                 "memory_high", "memory_max", "proxy", "proxy_cert_mode", "proxy_ownership",
+                 "graphics_backend", "driving_mode"):
+        cmd += ["--" + name.replace("_", "-"), str(recipe[name])]
+    for name in ("headless", "legacy_profile"):
+        if recipe[name]:
+            cmd += ["--" + name.replace("_", "-")]
+    for name in ("instance_key", "display_backend", "kasmvnc_display", "kasmvnc_web_port"):
+        if recipe.get(name) is not None:
+            cmd += ["--" + name.replace("_", "-"), str(recipe[name])]
+    if recipe["proxy"] == "external":
+        cmd += ["--proxy-server", recipe["proxy_server"],
+                "--mitm-ca-cert", recipe["mitm_ca_cert"]]
+    cmd += ["--expected-replaces-browser-id", expected]
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        result = json.loads(p.stdout)
+    except ValueError:
+        emit({"status": "recovery-blocked", "reason": "request-result-unverified"}, 2)
+    if result.get("status") in ("started", "already-running"):
+        with node_lock(STATE):
+            current = db().execute("SELECT * FROM browsers WHERE browser_id=?",
+                                   (result.get("browser_id"),)).fetchone()
+            verified = (result.get("replaces_browser_id") == expected and current is not None
+                        and current["state"] == "running" and current["lease_id"] == result.get("lease_id")
+                        and current["agent_id"] == args.agent_id and current["run_id"] == args.run_id
+                        and current["profile_dir"] == row["profile_dir"] and canonical_owner(current)
+                        and healthy(current) and record_info(current).get("replaces_browser_id") == expected
+                        and list(profiles.physical_profile(current["profile_dir"]) or ()) ==
+                            record_info(current).get("launch_recipe", {}).get("physical_profile"))
+        if not verified:
+            emit({"status": "recovery-blocked", "reason": "replacement-publication-unverified"}, 2)
+        result["state_lost"] = lost
+        result["authentication"] = "browser-native-check-required"
+    emit(result, p.returncode)
+
+
+def resume_running(c, row, args):
         if not canonical_owner(row) or reservation_blocks(row):
             emit({"status": "recovery-blocked", "reason": "canonical-owner-unverified"}, 2)
         if lifecycle_state(c, row) in ("terminal", "expired-awaiting-input", "activity-unavailable"):
@@ -2019,11 +2138,36 @@ def resume(args):
               "reconnect_scope": "browser-control-only",
               "task_proxy": proxy_metadata(proxy_row(c, args)),
               "watcher_healthy": unit_active(monitor_unit(row["browser_id"]))})
-    if row["state"] == "stopped" and canonical_owner(row, active=False) and stopped(row):
-        emit({"status": "recovery-blocked", "reason": "safe-launch-recipe-unavailable",
-              "state_lost": row["program"] == "task-owned" and not Path(row["profile_dir"]).exists(),
-              "next": "issue a new request with the same explicit account, proxy, display and authentication constraints; verify the new browser ID"}, 2)
-    emit({"status": "recovery-blocked", "reason": "stop-or-ownership-unverified"}, 2)
+
+
+def resume_recipe_valid(row, recipe):
+    fields = ("program", "account", "auth_domain", "profile_dir")
+    return (all(recipe.get(key) == row[key] for key in fields)
+            and recipe.get("instance_key") == record_info(row).get("instance_key")
+            and (row["program"] == "task-owned" or bool(recipe.get("instance_key")))
+            and recipe.get("proxy") in ("mitm", "none", "external")
+            and recipe.get("proxy_cert_mode") == ("none" if recipe.get("proxy") == "none" else "import")
+            and recipe.get("owner_pid") is None and not recipe.get("legacy_profile")
+            and recipe.get("purpose") == row["purpose"]
+            and all(key in recipe for key in ("physical_profile", "ttl_seconds", "idle_seconds",
+                    "min_ram_available_mib", "min_swap_free_mib", "memory_high", "memory_max",
+                    "proxy_ownership", "graphics_backend", "driving_mode", "headless",
+                    "single_policy", "proxy_server", "mitm_ca_cert", "ca_sha256"))
+            and isinstance(recipe.get("physical_profile"), list)
+            and (recipe.get("proxy") != "external" or
+                 (isinstance(recipe.get("proxy_server"), str) and
+                  isinstance(recipe.get("mitm_ca_cert"), str) and
+                  isinstance(recipe.get("ca_sha256"), str)))
+            and (recipe.get("proxy") != "mitm" or
+                 (isinstance(recipe.get("proxy_server"), str) and
+                  isinstance(recipe.get("ca_sha256"), str))))
+
+
+def account_auth_policy(account):
+    """Fingerprint non-secret auth source selectors, never credential material."""
+    return hashlib.sha256(json.dumps({key: account.get(key) for key in
+        ("auth_seed_ref", "credential_ref", "auth_refresh_source", "auth_host_filter")},
+        sort_keys=True).encode()).hexdigest() if account else None
 
 
 def lifecycle_state(c, row):
@@ -2232,6 +2376,50 @@ def start(args):
                                       allow_takeover=single or adm["status"] != "admitted")
     row = selected_browser(c, args.program, alias, auth_domain, instance)
     reusable = None
+    replacing = None
+    source_profile_lost = False
+    if getattr(args, "expected_replaces_browser_id", None):
+        replacing = c.execute("SELECT * FROM browsers WHERE browser_id=?",
+                              (args.expected_replaces_browser_id,)).fetchone()
+        if (not replacing or replacing["state"] != "stopped" or
+                replacing["agent_id"] != args.agent_id or replacing["run_id"] != args.run_id or
+                not canonical_owner(replacing, active=False) or not stopped(replacing) or
+                row is None or row["browser_id"] != replacing["browser_id"] or
+                record_info(replacing).get("instance_key") != instance):
+            emit({"status": "recovery-blocked", "reason": "expected-old-identity-changed"}, 2)
+        recipe = record_info(replacing).get("launch_recipe")
+        physical = profiles.physical_profile(replacing["profile_dir"])
+        source_profile_lost = physical is None and args.task_owned and not os.path.lexists(replacing["profile_dir"])
+        if (not isinstance(recipe, dict) or not resume_recipe_valid(replacing, recipe) or
+                recipe["single_policy"] != account_policy(args.program, alias, auth_domain) or
+                (physical is None and not (args.task_owned and not os.path.lexists(replacing["profile_dir"]))) or
+                (physical is not None and list(physical) != recipe["physical_profile"])):
+            emit({"status": "recovery-blocked", "reason": "expected-profile-or-policy-changed"}, 2)
+        if recipe["proxy"] != args.proxy or recipe["proxy_ownership"] != args.proxy_ownership or \
+                recipe["proxy_cert_mode"] != ("none" if args.proxy == "none" else args.proxy_cert_mode) or \
+                recipe["driving_mode"] != (args.driving_mode or "agent-driven") or \
+                recipe["headless"] != bool(args.headless) or recipe["graphics_backend"] != args.graphics_backend:
+            emit({"status": "recovery-blocked", "reason": "expected-launch-options-changed"}, 2)
+        if (args.url != "about:blank" or args.purpose != recipe["purpose"] or
+                any(getattr(args, key) != recipe[key] for key in (
+                    "ttl_seconds", "idle_seconds", "min_ram_available_mib", "min_swap_free_mib",
+                    "memory_high", "memory_max", "display_backend", "kasmvnc_display",
+                    "kasmvnc_web_port")) or
+                getattr(args, "owner_pid", None) is not None):
+            emit({"status": "recovery-blocked", "reason": "expected-launch-options-changed"}, 2)
+        if not args.task_owned and account_auth_policy(account) != recipe.get("account_auth_policy"):
+            emit({"status": "recovery-blocked", "reason": "expected-auth-policy-changed"}, 2)
+        if args.proxy == "mitm":
+            task = proxy_row(c, args)
+            if (not task or task["state"] != "running" or not proxy_ready(task) or
+                    proxy_metadata(task)["proxy_server"] != recipe["proxy_server"] or
+                    ca_fingerprint(Path(proxy_metadata(task)["ca_cert"])) != recipe["ca_sha256"]):
+                emit({"status": "recovery-blocked", "reason": "expected-proxy-changed"}, 2)
+        elif proxy_row(c, args) or (args.proxy == "external" and
+                (args.proxy_server != recipe["proxy_server"] or
+                 ca_fingerprint(Path(args.mitm_ca_cert)) != recipe["ca_sha256"] or
+                 not endpoint_open(args.proxy_server))):
+            emit({"status": "recovery-blocked", "reason": "expected-proxy-changed"}, 2)
     retired = False
     if row and row["state"] == "running":
         state = lifecycle_state(c, row)
@@ -2500,6 +2688,9 @@ def start(args):
         release_lease(lid, args.agent_id)
         emit({"status": "proxy-conflict", "detail": "finish the task proxy before changing mode"}, 2)
     prof = Path(got["lease"]["profile_dir"])
+    if replacing and str(prof) != replacing["profile_dir"]:
+        release_lease(lid, args.agent_id)
+        emit({"status": "recovery-blocked", "reason": "acquired-profile-changed"}, 2)
     bid = str(uuid.uuid4())
     unit = "browser-" + bid
     diagnostics_dir = (STATE.parent / "startup" / bid
@@ -2685,6 +2876,33 @@ def start(args):
     info["instance_selection"] = "automatic" if automatic else "explicit" if instance else "legacy"
     info["instance_id"] = bid
     info["pane_id"] = bid
+    physical = profiles.physical_profile(prof)
+    if physical is not None:
+        info["launch_recipe"] = {
+            "version": 1, "program": slug(args.program),
+            "account": slug(got["lease"].get("account_alias", args.account)),
+            "auth_domain": resolved_domain, "profile_dir": str(prof),
+            "physical_profile": list(physical), "instance_key": instance,
+            "single_policy": single, "purpose": args.purpose,
+            "account_auth_policy": account_auth_policy(account),
+            "ttl_seconds": args.ttl_seconds, "idle_seconds": args.idle_seconds,
+            "min_ram_available_mib": args.min_ram_available_mib,
+            "min_swap_free_mib": args.min_swap_free_mib,
+            "memory_high": args.memory_high, "memory_max": args.memory_max,
+            "proxy": args.proxy, "proxy_ownership": args.proxy_ownership,
+            "proxy_cert_mode": args.proxy_cert_mode if args.proxy != "none" else "none",
+            "proxy_server": (proxy_metadata(task)["proxy_server"] if task else args.proxy_server),
+            "mitm_ca_cert": (info.get("proxy_cert_status") or {}).get("ca_cert") if args.proxy == "external" else None,
+            "ca_sha256": (info.get("proxy_cert_status") or {}).get("ca_sha256"),
+            "display_backend": args.display_backend, "headless": bool(args.headless),
+            "kasmvnc_display": args.kasmvnc_display, "kasmvnc_web_port": args.kasmvnc_web_port,
+            "graphics_backend": args.graphics_backend,
+            "driving_mode": args.driving_mode or "agent-driven",
+            "owner_pid": args.owner_pid, "legacy_profile": bool(args.legacy_profile),
+        }
+    if replacing:
+        info["replaces_browser_id"] = replacing["browser_id"]
+        info["resumed_state_lost"] = source_profile_lost
     private_json(launch, info)
     save_metadata(
         c,
@@ -2740,6 +2958,7 @@ def start(args):
             "profile_lifetime": "persistent",
             "owner_state": lifecycle_state(c, out),
             "watcher_healthy": unit_active(monitor_unit(bid)),
+            **({"replaces_browser_id": replacing["browser_id"]} if replacing else {}),
         }
     )
 
@@ -3234,6 +3453,8 @@ def request(args):
             cmd += ["--kasmvnc-web-port", str(args.kasmvnc_web_port)]
         if getattr(args, "recover_profile", False):
             cmd += ["--recover-profile"]
+        if getattr(args, "expected_replaces_browser_id", None):
+            cmd += ["--expected-replaces-browser-id", args.expected_replaces_browser_id]
         p = subprocess.run(cmd, capture_output=True, text=True)
         try:
             result = json.loads(p.stdout)
@@ -3374,6 +3595,7 @@ def main():
         parser.add_argument("--agent-id", required=True)
         parser.add_argument("--run-id", required=True)
     for parser in (s, r0):
+        parser.add_argument("--expected-replaces-browser-id", help=argparse.SUPPRESS)
         parser.add_argument("--proxy", choices=("mitm", "external", "none"), default="mitm",
                             help="Task-owned MITM by default; external requires an explicit listener; none forces direct routing.")
         parser.add_argument("--driving-mode", choices=("agent-driven", "manual"),

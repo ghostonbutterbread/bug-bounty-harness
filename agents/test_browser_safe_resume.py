@@ -173,3 +173,174 @@ def test_adapter_reports_attached_socket_even_without_session(monkeypatch, tmp_p
     adapter = SimpleNamespace(last_activity=0, last_use=time.monotonic() - 8000,
         inflight=0, reserved_until=0, frozen=False, clients={object(): set()})
     assert browser_control.PipeBrowser.activity_status(adapter)['attached_clients'] == 1
+
+
+def prepared_resume(monkeypatch, tmp_path, *, task_owned=True, missing=False):
+    m = manager(monkeypatch, tmp_path)
+    c = rows(m, tmp_path, count=1, state='stopped')
+    profile = tmp_path / 'profile-0'
+    if not missing:
+        profile.mkdir()
+    program = 'task-owned' if task_owned else 'demo'
+    account = 'task-identity' if task_owned else 'blue'
+    domain = 'task' if task_owned else 'example.test'
+    c.execute("UPDATE browsers SET program=?,account=?,auth_domain=? WHERE browser_id='browser-0'",
+              (program, account, domain))
+    c.commit()
+    row = c.execute("SELECT * FROM browsers WHERE browser_id='browser-0'").fetchone()
+    recipe = dict(version=1, program=program, account=account, auth_domain=domain,
+                  profile_dir=str(profile), physical_profile=[1, 2],
+                  instance_key='' if task_owned else 'slot-1', single_policy=False,
+                  purpose='fixture', ttl_seconds=1800, idle_seconds=300,
+                  min_ram_available_mib=100, min_swap_free_mib=0,
+                  memory_high='1G', memory_max='2G', proxy='none',
+                  proxy_ownership='task', proxy_cert_mode='none', proxy_server=None,
+                  mitm_ca_cert=None, ca_sha256=None, display_backend='default',
+                  headless=True, kasmvnc_display=None, kasmvnc_web_port=None,
+                  graphics_backend='auto', driving_mode='agent-driven',
+                  owner_pid=None, legacy_profile=False)
+    import sys
+    sys.path.insert(0, str(SCRIPT.parent))
+    import browser_profile_lease as profiles
+    if not missing:
+        recipe['physical_profile'] = list(profiles.physical_profile(profile))
+    (tmp_path / 'browser-0.json').write_text(json.dumps(dict(
+        launch_recipe=recipe, stop_proof={'cdp_url': 'http://127.0.0.1:9/capability'},
+        instance_key=recipe['instance_key'], process_identity={'pid': 9})))
+    monkeypatch.setattr(m, 'canonical_owner', lambda row, **_: True)
+    monkeypatch.setattr(m, 'stopped', lambda row: True)
+    monkeypatch.setattr(m, 'proxy_row', lambda *a: None)
+    return m, c, row, recipe
+
+
+@pytest.mark.parametrize('missing', [False, True])
+def test_resume_dispatches_exact_stopped_task_owned_profile(monkeypatch, tmp_path, capsys, missing):
+    m, c, row, recipe = prepared_resume(monkeypatch, tmp_path, missing=missing)
+    calls = []
+    def child(cmd, **kwargs):
+        calls.append(cmd)
+        if missing:
+            Path(row['profile_dir']).mkdir()
+        import browser_profile_lease as profiles
+        c.execute('INSERT INTO browsers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                  ('new-lease', 'new-id', 'task-owned', 'task-identity', 'task', 'agent', 'run',
+                   'fixture', 'new-unit', row['profile_dir'], str(tmp_path / 'new.json'),
+                   'running', 0, 0, 1, 1))
+        (tmp_path / 'new.json').write_text(json.dumps({'replaces_browser_id': 'browser-0',
+                                                       'instance_key': '',
+                                                       'launch_recipe': {'physical_profile': list(
+                                                           profiles.physical_profile(row['profile_dir']))}}))
+        c.commit()
+        return SimpleNamespace(returncode=0, stdout=json.dumps(dict(
+            status='started', browser_id='new-id', lease_id='new-lease',
+            replaces_browser_id='browser-0')))
+    monkeypatch.setattr(m.subprocess, 'run', child)
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    assert result(lambda: m.resume(argparse.Namespace(browser_id='browser-0', agent_id='agent', run_id='run'))) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out['state_lost'] is missing
+    assert out['authentication'] == 'browser-native-check-required'
+    assert len(calls) == 1 and '--expected-replaces-browser-id' in calls[0]
+    assert calls[0][calls[0].index('--url') + 1] == 'about:blank'
+    assert '--task-owned' in calls[0] and '--proxy' in calls[0]
+    assert c.execute("SELECT state FROM browsers WHERE browser_id='browser-0'").fetchone()[0] == 'stopped'
+
+
+@pytest.mark.parametrize('mutation,reason', [
+    ('missing-proof', 'stop-proof-unavailable'),
+    ('changed-profile', 'profile-identity-changed'),
+    ('ambiguous-legacy', 'launch-recipe-conflict'),
+    ('foreign-owner', 'not-owner'),
+])
+def test_resume_rejects_unproved_changes_without_dispatch(monkeypatch, tmp_path, capsys, mutation, reason):
+    m, c, row, recipe = prepared_resume(monkeypatch, tmp_path)
+    if mutation == 'missing-proof':
+        data = json.loads(Path(row['launch_file']).read_text()); data.pop('stop_proof')
+        Path(row['launch_file']).write_text(json.dumps(data))
+    elif mutation == 'changed-profile':
+        profile = Path(row['profile_dir']); profile.rename(tmp_path / 'moved-profile'); profile.mkdir()
+    elif mutation == 'ambiguous-legacy':
+        data = json.loads(Path(row['launch_file']).read_text())
+        data['launch_recipe']['legacy_profile'] = True
+        Path(row['launch_file']).write_text(json.dumps(data))
+    else:
+        c.execute("UPDATE browsers SET agent_id='other' WHERE browser_id='browser-0'"); c.commit()
+    monkeypatch.setattr(m.subprocess, 'run', lambda *a, **kw: pytest.fail('must not dispatch'))
+    assert result(lambda: m.resume(argparse.Namespace(browser_id='browser-0', agent_id='agent', run_id='run'))) == 2
+    assert json.loads(capsys.readouterr().out).get('reason', reason) == reason
+
+
+def test_resume_repeat_returns_verified_successor_without_dispatch(monkeypatch, tmp_path, capsys):
+    m, c, row, recipe = prepared_resume(monkeypatch, tmp_path)
+    Path(row['profile_dir']).rename(tmp_path / 'old-profile')
+    Path(row['profile_dir']).mkdir()
+    import browser_profile_lease as profiles
+    replacement_physical = list(profiles.physical_profile(row['profile_dir']))
+    c.execute('INSERT INTO browsers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+              ('new-lease', 'new-id', 'task-owned', 'task-identity', 'task', 'agent', 'run',
+               'fixture', 'new-unit', row['profile_dir'], str(tmp_path / 'new.json'),
+               'running', 0, 0, 1, 1))
+    (tmp_path / 'new.json').write_text(json.dumps({'replaces_browser_id': 'browser-0',
+                                                   'instance_key': '', 'resumed_state_lost': True,
+                                                   'launch_recipe': {'physical_profile': replacement_physical}}))
+    c.commit()
+    monkeypatch.setattr(m, 'healthy', lambda _: True)
+    monkeypatch.setattr(m, 'reservation_blocks', lambda _: False)
+    monkeypatch.setattr(m, 'matching_proxy', lambda *a: True)
+    monkeypatch.setattr(m.subprocess, 'run', lambda *a, **kw: pytest.fail('duplicate dispatch'))
+    assert result(lambda: m.resume(argparse.Namespace(browser_id='browser-0', agent_id='agent', run_id='run'))) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out['status'] == 'already-running' and out['browser_id'] == 'new-id'
+    assert out['replaces_browser_id'] == 'browser-0'
+    assert out['state_lost'] is True
+
+
+def test_resume_external_ca_missing_refuses(monkeypatch, tmp_path, capsys):
+    m, c, row, recipe = prepared_resume(monkeypatch, tmp_path)
+    data = json.loads(Path(row['launch_file']).read_text())
+    data['launch_recipe'].update(proxy='external', proxy_cert_mode='import',
+                                 proxy_server='http://127.0.0.1:8123',
+                                 mitm_ca_cert=str(tmp_path / 'missing-ca.pem'), ca_sha256='abc')
+    Path(row['launch_file']).write_text(json.dumps(data))
+    monkeypatch.setattr(m, 'endpoint_open', lambda _: True)
+    monkeypatch.setattr(m.subprocess, 'run', lambda *a, **kw: pytest.fail('must not dispatch'))
+    assert result(lambda: m.resume(argparse.Namespace(browser_id='browser-0', agent_id='agent', run_id='run'))) == 2
+    assert json.loads(capsys.readouterr().out)['reason'] == 'proxy-or-ca-unverified'
+
+
+def test_start_rechecks_expected_old_identity_before_lease(monkeypatch, tmp_path, capsys):
+    m, c, row, recipe = prepared_resume(monkeypatch, tmp_path, task_owned=False)
+    import browser_profile_lease as profiles
+    monkeypatch.setattr(profiles, 'resolve_account', lambda *a: ({'alias': 'blue'}, {}))
+    monkeypatch.setattr(profiles, 'auth_domain_for', lambda *a: 'example.test')
+    monkeypatch.setattr(profiles, 'account_lease_eligible', lambda *a: True)
+    monkeypatch.setattr(m, 'account_policy', lambda *a: False)
+    monkeypatch.setattr(m, 'sweep_rows', lambda *a: ([], []))
+    monkeypatch.setattr(m, 'cleanup_unused', lambda *a: [])
+    monkeypatch.setattr(m, 'admission', lambda *a: {'status': 'admitted'})
+    monkeypatch.setattr(m, 'lease', lambda *a, **kw: pytest.fail('must not acquire'))
+    args = argparse.Namespace(program='demo', account='blue', auth_domain='example.test',
+        agent_id='agent', run_id='run', purpose='fixture', task_owned=False,
+        owner_pid=None, driving_mode='agent-driven', legacy_profile=False,
+        instance_key='slot-1', expected_replaces_browser_id='browser-0',
+        min_ram_available_mib=100, min_swap_free_mib=0, proxy='none',
+        proxy_server=None, mitm_ca_cert=None, proxy_cert_mode='none',
+        proxy_ownership='task')
+    c.execute("UPDATE browsers SET agent_id='foreign' WHERE browser_id='browser-0'")
+    c.commit()
+    assert result(lambda: m.start(args)) == 2
+    assert json.loads(capsys.readouterr().out)['reason'] == 'expected-old-identity-changed'
+
+
+def test_release_receipt_retains_private_recipe_and_cdp_stop_proof(monkeypatch, tmp_path):
+    m, c, row, recipe = prepared_resume(monkeypatch, tmp_path)
+    data = json.loads(Path(row['launch_file']).read_text())
+    data.update(cdp_url='http://127.0.0.1:9/capability', replaces_browser_id='older-id',
+                command=['--url', 'https://private.example/'], proxy_secret='do-not-retain')
+    Path(row['launch_file']).write_text(json.dumps(data))
+    m.stop_receipt(row)
+    after = json.loads(Path(row['launch_file']).read_text())
+    assert after['launch_recipe'] == recipe
+    assert after['stop_proof']['cdp_url'] == data['cdp_url']
+    assert after['replaces_browser_id'] == 'older-id'
+    assert 'cdp_url' not in after and 'command' not in after and 'proxy_secret' not in after

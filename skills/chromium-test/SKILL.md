@@ -638,10 +638,13 @@ different profile path to bypass a named account's lease.
    `resume --browser-id <exact-id> --agent-id <agent> --run-id <run>`; healthy
    compatible ownership returns the same ID with `browser-control-only` scope.
    Do not promise an interactive viewer handoff without separately verifying
-   that viewer is available. A stopped ID
-   currently refuses automatic restore because a safe launch recipe is not
-   retained; issue a fresh normal request with explicit proxy/display/auth
-   constraints instead, and verify authentication. See
+   that viewer is available. A stopped exact ID with a verified versioned
+   private launch recipe can request a replacement through normal admission:
+   same physical profile/slot/account/domain and proxy/CA, new browser and lease
+   IDs, `replaces_browser_id`, and `about:blank` only. Legacy or uncertain
+   records refuse. `state_lost: true` indicates a missing task-owned profile;
+   never infer authentication from an existing one. Always perform the site's
+   browser-native auth check before target work. See
    [cleanup and resume](scripts/README.md#browser_provisionerpy).
    On `started` or
    `already-running`, use the browser's owner-recorded control path and returned

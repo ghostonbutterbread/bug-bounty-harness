@@ -6,6 +6,7 @@ permission to test. It makes no network requests.
 """
 
 import argparse
+import hashlib
 import json
 import sys
 from datetime import date
@@ -141,32 +142,51 @@ def join(evidence, programs):
             matched[url].append({"match": method, "evidence": item})
 
     candidates = []
+    review_only = []
     for url in sorted(matched):
         program = programs[url]
         entries = sorted(matched[url], key=lambda entry: (entry["match"], json.dumps(entry["evidence"], sort_keys=True)))
         flags = sorted(program["bounty_flags"], key=lambda flag: (flag is not None, str(flag)))
         labels = sorted({entry["evidence"]["evidence_label"] for entry in entries})
-        candidates.append({
+        positive = set(labels) & {"source-derived", "disclosure", "artifact"}
+        hypothesis = "feature-inferred" in labels
+        record = {
             "program_name": sorted(program["names"])[0],
             "program_url": url,
             "source": "ProjectDiscovery public-bugbounty-programs dist/data.json (local snapshot)",
             "bounty_directory_flags_unverified": flags,
             "evidence_labels": labels,
+            "support_status": "public_evidence" if positive else "hypothesis_only" if hypothesis else "no_support",
             "matches": entries,
             "unknowns": ["current_program_rules", "current_paid_status", "authorized_scope", "vulnerability_status"],
-        })
-    return {"count": len(candidates), "candidates": candidates, "unmatched": sorted(unmatched, key=lambda row: json.dumps(row, sort_keys=True)),
-            "exhaustive": False}
+        }
+        if positive or hypothesis:
+            candidates.append(record)
+        else:
+            review_only.append(record)
+    return {"count": len(candidates), "candidates": candidates, "review_only": review_only,
+            "unmatched": sorted(unmatched, key=lambda row: json.dumps(row, sort_keys=True)), "exhaustive": False}
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence", type=Path, required=True, help="Local evidence JSONL path")
     parser.add_argument("--programs", type=Path, required=True, help="Local ProjectDiscovery dist/data.json snapshot")
+    parser.add_argument("--snapshot-date", required=True, help="ISO date when this directory snapshot was obtained")
     parser.add_argument("--output", type=Path, help="Output JSON path (default: stdout)")
     args = parser.parse_args(argv)
     try:
+        try:
+            date.fromisoformat(args.snapshot_date)
+        except ValueError as exc:
+            raise ValueError("snapshot-date must be an ISO calendar date") from exc
+        digest = hashlib.sha256()
+        with args.programs.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
         result = join(load_evidence(args.evidence), load_programs(args.programs))
+        result["directory_snapshot"] = {"source_url": "https://github.com/projectdiscovery/public-bugbounty-programs/blob/main/dist/data.json",
+                                        "observed_date": args.snapshot_date, "sha256": digest.hexdigest()}
         text = json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
         if args.output:
             args.output.write_text(text, encoding="utf-8")

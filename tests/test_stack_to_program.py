@@ -1,6 +1,7 @@
 """Offline fixtures for the public directory candidate join."""
 
 import json
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -20,7 +21,8 @@ class StackToProgramTests(unittest.TestCase):
             evidence_file.write_text("\n".join(json.dumps(row) for row in evidence) + "\n", encoding="utf-8")
             programs_file.write_text(json.dumps({"programs": programs}), encoding="utf-8")
             return subprocess.run(
-                [sys.executable, str(SCRIPT), "--evidence", str(evidence_file), "--programs", str(programs_file)],
+                [sys.executable, str(SCRIPT), "--evidence", str(evidence_file), "--programs", str(programs_file),
+                 "--snapshot-date", "2026-10-20"],
                 text=True, capture_output=True,
             )
 
@@ -58,6 +60,18 @@ class StackToProgramTests(unittest.TestCase):
         self.assertEqual(candidate["bounty_directory_flags_unverified"], [True])
         self.assertIn("current_paid_status", candidate["unknowns"])
         self.assertIn("authorized_scope", candidate["unknowns"])
+
+    def test_negative_only_is_review_only_and_snapshot_is_identified(self):
+        programs = [{"name": "Acme", "url": "https://hackerone.com/acme", "bounty": True, "domains": []}]
+        data = json.loads(self.run_join([self.evidence(evidence_label="contradicted"),
+                                         self.evidence(evidence_label="unknown")], programs).stdout)
+        self.assertEqual(data["count"], 0)
+        self.assertEqual(data["candidates"], [])
+        self.assertEqual(len(data["review_only"]), 1)
+        self.assertEqual(data["review_only"][0]["support_status"], "no_support")
+        snapshot = json.dumps({"programs": programs}).encode()
+        self.assertEqual(data["directory_snapshot"]["sha256"], hashlib.sha256(snapshot).hexdigest())
+        self.assertEqual(data["directory_snapshot"]["observed_date"], "2026-10-20")
 
     def test_invalid_evidence_fails_without_output(self):
         for row, message in [

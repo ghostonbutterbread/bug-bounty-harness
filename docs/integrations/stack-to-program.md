@@ -20,9 +20,9 @@ BBH `stack-to-program` skill with Ghostscript recipe; public-only evidence label
 
 ## Evidence and review
 
-- Tests and commands: `python3 -m unittest discover -s tests -p test_stack_to_program.py -v` (3 passing fixture tests); `git diff --check`. Real public snapshot fetched from ProjectDiscovery `dist/data.json` (149894 bytes) on 2026-10-20; offline Ghostscript run over Moodle's current Assignment settings docs and Nextcloud preview docs returned one `feature-inferred` Nextcloud directory candidate and one unmatched `source-derived` Moodle row. This is intentionally not a confirmed Ghostscript bounty deployment. Scratch inputs/output: `/home/ryushe/.hermes/profiles/bugfix/cache/scratch/stack-to-program-ghostscript-*` and dated `public-bugbounty-programs-20261020.json` (non-durable; rerun from public sources).
-- Independent review: pending.
-- Replay/cohort/fixture evidence: exact-match, no substring/subdomain/fallback, duplicates, contradiction, unpaid-status unknown and invalid-input fixtures.
+- Tests and commands: `python3 -m unittest discover -s tests -p test_stack_to_program.py -v` (4 passing fixture tests after review fixes); `git diff --check`. Real public snapshot fetched from ProjectDiscovery `dist/data.json` (149894 bytes) on 2026-10-20; offline Ghostscript run over Moodle's Assignment settings docs and Nextcloud preview docs returned one `hypothesis_only` Nextcloud directory candidate and one unmatched `source-derived` Moodle row. Snapshot digest in output `6a9961ad42968d9759f3c0d09eedbff7f0c120d785815e046fc2b49e69d91a3a`. This is intentionally not a confirmed Ghostscript bounty deployment. Scratch inputs/output: `/home/ryushe/.hermes/profiles/bugfix/cache/scratch/stack-to-program-ghostscript-*` and dated `public-bugbounty-programs-20261020.json` (non-durable; rerun from public sources).
+- Independent review: fresh read-only reviewer found two P2 issues (negative-only evidence promoted to candidate; missing snapshot provenance) and one P3 limitation (manual evidence harvesting). Fixed P2 with `review_only` bucket, support status, snapshot date/digest and regression test; explicitly documented P3 as first-slice limit. Re-review of fixes pending.
+- Replay/cohort/fixture evidence: exact-match, no substring/subdomain/fallback, duplicates, mixed contradiction, negative-only exclusion, snapshot digest, unpaid-status unknown and invalid-input fixtures.
 - Merge/ancestry evidence: worktree based on fetched `origin/beta` SHA above.
 
 ## Blockers and deferred work

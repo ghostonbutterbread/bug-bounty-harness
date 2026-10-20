@@ -1,14 +1,14 @@
 # XSS mechanism ideation integration dossier
 
-- **Status:** feature (review corrections pending re-review)
+- **Status:** review-ready (corrected guidance accepted; dossier readback gate)
 - **Owner:** Hermes / Kanban `t_e47a68ab`
 - **Branch:** `feat/xss-idea-depth`
 - **Base commit:** `ba398d92b05daf63406ba74b98c16a34d9e329de` (`origin/beta` at task start)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-20
 - **Owning feature branch/ref:** `feat/xss-idea-depth`
-- **Latest immutable recovery checkpoint:** `639480ba23b2b490124b4866cd22a883be48412b` (implementation; current tip may have a later dossier-only update)
-- **Feature implementation commit(s):** `639480ba23b2b490124b4866cd22a883be48412b`
+- **Latest immutable recovery checkpoint:** `7273a774a73059151df48c92cde93d5756634536` (corrected implementation; current tip may have a later dossier-only update)
+- **Feature implementation commit(s):** `639480ba23b2b490124b4866cd22a883be48412b`, `7273a774a73059151df48c92cde93d5756634536`
 - **Inspiration / canonical references:** Advanced-XSS HEAD `7d529fe86fe8bdef73b393db9274e427cf637182`; DOMPurify README; PortSwigger historical mXSS write-up; existing XSS router and payload-engineering skill.
 
 ## Intent
@@ -35,8 +35,11 @@ negative controls; the learning note explains before/after and sample limits.
 - Independent review: initial fresh reviewer verdict **MAJOR**: the mXSS branch
   conflated parser mutation with post-check composition. Corrected the
   definition and decision table, narrowed the historical patch claim, repaired
-  cross-skill pointers, and added an opt-in browser regression. The updated
-  version requires a fresh verdict on its final committed tree.
+  cross-skill pointers, and added an opt-in browser regression. Fresh reviewer
+  accepted the corrected XSS guidance and browser-test boundaries at
+  `7273a77`; release was withheld only because this dossier still named the
+  initial rather than latest implementation checkpoint. This dossier-only
+  correction was read back at both checkpoint fields before integration.
 - Browser regression: `XSS_FIXTURE_CDP_LAUNCH=<private task-owned receipt>
   .venv/bin/python -m pytest -q tests/test_xss_browser_fixture.py
   tests/test_xss_mechanism_ideation.py tests/test_xss_gtm_skill.py` returned
@@ -49,9 +52,9 @@ negative controls; the learning note explains before/after and sample limits.
 ## Blockers and deferred work
 
 - Full-suite green is blocked by the two verified pre-existing beta failures, not
-  by this change; independent reviewer must accept or reject that baseline
-  comparison explicitly. A separate owner fixes those records; do not alter
-  `stack-to-program` on this feature. Fresh review is still required.
+  by this change; independent review accepted the XSS correction and observed
+  the same two unchanged failures. A separate owner fixes those records; do not
+  alter `stack-to-program` on this feature.
 - A local fixture does not validate any third-party sanitizer, historical claim,
   or the scoped target behavior; those require the separate matching, authorized
   target-specific XSS lane and browser evidence.
@@ -59,16 +62,20 @@ negative controls; the learning note explains before/after and sample limits.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/xss-idea-depth`
-- **Latest immutable recovery checkpoint:** `639480ba23b2b490124b4866cd22a883be48412b` (implementation commit)
-- **Feature implementation commit(s):** `639480ba23b2b490124b4866cd22a883be48412b`
-- **Exact resume point:** request independent review of entire current branch,
-  reconcile fixes, merge to beta only after
-  acceptance and verify selected projection.
+- **Latest immutable recovery checkpoint:** `7273a774a73059151df48c92cde93d5756634536` (corrected implementation commit)
+- **Feature implementation commit(s):** `639480ba23b2b490124b4866cd22a883be48412b`, `7273a774a73059151df48c92cde93d5756634536`
+- **Exact resume point:** verify this dossier-only correction and the clean
+  branch; merge to beta after accepted review, remove dossier from beta, test,
+  push and verify selected skill projection.
 - **Working-tree state at handoff:** clean after dossier-only checkpoint
 
 ## Decision gates
 
-- **Integration gate:** focused and full repository checks plus independent review.
+- **Integration gate:** XSS guidance and browser regression accepted by fresh
+  independent reviewer at corrected implementation commit. Two unchanged
+  `stack-to-program` full-suite failures remain documented against the same
+  beta base and interpreter; no XSS-owned failures. Dossier checkpoint corrected
+  and read back before merge.
 - **Activation / cohort gate:** merge/push beta, then verify selected skill
   projection and fresh resolver; do not equate feature branch with activation.
 - **Promotion gate:** no stable/main change without explicit owner direction.
@@ -82,3 +89,7 @@ negative controls; the learning note explains before/after and sample limits.
 - 2026-10-20 — initial independent review identified an mXSS/composition
   conflation; corrected and reproduced the optional browser regression. Fresh
   review of the corrected commit is the next gate.
+- 2026-10-20 — fresh reviewer accepted corrected implementation at `7273a77`;
+  blocked release only for stale dossier checkpoint. Updated checkpoint and
+  implementation list here; unchanged beta suite failures remain deferred to
+  their separate owner, not waived as a green suite.

@@ -1,13 +1,13 @@
 # Stack-to-program integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes bugfix
 - **Branch / owning ref:** `feat/stack-to-program`
 - **Base commit:** `ff9ebafe6f953819c65cd1e18471d74db0070ef4` (`origin/beta` fetched 2026-10-20)
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-20
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `9c6b8b6cba9b84cbb4b107c43e2435ef6bec8058`
+- **Feature implementation commit(s):** `9c6b8b6cba9b84cbb4b107c43e2435ef6bec8058`
 - **Inspiration:** `~/Shared/skill_seeds/2026-10-20-stack-to-program.md`; Discord thread 1562182691246317579
 
 ## Intent
@@ -32,10 +32,10 @@ No target scan is authorized by a directory join. A production version/affected-
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/stack-to-program`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** finalize script and tests; run real public Ghostscript evidence example; independent review; beta integration if clean.
-- **Working-tree state:** active edits.
+- **Latest immutable recovery checkpoint:** `9c6b8b6cba9b84cbb4b107c43e2435ef6bec8058`
+- **Feature implementation commit(s):** `9c6b8b6cba9b84cbb4b107c43e2435ef6bec8058`
+- **Exact resume point:** independent review of committed code and real public-data smoke; reconcile findings; beta integration if clean.
+- **Working-tree state at handoff:** clean after this dossier update is committed.
 
 ## Decision gates
 

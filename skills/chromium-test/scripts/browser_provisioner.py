@@ -1863,11 +1863,11 @@ def activity_snapshot(row):
         return {"unavailable": True}
 
 
-def freeze_idle(row, seconds):
+def freeze_idle(row, seconds, *, require_detached=False):
     from browser_control import activity_control
     try:
         return activity_control(record_info(row)["control_socket"], "freeze",
-                                idle_seconds=seconds).get("frozen", False)
+                                idle_seconds=seconds, require_detached=require_detached).get("frozen", False)
     except Exception:
         return False
 
@@ -1887,13 +1887,16 @@ def restore_failed_stop(row):
 def cleanup_unused(c):
     stopped_ids = []
     for row in c.execute("SELECT * FROM browsers WHERE state='running'").fetchall():
+        if not canonical_owner(row) or owner_state(metadata(c, row).get("owner")) != "terminal":
+            continue
         activity = activity_snapshot(row)
         if (not activity or activity.get("unavailable") or activity["idle_seconds"] < 7200
-                or activity["inflight"] or activity["reserved_seconds"]):
+                or activity["inflight"] or activity["reserved_seconds"]
+                or activity.get("attached_clients", 1)):
             continue
         # Recheck AND freeze in the adapter's event loop, not a stale file snapshot.
-        if freeze_idle(row, 7200):
-            if retire(c, row):
+        if freeze_idle(row, 7200, require_detached=True):
+            if canonical_owner(row) and owner_state(metadata(c, row).get("owner")) == "terminal" and retire(c, row):
                 stopped_ids.append(row["browser_id"])
             else:
                 meta = metadata(c, row)
@@ -1901,6 +1904,113 @@ def cleanup_unused(c):
                 meta["lifecycle_error"] = "idle-stop-not-verified"
                 save_metadata(c, row["lease_id"], meta)
     return stopped_ids
+
+
+def canonical_owner(row, *, active=True):
+    """The manager projection alone cannot authorize stopping or reconnecting."""
+    path = STATE.parent / "browser_profile_leases.sqlite"
+    if not path.exists():
+        return False
+    try:
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as leases:
+            leases.row_factory = sqlite3.Row
+            lease_row = leases.execute(
+                "SELECT * FROM browser_profile_leases WHERE lease_id=?", (row["lease_id"],)
+            ).fetchone()
+        return bool(lease_row and lease_row["status"] == ("active" if active else "released")
+                    and all(lease_row[k] == value for k, value in (
+                        ("manager_id", manager_id()), ("program", row["program"]),
+                        ("account_alias", row["account"]), ("auth_domain", row["auth_domain"]),
+                        ("owner_agent_id", row["agent_id"]), ("owner_run_id", row["run_id"]),
+                        ("profile_dir", row["profile_dir"]), ("service_unit", row["unit"]))))
+    except (sqlite3.Error, OSError, KeyError):
+        return False
+
+
+@serialized
+def cleanup(args):
+    """Opt-in capacity cleanup; never infer abandonment from browser age alone."""
+    c = db()
+    entries = []
+    for row in c.execute("SELECT * FROM browsers WHERE state='running' ORDER BY created").fetchall():
+        reason = "uncertain"
+        info = record_info(row)
+        meta = metadata(c, row)
+        if not canonical_owner(row):
+            reason = "canonical-owner-unverified"
+        elif reservation_blocks(row):
+            reason = "profile-reserved"
+        elif not info.get("unit_invocation") or unit_identity(row["unit"]) != info["unit_invocation"]:
+            reason = "unit-identity-unverified"
+        elif not unit_active(row["unit"]) or not healthy(row):
+            reason = "runtime-unverified"
+        elif owner_state(meta.get("owner")) != "terminal":
+            reason = "owner-active-or-unverified"
+        else:
+            activity = activity_snapshot(row)
+            if not activity or activity.get("unavailable"):
+                reason = "activity-unavailable"
+            elif activity.get("inflight") or activity.get("reserved_seconds"):
+                reason = "inflight-or-held"
+            elif activity.get("attached_clients", 1):
+                reason = "controller-attached-or-unverified"
+            elif activity.get("idle_seconds", 0) < 7200:
+                reason = "idle-below-7200"
+            elif activity.get("frozen"):
+                reason = "control-already-frozen"
+            else:
+                reason = "eligible-terminal-idle"
+        if reason == "eligible-terminal-idle" and args.apply:
+            if not freeze_idle(row, 7200, require_detached=True):
+                reason = "activity-changed"
+            elif not canonical_owner(row) or owner_state(metadata(c, row).get("owner")) != "terminal":
+                restore_failed_stop(row)
+                reason = "owner-changed"
+            elif retire(c, row):
+                reason = "stopped"
+            else:
+                restored = restore_failed_stop(row)
+                reason = "stop-not-verified-control-restored" if restored else "stop-not-verified-control-frozen"
+        entries.append({"browser_id": row["browser_id"], "result": reason})
+    emit({"status": "ok", "mode": "apply" if args.apply else "dry-run",
+          "admission": admission(DEFAULT_RAM_MIB, DEFAULT_SWAP_MIB),
+          "browsers": entries, "stopped": [e["browser_id"] for e in entries if e["result"] == "stopped"]})
+
+
+@serialized
+def resume(args):
+    c = db()
+    row = c.execute("SELECT * FROM browsers WHERE browser_id=?", (args.browser_id,)).fetchone()
+    if not row or row["agent_id"] != args.agent_id or row["run_id"] != args.run_id:
+        emit({"status": "not-owner"}, 2)
+    if row["state"] == "running":
+        if not canonical_owner(row) or reservation_blocks(row):
+            emit({"status": "recovery-blocked", "reason": "canonical-owner-unverified"}, 2)
+        if lifecycle_state(c, row) in ("terminal", "expired-awaiting-input", "activity-unavailable"):
+            emit({"status": "recovery-blocked", "reason": "owner-or-activity-unverified"}, 2)
+        if not healthy(row):
+            emit({"status": "recovery-blocked", "reason": "runtime-unverified"}, 2)
+        info = record_info(row)
+        activity = activity_snapshot(row)
+        if activity and (activity.get("unavailable") or activity.get("frozen")):
+            emit({"status": "recovery-blocked", "reason": "control-unavailable"}, 2)
+        mode = "none" if "--no-proxy-server" in info.get("command", []) else "external"
+        if proxy_row(c, args):
+            mode = "mitm"
+        proxy_args = argparse.Namespace(agent_id=args.agent_id, run_id=args.run_id,
+            proxy=mode, proxy_server=info.get("proxy_server"),
+            proxy_cert_mode=info.get("proxy_cert_mode"),
+            mitm_ca_cert=info.get("proxy_cert_status", {}).get("ca_cert"))
+        if not matching_proxy(c, proxy_args, row):
+            emit({"status": "recovery-blocked", "reason": "proxy-or-ca-unverified"}, 2)
+        emit({"status": "already-running", **safe(row),
+              "task_proxy": proxy_metadata(proxy_row(c, args)),
+              "watcher_healthy": unit_active(monitor_unit(row["browser_id"]))})
+    if row["state"] == "stopped" and canonical_owner(row, active=False) and stopped(row):
+        emit({"status": "recovery-blocked", "reason": "safe-launch-recipe-unavailable",
+              "state_lost": row["program"] == "task-owned" and not Path(row["profile_dir"]).exists(),
+              "next": "issue a new request with the same explicit account, proxy, display and authentication constraints; verify the new browser ID"}, 2)
+    emit({"status": "recovery-blocked", "reason": "stop-or-ownership-unverified"}, 2)
 
 
 def lifecycle_state(c, row):
@@ -2206,6 +2316,7 @@ def start(args):
                 "retry_after_seconds": 30,
                 "admission": adm,
                 "retryable": not retired,
+                "next": "run browser_provisioner.py cleanup (dry-run), then cleanup --apply only for proven terminal idle owners; retry this exact request without changing agent/run/account",
             },
             2,
         )
@@ -3223,6 +3334,12 @@ def main():
     q = sub.add_parser("status")
     q.add_argument("--lease-id", required=True)
     q.add_argument("--agent-id", required=True)
+    clean = sub.add_parser("cleanup", help="Inspect capacity and eligible terminal idle browsers; dry-run unless --apply")
+    clean.add_argument("--apply", action="store_true")
+    res = sub.add_parser("resume", help="Reconnect only the exact owned healthy browser ID")
+    res.add_argument("--browser-id", required=True)
+    res.add_argument("--agent-id", required=True)
+    res.add_argument("--run-id", required=True)
     r = sub.add_parser("reap-idle")
     r.add_argument("--idle-seconds", type=int, default=DEFAULT_IDLE)
     w = sub.add_parser("sweep-stale")
@@ -3294,6 +3411,10 @@ def main():
         touch(args)
     if args.cmd == "status":
         status(args)
+    if args.cmd == "cleanup":
+        cleanup(args)
+    if args.cmd == "resume":
+        resume(args)
     if args.cmd == "reap-idle":
         reap(args)
     if args.cmd == "sweep-stale":

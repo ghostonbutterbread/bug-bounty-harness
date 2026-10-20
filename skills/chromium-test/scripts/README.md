@@ -337,6 +337,40 @@ multi-instance pane registry.
 
 ## `browser_provisioner.py`
 
+On `request` `queued/no-capacity`, keep the **same** program/account, agent/run,
+proxy and display constraints. On the browser node, inspect before opting in to
+stops; never use a different account, raw launcher or broad process kill:
+
+```sh
+bbh skills/chromium-test/scripts/browser_provisioner.py cleanup
+bbh skills/chromium-test/scripts/browser_provisioner.py cleanup --apply  # only if the dry-run lists eligible terminal idle owners
+bbh skills/chromium-test/scripts/browser_provisioner.py request <same original arguments>
+bbh skills/chromium-test/scripts/browser_provisioner.py resume --browser-id <exact-browser-id> --agent-id <agent> --run-id <run>
+```
+
+`cleanup` defaults to dry-run with admission and per-browser refusal reasons;
+`--apply` rechecks canonical ownership, exact unit, runtime, terminal task
+owner, tracked activity, hold and in-flight work under the node lock. It stops
+only a proven terminal owner idle for at least two hours. Four active owners
+release **zero** browsers even when CDP has been idle for two hours. Missing
+task-owner evidence, manual mode, active/attached owners, held commands and
+uncertain runtime are protected. Existing request-triggered idle cleanup now
+also requires a proven terminal owner. Stopping keeps the persistent profile
+and does not finish the task proxy; run the normal proxy lifecycle separately.
+
+`resume` is an exact owner/browser-ID reconnect, not an account-selector
+request: a healthy running process returns the same ID only when the canonical
+lease, unit/CDP, owner activity and proxy/CA remain compatible. It never
+re-provisions on uncertainty. A verified stopped browser currently returns
+`recovery-blocked/safe-launch-recipe-unavailable`: the manager does not retain
+the original safe request parameters or authorize rebuilding a named profile
+from a stale launch command. Issue a fresh ordinary `request` with the same
+explicit identity and constraints; that is a **new** browser ID, not automatic
+restore, and authentication must be checked again. `state_lost: true` means a
+task-owned disposable profile directory is absent; an existing directory does
+not attest a valid session. No automatic proxy/display/auth bypass or account
+substitution is implemented.
+
 - **Purpose:** Node-local browser admission, profile/instance leasing,
   activity-aware ownership, verified cleanup and fenced live handoff.
 - **Inputs:** Existing program/account selectors or `--task-owned`; agent/run,

@@ -313,6 +313,7 @@ class PipeBrowser:
         return {"last_activity": self.last_activity,
                 "idle_seconds": max(0, time.monotonic() - self.last_use),
                 "inflight": self.inflight,
+                "attached_clients": len(self.clients),
                 "reserved_seconds": max(0, self.reserved_until - time.monotonic()),
                 "frozen": self.frozen}
 
@@ -338,7 +339,8 @@ class PipeBrowser:
         if not 0 <= idle <= 7200:
             raise web.HTTPBadRequest()
         state = self.activity_status()
-        if state["inflight"] or state["reserved_seconds"] or state["idle_seconds"] < idle:
+        if (state["inflight"] or state["reserved_seconds"] or state["idle_seconds"] < idle
+                or (data.get("require_detached") and state["attached_clients"])):
             return web.json_response({"frozen": False, "reason": "activity-changed"})
         self.frozen = True
         return web.json_response({"frozen": True})

@@ -629,6 +629,17 @@ different profile path to bypass a named account's lease.
    disable swap or bypass RAM admission. Otherwise perform non-browser preparation
    and retry with bounded backoff; do not relax the RAM threshold to force a
    launch. Never launch `chromium_test.py` directly to evade engagement admission.
+   For `reason: no-capacity`, run provisioner `cleanup` on the browser node to
+   inspect admission and per-browser refusal reasons. It is a dry-run; use
+   `cleanup --apply` only for rows proven terminal and idle, then retry the
+   **same** request arguments and agent/run identity. Active, attached, manual,
+   held, in-flight and uncertain owners are never capacity to borrow. To
+   reconnect, use `resume --browser-id <exact-id> --agent-id <agent> --run-id
+   <run>`; healthy compatible ownership returns the same ID. A stopped ID
+   currently refuses automatic restore because a safe launch recipe is not
+   retained; issue a fresh normal request with explicit proxy/display/auth
+   constraints instead, and verify authentication. See
+   [cleanup and resume](scripts/README.md#browser_provisionerpy).
    On `started` or
    `already-running`, use the browser's owner-recorded control path and returned
    `task_proxy` metadata. The provisioner starts the task MITM and passes its

@@ -764,7 +764,7 @@ class MapStore:
 
     def write_behavior(self, *, name: str, kinds: list[str], observation_paths: list[str], body: str,
                        tags: list[str] | None = None, anchors: list[str] | None = None,
-                       summary: str = "", agent: str = "ghost",
+                       summary: str | None = None, agent: str = "ghost",
                        run_id: str | None = None, model_id: str | None = None) -> Path:
         """Create/update a named evidence-backed capability, not a vulnerability lead."""
         behavior_id = slugify(name, fallback="")
@@ -785,14 +785,16 @@ class MapStore:
             raise ValueError("Supporting observations must include at least one concrete URL")
         if not body.strip():
             raise ValueError("Application behavior body is required")
-        if "\n" in summary or "\r" in summary:
+        if summary is not None and ("\n" in summary or "\r" in summary):
             raise ValueError("Application behavior summary must be one line")
         normalized_tags = sorted({slugify(value) for value in tags or [] if value.strip()})
-        normalized_anchors = sorted({slugify(value) for value in anchors or [] if value.strip()})
         timestamp = iso_now()
         with self._locked():
             existing_entries = self._read_behavior_index()
             existing = next((entry for entry in existing_entries if entry.get("id") == behavior_id), {})
+            normalized_anchors = (sorted({slugify(value) for value in anchors if value.strip()})
+                                  if anchors is not None else existing.get("anchors", []))
+            summary_text = summary.strip() if summary is not None else existing.get("summary", "")
             reviewers = merge_ai_reviewers(
                 existing.get(AI_REVIEWED_BY_FIELD), agent_id=agent, model_id=model_id
             )
@@ -806,8 +808,8 @@ class MapStore:
                 header.append(f"Tags: {' '.join('#' + tag for tag in normalized_tags)}")
             if normalized_anchors:
                 header.append(f"Location Anchors: {', '.join(normalized_anchors)}")
-            if summary.strip():
-                header.append(f"Summary: {summary.strip()}")
+            if summary_text:
+                header.append(f"Summary: {summary_text}")
             if reviewers:
                 header.append(f"AI Reviewed By: {', '.join(reviewer_labels(reviewers))}")
             header.extend([f"Agent: {agent}", f"Run: {run_id or 'manual'}", f"Updated: {timestamp}", ""])
@@ -815,7 +817,7 @@ class MapStore:
             entries = [entry for entry in existing_entries if entry.get("id") != behavior_id]
             entry = {"record_type": "application_behavior", "id": behavior_id, "name": name.strip(), "kinds": normalized_kinds,
                      "observation_paths": normalized_paths, "urls": normalized_urls, "tags": normalized_tags,
-                     "anchors": normalized_anchors, "summary": summary.strip(),
+                     "anchors": normalized_anchors, "summary": summary_text,
                      "path": path.relative_to(self._maps_root).as_posix(),
                      "timestamp": timestamp, "agent": agent, "run_id": run_id or ""}
             if reviewers:
@@ -847,6 +849,11 @@ class MapStore:
                         {entry.get("id"), slugify(str(entry.get("name") or "")),
                          *entry.get("anchors", [])})
                    and required_tags.issubset(set(entry.get("tags", [])))]
+        if normalized_location and not normalized_url:
+            hosts = {urlsplit(value).netloc for entry in results for value in entry.get("urls", [])}
+            if len(hosts) > 1:
+                raise ValueError("Location matches multiple hosts (" + ", ".join(sorted(hosts))
+                                 + "); add --url for an exact host/route lookup")
         return results[:limit] if limit is not None and limit >= 0 else results
 
     def behavior_detail(self, behavior_id: str) -> dict:
@@ -1550,8 +1557,8 @@ def _build_parser() -> argparse.ArgumentParser:
     behavior_body.add_argument("--body-file")
     behavior_body.add_argument("--body-stdin", action="store_true")
     behavior_write_p.add_argument("--tags", default="")
-    behavior_write_p.add_argument("--anchor", action="append", default=[], help="Feature/component/field identifier at which to retrieve this behavior; repeat")
-    behavior_write_p.add_argument("--summary", default="", help="One-line observed source-to-consumer map (unknown edges explicitly unknown)")
+    behavior_write_p.add_argument("--anchor", action="append", default=None, help="Feature/component/field identifier at which to retrieve this behavior; repeat")
+    behavior_write_p.add_argument("--summary", default=None, help="One-line observed source-to-consumer map (unknown edges explicitly unknown)")
     behavior_write_p.add_argument("--agent", default="ghost")
     behavior_write_p.add_argument("--model-id", help="Optional model identifier for AI-review attribution")
     behavior_write_p.add_argument("--run-id", default=None)
@@ -1718,11 +1725,15 @@ def _run_behavior(store: MapStore, args: argparse.Namespace) -> int:
         return 0
     if args.limit < 1:
         raise ValueError("Behavior query limit must be positive")
-    entries = store.query_behaviors(
-        kind=args.kind, url=args.url, location=args.location,
-        tags=[tag.strip() for tag in args.tags.split(",") if tag.strip()],
-        limit=args.limit + 1,
-    )
+    try:
+        entries = store.query_behaviors(
+            kind=args.kind, url=args.url, location=args.location,
+            tags=[tag.strip() for tag in args.tags.split(",") if tag.strip()],
+            limit=args.limit + 1,
+        )
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     truncated = len(entries) > args.limit
     entries = entries[:args.limit]
     if args.json:

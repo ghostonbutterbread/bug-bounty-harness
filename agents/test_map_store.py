@@ -460,8 +460,10 @@ class TestMapStore:
         unrelated = store.write(url="https://other.example/inbox", surface="js", body="Other inbox.\n")
         store.write_behavior(name="Other inbox", kinds=["navigation-sink"],
                              observation_paths=[unrelated.relative_to(store.maps_root).as_posix()],
-                             anchors=["DifferentInbox"], body="Other host.\n")
-        assert [row["id"] for row in store.query_behaviors(location="CourierInbox")] == ["courier-notification-navigation"]
+                             anchors=["CourierInbox"], body="Other host.\n")
+        with pytest.raises(ValueError, match="multiple hosts"):
+            store.query_behaviors(location="CourierInbox")
+        assert [row["id"] for row in store.query_behaviors(location="CourierInbox", url="https://app.example/inbox")] == ["courier-notification-navigation"]
         assert [row["id"] for row in store.query_behaviors(url="https://app.example/inbox")] == ["courier-notification-navigation"]
         assert store.query_behaviors(url="https://app.example/inbox/other") == []
         detail = store.behavior_detail("courier-notification-navigation")
@@ -469,6 +471,19 @@ class TestMapStore:
         assert detail["observations"][0]["status"] == "active"
         assert "writer not established" in detail["body"]
         assert "runs/a/attempts.jsonl" not in detail["body"]  # no bulk Attempt ingest
+
+    def test_legacy_behavior_update_keeps_orientation_metadata(self, store: MapStore):
+        store.init()
+        observation = store.write(url="https://app.example/inbox", surface="js", body="Observed action.\n")
+        relative = observation.relative_to(store.maps_root).as_posix()
+        store.write_behavior(name="Courier action", kinds=["sink"], observation_paths=[relative],
+                             body="Initial observation.\n", anchors=["CourierInbox"],
+                             summary="action.href → navigation")
+        store.write_behavior(name="Courier action", kinds=["sink"], observation_paths=[relative],
+                             body="Updated observation.\n")
+        row = store.query_behaviors(location="CourierInbox")[0]
+        assert row["summary"] == "action.href → navigation"
+        assert "Summary: action.href → navigation" in store.behavior_detail(row["id"])["body"]
 
     def test_location_cli_is_bounded_and_reports_truncation(self, store: MapStore):
         store.init()

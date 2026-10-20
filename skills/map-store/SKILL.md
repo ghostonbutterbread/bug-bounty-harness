@@ -119,6 +119,10 @@ opens exactly one selected behavior plus linked observation statuses. Drill into
 the exact observation or Attempts only if needed. Queries are optional on an
 unselected area and are not a campaign-wide ingest gate. Before declaring a
 *selected* direction novel or exhausted, inspect its targeted tested state.
+If a component anchor occurs on multiple hosts, location-only lookup refuses
+to mix them; add the exact `--url` for the current host/route. Existing behavior
+updates that omit `--anchor` and `--summary` retain those fields; supply new
+values explicitly when the mapping changes.
 Lifecycle status is not a coverage verdict. If results are truncated, narrow
 the location/kind/URL or deliberately raise the limit.
 

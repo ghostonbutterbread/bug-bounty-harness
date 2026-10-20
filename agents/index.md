@@ -63,9 +63,15 @@ is selected, the normal published scope and AI Policies gates below still apply.
    evidence-backed lead synthesis and lifecycle reconciliation, `/bounty-notes` for human
    coordination, and Attempts for exact target-directed payload/probe history.
    For a corpus too large to inspect directly, load `/huge-ingest` before deep
-   reading. For mapped live route/input/class questions or explicit indexed
-   source-file review, load `/coverage` at discovery, selected-path review, or
-   handoff. Attempts and findings never imply a completed review; `/ledger`
+   reading. **Every BBH agent, solo or coordinated**, uses `/coverage` when it
+   actually maps a relevant route/action/input/class question or reviews an
+   existing one: register the mapped question at discovery, then assess only
+   the exact question after an evidenced review at a meaningful pivot or
+   handoff. Check the scoped `brief` before claiming a path or class reviewed;
+   if no question or review is justified, make no Coverage write and state the
+   gap in the ordinary handoff. This is not a per-payload write or a Bunny/goal
+   prerequisite. Explicit indexed source-file review uses its separate Coverage
+   path. Attempts and findings never imply a completed review; `/ledger`
    remains the findings/dedupe owner. Program docs explain how this application
    uses a technology or flow; ResearchMap supplies portable mechanisms only
    when their recognition signals match that model or a current observation;

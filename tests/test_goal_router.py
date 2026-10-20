@@ -218,6 +218,9 @@ def test_checkpoint_replays_blocked_and_unassessed_paths_as_bounded_pause(tmp_pa
     blocked = store.discover(kind="route", host="docs.example", surface_key="POST /ask",
                              input_key="prompt", consumer="reply", source_ref="recon/docs/ask.jsonl",
                              run_id="map-1", class_name="xss")
+    stream = tmp_path / "data/web_bounty/sample/web/attempts/_runs/docs/attempts.jsonl"
+    stream.parent.mkdir(parents=True)
+    stream.write_text(json.dumps({"attempt_id": "A-1"}) + "\n")
     store.assess(blocked, class_name="xss", status="blocked", expected_fingerprint="",
                  reason="challenge prevents reply render", reopen_when="owned browser challenge solved",
                  evidence_refs=["attempt:docs:A-1"])
@@ -360,6 +363,9 @@ def test_broad_goal_receipt_retains_class_for_same_surface_questions(tmp_path: P
     store.discover(kind="route", host="app.example", surface_key="GET /preview",
                    input_key="id", consumer="preview", source_ref="recon/app/preview.jsonl",
                    run_id="map-1", class_name="idor")
+    stream = tmp_path / "data/web_bounty/sample/web/attempts/_runs/app/attempts.jsonl"
+    stream.parent.mkdir(parents=True)
+    stream.write_text(json.dumps({"attempt_id": "A-3"}) + "\n")
     store.assess(surface_id, class_name="idor", status="blocked", expected_fingerprint="",
                  reason="second principal unavailable", reopen_when="owned second principal available",
                  evidence_refs=["attempt:app:A-3"])

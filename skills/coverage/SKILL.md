@@ -11,6 +11,11 @@ when a bounded mapping run produces inventory, when selecting a current mapped
 surface/class, or when recording a scoped review at a pivot or handoff. Do not
 load it for every payload; deliberate tests go to `attempt-recording-policy`,
 and reusable observed behavior goes to `/map-store` as it is established.
+This applies to **every BBH agent** doing that work, whether solo, a generic
+specialist, Bunny, or an explicit goal worker. Register only an actually mapped
+and relevant question; if no question or review is justified, do not synthesize
+one from an Attempt count, URL list, or missing Coverage database. At a meaningful
+pivot/handoff, check the scoped `brief` and state mapped-but-unassessed gaps.
 
 ## Two distinct coverage stores
 
@@ -124,6 +129,12 @@ not a reason to load the findings `/ledger` skill.
    new commands should use the new spelling. XSS pressure `exhausted` remains
    a separate specialist state and is not translated.
 
+   For new assessments, typed `attempt:` and `map:` pointers are checked by the
+   writer before it changes current status or history. A missing or unreadable
+   pointer is rejected: use the **returned** `attempt_id` (`A-...`) from the
+   exact `_runs/<attempt-run-id>/attempts.jsonl` stream, not a display/media ID,
+   run nickname, or another lane. A rejected write leaves the question unchanged;
+   correct the pointer rather than falling back to an untyped invented ID.
    Prefer typed pointers that resolve within the selected family/lane:
    `--evidence-ref attempt:<attempt-run-id>:<attempt_id>` (use the returned
    `A-...`, not an invented ID) and `--evidence-ref map:<maps-relative-path>`
@@ -140,8 +151,9 @@ not a reason to load the findings `/ledger` skill.
    `resolved` means the ID/path exists in that lane;
    `missing` means a fully specified pointer was not found; `unverified` means
    a legacy/unsupported ref or incomplete evidence stream. This read-only
-   audit does not copy evidence bodies or block historic assessments. Fix any
-   missing pointer before using it to substantiate exhaustion.
+   audit does not copy evidence bodies or rewrite historic assessments; refs
+   that disappear later can be flagged. Legacy opaque references remain accepted
+   for compatibility but are `unverified`, not proof of a completed review.
 
 Use sanitized IDs and short explanations; never put payloads, tokens, raw
 requests, or sensitive responses in coverage fields. The writer rejects common

@@ -51,6 +51,7 @@ and a reflected value may become dangerous only after client-side parsing.
 | --- | --- |
 | Controlled value persists, transforms, or reaches a later consumer | `xss-lifecycle` |
 | Plausible warm/hot vector needs payload selection, mutation, or reduction | `xss-payload-engineering` |
+| Sanitized/escaped output, inert payload matrices, or a second parser leave an idea-generation question | `xss-payload-engineering` → `references/mechanism-ideation.md` inside that skill; select a causal branch rather than a larger payload list |
 | Observed renderer, parser, sanitizer, framework, or defense may change the next hypothesis | `xss-technology-research` |
 | Filtering, challenge, or edge/origin difference needs characterization | `waf-live-policy` |
 | A controlled source can select a GTM container ID or load a GTM script | `xss-gtm` for the preconfigured XSS fixture; selected lane still owns proof |
@@ -101,6 +102,13 @@ sinks as chain leads with their missing link and reopening condition.
 3. Choose the next distinct context-matched discriminator. Use
    `xss-payload-engineering` for the payload family and
    `xss-technology-research` when a fingerprint could change that choice.
+   Before interpreting a non-firing family, distinguish input rejected, value
+   stored, consumer mounted, inert control rendered, candidate rendered, and
+   execution blocked. If the consumer never mounted, fix reachability or name
+   the missing owned fixture; do not infer that a sanitizer held. For a
+   mounted consumer, identify the first changed representation and use
+   `skills/xss-payload-engineering/references/mechanism-ideation.md` to derive a
+   different mechanism or a falsifying control.
 4. Load `attempt-recording-policy` for each deliberate target-directed probe,
    comparison, and retest. It owns the exact canonical writer, fields, redaction,
    and MapStore promotion; do not create an XSS-specific event shape.

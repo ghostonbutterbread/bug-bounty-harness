@@ -27,6 +27,10 @@ renderer, context, transform, or control question.
 
 Read `skills/xss/references/research-card-integration.md` for evidence ownership,
 retrieval, and card-admission detail.
+For a sanitizer or parser differential, first use
+`skills/xss-payload-engineering/references/mechanism-ideation.md` to state the exact
+missing parser or composition edge. Query cards for that edge (for example
+sanitizer output → later HTML parse), not a generic "mXSS bypass" string.
 
 ## Research Packet
 

@@ -127,7 +127,7 @@ that it has no value or is unaddressed.
 | Hexadecimal Escaping | Existing parser-stage reference: only the acting JS/URL/HTML grammar. |
 | Unicode Normalization Attacks | Existing parser-stage reference: prove NFKC/other actual stage. |
 | Template Literal Injection | Existing payload selection + `client-interpreters.md`: identify a real JS/template compiler. |
-| WAF Bypass Techniques (2025) | Existing `waf`/`xss-waf-evasion`; `defense-edges.md` routes back to browser proof. |
+| WAF Bypass Techniques (2025–2026 Updates) | Existing `waf`/`xss-waf-evasion`; `defense-edges.md` routes back to browser proof. |
 | WebAssembly (WASM) XSS | `client-interpreters.md`: JS glue and controlled call/output; WASM alone is not DOM execution. |
 | Service Worker XSS | `client-interpreters.md`: valid owned registration or message-to-render path; reject `data:` shortcut. |
 | Import Maps Exploitation | `client-interpreters.md`: controlled map before actual module resolution and allowed module fetch. |

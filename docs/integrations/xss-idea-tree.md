@@ -1,6 +1,6 @@
 # Advanced-XSS idea-tree integration dossier
 
-- **Status:** independently reviewed; minor corrections applied, awaiting narrow readback of corrected tip
+- **Status:** accepted for beta integration; runtime activation remains separate
 - **Owner:** Hermes / BBH XSS
 - **Branch:** `feat/xss-idea-tree`
 - **Base commit:** `fde18b170424d4f0934ab767f9f3bb4758980c3e`
@@ -50,32 +50,36 @@ agent walk-through on the built tree.
   condition for nonce attribute hiding). The exact findings and three scenario
   outcomes are captured in `docs/xss-idea-tree.md`. These changes address all
   five minors. No live requests or upstream payload execution were made.
+- Narrow independent re-review of exact tip `d69a58c` returned **ACCEPT for
+  beta integration**: all five prior minors resolved; 29-heading selection,
+  leaf routes, walkthrough and immutable checkpoint verified. It noted one
+  non-blocking abbreviated WAF-heading label; this final feature doc edit
+  restores the pinned README's full heading without changing a mechanism.
 - Replay/cohort/fixture evidence: no live target tests; source sanitized, primary
   standard references fetched for CSP nonce, Service Worker, import maps, WASM.
 - Merge/ancestry evidence: beta `fde18b1` fetched and clean at creation.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** narrow readback of corrected review nits and
-  full-suite check on the eventual integrated beta tree; unchanged-beta baseline
+- **Missing test or evidence:** full-suite check on the eventual integrated
+  beta tree and local projection; unchanged-beta baseline
   comparison and corrected feature rerun above are complete.
 - **Command / fixture / environment needed:** `.venv/bin/python -m pytest -q
   tests`; beta integration worktree plus same interpreter for baseline compare.
-- **Trigger to run it:** after minor fixes are committed and again after beta
-  merge; read-only narrow re-review confirms all corrected wording and routes.
-- **Why it blocks integration:** release claims require exact committed-tree
-  evidence; unrelated baseline failures must be enumerated, not waived.
-- **Next completion step:** obtain a narrow independent readback of corrected
-  commit `b09484a`; integrate beta only on acceptance,
-  then verify beta projection. Hoster/other runtime activation is separate.
+- **Trigger to run it:** after final documentation correction and beta merge.
+- **Why it gates beta push/activation:** release claims require exact integrated
+  tree evidence; unrelated baseline failures must be enumerated, not waived.
+- **Next completion step:** integrate the accepted feature into a clean beta
+  worktree without this branch-local dossier; test and push beta, then verify
+  local projection. Hoster/other runtime activation is separate.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/xss-idea-tree`
 - **Latest immutable recovery checkpoint:** `b09484a43ca4bac403a83f87a3ed75a28b48bf0b` (corrected implementation; current tip may contain dossier/doc-only update)
 - **Feature implementation commit(s):** `a7e55310e7d9b81f7407fc0cef9f8632d3340be1`, `b09484a43ca4bac403a83f87a3ed75a28b48bf0b`
-- **Exact resume point:** narrow readback of corrected commit;
-  integrate beta only after acceptance.
+- **Exact resume point:** integrate the accepted feature into the clean beta
+  worktree, exclude this dossier, test/push and verify local projection.
 - **Working-tree state at handoff:** clean after this dossier/doc-only commit.
 
 ## Decision gates
@@ -104,3 +108,6 @@ agent walk-through on the built tree.
 - 2026-10-20 — corrections committed at `b09484a43ca4bac403a83f87a3ed75a28b48bf0b`;
   the next commit updates checkpoint metadata and its matching assertion only.
   Narrow independent re-review remains before beta merge.
+- 2026-10-20 — fresh read-only re-review of `d69a58c` returned ACCEPT for beta.
+  Applied its non-blocking editorial WAF heading spelling fix. No live target
+  actions; final documentation-only tip follows this checkpoint.

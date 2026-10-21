@@ -5,7 +5,7 @@
 - **Branch/worktree:** `docs/xss-idea-tree-creative-breadth` at `/home/ryushe/worktrees/bbh-xss-creative-breadth`
 - **Base beta commit:** `51194c7039af2b2637815656c8de5540cc7d5d64`
 - **Intended integration target:** `beta`; no `main` promotion or Hoster rollout
-- **Immutable implementation checkpoint:** `5fd1ea9962d00e3ed353254c975c98593632d9dd` (latest material change; this documentary update follows it)
+- **Immutable implementation checkpoint:** `42b2b38091f422461c2ad61b81d4853ff9dff953` (latest material correction; this documentary update follows it)
 - **Inspiration:** Ryu's feedback in Discord thread `1562231426932539452`, message `1562276037243576503`, and independent read-only methodology review `deleg_3e21b829` of beta `51194c7`.
 
 ## Intent and Contract
@@ -21,7 +21,7 @@ The published XSS tree already broadens mechanisms but describes "one hypothesis
 
 ## Release and Interruption Gates
 
-1. Initial implementation and focused regression committed at `5fd1ea9962d00e3ed353254c975c98593632d9dd`; this later documentary checkpoint records provenance. Minor wording corrections are the next material checkpoint; record its SHA after commit.
+1. Initial implementation and focused regression committed at `5fd1ea9962d00e3ed353254c975c98593632d9dd`; reviewer-led sink-first/reparse corrections committed at `42b2b38091f422461c2ad61b81d4853ff9dff953`. This later documentary checkpoint records provenance only.
 2. Independent reviewer accepted creative breadth and evidence/safety boundaries on `d4f1edb`; verify the minor corrections after commit, then beta merge into the clean current integration worktree excluding this branch-local dossier.
 3. Run focused and full suite on the integrated tree, identify any pre-existing failures, push beta only from beta worktree, verify the projected route and an on-demand leaf through the skill resolver.
 4. Until then the active projection remains the earlier wording at `51194c7`. Resume with an independent read-only review of the corrected branch tip; do not claim activation from this feature branch.
@@ -31,3 +31,4 @@ The published XSS tree already broadens mechanisms but describes "one hypothesis
 - 2026-10-20 PDT — independent read-only review held agent-facing wording for a narrow creativity correction, while accepting the tree's mechanism coverage and browser-proof standard. This branch is a methodology correction, not permission for out-of-scope or indiscriminate live tests.
 - 2026-10-20 PDT — implementation committed at `5fd1ea9962d00e3ed353254c975c98593632d9dd` after focused 9 pass/1 optional skip and full 305 pass/1 skip/2 unrelated baseline failures. Awaiting independent release review and beta integration.
 - 2026-10-20 PDT — fresh read-only reviewer accepted the `d4f1edb` methodology and proof boundaries with two non-blocking minor ambiguities; sink-first and suspected-reparse wording were corrected. Focused/full tests and narrow readback on the corrected tip remain release gates.
+- 2026-10-20 PDT — corrected implementation and focused regression committed at `42b2b38091f422461c2ad61b81d4853ff9dff953`; focused 9 passed/1 skipped, full 305 passed/1 skipped/2 unchanged baseline failures. Narrow readback pending.

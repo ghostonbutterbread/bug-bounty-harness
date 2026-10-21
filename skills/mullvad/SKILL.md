@@ -7,6 +7,17 @@ description: "Prefer West Coast Mullvad exit nodes through Tailscale; use standa
 
 Use this skill for VPN setup, West Coast exit selection/rotation, or scoped network-path recovery. Read the BBH repository's `prompts/mullvad-playbook.md` before a one-time manager handoff or fallback. **Safety boundary: never clear a selected Tailscale exit node (`tailscale set --exit-node=` or equivalent) unless Ryushe explicitly directs it.** An empty selection can expose the host's ISP IP. Rotate directly to another listed exit; if none works, pause target traffic and ask for direction rather than clearing it. Changing the exit does **not** authorize evading target rules, rate limits, account bans, WAF enforcement, or explicit VPN blocking.
 
+**LAN default with an exit node:** Unless Ryushe specifies otherwise for that
+host, set `tailscale set --exit-node-allow-lan-access=true` before selecting a
+Tailscale exit and preserve that preference on rotation/restart. Verify both
+the preference **and the effective LAN return route** (`ip route get <LAN peer>`
+must select the LAN interface), then independently test LAN SSH. A saved `true`
+preference is not proof that a route survived a network-manager restart;
+reasserting the same flag can succeed without restoring the missing route.
+If the exception is missing, use an independently tested console/recovery path
+for privileged route or daemon repair; do not restart Tailscale from the only
+working tailnet SSH connection or clear the selected exit to regain access.
+
 ## Choose one VPN manager per host
 
 1. Check `tailscale status`, `tailscale get exit-node`, and `tailscale exit-node list --filter=USA`. If the host is connected to its tailnet, authorized for the Mullvad add-on, and a US West Coast Mullvad node is listed, **prefer Tailscale**. A Tailscale connection alone does not route public internet traffic through Mullvad; the selected exit node does.
@@ -15,7 +26,7 @@ Use this skill for VPN setup, West Coast exit selection/rotation, or scoped netw
 
 Stay in US West Coast cities (WA, OR, CA); inspect the **live** exit list or Mullvad relay list rather than relying on a fixed hostname. Ask Ryushe before leaving that region. Do not use `auto:any`: it need not choose a West Coast Mullvad exit.
 
-Before a remote handoff, read the playbook's preflight gate: verify `tailscale set` privilege, out-of-band console or recovery proven to survive exit selection, a safe window and workload-specific checks; capture route, policy rules, DNS, egress and both managers' settings. Pre-switch LAN SSH alone is not proof of recovery; an exit with LAN access disabled can sever it. Exit-node LAN access can preserve remote SSH while permitting LAN DNS outside the VPN, so decide and verify that tradeoff explicitly. A slow Mullvad disconnect/DNS reset is **not** proof of a hang: do not impose a short timeout, kill its CLI, or interrupt the daemon. Monitor progress from a separate session; if genuinely stuck, coordinate privileged recovery with the operator. Verify public DNS **and** egress afterward; direct-IP HTTPS alone does not clear a DNS failure.
+Before a remote handoff, read the playbook's preflight gate: verify `tailscale set` privilege, out-of-band console or recovery proven to survive exit selection, a safe window and workload-specific checks; capture route, policy rules, DNS, egress and both managers' settings. Pre-switch LAN SSH alone is not proof of recovery; an exit with LAN access disabled can sever it. Exit-node LAN access can preserve remote SSH while permitting LAN DNS outside the VPN, so verify that tradeoff and honor an explicit host-specific opt-out. A slow Mullvad disconnect/DNS reset is **not** proof of a hang: do not impose a short timeout, kill its CLI, or interrupt the daemon. Monitor progress from a separate session; if genuinely stuck, coordinate privileged recovery with the operator. Verify public DNS **and** egress afterward; direct-IP HTTPS alone does not clear a DNS failure.
 
 ## Startup follows the selected manager
 
@@ -29,6 +40,9 @@ Before a remote handoff, read the playbook's preflight gate: verify `tailscale s
 tailscale exit-node list --filter=USA
 # Set EXIT_NODE to an exact live-listed WA/OR/CA Mullvad hostname or tailnet IP first.
 : "${EXIT_NODE:?Set EXIT_NODE from the live list before changing routes}"
+# Set LAN_ACCESS=false only for an explicit host-specific exception.
+LAN_ACCESS=true
+tailscale set --exit-node-allow-lan-access="$LAN_ACCESS"
 tailscale set --exit-node="$EXIT_NODE"
 mullvad status
 tailscale get exit-node

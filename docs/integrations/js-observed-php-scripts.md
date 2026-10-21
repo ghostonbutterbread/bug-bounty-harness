@@ -14,7 +14,10 @@ Admit an in-scope, explicitly listed script URL with a non-JS suffix such as `ch
 - `agents/js_analyzer.py`: provenance-qualified input eligibility and response guard, with cached response metadata check and skipped-response diagnostic.
 - `agents/test_js_analyzer.py`: positive PHP script inventory with paired source/sink seeds, parser/script initiators, input negatives, refetch HTML/error, valid cache and invalid cached HTML, missing target host.
 - `skills/xss/references/source-acquisition.md`, `skills/js-pull/SKILL.md`, `prompts/js-playbook.md`: executable handoff and remaining evidence gap. `agents/test_xss_skill_clarity.py` updates the route contract.
-- Initial focused XSS/JS/analyzer tests: **416 passed**; `git diff --check`: clean. Full-suite and review receipts to follow.
+- Implementation checkpoint: `a8b936bc8c26cefbc5118b90d159d3668d3892e1` (reviewed content; subsequent dossier-only receipts are not part of the integrated tree).
+- Focused XSS/JS/analyzer tests: **416 passed**; `git diff --check`: clean.
+- Repository `tests/` with checkout-local `.venv`: **307 passed, 1 skipped, 2 failed**. Both failures are in unchanged `skills/stack-to-program/scripts/README.md` script-index/command-lane contracts; the same two selected tests also failed on unchanged beta `9c01786b363b5c75798c581cab2afa274f8afb33`. An earlier run without `.venv` had additional fixture-launch failures; the prescribed `./setup.sh --install-python-deps` resolved those.
+- A combined `tests agents` foreground invocation reached the terminal's transport timeout without a verdict. The separate targeted selection above and `tests/` suite provide bounded results instead; no pass is claimed for that aborted invocation.
 
 ## Integration plan
 

@@ -33,3 +33,6 @@ def test_classifier_preserves_owners_and_distinct_ingress_paths() -> None:
     assert "do not bypass a challenge to sustain unrelated testing" in reach
     assert "a reachable sibling path may merit its own context-matched probes" in reach.lower()
     assert "a paid plan or an internal-only cohort is not a default test fixture" in reach.lower()
+    assert "staff testing is prohibited" in reach
+    assert "permitted, inert, correlated staff-facing blind canary" in reach
+    assert "`blind-xss`" in reach

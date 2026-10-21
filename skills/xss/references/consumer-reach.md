@@ -12,7 +12,7 @@ browser proof, cleanup, and path-scoped closure.
 | --- | --- | --- |
 | The value reaches the claimed consumer but changes at validation, rendering, or execution | Defense | Trace the first observed boundary with `references/defense-chain.md`; a filter response alone does not prove the consumer mounted. |
 | Source or bundle names a sink, but the claimed view is hidden, empty, redirected, flag-off, or not configured | Reachability | Which owned route, writer, role, or ordinary setup could mount it? A static sink is not a proven source-to-sink path. |
-| The relevant consumer is outside published scope or would require a staff, third-party, or public artifact | Policy | Stop that action; retain only a scoped, owned alternative or a precise scope-decision wake condition. |
+| The consumer is outside published scope, staff testing is prohibited, or the proposed artifact would have disallowed human-visible or public effects | Policy | Stop that action; retain a scoped alternative or a precise scope-decision wake condition. A permitted, inert, correlated staff-facing blind canary is governed by `blind-xss`, not automatically excluded here. |
 | Another route appears to use the same downstream helper | Distinct ingress question | Reuse the helper analysis, but check the route's writer, validation, filter, storage, and decode stages before transferring a negative. A changed parser or sink is a separate consumer branch. |
 
 Distinguish an HTML route's client-side 404 from a writer/configuration API

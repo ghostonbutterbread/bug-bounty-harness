@@ -7,7 +7,7 @@ scope, browser proof, ownership, and closure. Read
 `parser-stage-character-variants.md` for representation specifics; use
 `xss-technology-research` / ResearchMap for an observed library/configuration.
 
-## The next-idea worksheet
+## Mechanism exploration worksheet
 
 Write this in a few lines, not a new ledger:
 
@@ -18,7 +18,7 @@ Final consumer / grammar / delivered CSP:
 Intervening stages: decode → validate → sanitize → concatenate → serialize → reparse
 Which stages were observed vs inferred; does the consumer actually mount?
 Surviving primitives and unavailable primitives:
-Candidate mechanism, alternate explanation, smallest discriminator:
+Candidate mechanisms and alternatives; observations that might distinguish them:
 ```
 
 Work **backward** from the browser-interpreted consumer. Before interpreting a
@@ -45,14 +45,17 @@ manufacturing variants.
 | Sanitized markup can influence DOM structure | Does allowed `id`/`name`, form, or other structural markup collide with an **observed** global/property lookup or select a URL/config that a trusted script later consumes? Compare named versus renamed control and the actual JavaScript call site. | No attacker-controlled markup at that lookup or typed/config access prevents the collision. DOM clobbering is not the same as executing markup. |
 | Asynchronous or derived content appears | Track provenance through Markdown/AI output, GraphQL error, `postMessage`, SSE or WebSocket event to the exact render function. Compare event body and safe `textContent` renderer with any HTML insertion. | Merely reaching an API, stream, or model is not XSS; no controlled event-to-sink path means a source or consumer is missing. Prompt injection and WebSocket auth bugs are separate classes. |
 
-These are **questions**, not instructions to run every family. If a configuration
-or source trace disproves a presumed reparse stage, retire that branch and keep
-the observation; do not respond with a larger mXSS list. At an unexplained
-boundary, select one non-equivalent mechanism and its safe control; after an
-inert matrix, prioritize a newly observed stage, writer or consumer over another
-syntax permutation of the same failed stage. Consult `xss-lifecycle` when the
-value changes consumers and `waf-live-policy` when the first blocker is at the
-edge. Do not probe non-owned staff/public consumers merely to complete a chain.
+These are **questions**, not instructions to run every family or a limit on
+other explanations. If a configuration or source trace disproves a presumed
+reparse stage, retire that *tested link* and keep the observation and sibling
+ideas; do not respond only with a larger mXSS list. At an unexplained boundary,
+retain materially distinct mechanisms and use a comparison when it clarifies
+the active causal claim; this is not a control prerequisite or idea quota. After
+an inert matrix, consider a new stage, writer, consumer, or a genuinely different
+mechanism rather than only syntax permutations of the same failed stage.
+Consult `xss-lifecycle` when the value changes consumers and `waf-live-policy`
+when the first blocker is at the edge. Do not probe non-owned staff/public
+consumers merely to complete a chain.
 
 ## Terms that must not be conflated
 

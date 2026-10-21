@@ -22,7 +22,7 @@ xss (methodology, scope, evidence, proof)
           │    └─ structural DOM influence
           ├─ references/parser-stage-character-variants.md
           │    └─ a real decode, normalization or charset stage
-          └─ references/idea-tree.md (load only after a matching signal)
+          └─ references/idea-tree.md (on demand; not an idea boundary)
                ├─ client-interpreters.md
                │    ├─ template compiler / Web Components / SVG or XML
                │    ├─ CSS-to-script / import maps / WASM / Service Workers
@@ -41,10 +41,14 @@ All leaf files above are **inside `skills/xss-payload-engineering/references/`**
 The root `xss` skill gained one conditional pointer, and payload engineering
 one pointer; it does not inject all the leaves into every run. Agents still use
 `dom-xss`, `xss-lifecycle`, `xss-waf-evasion`, and `xss-technology-research` as
-owners when their triggers apply. Before opening a leaf, the agent must observe
-a source/sink, a mounted consumer or a concrete missing edge. After opening it,
-the agent chooses one hypothesis, safe control and falsifier, then returns to
-the selected lane for browser evidence. No corpus-size quota or payload sweep.
+owners when their triggers apply. A source, sink, unexplained transformation,
+or research clue may open several leaves and inspire ideas outside this tree.
+The agent retains materially distinct hypotheses in parallel; there is **no
+number of ideas or leaves to exhaust**. A comparison, inert marker or predicted
+observation can help assess a particular causal claim; it is not permission to
+have that idea. A negative narrows only the tested edge. The selected lane owns
+live testing and browser proof; its existing scope/rate/effects rules still
+apply. The tree is neither an automatic payload sweep nor an exhaustive list.
 
 ## A concrete walk
 
@@ -52,16 +56,25 @@ Suppose a stored profile field reaches a component preview as safe text, but a
 separate notification is observed to consume that field through a Web Component.
 The agent uses `stored-xss` plus `xss-lifecycle` to link the writer and both
 consumers; `dom-xss` traces the component's browser-side field-to-sink path.
-It loads `client-interpreters.md` **only** for that observed component path.
-It traces a controlled inert marker through the component callback and compares
-a text-only control before selecting a candidate. If the callback never parses
-the field as HTML/URL/template or the notification is not reachable in an owned
-view, it records that falsifier; no “Web Components bypass” is claimed. If a
+It can start with `client-interpreters.md` for the component, keep the first
+preview and other feeders open, and load `derived-consumers.md` if a message
+handler also feeds it.
+It traces a controlled marker through the component callback and can compare
+a text-only path when interpreting a result; that comparison does not limit
+candidate ideas. If the callback never parses the tested field as
+HTML/URL/template or the notification is not reachable in an owned view, it
+records that missing edge without closing other feeders or consumers. No “Web
+Components bypass” is claimed. If a
 specific framework/library becomes relevant, `xss-technology-research` checks
 a bounded source/card.
 The selected `stored-xss` delivery lane and `dom-xss` browser-processing lane
 share the evidence packet; `attempt-recording-policy` owns the exact probe
 writer, and browser proof and cleanup remain with the relevant XSS lanes.
+The stored-field path, message-fed path and notification view remain separate
+open ideas while one exact edge is tested. An inert result for the field does
+not close the message or a newly noticed renderer; an idea outside these leaves
+returns to the XSS exploratory queue. Live probes still follow the inherited
+authorization and rate boundaries.
 
 ## Independent agent walk (read-only)
 
@@ -73,9 +86,10 @@ of exploitability. A second technical reviewer judged the implementation
 1. **Sanitized markup, but the panel is absent.** The delivery lane is unknown;
    do not invent reflected or stored provenance. Route to
    `mechanism-ideation.md`, first establish an owned mounted panel and a rendered
-   inert marker, then compare a context-appropriate candidate with a safe
-   text/one-pass control. If the panel stays absent, record the missing fixture;
-   neither “sanitizer effective” nor “path exhausted” follows.
+   inert marker, then compare a context-appropriate candidate with a
+   text/one-pass rendering if it helps interpret that claim. If the panel stays
+   absent, record the missing fixture; neither “sanitizer effective” nor “path
+   exhausted” follows.
 2. **Stored field in a mounted Web Component, with a message feeder.** Use
    `stored-xss` for the delivery, `dom-xss` for the component trace and
    `xss-lifecycle` for later consumers. Load `client-interpreters.md` for the
@@ -93,10 +107,12 @@ of exploitability. A second technical reviewer judged the implementation
    if the map is uncontrolled, the relevant specifier already resolved, or the
    module execution is blocked. CSS influence remains a separate observation.
 
-The agent liked the **one root pointer → one evidence-selected leaf** approach:
-it widened investigative questions without a startup payload catalogue. Its
-minor criticisms were ambiguous “only one leaf” wording and blurred proof/
-Attempts ownership; both are clarified in the agent-facing references. The
+The first agent liked **one root pointer → on-demand leaves**: it widened
+investigative questions without a startup payload catalogue. Its initial
+wording implied one leaf per idea; a later independent mentality review flagged
+that as too narrow. Leaves now combine freely as relevant, and a mechanism
+outside them returns to the XSS exploratory queue. The first agent also noted
+blurred proof/Attempts ownership, clarified in the agent-facing references. The
 technical reviewer also asked for the introductory mismatched-context heading
 to be accounted for and the import-map/nonce caveats to be precise. No live
 target requests or upstream payload execution were part of either review.
@@ -106,9 +122,13 @@ target requests or upstream payload execution were part of either review.
 The README has **29 non-basic, non-duplicate technique headings** after excluding
 its reflected/stored/DOM taxonomy and one repeated DOM-clobbering heading.
 Every heading below has an explicit destination or exclusion. “Conditional”
-means a *question* with a precondition and negative control, **not** a working
-bypass. “Existing” means a prior BBH owner already covered the core question;
-new tree pointers make the owner discoverable. Categories overlap in real paths.
+means a *question* whose claimed execution still needs a reachable consumer;
+contrasting observations help assess it but are not a gate on ideas. It does
+**not** mean a working bypass. “Existing” means a prior BBH owner covered the
+core question; new tree pointers make the owner discoverable. Categories
+overlap in real paths.
+The 29 headings measure source intake, **not the possible number of XSS ideas**;
+an unlisted or newly observed mechanism remains eligible for exploration.
 The count excludes the introductory **Context-Based XSS** subsections (HTML,
 attribute, JavaScript, URL, DOM, and **Mismatched Contexts (2025/2026 Trend)**)
 because they describe context fundamentals rather than headings in the selected

@@ -57,15 +57,16 @@ Before:
 observed sanitizer/filter → generic context/exploratory payload queues
                     → more syntax variants → browser proof if they reach a sink
 
-After:
-source/sink observation → consumer mounted + inert control?
-   no → name missing fixture/renderer and reopening condition
-   yes → identify first changed representation and *actual* final interpreter
-         → pick one causal branch (reparse / post-check assembly /
-           URL parser mismatch / changed consumer / trusted-call path)
-         → choose the smallest candidate + falsifying safe control
-         → inspect the resulting DOM/navigation and browser execution
-         → record target Attempts/MapStore; query portable cards by exact edge
+After (idea breadth and proof are separate):
+source / plausible sink / unexpected transform or clue
+  → retain materially distinct ideas, including unlisted mechanisms
+  → explore relevant branches together (reparse / post-check assembly /
+    URL parser mismatch / changed consumer / trusted-call path / new idea)
+  → for a particular claim, establish consumer reachability and inspect the
+    acting representation; compare alternatives when that clarifies a result
+  → an inert result narrows only its tested edge, not sibling ideas
+  → browser execution in the claimed consumer remains the proof boundary
+  → record exact target probes/facts; query portable cards by matching edge
 ```
 
 Nothing changes authorization, rate limits, XSS lane ownership, browser proof,
@@ -76,7 +77,11 @@ that exact-edge question before card search. This is a branch of the existing
 skill graph, not a second XSS workflow or new app-specific store. The method
 covers mXSS, fragment composition, URL check/parser differences, later
 consumers, structural DOM influence, Trusted Types/CSP caller conditions, and
-async renderer provenance with explicit falsifiers.
+async renderer provenance with explicit falsifiers. These examples and the
+29-heading source intake in `docs/xss-idea-tree.md` are **not a limit on what
+agents may imagine or investigate**; comparisons are for interpreting a chosen
+claim, not admission to an idea queue. Inherited live-testing policy still
+governs authorization, rate, ownership and effects.
 
 ## Learning example and actual offline proof
 

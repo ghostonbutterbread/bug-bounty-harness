@@ -7,18 +7,19 @@ execution proof, cleanup and closure; `attempt-recording-policy` owns the exact
 per-probe writer, and `xss-lifecycle` owns later-consumer lineage.
 
 ```text
-controlled source OR plausible executable consumer
-  └─ establish the missing edge and an inert reachability control
+controlled source OR plausible consumer OR unexpected transform/clue
+  └─ trace possible feeders/interpreters; check reachability to interpret results
        ├─ value changed across check/parse? → mechanism-ideation.md
        │    └─ actual decode/normalization? → parser-stage-character-variants.md
        ├─ client interprets text/config/media? → client-interpreters.md
        ├─ message, derived data or model output? → derived-consumers.md
        ├─ CSP/Trusted Types/sanitizer/filter is the acting control? → defense-edges.md
+       ├─ unlisted/surprising mechanism? → owning XSS lane + exploratory queue
        └─ no controlled source, reachable consumer or owned fixture?
-            → record that missing link; do not invent a bypass
+            → retain the idea with its missing link; do not claim a bypass
 ```
 
-| Observed signal | Load only this branch; ask this first |
+| Observed signal | Useful starting leaf and question (not an exclusive route) |
 | --- | --- |
 | Sanitized markup, separately checked fields, URL validator, DOM structure, later HTML parse | `references/mechanism-ideation.md`: which **observed** transform changes the interpreter's input? Keep mXSS separate from application concatenation. |
 | Encoding, case, Unicode, entity, charset or double-decode claim | `references/parser-stage-character-variants.md`: which real decoder/normalizer runs before the final grammar? |
@@ -28,12 +29,15 @@ controlled source OR plausible executable consumer
 
 These file names are **skill-local** under `skills/xss-payload-engineering/`;
 use `skill_view(name='xss-payload-engineering', file_path='references/<leaf>.md')`
-when a leaf triggers. Multiple branches may apply **sequentially** when
-separate observed feeders or defenses justify them; start with the first
-observed boundary, not a fixed difficulty order. If a branch falsifies its
-prerequisite,
-return to this tree or the owning lane rather than trying variants without a
-consumer. `xss-technology-research` retrieves a bounded card for an observed
+when a leaf helps. Retain several materially distinct explanations of the same
+observation; explore leaves together or in any order as clues warrant. The
+tree's headings are not a checklist, idea quota, or boundary around new
+mechanisms. An inert comparison narrows only the tested edge, not sibling
+feeders, consumers, or untried interpretations. For an unlisted mechanism or
+unexpected result, return to the selected XSS lane and its exploratory queue;
+record missing links rather than inventing execution. Prioritize live probes by
+information gain and inherited testing limits, not by leaf count.
+`xss-technology-research` retrieves a bounded card for an observed
 library/configuration; reusable source claims go to ResearchMap, target facts
 to MapStore, and exact probes to canonical Attempts.
 

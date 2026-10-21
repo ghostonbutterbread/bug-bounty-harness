@@ -1049,9 +1049,31 @@ def append_jsonl(path: Path, rows: Iterable[dict]) -> None:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
-# A supplied JS list can contain extensionless scripts, but not known non-JS
-# assets. Page script[src] references are direct evidence regardless of suffix.
+# A supplied JS list can contain extensionless scripts. Non-JS suffixes need
+# browser script provenance and a successful JS response; page script[src]
+# references are direct script evidence regardless of suffix.
 JS_URL_SUFFIXES = {"", ".js", ".mjs", ".cjs"}
+JS_CONTENT_TYPES = {
+    "application/javascript", "text/javascript", "application/x-javascript",
+    "text/x-javascript", "application/ecmascript", "text/ecmascript",
+}
+
+
+def is_js_content_type(value: object) -> bool:
+    return str(value or "").split(";", 1)[0].strip().lower() in JS_CONTENT_TYPES
+
+
+def has_browser_script_provenance(hints: list[dict]) -> bool:
+    return any(
+        str(hint.get("initiator") or "").lower() in {"script", "parser"}
+        and bool(hint.get("proxy_request_id") or hint.get("request_id"))
+        and bool(normalize_url(str(hint.get("page_url") or hint.get("document_url") or "")))
+        and str(hint.get("method") or "GET").upper() == "GET"
+        and (status := hint_int(hint.get("status"))) is not None
+        and 200 <= status < 300
+        and is_js_content_type(hint.get("content_type"))
+        for hint in hints
+    )
 
 
 def iter_jsonl(path: Path) -> Iterator[dict]:
@@ -1985,6 +2007,7 @@ def command_inventory(args: argparse.Namespace) -> int:
         normalized = normalize_url(url)
         if normalized and in_scope_url(normalized, scope_hosts) and (
             url in page_urls or Path(urllib.parse.urlparse(normalized).path).suffix.lower() in JS_URL_SUFFIXES
+            or (target_host and has_browser_script_provenance(provenance_hints.get(normalized, [])))
         ):
             normalized_urls.append(normalized)
     normalized_urls = dedupe(normalized_urls)
@@ -2006,6 +2029,10 @@ def command_inventory(args: argparse.Namespace) -> int:
     source_maps_reused = 0
     source_maps_too_large = 0
     for index, url in enumerate(normalized_urls, start=1):
+        observed_non_js_suffix = (
+            url not in page_urls and url not in inline_bodies
+            and Path(urllib.parse.urlparse(url).path).suffix.lower() not in JS_URL_SUFFIXES
+        )
         if args.skip_cached_processing and not args.refresh and url not in inline_bodies:
             cached_artifact = cached_artifact_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
             if cached_artifact:
@@ -2021,11 +2048,11 @@ def command_inventory(args: argparse.Namespace) -> int:
         reused_download = False
         cached = None if args.refresh or url in inline_bodies else load_body_from_ledger(ledger, url=url, downloads_dir=downloads_dir)
         if cached:
-            body, digest, artifact_path = cached
-            status = None
-            content_type = ""
+            body = cached[0]
+            cached_response = ledger.get("urls", {}).get(url, {})
+            status = cached_response.get("status") if isinstance(cached_response, dict) else None
+            content_type = cached_response.get("content_type", "") if isinstance(cached_response, dict) else ""
             reused_download = True
-            reused_downloads += 1
         else:
             if args.delay and url not in inline_bodies:
                 time.sleep(args.delay)
@@ -2035,6 +2062,15 @@ def command_inventory(args: argparse.Namespace) -> int:
                 body, status, content_type = http_get(url, timeout=args.timeout)
             if not body:
                 continue
+        if observed_non_js_suffix:
+            if (not isinstance(status, int) or not 200 <= status < 300
+                    or not is_js_content_type(content_type)):
+                print(f"[{index}/{len(normalized_urls)}] {url} -> skipped non-JS response", file=sys.stderr)
+                continue
+        if cached:
+            body, digest, artifact_path = cached
+            reused_downloads += 1
+        else:
             digest = hashlib.sha256(body).hexdigest()
             artifact_path = downloads_dir / f"{digest}.js"
             if artifact_path.exists():
@@ -2350,7 +2386,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     inv = sub.add_parser("inventory", help="Collect/download/hash/chunk JavaScript and write agent packets")
     inv.add_argument("program", help="Program name, e.g. canva")
-    inv.add_argument("--input", help="File containing JavaScript URLs, e.g. aggregated/jsfiles.txt")
+    inv.add_argument("--input", help="File containing scoped JavaScript URLs; non-JS suffixes need observed script --provenance-input and a 2xx JavaScript response")
     inv.add_argument("--page", help="Page URL to fetch and extract script[src] from")
     inv.add_argument("--page-context", default="", help="Short context such as login/auth, billing, editor")
     inv.add_argument("--target-host", help="Host or parent domain to constrain JS URLs")

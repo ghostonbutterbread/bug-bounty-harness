@@ -165,6 +165,34 @@ bbh agents/js_analyzer.py inventory canva \
   --target-host "https://www.canva.com/login"
 ```
 
+For a browser-observed script at a non-JS-suffix URL, such as `chunk.php`,
+put that exact URL in the scoped `--input` list **and** provide a matching
+`--provenance-input` JSONL row, for example:
+
+```json
+{"js_url":"https://app.example.com/assets/chunk.php?bundle=editor","page_url":"https://app.example.com/editor","proxy_request_id":"<saved-request-id>","initiator":"script","method":"GET","status":200,"content_type":"application/javascript"}
+```
+
+```bash
+bbh agents/js_analyzer.py inventory <program> \
+  --input <observed-script-urls.txt> \
+  --provenance-input <observed-script-provenance.jsonl> \
+  --target-host <approved-host>
+```
+
+Record those fields from the authorized browser's Network/proxy evidence,
+not from a guessed URL. `initiator` may also be `parser`; the row needs a
+saved request ID and loading page URL, a 2xx status, and a JavaScript MIME
+type. `--target-host` is required for non-JS-suffix inputs. A matching row
+alone is not enough: a fresh or cached response must
+also be 2xx with JavaScript MIME before inventory. If the refetch instead
+returns HTML (for example an auth page), keep the browser observation as a
+lead and do not claim the PHP URL was inventoried. Other PHP endpoints in
+the URL list are not fetched via this exception. `--page` is an HTTP page
+fetch, not an interactive browser capture; it may include HTML-discovered
+`script[src]` URLs regardless of suffix. Its HTML reference alone is not
+proof the response served JavaScript; inspect the status, MIME type, and body.
+
 The helper writes:
 
 ```text

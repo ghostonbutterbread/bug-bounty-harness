@@ -791,6 +791,170 @@ def test_inventory_accepts_extensionless_explicit_js_input(tmp_path: Path):
     assert seen == ["https://app.example.com/assets/runtime"]
 
 
+@pytest.mark.parametrize("initiator", ["script", "parser"])
+def test_inventory_accepts_browser_observed_php_script_with_js_response(tmp_path: Path, initiator: str):
+    script = "https://app.example.com/assets/chunk.php?bundle=editor"
+    source = tmp_path / "scripts.txt"
+    source.write_text(script + "\n")
+    hints = tmp_path / "observed.jsonl"
+    hints.write_text(json.dumps({
+        "js_url": script,
+        "page_url": "https://app.example.com/editor",
+        "proxy_request_id": "req-17",
+        "initiator": initiator,
+        "status": 200,
+        "content_type": "application/javascript; charset=utf-8",
+    }) + "\n")
+    bundle = b"document.querySelector('#out').innerHTML = new URLSearchParams(location.search).get('q');"
+    with patch.object(J, "http_get", return_value=(bundle, 200, "text/javascript; charset=utf-8")) as get:
+        assert J.main([
+            "inventory", "demo", "--input", str(source), "--provenance-input", str(hints),
+            "--target-host", "example.com", "--output-root", str(tmp_path / "out"),
+            "--library-root", str(tmp_path / "lib"),
+            "--integration-index-root", str(tmp_path / "integrations"),
+        ]) == 0
+    get.assert_called_once()
+    rows = J.read_jsonl(tmp_path / "out" / "metadata.jsonl")
+    assert len(rows) == 1
+    assert rows[0]["url"] == script
+    assert rows[0]["source_sites"] and rows[0]["sink_sites"]
+    assert rows[0]["provenance"]["proxy_request_ids"] == ["req-17"]
+
+
+@pytest.mark.parametrize("hint", [
+    None,
+    {"initiator": "xhr", "status": 200, "content_type": "application/javascript"},
+    {"initiator": "script", "status": 200, "content_type": "text/html"},
+    {"initiator": "script", "status": 404, "content_type": "application/javascript"},
+    {"initiator": "script", "status": 200, "content_type": "application/javascript", "method": "POST"},
+    {"initiator": "script", "status": 200, "content_type": "application/javascript", "proxy_request_id": ""},
+])
+def test_inventory_does_not_fetch_arbitrary_php_input_without_script_evidence(tmp_path: Path, hint: dict | None):
+    script = "https://app.example.com/api/action.php?perform=update"
+    source = tmp_path / "scripts.txt"
+    source.write_text(script + "\n")
+    hints = tmp_path / "observed.jsonl"
+    if hint is not None:
+        hints.write_text(json.dumps({
+            "js_url": script, "page_url": "https://app.example.com/editor",
+            "proxy_request_id": "req-17", **hint,
+        }) + "\n")
+    else:
+        hints.write_text("")
+    with patch.object(J, "http_get") as get:
+        assert J.main([
+            "inventory", "demo", "--input", str(source), "--provenance-input", str(hints),
+            "--target-host", "example.com", "--output-root", str(tmp_path / "out"),
+            "--library-root", str(tmp_path / "lib"),
+            "--integration-index-root", str(tmp_path / "integrations"),
+        ]) == 0
+    get.assert_not_called()
+    assert J.read_jsonl(tmp_path / "out" / "metadata.jsonl") == []
+
+
+def test_browser_observed_php_script_requires_target_host_for_input(tmp_path: Path):
+    script = "https://app.example.com/assets/chunk.php"
+    source = tmp_path / "scripts.txt"
+    source.write_text(script + "\n")
+    hints = tmp_path / "observed.jsonl"
+    hints.write_text(json.dumps({
+        "js_url": script, "page_url": "https://app.example.com/editor",
+        "proxy_request_id": "req-17", "initiator": "script",
+        "status": 200, "content_type": "application/javascript",
+    }) + "\n")
+    with patch.object(J, "http_get", return_value=(b"const x = 1;", 200, "application/javascript")) as get:
+        assert J.main([
+            "inventory", "demo", "--input", str(source), "--provenance-input", str(hints),
+            "--output-root", str(tmp_path / "out"), "--library-root", str(tmp_path / "lib"),
+            "--integration-index-root", str(tmp_path / "integrations"),
+        ]) == 0
+    get.assert_not_called()
+    assert J.read_jsonl(tmp_path / "out" / "metadata.jsonl") == []
+
+
+@pytest.mark.parametrize("response", [
+    (b"<html>Sign in</html>", 200, "text/html"),
+    (b"console.log('unauthorized')", 401, "application/javascript"),
+])
+def test_inventory_does_not_archive_non_script_response_from_php_url(tmp_path: Path, response: tuple):
+    script = "https://app.example.com/assets/chunk.php"
+    source = tmp_path / "scripts.txt"
+    source.write_text(script + "\n")
+    hints = tmp_path / "observed.jsonl"
+    hints.write_text(json.dumps({
+        "js_url": script, "page_url": "https://app.example.com/editor",
+        "proxy_request_id": "req-17", "initiator": "script",
+        "status": 200, "content_type": "application/javascript",
+    }) + "\n")
+    with patch.object(J, "http_get", return_value=response) as get:
+        assert J.main([
+            "inventory", "demo", "--input", str(source), "--provenance-input", str(hints),
+            "--target-host", "example.com", "--output-root", str(tmp_path / "out"),
+            "--library-root", str(tmp_path / "lib"),
+            "--integration-index-root", str(tmp_path / "integrations"),
+        ]) == 0
+    get.assert_called_once()
+    assert J.read_jsonl(tmp_path / "out" / "metadata.jsonl") == []
+    assert not list((tmp_path / "lib" / "downloads").iterdir())
+
+
+def test_browser_observed_php_script_reuses_validated_cached_body(tmp_path: Path):
+    script = "https://app.example.com/assets/chunk.php"
+    source = tmp_path / "scripts.txt"
+    source.write_text(script + "\n")
+    hints = tmp_path / "observed.jsonl"
+    hints.write_text(json.dumps({
+        "js_url": script, "page_url": "https://app.example.com/editor",
+        "proxy_request_id": "req-17", "initiator": "script",
+        "status": 200, "content_type": "application/javascript",
+    }) + "\n")
+    common = ["inventory", "demo", "--input", str(source), "--provenance-input", str(hints),
+              "--target-host", "example.com", "--library-root", str(tmp_path / "lib"),
+              "--integration-index-root", str(tmp_path / "integrations")]
+    with patch.object(J, "http_get", return_value=(b"document.body.innerHTML = location.hash;", 200, "text/javascript")):
+        assert J.main(common + ["--output-root", str(tmp_path / "first")]) == 0
+    with patch.object(J, "http_get") as get:
+        assert J.main(common + ["--output-root", str(tmp_path / "second")]) == 0
+    get.assert_not_called()
+    rows = J.read_jsonl(tmp_path / "second" / "metadata.jsonl")
+    assert len(rows) == 1 and rows[0]["url"] == script and rows[0]["sink_sites"]
+    with patch.object(J, "http_get") as get:
+        assert J.main(common + ["--output-root", str(tmp_path / "third")]) == 0
+    get.assert_not_called()
+    third_rows = J.read_jsonl(tmp_path / "third" / "metadata.jsonl")
+    assert len(third_rows) == 1 and third_rows[0]["url"] == script and third_rows[0]["sink_sites"]
+    assert third_rows[0]["status"] == 200
+    assert third_rows[0]["content_type"] == "text/javascript"
+
+
+def test_browser_observed_php_script_does_not_reuse_cached_html(tmp_path: Path):
+    page = "https://app.example.com/editor"
+    script = "https://app.example.com/assets/chunk.php"
+    source = tmp_path / "scripts.txt"
+    source.write_text(script + "\n")
+    hints = tmp_path / "observed.jsonl"
+    hints.write_text(json.dumps({
+        "js_url": script, "page_url": page, "proxy_request_id": "req-17",
+        "initiator": "script", "status": 200, "content_type": "application/javascript",
+    }) + "\n")
+    def fake_get(url: str, timeout: int = 20):
+        if url == page:
+            return b'<script src="/assets/chunk.php"></script>', 200, "text/html"
+        assert url == script
+        return b"<html>Sign in</html>", 200, "text/html"
+    common = ["inventory", "demo", "--target-host", "example.com",
+              "--library-root", str(tmp_path / "lib"),
+              "--integration-index-root", str(tmp_path / "integrations")]
+    with patch.object(J, "http_get", side_effect=fake_get):
+        assert J.main(common + ["--page", page, "--output-root", str(tmp_path / "page")]) == 0
+    with patch.object(J, "http_get") as get:
+        assert J.main(common + ["--input", str(source), "--provenance-input", str(hints),
+                         "--output-root", str(tmp_path / "observed")]) == 0
+    get.assert_not_called()
+    assert J.read_jsonl(tmp_path / "observed" / "metadata.jsonl") == []
+    assert json.loads((tmp_path / "observed" / "manifest.json").read_text())["downloads_reused"] == 0
+
+
 def test_inline_provenance_hint_retains_synthetic_script_identity(tmp_path: Path):
     hint_path = tmp_path / "provenance.jsonl"
     identity = "https://app.example.com/account#inline-script-1"

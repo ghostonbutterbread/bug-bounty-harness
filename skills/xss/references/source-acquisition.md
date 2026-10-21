@@ -42,11 +42,21 @@ trace selected functions. `inventory --page` fetches HTML script URLs and bounde
 inline scripts from an HTTP page; it does **not** drive the browser or capture
 lazy-loaded chunks.
 The analyzer's `--input` list accepts `.js`, `.mjs`, `.cjs`, and extensionless
-URLs, but filters out non-JS suffixes such as a browser-loaded `chunk.php`.
-Retain that observed asset and inspect its browser response/runtime consumer
-separately; do not claim it was scanned or that a zero-hit inventory covers it.
-An HTML `<script src>` discovered by `--page` may enter the analyzer regardless
-of its suffix, but that does not recover a chunk loaded only after interaction.
+URLs directly. For a browser-loaded `chunk.php` (or another non-JS suffix),
+also supply `--provenance-input <observed-scripts.jsonl>` with a row keyed by
+the **exact JS URL**: `js_url`, loading `page_url`, saved `proxy_request_id`,
+`initiator` (`script` or `parser`), a 2xx `status`, and JavaScript
+`content_type`; `method` must be GET if present. Only scoped URLs in the
+explicit `--input` list are considered, and the fetched or cached response
+must itself have a 2xx status and JavaScript MIME type before inventory;
+`--target-host` is required for this non-JS-suffix exception.
+An HTML login/error response is skipped, not a zero-hit script. Preserve the
+browser observation as a lead if an unauthenticated refetch cannot reproduce
+it; never relabel an unscanned response as inventoried. An HTML `<script src>`
+discovered by `--page` may enter regardless of suffix, but `--page` cannot
+recover a chunk loaded only after interaction. Inspect its returned status,
+MIME type and body separately; an HTML `<script src>` alone does not prove
+that the script URL served executable JavaScript.
 Do not conclude that one initial load represents the application.
 
 Keep three evidence levels distinct: an **inventoried script** may be archived

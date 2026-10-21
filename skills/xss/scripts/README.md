@@ -3,8 +3,8 @@
 Canonical home for deterministic helper scripts that support the XSS skill.
 
 Agents should put reusable XSS automation here when the script belongs to the
-vulnerability class rather than one target. The first planned script is the XSS
-canary reflection mapper:
+vulnerability class rather than one target. The maintained canary helper and
+the JS inventory's paired source/sink passes are documented below:
 
 - Spec: `docs/xss-canary-reflection-mapper-spec.md`
 - Script: `xss_canary_mapper.py`
@@ -49,6 +49,26 @@ Rules:
 - **Coverage:** Non-exhaustive, per-rule/asset capped static seeds. Some request
   body fields, dynamic keys, and backend writers require `/parameter-mining`
   and manual trace rather than this scanner.
+
+## `agents/xss_sink_sites.py` (JS inventory pass)
+
+- **Purpose:** Bounded static call-site and API/attribute review seeds for
+  browser/framework HTML, script, URL and conditional interpreter sinks; not
+  a standalone live scanner, taint trace or browser execution proof.
+- **Runner:** `bbh agents/js_analyzer.py inventory <program> --input <js-url-list>
+  --target-host <scoped-host>` via `/js`. The analyzer calls
+  `scan_sink_sites` on retained bundles and packetized source-map modules.
+- **Outputs:** `sink_sites` plus `sink_sites_truncated` in `metadata.jsonl`
+  and `source_map_modules.jsonl`; matched signatures and offsets in review
+  packets; counts and caps in `manifest.json`. Compare with `source_sites`
+  and the actual caller, loaded route, and browser consumer.
+- **Mutates:** Inventory artifacts only; the analyzer may fetch scoped JS and
+  source maps under its normal controls. This module sends no requests.
+- **Verification:** `agents/test_xss_sink_sites.py` and
+  `agents/test_js_analyzer.py` in an isolated repository worktree.
+- **Coverage:** Non-exhaustive, per-signature/asset capped static seeds; dynamic
+  property names, unpacketized modules, server templates and runtime-only
+  consumers require stack-specific and browser review.
 
 ## `xss_canary_mapper.py`
 

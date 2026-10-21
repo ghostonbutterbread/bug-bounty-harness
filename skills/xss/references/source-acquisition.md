@@ -28,7 +28,23 @@ reopening condition instead of repeating a larger census.
 
 For a route cluster or corpus breadth pass, collect both sides without imposing
 a source-first or sink-first order. Reuse current JS inventory before fetching
-more: `metadata.jsonl` has per-bundle `source_sites`, `sink_sites`, ordinary
+more. For browser-mediated routes, load `browser-session-policy` and
+`chromium-test` to navigate the authorized app and trigger normal, relevant
+interactions. Inspect Network requests and loaded scripts, Sources/call stacks
+and DOM/form/hydration state (or equivalent browser observations); a lazy chunk,
+hidden field or client-side request builder may appear only after a route,
+click, form, or state transition. Retain page/flow, JS URL, initiator, and
+associated request/field provenance. Feed the scoped observed JS URLs to
+`js` → `js-pull` (`bbh agents/js_analyzer.py inventory <program> --input
+<scoped-js-url-list> --target-host <in-scope-host>`), then use `js-hunt` to
+trace selected functions. `inventory --page` fetches linked scripts from an
+HTTP page; it does **not** drive the browser or capture lazy-loaded chunks.
+Do not conclude that one initial load represents the application.
+
+The analyzer invokes `agents/xss_source_sites.py` and
+`agents/xss_sink_sites.py` on retained JS and packetized source-map modules;
+neither module independently discovers live routes or proves attacker control.
+`metadata.jsonl` has per-bundle `source_sites`, `sink_sites`, ordinary
 `params`, and page/provenance pointers; `source_map_modules.jsonl` has named
 sites in retained original modules. A zero or capped hit count is not coverage:
 check `source_sites_truncated`, `sink_sites_truncated`, and the manifest's
@@ -37,6 +53,16 @@ source/sink capped-artifact counts. Also inspect each source-map module's
 site list to inspect, even when their per-site truncation flag is false.
 An older inventory predating the source pass must be reanalyzed before using
 it as a named-source denominator.
+
+Use the observed stack to look **beyond** the signature list: inspect the
+actual framework raw-HTML/template/trust APIs, server-rendered templates,
+custom render wrappers, URL/script loaders, and the stack's query/route/form/
+API request builders. `dom-xss` owns browser source/sink tracing and its
+framework map; `xss-technology-research` helps when a concrete renderer or
+sanitizer fingerprint changes the next question. A static match in an unloaded
+bundle is a seed; a browser breakpoint, populated field, or emitted request
+adds reachability evidence, but neither alone proves a controllable
+source-to-executable-consumer path.
 
 Load `parameter-mining` for observed request/body/GraphQL/form fields and the
 existing proxy/JS handoff. Resolve the aggregate with

@@ -1,6 +1,6 @@
 # XSS source/sink discovery routing — integration dossier
 
-- **Status:** initial independent release review accepted; two minor documentation corrections pending narrow re-review
+- **Status:** independent release and narrow re-review accepted; ready for beta integration
 - **Owner:** Hermes / BBH XSS
 - **Branch:** `docs/xss-input-sink-discovery`
 - **Worktree:** `/home/ryushe/worktrees/bbh-xss-input-sink-discovery`
@@ -28,7 +28,8 @@ The `xss` router now offers an early on-demand source/sink-acquisition route and
 - Full `tests` suite after local `.venv` install: **307 passed, 1 skipped, 2 failed**. Same two unrelated `stack-to-program` failures reproduced on unchanged beta with the same interpreter. An initial attempt using the beta worktree's interpreter failed 15 additional launcher subprocess subtests because this worktree had no `.venv`; `./setup.sh --install-python-deps` resolved those setup failures. No live targets contacted.
 - Two independent read-only audits of unchanged beta confirmed: `xss_source_sites.py` and `xss_sink_sites.py` are imported analyzer modules (not CLIs); source signatures are named getter/read sites plus unnamed hints, sink signatures are capped call-site seeds; `--page` fetches static HTML-linked/inline scripts, and live browser routes require separate observed-script capture. Runtime and stack methods existed but were hard to find from the XSS entry point. Audit feedback was incorporated in `a9f34ceb7946416b79c5b92b2500a5904823bbc2` (named-read precision, three evidence levels, conditional browser route, accurate `--page` behavior).
 - After the first material correction, focused source/sink/analyzer/XSS tests: **403 passed**. Full `tests`: **307 passed, 1 skipped, the same 2 unrelated failures**. The initial independent release review was requested at that checkpoint and returned the ACCEPT verdict recorded below.
-- Fresh independent review of `e1bf907..c20817e` returned **ACCEPT for beta integration** with two MINOR documentation nits: `--input` silently filters non-JS suffixes despite live-loaded script evidence, and the new sink-module script record lacked owner/scope and last verification. Corrected both in `0988493bac62a7cd5ee43a02d83c6e1e31e898ec` (also brought the paired source record to the same index fields). Focused source/sink/analyzer/XSS tests after correction: **403 passed**; full `tests`: **307 passed, 1 skipped, same 2 baseline failures**. The proposed fixture that would have asserted permanent `.php` omission was deliberately removed so future analyzer support remains possible. Narrow independent re-review of the corrected tip is pending.
+- Fresh independent review of `e1bf907..c20817e` returned **ACCEPT for beta integration** with two MINOR documentation nits: `--input` silently filters non-JS suffixes despite live-loaded script evidence, and the new sink-module script record lacked owner/scope and last verification. Corrected both in `0988493bac62a7cd5ee43a02d83c6e1e31e898ec` (also brought the paired source record to the same index fields). Focused source/sink/analyzer/XSS tests after correction: **403 passed**; full `tests`: **307 passed, 1 skipped, same 2 baseline failures**. The proposed fixture that would have asserted permanent `.php` omission was deliberately removed so future analyzer support remains possible. The subsequent narrow review accepted this correction.
+- Narrow independent read-only re-review of exact tip `985aac5be9af9946fd3d188c2edd8558ff9d7886` returned **ACCEPT for beta integration**. It verified `--input` suffix handling against analyzer code, the `--page` distinction, both index records and SCRIPT_POLICY fields, and no mandatory sweep. Reviewer focused tests: **403 passed**; broader focused selection **427 passed, 1 deselected** (unrelated repository-wide index failure), `git diff --check` clean. No live target traffic.
 
 ## Blockers and deferred work
 
@@ -40,7 +41,7 @@ The `xss` router now offers an early on-demand source/sink-acquisition route and
 - **Owning feature branch/ref:** `docs/xss-input-sink-discovery`
 - **Latest immutable recovery checkpoint:** `0988493bac62a7cd5ee43a02d83c6e1e31e898ec`
 - **Feature implementation commit(s):** `3a2d22ccce8844543c093bcd30d83b26385c7607`, `a9f34ceb7946416b79c5b92b2500a5904823bbc2`, `0988493bac62a7cd5ee43a02d83c6e1e31e898ec`
-- **Exact resume point:** obtain narrow independent re-review of reviewer-led corrections, then beta merge/push excluding this branch-local dossier and verify local projection.
+- **Exact resume point:** beta merge/push excluding this branch-local dossier, run integrated checks and verify local skill projection. Hoster remains a separate activation decision.
 - **Working-tree state at handoff:** clean after this dossier-only follow-up commit; latest material checkpoint remains `0988493`.
 
 ## Decision gates
@@ -56,3 +57,4 @@ The `xss` router now offers an early on-demand source/sink-acquisition route and
 - 2026-10-21 PDT — implementation and initial dossier committed as `3a2d22ccce8844543c093bcd30d83b26385c7607`. This later dossier-only commit records the immutable checkpoint; no beta integration yet.
 - 2026-10-21 PDT — reconciled both read-only audits; corrected source-site semantics, static `--page` wording, and conditional browser routing at `a9f34ceb7946416b79c5b92b2500a5904823bbc2`. Reran focused and full tests with no new failures; request fresh release review next.
 - 2026-10-21 PDT — independent release review ACCEPT with two MINOR nits; clarified suffix-filtered `--input` and completed script-map owner/date fields at `0988493bac62a7cd5ee43a02d83c6e1e31e898ec`. Narrow re-review, then beta integration, remains.
+- 2026-10-21 PDT — independent narrow re-review of `985aac5be9af9946fd3d188c2edd8558ff9d7886` ACCEPT; final correction and tested route are ready for beta merge. Branch-local dossier stays out of beta.

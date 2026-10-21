@@ -17,8 +17,10 @@ source-reported claims separate from a target's delivered policies.
 | **CSS-only influence or style exfiltration** | If controlled CSS is later read as a JS/URL/template input, branch to `client-interpreters.md`. If only network requests leak data or styles shift UI, classify that impact separately under scope. | A stylesheet request is not script execution; no CSS-to-executable-consumer edge means no XSS finding. Nonce extraction via CSS alone is especially configuration/browser dependent. |
 
 When a version-specific source suggests a technique, return a compact research
-packet: observed fingerprint, source claim, prerequisites, one safe discriminator
-and a falsifier. Do not clone the upstream's code snippets or run a payload
+packet: observed fingerprint, source claim, prerequisites, candidate mechanisms
+and observations that could distinguish them. No single comparison is an
+admission gate or idea quota; use contrasts when they help with
+interpreting a specific probe. Do not clone upstream snippets or run a payload
 matrix in place of locating the acting control. `mechanism-ideation.md` and the
 selected lane retain positive reachability and proof requirements.
 

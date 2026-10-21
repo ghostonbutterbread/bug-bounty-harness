@@ -22,13 +22,35 @@ def test_conditional_root_to_leaf_route_is_resolvable() -> None:
     tree = text("skills/xss-payload-engineering/references/idea-tree.md")
     assert "references/idea-tree.md" in router
     assert "references/idea-tree.md" in payload
-    assert "Open one matching leaf first; open a second only" in payload
-    assert "not a second\npayload corpus or a required per-run checklist" in payload
+    assert "Keep multiple\nhypotheses alive" in payload
+    assert "not a second payload corpus or a required per-run checklist" in " ".join(payload.split())
     for leaf in LEAVES:
         assert leaf in tree
         assert (REF / leaf).is_file()
     for lane in ("reflected-xss", "stored-xss", "dom-xss", "blind-xss"):
         assert lane in router
+
+
+def test_tree_invites_uncapped_ideation_but_preserves_per_claim_proof() -> None:
+    router = text("skills/xss/SKILL.md")
+    payload = text("skills/xss-payload-engineering/SKILL.md")
+    tree = text("skills/xss-payload-engineering/references/idea-tree.md")
+    mechanism = text("skills/xss-payload-engineering/references/mechanism-ideation.md")
+    client = text("skills/xss-payload-engineering/references/client-interpreters.md")
+    derived = text("skills/xss-payload-engineering/references/derived-consumers.md")
+    doc = text("docs/xss-idea-tree.md")
+    assert "not a ceiling on ideas" in router
+    assert "including ones outside the tree" in payload
+    assert "unlisted/surprising mechanism?" in tree
+    assert "not by leaf count" in tree
+    assert "not a control prerequisite or idea quota" in mechanism
+    assert "Explore sink-first with the missing source named" in derived
+    assert "investigate a suspected reparse" in client
+    assert "without a count limit" in derived
+    assert "no\nnumber of ideas or leaves to exhaust" in doc
+    assert "source / plausible sink / surprising transform or research clue" in doc
+    assert "selected lane owns\nlive testing and browser proof" in doc
+    assert "not a validated bypass" in tree
 
 
 def test_new_leaves_require_observed_consumers_and_falsifiers() -> None:

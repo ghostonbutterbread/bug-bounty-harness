@@ -33,11 +33,13 @@ It supplies a causal branching worksheet and small discriminators; do not load
 it as a mandatory startup checklist or treat a local fixture as target proof.
 
 For an observed nontraditional interpreter, derived event/AI input, or
-defense-chain question outside that parser/composition branch, read
+defense-chain question—or a surprising mechanism not in the usual queue—read
 `references/idea-tree.md`. The tree routes to existing XSS owners and
-conditional idea references. Open one matching leaf first; open a second only
-when a distinct observed feeder or defense calls for it. This is not a second
-payload corpus or a required per-run checklist.
+conditional idea references. Start with the leaf closest to the current
+question; open other relevant leaves whenever another feeder, transform,
+consumer, defense, or new clue suggests a distinct explanation. Keep multiple
+hypotheses alive, including ones outside the tree; no leaf order or count limits
+ideation. This is not a second payload corpus or a required per-run checklist.
 
 For character encodings, Unicode variants, entity/escape representations, and
 parser-stage differentials, read
@@ -67,13 +69,14 @@ source/parent, mutation operations or generator seed when applicable, placement,
 and browser/origin result. If it signals, reduce it through follow-up comparisons
 until the responsible parser, transform, or consumer boundary is understood.
 
-Build candidates **backward from the final interpreter**: identify the needed
-DOM node, URL, or JavaScript grammar; its immediate feeder and transformations;
-then choose only source-controlled primitives that can survive to it. Pair each
-candidate with an inert reachability control and a competing safe-path/control
-that could falsify the proposed mechanism. A sanitized-looking string is not a
-bypass unless a subsequent parse or composition changes its meaning in the
-claimed browser consumer.
+Build candidates **backward from the final interpreter** when that helps:
+identify the needed DOM node, URL, or JavaScript grammar, its feeders and
+transformations, and source-controlled primitives. Follow surprising results
+forward into new consumers too. Generate and retain any materially distinct,
+plausible ideas; comparisons or inert reachability checks help interpret a
+specific probe, not grant permission to think of or pursue an idea. Before
+calling a result a bypass, establish the claimed transform and browser consumer;
+before reading an inert result as a negative, establish that this consumer ran.
 
 ## Defense And Research Routing
 

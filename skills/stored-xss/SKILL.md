@@ -30,9 +30,15 @@ Allowed examples:
 - owned uploads
 - owned notification/invite/comment flows where all recipients are owned
 
-Ask before anything that can hit staff, moderation, support, marketplace/app
-review, real users, public feeds, email/SMS/push to non-owned recipients, or
-hard-to-clean state.
+An owned profile or ordinary owned social post may hold a scoped execution
+payload, even when its page/feed is public. Verify with owned viewers when
+possible; do not drive real users to it, collect their data, or use a payload
+with disruptive non-owned viewer effects. Restore the payload after the final
+test and track the owned post under `public-artifacts` when applicable.
+
+Ask before staff/moderation/support/marketplace review, direct broadcasts or
+email/SMS/push to non-owned recipients, non-owned resources, or hard-to-clean
+state. Public visibility alone is not an approval gate.
 
 **Carve-out - inert blind canaries.** This approval gate is about payloads
 with visible or disruptive effects. An inert, attributed, correlated blind
@@ -63,13 +69,14 @@ High-signal stored fields:
 2. Verify persistence at the storage point.
 3. Find every render point that shows the canary.
 4. Classify each render context separately.
-5. Replace the canary with the smallest context-matched payload when the
-   resource and viewer are owned/approved and the payload will not reach
-   non-owned users, staff-visible queues, public blast radius, or hard-to-control
-   notification surfaces.
+5. Replace the canary with a context-matched payload on the owned profile,
+   post, or other approved resource; verify with an owned viewer where possible.
+   Separate passive public visibility from staff queues, direct notifications,
+   or disruptive effects on non-owned users.
 6. Verify in the render location with browser or target-owned checker.
-7. Restore/delete/privatize the owned test state when useful, or record the
-   remaining owned state if it may affect future agents.
+7. After the final test, remove the active test payload and verify the owned
+   state: restore benign profile/post content, privatize, or delete it. A benign
+   owned post may remain for reuse; record any residue or cleanup blocker.
 
 ## Payload Strategy
 

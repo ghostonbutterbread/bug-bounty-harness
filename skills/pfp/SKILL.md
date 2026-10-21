@@ -5,13 +5,14 @@ description: "Route profile-picture, avatar, and image-profile workflows into fo
 
 # Profile Picture Testing
 
-Use for owned profile-picture, avatar, banner, username, profile-image, account-photo, and image URL import workflows.
+Use for owned profile-picture, avatar, banner, bio, username, profile-image, account-photo, and image URL import workflows.
 
 ## Owned profile edits are allowed
 
 Agents may freely edit **our own validated account's** username, display name,
-banner, avatar/profile picture, and other ordinary profile fields for scoped
-testing. A profile being public-facing does **not** by itself make these edits
+bio, banner, avatar/profile picture, and other profile fields for scoped
+testing, including context-matched XSS payloads. A profile being public-facing
+does **not** by itself make these edits
 prominent public-form submissions: no `public-forums` artifact lease or
 form-spam restriction is required for ordinary owned profile edits. Repeated
 owned-profile updates and upload/replace/delete tests are allowed when useful;
@@ -19,12 +20,15 @@ do not stop merely because another person could view the profile.
 
 This permission does not extend to another user's profile, impersonation,
 engagement with other users, public posts/comments, reports or help/community
-forms, or actions that notify other users, enter human review, or publish a
-separate artifact. Those workflows retain their respective scope, ownership,
-rate, viewer-safety, and public-form boundaries. Ordinary profile visibility
-and image/CDN propagation do not revoke the permission. If a profile change
-also publishes a separate feed item or submits a prominent form, classify that
-separate action under `public-forums` before submitting it.
+forms, or actions that notify other users or enter human review. Those workflows
+retain their respective scope, ownership, rate, viewer-safety, and public-form
+boundaries. Ordinary profile visibility and image/CDN propagation do not revoke
+the permission. If a profile change also publishes a separate owned social post,
+route that post through `public-artifacts` for reuse and cleanup; a report,
+support/community form, or directly broadcast submission routes to
+`public-forums`. Verify payload effects with owned viewers where possible, avoid
+collecting non-owned visitors' data or causing disruptive viewer effects, and
+restore the owned test payload when the hypothesis is finished.
 
 `/pfp` is a coordinator skill. It maps the profile-picture workflow, creates a queue of focused child lanes, and runs those child agents one at a time through a shared browser/live-testing slot. Child lanes should test bounded mutation families and return evidence, not just decide from the parent scout that a branch is impossible.
 

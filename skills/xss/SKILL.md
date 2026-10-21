@@ -52,6 +52,7 @@ and a reflected value may become dangerous only after client-side parsing.
 | Controlled value persists, transforms, or reaches a later consumer | `xss-lifecycle` |
 | Plausible warm/hot vector needs payload selection, mutation, or reduction | `xss-payload-engineering` |
 | Sanitized/escaped output, inert payload matrices, or a second parser leave an idea-generation question | `xss-payload-engineering` → `references/mechanism-ideation.md` inside that skill; select a causal branch rather than a larger payload list |
+| A mapped path suggests an uncommon client interpreter, derived input, or defense edge without a clear next mechanism | `xss-payload-engineering` → `references/idea-tree.md` inside that skill; load only the matching leaf after the selected XSS lane |
 | Observed renderer, parser, sanitizer, framework, or defense may change the next hypothesis | `xss-technology-research` |
 | Filtering, challenge, or edge/origin difference needs characterization | `waf-live-policy` |
 | A controlled source can select a GTM container ID or load a GTM script | `xss-gtm` for the preconfigured XSS fixture; selected lane still owns proof |

@@ -32,6 +32,12 @@ matrix leaves the next idea unclear, read `references/mechanism-ideation.md`.
 It supplies a causal branching worksheet and small discriminators; do not load
 it as a mandatory startup checklist or treat a local fixture as target proof.
 
+For an observed nontraditional interpreter, derived event/AI input, or
+defense-chain question outside that parser/composition branch, read
+`references/idea-tree.md` and then **only its matching leaf**. The tree routes
+to existing XSS owners and conditional idea references; it is not a second
+payload corpus or a required per-run checklist.
+
 For character encodings, Unicode variants, entity/escape representations, and
 parser-stage differentials, read
 `references/parser-stage-character-variants.md`. Treat it as a transformation

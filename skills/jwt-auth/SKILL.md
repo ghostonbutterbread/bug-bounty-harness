@@ -7,13 +7,15 @@ description: "Route JWT/JWS/JWK/JWKS authorization testing into focused token, c
 
 Use when an application uses JWTs for authentication or authorization, especially when a `403` depends on a Bearer token, JWT cookie, JWS header, JWKS key lookup, issuer, audience, role, tenant, or object claim.
 
-This is a RAG-style child skill. Classify the token behavior, load one focused reference pack, then test the smallest safe JWT mutation family.
+This is a RAG-style child skill. Use PyJWT for local decode/encode/sign/verify and ticarpi/jwt_tool for focused JWT vulnerability checks. Classify the token behavior, load one reference pack, and compare mutations with an owned baseline.
+
+For installation, executable checks, offline synthetic self-test, and tool selection, read [`references/jwt-tooling.md`](references/jwt-tooling.md) before using either tool. In particular, unverified decode is inspection only; `jwt_tool` can persist token material under `~/.jwt_tool` and live scanning requires the normal scope, rate, and transport gates.
 
 ## Load Order
 
 1. Read program scope, owned-account context, active live-testing policy, and the current `/403`, `/access-control`, `/idor`, or `/api` handoff.
 2. If dispatcher diagnosis is needed, run `bbh --root`; do not select a checkout manually.
-3. Capture and decode only header/payload metadata. Redact signatures, tokens, cookies, and secrets in chat or broad reports.
+3. Capture and decode only header/payload metadata. Redact signatures, tokens, cookies, and secrets in chat or broad reports. If tooling is needed, use the local tooling reference above rather than assuming the current Python has PyJWT or `jwt_tool` installed.
 4. Read `prompts/jwt-auth-context-pack.md`.
 5. Classify the lane:
    - `alg:none`, missing signature, or signature not checked -> `skills/jwt-auth/references/technique-packs/algorithm-signature.md`

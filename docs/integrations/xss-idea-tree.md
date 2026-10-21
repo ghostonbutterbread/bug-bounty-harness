@@ -1,14 +1,14 @@
 # Advanced-XSS idea-tree integration dossier
 
-- **Status:** feature
+- **Status:** review-ready
 - **Owner:** Hermes / BBH XSS
 - **Branch:** `feat/xss-idea-tree`
 - **Base commit:** `fde18b170424d4f0934ab767f9f3bb4758980c3e`
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-20 (PDT)
 - **Owning feature branch/ref:** `feat/xss-idea-tree`
-- **Latest immutable recovery checkpoint:** none yet; implementation uncommitted
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `a7e55310e7d9b81f7407fc0cef9f8632d3340be1` (implementation; this dossier update is later)
+- **Feature implementation commit(s):** `a7e55310e7d9b81f7407fc0cef9f8632d3340be1`
 - **Inspiration / canonical references:** Advanced-XSS README at `7d529fe86fe8bdef73b393db9274e427cf637182` (safe-fetched SHA-256 `0bbf3107451b73334bc95d589ab47ed12c1a4b194e155bc92fab77a754a96259`); existing BBH `xss`, `xss-payload-engineering`, `dom-xss`, `xss-lifecycle` and research-card ownership.
 
 ## Intent
@@ -61,12 +61,11 @@ agent walk-through on the built tree.
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/xss-idea-tree`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** run focused/full checks, inspect audit count and all
-  leaf links; commit first recoverable checkpoint, request independent walk.
-- **Working-tree state at handoff:** intentionally uncommitted during active
-  implementation.
+- **Latest immutable recovery checkpoint:** `a7e55310e7d9b81f7407fc0cef9f8632d3340be1` (implementation; current tip may contain dossier-only update)
+- **Feature implementation commit(s):** `a7e55310e7d9b81f7407fc0cef9f8632d3340be1`
+- **Exact resume point:** request independent walk of the current clean branch,
+  reconcile any review findings, then integrate to beta only after acceptance.
+- **Working-tree state at handoff:** clean after this metadata commit.
 
 ## Decision gates
 
@@ -81,3 +80,6 @@ agent walk-through on the built tree.
 
 - 2026-10-20 — created from `fde18b1` after Ryu requested breadth without
   startup pollution and a visible independent agent walkthrough.
+- 2026-10-20 — implementation committed at `a7e5531`; focused 8 passed/1
+  opt-in skip, full 304 passed/1 skipped/2 unchanged baseline failures; review
+  of the complete feature tip is the next gate.

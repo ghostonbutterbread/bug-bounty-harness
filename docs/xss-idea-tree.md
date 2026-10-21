@@ -4,7 +4,7 @@
 - **Owner:** BBH `xss` and `xss-payload-engineering`; selected XSS lane owns proof.
 - **Canonical path:** `docs/xss-idea-tree.md`.
 - **Supersedes:** none; extends `docs/xss-mechanism-ideation.md`.
-- **Implementation commit:** pending feature commit and independent review.
+- **Implementation commit:** `a7e55310e7d9b81f7407fc0cef9f8632d3340be1` (feature implementation; review and beta integration are separate gates).
 - **Source snapshot:** Advanced-XSS README at `7d529fe86fe8bdef73b393db9274e427cf637182` (sanitized fetch, SHA-256 `0bbf3107451b73334bc95d589ab47ed12c1a4b194e155bc92fab77a754a96259`). This is inspiration, not evidence a modern browser executes every example.
 
 ## The tree agents follow

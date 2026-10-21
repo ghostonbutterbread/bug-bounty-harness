@@ -55,6 +55,38 @@ def test_xss_pairs_named_inputs_and_sinks_without_rigid_census_gate() -> None:
     assert "Do not delay investigation of an existing source-to-sink path" in router
 
 
+def test_xss_routes_live_js_loading_and_stack_specific_source_sink_review() -> None:
+    router = XSS.read_text(encoding="utf-8")
+    reference = SOURCE.read_text(encoding="utf-8")
+    source_script = ROOT / "agents/xss_source_sites.py"
+    sink_script = ROOT / "agents/xss_sink_sites.py"
+    assert source_script.is_file() and sink_script.is_file()
+    for route in ("browser-session-policy", "chromium-test", "js-pull", "js-hunt"):
+        assert route in router and route in reference
+    for cue in ("Network", "Sources", "lazy-loaded", "forms", "hidden inputs"):
+        assert cue in router
+    assert "inventory --page` fetches HTML script URLs and bounded" in reference
+    assert "--input <scoped-js-url-list>" in " ".join(reference.split())
+    assert "filters out non-JS suffixes" in reference
+    assert "browser-loaded `chunk.php`" in reference
+    assert "source_sites` are named reads" in router
+    assert "not** all accepted request" in reference
+    assert "inventoried script" in reference and "browser-loaded script" in reference
+    assert "agents/xss_source_sites.py" in reference
+    assert "agents/xss_sink_sites.py" in reference
+    assert "unloaded" in reference and "server-rendered templates" in reference
+    assert "not separate live scanners" in router
+    assert "not a taint trace" in router
+    script_map = (ROOT / "skills/xss/scripts/README.md").read_text(encoding="utf-8")
+    assert "## `agents/xss_source_sites.py`" in script_map
+    assert "## `agents/xss_sink_sites.py`" in script_map
+    assert "scan_source_sites" in script_map and "scan_sink_sites" in script_map
+    for section_name in ("agents/xss_source_sites.py", "agents/xss_sink_sites.py"):
+        section = script_map.split(f"## `{section_name}`", 1)[1].split("\n## `", 1)[0]
+        assert "**Owner/scope:**" in section
+        assert "**Last verified:**" in section
+
+
 def test_blind_lane_uses_the_same_confirmed_evidence_threshold() -> None:
     router = XSS.read_text(encoding="utf-8")
     blind = BLIND.read_text(encoding="utf-8")

@@ -27,8 +27,9 @@ reopening condition instead of repeating a larger census.
 ## Pair input locations with consumers
 
 For a route cluster or corpus breadth pass, collect both sides without imposing
-a source-first or sink-first order. Reuse current JS inventory before fetching
-more. For browser-mediated routes, load `browser-session-policy` and
+a source-first or sink-first order. Reuse current JS inventory for known content,
+but compare it with scripts actually loaded on the selected flow before deciding
+what needs fetching. For browser-mediated routes, load `browser-session-policy` and
 `chromium-test` to navigate the authorized app and trigger normal, relevant
 interactions. Inspect Network requests and loaded scripts, Sources/call stacks
 and DOM/form/hydration state (or equivalent browser observations); a lazy chunk,
@@ -37,9 +38,17 @@ click, form, or state transition. Retain page/flow, JS URL, initiator, and
 associated request/field provenance. Feed the scoped observed JS URLs to
 `js` → `js-pull` (`bbh agents/js_analyzer.py inventory <program> --input
 <scoped-js-url-list> --target-host <in-scope-host>`), then use `js-hunt` to
-trace selected functions. `inventory --page` fetches linked scripts from an
-HTTP page; it does **not** drive the browser or capture lazy-loaded chunks.
+trace selected functions. `inventory --page` fetches HTML script URLs and bounded
+inline scripts from an HTTP page; it does **not** drive the browser or capture
+lazy-loaded chunks.
 Do not conclude that one initial load represents the application.
+
+Keep three evidence levels distinct: an **inventoried script** may be archived
+or never loaded on this flow; a **browser-loaded script** establishes asset
+reachability on that observed route; an **observed input-to-renderer path**
+additionally needs the relevant field, transform and consumer correlated in
+runtime evidence. DevTools breakpoints and task-MITM request shapes can resolve
+the latter without turning a static signature into execution proof.
 
 The analyzer invokes `agents/xss_source_sites.py` and
 `agents/xss_sink_sites.py` on retained JS and packetized source-map modules;
@@ -53,6 +62,12 @@ source/sink capped-artifact counts. Also inspect each source-map module's
 site list to inspect, even when their per-site truncation flag is false.
 An older inventory predating the source pass must be reanalyzed before using
 it as a named-source denominator.
+`source_sites` are bounded named getter/read sites (query, route, form, cookie,
+storage and DOM data, plus unnamed source hints), **not** all accepted request
+fields or confirmed attacker-writable inputs. Outbound form/query writes can
+appear as `interesting_keys` or other request vocabulary without appearing in
+`source_sites`; correlate them with actual browser/proxy requests and
+`parameter-mining` rather than treating zero named reads as no parameters.
 
 Use the observed stack to look **beyond** the signature list: inspect the
 actual framework raw-HTML/template/trust APIs, server-rendered templates,

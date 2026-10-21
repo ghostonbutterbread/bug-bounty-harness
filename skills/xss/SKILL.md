@@ -142,16 +142,17 @@ response, and transforms before claiming an edge. Load `parameter-mining` for
 source-attributed candidates and `references/source-acquisition.md` for the
 paired inventory and scoped exhaustion decision.
 
-Build that corpus from the **running application**, not just a static URL list:
-load `browser-session-policy` and `chromium-test` for an authorized task browser,
-exercise relevant UI routes and interactions, and inspect Network/Sources/DOM
-(or equivalent browser observations) for lazy-loaded JS, actual request fields,
-forms, hidden inputs, bootstrap state, and render consumers. Keep each script
-and input tied to the page/flow that exposed it. Load `js` → `js-pull` to
-inventory scoped browser-observed scripts and source maps, then `js-hunt` for
-function-level source-to-sink tracing; the static `--page` fetch alone does not
-execute client navigation or capture lazy chunks. Match the observed stack to
-its request builders and rendering APIs through `dom-xss` and
+For browser-mediated or stateful paths, ground the JS corpus in the **running
+application**, not just a static URL list: load `browser-session-policy` and
+`chromium-test` for an authorized task browser, exercise relevant UI routes and
+interactions, and inspect Network/Sources/DOM (or equivalent browser
+observations) for lazy-loaded JS, actual request fields, forms, hidden inputs,
+bootstrap state, and render consumers. Keep each script and input tied to the
+page/flow that exposed it. Load `js` → `js-pull` to reuse or inventory scoped
+browser-observed scripts and source maps, then `js-hunt` for function-level
+source-to-sink tracing; the static `--page` fetch alone does not execute client
+navigation or capture lazy chunks. Match the observed stack to its request
+builders and rendering APIs through `dom-xss` and
 `references/source-acquisition.md`, including paths the signature pass misses.
 
 **Pressure state:** `cold` means a context-appropriate discovery pass has not
@@ -208,7 +209,7 @@ for a broad scan. See `references/tool-assisted-discovery.md` and load
 `agents/xss_framework.py` and `agents/xss_hunter.py` command examples.
 
 For deterministic canary mapping use `skills/xss/scripts/xss_canary_mapper.py`;
-use `--offline`/`plan`/`scan` for artifact-only work. For paired named-input
+use `--offline`/`plan`/`scan` for artifact-only work. For paired named-read
 and sink-site seeds, load `js` → `js-pull` and run
 `bbh agents/js_analyzer.py inventory <program> --input <scoped-js-url-list> --target-host <in-scope-host>`.
 Its `agents/xss_source_sites.py` and `agents/xss_sink_sites.py` modules run
@@ -216,9 +217,11 @@ inside that inventory; they are not separate live scanners. Inventory analysis
 is static, but collection may download uncached scoped JS URLs and source maps;
 apply scope and rate controls. Inspect `source_sites` alongside `sink_sites` in
 `metadata.jsonl`, `source_map_modules.jsonl`, and review packets; both are
-capped, non-exhaustive seeds, not a taint trace. See `docs/xss-sink-inventory.md`
-for sink categories and limits. Select tool detail only when its question
-arises rather than preloading every scanner.
+capped, non-exhaustive seeds, not a taint trace. `source_sites` are named reads,
+not all accepted request fields; keep outbound field vocabulary and browser
+requests separate. See `docs/xss-sink-inventory.md` for sink categories and
+limits. Select tool detail only when its question arises rather than preloading
+every scanner.
 
 For context-specific payload seeds, use
 `skills/xss/references/payload-selection.md`; it is not a complete payload

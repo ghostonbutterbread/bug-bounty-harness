@@ -65,8 +65,11 @@ def test_xss_routes_live_js_loading_and_stack_specific_source_sink_review() -> N
         assert route in router and route in reference
     for cue in ("Network", "Sources", "lazy-loaded", "forms", "hidden inputs"):
         assert cue in router
-    assert "--page` fetches linked scripts" in reference
+    assert "inventory --page` fetches HTML script URLs and bounded" in reference
     assert "--input <scoped-js-url-list>" in " ".join(reference.split())
+    assert "source_sites` are named reads" in router
+    assert "not** all accepted request" in reference
+    assert "inventoried script" in reference and "browser-loaded script" in reference
     assert "agents/xss_source_sites.py" in reference
     assert "agents/xss_sink_sites.py" in reference
     assert "unloaded" in reference and "server-rendered templates" in reference

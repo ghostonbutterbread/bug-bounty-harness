@@ -50,6 +50,7 @@ and a reflected value may become dangerous only after client-side parsing.
 | Evidence or decision | Load |
 | --- | --- |
 | Controlled value persists, transforms, or reaches a later consumer | `xss-lifecycle` |
+| A plausible sink/renderer is known but its claimed consumer does not mount, or a vector is about to be parked as gated | `references/consumer-reach.md` to distinguish reachability from defense and policy stops; load `assumption-testing` for a UI/client prerequisite claim |
 | Plausible warm/hot vector needs payload selection, mutation, or reduction | `xss-payload-engineering` |
 | Sanitized/escaped output, inert payload matrices, or a second parser leave an idea-generation question | `xss-payload-engineering` → `references/mechanism-ideation.md` inside that skill; select a causal branch rather than a larger payload list |
 | A mapped source, sink, surprising transform, or research clue suggests another mechanism | `xss-payload-engineering` → `references/idea-tree.md` inside that skill; start with relevant leaves and keep other distinct ideas open, including mechanisms not listed in the tree |
@@ -111,9 +112,10 @@ sinks as chain leads with their missing link and reopening condition.
    `xss-technology-research` when a fingerprint could change that choice.
    Before interpreting a non-firing family, distinguish input rejected, value
    stored, consumer mounted, inert control rendered, candidate rendered, and
-   execution blocked. If the consumer never mounted, fix reachability or name
-   the missing owned fixture; do not infer that a sanitizer held. For a
-   mounted consumer, identify the first changed representation and use
+   execution blocked. If the consumer never mounted, use
+   `references/consumer-reach.md` before recording a gated or exhausted path;
+   a hidden UI or client flag is a reachability question; do not infer that a sanitizer held.
+   For a mounted consumer, identify the first changed representation and use
    `skills/xss-payload-engineering/references/mechanism-ideation.md` to derive a
    different mechanism or a falsifying control.
 4. Load `attempt-recording-policy` for each deliberate target-directed probe,

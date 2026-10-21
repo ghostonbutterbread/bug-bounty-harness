@@ -10,6 +10,14 @@ resource, listing, or other artifact that can be visible outside the acting
 account. It records only non-secret ownership references and public artifact
 pointers; it does not authorize publication or replace the public-forums policy.
 
+**Ordinary owned-profile exception:** Editing our validated account's own
+username, display name, banner, avatar/profile picture, or ordinary profile
+fields does not require a public-artifact registry entry or private/delete
+cleanup simply because the profile is visible. These are ordinary owned-account
+updates and may remain visible. A separately published post, listing, report,
+or community/help form still follows the applicable public-artifact workflow;
+the exception does not cover other-user engagement or human-review submissions.
+
 ## Defaults
 
 1. **Prefer private testing.** Use a private/owned-only surface whenever it can

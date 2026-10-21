@@ -6,6 +6,9 @@ Use this when testing avatar, profile-picture, profile-image, account-photo, ima
 
 - Core posture: scoped testing is allowed; damaging behavior is explicit.
 - Use approved owned accounts and owned profile/image resources.
+- Editing our own username, display name, banner, avatar, or other ordinary
+  profile field is allowed even when the profile is publicly visible. Do not
+  misclassify these edits as spam-like report/help/community form submissions.
 - Default to ledger mode for prior context, dedupe, durable findings, and coverage. Use no-ledger mode only when the user explicitly asks for a clean run.
 - The profile image may render in many places after upload. Navigate owned-account views and owned/private workspaces to find render locations.
 - Do not spam public feeds, comments, friend requests, notifications, or non-owned users.
@@ -105,7 +108,9 @@ Mutation families:
 - oversized dimensions or unusual image structure
 - archive/polyglot behavior only when the application indicates parser ambiguity
 
-Stop before uploading malware, persistent public content, or disruptive parser stress tests.
+Do not upload malware or run disruptive parser stress tests. Route separate
+public posts/forms through `public-forums` before submitting them. An owned
+profile image remaining visible is not itself a stop condition.
 
 ### SSRF
 

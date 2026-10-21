@@ -5,7 +5,26 @@ description: "Route profile-picture, avatar, and image-profile workflows into fo
 
 # Profile Picture Testing
 
-Use for profile-picture, avatar, profile-image, account-photo, and image URL import workflows.
+Use for owned profile-picture, avatar, banner, username, profile-image, account-photo, and image URL import workflows.
+
+## Owned profile edits are allowed
+
+Agents may freely edit **our own validated account's** username, display name,
+banner, avatar/profile picture, and other ordinary profile fields for scoped
+testing. A profile being public-facing does **not** by itself make these edits
+prominent public-form submissions: no `public-forums` artifact lease or
+form-spam restriction is required for ordinary owned profile edits. Repeated
+owned-profile updates and upload/replace/delete tests are allowed when useful;
+do not stop merely because another person could view the profile.
+
+This permission does not extend to another user's profile, impersonation,
+engagement with other users, public posts/comments, reports or help/community
+forms, or actions that notify other users, enter human review, or publish a
+separate artifact. Those workflows retain their respective scope, ownership,
+rate, viewer-safety, and public-form boundaries. Ordinary profile visibility
+and image/CDN propagation do not revoke the permission. If a profile change
+also publishes a separate feed item or submits a prominent form, classify that
+separate action under `public-forums` before submitting it.
 
 `/pfp` is a coordinator skill. It maps the profile-picture workflow, creates a queue of focused child lanes, and runs those child agents one at a time through a shared browser/live-testing slot. Child lanes should test bounded mutation families and return evidence, not just decide from the parent scout that a branch is impossible.
 
@@ -26,7 +45,8 @@ Use for profile-picture, avatar, profile-image, account-photo, and image URL imp
 4. Use `prompts/pfp-research-terms.md` only when a branch needs expansion.
 5. Default to ledger mode for prior context and durable findings. If the user says `--no-ledger`, do not read prior findings or write durable ledger/coverage state.
 6. Use a scheduler gate for live/browser work: only one child lane may own Chrome/CDP/session state at a time unless Ryushe explicitly approves parallel browser instances.
-7. Keep tests tied to owned accounts and owned profile/image resources.
+7. Keep tests tied to owned accounts and owned profile/image resources; ordinary
+   owned profile edits follow the permission above, not public-form leasing.
 
 ## Workflow
 

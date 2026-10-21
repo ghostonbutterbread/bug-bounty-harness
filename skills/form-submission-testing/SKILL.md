@@ -27,7 +27,7 @@ Do not use this to bypass CAPTCHA, consent, authorization, anti-automation, paym
 ## Prerequisites
 
 1. Before target interaction, load `general-security-testing-policy` then `live-testing-policy`; verify scope, program rules, rate, ownership, and the concrete effect of submitting.
-2. Use an owned or expressly authorized account and the smallest suitable owned fixture. Stop or ask for public/staff-visible, messaging, paid, fulfillment, moderation, destructive, non-owned, or unclear-impact submissions. Route cross-user/public interaction through `account-testing-policy` or `public-forums` as applicable, and checkout through `payment-testing-policy`; this skill does not grant permission to submit.
+2. Use an owned or expressly authorized account and a suitable owned fixture. Stop or ask for staff-visible, direct-broadcast/non-owned messaging, paid, fulfillment, moderation, destructive, non-owned, or unclear-impact submissions. A form editing an owned public profile/post is not approval-gated by visibility alone; route direct-impact support/community forms through `public-forums`, owned social posts through `account-testing-policy` + `public-artifacts`, and checkout through `payment-testing-policy`. This skill does not grant permission to submit.
 3. For a browser/stateful flow, use the browser policy chain. For capture, replay, or live mutation, also load `proxy-routing-policy` and `intercepted-proxy`; for a suspected input/filter issue, load `injection-testing-policy`.
 
 ## Procedure

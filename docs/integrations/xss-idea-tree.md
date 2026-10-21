@@ -1,6 +1,6 @@
 # Advanced-XSS idea-tree integration dossier
 
-- **Status:** review-ready
+- **Status:** independently reviewed; minor corrections applied, awaiting narrow readback of corrected tip
 - **Owner:** Hermes / BBH XSS
 - **Branch:** `feat/xss-idea-tree`
 - **Base commit:** `fde18b170424d4f0934ab767f9f3bb4758980c3e`
@@ -39,33 +39,44 @@ agent walk-through on the built tree.
   returned **300 passed, 1 skipped, the same 2 failed**. Both failures are
   in unchanged `stack-to-program/scripts/README.md` contracts (script index
   fields and direct-Python command lane). No XSS-owned failure.
-- Independent review: pending; fresh agent must walk the tree from distinct
-  plausible observations, evaluate discoverability/noise, technical correctness
-  and dangerous overclaims, then review the exact committed diff.
+- Corrected feature rerun with checkout-local `PYTHONPATH`: **304 passed, 1
+  skipped, 2 failed**, the same two baseline failures noted above. Focused
+  rerun: **8 passed, 1 opt-in skipped**. `git diff --check` is clean.
+- Independent review of `ab86d03` by two read-only agents: scenario walk
+  **MINOR** (on-demand leaves work; one-vs-many wording and Attempts/proof
+  ownership ambiguous); separate technical/release review **ACCEPT for beta
+  review with three MINOR docs fixes** (introductory mismatched-context
+  heading accounting, already-resolved import-map caveat, header-delivered CSP
+  condition for nonce attribute hiding). The exact findings and three scenario
+  outcomes are captured in `docs/xss-idea-tree.md`. These changes address all
+  five minors. No live requests or upstream payload execution were made.
 - Replay/cohort/fixture evidence: no live target tests; source sanitized, primary
   standard references fetched for CSP nonce, Service Worker, import maps, WASM.
 - Merge/ancestry evidence: beta `fde18b1` fetched and clean at creation.
 
 ## Blockers and deferred work
 
-- **Missing test or evidence:** independent tree-walk verdict; full-suite
-  baseline comparison is complete as recorded above.
-- **Command / fixture / environment needed:** focused pytest in feature venv;
-  fresh read-only reviewer with the committed branch and pinned source audit.
-- **Trigger to run it:** after this branch's contents and docs are committed.
-- **Why it blocks integration:** correctness of unusual browser/security claims
-  and agent navigation cannot be inferred from static link checks alone.
-- **Next completion step:** test, commit, independent walk, fix/re-review,
-  integrate beta only on acceptance, then verify local skill projection.
+- **Missing test or evidence:** narrow readback of corrected review nits and
+  full-suite check on the eventual integrated beta tree; unchanged-beta baseline
+  comparison and corrected feature rerun above are complete.
+- **Command / fixture / environment needed:** `.venv/bin/python -m pytest -q
+  tests`; beta integration worktree plus same interpreter for baseline compare.
+- **Trigger to run it:** after minor fixes are committed and again after beta
+  merge; read-only narrow re-review confirms all corrected wording and routes.
+- **Why it blocks integration:** release claims require exact committed-tree
+  evidence; unrelated baseline failures must be enumerated, not waived.
+- **Next completion step:** commit corrections, rerun focused/full, obtain a
+  narrow independent readback of fixed nits, integrate beta only on acceptance,
+  then verify beta projection. Hoster/other runtime activation is separate.
 
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `feat/xss-idea-tree`
 - **Latest immutable recovery checkpoint:** `a7e55310e7d9b81f7407fc0cef9f8632d3340be1` (implementation; current tip may contain dossier-only update)
 - **Feature implementation commit(s):** `a7e55310e7d9b81f7407fc0cef9f8632d3340be1`
-- **Exact resume point:** request independent walk of the current clean branch,
-  reconcile any review findings, then integrate to beta only after acceptance.
-- **Working-tree state at handoff:** clean after this metadata commit.
+- **Exact resume point:** finish correction checkpoint, narrow readback;
+  integrate beta only after acceptance.
+- **Working-tree state at handoff:** clean after correction checkpoint commit.
 
 ## Decision gates
 
@@ -83,3 +94,10 @@ agent walk-through on the built tree.
 - 2026-10-20 — implementation committed at `a7e5531`; focused 8 passed/1
   opt-in skip, full 304 passed/1 skipped/2 unchanged baseline failures; review
   of the complete feature tip is the next gate.
+- 2026-10-20 — two independent read-only reviews of `ab86d03`: scenario walk
+  MINOR and technical review ACCEPT with minor documentation fixes. The tree
+  walk identified three concrete edge cases; all actionable minor wording and
+  source-boundary corrections are applied. Focused rerun: 8 passed, 1 opt-in
+  skip; corrected full rerun 304 passed/1 opt-in skip/2 unchanged baseline
+  failures. Corrected commit, narrow readback and beta integration remain
+  separate gates.

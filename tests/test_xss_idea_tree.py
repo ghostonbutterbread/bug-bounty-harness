@@ -22,7 +22,7 @@ def test_conditional_root_to_leaf_route_is_resolvable() -> None:
     tree = text("skills/xss-payload-engineering/references/idea-tree.md")
     assert "references/idea-tree.md" in router
     assert "references/idea-tree.md" in payload
-    assert "then **only its matching leaf**" in payload
+    assert "Open one matching leaf first; open a second only" in payload
     assert "not a second\npayload corpus or a required per-run checklist" in payload
     for leaf in LEAVES:
         assert leaf in tree
@@ -47,6 +47,8 @@ def test_new_leaves_require_observed_consumers_and_falsifiers() -> None:
         assert boundary in defense
     assert "`data:` registration is not a valid shortcut" in client
     assert "A CSS selector seeing `script[nonce]` is **not** assumed" in defense
+    assert "header-delivered CSP" in defense
+    assert "already resolved" in client and "not yet resolved" in client
     assert "CSWSH is not XSS" in derived
 
 
@@ -58,12 +60,14 @@ def test_human_tree_accounts_for_pinned_technique_headings_without_claiming_bypa
     assert len({row.split("|", 2)[1].strip() for row in entries}) == 29
     assert "**Out of XSS:**" in section
     assert "not the set of independently demonstrated bypasses" in doc
+    assert "Mismatched Contexts (2025/2026 Trend)" in doc
     assert "Current" not in doc.split("- **Implementation commit:**", 1)[1].splitlines()[0]
 
 
 def test_leaves_preserve_existing_research_and_evidence_ownership() -> None:
     tree = text("skills/xss-payload-engineering/references/idea-tree.md")
     assert "xss-technology-research" in tree
+    assert "`attempt-recording-policy` owns the exact" in tree
     assert "ResearchMap" in tree and "MapStore" in tree and "Attempts" in tree
     assert "not a validated bypass" in tree
     assert "use `skill_view(name='xss-payload-engineering'" in tree

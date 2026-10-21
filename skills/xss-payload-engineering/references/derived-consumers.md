@@ -25,9 +25,10 @@ compromised transport or model response is not automatically XSS.
 3. Ask which final grammar parses the value; pick one context-matched candidate
    plus a safe-path control. If the handler changes representation, return to
    `mechanism-ideation.md` or `parser-stage-character-variants.md`.
-4. Let the selected `xss` lane perform browser proof, impact/delivery judgment,
-   Attempts recording and cleanup. Target-specific facts remain MapStore or
-   Hypothesis Ledger, not a reusable card.
+4. Return browser proof, impact/delivery judgment and cleanup to the selected
+   `xss` lane; load `attempt-recording-policy` for each exact probe record.
+   Target-specific facts remain MapStore or Hypothesis Ledger, not a reusable
+   card.
 
 **Provenance:** Advanced-XSS pinned commit
 `7d529fe86fe8bdef73b393db9274e427cf637182` supplies topic leads only;

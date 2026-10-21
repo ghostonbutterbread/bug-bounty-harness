@@ -51,13 +51,55 @@ the selected lane for browser evidence. No corpus-size quota or payload sweep.
 Suppose a stored profile field reaches a component preview as safe text, but a
 separate notification is observed to consume that field through a Web Component.
 The agent uses `stored-xss` plus `xss-lifecycle` to link the writer and both
-consumers, then loads `client-interpreters.md` **only** for the component path.
+consumers; `dom-xss` traces the component's browser-side field-to-sink path.
+It loads `client-interpreters.md` **only** for that observed component path.
 It traces a controlled inert marker through the component callback and compares
 a text-only control before selecting a candidate. If the callback never parses
 the field as HTML/URL/template or the notification is not reachable in an owned
 view, it records that falsifier; no “Web Components bypass” is claimed. If a
 specific framework/library becomes relevant, `xss-technology-research` checks
-a bounded source/card. Real browser proof and cleanup stay with `stored-xss`.
+a bounded source/card.
+The selected `stored-xss` delivery lane and `dom-xss` browser-processing lane
+share the evidence packet; `attempt-recording-policy` owns the exact probe
+writer, and browser proof and cleanup remain with the relevant XSS lanes.
+
+## Independent agent walk (read-only)
+
+An independent agent began at `skills/xss/SKILL.md` and tried three synthetic
+observations against the committed tree. Its verdict was **MINOR**, not a claim
+of exploitability. A second technical reviewer judged the implementation
+**ACCEPT for beta review**, with three documentation nits corrected below.
+
+1. **Sanitized markup, but the panel is absent.** The delivery lane is unknown;
+   do not invent reflected or stored provenance. Route to
+   `mechanism-ideation.md`, first establish an owned mounted panel and a rendered
+   inert marker, then compare a context-appropriate candidate with a safe
+   text/one-pass control. If the panel stays absent, record the missing fixture;
+   neither “sanitizer effective” nor “path exhausted” follows.
+2. **Stored field in a mounted Web Component, with a message feeder.** Use
+   `stored-xss` for the delivery, `dom-xss` for the component trace and
+   `xss-lifecycle` for later consumers. Load `client-interpreters.md` for the
+   callback/slot; load `derived-consumers.md` *only if* the message truly feeds
+   it. Follow separate inert markers from stored field and message handler to
+   an actual sink; a renamed-field/text-only control falsifies a claimed edge.
+   A component or `postMessage` listener merely existing is insufficient.
+3. **CSP nonce/CSS assertion plus an import-map writer.** Use `dom-xss` for
+   module resolution and `client-interpreters.md` for the installed map; add
+   `defense-edges.md` for the *delivered* CSP question. Check writer control,
+   ordering, eligible not-yet-resolved specifier and actual module fetch with a
+   fixed-map control. A map cannot change an already resolved specifier. A CSS
+   selector seeing `script[nonce]` does not establish access to the nonce bytes;
+   HTML attribute emptying depends on header-delivered CSP. Stop the XSS claim
+   if the map is uncontrolled, the relevant specifier already resolved, or the
+   module execution is blocked. CSS influence remains a separate observation.
+
+The agent liked the **one root pointer → one evidence-selected leaf** approach:
+it widened investigative questions without a startup payload catalogue. Its
+minor criticisms were ambiguous “only one leaf” wording and blurred proof/
+Attempts ownership; both are clarified in the agent-facing references. The
+technical reviewer also asked for the introductory mismatched-context heading
+to be accounted for and the import-map/nonce caveats to be precise. No live
+target requests or upstream payload execution were part of either review.
 
 ## Pinned upstream heading audit (coverage of ideas, not findings)
 
@@ -67,6 +109,14 @@ Every heading below has an explicit destination or exclusion. “Conditional”
 means a *question* with a precondition and negative control, **not** a working
 bypass. “Existing” means a prior BBH owner already covered the core question;
 new tree pointers make the owner discoverable. Categories overlap in real paths.
+The count excludes the introductory **Context-Based XSS** subsections (HTML,
+attribute, JavaScript, URL, DOM, and **Mismatched Contexts (2025/2026 Trend)**)
+because they describe context fundamentals rather than headings in the selected
+technique sections; the mismatched-context idea is still routed to
+`mechanism-ideation.md` (post-check rewriting/changed consumer),
+`xss-lifecycle` (later renderer), and `parser-stage-character-variants.md`
+(observed decode/normalization). Exclusion from this denominator is not a claim
+that it has no value or is unaddressed.
 
 | Upstream heading | Route / disposition |
 | --- | --- |
@@ -77,7 +127,7 @@ new tree pointers make the owner discoverable. Categories overlap in real paths.
 | Hexadecimal Escaping | Existing parser-stage reference: only the acting JS/URL/HTML grammar. |
 | Unicode Normalization Attacks | Existing parser-stage reference: prove NFKC/other actual stage. |
 | Template Literal Injection | Existing payload selection + `client-interpreters.md`: identify a real JS/template compiler. |
-| WAF Bypass Techniques | Existing `waf`/`xss-waf-evasion`; `defense-edges.md` routes back to browser proof. |
+| WAF Bypass Techniques (2025) | Existing `waf`/`xss-waf-evasion`; `defense-edges.md` routes back to browser proof. |
 | WebAssembly (WASM) XSS | `client-interpreters.md`: JS glue and controlled call/output; WASM alone is not DOM execution. |
 | Service Worker XSS | `client-interpreters.md`: valid owned registration or message-to-render path; reject `data:` shortcut. |
 | Import Maps Exploitation | `client-interpreters.md`: controlled map before actual module resolution and allowed module fetch. |
@@ -85,7 +135,7 @@ new tree pointers make the owner discoverable. Categories overlap in real paths.
 | Trusted Types Bypass | Existing mechanism guide + `defense-edges.md`: policy output and caller control. |
 | AI Agent Weaponization & Prompt-to-XSS | `derived-consumers.md`: controlled model output into executable renderer; prompt injection is separate. |
 | Polymorphic & AI-Generated Payloads | Existing exploratory queue + `defense-edges.md`: candidate generator, not a new mechanism. |
-| Sanitizer Bypass Techniques | Existing mechanism guide + `defense-edges.md`: pin sanitizer/version/config and actual sink. |
+| Sanitizer Bypass Techniques — DOMPurify & Sanitizer API | Existing mechanism guide + `defense-edges.md`: pin sanitizer/version/config and actual sink. |
 | Advanced CSP Bypass — Nonce Leakage via CSS & Cache | `defense-edges.md`: HTML nonce hiding and observed cache/script caller; source claim is not universal. |
 | postMessage Exploitation | Existing `dom-xss` + `derived-consumers.md`: origin/source, handler and executable sink. |
 | Cross-Site WebSocket Hijacking (CSWSH) | **Out of XSS:** authentication/Origin class unless a separate controlled event reaches an executable renderer. |

@@ -2,8 +2,9 @@
 
 Load **on demand**, after `xss` and the observed reflected/stored/DOM/blind lane.
 This is a navigation aid for a warm path or a concrete source/sink question, not
-an instruction to test every leaf. The lane still owns authorization, Attempts,
-execution proof, cleanup and closure; `xss-lifecycle` owns later-consumer lineage.
+an instruction to test every leaf. The selected lane retains authorization,
+execution proof, cleanup and closure; `attempt-recording-policy` owns the exact
+per-probe writer, and `xss-lifecycle` owns later-consumer lineage.
 
 ```text
 controlled source OR plausible executable consumer
@@ -27,8 +28,10 @@ controlled source OR plausible executable consumer
 
 These file names are **skill-local** under `skills/xss-payload-engineering/`;
 use `skill_view(name='xss-payload-engineering', file_path='references/<leaf>.md')`
-when a leaf triggers. Multiple branches may apply; start with the first observed
-boundary, not a fixed difficulty order. If a branch falsifies its prerequisite,
+when a leaf triggers. Multiple branches may apply **sequentially** when
+separate observed feeders or defenses justify them; start with the first
+observed boundary, not a fixed difficulty order. If a branch falsifies its
+prerequisite,
 return to this tree or the owning lane rather than trying variants without a
 consumer. `xss-technology-research` retrieves a bounded card for an observed
 library/configuration; reusable source claims go to ResearchMap, target facts

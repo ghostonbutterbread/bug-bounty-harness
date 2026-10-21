@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-21
 - **Owning feature branch/ref:** `docs/mullvad-exit-lan-default`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `28959ee`
+- **Feature implementation commit(s):** `28959ee`
 - **Inspiration / canonical references:** Ryu's request; Tailscale exit-node setup documentation; Tailscale issue 9413 on networkd route loss.
 
 ## Intent
@@ -22,7 +22,7 @@ The Mullvad skill and playbook set the LAN preference before first exit selectio
 ## Evidence and review
 
 - Tests and commands: `git diff --check`; assertions for LAN default, host exception, table-52 route diagnosis; review the copyable commands.
-- Independent review: `deleg_8e2bf18d` found first-handoff/default exception inconsistencies and missing table-52 diagnosis; addressed in subsequent patch. Final diff still needs read-back.
+- Independent review: `deleg_8e2bf18d` found first-handoff/default exception inconsistencies and missing table-52 diagnosis; corrected and final diff inspected. Focused contract check passed.
 - Replay/cohort/fixture evidence: Hoster saved pref `true`, `tailscale set --exit-node-allow-lan-access=true` returned 0, `ip -4 route get 10.0.0.11` still selected `tailscale0 table 52`.
 - Merge/ancestry evidence: Feature begins at fetched `origin/beta` `d7f3fda`.
 
@@ -37,17 +37,17 @@ The Mullvad skill and playbook set the LAN preference before first exit selectio
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/mullvad-exit-lan-default`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** Rerun focused check, review final diff, commit and integrate into beta, verify runtime projection.
-- **Working-tree state at handoff:** intentionally uncommitted pending final check.
+- **Latest immutable recovery checkpoint:** `28959ee`
+- **Feature implementation commit(s):** `28959ee`
+- **Exact resume point:** Merge reviewed feature into beta, remove dossier from integration tree, verify runtime projection.
+- **Working-tree state at handoff:** clean after dossier decision commit.
 
 ## Decision gates
 
-- **Integration gate:** Review findings addressed; focused check passes and final diff inspected.
+- **Integration gate:** Accepted: review findings addressed; focused check passed and final diff inspected.
 - **Activation / cohort gate:** Confirm published beta and selected runtime projection; existing agents may retain old skill text.
 - **Promotion gate:** No stable promotion requested.
 
 ## Decision record
 
-- 2026-10-21 — Created; corrected independent review findings; Hoster route repair intentionally separate.
+- 2026-10-21 — Accepted for beta after independent review corrections; Hoster route repair intentionally separate.

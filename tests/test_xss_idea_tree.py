@@ -36,6 +36,7 @@ def test_tree_invites_uncapped_ideation_but_preserves_per_claim_proof() -> None:
     payload = text("skills/xss-payload-engineering/SKILL.md")
     tree = text("skills/xss-payload-engineering/references/idea-tree.md")
     mechanism = text("skills/xss-payload-engineering/references/mechanism-ideation.md")
+    client = text("skills/xss-payload-engineering/references/client-interpreters.md")
     derived = text("skills/xss-payload-engineering/references/derived-consumers.md")
     doc = text("docs/xss-idea-tree.md")
     assert "not a ceiling on ideas" in router
@@ -43,8 +44,11 @@ def test_tree_invites_uncapped_ideation_but_preserves_per_claim_proof() -> None:
     assert "unlisted/surprising mechanism?" in tree
     assert "not by leaf count" in tree
     assert "not a control prerequisite or idea quota" in mechanism
+    assert "Explore sink-first with the missing source named" in derived
+    assert "investigate a suspected reparse" in client
     assert "without a count limit" in derived
     assert "no\nnumber of ideas or leaves to exhaust" in doc
+    assert "source / plausible sink / surprising transform or research clue" in doc
     assert "selected lane owns\nlive testing and browser proof" in doc
     assert "not a validated bypass" in tree
 

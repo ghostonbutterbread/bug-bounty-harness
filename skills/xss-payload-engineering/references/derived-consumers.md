@@ -1,9 +1,11 @@
 # Derived Inputs, Messages and Later Renderers
 
 Load from `idea-tree.md` when a value arrives through a message, API, model,
-stream, inherited property or later workflow. First establish an attacker-
-controlled field and the exact reachable *render* consumer. `dom-xss` owns
-browser-side tracing; `xss-lifecycle` owns producer-to-later-consumer lineage;
+stream, inherited property or later workflow—or when a plausible later renderer
+needs its feeder found. Explore sink-first with the missing source named; for a
+claimed XSS path, establish both attacker control and the reachable *render*
+consumer. `dom-xss` owns browser-side tracing; `xss-lifecycle` owns
+producer-to-later-consumer lineage;
 `ai-tester`/`prompt-injection` own AI instruction-following questions. A
 compromised transport or model response is not automatically XSS.
 

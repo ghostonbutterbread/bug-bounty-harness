@@ -13,7 +13,7 @@
 xss (methodology, scope, evidence, proof)
 ├─ observed delivery: reflected-xss / stored-xss / dom-xss / blind-xss
 │    └─ xss-lifecycle when the same value reaches a later consumer
-└─ warm path or mapped sink with a missing next idea
+└─ source / plausible sink / surprising transform or research clue
      └─ xss-payload-engineering (capability profile + candidate queues)
           ├─ references/mechanism-ideation.md
           │    ├─ mXSS: same sanitized markup changes on real reparse

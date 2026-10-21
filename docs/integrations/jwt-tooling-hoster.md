@@ -7,8 +7,8 @@
 - **Intended integration target:** `beta`
 - **Last updated:** 2026-10-21
 - **Owning feature branch/ref:** `docs/jwt-tooling-hoster`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
+- **Latest immutable recovery checkpoint:** `9f36ea3534c44501c34c155c7067e08a271aebc4`
+- **Feature implementation commit(s):** `9f36ea3534c44501c34c155c7067e08a271aebc4` (initial); correction and dossier update are this branch tip (resolve with `git log -1`).
 - **Inspiration / canonical references:** `/jwt-auth`, PyJWT usage documentation, ticarpi/jwt_tool README and CLI help.
 
 ## Intent
@@ -22,7 +22,7 @@ Make JWT decoding/encoding/signing and focused vulnerability-tool choice/install
 ## Evidence and review
 
 - Tests and commands: local isolated venv installed PyJWT 2.15.1 and jwt_tool requirements at upstream `3bc7407cf2222d6a821dcc19c776e5a1b1cb9a9b`; PyJWT fixture encode/unverified inspect/verified decode passed; jwt_tool `-h` ran and offline `-X a` emitted four candidates (exit 1); `python3 -m pytest -q tests/test_skill_triage_routes.py` passed (9 tests); frontmatter/local reference check and `git diff --check` passed. Full `pytest -q` collection fails on unrelated root `test_catalog.py` import of missing `bac_checks`; a `pytest -q tests/ agents/` run exceeded the tool's 420-second limit without a result.
-- Independent review: pending.
+- Independent review: initial read-only review blocked integration on broad playbook mode and undisclosed upstream live defaults. Corrections document `-M pb` probe breadth, explicit `-rt`, proxy/redirect/TLS behavior, and offline-first replay. Focused re-review pending.
 - Replay/cohort/fixture evidence: synthetic fixture only; no live target traffic.
 - Merge/ancestry evidence: base equals fetched origin/beta when branched.
 
@@ -37,10 +37,10 @@ Make JWT decoding/encoding/signing and focused vulnerability-tool choice/install
 ## Interruption / resume handoff
 
 - **Owning feature branch/ref:** `docs/jwt-tooling-hoster`
-- **Latest immutable recovery checkpoint:** none yet
-- **Feature implementation commit(s):** none yet
-- **Exact resume point:** run docs/link checks, review, commit, integrate beta, retry Hoster after SSH recovery.
-- **Working-tree state at handoff:** intentionally uncommitted while local validation runs.
+- **Latest immutable recovery checkpoint:** `9f36ea3534c44501c34c155c7067e08a271aebc4`
+- **Feature implementation commit(s):** `9f36ea3534c44501c34c155c7067e08a271aebc4` (initial); correction and dossier update are this branch tip (resolve with `git log -1`).
+- **Exact resume point:** rerun focused checks and re-review corrected live-tool text, then integrate beta; retry Hoster after SSH recovery.
+- **Working-tree state at handoff:** clean after correction commit.
 
 ## Decision gates
 
@@ -51,3 +51,4 @@ Make JWT decoding/encoding/signing and focused vulnerability-tool choice/install
 ## Decision record
 
 - 2026-10-21 — created; Hoster SSH unavailable at task start, local tooling smoke performed.
+- 2026-10-21 — review blocked overly broad live playbook recommendation and undisclosed upstream defaults; corrected the owned reference, pending re-review.

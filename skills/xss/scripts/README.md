@@ -46,6 +46,9 @@ Rules:
 - **Verification:** `uv run --python .venv/bin/python --with pytest python -m pytest -q agents/test_xss_source_sites.py
   agents/test_xss_source_integration.py agents/test_js_analyzer.py` from an
   isolated repository worktree.
+- **Owner/scope:** JS analyzer runtime; XSS named-read review seeds, not a
+  standalone live entry point.
+- **Last verified:** 2026-10-21.
 - **Coverage:** Non-exhaustive, per-rule/asset capped static seeds. Some request
   body fields, dynamic keys, and backend writers require `/parameter-mining`
   and manual trace rather than this scanner.
@@ -66,6 +69,9 @@ Rules:
   source maps under its normal controls. This module sends no requests.
 - **Verification:** `agents/test_xss_sink_sites.py` and
   `agents/test_js_analyzer.py` in an isolated repository worktree.
+- **Owner/scope:** JS analyzer runtime; XSS sink-site review seeds, not a
+  standalone live entry point.
+- **Last verified:** 2026-10-21.
 - **Coverage:** Non-exhaustive, per-signature/asset capped static seeds; dynamic
   property names, unpacketized modules, server templates and runtime-only
   consumers require stack-specific and browser review.

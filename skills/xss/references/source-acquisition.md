@@ -41,6 +41,12 @@ associated request/field provenance. Feed the scoped observed JS URLs to
 trace selected functions. `inventory --page` fetches HTML script URLs and bounded
 inline scripts from an HTTP page; it does **not** drive the browser or capture
 lazy-loaded chunks.
+The analyzer's `--input` list accepts `.js`, `.mjs`, `.cjs`, and extensionless
+URLs, but filters out non-JS suffixes such as a browser-loaded `chunk.php`.
+Retain that observed asset and inspect its browser response/runtime consumer
+separately; do not claim it was scanned or that a zero-hit inventory covers it.
+An HTML `<script src>` discovered by `--page` may enter the analyzer regardless
+of its suffix, but that does not recover a chunk loaded only after interaction.
 Do not conclude that one initial load represents the application.
 
 Keep three evidence levels distinct: an **inventoried script** may be archived

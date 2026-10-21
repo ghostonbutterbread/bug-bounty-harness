@@ -67,6 +67,8 @@ def test_xss_routes_live_js_loading_and_stack_specific_source_sink_review() -> N
         assert cue in router
     assert "inventory --page` fetches HTML script URLs and bounded" in reference
     assert "--input <scoped-js-url-list>" in " ".join(reference.split())
+    assert "filters out non-JS suffixes" in reference
+    assert "browser-loaded `chunk.php`" in reference
     assert "source_sites` are named reads" in router
     assert "not** all accepted request" in reference
     assert "inventoried script" in reference and "browser-loaded script" in reference
@@ -79,6 +81,10 @@ def test_xss_routes_live_js_loading_and_stack_specific_source_sink_review() -> N
     assert "## `agents/xss_source_sites.py`" in script_map
     assert "## `agents/xss_sink_sites.py`" in script_map
     assert "scan_source_sites" in script_map and "scan_sink_sites" in script_map
+    for section_name in ("agents/xss_source_sites.py", "agents/xss_sink_sites.py"):
+        section = script_map.split(f"## `{section_name}`", 1)[1].split("\n## `", 1)[0]
+        assert "**Owner/scope:**" in section
+        assert "**Last verified:**" in section
 
 
 def test_blind_lane_uses_the_same_confirmed_evidence_threshold() -> None:
